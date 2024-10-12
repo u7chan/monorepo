@@ -5,4 +5,4 @@ services:
       dockerfile: ../../../docker/python/Dockerfile
     tty: true
     volumes:
-      - ../../../:/workspace:cache
+      - ../../../:/workspace:cached
