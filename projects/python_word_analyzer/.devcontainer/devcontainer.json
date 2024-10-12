@@ -1,0 +1,10 @@
+{
+	"name": "python_word_analyzer",
+	"dockerComposeFile": [
+		"compose.yml"
+	],
+	"workspaceFolder": "/workspace/projects/python_word_analyzer",
+	"service": "app",
+	"remoteUser": "vscode",
+	"updateRemoteUserUID": false
+}
