@@ -6,5 +6,33 @@
 	"workspaceFolder": "/workspace/projects/python_word_analyzer",
 	"service": "app",
 	"remoteUser": "vscode",
-	"updateRemoteUserUID": false
+	"updateRemoteUserUID": false,
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"editor.tabSize": 2,
+				"editor.formatOnSave": true,
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter",
+					"editor.formatOnSave": true,
+					"editor.formatOnType": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports": "always"
+					}
+				},
+				"isort.args": [
+					"--profile",
+					"black"
+				]
+			},
+			"extensions": [
+				"ms-python.black-formatter",
+				"ms-python.flake8",
+				"ms-python.isort",
+				"ms-python.mypy-type-checker",
+				"eamodio.gitlens",
+				"mhutchie.git-graph"
+			]
+		}
+	}
 }
