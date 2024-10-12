@@ -25,3 +25,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 USER $USER_NAME
+WORKDIR $USER_NAME
+
+# install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
