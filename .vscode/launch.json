@@ -5,6 +5,18 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "python_docling",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "projects/python_docling/.venv/bin/python",
+      "program": "projects/python_docling/src/main.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--file",
+        "${command:pickArgs}"
+      ]
+    },
+    {
       "name": "python_word_analyzer",
       "type": "debugpy",
       "request": "launch",
