@@ -5,10 +5,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Python Debugger: Current File with Arguments",
+      "name": "python_word_analyzer",
       "type": "debugpy",
       "request": "launch",
-      "program": "./src/main.py",
+      "python": "projects/python_word_analyzer/.venv/bin/python",
+      "program": "projects/python_word_analyzer/src/main.py",
       "console": "integratedTerminal",
       "args": [
         "--file",

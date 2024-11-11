@@ -1,0 +1,39 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/alpine
+{
+	"name": "monorepo",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"remoteUser": "vscode",
+	"updateRemoteUserUID": false,
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"editor.tabSize": 2,
+				"editor.formatOnSave": true,
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter",
+					"editor.formatOnSave": true,
+					"editor.formatOnType": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports": "always"
+					}
+				},
+				"isort.args": [
+					"--profile",
+					"black"
+				]
+			},
+			"extensions": [
+				"ms-python.black-formatter",
+				"ms-python.flake8",
+				"ms-python.isort",
+				"ms-python.mypy-type-checker",
+				"eamodio.gitlens",
+				"mhutchie.git-graph"
+			]
+		}
+	}
+}

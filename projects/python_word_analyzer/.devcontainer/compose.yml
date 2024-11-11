@@ -1,8 +1,0 @@
-services:
-  app:
-    build:
-      context: .
-      dockerfile: ../../../docker/python/Dockerfile
-    tty: true
-    volumes:
-      - ../../../:/workspace:cached
