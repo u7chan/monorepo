@@ -1,13 +1,55 @@
 import argparse
+import json
 import os
 
-from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+    EasyOcrOptions,
+    PdfPipelineOptions,
+    TableFormerMode,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling_core.transforms.chunker import HierarchicalChunker
 
 
 def document_to_markdown(file_path: str) -> str:
     converter = DocumentConverter()
     result = converter.convert(file_path)
     return result.document.export_to_markdown()
+
+
+def document_to_markdown_with_ocr(file_path: str) -> str:
+    ocr_options = EasyOcrOptions(lang=["ja"])
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = True
+    pipeline_options.do_table_structure = True
+    pipeline_options.table_structure_options.do_cell_matching = True
+    pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
+    pipeline_options.ocr_options = ocr_options
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options,
+            ),
+        }
+    )
+    result = converter.convert(file_path)
+    return result.document.export_to_markdown()
+
+
+def document_to_chunking_json(file_path: str) -> str:
+    converter = DocumentConverter()
+    result = converter.convert(file_path)
+    doc = result.document
+    doc_chunks = list(HierarchicalChunker().chunk(doc))
+    text_chunks = [chunk.text for chunk in doc_chunks]
+    return json.dumps(
+        text_chunks,
+        ensure_ascii=False,
+        indent=4,
+        sort_keys=True,
+        separators=(",", ": "),
+    )
 
 
 def main():
