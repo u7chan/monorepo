@@ -1,18 +1,28 @@
 import argparse
+import os
 
 from docling.document_converter import DocumentConverter
 
 
-def main(file_path: str):
+def document_to_markdown(file_path: str) -> str:
     converter = DocumentConverter()
     result = converter.convert(file_path)
-    print(result.document.export_to_markdown())
+    return result.document.export_to_markdown()
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", type=str, required=True)
     args = parser.parse_args()
     file_path = args.file
 
-    main(file_path)
+    md = document_to_markdown(file_path)
+    export_dir = "dist"
+    export_file = f"{export_dir}/export.md"
+    os.makedirs(export_dir, exist_ok=True)
+    with open(export_file, "w", encoding="utf-8") as f:
+        f.write(md)
+
+
+if __name__ == "__main__":
+    main()
