@@ -1,0 +1,28 @@
+{
+  "name": "python-uv",
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile"
+  },
+  "postCreateCommand": "uv sync",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "isort.args": [
+          "--profile",
+          "black"
+        ]
+      },
+      "extensions": [
+        "ms-python.black-formatter"
+      ]
+    }
+  }
+}
