@@ -8,7 +8,7 @@ To open the user settings in JSON format in Visual Studio Code, follow these ste
   
 1. **Search for Settings**: Type `Preferences: Open Settings (JSON)` and select it from the list. This will open the `settings.json` file in the editor, where you can directly edit your user settings in JSON format.
 
-1. **I will add the following content.**:
+1. **I will add the following content**:
 
     ```json
     {
