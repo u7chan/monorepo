@@ -1,0 +1,13 @@
+{
+  "name": "python_docling",
+  "build": {
+    "dockerfile": "../../../docker/Dockerfile.python",
+    "args": {
+      "BASE_PYTHON": "3.13-slim",
+      "USER_NAME": "vscode",
+      "APT_PACKAGES": "curl git openssh-client"
+    }
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": false
+}
