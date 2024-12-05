@@ -1,4 +1,5 @@
 // TODO: ここのマスタ内容が変更された時に Github Actions でルートのREADMEに自動反映したい。
+//       それか各プロジェクトの .devcontainer.json にマージしたい。
 {
   "customizations": {
     "vscode": {
