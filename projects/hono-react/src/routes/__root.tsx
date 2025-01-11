@@ -1,5 +1,15 @@
+import React from 'react'
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/router-devtools'
+
+const TanStackRouterDevtoolsPanel =
+  process.env.NODE_ENV === 'production'
+    ? () => null // Render nothing in production
+    : React.lazy(() =>
+        // Lazy load in development
+        import('@tanstack/router-devtools').then((res) => ({
+          default: res.TanStackRouterDevtools,
+        })),
+      )
 
 export const Route = createRootRoute({
   component: () => (
@@ -17,7 +27,7 @@ export const Route = createRootRoute({
       </div>
       <hr />
       <Outlet />
-      <TanStackRouterDevtools />
+      <TanStackRouterDevtoolsPanel />
     </>
   ),
 })

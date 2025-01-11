@@ -2,11 +2,14 @@
   "name": "hono-react",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --mode dev --host 127.0.0.1",
+    "build": "vite build",
+    "start": "NODE_ENV=production bunx tsx ./src/node-server.ts",
     "lint": "biome lint ./src",
     "format": "biome format --write ./src"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.7",
     "@hono/zod-validator": "^0.4.2",
     "@tanstack/react-router": "^1.95.3",
     "hono": "^4.6.16",

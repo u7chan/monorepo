@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
+import { env } from 'hono/adapter'
+import { zValidator } from '@hono/zod-validator'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
-import { zValidator } from '@hono/zod-validator'
 
 const app = new Hono()
   .post(
@@ -21,14 +22,16 @@ const app = new Hono()
     },
   )
   .get('*', (c) => {
+    const { NODE_ENV } = env<{ NODE_ENV: string }>(c)
+    const prod = NODE_ENV === 'production'
     return c.html(
       renderToString(
         <html lang='ja'>
           <head>
             <meta charSet='utf-8' />
             <meta content='width=device-width, initial-scale=1' name='viewport' />
-            <link rel='stylesheet' href='/src/main.css' />
-            <script type='module' src='/src/client.tsx' />
+            <link rel='stylesheet' href={prod ? '/static/main.css' : '/src/main.css'} />
+            <script type='module' src={prod ? '/static/client.js' : '/src/client.tsx'} />
           </head>
           <body>
             <div id='root' />
