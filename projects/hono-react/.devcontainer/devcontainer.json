@@ -1,0 +1,27 @@
+{
+  "name": "hono-react",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": false,
+  "postCreateCommand": "bun i",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.tabSize": 2,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "biomejs.biome",
+        "biome.lspBin": "./node_modules/.bin/biome"
+      },
+      "extensions": [
+        "biomejs.biome",
+        "formulahendry.auto-close-tag",
+        "formulahendry.auto-rename-tag",
+        "mhutchie.git-graph",
+        "eamodio.gitlens",
+        "oderwat.indent-rainbow"
+      ]
+    }
+  }
+}
