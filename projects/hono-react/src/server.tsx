@@ -24,7 +24,7 @@ const app = new Hono()
 		);
 	})
 	.post(
-		"/profile",
+		"/api/profile",
 		zValidator(
 			"form",
 			z.object({

@@ -10,7 +10,7 @@ export const Main: FC = () => {
 		e.preventDefault();
 		const formData = new FormData(e.currentTarget);
 		try {
-			const res = await client.profile.$post({
+			const res = await client.api.profile.$post({
 				form: {
 					name: `${formData.get("name")}`,
 					email: `${formData.get("email")}`,
