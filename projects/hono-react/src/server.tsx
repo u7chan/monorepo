@@ -25,8 +25,8 @@ const app = new Hono()
     zValidator(
       'form',
       z.object({
-        name: z.string().min(2),
-        email: z.string().email(),
+        name: z.string().min(2, { message: 'nameは2文字以上でなければなりません' }),
+        email: z.string().email({ message: 'emailは正しい形式ではありません' }),
       }),
     ),
     (c) => {

@@ -17,16 +17,14 @@ export const Main: FC = () => {
         },
       })
       if (!res.ok) {
-        const { error } = (await res.json()) as unknown as {
+        const {
+          error: { issues },
+        } = (await res.json()) as unknown as {
           error: {
-            issues: { message: string; path: string[] }[]
+            issues: { message: string }[]
           }
         }
-        throw new Error(
-          `Validation Error: ${error.issues
-            .map(({ message, path }) => `'${path[0]}': ${message}`)
-            .join(', ')}`,
-        )
+        throw new Error(issues.map(({ message }) => message).join(', '))
       }
     } catch (e: unknown) {
       alert(e instanceof Error && e.message)
