@@ -2,7 +2,8 @@
 	"name": "hono-react",
 	"type": "module",
 	"scripts": {
-		"dev": "vite --host 127.0.0.1"
+		"dev": "vite --host 127.0.0.1",
+		"format": "biome format --write ./src"
 	},
 	"dependencies": {
 		"@hono/zod-validator": "^0.4.2",
