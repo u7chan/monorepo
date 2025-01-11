@@ -27,6 +27,7 @@ const app = new Hono()
           <head>
             <meta charSet='utf-8' />
             <meta content='width=device-width, initial-scale=1' name='viewport' />
+            <link rel='stylesheet' href='/src/main.css' />
             <script type='module' src='/src/client.tsx' />
           </head>
           <body>
