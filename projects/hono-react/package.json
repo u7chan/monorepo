@@ -1,12 +1,13 @@
 {
-  "name": "hono-react",
-  "scripts": {
-    "dev": "bun run --hot src/index.ts"
-  },
-  "dependencies": {
-    "hono": "^4.6.16"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4"
-  }
+	"name": "hono-react",
+	"scripts": {
+		"dev": "bun run --hot src/index.tsx"
+	},
+	"dependencies": {
+		"hono": "^4.6.16"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@hono/vite-dev-server": "^0.18.0"
+	}
 }
