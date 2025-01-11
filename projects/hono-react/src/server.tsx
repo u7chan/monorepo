@@ -4,22 +4,6 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 
 const app = new Hono()
-  .get('/', (c) => {
-    return c.html(
-      renderToString(
-        <html lang='ja'>
-          <head>
-            <meta charSet='utf-8' />
-            <meta content='width=device-width, initial-scale=1' name='viewport' />
-            <script type='module' src='/src/client.tsx' />
-          </head>
-          <body>
-            <div id='root' />
-          </body>
-        </html>,
-      ),
-    )
-  })
   .post(
     '/api/profile',
     zValidator(
@@ -36,6 +20,22 @@ const app = new Hono()
       return c.json({ name, email })
     },
   )
+  .get('*', (c) => {
+    return c.html(
+      renderToString(
+        <html lang='ja'>
+          <head>
+            <meta charSet='utf-8' />
+            <meta content='width=device-width, initial-scale=1' name='viewport' />
+            <script type='module' src='/src/client.tsx' />
+          </head>
+          <body>
+            <div id='root' />
+          </body>
+        </html>,
+      ),
+    )
+  })
 
 export type AppType = typeof app
 

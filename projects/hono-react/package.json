@@ -7,6 +7,7 @@
 	},
 	"dependencies": {
 		"@hono/zod-validator": "^0.4.2",
+		"@tanstack/react-router": "^1.95.3",
 		"hono": "^4.6.16",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
@@ -15,6 +16,8 @@
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@hono/vite-dev-server": "^0.18.0",
+		"@tanstack/router-devtools": "^1.95.3",
+		"@tanstack/router-plugin": "^1.95.3",
 		"@types/react": "^19.0.4",
 		"@types/react-dom": "^19.0.2",
 		"vite": "^6.0.7"
