@@ -3,6 +3,7 @@ import { env } from 'hono/adapter'
 import { zValidator } from '@hono/zod-validator'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
+import { streamText } from 'hono/streaming'
 
 const app = new Hono()
   .post(
@@ -19,6 +20,24 @@ const app = new Hono()
       // TODO: save
       console.log('#submit', { name, email })
       return c.json({ name, email })
+    },
+  )
+  .post(
+    '/api/chat',
+    zValidator(
+      'form',
+      z.object({
+        message: z.string().min(1, { message: 'messageは1文字以上でなければなりません' }),
+      }),
+    ),
+    (c) => {
+      return streamText(c, async (stream) => {
+        const inputString = 'これはテスト用の長い文字列です。'
+        for (const char of inputString) {
+          await stream.writeln(char)
+          await stream.sleep(100)
+        }
+      })
     },
   )
   .get('*', (c) => {
