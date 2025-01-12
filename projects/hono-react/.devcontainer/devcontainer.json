@@ -5,7 +5,7 @@
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
-  "postCreateCommand": "bun i",
+  "postCreateCommand": "bun i && cp .env.example .env",
   "customizations": {
     "vscode": {
       "settings": {

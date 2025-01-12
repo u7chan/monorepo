@@ -30,12 +30,42 @@ const app = new Hono()
         message: z.string().min(1, { message: 'messageは1文字以上でなければなりません' }),
       }),
     ),
-    (c) => {
+    async (c) => {
+      const { message } = c.req.valid('form')
+      const { OPENAI_API_KEY } = env<{ OPENAI_API_KEY: string }>(c)
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: message }],
+          stream: true,
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        c.status(500)
+        return c.text(json.error.message)
+      }
+      const reader = res.body?.getReader()
       return streamText(c, async (stream) => {
-        const inputString = 'これはテスト用の長い文字列です。'
-        for (const char of inputString) {
-          await stream.writeln(char)
-          await stream.sleep(100)
+        while (true) {
+          const { done, value } = (await reader?.read()) || {}
+          if (done) break
+          const chunk = new TextDecoder().decode(value).trimEnd()
+          const message = chunk
+            .split('data: ')
+            .map((x) => x.replaceAll('\n', ''))
+            .filter((x) => x && x !== '[DONE]')
+            .map((x) => JSON.parse(x).choices[0].delta.content)
+            .filter((x) => x)
+            .join('')
+          if (message) {
+            await stream.writeln(message)
+          }
         }
       })
     },

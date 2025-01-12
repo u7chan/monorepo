@@ -40,7 +40,7 @@ export const Chat: FC = () => {
     while (true) {
       const { done, value } = (await reader?.read()) || {}
       if (done) break
-      const chunk = new TextDecoder().decode(value)
+      const chunk = new TextDecoder().decode(value).trimEnd()
       // Append chunk to result
       result += chunk
       setStreamText(`${result}...`)
@@ -57,7 +57,7 @@ export const Chat: FC = () => {
           {messages.map((msg) => (
             <div
               key={`chat_${msg}`}
-              className={`message ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}
+              className={`message mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}
             >
               <p
                 className={`inline-block rounded p-2 ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
