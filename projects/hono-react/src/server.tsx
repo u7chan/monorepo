@@ -5,6 +5,8 @@ import { streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
+import { getLLMProvider } from './llm/getLLMProvider'
+
 const app = new Hono()
   .post(
     '/api/profile',
@@ -35,72 +37,45 @@ const app = new Hono()
     ),
     async (c) => {
       const { llm, message } = c.req.valid('form')
-      const getLLMConfigs = (
-        llm: 'openai' | 'deepseek',
-      ): { url: string; key: string; model: string } => {
-        const { OPENAI_API_KEY, DEEPSEEK_API_KEY } = env<{
-          OPENAI_API_KEY: string
-          DEEPSEEK_API_KEY: string
-        }>(c)
-        const openai = llm === 'openai'
-        return {
-          url: openai
-            ? 'https://api.openai.com/v1/chat/completions'
-            : 'https://api.deepseek.com/chat/completions',
-          key: openai ? OPENAI_API_KEY : DEEPSEEK_API_KEY,
-          model: openai ? 'gpt-4o-mini' : 'deepseek-chat',
-        }
-      }
+      const envs = env<{
+        OPENAI_API_KEY: string
+        DEEPSEEK_API_KEY: string
+      }>(c)
 
-      const { url, key, model } = getLLMConfigs(llm)
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: message }],
-          stream: true,
-        }),
-      })
-      if (!res.ok) {
-        const json = await res.json()
-        c.status(500)
-        return c.text(json.error.message)
-      }
+      const llmProvider = getLLMProvider(llm, envs)
+      const reader = await llmProvider.chatStream(message)
 
-      const reader = res.body?.getReader()
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
-
       return streamText(c, async (stream) => {
         while (true) {
-          const { done, value } = (await reader?.read()) || {}
+          const { done, value } = (await reader.read()) || {}
           if (done) {
             break
           }
-          buffer += decoder.decode(value, { stream: true })
 
+          buffer += decoder.decode(value, { stream: true })
           let boundary = buffer.indexOf('\n')
+
           while (boundary !== -1) {
             const chunk = buffer.slice(0, boundary).trim()
             buffer = buffer.slice(boundary + 1)
             boundary = buffer.indexOf('\n')
 
-            if (chunk.startsWith('data:')) {
-              const jsonStr = chunk.slice(5).trim() // 'data:'部分を除去
-              if (jsonStr !== '[DONE]') {
-                try {
-                  const parsedData = JSON.parse(jsonStr)
-                  if (parsedData.choices?.[0].delta.content) {
-                    const text = parsedData.choices[0].delta.content
-                    await stream.write(text)
-                  }
-                } catch (error) {
-                  console.error('Failed to parse JSON:', error)
+            if (!chunk.startsWith('data:')) {
+              continue
+            }
+
+            const jsonStr = chunk.slice(5).trim() // 'data:'部分を除去
+            if (jsonStr !== '[DONE]') {
+              try {
+                const parsedData = JSON.parse(jsonStr)
+                if (parsedData.choices?.[0].delta.content) {
+                  const text = parsedData.choices[0].delta.content
+                  await stream.write(text)
                 }
+              } catch (error) {
+                console.error('Failed to parse JSON:', error)
               }
             }
           }
