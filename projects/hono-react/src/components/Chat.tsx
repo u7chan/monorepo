@@ -40,7 +40,7 @@ export const Chat: FC = () => {
     while (true) {
       const { done, value } = (await reader?.read()) || {}
       if (done) break
-      const chunk = new TextDecoder().decode(value).trimEnd()
+      const chunk = new TextDecoder().decode(value)
       // Append chunk to result
       result += chunk
       setStreamText(`${result}...`)
@@ -60,7 +60,7 @@ export const Chat: FC = () => {
               className={`message mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}
             >
               <p
-                className={`inline-block rounded p-2 ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
+                className={`inline-block whitespace-pre-wrap rounded p-2 ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
               >
                 {msg.content}
               </p>
@@ -68,7 +68,9 @@ export const Chat: FC = () => {
           ))}
           {streamText && (
             <div className='message text-left'>
-              <p className='inline-block rounded bg-gray-200 p-2'>{streamText}</p>
+              <p className='inline-block whitespace-pre-wrap rounded bg-gray-200 p-2'>
+                {streamText}
+              </p>
             </div>
           )}
           <div ref={messageEndRef} />

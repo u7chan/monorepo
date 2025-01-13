@@ -2,7 +2,11 @@
 export default {
   content: ['./src/**/*.{js,jsx,ts,tsx}'],
   theme: {
-    extend: {},
+    extend: {
+      whitespace: {
+        'pre-wrap': 'pre-wrap',
+      },
+    },
   },
   plugins: [],
 }

@@ -55,16 +55,23 @@ const app = new Hono()
         while (true) {
           const { done, value } = (await reader?.read()) || {}
           if (done) break
-          const chunk = new TextDecoder().decode(value).trimEnd()
-          const message = chunk
-            .split('data: ')
-            .map((x) => x.replaceAll('\n', ''))
-            .filter((x) => x && x !== '[DONE]')
-            .map((x) => JSON.parse(x).choices[0].delta.content)
+          const chunk = new TextDecoder().decode(value)
+          const chunks = `[${chunk
+            .replaceAll('data: ', '')
+            .replaceAll('[DONE]\n\n', '')
+            .replaceAll('}\n', '}')
+            .replaceAll('}\n', '}')
+            .replaceAll('}{', '},{')}]`
+          const content = (
+            JSON.parse(chunks) as {
+              choices: { delta: { content: string } }[]
+            }[]
+          )
+            .map((x) => x.choices[0].delta.content)
             .filter((x) => x)
             .join('')
-          if (message) {
-            await stream.writeln(message)
+          if (content) {
+            await stream.write(content)
           }
         }
       })
