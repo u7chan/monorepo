@@ -1,0 +1,14 @@
+{
+  "name": "hono-simple-client-component",
+  "scripts": {
+    "predev": "esbuild src/client.tsx --bundle --outfile=dist/client.js",
+    "dev": "bun run --hot src/index.tsx"
+  },
+  "dependencies": {
+    "hono": "^4.6.16"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "esbuild": "^0.24.2"
+  }
+}
