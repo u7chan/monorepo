@@ -22,6 +22,7 @@
     "@hono/vite-dev-server": "^0.18.0",
     "@tanstack/router-devtools": "^1.95.3",
     "@tanstack/router-plugin": "^1.95.3",
+    "@types/node": "^22.10.5",
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
     "autoprefixer": "^10.4.20",
