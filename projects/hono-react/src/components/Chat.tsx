@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FC } from 'react'
+import { useEffect, useRef, useState, type FC, type ChangeEvent } from 'react'
 import { hc } from 'hono/client'
 
 import type { AppType } from '../server'
@@ -14,12 +14,17 @@ export const Chat: FC = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [input, setInput] = useState('')
+  const [selectedOption, setSelectedOption] = useState<'openai' | 'deepseek'>('openai')
 
   const messageEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [streamText])
+  }, [streamText, messages])
+
+  const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedOption(event.target.value as never)
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -32,6 +37,7 @@ export const Chat: FC = () => {
     // Call the Chat API
     const res = await client.api.chat.$post({
       form: {
+        llm: selectedOption,
         message: input,
       },
     })
@@ -75,7 +81,15 @@ export const Chat: FC = () => {
           )}
           <div ref={messageEndRef} />
         </div>
-        <form onSubmit={handleSubmit} className='mt-4'>
+        <form onSubmit={handleSubmit} className='mt-4 flex flex-col gap-2'>
+          <select
+            value={selectedOption}
+            onChange={handleChange}
+            className='block w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
+          >
+            <option value='openai'>openai</option>
+            <option value='deepseek'>deepseek</option>
+          </select>
           <input
             type='text'
             value={input}
@@ -87,7 +101,7 @@ export const Chat: FC = () => {
           <button
             type='submit'
             disabled={!!streamText}
-            className='mt-2 w-full rounded bg-blue-500 p-2 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
+            className='w-full rounded bg-blue-500 p-2 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
           >
             Send
           </button>

@@ -27,21 +27,40 @@ const app = new Hono()
     zValidator(
       'form',
       z.object({
+        llm: z.enum(['openai', 'deepseek'], {
+          message: 'llmは「openai」または「deepseek」を指定してください',
+        }),
         message: z.string().min(1, { message: 'messageは1文字以上でなければなりません' }),
       }),
     ),
     async (c) => {
-      const { message } = c.req.valid('form')
-      const { OPENAI_API_KEY } = env<{ OPENAI_API_KEY: string }>(c)
-      const url = 'https://api.openai.com/v1/chat/completions'
+      const { llm, message } = c.req.valid('form')
+      const getLLMConfigs = (
+        llm: 'openai' | 'deepseek',
+      ): { url: string; key: string; model: string } => {
+        const { OPENAI_API_KEY, DEEPSEEK_API_KEY } = env<{
+          OPENAI_API_KEY: string
+          DEEPSEEK_API_KEY: string
+        }>(c)
+        const openai = llm === 'openai'
+        return {
+          url: openai
+            ? 'https://api.openai.com/v1/chat/completions'
+            : 'https://api.deepseek.com/chat/completions',
+          key: openai ? OPENAI_API_KEY : DEEPSEEK_API_KEY,
+          model: openai ? 'gpt-4o-mini' : 'deepseek-chat',
+        }
+      }
+
+      const { url, key, model } = getLLMConfigs(llm)
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model,
           messages: [{ role: 'user', content: message }],
           stream: true,
         }),
@@ -51,28 +70,39 @@ const app = new Hono()
         c.status(500)
         return c.text(json.error.message)
       }
+
       const reader = res.body?.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+
       return streamText(c, async (stream) => {
         while (true) {
           const { done, value } = (await reader?.read()) || {}
-          if (done) break
-          const chunk = new TextDecoder().decode(value)
-          const chunks = `[${chunk
-            .replaceAll('data: ', '')
-            .replaceAll('[DONE]\n\n', '')
-            .replaceAll('}\n', '}')
-            .replaceAll('}\n', '}')
-            .replaceAll('}{', '},{')}]`
-          const content = (
-            JSON.parse(chunks) as {
-              choices: { delta: { content: string } }[]
-            }[]
-          )
-            .map((x) => x.choices[0].delta.content)
-            .filter((x) => x)
-            .join('')
-          if (content) {
-            await stream.write(content)
+          if (done) {
+            break
+          }
+          buffer += decoder.decode(value, { stream: true })
+
+          let boundary = buffer.indexOf('\n')
+          while (boundary !== -1) {
+            const chunk = buffer.slice(0, boundary).trim()
+            buffer = buffer.slice(boundary + 1)
+            boundary = buffer.indexOf('\n')
+
+            if (chunk.startsWith('data:')) {
+              const jsonStr = chunk.slice(5).trim() // 'data:'部分を除去
+              if (jsonStr !== '[DONE]') {
+                try {
+                  const parsedData = JSON.parse(jsonStr)
+                  if (parsedData.choices?.[0].delta.content) {
+                    const text = parsedData.choices[0].delta.content
+                    await stream.write(text)
+                  }
+                } catch (error) {
+                  console.error('Failed to parse JSON:', error)
+                }
+              }
+            }
           }
         }
       })
