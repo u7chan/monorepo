@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
 import { zValidator } from '@hono/zod-validator'
+import { streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
-import { streamText } from 'hono/streaming'
 
 const app = new Hono()
   .post(
@@ -33,7 +33,8 @@ const app = new Hono()
     async (c) => {
       const { message } = c.req.valid('form')
       const { OPENAI_API_KEY } = env<{ OPENAI_API_KEY: string }>(c)
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const url = 'https://api.openai.com/v1/chat/completions'
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
