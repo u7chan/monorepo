@@ -30,7 +30,7 @@ const app = new Hono()
       'form',
       z.object({
         llm: z.enum(['openai', 'deepseek'], {
-          message: 'llmは「openai」または「deepseek」を指定してください',
+          message: "llmは'openai','deepseek'のいずれかを指定してください",
         }),
         message: z.string().min(1, { message: 'messageは1文字以上でなければなりません' }),
       }),

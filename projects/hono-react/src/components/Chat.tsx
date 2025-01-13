@@ -87,8 +87,8 @@ export const Chat: FC = () => {
             onChange={handleChange}
             className='block w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
           >
-            <option value='openai'>openai</option>
-            <option value='deepseek'>deepseek</option>
+            <option value='openai'>OpenAI</option>
+            <option value='deepseek'>DeepSeek-V3</option>
           </select>
           <input
             type='text'
