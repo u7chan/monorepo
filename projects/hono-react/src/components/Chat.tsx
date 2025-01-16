@@ -41,15 +41,20 @@ export const Chat: FC = () => {
         message: input,
       },
     })
-    const reader = res.body?.getReader()
     let result = ''
-    while (true) {
-      const { done, value } = (await reader?.read()) || {}
-      if (done) break
-      const chunk = new TextDecoder().decode(value)
-      // Append chunk to result
-      result += chunk
-      setStreamText(`${result}...`)
+    if (!res.ok) {
+      const { error } = (await res.json()) as { error: string }
+      result = error
+    } else {
+      const reader = res.body?.getReader()
+      while (true) {
+        const { done, value } = (await reader?.read()) || {}
+        if (done) break
+        const chunk = new TextDecoder().decode(value)
+        // Append chunk to result
+        result += chunk
+        setStreamText(`${result}...`)
+      }
     }
     setMessages((prevMessages) => [...prevMessages, { sender: 'bot', content: result }])
     setStreamText('')
@@ -62,7 +67,7 @@ export const Chat: FC = () => {
         <div className='message-list h-96 overflow-y-auto border p-2'>
           {messages.map((msg) => (
             <div
-              key={`chat_${msg}`}
+              key={`chat_${msg.content}`}
               className={`message mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}
             >
               <p

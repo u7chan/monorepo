@@ -103,6 +103,10 @@ const app = new Hono()
     )
   })
 
+app.onError((err, c) => {
+  return c.json({ error: err.message }, 500)
+})
+
 export type AppType = typeof app
 
 export default app
