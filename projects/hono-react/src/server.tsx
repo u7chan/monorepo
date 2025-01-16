@@ -69,9 +69,25 @@ const app = new Hono()
             const jsonStr = chunk.slice(5).trim() // 'data:'部分を除去
             if (jsonStr !== '[DONE]') {
               try {
-                const parsedData = JSON.parse(jsonStr)
-                if (parsedData.choices?.[0].delta.content) {
-                  const text = parsedData.choices[0].delta.content
+                const { choices, usage } = JSON.parse(jsonStr) as {
+                  id: string
+                  model: string
+                  choices: { delta: { content?: string } }[]
+                  usage: {
+                    prompt_tokens: number
+                    completion_tokens: number
+                    total_tokens: number
+                  } | null
+                }
+                const text = choices.at(0)?.delta?.content || ''
+
+                if (usage) {
+                  console.log(
+                    `prompt_tokens=${usage.prompt_tokens}, completion_tokens=${usage.completion_tokens}`,
+                  )
+                }
+
+                if (text) {
                   await stream.write(text)
                 }
               } catch (error) {

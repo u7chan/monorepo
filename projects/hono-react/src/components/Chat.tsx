@@ -69,7 +69,6 @@ export const Chat: FC = () => {
     if (lineCount <= 5) {
       setTextAreaRows(lineCount)
     }
-    console.log('#lineCount', lineCount)
 
     setInput(value)
   }
