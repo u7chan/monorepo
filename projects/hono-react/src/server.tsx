@@ -27,23 +27,25 @@ const app = new Hono()
   .post(
     '/api/chat',
     zValidator(
-      'form',
+      'json',
       z.object({
         llm: z.enum(['openai', 'deepseek'], {
           message: "llmは'openai','deepseek'のいずれかを指定してください",
         }),
-        message: z.string().min(1, { message: 'messageは1文字以上でなければなりません' }),
+        temperature: z.number().min(0).max(1).nullish(),
+        maxTokens: z.number().min(1).max(4096).nullish(),
+        userInput: z.string().min(1, { message: 'userInputは1文字以上でなければなりません' }),
       }),
     ),
     async (c) => {
-      const { llm, message } = c.req.valid('form')
+      const { llm, temperature, maxTokens, userInput } = c.req.valid('json')
       const envs = env<{
         OPENAI_API_KEY: string
         DEEPSEEK_API_KEY: string
       }>(c)
 
       const llmProvider = getLLMProvider(llm, envs)
-      const reader = await llmProvider.chatStream(message)
+      const reader = await llmProvider.chatStream(userInput, temperature, maxTokens)
 
       const decoder = new TextDecoder('utf-8')
       let buffer = ''

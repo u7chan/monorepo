@@ -7,7 +7,11 @@ export class OpenAIProvider implements LLMProvider {
     this.apiKey = apiKey
   }
 
-  async chatStream(message: string, temperature?: number, maxTokens?: number): Promise<Reader> {
+  async chatStream(
+    message: string,
+    temperature?: number | null,
+    maxTokens?: number | null,
+  ): Promise<Reader> {
     const model = 'gpt-4o-mini'
     const url = 'https://api.openai.com/v1/chat/completions'
 

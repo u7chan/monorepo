@@ -7,7 +7,11 @@ export class DeepSeekProvider implements LLMProvider {
     this.apiKey = apiKey
   }
 
-  async chatStream(message: string, temperature?: number, maxTokens?: number): Promise<Reader> {
+  async chatStream(
+    message: string,
+    temperature?: number | null,
+    maxTokens?: number | null,
+  ): Promise<Reader> {
     const model = 'deepseek-chat'
     const url = 'https://api.deepseek.com/chat/completions'
 

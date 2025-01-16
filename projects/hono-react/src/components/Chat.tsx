@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type FC, type ChangeEvent, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FC,
+  type FormEvent,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from 'react'
 import { hc } from 'hono/client'
 
 import type { AppType } from '../server'
@@ -17,30 +25,38 @@ export const Chat: FC = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [input, setInput] = useState('')
-  const [selectedOption, setSelectedOption] = useState<'openai' | 'deepseek'>('openai')
+  const [temperature, setTemperature] = useState<number>(1)
   const [textAreaRows, setTextAreaRows] = useState(1)
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [streamText, messages])
 
-  const handleChangeLLM = (event: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedOption(event.target.value as never)
+  const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
+    setTemperature(Number.parseFloat(event.target.value))
   }
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!input.trim()) return
+    const formData = new FormData(event.currentTarget)
+    const form = {
+      llm: formData.get('llm')?.toString() as 'openai' | 'deepseek',
+      temperature: Number(formData.get('temperature')),
+      maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : null,
+      userInput: formData.get('userInput')?.toString() || '',
+    }
 
-    const userMessage: Message = { sender: 'user', content: input }
+    const userMessage: Message = { sender: 'user', content: form.userInput }
     setMessages([...messages, userMessage])
     setInput('')
 
     // Call the Chat API
     const res = await client.api.chat.$post({
-      form: {
-        llm: selectedOption,
-        message: input,
+      json: {
+        llm: form.llm,
+        temperature: form.temperature,
+        maxTokens: form.maxTokens,
+        userInput: form.userInput,
       },
     })
     let result = ''
@@ -81,6 +97,7 @@ export const Chat: FC = () => {
       }
     }
   }
+
   return (
     <>
       <h2 className='mb-4 font-semibold text-xl'>Chat</h2>
@@ -109,15 +126,39 @@ export const Chat: FC = () => {
         </div>
         <form ref={formRef} onSubmit={handleSubmit} className='mt-4 flex flex-col gap-2'>
           <select
-            value={selectedOption}
-            onChange={handleChangeLLM}
+            name='llm'
+            required
             className='block w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
           >
             <option value='openai'>OpenAI</option>
             <option value='deepseek'>DeepSeek-V3</option>
           </select>
           <div className='flex items-center gap-2'>
+            <div className='font-semibold text-md'>temperature</div>
+            <input
+              name='temperature'
+              type='range'
+              min='0'
+              max='1'
+              step='0.01'
+              value={temperature}
+              onChange={handleChangeTemperature}
+              disabled={!!streamText}
+              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+            />
+            <div className='text-md'>{temperature.toFixed(2)}</div>
+          </div>
+          <input
+            name='maxTokens'
+            type='number'
+            min={1}
+            max={4096}
+            placeholder='max tokens'
+            className='w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
+          />
+          <div className='flex items-center gap-2'>
             <textarea
+              name='userInput'
               value={input}
               onChange={handleChangeInput}
               onKeyDown={handleKeyDown}
