@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FC, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type FC, type ChangeEvent, type KeyboardEvent } from 'react'
 import { hc } from 'hono/client'
 
 import type { AppType } from '../server'
@@ -11,18 +11,20 @@ interface Message {
 }
 
 export const Chat: FC = () => {
+  const formRef = useRef<HTMLFormElement>(null)
+  const messageEndRef = useRef<HTMLDivElement>(null)
+
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [input, setInput] = useState('')
   const [selectedOption, setSelectedOption] = useState<'openai' | 'deepseek'>('openai')
-
-  const messageEndRef = useRef<HTMLDivElement>(null)
+  const [textAreaRows, setTextAreaRows] = useState(1)
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [streamText, messages])
 
-  const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleChangeLLM = (event: ChangeEvent<HTMLSelectElement>) => {
     setSelectedOption(event.target.value as never)
   }
 
@@ -60,6 +62,26 @@ export const Chat: FC = () => {
     setStreamText('')
   }
 
+  const handleChangeInput = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value
+    const lineCount = (value.match(/\n/g) || []).length + 1
+
+    if (lineCount <= 5) {
+      setTextAreaRows(lineCount)
+    }
+    console.log('#lineCount', lineCount)
+
+    setInput(value)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      if (formRef.current) {
+        formRef.current.dispatchEvent(new Event('submit', { bubbles: true }))
+      }
+    }
+  }
   return (
     <>
       <h2 className='mb-4 font-semibold text-xl'>Chat</h2>
@@ -86,30 +108,33 @@ export const Chat: FC = () => {
           )}
           <div ref={messageEndRef} />
         </div>
-        <form onSubmit={handleSubmit} className='mt-4 flex flex-col gap-2'>
+        <form ref={formRef} onSubmit={handleSubmit} className='mt-4 flex flex-col gap-2'>
           <select
             value={selectedOption}
-            onChange={handleChange}
+            onChange={handleChangeLLM}
             className='block w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
           >
             <option value='openai'>OpenAI</option>
             <option value='deepseek'>DeepSeek-V3</option>
           </select>
-          <input
-            type='text'
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder='Type your message here...'
-            disabled={!!streamText}
-            className='w-full border p-2'
-          />
-          <button
-            type='submit'
-            disabled={!!streamText}
-            className='w-full rounded bg-blue-500 p-2 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
-          >
-            Send
-          </button>
+          <div className='flex items-center gap-2'>
+            <textarea
+              value={input}
+              onChange={handleChangeInput}
+              onKeyDown={handleKeyDown}
+              rows={textAreaRows}
+              placeholder='Type your message here...'
+              disabled={!!streamText}
+              className='max-h-34 w-full resize-none overflow-y-auto rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            />
+            <button
+              type='submit'
+              disabled={!!streamText || input.trim().length <= 0}
+              className='rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
+            >
+              Send
+            </button>
+          </div>
         </form>
       </div>
     </>
