@@ -61,8 +61,8 @@ export const Chat: FC = () => {
     })
     let result = ''
     if (!res.ok) {
-      const { error } = (await res.json()) as { error: string }
-      result = error
+      const { error } = (await res.json()) as { error: unknown }
+      result = typeof error === 'string' ? error : JSON.stringify(error)
     } else {
       const reader = res.body?.getReader()
       while (true) {

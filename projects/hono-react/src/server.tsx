@@ -74,7 +74,7 @@ const app = new Hono()
                 const { choices, usage } = JSON.parse(jsonStr) as {
                   id: string
                   model: string
-                  choices: { delta: { content?: string },finish_reason?:string }[]
+                  choices: { delta: { content?: string }; finish_reason?: string }[]
                   usage: {
                     prompt_tokens: number
                     completion_tokens: number
@@ -82,7 +82,7 @@ const app = new Hono()
                   } | null
                 }
                 const text = choices.at(0)?.delta?.content || ''
-                const finishReason = choices.at(0)?.finish_reason|| ''
+                const finishReason = choices.at(0)?.finish_reason || ''
 
                 if (finishReason) {
                   console.log(`finish_reason=${finishReason}`)
