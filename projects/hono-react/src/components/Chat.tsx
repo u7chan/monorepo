@@ -94,7 +94,7 @@ export const Chat: FC = () => {
     if (event.key === 'Enter' && !event.shiftKey && !composing) {
       event.preventDefault()
       if (formRef.current) {
-        formRef.current.dispatchEvent(new Event('submit', { bubbles: true }))
+        formRef.current.requestSubmit()
       }
     }
   }
