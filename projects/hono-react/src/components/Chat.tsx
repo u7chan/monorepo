@@ -27,6 +27,7 @@ export const Chat: FC = () => {
   const [input, setInput] = useState('')
   const [temperature, setTemperature] = useState<number>(1)
   const [textAreaRows, setTextAreaRows] = useState(1)
+  const [composing, setComposition] = useState(false)
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -90,7 +91,7 @@ export const Chat: FC = () => {
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !composing) {
       event.preventDefault()
       if (formRef.current) {
         formRef.current.dispatchEvent(new Event('submit', { bubbles: true }))
@@ -162,6 +163,8 @@ export const Chat: FC = () => {
               value={input}
               onChange={handleChangeInput}
               onKeyDown={handleKeyDown}
+              onCompositionStart={() => setComposition(true)}
+              onCompositionEnd={() => setComposition(false)}
               rows={textAreaRows}
               placeholder='Type your message here...'
               disabled={!!streamText}
