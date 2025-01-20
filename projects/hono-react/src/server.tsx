@@ -3,7 +3,7 @@ import { env } from 'hono/adapter'
 import { zValidator } from '@hono/zod-validator'
 import { streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
-import { z } from 'zod'
+import { z, type ZodError } from 'zod'
 
 import { getLLMProvider } from './llm/getLLMProvider'
 
@@ -16,6 +16,13 @@ const app = new Hono()
         name: z.string().min(2, { message: 'nameは2文字以上でなければなりません' }),
         email: z.string().email({ message: 'emailは正しい形式ではありません' }),
       }),
+      (values, c) => {
+        const result = values as { error?: ZodError; success: boolean }
+        if (result.success) {
+          return
+        }
+        return c.json({ error: result?.error?.issues?.map((x) => x.message)?.join(',') || '' }, 400)
+      },
     ),
     (c) => {
       const { name, email } = c.req.valid('form')
@@ -33,9 +40,20 @@ const app = new Hono()
           message: "llmは'openai','deepseek'のいずれかを指定してください",
         }),
         temperature: z.number().min(0).max(1).nullish(),
-        maxTokens: z.number().min(1).max(4096).nullish(),
+        maxTokens: z
+          .number()
+          .min(1, { message: 'maxTokensは1以上でなければなりません' })
+          .max(4096, { message: 'maxTokensは4096以下でなければなりません' })
+          .nullish(),
         userInput: z.string().min(1, { message: 'userInputは1文字以上でなければなりません' }),
       }),
+      (values, c) => {
+        const result = values as { error?: ZodError; success: boolean }
+        if (result.success) {
+          return
+        }
+        return c.json({ error: result?.error?.issues?.map((x) => x.message)?.join(',') || '' }, 400)
+      },
     ),
     async (c) => {
       const { llm, temperature, maxTokens, userInput } = c.req.valid('json')
@@ -127,6 +145,7 @@ const app = new Hono()
   })
 
 app.onError((err, c) => {
+  console.log('#error')
   return c.json({ error: err.message }, 500)
 })
 

@@ -17,14 +17,8 @@ export const Profile: FC = () => {
         },
       })
       if (!res.ok) {
-        const {
-          error: { issues },
-        } = (await res.json()) as unknown as {
-          error: {
-            issues: { message: string }[]
-          }
-        }
-        throw new Error(issues.map(({ message }) => message).join(', '))
+        const { error } = (await res.json()) as unknown as { error: string }
+        throw new Error(error)
       }
     } catch (e: unknown) {
       alert(e instanceof Error && e.message)
