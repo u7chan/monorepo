@@ -110,7 +110,7 @@ export const Chat: FC = () => {
               className={`message mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}
             >
               <p
-                className={`inline-block whitespace-pre-wrap rounded p-2 ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
+                className={`inline-block whitespace-pre-wrap rounded-sm p-2 ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
               >
                 {msg.content}
               </p>
@@ -118,7 +118,7 @@ export const Chat: FC = () => {
           ))}
           {streamText && (
             <div className='message text-left'>
-              <p className='inline-block whitespace-pre-wrap rounded bg-gray-200 p-2'>
+              <p className='inline-block whitespace-pre-wrap rounded-sm bg-gray-200 p-2'>
                 {streamText}
               </p>
             </div>
@@ -129,7 +129,7 @@ export const Chat: FC = () => {
           <select
             name='llm'
             required
-            className='block w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           >
             <option value='openai'>OpenAI</option>
             <option value='deepseek'>DeepSeek-V3</option>
@@ -155,7 +155,7 @@ export const Chat: FC = () => {
             min={1}
             max={4096}
             placeholder='max tokens'
-            className='w-full rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           />
           <div className='flex items-center gap-2'>
             <textarea
@@ -168,12 +168,12 @@ export const Chat: FC = () => {
               rows={textAreaRows}
               placeholder='Type your message here...'
               disabled={!!streamText}
-              className='max-h-34 w-full resize-none overflow-y-auto rounded border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-blue-600'
+              className='max-h-34 w-full resize-none overflow-y-auto rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
             />
             <button
               type='submit'
               disabled={!!streamText || input.trim().length <= 0}
-              className='rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
+              className='rounded-sm bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
             >
               Send
             </button>

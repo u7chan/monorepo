@@ -35,7 +35,7 @@ export const Profile: FC = () => {
           type='text'
           name='name'
           placeholder='Enter your name'
-          className='w-full rounded border border-gray-300 p-2'
+          className='w-full rounded-sm border border-gray-300 p-2'
         />
       </div>
       <div className='mb-4'>
@@ -46,10 +46,10 @@ export const Profile: FC = () => {
           type='email'
           name='email'
           placeholder='Enter your email'
-          className='w-full rounded border border-gray-300 p-2'
+          className='w-full rounded-sm border border-gray-300 p-2'
         />
       </div>
-      <button type='submit' className='rounded bg-blue-500 p-2 text-white hover:bg-blue-600'>
+      <button type='submit' className='rounded-sm bg-blue-500 p-2 text-white hover:bg-blue-600'>
         Save
       </button>
     </form>
