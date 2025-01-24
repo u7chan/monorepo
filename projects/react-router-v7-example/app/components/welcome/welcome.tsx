@@ -41,6 +41,23 @@ export function Welcome() {
             </ul>
           </nav>
         </div>
+        <div className="max-w-[300px] w-full space-y-6 px-4">
+          <nav className="rounded-3xl border border-gray-200 p-6 dark:border-gray-700">
+            <p className="leading-6 text-gray-700 dark:text-gray-200 text-center">
+              Pages
+            </p>
+            <ul className="p-4">
+              <li className="list-disc">
+                <a
+                  className="text-blue-700 hover:underline dark:text-blue-500"
+                  href="/about"
+                >
+                  /about
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
       </div>
     </main>
   );
