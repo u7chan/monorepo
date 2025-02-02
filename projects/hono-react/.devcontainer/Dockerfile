@@ -20,5 +20,3 @@ RUN groupmod -g 1234 node \
 
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME
-
-USER $USER_NAME
