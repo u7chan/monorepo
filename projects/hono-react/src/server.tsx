@@ -7,7 +7,15 @@ import { z, type ZodError } from 'zod'
 
 import { getLLMProvider } from './llm/getLLMProvider'
 
-const app = new Hono()
+type Env = {
+  Bindings: {
+    NODE_ENV?: string
+    OPENAI_API_KEY?: string
+    DEEPSEEK_API_KEY?: string
+  }
+}
+
+const app = new Hono<Env>()
   .post(
     '/api/profile',
     zValidator(
@@ -58,8 +66,8 @@ const app = new Hono()
     async (c) => {
       const { llm, temperature, maxTokens, userInput } = c.req.valid('json')
       const envs = env<{
-        OPENAI_API_KEY: string
-        DEEPSEEK_API_KEY: string
+        OPENAI_API_KEY?: string
+        DEEPSEEK_API_KEY?: string
       }>(c)
 
       const llmProvider = getLLMProvider(llm, envs)
@@ -125,7 +133,7 @@ const app = new Hono()
     },
   )
   .get('*', (c) => {
-    const { NODE_ENV } = env<{ NODE_ENV: string }>(c)
+    const { NODE_ENV } = env<{ NODE_ENV?: string }>(c)
     const prod = NODE_ENV === 'production'
     return c.html(
       renderToString(
