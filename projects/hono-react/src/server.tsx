@@ -44,8 +44,8 @@ const app = new Hono<Env>()
     zValidator(
       'json',
       z.object({
-        llm: z.enum(['openai', 'deepseek'], {
-          message: "llmは'openai','deepseek'のいずれかを指定してください",
+        llm: z.enum(['openai', 'deepseek', 'test'], {
+          message: "llmは'openai','deepseek', 'test'のいずれかを指定してください",
         }),
         temperature: z.number().min(0).max(1).nullish(),
         maxTokens: z

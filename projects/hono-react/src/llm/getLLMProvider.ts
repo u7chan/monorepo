@@ -1,9 +1,10 @@
 import { DeepSeekProvider } from './DeepSeekProvider'
 import { OpenAIProvider } from './OpenAIProvider'
+import { TestProvider } from './TestProvider'
 import type { LLMProvider } from './types'
 
 export function getLLMProvider(
-  llm: 'openai' | 'deepseek',
+  llm: 'openai' | 'deepseek' | 'test',
   envs: {
     OPENAI_API_KEY?: string
     DEEPSEEK_API_KEY?: string
@@ -21,6 +22,9 @@ export function getLLMProvider(
         throw new Error('The DEEPSEEK_API_KEY key for the environment variable is not set.')
       }
       return new DeepSeekProvider(envs.DEEPSEEK_API_KEY)
+
+    case 'test':
+      return new TestProvider()
   }
   throw new Error(`Unsupported LLM: ${llm}`)
 }

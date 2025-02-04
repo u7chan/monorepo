@@ -134,6 +134,7 @@ export const Chat: FC = () => {
           >
             <option value='openai'>OpenAI (gpt-4o-mini)</option>
             <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
+            <option value='test'>Test Stream</option>
           </select>
           <div className='flex items-center gap-2'>
             <div className='font-semibold text-md'>temperature</div>
