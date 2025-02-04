@@ -20,6 +20,7 @@ interface Message {
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
+  const messageRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
@@ -28,10 +29,26 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(1)
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
+  const [isAtBottom, setIsAtBottom] = useState<boolean>(true)
 
   useEffect(() => {
+    if (!isAtBottom) return
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [streamText, messages])
+  }, [streamText, messages, isAtBottom])
+
+  useEffect(() => {
+    messageRef?.current?.addEventListener('scroll', handleScroll)
+    return () => {
+      messageRef?.current?.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+
+  const handleScroll = () => {
+    if (!messageRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = messageRef.current
+    const isAtBottom = Math.floor(scrollHeight - scrollTop) === clientHeight
+    setIsAtBottom(isAtBottom)
+  }
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
     setTemperature(Number.parseFloat(event.target.value))
@@ -104,7 +121,7 @@ export const Chat: FC = () => {
     <>
       <h2 className='mb-4 font-semibold text-xl'>Chat</h2>
       <div className='chat-container'>
-        <div className='message-list h-96 overflow-y-auto border p-2'>
+        <div className='message-list h-96 overflow-y-auto border p-2' ref={messageRef}>
           {messages.map((msg) => (
             <div
               key={`chat_${msg.content}`}
