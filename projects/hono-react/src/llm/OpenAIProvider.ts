@@ -1,4 +1,4 @@
-import type { LLMProvider, Reader } from './types'
+import type { LLMProvider, Messages, Reader } from './types'
 
 export class OpenAIProvider implements LLMProvider {
   private apiKey: string
@@ -8,7 +8,7 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async chatStream(
-    message: string,
+    messages: Messages[],
     temperature?: number | null,
     maxTokens?: number | null,
   ): Promise<Reader> {
@@ -23,7 +23,7 @@ export class OpenAIProvider implements LLMProvider {
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: message }],
+        messages,
         temperature,
         max_tokens: maxTokens,
         stream_options: { include_usage: true },

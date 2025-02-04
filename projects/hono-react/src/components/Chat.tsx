@@ -48,7 +48,8 @@ export const Chat: FC = () => {
     }
 
     const userMessage: Message = { role: 'user', content: form.userInput }
-    setMessages([...messages, userMessage])
+    const newMessages = [...messages, userMessage]
+    setMessages(newMessages)
     setInput('')
 
     // Call the Chat API
@@ -57,7 +58,7 @@ export const Chat: FC = () => {
         llm: form.llm,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
-        userInput: form.userInput,
+        messages: newMessages,
       },
     })
     let result = ''

@@ -53,7 +53,12 @@ const app = new Hono<Env>()
           .min(1, { message: 'maxTokensは1以上でなければなりません' })
           .max(4096, { message: 'maxTokensは4096以下でなければなりません' })
           .nullish(),
-        userInput: z.string().min(1, { message: 'userInputは1文字以上でなければなりません' }),
+        messages: z
+          .object({
+            role: z.enum(['user', 'assistant']),
+            content: z.string().min(1, { message: 'messagesは1文字以上でなければなりません' }),
+          })
+          .array(),
       }),
       (values, c) => {
         const result = values as { error?: ZodError; success: boolean }
@@ -64,14 +69,13 @@ const app = new Hono<Env>()
       },
     ),
     async (c) => {
-      const { llm, temperature, maxTokens, userInput } = c.req.valid('json')
+      const { llm, temperature, maxTokens, messages } = c.req.valid('json')
       const envs = env<{
         OPENAI_API_KEY?: string
         DEEPSEEK_API_KEY?: string
       }>(c)
-
       const llmProvider = getLLMProvider(llm, envs)
-      const reader = await llmProvider.chatStream(userInput, temperature, maxTokens)
+      const reader = await llmProvider.chatStream(messages, temperature, maxTokens)
 
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
