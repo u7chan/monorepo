@@ -132,8 +132,8 @@ export const Chat: FC = () => {
             required
             className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           >
-            <option value='openai'>OpenAI</option>
-            <option value='deepseek'>DeepSeek-V3</option>
+            <option value='openai'>OpenAI (gpt-4o-mini)</option>
+            <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
           </select>
           <div className='flex items-center gap-2'>
             <div className='font-semibold text-md'>temperature</div>
