@@ -14,7 +14,7 @@ import type { AppType } from '../server'
 const client = hc<AppType>('/')
 
 interface Message {
-  sender: 'user' | 'bot'
+  role: 'user' | 'assistant'
   content: string
 }
 
@@ -47,7 +47,7 @@ export const Chat: FC = () => {
       userInput: formData.get('userInput')?.toString() || '',
     }
 
-    const userMessage: Message = { sender: 'user', content: form.userInput }
+    const userMessage: Message = { role: 'user', content: form.userInput }
     setMessages([...messages, userMessage])
     setInput('')
 
@@ -75,7 +75,7 @@ export const Chat: FC = () => {
         setStreamText(`${result}...`)
       }
     }
-    setMessages((prevMessages) => [...prevMessages, { sender: 'bot', content: result }])
+    setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
     setStreamText('')
   }
 
@@ -107,10 +107,10 @@ export const Chat: FC = () => {
           {messages.map((msg) => (
             <div
               key={`chat_${msg.content}`}
-              className={`message mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}
+              className={`message mb-2 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
             >
               <p
-                className={`inline-block whitespace-pre-wrap rounded-sm p-2 ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
+                className={`inline-block whitespace-pre-wrap rounded-sm p-2 ${msg.role === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
               >
                 {msg.content}
               </p>
