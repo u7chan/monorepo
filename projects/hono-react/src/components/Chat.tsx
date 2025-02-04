@@ -128,7 +128,7 @@ export const Chat: FC = () => {
               className={`message mb-2 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
             >
               <p
-                className={`inline-block whitespace-pre-wrap rounded-sm p-2 ${msg.role === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
+                className={`inline-block whitespace-pre-wrap rounded-sm p-2 text-left ${msg.role === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
               >
                 {msg.content}
               </p>
