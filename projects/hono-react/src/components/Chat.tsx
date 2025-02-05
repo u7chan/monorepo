@@ -20,7 +20,7 @@ interface Message {
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
-  const messageRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
@@ -37,15 +37,15 @@ export const Chat: FC = () => {
   }, [streamText, messages, isAtBottom])
 
   useEffect(() => {
-    messageRef?.current?.addEventListener('scroll', handleScroll)
+    scrollContainerRef?.current?.addEventListener('scroll', handleScroll)
     return () => {
-      messageRef?.current?.removeEventListener('scroll', handleScroll)
+      scrollContainerRef?.current?.removeEventListener('scroll', handleScroll)
     }
   }, [])
 
   const handleScroll = () => {
-    if (!messageRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = messageRef.current
+    if (!scrollContainerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
     const isAtBottom = Math.floor(scrollHeight - scrollTop) === clientHeight
     setIsAtBottom(isAtBottom)
   }
@@ -117,65 +117,80 @@ export const Chat: FC = () => {
     }
   }
 
+  const emptyMessage = messages.length === 0
+
   return (
-    <>
-      <h2 className='mb-4 font-semibold text-xl'>Chat</h2>
-      <div className='chat-container'>
-        <div className='message-list h-96 overflow-y-auto border p-2' ref={messageRef}>
-          {messages.map((msg) => (
-            <div
-              key={`chat_${msg.content}`}
-              className={`message mb-2 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
-            >
-              <p
-                className={`inline-block whitespace-pre-wrap rounded-sm p-2 text-left ${msg.role === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}
-              >
-                {msg.content}
-              </p>
-            </div>
-          ))}
-          {streamText && (
-            <div className='message text-left'>
-              <p className='inline-block whitespace-pre-wrap rounded-sm bg-gray-200 p-2'>
-                {streamText}
-              </p>
+    <form ref={formRef} onSubmit={handleSubmit}>
+      <div
+        className={`absolute top-2 z-10 grid gap-2 rounded bg-white p-2 opacity-10 hover:opacity-100 hover:shadow ${!!streamText && 'hidden'}`}
+      >
+        <select
+          name='llm'
+          required
+          className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+        >
+          <option value='openai'>OpenAI (gpt-4o-mini)</option>
+          <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
+          <option value='test'>Test Stream</option>
+        </select>
+        <div className='flex items-center gap-2'>
+          <div className='ml-1 text-md'>temperature</div>
+          <input
+            name='temperature'
+            type='range'
+            min='0'
+            max='1'
+            step='0.01'
+            value={temperature}
+            onChange={handleChangeTemperature}
+            disabled={!!streamText}
+            className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+          />
+          <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
+        </div>
+        <input
+          name='maxTokens'
+          type='number'
+          min={1}
+          max={4096}
+          placeholder='max tokens'
+          className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+        />
+      </div>
+      <div
+        ref={scrollContainerRef}
+        className={`flex h-screen justify-center ${emptyMessage ? 'items-center' : 'max-h-[calc(100vh-20px)] overflow-y-auto py-10'}`}
+      >
+        <div className='container grid gap-2 px-4'>
+          {emptyMessage && (
+            <div className='flex justify-center'>
+              <div className='font-bold text-2xl text-gray-700'>
+                お手伝いできることはありますか？
+              </div>
             </div>
           )}
-          <div ref={messageEndRef} />
-        </div>
-        <form ref={formRef} onSubmit={handleSubmit} className='mt-4 flex flex-col gap-2'>
-          <select
-            name='llm'
-            required
-            className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-          >
-            <option value='openai'>OpenAI (gpt-4o-mini)</option>
-            <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
-            <option value='test'>Test Stream</option>
-          </select>
-          <div className='flex items-center gap-2'>
-            <div className='font-semibold text-md'>temperature</div>
-            <input
-              name='temperature'
-              type='range'
-              min='0'
-              max='1'
-              step='0.01'
-              value={temperature}
-              onChange={handleChangeTemperature}
-              disabled={!!streamText}
-              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
-            />
-            <div className='text-md'>{temperature.toFixed(2)}</div>
+          <div className='chat-container'>
+            <div className='message-list'>
+              {messages.map((msg) => (
+                <div
+                  key={`chat_${msg.content}`}
+                  className={`message mb-2 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
+                >
+                  <p
+                    className={`inline-block whitespace-pre-wrap text-left ${msg.role === 'user' ? 'rounded-3xl bg-gray-100 px-4 py-2' : ''}`}
+                  >
+                    {msg.content}
+                  </p>
+                </div>
+              ))}
+              {streamText && (
+                <div className='message text-left'>
+                  <p className='inline-block whitespace-pre-wrap'>{streamText}</p>
+                </div>
+              )}
+              <div ref={messageEndRef} />
+            </div>
           </div>
-          <input
-            name='maxTokens'
-            type='number'
-            min={1}
-            max={4096}
-            placeholder='max tokens'
-            className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-          />
           <div className='flex items-center gap-2'>
             <textarea
               name='userInput'
@@ -185,20 +200,22 @@ export const Chat: FC = () => {
               onCompositionStart={() => setComposition(true)}
               onCompositionEnd={() => setComposition(false)}
               rows={textAreaRows}
-              placeholder='Type your message here...'
+              placeholder={
+                streamText ? 'Waiting for this messages...' : 'Type your message here...'
+              }
               disabled={!!streamText}
-              className='max-h-34 w-full resize-none overflow-y-auto rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+              className='max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
             />
             <button
               type='submit'
               disabled={!!streamText || input.trim().length <= 0}
-              className='rounded-sm bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400'
+              className='rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
             >
               Send
             </button>
           </div>
-        </form>
+        </div>
       </div>
-    </>
+    </form>
   )
 }

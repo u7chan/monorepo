@@ -6,9 +6,5 @@ export const Route = createLazyFileRoute('/chat')({
 })
 
 function RouteComponent() {
-  return (
-    <div className='p-4'>
-      <Chat />
-    </div>
-  )
+  return <Chat />
 }
