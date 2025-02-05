@@ -1,5 +1,6 @@
 import React from 'react'
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
+import { Layout } from '../components/Layout'
 
 const TanStackRouterDevtoolsPanel =
   process.env.NODE_ENV === 'production'
@@ -14,22 +15,17 @@ const TanStackRouterDevtoolsPanel =
 export const Route = createRootRoute({
   component: () => (
     <>
-      <div className='flex gap-2 p-2'>
-        <Link to='/' className='[&.active]:font-bold'>
-          Home
-        </Link>{' '}
-        <Link to='/about' className='[&.active]:font-bold'>
-          About
-        </Link>{' '}
-        <Link to='/profile' className='[&.active]:font-bold'>
-          Profile
-        </Link>
-        <Link to='/chat' className='[&.active]:font-bold'>
-          Chat
-        </Link>
-      </div>
-      <hr />
-      <Outlet />
+      <Layout
+        title='Portfolio'
+        menuItems={[
+          { label: 'Home', to: '/' },
+          { label: 'About', to: '/about' },
+          { label: 'Profile', to: '/profile' },
+          { label: 'Chat', to: '/chat' },
+        ]}
+      >
+        <Outlet />
+      </Layout>
       <TanStackRouterDevtoolsPanel />
     </>
   ),
