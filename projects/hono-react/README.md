@@ -49,3 +49,25 @@
   ```
 
   open http://localhost:3000/
+
+## Deploy
+
+- Image build:
+
+  ```sh
+  docker build -t hono_react .
+  ```
+
+- Run container:
+
+  ```sh
+  OPENAI_API_KEY=xxx; \
+  DEEPSEEK_API_KEY=yyy; \
+  docker run \
+    -p 3000:3000 \
+    -itd \
+    --restart=always \
+    --env OPENAI_API_KEY=$OPENAI_API_KEY \
+    --env DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
+    hono_react
+  ```
