@@ -1,10 +1,11 @@
 FROM node:22-slim AS base
+
 ARG USERNAME=app
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 
 # -----------------------------------------------
-# builder
+# builder stage
 # -----------------------------------------------
 FROM base AS builder
 
@@ -23,7 +24,7 @@ RUN bun i \
     && bun i --production
 
 # -----------------------------------------------
-# runner
+# runner stage
 # -----------------------------------------------
 FROM base AS runner
 
