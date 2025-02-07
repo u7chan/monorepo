@@ -34,6 +34,7 @@
         "mhutchie.git-graph",
         "eamodio.gitlens",
         "oderwat.indent-rainbow",
+        "wix.vscode-import-cost",
         // for Tailwind CSS --
         "shardulm94.trailing-spaces",
         "emeraldwalk.RunOnSave",
