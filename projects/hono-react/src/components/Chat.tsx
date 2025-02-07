@@ -1,4 +1,4 @@
-import {
+import React, {
   useEffect,
   useRef,
   useState,
@@ -10,6 +10,8 @@ import {
 import { hc } from 'hono/client'
 
 import type { AppType } from '../server'
+import { GearIcon } from './svg/GearIcon'
+import { ChatbotIcon } from './svg/ChatbotIcon'
 
 const client = hc<AppType>('/')
 
@@ -29,7 +31,9 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(1)
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
-  const [isAtBottom, setIsAtBottom] = useState<boolean>(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [showMenu, setShowMenu] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!isAtBottom) return
@@ -56,6 +60,8 @@ export const Chat: FC = () => {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setShowMenu(false)
+    setLoading(true)
     const formData = new FormData(event.currentTarget)
     const form = {
       llm: formData.get('llm')?.toString() as 'openai' | 'deepseek',
@@ -90,11 +96,12 @@ export const Chat: FC = () => {
         const chunk = new TextDecoder().decode(value)
         // Append chunk to result
         result += chunk
-        setStreamText(`${result}...`)
+        setStreamText(`${result}●`)
       }
     }
     setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
     setStreamText('')
+    setLoading(false)
   }
 
   const handleChangeInput = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -121,41 +128,50 @@ export const Chat: FC = () => {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit}>
-      <div
-        className={`absolute top-2 z-10 grid gap-2 rounded bg-white p-2 opacity-10 hover:opacity-100 hover:shadow ${!!streamText && 'hidden'}`}
-      >
-        <select
-          name='llm'
-          required
-          className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+      <div className={'absolute'}>
+        <button
+          type='button'
+          onClick={() => setShowMenu(!showMenu)}
+          className='relative top-4 left-4 flex cursor-pointer items-center justify-center rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-600'
         >
-          <option value='openai'>OpenAI (gpt-4o-mini)</option>
-          <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
-          <option value='test'>Test Stream</option>
-        </select>
-        <div className='flex items-center gap-2'>
-          <div className='ml-1 text-md'>temperature</div>
+          <GearIcon color='#5D5D5D' />
+        </button>
+        <div
+          className={`relative top-5 left-10 z-10 grid gap-2 rounded bg-white p-2 shadow ${!showMenu && 'hidden'}`}
+        >
+          <select
+            name='llm'
+            required
+            className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+          >
+            <option value='openai'>OpenAI (gpt-4o-mini)</option>
+            <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
+            <option value='test'>Test Stream</option>
+          </select>
+          <div className='flex items-center gap-2'>
+            <div className='ml-1 text-md'>temperature</div>
+            <input
+              name='temperature'
+              type='range'
+              min='0'
+              max='1'
+              step='0.01'
+              value={temperature}
+              onChange={handleChangeTemperature}
+              disabled={!!streamText}
+              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+            />
+            <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
+          </div>
           <input
-            name='temperature'
-            type='range'
-            min='0'
-            max='1'
-            step='0.01'
-            value={temperature}
-            onChange={handleChangeTemperature}
-            disabled={!!streamText}
-            className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+            name='maxTokens'
+            type='number'
+            min={1}
+            max={4096}
+            placeholder='max tokens'
+            className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           />
-          <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
         </div>
-        <input
-          name='maxTokens'
-          type='number'
-          min={1}
-          max={4096}
-          placeholder='max tokens'
-          className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-        />
       </div>
       <div
         ref={scrollContainerRef}
@@ -171,27 +187,45 @@ export const Chat: FC = () => {
           )}
           <div className='chat-container'>
             <div className='message-list'>
-              {messages.map((msg) => (
-                <div
-                  key={`chat_${msg.content}`}
-                  className={`message mb-2 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
-                >
-                  <p
-                    className={`inline-block whitespace-pre-wrap text-left ${msg.role === 'user' ? 'rounded-3xl bg-gray-100 px-4 py-2' : ''}`}
-                  >
-                    {msg.content}
-                  </p>
-                </div>
+              {messages.map(({ role, content }) => (
+                <React.Fragment key={`chat_${content}`}>
+                  {role === 'user' && (
+                    <div className={'message mb-2 text-right'}>
+                      <p
+                        className={
+                          'inline-block whitespace-pre-wrap rounded-3xl bg-gray-100 px-4 py-2 text-left'
+                        }
+                      >
+                        {content}
+                      </p>
+                    </div>
+                  )}
+                  {role === 'assistant' && (
+                    <div className='flex'>
+                      <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                        <ChatbotIcon size={32} color='#5D5D5D' />
+                      </div>
+                      <div className='message text-left'>
+                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
               ))}
               {streamText && (
-                <div className='message text-left'>
-                  <p className='inline-block whitespace-pre-wrap'>{streamText}</p>
+                <div className='flex align-item'>
+                  <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <ChatbotIcon size={32} color='#5D5D5D' />
+                  </div>
+                  <div className='message text-left'>
+                    <p className='mt-1 ml-2 inline-block whitespace-pre-wrap '>{streamText}</p>
+                  </div>
                 </div>
               )}
               <div ref={messageEndRef} />
             </div>
           </div>
-          <div className='flex items-center gap-2'>
+          <div className={`flex items-center gap-2 ${loading && 'opacity-40'}`}>
             <textarea
               name='userInput'
               value={input}
@@ -200,18 +234,16 @@ export const Chat: FC = () => {
               onCompositionStart={() => setComposition(true)}
               onCompositionEnd={() => setComposition(false)}
               rows={textAreaRows}
-              placeholder={
-                streamText ? 'Waiting for this messages...' : 'Type your message here...'
-              }
-              disabled={!!streamText}
+              placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
+              disabled={loading}
               className='max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
             />
             <button
               type='submit'
-              disabled={!!streamText || input.trim().length <= 0}
-              className='rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+              disabled={loading || !!streamText || input.trim().length <= 0}
+              className='whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
             >
-              Send
+              送信
             </button>
           </div>
         </div>

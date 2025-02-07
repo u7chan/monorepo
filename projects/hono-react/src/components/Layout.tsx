@@ -1,23 +1,6 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
-
-const HamburgerIcon = (props: { width?: number | string; height?: number | string }) => {
-  return (
-    <svg
-      width={props.width || '24'}
-      height={props.height || '24'}
-      viewBox='0 0 24 24'
-      fill='none'
-      xmlns='http://www.w3.org/2000/svg'
-    >
-      <title>hamburger-icon</title>
-      <rect width='24' height='24' fill='none' />
-      <rect x='3' y='6' width='18' height='2' fill='currentColor' />
-      <rect x='3' y='11' width='18' height='2' fill='currentColor' />
-      <rect x='3' y='16' width='18' height='2' fill='currentColor' />
-    </svg>
-  )
-}
+import { HamburgerIcon } from './svg/HamburgerIcon'
 
 interface Props {
   title: string
@@ -27,6 +10,8 @@ interface Props {
   }[]
   children: ReactNode
 }
+
+const MOBILE = 600
 
 export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -42,10 +27,10 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth
-      setIsMobile(width < 768)
+      setIsMobile(width < MOBILE)
 
       // スマホレイアウトになったらメニューを閉じる
-      if (isMenuOpen && width >= 768) {
+      if (isMenuOpen && width >= MOBILE) {
         setIsMenuOpen(false)
       }
     }
@@ -94,22 +79,16 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
             )}
           </>
         ) : (
-          <div
-            className={
-              'fixed inset-0 translate-x-0 transform bg-white shadow-lg transition-transform md:relative md:block md:w-1/5 md:bg-transparent md:shadow-none lg:w-1/6'
-            }
-          >
-            <nav className='flex h-full flex-col space-y-4 p-4'>
-              <h1 className='mb-4 font-bold text-xl'>{title}</h1>
-              {menuItems.map((menuItem) => (
-                <div key={menuItem.label}>
-                  <Link to={menuItem.to} className='text-gray-700 [&.active]:text-blue-700'>
-                    {menuItem.label}
-                  </Link>
-                </div>
-              ))}
-            </nav>
-          </div>
+          <nav className='flex h-full flex-col space-y-4 p-4'>
+            <h1 className='mb-4 font-bold text-xl'>{title}</h1>
+            {menuItems.map((menuItem) => (
+              <div key={menuItem.label}>
+                <Link to={menuItem.to} className='text-gray-700 [&.active]:text-blue-700'>
+                  {menuItem.label}
+                </Link>
+              </div>
+            ))}
+          </nav>
         )}
         <main className='flex-1 bg-white'>{children}</main>
       </div>
