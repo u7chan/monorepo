@@ -8,6 +8,8 @@ import React, {
   type KeyboardEvent,
 } from 'react'
 import { hc } from 'hono/client'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import type { AppType } from '../server'
 import { GearIcon } from './svg/GearIcon'
@@ -206,7 +208,9 @@ export const Chat: FC = () => {
                         <ChatbotIcon size={32} color='#5D5D5D' />
                       </div>
                       <div className='message text-left'>
-                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
+                        <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                          {content}
+                        </Markdown>
                       </div>
                     </div>
                   )}
