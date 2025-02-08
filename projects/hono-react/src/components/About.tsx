@@ -1,4 +1,5 @@
-import MarkdownPreview from '@uiw/react-markdown-preview'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const source = `
 # 私たちについて
@@ -7,7 +8,8 @@ const source = `
 
 ## ミッション
 
-私たちのミッションは、\`日常生活を豊かにする高品質な製品を提供する\`です。<br/>
+私たちのミッションは、\`日常生活を豊かにする高品質な製品を提供する\`です。
+
 革新と献身を通じて、私たちはお客様とコミュニティのためにより良い未来を創造できると信じています。
 
 ## 価値観
@@ -18,7 +20,8 @@ const source = `
 
 ## チーム
 
-私たちのチームは、それぞれの分野での専門家で構成されており、情熱を持って取り組んでいます。<br/>
+私たちのチームは、それぞれの分野での専門家で構成されており、情熱を持って取り組んでいます。
+
 お客様の多様なニーズを満たし、目標達成を支援するために協力して作業しています。
 
 ## お問い合わせ
@@ -35,8 +38,14 @@ const source = `
 ---
 
 *最終更新日: ${new Date().toLocaleDateString()}*
+
+🤖これは生成AIによるダミー文章です。
 `
 
 export function About() {
-  return <MarkdownPreview source={source} style={{ padding: 16 }} />
+  return (
+    <Markdown remarkPlugins={[remarkGfm]} className='prose p-4'>
+      {source}
+    </Markdown>
+  )
 }
