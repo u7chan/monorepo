@@ -22,6 +22,7 @@ function readFromLocalStorage(): {
   llm?: string
   temperature?: string
   maxTokens?: string
+  markdownPreview?: boolean
 } {
   const key = 'hono-react.chat-settings'
   return JSON.parse(localStorage.getItem(key) || '{}')
@@ -31,6 +32,7 @@ function saveToLocalStorage(settings: {
   llm?: string
   temperature?: string
   maxTokens?: string
+  markdownPreview?: boolean
 }) {
   const key = 'hono-react.chat-settings'
   const newSettings = { ...readFromLocalStorage(), ...settings }
@@ -57,6 +59,7 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 1,
   )
+  const [showMarkdownPreview, setShowMarkdownPreview] = useState(!!defaultSettings.markdownPreview)
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -99,6 +102,12 @@ export const Chat: FC = () => {
 
   const handleChangeMaxTokens = (event: ChangeEvent<HTMLInputElement>) => {
     saveToLocalStorage({ maxTokens: event.target.value })
+  }
+
+  const handleClickShowMarkdownPreview = () => {
+    const markdownPreview = !showMarkdownPreview
+    setShowMarkdownPreview(markdownPreview)
+    saveToLocalStorage({ markdownPreview })
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -194,7 +203,7 @@ export const Chat: FC = () => {
             <option value='test'>Test Stream</option>
           </select>
           <div className='flex items-center gap-2'>
-            <div className='ml-1 text-md'>temperature</div>
+            <span className='ml-1 text-md'>temperature</span>
             <input
               name='temperature'
               type='range'
@@ -218,6 +227,22 @@ export const Chat: FC = () => {
             onChange={handleChangeMaxTokens}
             className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           />
+          <div className='flex items-center gap-2'>
+            <span className='ml-1 text-md'>markdown preview</span>
+            <button
+              type='button'
+              className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
+                showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
+              }`}
+              onClick={handleClickShowMarkdownPreview}
+            >
+              <div
+                className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                  showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -253,9 +278,15 @@ export const Chat: FC = () => {
                         <ChatbotIcon size={32} color='#5D5D5D' />
                       </div>
                       <div className='message text-left'>
-                        <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
-                          {content}
-                        </Markdown>
+                        {showMarkdownPreview ? (
+                          <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                            {content}
+                          </Markdown>
+                        ) : (
+                          <div className='message text-left'>
+                            <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -267,7 +298,7 @@ export const Chat: FC = () => {
                     <ChatbotIcon size={32} color='#5D5D5D' />
                   </div>
                   <div className='message text-left'>
-                    <p className='mt-1 ml-2 inline-block whitespace-pre-wrap '>{streamText}</p>
+                    <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
                   </div>
                 </div>
               )}
