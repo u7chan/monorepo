@@ -2,6 +2,7 @@ import React, {
   useEffect,
   useRef,
   useState,
+  useMemo,
   type FC,
   type FormEvent,
   type ChangeEvent,
@@ -17,6 +18,25 @@ import { ChatbotIcon } from './svg/ChatbotIcon'
 
 const client = hc<AppType>('/')
 
+function readFromLocalStorage(): {
+  llm?: string
+  temperature?: string
+  maxTokens?: string
+} {
+  const key = 'hono-react.chat-settings'
+  return JSON.parse(localStorage.getItem(key) || '{}')
+}
+
+function saveToLocalStorage(settings: {
+  llm?: string
+  temperature?: string
+  maxTokens?: string
+}) {
+  const key = 'hono-react.chat-settings'
+  const newSettings = { ...readFromLocalStorage(), ...settings }
+  localStorage.setItem(key, JSON.stringify(newSettings))
+}
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
@@ -27,10 +47,16 @@ export const Chat: FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
 
+  const defaultSettings = useMemo(() => {
+    return readFromLocalStorage()
+  }, [])
+
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [input, setInput] = useState('')
-  const [temperature, setTemperature] = useState<number>(1)
+  const [temperature, setTemperature] = useState<number>(
+    defaultSettings.temperature ? Number(defaultSettings.temperature) : 1,
+  )
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -62,8 +88,17 @@ export const Chat: FC = () => {
     setShowMenu(false)
   }
 
+  const handleChangeLLM = (event: ChangeEvent<HTMLSelectElement>) => {
+    saveToLocalStorage({ llm: event.target.value })
+  }
+
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
     setTemperature(Number.parseFloat(event.target.value))
+    saveToLocalStorage({ temperature: event.target.value })
+  }
+
+  const handleChangeMaxTokens = (event: ChangeEvent<HTMLInputElement>) => {
+    saveToLocalStorage({ maxTokens: event.target.value })
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -150,6 +185,8 @@ export const Chat: FC = () => {
           <select
             name='llm'
             required
+            defaultValue={defaultSettings.llm}
+            onChange={handleChangeLLM}
             className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           >
             <option value='openai'>OpenAI (gpt-4o-mini)</option>
@@ -176,7 +213,9 @@ export const Chat: FC = () => {
             type='number'
             min={1}
             max={4096}
+            defaultValue={defaultSettings.maxTokens}
             placeholder='max tokens'
+            onChange={handleChangeMaxTokens}
             className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
           />
         </div>
