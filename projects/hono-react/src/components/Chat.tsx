@@ -43,22 +43,22 @@ export const Chat: FC = () => {
   }, [streamText, messages, isAtBottom])
 
   useEffect(() => {
-    scrollContainerRef?.current?.addEventListener('scroll', handleScroll)
-    scrollContainerRef?.current?.addEventListener('click', handleScrollContainer)
+    scrollContainerRef?.current?.addEventListener('scroll', handleScrollContainer)
+    scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
     return () => {
-      scrollContainerRef?.current?.removeEventListener('scroll', handleScroll)
-      scrollContainerRef?.current?.removeEventListener('click', handleScrollContainer)
+      scrollContainerRef?.current?.removeEventListener('scroll', handleScrollContainer)
+      scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
     }
   }, [])
 
-  const handleScroll = () => {
+  const handleScrollContainer = () => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
     const isAtBottom = Math.floor(scrollHeight - scrollTop) === clientHeight
     setIsAtBottom(isAtBottom)
   }
 
-  const handleScrollContainer = () => {
+  const handleClickScrollContainer = () => {
     setShowMenu(false)
   }
 
