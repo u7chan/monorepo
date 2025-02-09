@@ -44,8 +44,10 @@ export const Chat: FC = () => {
 
   useEffect(() => {
     scrollContainerRef?.current?.addEventListener('scroll', handleScroll)
+    scrollContainerRef?.current?.addEventListener('click', handleScrollContainer)
     return () => {
       scrollContainerRef?.current?.removeEventListener('scroll', handleScroll)
+      scrollContainerRef?.current?.removeEventListener('click', handleScrollContainer)
     }
   }, [])
 
@@ -54,6 +56,10 @@ export const Chat: FC = () => {
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
     const isAtBottom = Math.floor(scrollHeight - scrollTop) === clientHeight
     setIsAtBottom(isAtBottom)
+  }
+
+  const handleScrollContainer = () => {
+    setShowMenu(false)
   }
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
