@@ -27,7 +27,7 @@ function createDummyStream(): ReadableStreamDefaultReader<Uint8Array> {
       controller.enqueue(new TextEncoder().encode(payload))
       chunkCount++
 
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 50)) // delay
 
       if (chunkCount >= MAX_CHUNKS) {
         controller.enqueue(new TextEncoder().encode('data: [DONE]\n'))
@@ -45,6 +45,7 @@ export class TestProvider implements LLMProvider {
     _temperature?: number | null,
     _maxTokens?: number | null,
   ): Promise<Reader> {
+    await new Promise((resolve) => setTimeout(resolve, 1000)) // delay
     return createDummyStream()
   }
 }

@@ -24,6 +24,9 @@
       "correctness": {
         "useExhaustiveDependencies": "off"
       },
+      "suspicious": {
+        "noArrayIndexKey": "off"
+      },
       "nursery": {
         "useSortedClasses": {
           "level": "error",
