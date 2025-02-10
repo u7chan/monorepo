@@ -27,7 +27,7 @@ function createDummyStream(): ReadableStreamDefaultReader<Uint8Array> {
       controller.enqueue(new TextEncoder().encode(payload))
       chunkCount++
 
-      await new Promise((resolve) => setTimeout(resolve, 50)) // delay
+      await new Promise((resolve) => setTimeout(resolve, 25)) // delay
 
       if (chunkCount >= MAX_CHUNKS) {
         controller.enqueue(new TextEncoder().encode('data: [DONE]\n'))

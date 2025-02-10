@@ -46,7 +46,7 @@ interface Message {
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -63,30 +63,15 @@ export const Chat: FC = () => {
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(!!defaultSettings.markdownPreview)
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
-  const [isAtBottom, setIsAtBottom] = useState(true)
   const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!isAtBottom) return
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [streamText, messages, isAtBottom])
-
-  useEffect(() => {
-    scrollContainerRef?.current?.addEventListener('scroll', handleScrollContainer)
-    scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+    formRef?.current?.addEventListener('click', handleClickScrollContainer)
     return () => {
-      scrollContainerRef?.current?.removeEventListener('scroll', handleScrollContainer)
-      scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      formRef?.current?.removeEventListener('click', handleClickScrollContainer)
     }
   }, [])
-
-  const handleScrollContainer = () => {
-    if (!scrollContainerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-    const isAtBottom = Math.floor(scrollHeight - scrollTop) < clientHeight + 32 // offset
-    setIsAtBottom(isAtBottom)
-  }
 
   const handleClickScrollContainer = () => {
     setShowMenu(false)
@@ -208,7 +193,7 @@ export const Chat: FC = () => {
   const emptyMessage = messages.length === 0
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit}>
+    <form ref={formRef} onSubmit={handleSubmit} className='max-h h-screen bg-black'>
       <div className={'absolute top-4'}>
         <button
           type='button'
@@ -274,8 +259,98 @@ export const Chat: FC = () => {
           </div>
         </div>
       </div>
-      <div
-        className={`container mx-auto h-screen max-w-screen-md px-5 ${!emptyMessage && 'max-h-[calc(100vh)] overflow-y-auto py-[24px]'} `}
+      <div className='container mx-auto max-w-screen-lg bg-white px-5'>
+        {emptyMessage && (
+          <div className='flex justify-center'>
+            <div className='font-bold text-2xl text-gray-700'>お手伝いできることはありますか？</div>
+          </div>
+        )}
+
+        {!emptyMessage && (
+          <div className='chat-container'>
+            <div className='message-list'>
+              {messages.map(({ role, content }, index) => (
+                <React.Fragment key={`chat_${index}`}>
+                  {role === 'user' && (
+                    <div className={'message mb-2 text-right'}>
+                      <p
+                        className={
+                          'inline-block whitespace-pre-wrap rounded-3xl bg-gray-100 px-4 py-2 text-left'
+                        }
+                      >
+                        {content}
+                      </p>
+                    </div>
+                  )}
+                  {role === 'assistant' && (
+                    <div className='flex'>
+                      <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                        <ChatbotIcon size={32} color='#5D5D5D' />
+                      </div>
+                      <div className='message text-left'>
+                        {showMarkdownPreview ? (
+                          <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                            {content}
+                          </Markdown>
+                        ) : (
+                          <div className='message text-left'>
+                            <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+              {streamText && (
+                <div className='flex align-item'>
+                  <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <ChatbotIcon size={32} color='#5D5D5D' />
+                  </div>
+                  <div className='message text-left'>
+                    <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
+                  </div>
+                </div>
+              )}
+              <div ref={messageEndRef} />
+            </div>
+          </div>
+        )}
+
+        <div className={'flex items-center gap-2'}>
+          <textarea
+            name='userInput'
+            value={input}
+            onChange={handleChangeInput}
+            onKeyDown={handleKeyDown}
+            onCompositionStart={() => setComposition(true)}
+            onCompositionEnd={() => setComposition(false)}
+            rows={textAreaRows}
+            placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
+            disabled={loading}
+            className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
+          />
+          {loading ? (
+            <button
+              type='button'
+              onClick={handleStreamCancel}
+              className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+            >
+              停止
+            </button>
+          ) : (
+            <button
+              type='submit'
+              disabled={loading || !!streamText || input.trim().length <= 0}
+              className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+            >
+              送信
+            </button>
+          )}
+        </div>
+      </div>
+      {/* <div
+        className={`container mx-auto h-screen max-w-screen-md px-5 ${!emptyMessage && 'max-h-[calc(100vh)] overflow-y-auto py-[24px]'}`}
         ref={scrollContainerRef}
       >
         <div className={`flex justify-center ${emptyMessage && 'h-screen items-center'}`}>
@@ -369,11 +444,9 @@ export const Chat: FC = () => {
                 </button>
               )}
             </div>
-
-            {/* <div className='h-2' /> */}
           </div>
         </div>
-      </div>
+      </div> */}
     </form>
   )
 }
