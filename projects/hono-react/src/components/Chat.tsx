@@ -11,6 +11,7 @@ import React, {
 import { hc } from 'hono/client'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 
 import type { AppType } from '../server'
 import { GearIcon } from './svg/GearIcon'
@@ -37,6 +38,13 @@ function saveToLocalStorage(settings: {
   const key = 'hono-react.chat-settings'
   const newSettings = { ...readFromLocalStorage(), ...settings }
   localStorage.setItem(key, JSON.stringify(newSettings))
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+function CodeBlock(props: any) {
+  const { className = '', children = '' } = props as { className?: string; children?: string }
+  const language = className?.split('-')[1]
+  return <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
 }
 
 interface Message {
@@ -332,7 +340,13 @@ export const Chat: FC = () => {
                       </div>
                       <div className='message text-left'>
                         {showMarkdownPreview ? (
-                          <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                          <Markdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code: CodeBlock,
+                            }}
+                            className='prose mt-1 ml-2'
+                          >
                             {content}
                           </Markdown>
                         ) : (
@@ -352,7 +366,13 @@ export const Chat: FC = () => {
                   </div>
                   <div className='message text-left'>
                     {showMarkdownPreview ? (
-                      <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                      <Markdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code: CodeBlock,
+                        }}
+                        className='prose mt-1 ml-2'
+                      >
                         {streamText}
                       </Markdown>
                     ) : (

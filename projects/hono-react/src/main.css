@@ -38,3 +38,10 @@
 :where(.prose p code):not(:where([class~="not-prose"],[class~="not-prose"] *))::after {
   content: none;
 }
+
+/* コードブロックの黒背景と余白を無効にする */
+.prose pre {
+  background-color: unset;
+  padding: 0;
+  margin: 0;
+}
