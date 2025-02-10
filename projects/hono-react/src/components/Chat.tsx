@@ -47,6 +47,7 @@ interface Message {
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const buttomContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -63,30 +64,17 @@ export const Chat: FC = () => {
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(!!defaultSettings.markdownPreview)
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
-  const [isAtBottom, setIsAtBottom] = useState(true)
   const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!isAtBottom) return
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [streamText, messages, isAtBottom])
-
-  useEffect(() => {
-    scrollContainerRef?.current?.addEventListener('scroll', handleScrollContainer)
     scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+    buttomContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
     return () => {
-      scrollContainerRef?.current?.removeEventListener('scroll', handleScrollContainer)
       scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      buttomContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
     }
   }, [])
-
-  const handleScrollContainer = () => {
-    if (!scrollContainerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-    const isAtBottom = Math.floor(scrollHeight - scrollTop) < clientHeight + 32 // offset
-    setIsAtBottom(isAtBottom)
-  }
 
   const handleClickScrollContainer = () => {
     setShowMenu(false)
@@ -208,8 +196,8 @@ export const Chat: FC = () => {
   const emptyMessage = messages.length === 0
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit}>
-      <div className={'absolute top-4'}>
+    <form ref={formRef} onSubmit={handleSubmit} className=''>
+      <div className='absolute top-4'>
         <button
           type='button'
           onClick={() => setShowMenu(!showMenu)}
@@ -217,128 +205,174 @@ export const Chat: FC = () => {
         >
           <GearIcon color='#5D5D5D' />
         </button>
-        <div
-          className={`relative top-5 left-10 z-10 grid gap-2 rounded bg-white p-2 shadow ${!showMenu && 'hidden'}`}
+      </div>
+
+      <div
+        className={`fixed top-14 left-40 z-10 grid gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
+      >
+        <select
+          name='llm'
+          required
+          defaultValue={defaultSettings.llm}
+          onChange={handleChangeLLM}
+          className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
         >
-          <select
-            name='llm'
-            required
-            defaultValue={defaultSettings.llm}
-            onChange={handleChangeLLM}
-            className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-          >
-            <option value='openai'>OpenAI (gpt-4o-mini)</option>
-            <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
-            <option value='test'>Test Stream</option>
-          </select>
-          <div className='flex items-center gap-2'>
-            <span className='ml-1 text-md'>temperature</span>
-            <input
-              name='temperature'
-              type='range'
-              min='0'
-              max='1'
-              step='0.01'
-              value={temperature}
-              onChange={handleChangeTemperature}
-              disabled={!!streamText}
-              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
-            />
-            <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
-          </div>
+          <option value='openai'>OpenAI (gpt-4o-mini)</option>
+          <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
+          <option value='test'>Test Stream</option>
+        </select>
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 text-md'>temperature</span>
           <input
-            name='maxTokens'
-            type='number'
-            min={1}
-            max={4096}
-            defaultValue={defaultSettings.maxTokens}
-            placeholder='max tokens'
-            onChange={handleChangeMaxTokens}
-            className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+            name='temperature'
+            type='range'
+            min='0'
+            max='1'
+            step='0.01'
+            value={temperature}
+            onChange={handleChangeTemperature}
+            disabled={!!streamText}
+            className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
           />
-          <div className='flex items-center gap-2'>
-            <span className='ml-1 text-md'>markdown preview</span>
-            <button
-              type='button'
-              className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
-                showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
+          <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
+        </div>
+        <input
+          name='maxTokens'
+          type='number'
+          min={1}
+          max={4096}
+          defaultValue={defaultSettings.maxTokens}
+          placeholder='max tokens'
+          onChange={handleChangeMaxTokens}
+          className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+        />
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 text-md'>markdown preview</span>
+          <button
+            type='button'
+            className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
+              showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
+            }`}
+            onClick={handleClickShowMarkdownPreview}
+          >
+            <div
+              className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
               }`}
-              onClick={handleClickShowMarkdownPreview}
-            >
-              <div
-                className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
-                  showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
+            />
+          </button>
         </div>
       </div>
+
       <div
-        className={`container mx-auto h-screen max-w-screen-md px-5 ${!emptyMessage && 'max-h-[calc(100vh)] overflow-y-auto py-[24px]'} `}
         ref={scrollContainerRef}
+        className={`max-h flex h-screen overflow-y-auto ${!emptyMessage && 'max-h-[calc(100vh-162px)]'}`}
       >
-        <div className={`flex justify-center ${emptyMessage && 'h-screen items-center'}`}>
-          <div className='container grid gap-2 px-4'>
-            {emptyMessage && (
-              <div className='flex justify-center'>
-                <div className='font-bold text-2xl text-gray-700'>
-                  お手伝いできることはありますか？
-                </div>
+        {emptyMessage && (
+          <div className='flex flex-1 items-center justify-center'>
+            <div className='grid flex-1 gap-2'>
+              <div className='text-center font-bold text-2xl text-gray-700'>
+                お手伝いできることはありますか？
               </div>
-            )}
-            <div className='chat-container'>
-              <div className='message-list'>
-                {messages.map(({ role, content }, index) => (
-                  <React.Fragment key={`chat_${index}`}>
-                    {role === 'user' && (
-                      <div className={'message mb-2 text-right'}>
-                        <p
-                          className={
-                            'inline-block whitespace-pre-wrap rounded-3xl bg-gray-100 px-4 py-2 text-left'
-                          }
-                        >
-                          {content}
-                        </p>
-                      </div>
-                    )}
-                    {role === 'assistant' && (
-                      <div className='flex'>
-                        <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                          <ChatbotIcon size={32} color='#5D5D5D' />
-                        </div>
-                        <div className='message text-left'>
-                          {showMarkdownPreview ? (
-                            <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
-                              {content}
-                            </Markdown>
-                          ) : (
-                            <div className='message text-left'>
-                              <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>
-                                {content}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </React.Fragment>
-                ))}
-                {streamText && (
-                  <div className='flex align-item'>
-                    <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                      <ChatbotIcon size={32} color='#5D5D5D' />
-                    </div>
-                    <div className='message text-left'>
-                      <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
-                    </div>
-                  </div>
+              {/* Chat Input */}
+              <div className={'flex h-[162px] items-center gap-2 px-4'}>
+                <textarea
+                  name='userInput'
+                  value={input}
+                  onChange={handleChangeInput}
+                  onKeyDown={handleKeyDown}
+                  onCompositionStart={() => setComposition(true)}
+                  onCompositionEnd={() => setComposition(false)}
+                  rows={textAreaRows}
+                  placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
+                  disabled={loading}
+                  className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
+                />
+                {loading ? (
+                  <button
+                    type='button'
+                    onClick={handleStreamCancel}
+                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                  >
+                    停止
+                  </button>
+                ) : (
+                  <button
+                    type='submit'
+                    disabled={loading || !!streamText || input.trim().length <= 0}
+                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                  >
+                    送信
+                  </button>
                 )}
-                <div ref={messageEndRef} />
               </div>
             </div>
-
-            <div className={'flex items-center gap-2 '}>
+          </div>
+        )}
+        {!emptyMessage && (
+          <div className='container mx-auto mt-4 max-w-screen-lg px-4'>
+            <div className='message-list'>
+              {messages.map(({ role, content }, index) => (
+                <React.Fragment key={`chat_${index}`}>
+                  {role === 'user' && (
+                    <div className={'message mb-2 text-right'}>
+                      <p
+                        className={
+                          'inline-block whitespace-pre-wrap rounded-3xl bg-gray-100 px-4 py-2 text-left'
+                        }
+                      >
+                        {content}
+                      </p>
+                    </div>
+                  )}
+                  {role === 'assistant' && (
+                    <div className='flex'>
+                      <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                        <ChatbotIcon size={32} color='#5D5D5D' />
+                      </div>
+                      <div className='message text-left'>
+                        {showMarkdownPreview ? (
+                          <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                            {content}
+                          </Markdown>
+                        ) : (
+                          <div className='message text-left'>
+                            <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+              {streamText && (
+                <div className='flex align-item'>
+                  <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <ChatbotIcon size={32} color='#5D5D5D' />
+                  </div>
+                  <div className='message text-left'>
+                    {showMarkdownPreview ? (
+                      <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                        {streamText}
+                      </Markdown>
+                    ) : (
+                      <div className='message text-left'>
+                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div ref={messageEndRef} />
+            </div>
+          </div>
+        )}
+      </div>
+      <div ref={buttomContainerRef}>
+        {!emptyMessage && (
+          <>
+            {/* Chat Input */}
+            <div className={'flex h-[162px] items-center gap-2 px-4'}>
               <textarea
                 name='userInput'
                 value={input}
@@ -369,10 +403,8 @@ export const Chat: FC = () => {
                 </button>
               )}
             </div>
-
-            {/* <div className='h-2' /> */}
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </form>
   )
