@@ -48,6 +48,7 @@ export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
@@ -110,10 +111,18 @@ export const Chat: FC = () => {
     saveToLocalStorage({ markdownPreview })
   }
 
+  const handleStreamCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setShowMenu(false)
     setLoading(true)
+
     const formData = new FormData(event.currentTarget)
     const form = {
       llm: formData.get('llm')?.toString() as 'openai' | 'deepseek',
@@ -127,31 +136,51 @@ export const Chat: FC = () => {
     setMessages(newMessages)
     setInput('')
 
-    // Call the Chat API
-    const res = await client.api.chat.$post({
-      json: {
-        llm: form.llm,
-        temperature: form.temperature,
-        maxTokens: form.maxTokens,
-        messages: newMessages,
-      },
-    })
     let result = ''
-    if (!res.ok) {
-      const { error } = (await res.json()) as { error: unknown }
-      result = typeof error === 'string' ? error : JSON.stringify(error)
-    } else {
-      const reader = res.body?.getReader()
-      while (true) {
-        const { done, value } = (await reader?.read()) || {}
-        if (done) break
-        const chunk = new TextDecoder().decode(value)
-        // Append chunk to result
-        result += chunk
-        setStreamText(`${result}●`)
+
+    // Call the Chat API
+    abortControllerRef.current = new AbortController()
+    try {
+      const res = await client.api.chat.$post(
+        {
+          json: {
+            llm: form.llm,
+            temperature: form.temperature,
+            maxTokens: form.maxTokens,
+            messages: newMessages,
+          },
+        },
+        {
+          init: {
+            signal: abortControllerRef.current.signal,
+          },
+        },
+      )
+
+      if (!res.ok) {
+        const { error } = (await res.json()) as { error: unknown }
+        result = typeof error === 'string' ? error : JSON.stringify(error)
+      } else {
+        const reader = res.body?.getReader()
+        while (true) {
+          const { done, value } = (await reader?.read()) || {}
+          if (done) break
+          const chunk = new TextDecoder().decode(value)
+          // Append chunk to result
+          result += chunk
+          setStreamText(`${result}●`)
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        // Stream canceled
+      } else {
+        throw e
       }
     }
-    setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
+    if (result) {
+      setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
+    }
     setStreamText('')
     setLoading(false)
   }
@@ -259,8 +288,8 @@ export const Chat: FC = () => {
           )}
           <div className='chat-container'>
             <div className='message-list'>
-              {messages.map(({ role, content }) => (
-                <React.Fragment key={`chat_${content}`}>
+              {messages.map(({ role, content }, index) => (
+                <React.Fragment key={`chat_${index}`}>
                   {role === 'user' && (
                     <div className={'message mb-2 text-right'}>
                       <p
@@ -305,7 +334,7 @@ export const Chat: FC = () => {
               <div ref={messageEndRef} />
             </div>
           </div>
-          <div className={`flex items-center gap-2 ${loading && 'opacity-40'}`}>
+          <div className={'flex items-center gap-2'}>
             <textarea
               name='userInput'
               value={input}
@@ -316,15 +345,25 @@ export const Chat: FC = () => {
               rows={textAreaRows}
               placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
               disabled={loading}
-              className='max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+              className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
             />
-            <button
-              type='submit'
-              disabled={loading || !!streamText || input.trim().length <= 0}
-              className='whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-            >
-              送信
-            </button>
+            {loading ? (
+              <button
+                type='button'
+                onClick={handleStreamCancel}
+                className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+              >
+                停止
+              </button>
+            ) : (
+              <button
+                type='submit'
+                disabled={loading || !!streamText || input.trim().length <= 0}
+                className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+              >
+                送信
+              </button>
+            )}
           </div>
         </div>
       </div>
