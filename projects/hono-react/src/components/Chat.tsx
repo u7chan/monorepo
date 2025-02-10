@@ -351,7 +351,15 @@ export const Chat: FC = () => {
                     <ChatbotIcon size={32} color='#5D5D5D' />
                   </div>
                   <div className='message text-left'>
-                    <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
+                    {showMarkdownPreview ? (
+                      <Markdown remarkPlugins={[remarkGfm]} className='prose mt-1 ml-2'>
+                        {streamText}
+                      </Markdown>
+                    ) : (
+                      <div className='message text-left'>
+                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
