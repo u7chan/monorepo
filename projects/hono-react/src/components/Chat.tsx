@@ -84,7 +84,7 @@ export const Chat: FC = () => {
   const handleScrollContainer = () => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-    const isAtBottom = Math.floor(scrollHeight - scrollTop) === clientHeight
+    const isAtBottom = Math.floor(scrollHeight - scrollTop) < clientHeight + 32 // offset
     setIsAtBottom(isAtBottom)
   }
 
@@ -209,7 +209,7 @@ export const Chat: FC = () => {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit}>
-      <div className={'absolute'}>
+      <div className={'absolute top-4'}>
         <button
           type='button'
           onClick={() => setShowMenu(!showMenu)}
@@ -274,9 +274,10 @@ export const Chat: FC = () => {
           </div>
         </div>
       </div>
+
       <div
         ref={scrollContainerRef}
-        className={`flex h-screen justify-center ${emptyMessage ? 'items-center' : 'max-h-[calc(100vh-20px)] overflow-y-auto py-10'}`}
+        className={`flex h-screen justify-center ${emptyMessage ? 'items-center' : 'mt-[24px] max-h-[calc(100vh-24px)] overflow-y-auto '}`}
       >
         <div className='container grid gap-2 px-4'>
           {emptyMessage && (
@@ -286,7 +287,7 @@ export const Chat: FC = () => {
               </div>
             </div>
           )}
-          <div className='chat-container'>
+          <div className='chat-container pb-32'>
             <div className='message-list'>
               {messages.map(({ role, content }, index) => (
                 <React.Fragment key={`chat_${index}`}>
@@ -334,7 +335,8 @@ export const Chat: FC = () => {
               <div ref={messageEndRef} />
             </div>
           </div>
-          <div className={'flex items-center gap-2'}>
+
+          <div className={'flex items-center gap-2 '}>
             <textarea
               name='userInput'
               value={input}
@@ -365,6 +367,8 @@ export const Chat: FC = () => {
               </button>
             )}
           </div>
+
+          <div className='h-2' />
         </div>
       </div>
     </form>
