@@ -46,6 +46,8 @@ interface Message {
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const buttomContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -66,9 +68,11 @@ export const Chat: FC = () => {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    formRef?.current?.addEventListener('click', handleClickScrollContainer)
+    scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+    buttomContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
     return () => {
-      formRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      buttomContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
     }
   }, [])
 
@@ -193,7 +197,7 @@ export const Chat: FC = () => {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className=''>
-      <div className={'absolute top-4'}>
+      <div className='absolute top-4'>
         <button
           type='button'
           onClick={() => setShowMenu(!showMenu)}
@@ -201,65 +205,69 @@ export const Chat: FC = () => {
         >
           <GearIcon color='#5D5D5D' />
         </button>
-        <div
-          className={`relative top-5 left-10 z-10 grid gap-2 rounded bg-white p-2 shadow ${!showMenu && 'hidden'}`}
+      </div>
+
+      <div
+        className={`fixed top-14 left-40 z-10 grid gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
+      >
+        <select
+          name='llm'
+          required
+          defaultValue={defaultSettings.llm}
+          onChange={handleChangeLLM}
+          className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
         >
-          <select
-            name='llm'
-            required
-            defaultValue={defaultSettings.llm}
-            onChange={handleChangeLLM}
-            className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-          >
-            <option value='openai'>OpenAI (gpt-4o-mini)</option>
-            <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
-            <option value='test'>Test Stream</option>
-          </select>
-          <div className='flex items-center gap-2'>
-            <span className='ml-1 text-md'>temperature</span>
-            <input
-              name='temperature'
-              type='range'
-              min='0'
-              max='1'
-              step='0.01'
-              value={temperature}
-              onChange={handleChangeTemperature}
-              disabled={!!streamText}
-              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
-            />
-            <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
-          </div>
+          <option value='openai'>OpenAI (gpt-4o-mini)</option>
+          <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
+          <option value='test'>Test Stream</option>
+        </select>
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 text-md'>temperature</span>
           <input
-            name='maxTokens'
-            type='number'
-            min={1}
-            max={4096}
-            defaultValue={defaultSettings.maxTokens}
-            placeholder='max tokens'
-            onChange={handleChangeMaxTokens}
-            className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+            name='temperature'
+            type='range'
+            min='0'
+            max='1'
+            step='0.01'
+            value={temperature}
+            onChange={handleChangeTemperature}
+            disabled={!!streamText}
+            className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
           />
-          <div className='flex items-center gap-2'>
-            <span className='ml-1 text-md'>markdown preview</span>
-            <button
-              type='button'
-              className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
-                showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
+          <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
+        </div>
+        <input
+          name='maxTokens'
+          type='number'
+          min={1}
+          max={4096}
+          defaultValue={defaultSettings.maxTokens}
+          placeholder='max tokens'
+          onChange={handleChangeMaxTokens}
+          className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
+        />
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 text-md'>markdown preview</span>
+          <button
+            type='button'
+            className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
+              showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
+            }`}
+            onClick={handleClickShowMarkdownPreview}
+          >
+            <div
+              className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
               }`}
-              onClick={handleClickShowMarkdownPreview}
-            >
-              <div
-                className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
-                  showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
+            />
+          </button>
         </div>
       </div>
 
-      <div className='flex h-screen max-h-[calc(100vh-162px)] overflow-y-auto'>
+      <div
+        ref={scrollContainerRef}
+        className={`max-h flex h-screen overflow-y-auto ${!emptyMessage && 'max-h-[calc(100vh-162px)]'}`}
+      >
         {emptyMessage && (
           <div className='flex flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-2'>
@@ -352,42 +360,44 @@ export const Chat: FC = () => {
           </div>
         )}
       </div>
-      {!emptyMessage && (
-        <>
-          {/* Chat Input */}
-          <div className={'flex h-[162px] items-center gap-2 px-4'}>
-            <textarea
-              name='userInput'
-              value={input}
-              onChange={handleChangeInput}
-              onKeyDown={handleKeyDown}
-              onCompositionStart={() => setComposition(true)}
-              onCompositionEnd={() => setComposition(false)}
-              rows={textAreaRows}
-              placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
-              disabled={loading}
-              className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
-            />
-            {loading ? (
-              <button
-                type='button'
-                onClick={handleStreamCancel}
-                className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-              >
-                停止
-              </button>
-            ) : (
-              <button
-                type='submit'
-                disabled={loading || !!streamText || input.trim().length <= 0}
-                className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-              >
-                送信
-              </button>
-            )}
-          </div>
-        </>
-      )}
+      <div ref={buttomContainerRef}>
+        {!emptyMessage && (
+          <>
+            {/* Chat Input */}
+            <div className={'flex h-[162px] items-center gap-2 px-4'}>
+              <textarea
+                name='userInput'
+                value={input}
+                onChange={handleChangeInput}
+                onKeyDown={handleKeyDown}
+                onCompositionStart={() => setComposition(true)}
+                onCompositionEnd={() => setComposition(false)}
+                rows={textAreaRows}
+                placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
+                disabled={loading}
+                className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
+              />
+              {loading ? (
+                <button
+                  type='button'
+                  onClick={handleStreamCancel}
+                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                >
+                  停止
+                </button>
+              ) : (
+                <button
+                  type='submit'
+                  disabled={loading || !!streamText || input.trim().length <= 0}
+                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                >
+                  送信
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </form>
   )
 }
