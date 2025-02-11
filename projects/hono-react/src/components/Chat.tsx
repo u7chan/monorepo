@@ -68,7 +68,15 @@ export const Chat: FC = () => {
   }, [])
 
   const [messages, setMessages] = useState<Message[]>([])
-  const [streamText, setStreamText] = useState('')
+  const [stream, setStream] = useState('')
+  const [streamResult, setStreamResult] = useState<{
+    finishReason: string
+    usage?: {
+      promptTokens: number
+      completionTokens: number
+      totalTokens: number
+    } | null
+  } | null>(null)
   const [input, setInput] = useState('')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 1,
@@ -92,7 +100,7 @@ export const Chat: FC = () => {
   useEffect(() => {
     if (!autoScroll) return
     messageEndRef?.current?.scrollIntoView()
-  }, [streamText, autoScroll])
+  }, [stream, autoScroll])
 
   const handleScroll = () => {
     if (!scrollContainerRef.current) return
@@ -158,6 +166,12 @@ export const Chat: FC = () => {
     setInput('')
 
     let result = ''
+    let finishReason = ''
+    let usage: {
+      prompt_tokens: number
+      completion_tokens: number
+      total_tokens: number
+    } | null = null
 
     // Call the Chat API
     abortControllerRef.current = new AbortController()
@@ -191,11 +205,19 @@ export const Chat: FC = () => {
               (x) =>
                 JSON.parse(x) as {
                   content: string
+                  finish_reason?: string
+                  usage?: {
+                    prompt_tokens: number
+                    completion_tokens: number
+                    total_tokens: number
+                  }
                 },
             )
           // Append chunk to result
           result += data.map((x) => x.content).join('')
-          setStreamText(`${result}●`)
+          finishReason = data.find((x) => x.finish_reason)?.finish_reason || ''
+          usage = data.find((x) => x.usage)?.usage ?? null
+          setStream(`${result}●`)
         }
       }
     } catch (e) {
@@ -207,8 +229,16 @@ export const Chat: FC = () => {
     }
     if (result) {
       setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
+      setStreamResult({
+        finishReason,
+        usage: usage && {
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens,
+        },
+      })
     }
-    setStreamText('')
+    setStream('')
     setLoading(false)
   }
 
@@ -270,7 +300,7 @@ export const Chat: FC = () => {
             step='0.01'
             value={temperature}
             onChange={handleChangeTemperature}
-            disabled={!!streamText}
+            disabled={!!stream}
             className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
           />
           <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
@@ -339,7 +369,7 @@ export const Chat: FC = () => {
                 ) : (
                   <button
                     type='submit'
-                    disabled={loading || !!streamText || input.trim().length <= 0}
+                    disabled={loading || !!stream || input.trim().length <= 0}
                     className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
                   >
                     送信
@@ -389,7 +419,7 @@ export const Chat: FC = () => {
                   )}
                 </React.Fragment>
               ))}
-              {streamText && (
+              {stream && (
                 <div className='flex align-item'>
                   <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                     <ChatbotIcon size={32} color='#5D5D5D' />
@@ -401,13 +431,27 @@ export const Chat: FC = () => {
                         components={{ code: CodeBlock }}
                         className='prose mt-1 ml-2'
                       >
-                        {streamText}
+                        {stream}
                       </Markdown>
                     ) : (
                       <div className='message text-left'>
-                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{streamText}</p>
+                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{stream}</p>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+              {!loading && streamResult && (
+                <div className='mt-2 flex justify-end'>
+                  <div className='flex items-center gap-2 rounded bg-gray-100 px-2 py-1 text-xs'>
+                    <div>
+                      <span className='mr-1'>Input:</span>
+                      <span>{streamResult.usage?.promptTokens}</span>
+                    </div>
+                    <div>
+                      <span className='mr-1'>Output:</span>
+                      <span>{streamResult.usage?.completionTokens}</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -444,7 +488,7 @@ export const Chat: FC = () => {
               ) : (
                 <button
                   type='submit'
-                  disabled={loading || !!streamText || input.trim().length <= 0}
+                  disabled={loading || !!stream || input.trim().length <= 0}
                   className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
                 >
                   送信

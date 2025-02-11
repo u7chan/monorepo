@@ -130,9 +130,9 @@ const app = new Hono<Env>()
                   )
                 }
 
-                if (text) {
-                  await stream.writeln(`data: ${JSON.stringify({ content: text })}`)
-                }
+                await stream.writeln(
+                  `data: ${JSON.stringify({ content: text, finish_reason: finishReason, usage })}`,
+                )
               } catch (error) {
                 console.error('Failed to parse JSON:', error)
               }
