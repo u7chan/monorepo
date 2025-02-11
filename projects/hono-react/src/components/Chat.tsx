@@ -78,6 +78,7 @@ export const Chat: FC = () => {
   const [composing, setComposition] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
     scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
@@ -87,6 +88,22 @@ export const Chat: FC = () => {
       buttomContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
     }
   }, [])
+
+  useEffect(() => {
+    if (!autoScroll) return
+    messageEndRef?.current?.scrollIntoView()
+  }, [streamText, autoScroll])
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
+
+    if (scrollTop + clientHeight >= scrollHeight - 24) {
+      setAutoScroll(true)
+    } else {
+      setAutoScroll(false)
+    }
+  }
 
   const handleClickScrollContainer = () => {
     setShowMenu(false)
@@ -274,6 +291,7 @@ export const Chat: FC = () => {
 
       <div
         ref={scrollContainerRef}
+        onScroll={handleScroll}
         className={`max-h flex h-screen overflow-y-auto ${!emptyMessage && 'max-h-[calc(100vh-162px)]'}`}
       >
         {emptyMessage && (
