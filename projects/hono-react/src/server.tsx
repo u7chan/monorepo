@@ -3,7 +3,7 @@ import { env } from 'hono/adapter'
 import { sValidator } from '@hono/standard-validator'
 import { streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
-import { z, type ZodError } from 'zod'
+import { z } from 'zod'
 
 import { getLLMProvider } from './llm/getLLMProvider'
 
