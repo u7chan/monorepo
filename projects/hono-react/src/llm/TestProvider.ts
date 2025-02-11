@@ -80,9 +80,35 @@ interface Person {
 const CHUNK_SIZE = 5
 const MAX_CHUNKS = (TEST_DATA.length / CHUNK_SIZE) * 3
 
-function createDummyStream(): ReadableStreamDefaultReader<Uint8Array> {
+function createDummyStream(messages: Messages[]): ReadableStreamDefaultReader<Uint8Array> {
   let index = 0
   let chunkCount = 0
+
+  const createResponsePayload = ({
+    id,
+    model = 'dummy',
+    content,
+    finish_reason = null,
+    usage = null,
+  }: {
+    id: string
+    model?: string
+    content: string
+    finish_reason?: 'length' | 'stop' | null
+    usage?: {
+      prompt_tokens: number
+      completion_tokens: number
+      total_tokens: number
+    } | null
+  }): string => {
+    const data = {
+      id,
+      model,
+      choices: [{ delta: { content }, finish_reason }],
+      usage,
+    }
+    return `data: ${JSON.stringify(data)}\n`
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -91,19 +117,36 @@ function createDummyStream(): ReadableStreamDefaultReader<Uint8Array> {
         chunk += TEST_DATA[index]
         index = (index + 1) % TEST_DATA.length
       }
-      const data = {
-        id: `${chunkCount}`,
-        model: 'dummy',
-        choices: [{ delta: { content: `${chunk}` }, finishReason: null }],
-        usage: null,
-      }
-      const payload = `data: ${JSON.stringify(data)}\n`
-      controller.enqueue(new TextEncoder().encode(payload))
+
+      controller.enqueue(
+        new TextEncoder().encode(
+          createResponsePayload({
+            id: `${chunkCount}`,
+            content: chunk,
+          }),
+        ),
+      )
       chunkCount++
 
       await new Promise((resolve) => setTimeout(resolve, 25)) // delay
 
       if (chunkCount >= MAX_CHUNKS) {
+        const sloppyInputToken = messages.filter((x) => x.role === 'user').join('').length // 適当なトークン数
+        controller.enqueue(
+          new TextEncoder().encode(
+            createResponsePayload({
+              id: `${chunkCount}`,
+              content: 'Test stream end 🚀',
+              finish_reason: 'stop',
+              usage: {
+                // テスト用に適当に値を埋める
+                prompt_tokens: sloppyInputToken,
+                completion_tokens: chunkCount,
+                total_tokens: sloppyInputToken + chunkCount,
+              },
+            }),
+          ),
+        )
         controller.enqueue(new TextEncoder().encode('data: [DONE]\n'))
         controller.close()
       }
@@ -115,11 +158,11 @@ function createDummyStream(): ReadableStreamDefaultReader<Uint8Array> {
 
 export class TestProvider implements LLMProvider {
   async chatStream(
-    _messages: Messages[],
+    messages: Messages[],
     _temperature?: number | null,
     _maxTokens?: number | null,
   ): Promise<Reader> {
     await new Promise((resolve) => setTimeout(resolve, 1000)) // delay
-    return createDummyStream()
+    return createDummyStream(messages)
   }
 }
