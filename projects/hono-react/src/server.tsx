@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
-import { zValidator } from '@hono/zod-validator'
+import { sValidator } from '@hono/standard-validator'
 import { streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z, type ZodError } from 'zod'
@@ -18,18 +18,21 @@ type Env = {
 const app = new Hono<Env>()
   .post(
     '/api/profile',
-    zValidator(
+    sValidator(
       'form',
       z.object({
         name: z.string().min(2, { message: 'nameは2文字以上でなければなりません' }),
         email: z.string().email({ message: 'emailは正しい形式ではありません' }),
       }),
       (values, c) => {
-        const result = values as { error?: ZodError; success: boolean }
-        if (result.success) {
+        const { success, error = [] } = values as {
+          success: boolean
+          error?: { message: string }[]
+        }
+        if (success) {
           return
         }
-        return c.json({ error: result?.error?.issues?.map((x) => x.message)?.join(',') || '' }, 400)
+        return c.json({ error: error.map((x) => x.message).join(',') || '' }, 400)
       },
     ),
     (c) => {
@@ -41,7 +44,7 @@ const app = new Hono<Env>()
   )
   .post(
     '/api/chat',
-    zValidator(
+    sValidator(
       'json',
       z.object({
         llm: z.enum(['openai', 'deepseek', 'test'], {
@@ -61,11 +64,14 @@ const app = new Hono<Env>()
           .array(),
       }),
       (values, c) => {
-        const result = values as { error?: ZodError; success: boolean }
-        if (result.success) {
+        const { success, error = [] } = values as {
+          success: boolean
+          error?: { message: string }[]
+        }
+        if (success) {
           return
         }
-        return c.json({ error: result?.error?.issues?.map((x) => x.message)?.join(',') || '' }, 400)
+        return c.json({ error: error.map((x) => x.message).join(',') || '' }, 400)
       },
     ),
     async (c) => {
