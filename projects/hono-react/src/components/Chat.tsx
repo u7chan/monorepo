@@ -137,8 +137,6 @@ export const Chat: FC = () => {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setShowMenu(false)
-    setLoading(true)
 
     const formData = new FormData(event.currentTarget)
     const form = {
@@ -147,6 +145,12 @@ export const Chat: FC = () => {
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : null,
       userInput: formData.get('userInput')?.toString() || '',
     }
+    if (!form.userInput.trim()) {
+      return
+    }
+
+    setShowMenu(false)
+    setLoading(true)
 
     const userMessage: Message = { role: 'user', content: form.userInput }
     const newMessages = [...messages, userMessage]
