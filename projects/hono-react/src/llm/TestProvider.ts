@@ -3,7 +3,10 @@ import type { LLMProvider, Messages, Reader } from './types'
 
 const TEST_DATA = `
 これはテスト用のストリームです🤖
+
 何回か繰り返しテキストを出力します。
+
+---
 
 # 見出し1
 ## 見出し2
@@ -132,7 +135,7 @@ function createDummyStream(messages: Messages[]): ReadableStreamDefaultReader<Ui
       await new Promise((resolve) => setTimeout(resolve, 25)) // delay
 
       if (chunkCount >= MAX_CHUNKS) {
-        const sloppyInputToken = messages.join('').length // 適当なトークン数
+        const sloppyInputToken = messages.map((x) => x.content).join('').length // 適当なトークン数
         controller.enqueue(
           new TextEncoder().encode(
             createResponsePayload({
