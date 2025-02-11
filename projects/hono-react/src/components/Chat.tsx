@@ -183,8 +183,18 @@ export const Chat: FC = () => {
           const { done, value } = (await reader?.read()) || {}
           if (done) break
           const chunk = new TextDecoder().decode(value)
+          const data = chunk
+            .split('\n')
+            .map((x) => x.split('data: ')[1])
+            .filter((x) => x)
+            .map(
+              (x) =>
+                JSON.parse(x) as {
+                  content: string
+                },
+            )
           // Append chunk to result
-          result += chunk
+          result += data.map((x) => x.content).join('')
           setStreamText(`${result}●`)
         }
       }
