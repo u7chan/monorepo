@@ -42,8 +42,12 @@ function saveToLocalStorage(settings: {
 
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
 function CodeBlock(props: any) {
-  const { className = '', children = '' } = props as { className?: string; children?: string }
+  const { className = '', children = '' } = props as {
+    className?: string
+    children?: string
+  }
   const language = className?.split('-')[1]
+  if (!language) return <code>{children}</code>
   return <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
 }
 
@@ -146,11 +150,7 @@ export const Chat: FC = () => {
             messages: newMessages,
           },
         },
-        {
-          init: {
-            signal: abortControllerRef.current.signal,
-          },
-        },
+        { init: { signal: abortControllerRef.current.signal } },
       )
 
       if (!res.ok) {
@@ -342,9 +342,7 @@ export const Chat: FC = () => {
                         {showMarkdownPreview ? (
                           <Markdown
                             remarkPlugins={[remarkGfm]}
-                            components={{
-                              code: CodeBlock,
-                            }}
+                            components={{ code: CodeBlock }}
                             className='prose mt-1 ml-2'
                           >
                             {content}
@@ -368,9 +366,7 @@ export const Chat: FC = () => {
                     {showMarkdownPreview ? (
                       <Markdown
                         remarkPlugins={[remarkGfm]}
-                        components={{
-                          code: CodeBlock,
-                        }}
+                        components={{ code: CodeBlock }}
                         className='prose mt-1 ml-2'
                       >
                         {streamText}
