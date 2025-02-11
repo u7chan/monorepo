@@ -65,6 +65,15 @@ if __name__ == "__main__":
     hello()
 \`\`\`
 
+TypeScriptのコードブロックです。
+
+\`\`\`ts
+interface Person {
+  name: string;
+  age: number;
+  isStudent: boolean;
+}
+\`\`\`
 `
 const CHUNK_SIZE = 5
 const MAX_CHUNKS = (TEST_DATA.length / CHUNK_SIZE) * 3
