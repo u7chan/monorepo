@@ -42,7 +42,9 @@ const TEST_DATA = `
 
 [リンクテキスト](https://example.com)
 
-![画像の代替テキスト](https://via.placeholder.com/150)
+画像です。
+
+![画像の代替テキスト](https://picsum.photos/200)
 
 ---
 

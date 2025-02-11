@@ -39,13 +39,6 @@
   content: none;
 }
 
-/* コードブロックの黒背景と余白を無効にする */
-.prose pre {
-  background-color: unset;
-  padding: 0;
-  margin: 0;
-}
-
 /* コードブロック内のトークンスタイルを無効にする */
 .prose pre code span.token {
   background: unset !important;
