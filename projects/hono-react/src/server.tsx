@@ -86,9 +86,13 @@ const app = new Hono<Env>()
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
       return streamText(c, async (stream) => {
+        let aborted = false
+        stream.onAbort(() => {
+          aborted = true
+        })
         while (true) {
           const { done, value } = (await reader.read()) || {}
-          if (done) {
+          if (done || aborted) {
             break
           }
 

@@ -441,7 +441,7 @@ export const Chat: FC = () => {
                   </div>
                 </div>
               )}
-              {!loading && streamResult && (
+              {!loading && streamResult?.usage && (
                 <div className='mt-2 flex justify-end'>
                   <div className='flex items-center gap-2 rounded bg-gray-100 px-2 py-1 text-xs'>
                     <div>
