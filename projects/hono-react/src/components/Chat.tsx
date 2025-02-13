@@ -420,37 +420,34 @@ export const Chat: FC = () => {
                   )}
                 </React.Fragment>
               ))}
-
-              <div className='flex align-item'>
-                <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                  <ChatbotIcon size={32} color='#5D5D5D' />
-                </div>
-                {stream ? (
-                  <div className='message text-left'>
-                    {showMarkdownPreview ? (
-                      <Markdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{ code: CodeBlock }}
-                        className='prose mt-1 ml-2'
-                      >
-                        {stream}
-                      </Markdown>
-                    ) : (
-                      <div className='message text-left'>
-                        <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{stream}</p>
-                      </div>
-                    )}
+              {loading && (
+                <div className='flex align-item'>
+                  <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <ChatbotIcon size={32} color='#5D5D5D' />
                   </div>
-                ) : (
-                  <>
-                    {loading && (
-                      <div className='ml-2 scale-75'>
-                        <SpinnerIcon />
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                  {stream ? (
+                    <div className='message text-left'>
+                      {showMarkdownPreview ? (
+                        <Markdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{ code: CodeBlock }}
+                          className='prose mt-1 ml-2'
+                        >
+                          {stream}
+                        </Markdown>
+                      ) : (
+                        <div className='message text-left'>
+                          <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{stream}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className='ml-2 scale-75'>
+                      <SpinnerIcon />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {!loading && streamResult?.usage && (
                 <div className='mt-2 flex justify-end'>
