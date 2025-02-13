@@ -166,7 +166,7 @@ export class TestProvider implements LLMProvider {
     _temperature?: number | null,
     _maxTokens?: number | null,
   ): Promise<Reader> {
-    await new Promise((resolve) => setTimeout(resolve, 1000)) // delay
+    await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
     return createDummyStream(messages)
   }
 }

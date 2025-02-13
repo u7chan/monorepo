@@ -16,6 +16,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import type { AppType } from '../server'
 import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
+import { SpinnerIcon } from './svg/SpinnerIcon'
 
 const client = hc<AppType>('/')
 
@@ -362,7 +363,7 @@ export const Chat: FC = () => {
                   <button
                     type='button'
                     onClick={handleStreamCancel}
-                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
                   >
                     停止
                   </button>
@@ -370,7 +371,7 @@ export const Chat: FC = () => {
                   <button
                     type='submit'
                     disabled={loading || !!stream || input.trim().length <= 0}
-                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
                   >
                     送信
                   </button>
@@ -419,11 +420,12 @@ export const Chat: FC = () => {
                   )}
                 </React.Fragment>
               ))}
-              {stream && (
-                <div className='flex align-item'>
-                  <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                    <ChatbotIcon size={32} color='#5D5D5D' />
-                  </div>
+
+              <div className='flex align-item'>
+                <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                  <ChatbotIcon size={32} color='#5D5D5D' />
+                </div>
+                {stream ? (
                   <div className='message text-left'>
                     {showMarkdownPreview ? (
                       <Markdown
@@ -439,8 +441,17 @@ export const Chat: FC = () => {
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <>
+                    {loading && (
+                      <div className='ml-2 scale-75'>
+                        <SpinnerIcon />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
               {!loading && streamResult?.usage && (
                 <div className='mt-2 flex justify-end'>
                   <div className='flex items-center gap-2 rounded bg-gray-100 px-2 py-1 text-xs'>
@@ -481,7 +492,7 @@ export const Chat: FC = () => {
                 <button
                   type='button'
                   onClick={handleStreamCancel}
-                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
                 >
                   停止
                 </button>
@@ -489,7 +500,7 @@ export const Chat: FC = () => {
                 <button
                   type='submit'
                   disabled={loading || !!stream || input.trim().length <= 0}
-                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
                 >
                   送信
                 </button>
