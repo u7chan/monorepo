@@ -263,6 +263,10 @@ export const Chat: FC = () => {
     }
   }
 
+  const handleChangeComposition = (composition: boolean) => {
+    setComposition(composition)
+  }
+
   const emptyMessage = messages.length === 0
 
   return (
@@ -345,38 +349,17 @@ export const Chat: FC = () => {
               <div className='text-center font-bold text-2xl text-gray-700'>
                 お手伝いできることはありますか？
               </div>
-              {/* Chat Input */}
-              <div className={'flex h-[162px] items-center gap-2 px-4'}>
-                <textarea
-                  name='userInput'
-                  value={input}
-                  onChange={handleChangeInput}
-                  onKeyDown={handleKeyDown}
-                  onCompositionStart={() => setComposition(true)}
-                  onCompositionEnd={() => setComposition(false)}
-                  rows={textAreaRows}
-                  placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
-                  disabled={loading}
-                  className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
-                />
-                {loading ? (
-                  <button
-                    type='button'
-                    onClick={handleStreamCancel}
-                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-                  >
-                    停止
-                  </button>
-                ) : (
-                  <button
-                    type='submit'
-                    disabled={loading || !!stream || input.trim().length <= 0}
-                    className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-                  >
-                    送信
-                  </button>
-                )}
-              </div>
+              <ChatInput
+                name='userInput'
+                value={input}
+                textAreaRows={textAreaRows}
+                loading={loading}
+                disabled={loading || !!stream || input.trim().length <= 0}
+                handleChangeInput={handleChangeInput}
+                handleKeyDown={handleKeyDown}
+                handleChangeComposition={handleChangeComposition}
+                handleClickStop={handleStreamCancel}
+              />
             </div>
           </div>
         )}
@@ -470,42 +453,77 @@ export const Chat: FC = () => {
       </div>
       <div ref={buttomContainerRef}>
         {!emptyMessage && (
-          <>
-            {/* Chat Input */}
-            <div className={'flex h-[162px] items-center gap-2 px-4'}>
-              <textarea
-                name='userInput'
-                value={input}
-                onChange={handleChangeInput}
-                onKeyDown={handleKeyDown}
-                onCompositionStart={() => setComposition(true)}
-                onCompositionEnd={() => setComposition(false)}
-                rows={textAreaRows}
-                placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
-                disabled={loading}
-                className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
-              />
-              {loading ? (
-                <button
-                  type='button'
-                  onClick={handleStreamCancel}
-                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-                >
-                  停止
-                </button>
-              ) : (
-                <button
-                  type='submit'
-                  disabled={loading || !!stream || input.trim().length <= 0}
-                  className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
-                >
-                  送信
-                </button>
-              )}
-            </div>
-          </>
+          <ChatInput
+            name='userInput'
+            value={input}
+            textAreaRows={textAreaRows}
+            loading={loading}
+            disabled={loading || !!stream || input.trim().length <= 0}
+            handleChangeInput={handleChangeInput}
+            handleKeyDown={handleKeyDown}
+            handleChangeComposition={handleChangeComposition}
+            handleClickStop={handleStreamCancel}
+          />
         )}
       </div>
     </form>
+  )
+}
+
+interface ChatInputProps {
+  name?: string
+  value?: string
+  textAreaRows?: number
+  loading?: boolean
+  disabled?: boolean
+  handleChangeInput?: (event: ChangeEvent<HTMLTextAreaElement>) => void
+  handleKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  handleChangeComposition?: (composition: boolean) => void
+  handleClickStop?: () => void
+}
+
+function ChatInput({
+  name,
+  value,
+  textAreaRows,
+  loading,
+  disabled,
+  handleChangeInput,
+  handleKeyDown,
+  handleChangeComposition,
+  handleClickStop,
+}: ChatInputProps) {
+  return (
+    <div className={'flex h-[162px] items-center gap-2 px-4'}>
+      <textarea
+        name={name}
+        value={value}
+        onChange={handleChangeInput}
+        onKeyDown={handleKeyDown}
+        onCompositionStart={() => handleChangeComposition?.(true)}
+        onCompositionEnd={() => handleChangeComposition?.(false)}
+        rows={textAreaRows}
+        placeholder={loading ? 'しばらくお待ちください' : 'メッセージを送信する'}
+        disabled={loading}
+        className={`max-h-34 w-full resize-none overflow-y-auto rounded-2xl border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600 ${loading && 'opacity-40'}`}
+      />
+      {loading ? (
+        <button
+          type='button'
+          onClick={handleClickStop}
+          className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+        >
+          停止
+        </button>
+      ) : (
+        <button
+          type='submit'
+          disabled={disabled}
+          className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+        >
+          送信
+        </button>
+      )}
+    </div>
   )
 }
