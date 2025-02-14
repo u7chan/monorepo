@@ -60,6 +60,11 @@ const supportedModels = [
     model: 'gpt-4o-mini',
   },
   {
+    value: 'OpenAI (gpt-4o)',
+    llm: 'openai',
+    model: 'gpt-4o',
+  },
+  {
     value: 'DeepSeek (DeepSeek-V3)',
     llm: 'deepseek',
     model: 'deepseek-chat',
