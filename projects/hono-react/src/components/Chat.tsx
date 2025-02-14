@@ -112,7 +112,7 @@ export const Chat: FC = () => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
 
-    if (scrollTop + clientHeight >= scrollHeight - 24) {
+    if (scrollTop + clientHeight >= scrollHeight - 36) {
       setAutoScroll(true)
     } else {
       setAutoScroll(false)
