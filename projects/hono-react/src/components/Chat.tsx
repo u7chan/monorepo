@@ -99,7 +99,7 @@ export const Chat: FC = () => {
   } | null>(null)
   const [input, setInput] = useState('')
   const [temperature, setTemperature] = useState<number>(
-    defaultSettings.temperature ? Number(defaultSettings.temperature) : 1,
+    defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(!!defaultSettings.markdownPreview)
   const [textAreaRows, setTextAreaRows] = useState(1)
