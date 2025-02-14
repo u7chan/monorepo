@@ -32,8 +32,9 @@ export const Profile: FC = () => {
           Name
         </label>
         <input
-          type='text'
+          id='name'
           name='name'
+          type='text'
           placeholder='Enter your name'
           className='w-full rounded-sm border border-gray-300 p-2'
         />
@@ -43,8 +44,9 @@ export const Profile: FC = () => {
           Email
         </label>
         <input
-          type='email'
+          id='email'
           name='email'
+          type='email'
           placeholder='Enter your email'
           className='w-full rounded-sm border border-gray-300 p-2'
         />
