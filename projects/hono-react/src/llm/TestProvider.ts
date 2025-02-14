@@ -162,6 +162,7 @@ function createDummyStream(messages: Messages[]): ReadableStreamDefaultReader<Ui
 
 export class TestProvider implements LLMProvider {
   async chatStream(
+    _model: string,
     messages: Messages[],
     _temperature?: number | null,
     _maxTokens?: number | null,

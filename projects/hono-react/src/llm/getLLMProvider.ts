@@ -25,6 +25,8 @@ export function getLLMProvider(
 
     case 'test':
       return new TestProvider()
+
+    default:
+      throw new Error(`Unsupported LLM: ${llm}`)
   }
-  throw new Error(`Unsupported LLM: ${llm}`)
 }

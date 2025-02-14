@@ -7,6 +7,7 @@ export interface Messages {
 
 export interface LLMProvider {
   chatStream: (
+    model: string,
     messages: Messages[],
     temperature?: number | null,
     maxTokens?: number | null,

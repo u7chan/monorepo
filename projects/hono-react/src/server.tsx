@@ -50,6 +50,7 @@ const app = new Hono<Env>()
         llm: z.enum(['openai', 'deepseek', 'test'], {
           message: "llmは'openai','deepseek', 'test'のいずれかを指定してください",
         }),
+        model: z.string().min(1),
         temperature: z.number().min(0).max(1).nullish(),
         maxTokens: z
           .number()
@@ -75,13 +76,13 @@ const app = new Hono<Env>()
       },
     ),
     async (c) => {
-      const { llm, temperature, maxTokens, messages } = c.req.valid('json')
+      const { llm, model, temperature, maxTokens, messages } = c.req.valid('json')
       const envs = env<{
         OPENAI_API_KEY?: string
         DEEPSEEK_API_KEY?: string
       }>(c)
       const llmProvider = getLLMProvider(llm, envs)
-      const reader = await llmProvider.chatStream(messages, temperature, maxTokens)
+      const reader = await llmProvider.chatStream(model, messages, temperature, maxTokens)
 
       const decoder = new TextDecoder('utf-8')
       let buffer = ''

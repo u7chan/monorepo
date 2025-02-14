@@ -1,3 +1,4 @@
+import { StringBuffer } from 'hono/utils/html'
 import type { LLMProvider, Messages, Reader } from './types'
 
 export class DeepSeekProvider implements LLMProvider {
@@ -8,11 +9,11 @@ export class DeepSeekProvider implements LLMProvider {
   }
 
   async chatStream(
+    model: string,
     messages: Messages[],
     temperature?: number | null,
     maxTokens?: number | null,
   ): Promise<Reader> {
-    const model = 'deepseek-chat'
     const url = 'https://api.deepseek.com/chat/completions'
 
     const res = await fetch(url, {

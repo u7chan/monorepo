@@ -8,11 +8,11 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async chatStream(
+    model: string,
     messages: Messages[],
     temperature?: number | null,
     maxTokens?: number | null,
   ): Promise<Reader> {
-    const model = 'gpt-4o-mini'
     const url = 'https://api.openai.com/v1/chat/completions'
 
     const res = await fetch(url, {

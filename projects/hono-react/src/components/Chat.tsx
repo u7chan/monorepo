@@ -22,7 +22,7 @@ import { ChatInput } from './ChatInput'
 const client = hc<AppType>('/')
 
 function readFromLocalStorage(): {
-  llm?: string
+  model?: string
   temperature?: string
   maxTokens?: string
   markdownPreview?: boolean
@@ -32,7 +32,7 @@ function readFromLocalStorage(): {
 }
 
 function saveToLocalStorage(settings: {
-  llm?: string
+  model?: string
   temperature?: string
   maxTokens?: string
   markdownPreview?: boolean
@@ -52,6 +52,24 @@ function CodeBlock(props: any) {
   if (!language) return <code>{children}</code>
   return <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
 }
+
+const supportedModels = [
+  {
+    value: 'OpenAI (gpt-4o-mini)',
+    llm: 'openai',
+    model: 'gpt-4o-mini',
+  },
+  {
+    value: 'DeepSeek (DeepSeek-V3)',
+    llm: 'deepseek',
+    model: 'deepseek-chat',
+  },
+  {
+    value: 'Test Stream',
+    llm: 'test',
+    model: 'dummy',
+  },
+] as const
 
 interface Message {
   role: 'user' | 'assistant'
@@ -124,8 +142,8 @@ export const Chat: FC = () => {
     setShowMenu(false)
   }
 
-  const handleChangeLLM = (event: ChangeEvent<HTMLSelectElement>) => {
-    saveToLocalStorage({ llm: event.target.value })
+  const handleChangeModel = (event: ChangeEvent<HTMLSelectElement>) => {
+    saveToLocalStorage({ model: event.target.value })
   }
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
@@ -154,8 +172,10 @@ export const Chat: FC = () => {
     event.preventDefault()
 
     const formData = new FormData(event.currentTarget)
+    const value = formData.get('model')?.toString() || ''
     const form = {
-      llm: formData.get('llm')?.toString() as 'openai' | 'deepseek',
+      llm: supportedModels.find((x) => x.value === value)?.llm || 'test',
+      model: supportedModels.find((x) => x.value === value)?.model || '',
       temperature: Number(formData.get('temperature')),
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : null,
       userInput: formData.get('userInput')?.toString() || '',
@@ -187,6 +207,7 @@ export const Chat: FC = () => {
         {
           json: {
             llm: form.llm,
+            model: form.model,
             temperature: form.temperature,
             maxTokens: form.maxTokens,
             messages: newMessages,
@@ -291,15 +312,17 @@ export const Chat: FC = () => {
         className={`fixed top-14 left-40 z-10 grid gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
         <select
-          name='llm'
+          name='model'
           required
-          defaultValue={defaultSettings.llm}
-          onChange={handleChangeLLM}
+          defaultValue={defaultSettings.model}
+          onChange={handleChangeModel}
           className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
         >
-          <option value='openai'>OpenAI (gpt-4o-mini)</option>
-          <option value='deepseek'>DeepSeek (DeepSeek-V3)</option>
-          <option value='test'>Test Stream</option>
+          {supportedModels.map(({ value }) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
         </select>
         <div className='flex items-center gap-2'>
           <span className='ml-1 text-md'>temperature</span>
