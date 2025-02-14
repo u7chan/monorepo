@@ -99,6 +99,11 @@ export const Chat: FC = () => {
   }, [])
 
   useEffect(() => {
+    if (!loading) return
+    messageEndRef?.current?.scrollIntoView()
+  }, [loading])
+
+  useEffect(() => {
     if (!autoScroll) return
     messageEndRef?.current?.scrollIntoView()
   }, [stream, autoScroll])
