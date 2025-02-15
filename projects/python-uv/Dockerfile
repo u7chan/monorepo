@@ -1,4 +1,5 @@
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS base
+FROM base AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -11,7 +12,7 @@ COPY uv.lock .
 
 RUN uv sync --no-dev
 
-FROM python:3.12-slim AS runner
+FROM base AS runner
 
 ENV PATH=/app/.venv/bin:$PATH
 
