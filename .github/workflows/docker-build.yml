@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  detect-changes:
+  docker-build-if-changes-detected:
     runs-on: ubuntu-latest
 
     steps:
