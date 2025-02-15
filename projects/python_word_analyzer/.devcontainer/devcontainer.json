@@ -1,7 +1,7 @@
 {
-  "name": "python_docling",
+  "name": "python_word_analyzer",
   "build": {
-    "dockerfile": "../../../docker/Dockerfile.python",
+    "dockerfile": "./Dockerfile",
     "args": {
       "BASE_PYTHON": "3.13-slim",
       "USER_NAME": "vscode",
@@ -9,5 +9,33 @@
     }
   },
   "remoteUser": "vscode",
-  "updateRemoteUserUID": false
+  "updateRemoteUserUID": false,
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.tabSize": 2,
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true,
+          "editor.formatOnType": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "always"
+          }
+        },
+        "isort.args": [
+          "--profile",
+          "black"
+        ]
+      },
+      "extensions": [
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "ms-python.isort",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "tomoki1207.pdf"
+      ]
+    }
+  }
 }
