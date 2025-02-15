@@ -51,7 +51,6 @@ jobs:
             echo "Error: Docker image not found."
             exit 1
           fi
-          echo "Built Docker Image ID: $IMAGE_ID"
           IMAGE_SIZE=$(docker inspect --format='{{.Size}}' $IMAGE_ID)
           echo "Image size: $IMAGE_SIZE bytes"
 
