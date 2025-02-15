@@ -1,0 +1,43 @@
+name: Docker Build on Project Changes
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # 最新の2つのコミットをフェッチ
+
+      - name: Get changed directories
+        id: get_changed_dirs
+        run: |
+          # 最新のコミットとその1つ前のコミットの差分を取得
+          git diff --name-only HEAD HEAD~1 | \
+          # 変更されたファイルがどのプロジェクトに属するかを確認
+          grep '^projects/' | \
+          awk -F/ '{print $2}' | \
+          sort -u > changed_projects.txt
+
+      - name: Check for Dockerfile changes
+        id: check_dockerfiles
+        run: |
+          # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
+          while read -r project; do
+            if [[ -f "projects/$project/Dockerfile" ]]; then
+              echo "Dockerfile found in $project"
+              echo "BUILD_PROJECT=$project" >> $GITHUB_ENV
+            fi
+          done < changed_projects.txt
+
+      - name: Build Docker Image
+        if: env.BUILD_PROJECT != ''
+        run: |
+          # 変更があったプロジェクトの Dockerfile を使用して Docker イメージをビルド
+          docker build -t ${{ env.BUILD_PROJECT }}:latest projects/${{ env.BUILD_PROJECT }}
