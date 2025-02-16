@@ -1,17 +1,19 @@
-import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
+import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 
 const app = new Hono()
+app.use('/static/*', serveStatic({ root: '.' }))
 
 app.get('/', (c) => {
   return c.html(
     <html>
       <head>
-        <title>Page Title</title>
+        <title>Hono Node Server</title>
       </head>
       <body>
-        <h1>This is a Heading</h1>
-        <p>This is a paragraph.</p>
+        <h1>Hono Node Server</h1>
+        <a href="/static/sample.txt">sample.txt</a>
       </body>
     </html>)
 })
