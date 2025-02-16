@@ -1,0 +1,11 @@
+{
+  "name": "hono-node-server",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": false
+}
