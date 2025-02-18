@@ -18,6 +18,7 @@ import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
 import { SpinnerIcon } from './svg/SpinnerIcon'
 import { ChatInput } from './ChatInput'
+import { useResponsive } from './ResponsiveProvider'
 
 const client = hc<AppType>('/')
 
@@ -87,6 +88,8 @@ export const Chat: FC = () => {
   const buttomContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  const { mobile } = useResponsive()
 
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
@@ -303,7 +306,7 @@ export const Chat: FC = () => {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className=''>
-      <div className='absolute top-4'>
+      <div className={`absolute ${mobile ? ' top-14' : 'top-4'}`}>
         <button
           type='button'
           onClick={() => setShowMenu(!showMenu)}
