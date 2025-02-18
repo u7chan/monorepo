@@ -36,7 +36,7 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
           <h1 className='font-bold text-xl'>{title}</h1>
           <button
             type='button'
-            className='rounded-lg bg-gray-200 p-2 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-300'
+            className='rounded-lg border border-gray-300 p-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300'
             onClick={toggleMenu}
           >
             <HamburgerIcon />
