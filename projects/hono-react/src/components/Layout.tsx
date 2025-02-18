@@ -1,6 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import { HamburgerIcon } from './svg/HamburgerIcon'
+import { useResponsive } from './ResponsiveProvider'
 
 interface Props {
   title: string
@@ -11,11 +12,9 @@ interface Props {
   children: ReactNode
 }
 
-const MOBILE = 600
-
 export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  const { mobile } = useResponsive()
   const ref = useRef<HTMLDivElement>(null)
 
   const navigate = useNavigate()
@@ -25,25 +24,14 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
   }
 
   useEffect(() => {
-    const handleResize = () => {
-      const width = window.innerWidth
-      setIsMobile(width < MOBILE)
-
-      // スマホレイアウトになったらメニューを閉じる
-      if (isMenuOpen && width >= MOBILE) {
-        setIsMenuOpen(false)
-      }
+    if (!mobile && isMenuOpen) {
+      setIsMenuOpen(false)
     }
-
-    window.addEventListener('resize', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [isMenuOpen])
+  }, [mobile, isMenuOpen])
 
   return (
     <div>
-      {isMobile && (
+      {mobile && (
         <header className='flex items-center justify-between bg-gray-100 px-4 py-2 text-black'>
           <h1 className='font-bold text-xl'>{title}</h1>
           <button
@@ -55,8 +43,8 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
           </button>
         </header>
       )}
-      <div className={`flex bg-gray-100 ${isMobile ? '' : 'min-h-screen'}`} ref={ref}>
-        {isMobile ? (
+      <div className={`flex bg-gray-100 ${mobile ? '' : 'min-h-screen'}`} ref={ref}>
+        {mobile ? (
           <>
             {isMenuOpen && (
               <div className='absolute right-0 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
