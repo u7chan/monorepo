@@ -32,7 +32,7 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
   return (
     <div>
       {mobile && (
-        <header className='flex items-center justify-between bg-gray-100 px-4 py-2 text-black'>
+        <header className='flex h-[56px] items-center justify-between bg-gray-100 px-4 text-black'>
           <h1 className='font-bold text-xl'>{title}</h1>
           <button
             type='button'

@@ -378,7 +378,7 @@ export const Chat: FC = () => {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className={`max-h flex h-screen overflow-y-auto ${!emptyMessage && 'max-h-[calc(100vh-162px)]'}`}
+        className={`max-h flex overflow-y-auto ${mobile ? `h-[calc(100vh-56px)] max-h-[calc(100vh-${emptyMessage ? '0px' : '162px'}-56px)]` : `h-screen max-h-[calc(100vh-${emptyMessage ? '0px' : '162px'})]`}`}
       >
         {emptyMessage && (
           <div className='flex flex-1 items-center justify-center'>
