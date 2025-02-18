@@ -13,21 +13,21 @@ interface Props {
 }
 
 export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const { mobile } = useResponsive()
   const ref = useRef<HTMLDivElement>(null)
 
   const navigate = useNavigate()
 
   const toggleMenu = () => {
-    setIsMenuOpen((prev) => !prev)
+    setMenuOpen((prev) => !prev)
   }
 
   useEffect(() => {
-    if (!mobile && isMenuOpen) {
-      setIsMenuOpen(false)
+    if (!mobile && menuOpen) {
+      setMenuOpen(false)
     }
-  }, [mobile, isMenuOpen])
+  }, [mobile, menuOpen])
 
   return (
     <div>
@@ -46,7 +46,7 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
       <div className={`flex bg-gray-100 ${mobile ? '' : 'min-h-screen'}`} ref={ref}>
         {mobile ? (
           <>
-            {isMenuOpen && (
+            {menuOpen && (
               <div className='absolute right-0 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
                 <ul className='flex flex-col py-2'>
                   {menuItems.map((menuItem) => (
@@ -56,7 +56,7 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
                       className='flex cursor-pointer justify-start px-4 py-2 hover:bg-gray-100'
                       onClick={() => {
                         navigate({ to: menuItem.to })
-                        setIsMenuOpen(false)
+                        setMenuOpen(false)
                       }}
                     >
                       <Link to={menuItem.to}>{menuItem.label}</Link>
