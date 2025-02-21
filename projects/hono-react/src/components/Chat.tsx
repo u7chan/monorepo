@@ -410,7 +410,7 @@ export const Chat: FC = () => {
               {messages.map(({ role, content }, index) => (
                 <React.Fragment key={`chat_${index}`}>
                   {role === 'user' && (
-                    <div className={'message mb-2 text-right'}>
+                    <div className={'message mt-2 text-right'}>
                       <p
                         className={
                           'inline-block whitespace-pre-wrap rounded-3xl bg-gray-100 px-4 py-2 text-left'
@@ -425,7 +425,7 @@ export const Chat: FC = () => {
                       <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                         <ChatbotIcon size={32} color='#5D5D5D' />
                       </div>
-                      <div className='message text-left'>
+                      <div className='message mt-2 text-left'>
                         {showMarkdownPreview ? (
                           <Markdown
                             remarkPlugins={[remarkGfm]}
@@ -450,7 +450,7 @@ export const Chat: FC = () => {
                     <ChatbotIcon size={32} color='#5D5D5D' />
                   </div>
                   {stream ? (
-                    <div className='message text-left'>
+                    <div className='message mt-2 text-left'>
                       {showMarkdownPreview ? (
                         <Markdown
                           remarkPlugins={[remarkGfm]}
