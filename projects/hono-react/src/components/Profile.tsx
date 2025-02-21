@@ -25,7 +25,7 @@ export const Profile: FC = () => {
     }
   }
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className='p-4'>
       <h2 className='mb-4 font-semibold text-xl'>Profile</h2>
       <div className='mb-4'>
         <label className='mb-2 block text-gray-700' htmlFor='name'>
@@ -51,7 +51,10 @@ export const Profile: FC = () => {
           className='w-full rounded-sm border border-gray-300 p-2'
         />
       </div>
-      <button type='submit' className='rounded-sm bg-blue-500 p-2 text-white hover:bg-blue-600'>
+      <button
+        type='submit'
+        className='w-full rounded-sm bg-blue-400 p-2 text-white hover:bg-blue-300'
+      >
         Save
       </button>
     </form>
