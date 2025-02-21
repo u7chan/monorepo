@@ -32,22 +32,22 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
   return (
     <div>
       {mobile && (
-        <header className='flex h-[56px] items-center justify-between bg-gray-100 px-4 text-black'>
+        <header className='flex h-[56px] items-center justify-between bg-gray-800 px-4 text-white'>
           <h1 className='font-bold text-xl'>{title}</h1>
           <button
             type='button'
-            className='rounded-lg border border-gray-300 p-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300'
+            className='rounded-lg border border-gray-300 p-2 hover:bg-gray-500/50 focus:outline-none focus:ring-2 focus:ring-blue-300'
             onClick={toggleMenu}
           >
-            <HamburgerIcon />
+            <HamburgerIcon color='#E0E0E0' />
           </button>
         </header>
       )}
-      <div className={`flex bg-gray-100 ${mobile ? '' : 'min-h-screen'}`} ref={ref}>
+      <div className={`flex bg-gray-800 ${mobile ? '' : 'min-h-screen'}`} ref={ref}>
         {mobile ? (
           <>
             {menuOpen && (
-              <div className='absolute right-0 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
+              <div className='absolute right-4 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
                 <ul className='flex flex-col py-2'>
                   {menuItems.map((menuItem) => (
                     <button
@@ -68,10 +68,10 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
           </>
         ) : (
           <nav className='flex h-full flex-col space-y-4 p-4'>
-            <h1 className='mb-4 font-bold text-xl'>{title}</h1>
+            <h1 className='mb-4 font-bold text-white text-xl'>{title}</h1>
             {menuItems.map((menuItem) => (
               <div key={menuItem.label}>
-                <Link to={menuItem.to} className='text-gray-700 [&.active]:text-blue-700'>
+                <Link to={menuItem.to} className='text-white [&.active]:font-bold'>
                   {menuItem.label}
                 </Link>
               </div>
