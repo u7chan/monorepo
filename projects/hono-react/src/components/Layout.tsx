@@ -67,16 +67,21 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
             )}
           </>
         ) : (
-          <nav className='flex h-full flex-col space-y-4 p-4'>
-            <h1 className='mb-4 font-bold text-white text-xl'>{title}</h1>
-            {menuItems.map((menuItem) => (
-              <div key={menuItem.label}>
-                <Link to={menuItem.to} className='text-white [&.active]:font-bold'>
-                  {menuItem.label}
-                </Link>
-              </div>
-            ))}
-          </nav>
+          <div className='h-full w-40 px-2 py-4'>
+            <h1 className='mb-4 pl-2 font-bold text-white text-xl'>{title}</h1>
+            <nav className='flex flex-col space-y-2'>
+              {menuItems.map((menuItem) => (
+                <div key={menuItem.label}>
+                  <Link
+                    to={menuItem.to}
+                    className='block rounded px-4 py-2 text-white transition duration-200 hover:bg-gray-700 [&.active]:bg-gray-700 [&.active]:font-bold'
+                  >
+                    {menuItem.label}
+                  </Link>
+                </div>
+              ))}
+            </nav>
+          </div>
         )}
         <main className='flex-1 bg-white'>{children}</main>
       </div>
