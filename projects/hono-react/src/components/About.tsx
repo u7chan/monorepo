@@ -44,8 +44,8 @@ const source = `
 
 export function About() {
   return (
-    <Markdown remarkPlugins={[remarkGfm]} className='prose p-4'>
-      {source}
-    </Markdown>
+    <div className='prose p-4'>
+      <Markdown remarkPlugins={[remarkGfm]}>{source}</Markdown>
+    </div>
   )
 }

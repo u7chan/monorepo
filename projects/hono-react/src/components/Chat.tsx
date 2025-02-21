@@ -429,13 +429,11 @@ export const Chat: FC = () => {
                       </div>
                       <div className='message mt-2 text-left'>
                         {showMarkdownPreview ? (
-                          <Markdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{ code: CodeBlock }}
-                            className='prose mt-1 ml-2'
-                          >
-                            {content}
-                          </Markdown>
+                          <div className='prose mt-1 ml-2'>
+                            <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
+                              {content}
+                            </Markdown>
+                          </div>
                         ) : (
                           <div className='message text-left'>
                             <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
@@ -454,13 +452,11 @@ export const Chat: FC = () => {
                   {stream ? (
                     <div className='message mt-2 text-left'>
                       {showMarkdownPreview ? (
-                        <Markdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{ code: CodeBlock }}
-                          className='prose mt-1 ml-2'
-                        >
-                          {stream}
-                        </Markdown>
+                        <div className='prose mt-1 ml-2'>
+                          <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
+                            {stream}
+                          </Markdown>
+                        </div>
                       ) : (
                         <div className='message text-left'>
                           <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{stream}</p>
