@@ -415,7 +415,7 @@ export const Chat: FC = () => {
                     <div className={'message mt-2 text-right'}>
                       <p
                         className={
-                          'inline-block whitespace-pre-wrap rounded-3xl bg-gray-100 px-4 py-2 text-left'
+                          'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
                         }
                       >
                         {content}
