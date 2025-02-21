@@ -306,7 +306,9 @@ export const Chat: FC = () => {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className=''>
-      <div className={`absolute ${mobile ? ' top-14' : 'top-4'}`}>
+      <div
+        className={`absolute transition-opacity duration-200 ease-in ${mobile ? ' top-14' : 'top-4'} ${loading ? 'opacity-0' : 'opacity-100'}`}
+      >
         <button
           type='button'
           onClick={() => setShowMenu(!showMenu)}
