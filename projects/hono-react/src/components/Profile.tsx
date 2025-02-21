@@ -20,6 +20,7 @@ export const Profile: FC = () => {
         const { error } = (await res.json()) as unknown as { error: string }
         throw new Error(error)
       }
+      alert('submit!')
     } catch (e: unknown) {
       alert(e instanceof Error && e.message)
     }
