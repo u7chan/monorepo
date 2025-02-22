@@ -1,0 +1,11 @@
+{
+  "name": "llm-wrapper-api",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": false
+}
