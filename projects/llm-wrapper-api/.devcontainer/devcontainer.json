@@ -7,5 +7,43 @@
     "SHELL": "/bin/bash"
   },
   "remoteUser": "vscode",
-  "updateRemoteUserUID": false
+  "updateRemoteUserUID": false,
+  "postCreateCommand": "uv sync",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.formatOnSave": true,
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[json]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[jsonc]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[jsonl]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        }
+      },
+      "extensions": [
+        "charliermarsh.ruff",
+        "KevinRose.vsc-python-indent",
+        "njpwerner.autodocstring",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "humao.rest-client",
+        "aaron-bond.better-comments",
+        "usernamehw.errorlens",
+        "oderwat.indent-rainbow",
+        "cweijan.vscode-mysql-client2",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
 }
