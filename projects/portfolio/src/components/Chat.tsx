@@ -28,7 +28,7 @@ function readFromLocalStorage(): {
   maxTokens?: string
   markdownPreview?: boolean
 } {
-  const key = 'hono-react.chat-settings'
+  const key = 'portfoliot.chat-settings'
   return JSON.parse(localStorage.getItem(key) || '{}')
 }
 
@@ -38,7 +38,7 @@ function saveToLocalStorage(settings: {
   maxTokens?: string
   markdownPreview?: boolean
 }) {
-  const key = 'hono-react.chat-settings'
+  const key = 'portfolio.chat-settings'
   const newSettings = { ...readFromLocalStorage(), ...settings }
   localStorage.setItem(key, JSON.stringify(newSettings))
 }

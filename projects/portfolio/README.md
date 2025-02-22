@@ -1,4 +1,4 @@
-# hono-react
+# portfolio
 
 ## Architectures
 
@@ -22,7 +22,7 @@
   bun run dev
   ```
 
-  open http://127.0.0.1:5173/
+  open <http://127.0.0.1:5173/>
 
 - Lint:
 
@@ -48,14 +48,14 @@
   bun run start
   ```
 
-  open http://localhost:3000/
+  open <http://localhost:3000/>
 
 ## Deploy
 
 - Image build:
 
   ```sh
-  docker build -t hono_react .
+  docker build -t portfolio .
   ```
 
 - Run container:
@@ -69,5 +69,5 @@
     --restart=always \
     --env OPENAI_API_KEY=$OPENAI_API_KEY \
     --env DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
-    hono_react
+    portfolio
   ```

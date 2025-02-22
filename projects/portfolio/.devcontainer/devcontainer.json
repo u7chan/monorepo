@@ -1,5 +1,5 @@
 {
-  "name": "hono-react",
+  "name": "portfolio",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -11,8 +11,10 @@
       "settings": {
         "editor.tabSize": 2,
         "editor.formatOnSave": true,
-        "editor.defaultFormatter": "biomejs.biome",
         "biome.lspBin": "./node_modules/.bin/biome",
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
         // for Tailwind CSS --
         "files.associations": {
           "*.css": "tailwindcss"
