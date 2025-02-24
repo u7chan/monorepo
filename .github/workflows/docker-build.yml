@@ -62,12 +62,14 @@ jobs:
             GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
 
             # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
+            echo "docker build -t $GHCR_URI projects/$project"
             docker build -t $GHCR_URI projects/$project
           done
 
       - name: Get Docker Image Size
         if: env.BUILD_PROJECT != ''
         run: |
+          docker images
           IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
 
           for project in "${BUILD_PROJECT_ARRAY[@]}"; do
