@@ -29,13 +29,18 @@ jobs:
         id: check_dockerfiles
         run: |
           # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
+          BUILD_PROJECT=""
           while read -r project; do
             if [[ -f "projects/$project/Dockerfile" ]]; then
               echo "Dockerfile found in $project"
-              echo "BUILD_PROJECT=$project" >> $GITHUB_ENV
+              if [ -z "$BUILD_PROJECT" ]; then
+                BUILD_PROJECT="$project"
+              else
+                BUILD_PROJECT="$BUILD_PROJECT,$project"
+              fi
             fi
           done < changed_projects.txt
-
+          echo "$BUILD_PROJECT" >> $GITHUB_ENV
       - name: Debug
         run: |
           echo "BUILD_PROJECT=${{ env.BUILD_PROJECT }}"
