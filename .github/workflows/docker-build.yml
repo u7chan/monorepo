@@ -62,11 +62,11 @@ jobs:
             GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
 
             # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-            echo "docker build -t $GHCR_URI projects/$project"
+            printf "docker build -t $GHCR_URI projects/$project\n\n"
             docker build -t $GHCR_URI projects/$project
           done
 
-      - name: Get Docker Image Size
+      - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
         run: |
           docker images
@@ -76,16 +76,7 @@ jobs:
             # ビルドした Docker イメージの URI を取得
             GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
 
-            # ビルドしたイメージの ID を取得
-            IMAGE_ID=$(docker images -q $GHCR_URI)
-            if [ -z "$IMAGE_ID" ]; then
-              echo "Error: Docker image not found."
-              exit 1
-            fi
-
-            # イメージのサイズを MB 単位で計算して出力
-            IMAGE_SIZE_MB=$(echo "scale=2; $IMAGE_SIZE / 1024 / 1024" | bc)
-            echo "Image size: $IMAGE_SIZE_MB MB"
+            echo "GHCR_URI=$GHCR_URI"
           done
 
       # - name: Push Docker image
