@@ -51,7 +51,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      - name: Build Docker Image
+      - name: Build Docker Images
         if: env.BUILD_PROJECT != ''
         run: |
           IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
@@ -62,7 +62,7 @@ jobs:
             GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
 
             # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-            printf "docker build -t $GHCR_URI projects/$project\n\n"
+            echo "docker build -t $GHCR_URI projects/$project"
             docker build -t $GHCR_URI projects/$project
           done
 
@@ -70,16 +70,15 @@ jobs:
         if: env.BUILD_PROJECT != ''
         run: |
           docker images
+
+      - name: Push Docker Images
+        if: env.BUILD_PROJECT != ''
+        run: |
           IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
 
           for project in "${BUILD_PROJECT_ARRAY[@]}"; do
             # ビルドした Docker イメージの URI を取得
             GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
-
-            echo "GHCR_URI=$GHCR_URI"
+            echo "docker push $GHCR_URI"
+            docker push $GHCR_URI
           done
-
-      # - name: Push Docker image
-      #   if: env.BUILD_PROJECT != ''
-      #   run: |
-      #     docker push ${{ env.GHCR_URI }}
