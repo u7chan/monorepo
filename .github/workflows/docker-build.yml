@@ -29,12 +29,19 @@ jobs:
         id: check_dockerfiles
         run: |
           # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
+          BUILD_PROJECT=""
           while read -r project; do
             if [[ -f "projects/$project/Dockerfile" ]]; then
               echo "Dockerfile found in $project"
-              echo "BUILD_PROJECT=$project" >> $GITHUB_ENV
+              if [ -z "$BUILD_PROJECT" ]; then
+                BUILD_PROJECT="$project"
+              else
+                BUILD_PROJECT="$BUILD_PROJECT,$project"
+              fi
             fi
           done < changed_projects.txt
+          echo "BUILD_PROJECT: $BUILD_PROJECT"
+          echo "BUILD_PROJECT=$BUILD_PROJECT" >> $GITHUB_ENV
 
       - name: Log in to GitHub Container Registry
         if: env.BUILD_PROJECT != ''
@@ -44,36 +51,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      - name: Build Docker Image
+      - name: Build Docker Images
         if: env.BUILD_PROJECT != ''
         run: |
-          # ビルドする Docker イメージの URI を作成
-          GHCR_URI=ghcr.io/${{ github.repository }}/${{ env.BUILD_PROJECT }}:latest
+          IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
+          echo "Build project count: ${#BUILD_PROJECT_ARRAY[@]}"
 
-          # 後続のステップで利用できるように、環境変数に GHCR_URI を追加
-          echo "GHCR_URI=$GHCR_URI" >> $GITHUB_ENV
+          for project in "${BUILD_PROJECT_ARRAY[@]}"; do
+            # ビルドする Docker イメージの URI を作成
+            GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
 
-          # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-          docker build -t $GHCR_URI projects/${{ env.BUILD_PROJECT }}
+            # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
+            echo "docker build -t $GHCR_URI projects/$project"
+            docker build -t $GHCR_URI projects/$project
+          done
 
-      - name: Get Docker Image Size
+      - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
         run: |
-          # ビルドした Docker イメージの URI を出力
-          echo "GHCR_URI: ${{ env.GHCR_URI }}"
+          docker images
 
-          # ビルドしたイメージの ID を取得
-          IMAGE_ID=$(docker images -q ${{ env.GHCR_URI }})
-          if [ -z "$IMAGE_ID" ]; then
-            echo "Error: Docker image not found."
-            exit 1
-          fi
-
-          # イメージのサイズを MB 単位で計算して出力
-          IMAGE_SIZE_MB=$(echo "scale=2; $IMAGE_SIZE / 1024 / 1024" | bc)
-          echo "Image size: $IMAGE_SIZE_MB MB"
-
-      - name: Push Docker image
+      - name: Push Docker Images
         if: env.BUILD_PROJECT != ''
         run: |
-          docker push ${{ env.GHCR_URI }}
+          IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
+
+          for project in "${BUILD_PROJECT_ARRAY[@]}"; do
+            # ビルドした Docker イメージの URI を取得
+            GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
+            echo "docker push $GHCR_URI"
+            docker push $GHCR_URI
+          done
