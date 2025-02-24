@@ -59,15 +59,20 @@ jobs:
       - name: Get Docker Image Size
         if: env.BUILD_PROJECT != ''
         run: |
-          # ビルドしたイメージのサイズを取得して出力
+          # ビルドした Docker イメージの URI を出力
+          echo "GHCR_URI: ${{ env.GHCR_URI }}"
+
+          # ビルドしたイメージの ID を取得
           IMAGE_ID=$(docker images -q ${{ env.GHCR_URI }})
           if [ -z "$IMAGE_ID" ]; then
             echo "Error: Docker image not found."
             exit 1
           fi
+
+          # イメージのサイズを取得して出力
           IMAGE_SIZE=$(docker inspect --format='{{.Size}}' $IMAGE_ID)
           echo "Image size: $IMAGE_SIZE bytes"
 
-          # サイズをMB単位で表示
+          # サイズを MB 単位で表示
           IMAGE_SIZE_MB=$(echo "scale=2; $IMAGE_SIZE / 1024 / 1024" | bc)
           echo "Image size: $IMAGE_SIZE_MB MB"
