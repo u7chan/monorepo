@@ -51,17 +51,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      # - name: Build Docker Image
-      #   if: env.BUILD_PROJECT != ''
-      #   run: |
-      #     # ビルドする Docker イメージの URI を作成
-      #     GHCR_URI=ghcr.io/${{ github.repository }}/${{ env.BUILD_PROJECT }}:latest
+      - name: Build Docker Image
+        if: env.BUILD_PROJECT != ''
+        run: |
+          IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
+          echo "array: ${#BUILD_PROJECT_ARRAY[@]}"
 
-      #     # 後続のステップで利用できるように、環境変数に GHCR_URI を追加
-      #     echo "GHCR_URI=$GHCR_URI" >> $GITHUB_ENV
+          for project in "${BUILD_PROJECT_ARRAY[@]}"; do
+            # ビルドする Docker イメージの URI を作成
+            GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
 
-      #     # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-      #     docker build -t $GHCR_URI projects/${{ env.BUILD_PROJECT }}
+            # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
+            #docker build -t $GHCR_URI projects/$project
+            echo "docker build -t $GHCR_URI projects/$project"
+          done
 
       # - name: Get Docker Image Size
       #   if: env.BUILD_PROJECT != ''
