@@ -75,4 +75,4 @@ jobs:
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.GHCR_URI }}"
+          docker push ${{ env.GHCR_URI }}
