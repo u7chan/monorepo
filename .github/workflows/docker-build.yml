@@ -40,7 +40,9 @@ jobs:
               fi
             fi
           done < changed_projects.txt
-          echo "$BUILD_PROJECT" >> $GITHUB_ENV
+          echo "BUILD_PROJECT: $BUILD_PROJECT"
+          echo "BUILD_PROJECT=$BUILD_PROJECT" >> $GITHUB_ENV
+
       - name: Debug
         run: |
           echo "BUILD_PROJECT=${{ env.BUILD_PROJECT }}"
