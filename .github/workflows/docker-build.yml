@@ -2,8 +2,8 @@ name: Docker Build on Project Changes
 
 on:
   push:
-    # branches:
-    #   - main
+    branches:
+      - main
 
 jobs:
   docker-build-if-changes-detected:
