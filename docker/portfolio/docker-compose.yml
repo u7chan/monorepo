@@ -5,8 +5,9 @@ services:
     restart: always
     ports:
       - 8000:3000
-    env_file:
-      - .env
+    environment:
+      - OPENAI_API_KEY
+      - DEEPSEEK_API_KEY
 
   llm-wrapper-api:
     container_name: llm-wrapper-api
@@ -14,5 +15,3 @@ services:
     restart: always
     ports:
       - 8001:8000
-    env_file:
-      - .env
