@@ -74,5 +74,6 @@ jobs:
           echo "Image size: $IMAGE_SIZE_MB MB"
 
       - name: Push Docker image
+        if: env.BUILD_PROJECT != ''
         run: |
           docker push ${{ env.GHCR_URI }}
