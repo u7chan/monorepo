@@ -2,8 +2,8 @@ name: Docker Build on Project Changes
 
 on:
   push:
-    branches:
-      - main
+    # branches:
+    # - main
 
 jobs:
   docker-build-if-changes-detected:
@@ -35,6 +35,7 @@ jobs:
               echo "BUILD_PROJECT=$project" >> $GITHUB_ENV
             fi
           done < changed_projects.txt
+          echo "BUILD_PROJECT=${{ env.BUILD_PROJECT }}"
 
       - name: Log in to GitHub Container Registry
         if: env.BUILD_PROJECT != ''
@@ -44,36 +45,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
-      - name: Build Docker Image
-        if: env.BUILD_PROJECT != ''
-        run: |
-          # ビルドする Docker イメージの URI を作成
-          GHCR_URI=ghcr.io/${{ github.repository }}/${{ env.BUILD_PROJECT }}:latest
+      # - name: Build Docker Image
+      #   if: env.BUILD_PROJECT != ''
+      #   run: |
+      #     # ビルドする Docker イメージの URI を作成
+      #     GHCR_URI=ghcr.io/${{ github.repository }}/${{ env.BUILD_PROJECT }}:latest
 
-          # 後続のステップで利用できるように、環境変数に GHCR_URI を追加
-          echo "GHCR_URI=$GHCR_URI" >> $GITHUB_ENV
+      #     # 後続のステップで利用できるように、環境変数に GHCR_URI を追加
+      #     echo "GHCR_URI=$GHCR_URI" >> $GITHUB_ENV
 
-          # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-          docker build -t $GHCR_URI projects/${{ env.BUILD_PROJECT }}
+      #     # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
+      #     docker build -t $GHCR_URI projects/${{ env.BUILD_PROJECT }}
 
-      - name: Get Docker Image Size
-        if: env.BUILD_PROJECT != ''
-        run: |
-          # ビルドした Docker イメージの URI を出力
-          echo "GHCR_URI: ${{ env.GHCR_URI }}"
+      # - name: Get Docker Image Size
+      #   if: env.BUILD_PROJECT != ''
+      #   run: |
+      #     # ビルドした Docker イメージの URI を出力
+      #     echo "GHCR_URI: ${{ env.GHCR_URI }}"
 
-          # ビルドしたイメージの ID を取得
-          IMAGE_ID=$(docker images -q ${{ env.GHCR_URI }})
-          if [ -z "$IMAGE_ID" ]; then
-            echo "Error: Docker image not found."
-            exit 1
-          fi
+      #     # ビルドしたイメージの ID を取得
+      #     IMAGE_ID=$(docker images -q ${{ env.GHCR_URI }})
+      #     if [ -z "$IMAGE_ID" ]; then
+      #       echo "Error: Docker image not found."
+      #       exit 1
+      #     fi
 
-          # イメージのサイズを MB 単位で計算して出力
-          IMAGE_SIZE_MB=$(echo "scale=2; $IMAGE_SIZE / 1024 / 1024" | bc)
-          echo "Image size: $IMAGE_SIZE_MB MB"
+      #     # イメージのサイズを MB 単位で計算して出力
+      #     IMAGE_SIZE_MB=$(echo "scale=2; $IMAGE_SIZE / 1024 / 1024" | bc)
+      #     echo "Image size: $IMAGE_SIZE_MB MB"
 
-      - name: Push Docker image
-        if: env.BUILD_PROJECT != ''
-        run: |
-          docker push ${{ env.GHCR_URI }}
+      # - name: Push Docker image
+      #   if: env.BUILD_PROJECT != ''
+      #   run: |
+      #     docker push ${{ env.GHCR_URI }}
