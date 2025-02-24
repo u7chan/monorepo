@@ -28,7 +28,7 @@ function readFromLocalStorage(): {
   maxTokens?: string
   markdownPreview?: boolean
 } {
-  const key = 'portfoliot.chat-settings'
+  const key = 'portfolio.chat-settings'
   return JSON.parse(localStorage.getItem(key) || '{}')
 }
 
