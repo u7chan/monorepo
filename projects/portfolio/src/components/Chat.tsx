@@ -109,7 +109,9 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
-  const [showMarkdownPreview, setShowMarkdownPreview] = useState(!!defaultSettings.markdownPreview)
+  const [showMarkdownPreview, setShowMarkdownPreview] = useState(
+    defaultSettings?.markdownPreview ?? true,
+  )
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
