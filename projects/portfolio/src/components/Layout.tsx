@@ -16,8 +16,6 @@ interface Props {
 export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const { mobile } = useResponsive()
-  const ref = useRef<HTMLDivElement>(null)
-
   const navigate = useNavigate()
 
   const toggleMenu = () => {
@@ -44,39 +42,43 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
           </button>
         </header>
       )}
-      <div className={`flex bg-gray-800 ${mobile ? '' : 'min-h-screen'}`} ref={ref}>
-        {mobile ? (
-          <>
-            {menuOpen && (
-              <div className='absolute right-4 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
-                <ul className='flex flex-col'>
-                  {menuItems.map((menuItem) => (
-                    <button
-                      key={menuItem.label}
-                      type='button'
-                      className='flex cursor-pointer justify-start px-4 py-3 hover:bg-gray-100'
-                      onClick={() => {
-                        navigate({ to: menuItem.to })
-                        setMenuOpen(false)
-                      }}
-                    >
-                      <Link to={menuItem.to}>{menuItem.label}</Link>
-                    </button>
-                  ))}
-                  {version && (
-                    <>
-                      <hr />
-                      <div className='items-bottom my-2 flex px-4'>
-                        <span className='text-black text-sm'>{version}</span>
-                      </div>
-                    </>
-                  )}
-                </ul>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className='flex h-screen w-40 flex-col justify-between px-2 py-4'>
+      {/* Mobile */}
+      {mobile && (
+        <div>
+          {menuOpen && (
+            <div className='absolute right-4 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
+              <ul className='flex flex-col'>
+                {menuItems.map((menuItem) => (
+                  <button
+                    key={menuItem.label}
+                    type='button'
+                    className='flex cursor-pointer justify-start px-4 py-3 hover:bg-gray-100'
+                    onClick={() => {
+                      navigate({ to: menuItem.to })
+                      setMenuOpen(false)
+                    }}
+                  >
+                    <Link to={menuItem.to}>{menuItem.label}</Link>
+                  </button>
+                ))}
+                {version && (
+                  <>
+                    <hr />
+                    <div className='items-bottom my-2 flex px-4'>
+                      <span className='text-black text-sm'>{version}</span>
+                    </div>
+                  </>
+                )}
+              </ul>
+            </div>
+          )}
+          <main className='flex-1 bg-white'>{children}</main>
+        </div>
+      )}
+      {/* PC or Tablet */}
+      {!mobile && (
+        <div className='flex'>
+          <div className='flex h-screen w-40 flex-col justify-between bg-gray-800 px-2 py-4'>
             <div>
               <h1 className='mb-4 pl-2 font-bold text-white text-xl'>{title}</h1>
               <nav className='flex flex-col space-y-2'>
@@ -94,9 +96,9 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
             </div>
             {version && <span className='text-sm text-white'>{version}</span>}
           </div>
-        )}
-        <main className='flex-1 bg-white'>{children}</main>
-      </div>
+          <main className='flex-1 bg-white'>{children}</main>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useResponsive } from './ResponsiveProvider'
 
 const source = `
 # 私たちについて
@@ -44,9 +45,12 @@ Portfolio へようこそ！
 `
 
 export function About() {
+  const { mobile } = useResponsive()
   return (
-    <div className='prose p-4'>
-      <Markdown remarkPlugins={[remarkGfm]}>{source}</Markdown>
+    <div className={`overflow-y-auto p-4 ${mobile ? 'h-[calc(100vh-56px)]' : 'h-screen'}`}>
+      <div className='prose'>
+        <Markdown remarkPlugins={[remarkGfm]}>{source}</Markdown>
+      </div>
     </div>
   )
 }

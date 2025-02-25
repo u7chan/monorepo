@@ -20,6 +20,10 @@
   }
 }
 
+body {
+  overflow: hidden
+}
+
 /*
   react-markdown customs
 */
