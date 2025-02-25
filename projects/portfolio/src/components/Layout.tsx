@@ -5,6 +5,7 @@ import { useResponsive } from './ResponsiveProvider'
 
 interface Props {
   title: string
+  version: string
   menuItems: {
     label: string
     to: string
@@ -12,7 +13,7 @@ interface Props {
   children: ReactNode
 }
 
-export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
+export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const { mobile } = useResponsive()
   const ref = useRef<HTMLDivElement>(null)
@@ -48,12 +49,12 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
           <>
             {menuOpen && (
               <div className='absolute right-4 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
-                <ul className='flex flex-col py-2'>
+                <ul className='flex flex-col'>
                   {menuItems.map((menuItem) => (
                     <button
                       key={menuItem.label}
                       type='button'
-                      className='flex cursor-pointer justify-start px-4 py-2 hover:bg-gray-100'
+                      className='flex cursor-pointer justify-start px-4 py-3 hover:bg-gray-100'
                       onClick={() => {
                         navigate({ to: menuItem.to })
                         setMenuOpen(false)
@@ -62,25 +63,32 @@ export const Layout: FC<Props> = ({ title, menuItems, children }: Props) => {
                       <Link to={menuItem.to}>{menuItem.label}</Link>
                     </button>
                   ))}
+                  <hr />
+                  <div className='items-bottom my-2 flex px-4'>
+                    <span className='text-black text-sm'>{version}</span>
+                  </div>
                 </ul>
               </div>
             )}
           </>
         ) : (
-          <div className='h-full w-40 px-2 py-4'>
-            <h1 className='mb-4 pl-2 font-bold text-white text-xl'>{title}</h1>
-            <nav className='flex flex-col space-y-2'>
-              {menuItems.map((menuItem) => (
-                <div key={menuItem.label}>
-                  <Link
-                    to={menuItem.to}
-                    className='block rounded px-4 py-2 text-white transition duration-200 hover:bg-gray-700 [&.active]:bg-gray-700 [&.active]:font-bold'
-                  >
-                    {menuItem.label}
-                  </Link>
-                </div>
-              ))}
-            </nav>
+          <div className='flex h-screen w-40 flex-col justify-between px-2 py-4'>
+            <div>
+              <h1 className='mb-4 pl-2 font-bold text-white text-xl'>{title}</h1>
+              <nav className='flex flex-col space-y-2'>
+                {menuItems.map((menuItem) => (
+                  <div key={menuItem.label}>
+                    <Link
+                      to={menuItem.to}
+                      className='block rounded px-4 py-2 text-white transition duration-200 hover:bg-gray-700 [&.active]:bg-gray-700 [&.active]:font-bold'
+                    >
+                      {menuItem.label}
+                    </Link>
+                  </div>
+                ))}
+              </nav>
+            </div>
+            <span className='text-sm text-white'>{version}</span>
           </div>
         )}
         <main className='flex-1 bg-white'>{children}</main>
