@@ -3,6 +3,9 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
   "postCreateCommand": "bun i && [ -e .env ] || cp .env.example .env",
