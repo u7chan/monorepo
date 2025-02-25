@@ -1,8 +1,7 @@
 import { ReadableStream } from 'node:stream/web'
 import type { LLMProvider, Messages, Reader } from './types'
 
-const TEST_DATA = `
-これはテスト用のストリームです🤖
+const TEST_DATA = `これはテスト用のストリームです🤖
 
 何回か繰り返しテキストを出力します。
 
