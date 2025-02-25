@@ -423,11 +423,11 @@ export const Chat: FC = () => {
                     </div>
                   )}
                   {role === 'assistant' && (
-                    <div className='flex'>
+                    <div className='mt-2 flex'>
                       <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                         <ChatbotIcon size={32} color='#5D5D5D' />
                       </div>
-                      <div className='message mt-2 text-left'>
+                      <div className='message text-left'>
                         {showMarkdownPreview ? (
                           <div className='prose mt-1 ml-2'>
                             <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
@@ -445,12 +445,12 @@ export const Chat: FC = () => {
                 </React.Fragment>
               ))}
               {loading && (
-                <div className='flex align-item'>
+                <div className='mt-2 flex align-item'>
                   <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                     <ChatbotIcon size={32} color='#5D5D5D' />
                   </div>
                   {stream ? (
-                    <div className='message mt-2 text-left'>
+                    <div className='message text-left'>
                       {showMarkdownPreview ? (
                         <div className='prose mt-1 ml-2'>
                           <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
