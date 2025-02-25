@@ -63,10 +63,14 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
                       <Link to={menuItem.to}>{menuItem.label}</Link>
                     </button>
                   ))}
-                  <hr />
-                  <div className='items-bottom my-2 flex px-4'>
-                    <span className='text-black text-sm'>{version}</span>
-                  </div>
+                  {version && (
+                    <>
+                      <hr />
+                      <div className='items-bottom my-2 flex px-4'>
+                        <span className='text-black text-sm'>{version}</span>
+                      </div>
+                    </>
+                  )}
                 </ul>
               </div>
             )}
@@ -88,7 +92,7 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
                 ))}
               </nav>
             </div>
-            <span className='text-sm text-white'>{version}</span>
+            {version && <span className='text-sm text-white'>{version}</span>}
           </div>
         )}
         <main className='flex-1 bg-white'>{children}</main>

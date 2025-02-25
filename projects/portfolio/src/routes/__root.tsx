@@ -16,7 +16,7 @@ export const Route = createRootRoute({
     <>
       <Layout
         title='Portfolio'
-        version={import.meta.env.VITE_APP_VERSION}
+        version={import.meta.env.VITE_APP_VERSION ? `v.${import.meta.env.VITE_APP_VERSION}` : ''}
         menuItems={[
           { label: 'Home', to: '/' },
           { label: 'About', to: '/about' },

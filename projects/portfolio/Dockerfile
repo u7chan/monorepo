@@ -3,11 +3,16 @@ FROM node:22-slim AS base
 ARG USERNAME=app
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
+ARG COMMIT_HASH=""
 
 # -----------------------------------------------
 # builder stage
 # -----------------------------------------------
 FROM base AS builder
+
+ARG COMMIT_HASH
+
+ENV VITE_APP_VERSION=${COMMIT_HASH}
 
 WORKDIR /app
 COPY . .
