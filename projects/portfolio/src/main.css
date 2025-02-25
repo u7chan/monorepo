@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 @config '../tailwind.config.js';
 
@@ -30,12 +30,16 @@
 }
 
 /* インラインコードブロックの before スタイルを無効にする */
-:where(.prose p code):not(:where([class~="not-prose"],[class~="not-prose"] *))::before {
+:where(.prose p code):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::before {
   content: none;
 }
 
 /* インラインコードブロックの after スタイルを無効にする */
-:where(.prose p code):not(:where([class~="not-prose"],[class~="not-prose"] *))::after {
+:where(.prose p code):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::after {
   content: none;
 }
 
