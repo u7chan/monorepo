@@ -9,6 +9,24 @@
       "args": ["app.main:app", "--reload", "--host", "0.0.0.0"],
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "Run test",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v", "${workspaceFolder}/tests"],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Run test with coverage",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v", "--cov", "${workspaceFolder}/tests"],
+      "console": "integratedTerminal",
+      "justMyCode": true
     }
   ]
 }
