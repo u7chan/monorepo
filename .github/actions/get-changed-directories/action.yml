@@ -6,6 +6,8 @@ runs:
     - name: Get changed directories
       shell: bash
       run: |
+        PROJECTS_DIR="projects"
+
         echo "> diff"
         git diff --name-only HEAD HEAD~1
         echo ""
