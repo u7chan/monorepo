@@ -1,0 +1,14 @@
+name: Get changed directories
+description: "Get a list of unique directories that were changed in the latest commit."
+runs:
+  using: composite
+  steps:
+    - name: Get changed directories
+      shell: bash
+      run: |
+        # 最新のコミットとその1つ前のコミットの差分を取得
+        git diff --name-only HEAD HEAD~1 | \
+        # 変更されたファイルがどのプロジェクトに属するかを確認
+        grep '^projects/' | \
+        awk -F/ '{print $2}' | \
+        sort -u > changed_projects.txt

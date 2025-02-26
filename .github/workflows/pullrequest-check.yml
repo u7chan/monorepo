@@ -15,7 +15,8 @@ jobs:
         with:
           fetch-depth: 2 # 最新の2つのコミットをフェッチ
 
-      - uses: ./.github/workflows/get-changed-directories-step.yml
+      - name: Get changed directories
+        uses: ./.github/actions/get-changed-directories/action.yml
 
       - name: Debug
         run: |
