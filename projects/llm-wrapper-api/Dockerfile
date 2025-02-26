@@ -31,7 +31,7 @@ WORKDIR /app
 RUN adduser -D $USERNAME
 
 COPY --from=builder --chown=$USERNAME:$USERNAME /app/.venv ./.venv
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/main.py ./main.py
+COPY --from=builder --chown=$USERNAME:$USERNAME /app/app ./app
 
 USER $USERNAME
 
