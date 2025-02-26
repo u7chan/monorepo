@@ -18,7 +18,9 @@ jobs:
       - name: Get changed directories
         uses: ./.github/actions/get-changed-directories
 
+      - name: Get changed projects
+        uses: ./.github/actions/get-changed-projects
+
       - name: Debug
         run: |
-          ls -la
-          cat changed_projects.txt
+          echo "env.BUILD_PROJECT=$env.BUILD_PROJECT"
