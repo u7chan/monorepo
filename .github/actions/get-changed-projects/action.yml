@@ -1,0 +1,24 @@
+name: Get changed projects
+description: Get a list of projects with Dockerfile whose differences have been changed
+runs:
+  using: composite
+  steps:
+    - name: Get changed projects
+      shell: bash
+      run: |
+        PROJECTS_DIR="projects"
+
+        # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
+        BUILD_PROJECT=""
+        while read -r TARGET; do
+          if [[ -f "$PROJECTS_DIR/$TARGET/Dockerfile" ]]; then
+            echo "Dockerfile found: $TARGET"
+            if [ -z "$BUILD_PROJECT" ]; then
+              BUILD_PROJECT="$TARGET"
+            else
+              BUILD_PROJECT="$BUILD_PROJECT,$TARGET"
+            fi
+          fi
+        done < changed_dirs.txt
+        echo "BUILD_PROJECT: $BUILD_PROJECT"
+        echo "BUILD_PROJECT=$BUILD_PROJECT" >> $GITHUB_ENV

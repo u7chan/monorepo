@@ -1,0 +1,23 @@
+name: Build docker images
+description: Building the Dockerfiles for multiple projects.
+runs:
+  using: composite
+  steps:
+    - name: Build docker images
+      shell: bash
+      run: |
+        PROJECTS_DIR="projects"
+
+        IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
+        echo "Build project count: ${#BUILD_PROJECT_ARRAY[@]}"
+
+        COMMIT_HASH=$(git rev-parse --short HEAD)
+
+        for PROJECT in "${BUILD_PROJECT_ARRAY[@]}"; do
+          # ビルドする Docker イメージの URI を作成
+          GHCR_URI=ghcr.io/${{ github.repository }}/$PROJECT:latest
+
+          # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
+          echo "docker build -t $GHCR_URI $PROJECTS_DIR/$PROJECT"
+          docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI $PROJECTS_DIR/$PROJECT
+        done

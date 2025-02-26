@@ -1,0 +1,31 @@
+name: Pull Request Check on Project Changes
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  pull-request-check-if-changes-detected:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # 最新の2つのコミットをフェッチ
+
+      - name: Get changed directories
+        uses: ./.github/actions/get-changed-directories
+
+      - name: Get changed projects
+        uses: ./.github/actions/get-changed-projects
+
+      - name: Build docker images
+        if: env.BUILD_PROJECT != ''
+        uses: ./.github/actions/build-docker-images
+
+      - name: Show docker images
+        if: env.BUILD_PROJECT != ''
+        run: |
+          docker images
