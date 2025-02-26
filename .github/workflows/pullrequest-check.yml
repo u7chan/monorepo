@@ -21,7 +21,11 @@ jobs:
       - name: Get changed projects
         uses: ./.github/actions/get-changed-projects
 
-      - name: Debug
+      - name: Build docker images
+        if: env.BUILD_PROJECT != ''
+        uses: ./.github/actions/build-docker-images
+
+      - name: Show docker images
         if: env.BUILD_PROJECT != ''
         run: |
-          echo "env.BUILD_PROJECT=${{ env.BUILD_PROJECT }}"
+          docker images
