@@ -8,6 +8,10 @@ runs:
       run: |
         PROJECTS_DIR="projects"
 
+        echo "> diff"
+        git diff --name-only HEAD HEAD~1
+        echo ""
+
         # 最新のコミットとその1つ前のコミットの差分を取得
         git diff --name-only HEAD HEAD~1 | \
         # projects配下のファイルのディレクトリ名を取得
@@ -15,6 +19,6 @@ runs:
         # 重複を取り除く
         sort -u > changed_dirs.txt
 
-        echo "----"
+        echo "> changes"
         cat changed_dirs.txt
-        echo "----"
+        echo ""
