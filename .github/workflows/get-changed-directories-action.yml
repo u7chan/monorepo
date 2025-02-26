@@ -1,0 +1,22 @@
+name: Get changed directories
+
+on:
+  workflow_call:
+
+jobs:
+  common-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # 最新の2つのコミットをフェッチ
+
+      - name: Get changed directories
+        run: |
+          # 最新のコミットとその1つ前のコミットの差分を取得
+          git diff --name-only HEAD HEAD~1 | \
+          # 変更されたファイルがどのプロジェクトに属するかを確認
+          grep '^projects/' | \
+          awk -F/ '{print $2}' | \
+          sort -u > changed_projects.txt

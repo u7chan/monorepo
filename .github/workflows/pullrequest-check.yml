@@ -1,0 +1,23 @@
+name: Pull Request Check on Project Changes
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  pull-request-check-if-changes-detected:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # 最新の2つのコミットをフェッチ
+
+      - uses: ./.github/workflows/get-changed-directories-action.yml
+
+      - name: Debug
+        run: |
+          ls -la
+          cat changed_projects.txt
