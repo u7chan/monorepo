@@ -36,4 +36,4 @@ COPY --from=builder --chown=$USERNAME:$USERNAME /app/app ./app
 USER $USERNAME
 
 EXPOSE 8000
-CMD ["python", ".venv/bin/uvicorn", "main:app", "--host", "0.0.0.0"]
+CMD ["python", ".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0"]
