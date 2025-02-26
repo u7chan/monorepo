@@ -8,6 +8,9 @@ runs:
       run: |
         set -x
         ls -la
+        whoami
+        echo "hoge" > a.txt
+        cat a.txt
         projects_dir="projects"
 
         # 最新のコミットとその1つ前のコミットの差分を取得し、
