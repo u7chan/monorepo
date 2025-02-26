@@ -6,6 +6,7 @@ runs:
     - name: Get changed directories
       shell: bash
       run: |
+        ls -la
         # 最新のコミットとその1つ前のコミットの差分を取得
         git diff --name-only HEAD HEAD~1 | \
         # 変更されたファイルがどのプロジェクトに属するかを確認
