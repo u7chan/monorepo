@@ -14,3 +14,7 @@ runs:
         awk -F/ -v dir="$PROJECTS_DIR" '$1 == dir {print $2}' | \
         # 重複を取り除く
         sort -u > changed_dirs.txt
+
+        echo "----"
+        cat changed_dirs.txt
+        echo "----"
