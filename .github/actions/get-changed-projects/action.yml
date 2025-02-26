@@ -12,7 +12,7 @@ runs:
         BUILD_PROJECT=""
         while read -r TARGET; do
           if [[ -f "$PROJECTS_DIR/$TARGET/Dockerfile" ]]; then
-            echo "Dockerfile found in $TARGET"
+            echo "Dockerfile found: $TARGET"
             if [ -z "$BUILD_PROJECT" ]; then
               BUILD_PROJECT="$TARGET"
             else
