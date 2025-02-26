@@ -6,6 +6,7 @@ runs:
     - name: Get changed projects
       shell: bash
       run: |
+        ls -la
         PROJECTS_DIR="projects"
 
         # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
