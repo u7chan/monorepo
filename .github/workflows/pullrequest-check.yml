@@ -22,5 +22,6 @@ jobs:
         uses: ./.github/actions/get-changed-projects
 
       - name: Debug
+        if: env.BUILD_PROJECT != ''
         run: |
-          echo "env.BUILD_PROJECT=$env.BUILD_PROJECT"
+          echo "env.BUILD_PROJECT=${{ env.BUILD_PROJECT }}"
