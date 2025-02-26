@@ -6,7 +6,6 @@ runs:
     - name: Get changed projects
       shell: bash
       run: |
-        ls -la
         PROJECTS_DIR="projects"
 
         # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
@@ -20,6 +19,6 @@ runs:
               BUILD_PROJECT="$BUILD_PROJECT,$TARGET"
             fi
           fi
-        done < changed_projects.txt
+        done < changed_dirs.txt
         echo "BUILD_PROJECT: $BUILD_PROJECT"
         echo "BUILD_PROJECT=$BUILD_PROJECT" >> $GITHUB_ENV
