@@ -1,9 +1,9 @@
-name: Build docker images
+name: Build Docker Images
 description: Building the Dockerfiles for multiple projects.
 runs:
   using: composite
   steps:
-    - name: Build docker images
+    - name: Build Docker Images
       shell: bash
       run: |
         PROJECTS_DIR="projects"

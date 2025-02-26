@@ -15,17 +15,17 @@ jobs:
         with:
           fetch-depth: 2 # 最新の2つのコミットをフェッチ
 
-      - name: Get changed directories
+      - name: Get Changed Directories
         uses: ./.github/actions/get-changed-directories
 
-      - name: Get changed projects
+      - name: Get Changed Projects
         uses: ./.github/actions/get-changed-projects
 
-      - name: Build docker images
+      - name: Build Docker Images
         if: env.BUILD_PROJECT != ''
         uses: ./.github/actions/build-docker-images
 
-      - name: Show docker images
+      - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
         run: |
           docker images
