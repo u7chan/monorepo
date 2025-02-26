@@ -1,9 +1,9 @@
-name: Get changed directories
+name: Get Changed Directories
 description: Get a list of unique directories that were changed in the latest commit.
 runs:
   using: composite
   steps:
-    - name: Get changed directories
+    - name: Get Changed Directories
       shell: bash
       run: |
         PROJECTS_DIR="projects"
