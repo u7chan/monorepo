@@ -6,6 +6,8 @@ runs:
     - name: Get changed directories
       shell: bash
       run: |
+        set -x
+        ls -la
         projects_dir="projects"
 
         # 最新のコミットとその1つ前のコミットの差分を取得し、
