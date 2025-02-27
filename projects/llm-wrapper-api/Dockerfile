@@ -15,13 +15,14 @@ COPY . .
 # -----------------------------------------------
 FROM base AS test
 
+ENV TZ=Asia/Tokyo
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY --from=base /app .
 
 RUN uv sync
-RUN python -m pytest
+RUN python -m pytest -s --vv --tb=short --cov
 
 # -----------------------------------------------
 # builder stage

@@ -15,7 +15,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-v", "${workspaceFolder}/tests"],
+      "args": ["-s","-vv", "--tb=short", "${workspaceFolder}/tests"],
       "console": "integratedTerminal",
       "justMyCode": true
     },
@@ -24,7 +24,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-v", "--cov", "${workspaceFolder}/tests"],
+      "args": ["-s","-vv", "--tb=short", "--cov", "${workspaceFolder}/tests"],
       "console": "integratedTerminal",
       "justMyCode": true
     }
