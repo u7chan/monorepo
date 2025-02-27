@@ -21,7 +21,7 @@ You should have Docker Desktop (or Docker Engine) installed locally.
    a. **Using the command line:**
 
    ```bash
-   uvicorn main:app --reload --host 0.0.0.0
+   uvicorn src.main:app --reload --host 0.0.0.0
    ```
 
    b. **Using VSCode Run & Debug:**
