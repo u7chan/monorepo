@@ -1,3 +1,6 @@
+# -----------------------------------------------
+# base stage
+# -----------------------------------------------
 FROM python:3.13-alpine AS base
 
 ARG USERNAME=pyuser
@@ -7,7 +10,21 @@ WORKDIR /app
 COPY . .
 
 # -----------------------------------------------
-# production builder stage
+# test stage (--target=testを付けてビルド)
+#  > example: `docker build -t ex --target=test --progress plain .`
+# -----------------------------------------------
+FROM base AS test
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=base /app .
+
+RUN uv sync
+RUN python -m pytest
+
+# -----------------------------------------------
+# builder stage
 # -----------------------------------------------
 FROM base AS builder
 
@@ -17,9 +34,9 @@ COPY --from=base /app .
 RUN uv sync --frozen --no-dev
 
 # -----------------------------------------------
-# production runner stage
+# final stage
 # -----------------------------------------------
-FROM base AS runner
+FROM base AS final
 
 ARG USERNAME
 ARG COMMIT_HASH
