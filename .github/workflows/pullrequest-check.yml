@@ -24,6 +24,8 @@ jobs:
       - name: Build Docker Images
         if: env.BUILD_PROJECT != ''
         uses: ./.github/actions/build-docker-images
+        with:
+          target: test
 
       - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
