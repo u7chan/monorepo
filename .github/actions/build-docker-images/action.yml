@@ -22,6 +22,6 @@ runs:
           GHCR_URI=ghcr.io/${{ github.repository }}/$PROJECT:latest
 
           # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-          echo "docker build -t $GHCR_URI --target=${{ inputs.target }} $PROJECTS_DIR/$PROJECT"
-          docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.target }} $PROJECTS_DIR/$PROJECT
+          echo "docker build -t $GHCR_URI --target=${{ inputs.stage }} $PROJECTS_DIR/$PROJECT"
+          docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.stage }} $PROJECTS_DIR/$PROJECT
         done
