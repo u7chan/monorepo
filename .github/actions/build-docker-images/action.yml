@@ -24,8 +24,9 @@ runs:
           # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
           PROJECT_DIR=$PROJECTS_DIR/$PROJECT
           DOCKER_FILE=$PROJECT_DIR/Dockerfile
-          TARGET_STAGE=${{ inputs.stage }}
-          if awk -v search="$TARGET_STAGE" '$0 ~ search' "$DOCKER_FILE" > /dev/null; then
+          TARGET_STAGE="AS ${{ inputs.stage }}"
+          if awk -v search="$TARGET_STAGE" '$0 ~ search' "$DOCKER_FILE"; then
+            echo "--target=$TARGET_STAGE"
             docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=$TARGET_STAGE $PROJECT_DIR
           else
             # 指定したステージが Dockerfile で未定義のため、オプションを指定せずにビルド
