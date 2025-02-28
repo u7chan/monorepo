@@ -17,13 +17,18 @@ runs:
 
         COMMIT_HASH=$(git rev-parse --short HEAD)
 
+        # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
         for PROJECT in "${BUILD_PROJECT_ARRAY[@]}"; do
+
           # ビルドする Docker イメージの URI を作成
           GHCR_URI=ghcr.io/${{ github.repository }}/$PROJECT:latest
 
-          # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
           PROJECT_DIR=$PROJECTS_DIR/$PROJECT
           DOCKER_FILE=$PROJECT_DIR/Dockerfile
+
+          echo "PROJECT_DIR: $PROJECT_DIR"
+          echo "DOCKER_FILE: $DOCKER_FILE"
+
           SEARCH="AS ${{ inputs.stage }}"
           if awk -v search="$SEARCH" '$0 ~ search' "$DOCKER_FILE"; then
             echo "Found starge: ${{ inputs.stage }}"
