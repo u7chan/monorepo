@@ -12,29 +12,33 @@ runs:
       run: |
         PROJECTS_DIR="projects"
 
+        # BUILD_PROJECTが指定されているかチェック
+        if [ -z "${{ env.BUILD_PROJECT }}" ]; then
+          echo "Error: BUILD_PROJECT is not set."
+          exit 1
+        fi
+
         IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
         echo "Build project count: ${#BUILD_PROJECT_ARRAY[@]}"
 
         COMMIT_HASH=$(git rev-parse --short HEAD)
 
-        # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-        for PROJECT in "${BUILD_PROJECT_ARRAY[@]}"; do
-
-          # ビルドする Docker イメージの URI を作成
-          GHCR_URI=ghcr.io/${{ github.repository }}/$PROJECT:latest
-
-          PROJECT_DIR=$PROJECTS_DIR/$PROJECT
+        for project in "${BUILD_PROJECT_ARRAY[@]}"; do
+          GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
+          PROJECT_DIR=$PROJECTS_DIR/$project
           DOCKER_FILE=$PROJECT_DIR/Dockerfile
-          SEARCH="AS ${{ inputs.stage }}"
+          SEARCH_KEYWORD="AS ${{ inputs.stage }}"
 
+          echo "GHCR_URI: $GHCR_URI"
           echo "PROJECT_DIR: $PROJECT_DIR"
           echo "DOCKER_FILE: $DOCKER_FILE"
+          echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
 
-          if grep -q "$SEARCH" "$DOCKER_FILE" 2>/dev/null; then
+          if grep -q "$SEARCH_KEYWORD" "$DOCKER_FILE" 2>/dev/null; then
             echo "Found starge: ${{ inputs.stage }}"
             docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.stage }} $PROJECT_DIR
           else
-            # 指定したステージが Dockerfile で未定義のため、オプションを指定せずにビルド
+            echo "Not found starge: ${{ inputs.stage }}"
             docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI $PROJECT_DIR
           fi
         done
