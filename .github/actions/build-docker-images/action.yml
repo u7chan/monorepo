@@ -25,12 +25,12 @@ runs:
 
           PROJECT_DIR=$PROJECTS_DIR/$PROJECT
           DOCKER_FILE=$PROJECT_DIR/Dockerfile
+          SEARCH="AS ${{ inputs.stage }}"
 
           echo "PROJECT_DIR: $PROJECT_DIR"
           echo "DOCKER_FILE: $DOCKER_FILE"
 
-          SEARCH="AS ${{ inputs.stage }}"
-          if awk -v search="$SEARCH" '$0 ~ search' "$DOCKER_FILE"; then
+          if grep -q "$SEARCH" "$DOCKER_FILE" 2>/dev/null; then
             echo "Found starge: ${{ inputs.stage }}"
             docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.stage }} $PROJECT_DIR
           else
