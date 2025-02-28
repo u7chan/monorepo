@@ -10,13 +10,13 @@ runs:
 
         # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
         BUILD_PROJECT=""
-        while read -r TARGET; do
-          if [[ -f "$PROJECTS_DIR/$TARGET/Dockerfile" ]]; then
-            echo "Dockerfile found: $TARGET"
+        while read -r target; do
+          if [[ -f "$PROJECTS_DIR/$target/Dockerfile" ]]; then
+            echo "Dockerfile found: $target"
             if [ -z "$BUILD_PROJECT" ]; then
-              BUILD_PROJECT="$TARGET"
+              BUILD_PROJECT="$target"
             else
-              BUILD_PROJECT="$BUILD_PROJECT,$TARGET"
+              BUILD_PROJECT="$BUILD_PROJECT,$target"
             fi
           fi
         done < changed_dirs.txt
