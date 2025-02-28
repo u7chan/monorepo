@@ -17,11 +17,24 @@ runs:
 
         COMMIT_HASH=$(git rev-parse --short HEAD)
 
+        # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
         for PROJECT in "${BUILD_PROJECT_ARRAY[@]}"; do
+
           # ビルドする Docker イメージの URI を作成
           GHCR_URI=ghcr.io/${{ github.repository }}/$PROJECT:latest
 
-          # 変更があったプロジェクトの Dockerfile を元に Docker イメージをビルド
-          echo "docker build -t $GHCR_URI --target=${{ inputs.stage }} $PROJECTS_DIR/$PROJECT"
-          docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.stage }} $PROJECTS_DIR/$PROJECT
+          PROJECT_DIR=$PROJECTS_DIR/$PROJECT
+          DOCKER_FILE=$PROJECT_DIR/Dockerfile
+          SEARCH="AS ${{ inputs.stage }}"
+
+          echo "PROJECT_DIR: $PROJECT_DIR"
+          echo "DOCKER_FILE: $DOCKER_FILE"
+
+          if grep -q "$SEARCH" "$DOCKER_FILE" 2>/dev/null; then
+            echo "Found starge: ${{ inputs.stage }}"
+            docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.stage }} $PROJECT_DIR
+          else
+            # 指定したステージが Dockerfile で未定義のため、オプションを指定せずにビルド
+            docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI $PROJECT_DIR
+          fi
         done
