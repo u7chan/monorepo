@@ -4,8 +4,6 @@ WORKDIR /app
 
 FROM base AS builder
 
-ENV UV_LINK_MODE=copy
-
 COPY . .
 
 RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/bin/uv \
