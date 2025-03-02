@@ -18,11 +18,14 @@ ENV VITE_APP_VERSION=${COMMIT_HASH}
 COPY --from=oven/bun:latest /usr/local/bin/bun /bin/bun
 COPY . .
 
-RUN bun i && \
-  bun run build \
-  && rm -rf node_modules \
-  && bun add tsx \
-  && bun i --production
+RUN bun install --frozen-lockfile \
+  && bun run build
+
+# install with --production (exclude devDependencies)
+RUN mkdir -p ./temp/prod
+COPY package.json bun.lock ./temp/prod/
+RUN cd ./temp/prod \
+  && bun install --frozen-lockfile --production
 
 # -----------------------------------------------
 # final stage
@@ -37,7 +40,7 @@ ENV TZ=Asia/Tokyo
 ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/temp/prod/node_modules ./node_modules
 COPY --from=builder /app/src/llm ./src/llm
 COPY --from=builder /app/src/node-server.ts ./src/node-server.ts
 COPY --from=builder /app/src/server.tsx ./src/server.tsx
