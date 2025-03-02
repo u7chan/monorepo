@@ -2,7 +2,7 @@
   "name": "portfolio",
   "type": "module",
   "scripts": {
-    "dev": "dotenv -- vite --mode dev --host 127.0.0.1",
+    "dev": "dotenv -- vite --mode dev --host 0.0.0.0",
     "build": "vite build",
     "start": "NODE_ENV=production bunx tsx ./src/node-server.ts",
     "lint": "biome lint ./src",
