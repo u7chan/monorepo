@@ -18,27 +18,26 @@ import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
 import { SpinnerIcon } from './svg/SpinnerIcon'
 import { NewChatIcon } from './svg/NewChatIcon'
-import { ChatInput } from './ChatInput'
+import { ChatInput } from './input/ChatInput'
+import { ToggleInput } from './input/ToggleInput'
 import { useResponsive } from './ResponsiveProvider'
 
 const client = hc<AppType>('/')
 
-function readFromLocalStorage(): {
-  model?: string
-  temperature?: string
-  maxTokens?: string
-  markdownPreview?: boolean
-} {
+type Settings = {
+  model: string
+  temperature: string
+  maxTokens: string
+  markdownPreview: boolean
+  interactiveMode: boolean
+}
+
+function readFromLocalStorage(): Partial<Settings> {
   const key = 'portfolio.chat-settings'
   return JSON.parse(localStorage.getItem(key) || '{}')
 }
 
-function saveToLocalStorage(settings: {
-  model?: string
-  temperature?: string
-  maxTokens?: string
-  markdownPreview?: boolean
-}) {
+function saveToLocalStorage(settings: Partial<Settings>) {
   const key = 'portfolio.chat-settings'
   const newSettings = { ...readFromLocalStorage(), ...settings }
   localStorage.setItem(key, JSON.stringify(newSettings))
@@ -110,9 +109,8 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
-  const [showMarkdownPreview, setShowMarkdownPreview] = useState(
-    defaultSettings?.markdownPreview ?? true,
-  )
+  const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
+  const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
   const [textAreaRows, setTextAreaRows] = useState(1)
   const [composing, setComposition] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
@@ -173,9 +171,15 @@ export const Chat: FC = () => {
   }
 
   const handleClickShowMarkdownPreview = () => {
-    const markdownPreview = !showMarkdownPreview
-    setShowMarkdownPreview(markdownPreview)
-    saveToLocalStorage({ markdownPreview })
+    const newMarkdownPreview = !markdownPreview
+    setMarkdownPreview(newMarkdownPreview)
+    saveToLocalStorage({ markdownPreview: newMarkdownPreview })
+  }
+
+  const handleClickInteractiveMode = () => {
+    const newInteractiveMode = !interactiveMode
+    setInteractiveMode(newInteractiveMode)
+    saveToLocalStorage({ interactiveMode: newInteractiveMode })
   }
 
   const handleStreamCancel = () => {
@@ -227,7 +231,7 @@ export const Chat: FC = () => {
             model: form.model,
             temperature: form.temperature,
             maxTokens: form.maxTokens,
-            messages: newMessages,
+            messages: interactiveMode ? newMessages : [userMessage],
           },
         },
         { init: { signal: abortControllerRef.current.signal } },
@@ -353,7 +357,7 @@ export const Chat: FC = () => {
           ))}
         </select>
         <div className='flex items-center gap-2'>
-          <span className='ml-1 text-md'>temperature</span>
+          <span className='ml-1 text-md'>Temperature</span>
           <input
             name='temperature'
             type='range'
@@ -373,26 +377,20 @@ export const Chat: FC = () => {
           min={1}
           max={4096}
           defaultValue={defaultSettings.maxTokens}
-          placeholder='max tokens'
+          placeholder='Max Tokens'
           onChange={handleChangeMaxTokens}
           className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
         />
-        <div className='flex items-center gap-2'>
-          <span className='ml-1 text-md'>markdown preview</span>
-          <button
-            type='button'
-            className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
-              showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
-            }`}
-            onClick={handleClickShowMarkdownPreview}
-          >
-            <div
-              className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
-                showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
+        <ToggleInput
+          label='Markdown Preview'
+          value={markdownPreview}
+          onClick={handleClickShowMarkdownPreview}
+        />
+        <ToggleInput
+          label='Interactive Mode'
+          value={interactiveMode}
+          onClick={handleClickInteractiveMode}
+        />
       </div>
 
       <div
@@ -414,6 +412,7 @@ export const Chat: FC = () => {
                 name='userInput'
                 value={input}
                 textAreaRows={textAreaRows}
+                buttonColor={interactiveMode ? 'blue' : 'green'}
                 loading={loading}
                 disabled={loading || !!stream || input.trim().length <= 0}
                 handleChangeInput={handleChangeInput}
@@ -446,7 +445,7 @@ export const Chat: FC = () => {
                         <ChatbotIcon size={32} color='#5D5D5D' />
                       </div>
                       <div className='message text-left'>
-                        {showMarkdownPreview ? (
+                        {markdownPreview ? (
                           <div className='prose mt-1 ml-2'>
                             <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
                               {content}
@@ -469,7 +468,7 @@ export const Chat: FC = () => {
                   </div>
                   {stream ? (
                     <div className='message text-left'>
-                      {showMarkdownPreview ? (
+                      {markdownPreview ? (
                         <div className='prose mt-1 ml-2'>
                           <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
                             {stream}
@@ -514,6 +513,7 @@ export const Chat: FC = () => {
             name='userInput'
             value={input}
             textAreaRows={textAreaRows}
+            buttonColor={interactiveMode ? 'blue' : 'green'}
             loading={loading}
             disabled={loading || !!stream || input.trim().length <= 0}
             handleChangeInput={handleChangeInput}
