@@ -1,15 +1,15 @@
 import type { ChangeEvent, KeyboardEvent } from 'react'
 
 interface Props {
-  name?: string
-  value?: string
-  textAreaRows?: number
-  loading?: boolean
-  disabled?: boolean
-  handleChangeInput?: (event: ChangeEvent<HTMLTextAreaElement>) => void
-  handleKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
-  handleChangeComposition?: (composition: boolean) => void
-  handleClickStop?: () => void
+  name: string
+  value: string
+  textAreaRows: number
+  loading: boolean
+  disabled: boolean
+  handleChangeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void
+  handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  handleChangeComposition: (composition: boolean) => void
+  handleClickStop: () => void
 }
 
 export function ChatInput({
@@ -22,7 +22,7 @@ export function ChatInput({
   handleKeyDown,
   handleChangeComposition,
   handleClickStop,
-}: Props) {
+}: Partial<Props>) {
   return (
     <div className={'flex h-[162px] items-center gap-2 px-4'}>
       <textarea
