@@ -231,7 +231,7 @@ export const Chat: FC = () => {
             model: form.model,
             temperature: form.temperature,
             maxTokens: form.maxTokens,
-            messages: newMessages,
+            messages: interactiveMode ? newMessages : [userMessage],
           },
         },
         { init: { signal: abortControllerRef.current.signal } },
