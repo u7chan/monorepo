@@ -149,6 +149,12 @@ export const Chat: FC = () => {
     }
   }
 
+  const handleClickNewChat = () => {
+    setShowMenu(false)
+    setMessages([])
+    setInput('')
+  }
+
   const handleClickScrollContainer = () => {
     setShowMenu(false)
   }
@@ -315,7 +321,7 @@ export const Chat: FC = () => {
         <div className='relative top-4 left-4 flex items-center gap-2'>
           <button
             type='button'
-            onClick={() => alert('TODO: new chat')}
+            onClick={handleClickNewChat}
             className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
           >
             <NewChatIcon color='#5D5D5D' />
