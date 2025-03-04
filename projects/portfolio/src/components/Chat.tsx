@@ -18,7 +18,8 @@ import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
 import { SpinnerIcon } from './svg/SpinnerIcon'
 import { NewChatIcon } from './svg/NewChatIcon'
-import { ChatInput } from './ChatInput'
+import { ChatInput } from './input/ChatInput'
+import { ToggleInput } from './input/ToggleInput'
 import { useResponsive } from './ResponsiveProvider'
 
 const client = hc<AppType>('/')
@@ -377,22 +378,11 @@ export const Chat: FC = () => {
           onChange={handleChangeMaxTokens}
           className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
         />
-        <div className='flex items-center gap-2'>
-          <span className='ml-1 text-md'>markdown preview</span>
-          <button
-            type='button'
-            className={`flex h-8 w-14 cursor-pointer items-center rounded-full p-1 transition-colors duration-300 ${
-              showMarkdownPreview ? 'bg-blue-500' : 'bg-gray-400'
-            }`}
-            onClick={handleClickShowMarkdownPreview}
-          >
-            <div
-              className={`h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
-                showMarkdownPreview ? 'translate-x-6' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
+        <ToggleInput
+          label='markdown preview'
+          value={showMarkdownPreview}
+          onClick={handleClickShowMarkdownPreview}
+        />
       </div>
 
       <div
