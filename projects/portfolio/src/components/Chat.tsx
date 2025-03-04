@@ -17,6 +17,7 @@ import type { AppType } from '../server'
 import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
 import { SpinnerIcon } from './svg/SpinnerIcon'
+import { NewChatIcon } from './svg/NewChatIcon'
 import { ChatInput } from './ChatInput'
 import { useResponsive } from './ResponsiveProvider'
 
@@ -309,19 +310,28 @@ export const Chat: FC = () => {
   return (
     <form ref={formRef} onSubmit={handleSubmit} className=''>
       <div
-        className={`absolute transition-opacity duration-200 ease-in ${mobile ? ' top-14' : 'top-4'} ${loading ? 'opacity-0' : 'opacity-100'}`}
+        className={`absolute transition-opacity duration-200 ease-in ${mobile ? ' top-12' : 'top-2'} ${loading ? 'opacity-0' : 'opacity-100'}`}
       >
-        <button
-          type='button'
-          onClick={() => setShowMenu(!showMenu)}
-          className='relative top-4 left-4 flex cursor-pointer items-center justify-center rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-600'
-        >
-          <GearIcon color='#5D5D5D' />
-        </button>
+        <div className='relative top-4 left-4 flex items-center gap-2'>
+          <button
+            type='button'
+            onClick={() => alert('TODO: new chat')}
+            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
+          >
+            <NewChatIcon color='#5D5D5D' />
+          </button>
+          <button
+            type='button'
+            onClick={() => setShowMenu(!showMenu)}
+            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
+          >
+            <GearIcon color='#5D5D5D' />
+          </button>
+        </div>
       </div>
 
       <div
-        className={`fixed top-14 left-40 z-10 grid gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
+        className={`fixed ${mobile ? ' top-30 left-4' : 'top-18 left-60 '} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
         <select
           name='model'
