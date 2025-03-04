@@ -4,6 +4,7 @@ interface Props {
   name: string
   value: string
   textAreaRows: number
+  buttonColor: 'blue' | 'green'
   loading: boolean
   disabled: boolean
   handleChangeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void
@@ -16,6 +17,7 @@ export function ChatInput({
   name,
   value,
   textAreaRows,
+  buttonColor = 'blue',
   loading,
   disabled,
   handleChangeInput,
@@ -23,6 +25,16 @@ export function ChatInput({
   handleChangeComposition,
   handleClickStop,
 }: Partial<Props>) {
+  const buttonColorClasses = ((color) => {
+    switch (color) {
+      case 'blue':
+        return 'bg-blue-400 hover:bg-blue-300'
+      case 'green':
+        return 'bg-emerald-400 hover:bg-emerald-300'
+      default:
+        throw new Error(`Invalid color type: ${color}`)
+    }
+  })(buttonColor)
   return (
     <div className={'flex h-[162px] items-center gap-2 px-4'}>
       <textarea
@@ -41,7 +53,7 @@ export function ChatInput({
         <button
           type='button'
           onClick={handleClickStop}
-          className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+          className={`cursor-pointer whitespace-nowrap rounded-4xl ${buttonColorClasses} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
         >
           停止
         </button>
@@ -49,7 +61,7 @@ export function ChatInput({
         <button
           type='submit'
           disabled={disabled}
-          className='cursor-pointer whitespace-nowrap rounded-4xl bg-blue-400 px-4 py-2 font-bold text-white hover:bg-blue-300 focus:outline-hidden focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-gray-400'
+          className={`cursor-pointer whitespace-nowrap rounded-4xl ${buttonColorClasses} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
         >
           送信
         </button>

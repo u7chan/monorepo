@@ -412,6 +412,7 @@ export const Chat: FC = () => {
                 name='userInput'
                 value={input}
                 textAreaRows={textAreaRows}
+                buttonColor={interactiveMode ? 'blue' : 'green'}
                 loading={loading}
                 disabled={loading || !!stream || input.trim().length <= 0}
                 handleChangeInput={handleChangeInput}
@@ -512,6 +513,7 @@ export const Chat: FC = () => {
             name='userInput'
             value={input}
             textAreaRows={textAreaRows}
+            buttonColor={interactiveMode ? 'blue' : 'green'}
             loading={loading}
             disabled={loading || !!stream || input.trim().length <= 0}
             handleChangeInput={handleChangeInput}
