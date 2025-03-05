@@ -77,6 +77,8 @@ const supportedModels = [
   },
 ] as const
 
+const MIN_TEXT_LINE_COUNT = 2
+const MAX_TEXT_LINE_COUNT = 5
 interface Message {
   role: 'user' | 'assistant'
   content: string
@@ -111,7 +113,7 @@ export const Chat: FC = () => {
   )
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
-  const [textAreaRows, setTextAreaRows] = useState(1)
+  const [textAreaRows, setTextAreaRows] = useState(MIN_TEXT_LINE_COUNT)
   const [composing, setComposition] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -151,7 +153,7 @@ export const Chat: FC = () => {
     setShowMenu(false)
     setMessages([])
     setInput('')
-    setTextAreaRows(1)
+    setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }
 
   const handleClickScrollContainer = () => {
@@ -213,7 +215,7 @@ export const Chat: FC = () => {
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
-    setTextAreaRows(1)
+    setTextAreaRows(MIN_TEXT_LINE_COUNT)
 
     let result = ''
     let finishReason = ''
@@ -297,7 +299,7 @@ export const Chat: FC = () => {
     const value = event.target.value
     const lineCount = (value.match(/\n/g) || []).length + 1
 
-    if (lineCount <= 5) {
+    if (lineCount >= MIN_TEXT_LINE_COUNT && lineCount <= MAX_TEXT_LINE_COUNT) {
       setTextAreaRows(lineCount)
     }
 
