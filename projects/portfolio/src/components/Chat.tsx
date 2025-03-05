@@ -151,6 +151,7 @@ export const Chat: FC = () => {
     setShowMenu(false)
     setMessages([])
     setInput('')
+    setTextAreaRows(1)
   }
 
   const handleClickScrollContainer = () => {
@@ -212,6 +213,7 @@ export const Chat: FC = () => {
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
+    setTextAreaRows(1)
 
     let result = ''
     let finishReason = ''
