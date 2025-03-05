@@ -299,8 +299,10 @@ export const Chat: FC = () => {
     const value = event.target.value
     const lineCount = (value.match(/\n/g) || []).length + 1
 
-    if (lineCount >= MIN_TEXT_LINE_COUNT && lineCount <= MAX_TEXT_LINE_COUNT) {
-      setTextAreaRows(lineCount)
+    if (lineCount <= MIN_TEXT_LINE_COUNT) {
+      setTextAreaRows(MIN_TEXT_LINE_COUNT)
+    } else if (lineCount >= MAX_TEXT_LINE_COUNT) {
+      setTextAreaRows(MAX_TEXT_LINE_COUNT)
     }
 
     setInput(value)
