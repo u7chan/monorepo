@@ -303,6 +303,8 @@ export const Chat: FC = () => {
       setTextAreaRows(MIN_TEXT_LINE_COUNT)
     } else if (lineCount >= MAX_TEXT_LINE_COUNT) {
       setTextAreaRows(MAX_TEXT_LINE_COUNT)
+    } else {
+      setTextAreaRows(lineCount)
     }
 
     setInput(value)
