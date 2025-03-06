@@ -8,6 +8,21 @@ ARG COMMIT_HASH=""
 WORKDIR /app
 
 # -----------------------------------------------
+# test stage (--target=testを付けてビルド)
+#  > example: `docker build -t ex --target=test --progress plain .`
+# -----------------------------------------------
+FROM base AS test
+
+ENV TZ=Asia/Tokyo
+
+COPY --from=oven/bun:latest /usr/local/bin/bun /bin/bun
+COPY . .
+
+RUN bun install --frozen-lockfile \
+  && bun run lint \
+  && bun run build
+
+# -----------------------------------------------
 # builder stage
 # -----------------------------------------------
 FROM base AS builder
