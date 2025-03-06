@@ -31,20 +31,17 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
   return (
     <div>
       {mobile && (
-        <header className='flex h-[56px] items-center justify-between bg-gray-800 px-4 text-white'>
-          <h1 className='font-bold text-xl'>{title}</h1>
-          <button
-            type='button'
-            className='rounded-lg border border-gray-300 p-2 hover:bg-gray-500/50 focus:outline-none focus:ring-2 focus:ring-blue-300'
-            onClick={toggleMenu}
-          >
-            <HamburgerIcon color='#E0E0E0' />
-          </button>
-        </header>
-      )}
-      {/* Mobile */}
-      {mobile && (
-        <div>
+        <>
+          <header className='flex h-[56px] items-center justify-between bg-gray-800 px-4 text-white'>
+            <h1 className='font-bold text-xl'>{title}</h1>
+            <button
+              type='button'
+              className='rounded-lg border border-gray-300 p-2 hover:bg-gray-500/50 focus:outline-none focus:ring-2 focus:ring-blue-300'
+              onClick={toggleMenu}
+            >
+              <HamburgerIcon color='#E0E0E0' />
+            </button>
+          </header>
           {menuOpen && (
             <div className='absolute right-4 mt-2 w-48 rounded border border-gray-200 bg-white shadow-lg'>
               <ul className='flex flex-col'>
@@ -72,12 +69,11 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
               </ul>
             </div>
           )}
-          <main className='flex-1 bg-white'>{children}</main>
-        </div>
+        </>
       )}
-      {/* PC or Tablet */}
-      {!mobile && (
-        <div className='flex'>
+      <div className={`${mobile ? '' : 'flex'}`}>
+        {/* Sidebar for PC or Tablet */}
+        {!mobile && (
           <div className='flex h-screen w-40 flex-col justify-between bg-gray-800 px-2 py-4'>
             <div>
               <h1 className='mb-4 pl-2 font-bold text-white text-xl'>{title}</h1>
@@ -96,9 +92,9 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
             </div>
             {version && <span className='text-sm text-white'>{version}</span>}
           </div>
-          <main className='flex-1 bg-white'>{children}</main>
-        </div>
-      )}
+        )}
+        <main className='flex-1 bg-white'>{children}</main>
+      </div>
     </div>
   )
 }
