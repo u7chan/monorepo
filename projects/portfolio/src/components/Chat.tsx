@@ -20,7 +20,7 @@ import { SpinnerIcon } from './svg/SpinnerIcon'
 import { NewChatIcon } from './svg/NewChatIcon'
 import { ChatInput } from './input/ChatInput'
 import { ToggleInput } from './input/ToggleInput'
-import { useResponsive } from './ResponsiveProvider'
+import { useResponsive } from './useResponsive'
 
 const client = hc<AppType>('/')
 
