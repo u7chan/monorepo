@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
-import { ResponsiveProvider } from './components/ResponsiveProvider'
 
 const router = createRouter({ routeTree })
 
@@ -15,9 +14,5 @@ declare module '@tanstack/react-router' {
 const dom = document.getElementById('root')
 if (dom) {
   const root = createRoot(dom)
-  root.render(
-    <ResponsiveProvider>
-      <RouterProvider router={router} />
-    </ResponsiveProvider>,
-  )
+  root.render(<RouterProvider router={router} />)
 }
