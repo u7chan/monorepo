@@ -20,7 +20,7 @@ import { SpinnerIcon } from './svg/SpinnerIcon'
 import { NewChatIcon } from './svg/NewChatIcon'
 import { ChatInput } from './input/ChatInput'
 import { ToggleInput } from './input/ToggleInput'
-import { useResponsive } from './useResponsive'
+import { useResponsive } from './hooks/useResponsive'
 import { ArrowUpIcon } from './svg/ArrowUpIcon'
 import { StopIcon } from './svg/StopIcon'
 

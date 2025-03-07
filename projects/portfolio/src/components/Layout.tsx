@@ -1,7 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import { HamburgerIcon } from './svg/HamburgerIcon'
-import { useResponsive } from './useResponsive'
+import { useResponsive } from './hooks/useResponsive'
 
 interface Props {
   title: string
