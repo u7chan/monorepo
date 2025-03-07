@@ -1,7 +1,7 @@
 import type { FC, FormEvent } from 'react'
 import { hc } from 'hono/client'
 
-import type { AppType } from '../server'
+import type { AppType } from '../../server'
 
 const client = hc<AppType>('/')
 

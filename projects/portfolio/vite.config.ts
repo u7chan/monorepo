@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
       minify: true,
       outDir: './dist/static',
       rollupOptions: {
-        input: ['./src/client.tsx', './src/main.css'],
+        input: ['./src/client/main.tsx', './src/client/main.css'],
         output: {
           entryFileNames: 'client.js',
           assetFileNames: '[name].[ext]',
