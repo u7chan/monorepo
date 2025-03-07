@@ -49,7 +49,7 @@ export function ChatInput({
   return (
     <div className={'flex h-[162px] items-center px-4'}>
       <div
-        className={`grid min-h-[84px] flex-1 grid-flow-col grid-cols-[1fr_64px] items-start gap-2 rounded-2xl border bg-white p-2 ${focus ? 'border-gray-300 shadow-lg' : 'shadow-md'}`}
+        className={`grid min-h-[84px] flex-1 grid-flow-col grid-cols-[1fr_34px] items-start gap-2 rounded-2xl border bg-white p-2 ${focus ? 'border-gray-300 shadow-lg' : 'shadow-md'}`}
       >
         <textarea
           ref={ref}

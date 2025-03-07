@@ -21,6 +21,8 @@ import { NewChatIcon } from './svg/NewChatIcon'
 import { ChatInput } from './input/ChatInput'
 import { ToggleInput } from './input/ToggleInput'
 import { useResponsive } from './useResponsive'
+import { ArrowUpIcon } from './svg/ArrowUpIcon'
+import { StopIcon } from './svg/StopIcon'
 
 const client = hc<AppType>('/')
 
@@ -424,7 +426,7 @@ export const Chat: FC = () => {
                 disabled={loading}
                 rightBottom={
                   <SendButton
-                    color={interactiveMode ? 'blue' : 'green'}
+                    color={interactiveMode ? 'primary' : 'green'}
                     loading={loading}
                     disabled={loading || !!stream || input.trim().length <= 0}
                     handleClickStop={handleStreamCancel}
@@ -531,7 +533,7 @@ export const Chat: FC = () => {
             disabled={loading}
             rightBottom={
               <SendButton
-                color={interactiveMode ? 'blue' : 'green'}
+                color={interactiveMode ? 'primary' : 'green'}
                 loading={loading}
                 disabled={loading || !!stream || input.trim().length <= 0}
                 handleClickStop={handleStreamCancel}
@@ -548,7 +550,7 @@ export const Chat: FC = () => {
 }
 
 interface SendButtonProps {
-  color?: 'blue' | 'green'
+  color?: 'primary' | 'blue' | 'green'
   loading?: boolean
   disabled?: boolean
   handleClickStop?: () => void
@@ -557,10 +559,12 @@ interface SendButtonProps {
 function SendButton({ color = 'blue', loading, disabled, handleClickStop }: SendButtonProps) {
   const classes = useMemo(() => {
     switch (color) {
+      case 'primary':
+        return 'bg-gray-800 hover:bg-gray-500 disabled:hover:bg-gray-800'
       case 'blue':
-        return 'bg-blue-400 hover:bg-blue-300'
+        return 'bg-blue-400 hover:bg-blue-300 disabled:hover:bg-blue-400'
       case 'green':
-        return 'bg-emerald-400 hover:bg-emerald-300'
+        return 'bg-emerald-400 hover:bg-emerald-300 disabled:hover:bg-emerald-400'
       default:
         throw new Error(`Invalid color type: ${color}`)
     }
@@ -571,17 +575,17 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
         <button
           type='button'
           onClick={handleClickStop}
-          className={`cursor-pointer whitespace-nowrap rounded-4xl ${classes} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
+          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
         >
-          停止
+          <StopIcon color='#ffffff' size={18} />
         </button>
       ) : (
         <button
           type='submit'
           disabled={disabled}
-          className={`cursor-pointer whitespace-nowrap rounded-4xl ${classes} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
+          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
         >
-          送信
+          <ArrowUpIcon color='#ffffff' size={22} />
         </button>
       )}
     </>
