@@ -420,6 +420,7 @@ export const Chat: FC = () => {
                 name='userInput'
                 value={input}
                 textAreaRows={textAreaRows}
+                placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
                 disabled={loading}
                 rightBottom={
                   <SendButton
@@ -526,6 +527,7 @@ export const Chat: FC = () => {
             name='userInput'
             value={input}
             textAreaRows={textAreaRows}
+            placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
             disabled={loading}
             rightBottom={
               <SendButton

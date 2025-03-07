@@ -8,26 +8,28 @@ import {
 } from 'react'
 
 interface Props {
-  name: string
-  value: string
-  textAreaRows: number
-  disabled: boolean
+  name?: string
+  value?: string
+  textAreaRows?: number
+  placeholder?: string
+  disabled?: boolean
   rightBottom?: ReactNode
-  handleChangeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void
-  handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
-  handleChangeComposition: (composition: boolean) => void
+  handleChangeInput?: (event: ChangeEvent<HTMLTextAreaElement>) => void
+  handleKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  handleChangeComposition?: (composition: boolean) => void
 }
 
 export function ChatInput({
   name,
   value,
   textAreaRows,
+  placeholder,
   disabled,
   rightBottom,
   handleChangeInput,
   handleKeyDown,
   handleChangeComposition,
-}: Partial<Props>) {
+}: Props) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [focus, setFocus] = useState(false)
   useEffect(() => {
@@ -58,7 +60,7 @@ export function ChatInput({
           onCompositionStart={() => handleChangeComposition?.(true)}
           onCompositionEnd={() => handleChangeComposition?.(false)}
           rows={textAreaRows}
-          placeholder={disabled ? 'しばらくお待ちください' : '質問してみよう！'}
+          placeholder={placeholder}
           disabled={disabled}
           className={`max-h-34 w-full resize-none overflow-y-auto border-gray-300 p-2 focus:outline-hidden ${disabled && 'opacity-40'}`}
         />
