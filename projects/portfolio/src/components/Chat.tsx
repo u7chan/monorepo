@@ -420,13 +420,18 @@ export const Chat: FC = () => {
                 name='userInput'
                 value={input}
                 textAreaRows={textAreaRows}
-                buttonColor={interactiveMode ? 'blue' : 'green'}
-                loading={loading}
-                disabled={loading || !!stream || input.trim().length <= 0}
+                disabled={loading}
+                rightBottom={
+                  <SendButton
+                    color={interactiveMode ? 'blue' : 'green'}
+                    loading={loading}
+                    disabled={loading || !!stream || input.trim().length <= 0}
+                    handleClickStop={handleStreamCancel}
+                  />
+                }
                 handleChangeInput={handleChangeInput}
                 handleKeyDown={handleKeyDown}
                 handleChangeComposition={handleChangeComposition}
-                handleClickStop={handleStreamCancel}
               />
             </div>
           </div>
@@ -521,16 +526,62 @@ export const Chat: FC = () => {
             name='userInput'
             value={input}
             textAreaRows={textAreaRows}
-            buttonColor={interactiveMode ? 'blue' : 'green'}
-            loading={loading}
-            disabled={loading || !!stream || input.trim().length <= 0}
+            disabled={loading}
+            rightBottom={
+              <SendButton
+                color={interactiveMode ? 'blue' : 'green'}
+                loading={loading}
+                disabled={loading || !!stream || input.trim().length <= 0}
+                handleClickStop={handleStreamCancel}
+              />
+            }
             handleChangeInput={handleChangeInput}
             handleKeyDown={handleKeyDown}
             handleChangeComposition={handleChangeComposition}
-            handleClickStop={handleStreamCancel}
           />
         )}
       </div>
     </form>
+  )
+}
+
+interface SendButtonProps {
+  color?: 'blue' | 'green'
+  loading?: boolean
+  disabled?: boolean
+  handleClickStop?: () => void
+}
+
+function SendButton({ color = 'blue', loading, disabled, handleClickStop }: SendButtonProps) {
+  const classes = useMemo(() => {
+    switch (color) {
+      case 'blue':
+        return 'bg-blue-400 hover:bg-blue-300'
+      case 'green':
+        return 'bg-emerald-400 hover:bg-emerald-300'
+      default:
+        throw new Error(`Invalid color type: ${color}`)
+    }
+  }, [color])
+  return (
+    <>
+      {loading ? (
+        <button
+          type='button'
+          onClick={handleClickStop}
+          className={`cursor-pointer whitespace-nowrap rounded-4xl ${classes} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
+        >
+          停止
+        </button>
+      ) : (
+        <button
+          type='submit'
+          disabled={disabled}
+          className={`cursor-pointer whitespace-nowrap rounded-4xl ${classes} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
+        >
+          送信
+        </button>
+      )}
+    </>
   )
 }

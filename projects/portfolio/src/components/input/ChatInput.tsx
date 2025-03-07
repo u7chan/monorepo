@@ -1,42 +1,35 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import {
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from 'react'
 
 interface Props {
   name: string
   value: string
   textAreaRows: number
-  buttonColor: 'blue' | 'green'
-  loading: boolean
   disabled: boolean
+  rightBottom?: ReactNode
   handleChangeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   handleChangeComposition: (composition: boolean) => void
-  handleClickStop: () => void
 }
 
 export function ChatInput({
   name,
   value,
   textAreaRows,
-  buttonColor = 'blue',
-  loading,
   disabled,
+  rightBottom,
   handleChangeInput,
   handleKeyDown,
   handleChangeComposition,
-  handleClickStop,
 }: Partial<Props>) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [focus, setFocus] = useState(false)
-  const buttonColorClasses = ((color) => {
-    switch (color) {
-      case 'blue':
-        return 'bg-blue-400 hover:bg-blue-300'
-      case 'green':
-        return 'bg-emerald-400 hover:bg-emerald-300'
-      default:
-        throw new Error(`Invalid color type: ${color}`)
-    }
-  })(buttonColor)
   useEffect(() => {
     const handleFocus = () => {
       setFocus(true)
@@ -65,29 +58,11 @@ export function ChatInput({
           onCompositionStart={() => handleChangeComposition?.(true)}
           onCompositionEnd={() => handleChangeComposition?.(false)}
           rows={textAreaRows}
-          placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
-          disabled={loading}
-          className={`max-h-34 w-full resize-none overflow-y-auto border-gray-300 p-2 focus:outline-hidden ${loading && 'opacity-40'}`}
+          placeholder={disabled ? 'しばらくお待ちください' : '質問してみよう！'}
+          disabled={disabled}
+          className={`max-h-34 w-full resize-none overflow-y-auto border-gray-300 p-2 focus:outline-hidden ${disabled && 'opacity-40'}`}
         />
-        <div className='flex h-full items-end'>
-          {loading ? (
-            <button
-              type='button'
-              onClick={handleClickStop}
-              className={`cursor-pointer whitespace-nowrap rounded-4xl ${buttonColorClasses} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
-            >
-              停止
-            </button>
-          ) : (
-            <button
-              type='submit'
-              disabled={disabled}
-              className={`cursor-pointer whitespace-nowrap rounded-4xl ${buttonColorClasses} px-4 py-2 font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400`}
-            >
-              送信
-            </button>
-          )}
-        </div>
+        <div className='flex h-full items-end'>{rightBottom}</div>
       </div>
     </div>
   )
