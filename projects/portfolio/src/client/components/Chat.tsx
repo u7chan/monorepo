@@ -13,7 +13,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 
-import type { AppType } from '../../server'
+import type { AppType } from '../../server/app'
 import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
 import { SpinnerIcon } from './svg/SpinnerIcon'

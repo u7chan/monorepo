@@ -56,12 +56,10 @@ ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/temp/prod/node_modules ./node_modules
-COPY --from=builder /app/src/llm ./src/llm
-COPY --from=builder /app/src/node-server.ts ./src/node-server.ts
-COPY --from=builder /app/src/server.tsx ./src/server.tsx
+COPY --from=builder /app/src/server ./src/server
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 USER node
 
 EXPOSE 3000
-CMD ["npx", "tsx", "./src/node-server.ts"]
+CMD ["npx", "tsx", "./src/server/node-server.ts"]

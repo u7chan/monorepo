@@ -172,5 +172,4 @@ const app = new Hono<Env>()
   })
 
 export type AppType = typeof app
-
 export default app
