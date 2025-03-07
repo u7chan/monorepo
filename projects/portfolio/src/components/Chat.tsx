@@ -21,6 +21,8 @@ import { NewChatIcon } from './svg/NewChatIcon'
 import { ChatInput } from './input/ChatInput'
 import { ToggleInput } from './input/ToggleInput'
 import { useResponsive } from './useResponsive'
+import { ArrowUpIcon } from './svg/ArrowUpIcon'
+import { StopIcon } from './svg/StopIcon'
 
 const client = hc<AppType>('/')
 
@@ -420,13 +422,19 @@ export const Chat: FC = () => {
                 name='userInput'
                 value={input}
                 textAreaRows={textAreaRows}
-                buttonColor={interactiveMode ? 'blue' : 'green'}
-                loading={loading}
-                disabled={loading || !!stream || input.trim().length <= 0}
+                placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
+                disabled={loading}
+                rightBottom={
+                  <SendButton
+                    color={interactiveMode ? 'primary' : 'green'}
+                    loading={loading}
+                    disabled={loading || !!stream || input.trim().length <= 0}
+                    handleClickStop={handleStreamCancel}
+                  />
+                }
                 handleChangeInput={handleChangeInput}
                 handleKeyDown={handleKeyDown}
                 handleChangeComposition={handleChangeComposition}
-                handleClickStop={handleStreamCancel}
               />
             </div>
           </div>
@@ -521,16 +529,65 @@ export const Chat: FC = () => {
             name='userInput'
             value={input}
             textAreaRows={textAreaRows}
-            buttonColor={interactiveMode ? 'blue' : 'green'}
-            loading={loading}
-            disabled={loading || !!stream || input.trim().length <= 0}
+            placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
+            disabled={loading}
+            rightBottom={
+              <SendButton
+                color={interactiveMode ? 'primary' : 'green'}
+                loading={loading}
+                disabled={loading || !!stream || input.trim().length <= 0}
+                handleClickStop={handleStreamCancel}
+              />
+            }
             handleChangeInput={handleChangeInput}
             handleKeyDown={handleKeyDown}
             handleChangeComposition={handleChangeComposition}
-            handleClickStop={handleStreamCancel}
           />
         )}
       </div>
     </form>
+  )
+}
+
+interface SendButtonProps {
+  color?: 'primary' | 'blue' | 'green'
+  loading?: boolean
+  disabled?: boolean
+  handleClickStop?: () => void
+}
+
+function SendButton({ color = 'blue', loading, disabled, handleClickStop }: SendButtonProps) {
+  const classes = useMemo(() => {
+    switch (color) {
+      case 'primary':
+        return 'bg-gray-800 hover:bg-gray-500 disabled:hover:bg-gray-800'
+      case 'blue':
+        return 'bg-blue-400 hover:bg-blue-300 disabled:hover:bg-blue-400'
+      case 'green':
+        return 'bg-emerald-400 hover:bg-emerald-300 disabled:hover:bg-emerald-400'
+      default:
+        throw new Error(`Invalid color type: ${color}`)
+    }
+  }, [color])
+  return (
+    <>
+      {loading ? (
+        <button
+          type='button'
+          onClick={handleClickStop}
+          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
+        >
+          <StopIcon color='#ffffff' size={18} />
+        </button>
+      ) : (
+        <button
+          type='submit'
+          disabled={disabled}
+          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
+        >
+          <ArrowUpIcon color='#ffffff' size={22} />
+        </button>
+      )}
+    </>
   )
 }
