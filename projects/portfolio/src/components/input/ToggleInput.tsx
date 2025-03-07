@@ -1,11 +1,11 @@
 interface Props {
-  label: string
-  value: boolean
-  disabled: boolean
-  onClick: () => void
+  label?: string
+  value?: boolean
+  disabled?: boolean
+  onClick?: () => void
 }
 
-export function ToggleInput({ label, value, disabled, onClick }: Partial<Props>) {
+export function ToggleInput({ label, value, disabled, onClick }: Props) {
   return (
     <div className='flex items-center justify-between gap-2'>
       <span className='ml-1 text-md'>{label}</span>
