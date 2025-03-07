@@ -36,10 +36,9 @@ const app = new Hono<Env>()
       },
     ),
     (c) => {
-      const { name, email } = c.req.valid('form')
-      // TODO: save
-      console.log('#submit', { name, email })
-      return c.json({ name, email })
+      const { name, email } = c.req.valid('form') // form-data; で受け取る場合
+      console.log('req', { name, email })
+      return c.json({ name, email, updated_at: new Date().toISOString() })
     },
   )
   .post(
