@@ -1,7 +1,7 @@
 import type { FC, FormEvent } from 'react'
 import { hc } from 'hono/client'
 
-import type { AppType } from '../server'
+import type { AppType } from '../../server/app'
 
 const client = hc<AppType>('/')
 
@@ -54,7 +54,7 @@ export const Profile: FC = () => {
       </div>
       <button
         type='submit'
-        className='w-full rounded-sm bg-blue-400 p-2 text-white hover:bg-blue-300'
+        className='w-full rounded-sm bg-primary-800 p-2 text-white hover:bg-primary-700'
       >
         Save
       </button>

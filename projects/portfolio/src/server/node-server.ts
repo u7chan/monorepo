@@ -2,18 +2,16 @@ import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 
-import server from './server'
-
-const app = new Hono()
-app.use('/static/*', serveStatic({ root: './dist' }))
-
-app.route('/', server)
+import app from './app'
 
 const port = 3000
-
 console.log(`Server is running on http://localhost:${port}`)
 
+const hono = new Hono()
+hono.use('/static/*', serveStatic({ root: './dist' }))
+hono.route('/', app)
+
 serve({
-  fetch: app.fetch,
+  fetch: hono.fetch,
   port,
 })

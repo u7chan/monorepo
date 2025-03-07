@@ -1,6 +1,6 @@
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useResponsive } from './useResponsive'
+import { useResponsive } from './hooks/useResponsive'
 
 const source = `
 # 私たちについて

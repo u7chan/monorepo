@@ -13,14 +13,14 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 
-import type { AppType } from '../server'
+import type { AppType } from '../../server/app'
 import { GearIcon } from './svg/GearIcon'
 import { ChatbotIcon } from './svg/ChatbotIcon'
 import { SpinnerIcon } from './svg/SpinnerIcon'
 import { NewChatIcon } from './svg/NewChatIcon'
 import { ChatInput } from './input/ChatInput'
 import { ToggleInput } from './input/ToggleInput'
-import { useResponsive } from './useResponsive'
+import { useResponsive } from './hooks/useResponsive'
 import { ArrowUpIcon } from './svg/ArrowUpIcon'
 import { StopIcon } from './svg/StopIcon'
 
@@ -560,7 +560,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
   const classes = useMemo(() => {
     switch (color) {
       case 'primary':
-        return 'bg-gray-800 hover:bg-gray-500 disabled:hover:bg-gray-800'
+        return 'bg-primary-800 hover:bg-primary-700 disabled:hover:bg-primary-800'
       case 'blue':
         return 'bg-blue-400 hover:bg-blue-300 disabled:hover:bg-blue-400'
       case 'green':

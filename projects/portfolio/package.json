@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "dotenv -- vite --mode dev --host 0.0.0.0",
     "build": "vite build",
-    "start": "NODE_ENV=production bunx tsx ./src/node-server.ts",
+    "start": "NODE_ENV=production bunx tsx ./src/server/node-server.ts",
     "lint": "biome lint ./src",
     "format": "biome format --write ./src"
   },
