@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
       plugins: [
         TanStackRouterVite(),
         devServer({
-          entry: './src/server/server.tsx',
+          entry: './src/server/app.tsx',
         }),
       ],
     }
