@@ -32,11 +32,11 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
     <div>
       {mobile && (
         <>
-          <header className='flex h-[56px] items-center justify-between bg-gray-800 px-4 text-white'>
+          <header className='flex h-[56px] items-center justify-between bg-primary-800 px-4 text-white'>
             <h1 className='font-bold text-xl'>{title}</h1>
             <button
               type='button'
-              className='rounded-lg border border-gray-300 p-2 hover:bg-gray-500/50 focus:outline-none focus:ring-2 focus:ring-blue-300'
+              className='rounded-lg border border-gray-300 p-2 hover:bg-primary-500 focus:outline-none focus:ring-2 focus:ring-gray-400'
               onClick={toggleMenu}
             >
               <HamburgerIcon color='#E0E0E0' />
@@ -74,7 +74,7 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
       <div className={`${mobile ? '' : 'flex'}`}>
         {/* Sidebar for PC or Tablet */}
         {!mobile && (
-          <div className='flex h-screen w-40 flex-col justify-between bg-gray-800 px-2 py-4'>
+          <div className='flex h-screen w-40 flex-col justify-between bg-primary-800 px-2 py-4'>
             <div>
               <h1 className='mb-4 pl-2 font-bold text-white text-xl'>{title}</h1>
               <nav className='flex flex-col space-y-2'>
@@ -82,7 +82,7 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
                   <div key={menuItem.label}>
                     <Link
                       to={menuItem.to}
-                      className='block rounded px-4 py-2 text-white transition duration-200 hover:bg-gray-700 [&.active]:bg-gray-700 [&.active]:font-bold'
+                      className='block rounded px-4 py-2 text-white transition duration-200 hover:bg-primary-700 [&.active]:bg-primary-700 [&.active]:font-bold'
                     >
                       {menuItem.label}
                     </Link>

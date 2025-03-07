@@ -560,7 +560,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
   const classes = useMemo(() => {
     switch (color) {
       case 'primary':
-        return 'bg-gray-800 hover:bg-gray-500 disabled:hover:bg-gray-800'
+        return 'bg-primary-800 hover:bg-primary-700 disabled:hover:bg-primary-800'
       case 'blue':
         return 'bg-blue-400 hover:bg-blue-300 disabled:hover:bg-blue-400'
       case 'green':
