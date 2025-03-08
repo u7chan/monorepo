@@ -1,7 +1,7 @@
 {
   "name": "hono-openai-client",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.tsx"
   },
   "dependencies": {
     "hono": "^4.7.4"
