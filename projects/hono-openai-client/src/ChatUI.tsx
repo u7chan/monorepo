@@ -1,12 +1,13 @@
 interface Props {
+  endpoint: string
   input?: string
   completion?: { model: string; content: string }
 }
 
-export function ChatUI({ input, completion }: Props) {
+export function ChatUI({ endpoint, input, completion }: Props) {
   return (
-    <div className='flex flex-col gap-2 p-2'>
-      <form action='/'>
+    <div className='flex flex-col gap-2'>
+      <form method='get' action={endpoint}>
         <div className='flex gap-2 w-[50vw]'>
           <textarea
             name='input'
@@ -20,7 +21,6 @@ export function ChatUI({ input, completion }: Props) {
           />
         </div>
       </form>
-
       <div className='flex flex-col gap-2 w-[50vw]'>
         {input && (
           <div className='flex justify-end'>
