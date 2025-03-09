@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { streamText } from 'hono/streaming'
 import { validator } from 'hono/validator'
@@ -65,6 +66,8 @@ app.get(
   })
 )
 
+app.get('/stream', serveStatic({ path: './src/stream.html' }))
+
 app.post(
   '/api/stream',
   validator('json', (value) => {
@@ -77,65 +80,11 @@ app.post(
   (c) => {
     const { input } = c.req.valid('json')
     return streamText(c, async (stream) => {
-      await chatCompletionsStream(input, async (text) => {
-        await stream.write(text)
+      await chatCompletionsStream(input, async (chunk) => {
+        await stream.writeln(JSON.stringify(chunk))
       })
     })
   }
 )
-
-app.get('/stream', (c) => {
-  return c.html(`
-    <html lang='ja'>
-      <head>
-        <title>hono-openai-client</title>
-      </head>
-      <body>
-        <div style="display:flex;gap:8px;align-items:end;">
-          <div>
-            <textarea id="input" placeholder='質問してみよう！'></textarea>
-          </div>
-          <div>
-            <button id="send">送信</button>
-          </div>
-        </div>
-        <div id="message" style="white-space: pre-wrap;"></div>
-        <script>
-          document.querySelector("#send").addEventListener("click", async () => {
-            const messageElement = document.querySelector('#message');
-            messageElement.textContent = '';
-            const input = document.querySelector("#input").value;
-            try {
-              const res = await fetch("/api/stream", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ input }),
-              })
-              if (!res.ok) {
-                  throw new Error('Network response was not ok');
-                }
-              const reader = res.body.getReader();
-              const decoder = new TextDecoder('utf-8');
-              let done = false;
-              while (!done) {
-                  const { done: isDone, value } = await reader.read();
-                  done = isDone;
-                  if (value) {
-                      const chunk = decoder.decode(value, { stream: !done });
-                      messageElement.textContent += chunk;
-                  }
-              }
-            } catch (error) {
-              console.error('Error:', error);
-              alert("エラーが発生しました");
-            }
-          });
-        </script>
-      </body>
-    </html>
-    `)
-})
 
 export default app

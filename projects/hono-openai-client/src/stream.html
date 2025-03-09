@@ -1,0 +1,117 @@
+<html lang="ja">
+  <head>
+    <title>hono-openai-client</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  </head>
+  <body>
+    <div class="container mx-auto px-4">
+      <div class="py-4">
+        <a href="/" class="underline text-blue-500"> ルート </a>
+        <span class="px-2">></span>
+        <span>ストリーム版</span>
+      </div>
+      <div class="flex flex-col gap-2">
+        <div>
+          <div class="flex gap-2 w-[50vw]">
+            <textarea
+              id="input"
+              name="input"
+              placeholder="質問してみよう！"
+              class="flex-1 border rounded-md p-2"
+            ></textarea>
+            <input
+              id="send"
+              type="submit"
+              value="送信"
+              class="bg-blue-500 text-white rounded-md px-4 py-2 cursor-pointer"
+            />
+          </div>
+        </div>
+        <div class="flex flex-col gap-2 w-[50vw]">
+          <div id="input_message_container" class="flex justify-end hidden">
+            <div
+              id="input_message"
+              class="inline-block bg-blue-100 text-black p-2 rounded-lg whitespace-pre-wrap"
+            ></div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-start">
+              <div
+                id="message"
+                class="bg-gray-200 text-black p-2 rounded-lg whitespace-pre-wrap"
+              ></div>
+            </div>
+            <div class="flex">
+              <div
+                id="model_name"
+                class="bg-gray-200 rounded-md px-2 py-1 text-black text-sm hidden"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      const messageElement = document.querySelector('#message')
+      messageElement.textContent =
+        'こんにちは！\n何かお手伝いできることはありますか？'
+
+      document.querySelector('#send').addEventListener('click', async () => {
+        const inputElement = document.querySelector('#input')
+        const input = inputElement.value
+        inputElement.value = ''
+
+        document
+          .querySelector('#input_message_container')
+          .classList.remove('hidden')
+        const inputMessageElement = document.querySelector('#input_message')
+        inputMessageElement.textContent = input
+
+        messageElement.textContent = ''
+        messageElement.classList.add('hidden')
+
+        const modelNameElement = document.querySelector('#model_name')
+        modelNameElement.classList.add('hidden')
+        try {
+          const res = await fetch('/api/stream', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ input }),
+          })
+          if (!res.ok) {
+            throw new Error('Network response was not ok')
+          }
+          messageElement.classList.remove('hidden')
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder('utf-8')
+          let done = false
+          let model = ''
+          while (!done) {
+            const { done: isDone, value } = await reader.read()
+            done = isDone
+            if (value) {
+              const chunkJSONLine = decoder.decode(value, { stream: !done })
+              const chunkJSONs = chunkJSONLine
+                .split('\n')
+                .filter((x) => x)
+                .map((x) => JSON.parse(x))
+              if (!model) {
+                model = chunkJSONs?.at(0).model
+              }
+              messageElement.textContent += chunkJSONs
+                .map((x) => x.content)
+                .join('')
+            }
+          }
+          modelNameElement.textContent = model
+          modelNameElement.classList.remove('hidden')
+        } catch (error) {
+          console.error('Error:', error)
+          alert('エラーが発生しました')
+        }
+      })
+    </script>
+  </body>
+</html>
