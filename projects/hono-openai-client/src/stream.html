@@ -45,10 +45,7 @@
               <div
                 id="model_name"
                 class="bg-gray-200 rounded-md px-2 py-1 text-black text-sm hidden"
-              >
-                <!-- Replace with dynamic model name -->
-                YOUR_MODEL_NAME_HERE
-              </div>
+              ></div>
             </div>
           </div>
         </div>
@@ -90,14 +87,26 @@
           const reader = res.body.getReader()
           const decoder = new TextDecoder('utf-8')
           let done = false
+          let model = ''
           while (!done) {
             const { done: isDone, value } = await reader.read()
             done = isDone
             if (value) {
-              const chunk = decoder.decode(value, { stream: !done })
-              messageElement.textContent += chunk
+              const chunkJSONLine = decoder.decode(value, { stream: !done })
+              const chunkJSONs = chunkJSONLine
+                .split('\n')
+                .filter((x) => x)
+                .map((x) => JSON.parse(x))
+              if (!model) {
+                model = chunkJSONs?.at(0).model
+              }
+              messageElement.textContent += chunkJSONs
+                .map((x) => x.content)
+                .join('')
             }
           }
+          modelNameElement.textContent = model
+          modelNameElement.classList.remove('hidden')
         } catch (error) {
           console.error('Error:', error)
           alert('エラーが発生しました')

@@ -1,8 +1,11 @@
 import OpenAI from 'openai'
 
-export async function chatCompletions(
-  input: string
-): Promise<{ model: string; content: string }> {
+interface Result {
+  model: string
+  content: string
+}
+
+export async function chatCompletions(input: string): Promise<Result> {
   const openai = new OpenAI({
     apiKey: process.env.API_KEY,
     baseURL: process.env.BASE_URL,
@@ -26,7 +29,7 @@ export async function chatCompletions(
 
 export async function chatCompletionsStream(
   input: string,
-  onStream: (chunk: string) => Promise<void>
+  onStream: (chunk: Result) => Promise<void>
 ) {
   const openai = new OpenAI({
     apiKey: process.env.API_KEY,
@@ -43,6 +46,9 @@ export async function chatCompletionsStream(
     stream: true,
   })
   for await (const chunk of completion) {
-    onStream(chunk.choices[0].delta.content || '')
+    onStream({
+      model: chunk.model,
+      content: chunk.choices[0].delta.content || '',
+    })
   }
 }

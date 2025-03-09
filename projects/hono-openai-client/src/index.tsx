@@ -80,8 +80,8 @@ app.post(
   (c) => {
     const { input } = c.req.valid('json')
     return streamText(c, async (stream) => {
-      await chatCompletionsStream(input, async (text) => {
-        await stream.write(text)
+      await chatCompletionsStream(input, async (chunk) => {
+        await stream.writeln(JSON.stringify(chunk))
       })
     })
   }
