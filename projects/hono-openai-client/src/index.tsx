@@ -3,11 +3,14 @@ import { validator } from 'hono/validator'
 import OpenAI from 'openai'
 
 const app = new Hono()
-const openai = new OpenAI()
+const openai = new OpenAI({
+  apiKey: process.env.API_KEY,
+  baseURL: process.env.BASE_URL,
+})
 
 async function chatCompletions(input: string): Promise<string> {
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: process.env.MODEL || '',
     messages: [
       {
         role: 'user',
