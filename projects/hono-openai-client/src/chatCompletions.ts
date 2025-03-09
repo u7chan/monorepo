@@ -20,10 +20,9 @@ export async function chatCompletions(input: string): Promise<Result> {
     ],
   })
   const { model, choices } = completion
-  const { content } = choices[0].message
   return {
     model,
-    content: content || '',
+    content: choices[0].message.content || '',
   }
 }
 
@@ -46,9 +45,10 @@ export async function chatCompletionsStream(
     stream: true,
   })
   for await (const chunk of completion) {
+    const { model, choices } = chunk
     onStream({
-      model: chunk.model,
-      content: chunk.choices[0].delta.content || '',
+      model,
+      content: choices[0].delta.content || '',
     })
   }
 }
