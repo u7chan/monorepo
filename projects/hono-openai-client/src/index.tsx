@@ -8,7 +8,9 @@ const openai = new OpenAI({
   baseURL: process.env.BASE_URL,
 })
 
-async function chatCompletions(input: string): Promise<string> {
+async function chatCompletions(
+  input: string
+): Promise<{ model: string; content: string }> {
   const completion = await openai.chat.completions.create({
     model: process.env.MODEL || '',
     messages: [
@@ -18,17 +20,19 @@ async function chatCompletions(input: string): Promise<string> {
       },
     ],
   })
-  const { content } = completion.choices[0].message
-  return content || ''
+  const { model, choices } = completion
+  const { content } = choices[0].message
+  return {
+    model,
+    content: content || '',
+  }
 }
 
 app.get(
   '/',
   validator('query', async (value, c) => {
     const input = value['input'] as string | undefined
-    const message = input
-      ? await chatCompletions(input)
-      : 'こんにちは！\n何かお手伝いできることはありますか？'
+    const completion = input ? await chatCompletions(input) : null
     return c.html(
       <html lang='ja'>
         <head>
@@ -80,27 +84,42 @@ app.get(
                 </div>
               </div>
             )}
-            {message && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-start',
+              }}
+            >
               <div
                 style={{
-                  display: 'flex',
-                  justifyContent: 'flex-start',
+                  whiteSpace: 'pre-wrap',
+                  backgroundColor: '#ECEFF1',
+                  color: 'black',
+                  padding: '10px 15px',
+                  borderRadius: '10px',
                 }}
               >
-                <div
-                  style={{
-                    whiteSpace: 'pre-wrap',
-                    backgroundColor: '#ECEFF1',
-                    color: 'black',
-                    padding: '10px 15px',
-                    borderRadius: '10px',
-                  }}
-                >
-                  {message}
-                </div>
+                {completion
+                  ? completion.content
+                  : 'こんにちは！\n何かお手伝いできることはありますか？'}
               </div>
-            )}
+            </div>
           </div>
+          {completion && (
+            <div
+              style={{
+                display: 'inline-block',
+                backgroundColor: '#ECEFF1',
+                marginTop: '8px',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                color: 'black',
+                fontSize: '12px',
+              }}
+            >
+              {completion.model}
+            </div>
+          )}
         </body>
       </html>
     )
