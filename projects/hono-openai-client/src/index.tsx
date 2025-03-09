@@ -18,16 +18,19 @@ app.get('/', (c) => {
       <body>
         <div className='container mx-auto px-4'>
           <p className='text-2xl font-semibold py-2'>サンプル</p>
-          <div>
-            <a href='/non-stream' className='underline text-blue-500'>
-              非ストリーム版
-            </a>
-          </div>
-          <div>
-            <a href='/stream' className='underline text-blue-500'>
-              ストリーム版
-            </a>
-          </div>
+          <hr className='h-px my-2 bg-gray-200 border-0 dark:bg-gray-700' />
+          <ul className='list-disc pl-4'>
+            <li className='my-2'>
+              <a href='/non-stream' className='underline text-blue-500'>
+                非ストリーム版
+              </a>
+            </li>
+            <li className='my-2'>
+              <a href='/stream' className='underline text-blue-500'>
+                ストリーム版
+              </a>
+            </li>
+          </ul>
         </div>
       </body>
     </html>
@@ -49,7 +52,7 @@ app.get(
           <div className='container mx-auto px-4'>
             <div className='py-4'>
               <a href='/' className='underline text-blue-500'>
-                ルート
+                サンプル
               </a>
               <span className='px-2'>{'>'}</span>
               <span>非ストリーム版</span>
