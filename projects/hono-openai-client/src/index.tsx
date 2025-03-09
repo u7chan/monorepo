@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { validator } from 'hono/validator'
-import { ChatUI } from './chatui'
+import { ChatUI } from './ChatUI'
 import { chatCompletions } from './chatCompletions'
 
 const app = new Hono()
