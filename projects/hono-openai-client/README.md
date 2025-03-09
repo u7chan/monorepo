@@ -11,6 +11,15 @@ MODEL="gpt-4o-mini" \
 bun run dev
 ```
 
+Gemini:
+
+```sh
+API_KEY="<YOUR_GEMINI_API_KEY>" \
+BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai" \
+MODEL="gemini-2.0-flash" \
+bun run dev
+```
+
 DeepSeek:
 
 ```sh
