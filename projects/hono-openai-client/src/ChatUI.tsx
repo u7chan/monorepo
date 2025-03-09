@@ -21,7 +21,6 @@ export function ChatUI({ endpoint, input, completion }: Props) {
           />
         </div>
       </form>
-
       <div className='flex flex-col gap-2 w-[50vw]'>
         {input && (
           <div className='flex justify-end'>

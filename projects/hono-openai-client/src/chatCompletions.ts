@@ -42,7 +42,6 @@ export async function chatCompletionsStream(
     ],
     stream: true,
   })
-
   for await (const chunk of completion) {
     onStream(chunk.choices[0].delta.content || '')
   }
