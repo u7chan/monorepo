@@ -1,7 +1,9 @@
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
+import { streamText } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import { ChatUI } from './ChatUI'
-import { chatCompletions } from './chatCompletions'
+import { chatCompletions, chatCompletionsStream } from './chatCompletions'
 
 const app = new Hono()
 
@@ -63,15 +65,74 @@ app.get(
   })
 )
 
+app.post(
+  '/api/stream',
+  validator('json', (value) => {
+    const input = value['input']
+    if (!input) {
+      throw new HTTPException(400, { message: 'input is required' })
+    }
+    return { input }
+  }),
+  (c) => {
+    const { input } = c.req.valid('json')
+    return streamText(c, async (stream) => {
+      await chatCompletionsStream(input, async (text) => {
+        await stream.write(text)
+      })
+    })
+  }
+)
+
 app.get('/stream', (c) => {
   return c.html(`
     <html lang='ja'>
       <head>
         <title>hono-openai-client</title>
-        <script src='https://unpkg.com/@tailwindcss/browser@4'></script>
       </head>
       <body>
-        <p>TODO: ストリーム版</p>
+        <div style="display:flex;gap:8px;align-items:end;">
+          <div>
+            <textarea id="input" placeholder='質問してみよう！'></textarea>
+          </div>
+          <div>
+            <button id="send">送信</button>
+          </div>
+        </div>
+        <div id="message" style="white-space: pre-wrap;"></div>
+        <script>
+          document.querySelector("#send").addEventListener("click", async () => {
+            const messageElement = document.querySelector('#message');
+            messageElement.textContent = '';
+            const input = document.querySelector("#input").value;
+            try {
+              const res = await fetch("/api/stream", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ input }),
+              })
+              if (!res.ok) {
+                  throw new Error('Network response was not ok');
+                }
+              const reader = res.body.getReader();
+              const decoder = new TextDecoder('utf-8');
+              let done = false;
+              while (!done) {
+                  const { done: isDone, value } = await reader.read();
+                  done = isDone;
+                  if (value) {
+                      const chunk = decoder.decode(value, { stream: !done });
+                      messageElement.textContent += chunk;
+                  }
+              }
+            } catch (error) {
+              console.error('Error:', error);
+              alert("エラーが発生しました");
+            }
+          });
+        </script>
       </body>
     </html>
     `)
