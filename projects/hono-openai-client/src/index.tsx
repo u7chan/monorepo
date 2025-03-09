@@ -3,14 +3,14 @@ import { validator } from 'hono/validator'
 import OpenAI from 'openai'
 
 const app = new Hono()
-const openai = new OpenAI({
-  apiKey: process.env.API_KEY,
-  baseURL: process.env.BASE_URL,
-})
 
 async function chatCompletions(
   input: string
 ): Promise<{ model: string; content: string }> {
+  const openai = new OpenAI({
+    apiKey: process.env.API_KEY,
+    baseURL: process.env.BASE_URL,
+  })
   const completion = await openai.chat.completions.create({
     model: process.env.MODEL || '',
     messages: [
@@ -37,89 +37,49 @@ app.get(
       <html lang='ja'>
         <head>
           <title>hono-openai-client</title>
+          <script src='https://unpkg.com/@tailwindcss/browser@4'></script>
         </head>
-        <body>
+        <body className='flex flex-col gap-2 p-2'>
           <form action='/'>
-            <div
-              style={{
-                width: '50vw',
-                display: 'flex',
-                gap: 8,
-              }}
-            >
+            <div className='flex gap-2 w-[50vw]'>
               <textarea
                 name='input'
                 placeholder='質問してみよう！'
-                style={{ flex: 1 }}
+                className='flex-1 border rounded-md p-2'
               />
-              <input type='submit' value='送信' />
+              <input
+                type='submit'
+                value='送信'
+                className='bg-blue-500 text-white rounded-md px-4 py-2 cursor-pointer'
+              />
             </div>
           </form>
-          <div
-            style={{
-              width: '50vw',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
+
+          <div className='flex flex-col gap-2 w-[50vw]'>
             {input && (
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'inline-block',
-                    whiteSpace: 'pre-wrap',
-                    backgroundColor: '#E3F2FD',
-                    color: 'black',
-                    padding: '10px 15px',
-                    borderRadius: '10px',
-                  }}
-                >
+              <div className='flex justify-end'>
+                <div className='inline-block bg-blue-100 text-black p-2 rounded-lg whitespace-pre-wrap'>
                   {input}
                 </div>
               </div>
             )}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-start',
-              }}
-            >
-              <div
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  backgroundColor: '#ECEFF1',
-                  color: 'black',
-                  padding: '10px 15px',
-                  borderRadius: '10px',
-                }}
-              >
-                {completion
-                  ? completion.content
-                  : 'こんにちは！\n何かお手伝いできることはありますか？'}
+            <div className='flex flex-col gap-1'>
+              <div className='flex justify-start'>
+                <div className='bg-gray-200 text-black p-2 rounded-lg whitespace-pre-wrap'>
+                  {completion
+                    ? completion.content
+                    : 'こんにちは！\n何かお手伝いできることはありますか？'}
+                </div>
               </div>
+              {completion && (
+                <div className='flex'>
+                  <div className='bg-gray-200 rounded-md px-2 py-1 text-black text-sm'>
+                    {completion.model}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-          {completion && (
-            <div
-              style={{
-                display: 'inline-block',
-                backgroundColor: '#ECEFF1',
-                marginTop: '8px',
-                borderRadius: '8px',
-                padding: '4px 10px',
-                color: 'black',
-                fontSize: '12px',
-              }}
-            >
-              {completion.model}
-            </div>
-          )}
         </body>
       </html>
     )
