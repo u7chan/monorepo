@@ -4,8 +4,10 @@
     "dev": "bun run --hot src/index.tsx"
   },
   "dependencies": {
+    "@hono/standard-validator": "^0.1.2",
     "hono": "^4.7.4",
-    "openai": "^4.86.2"
+    "openai": "^4.86.2",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/bun": "latest"

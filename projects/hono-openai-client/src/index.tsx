@@ -1,8 +1,10 @@
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
+import { sValidator } from '@hono/standard-validator'
 import { HTTPException } from 'hono/http-exception'
-import { streamText } from 'hono/streaming'
+import { streamSSE, streamText } from 'hono/streaming'
 import { validator } from 'hono/validator'
+import { z } from 'zod'
 import { ChatUI } from './ChatUI'
 import { chatCompletions, chatCompletionsStream } from './chatCompletions'
 
@@ -86,6 +88,103 @@ app.post(
       await chatCompletionsStream(input, async (chunk) => {
         await stream.writeln(JSON.stringify(chunk))
       })
+    })
+  }
+)
+
+const chatCompletionsSchema = z.object({
+  model: z.string(),
+  messages: z.array(
+    z.object({
+      role: z.enum(['system', 'user', 'assistant']),
+      content: z.string(),
+    })
+  ),
+  temperature: z.number().min(0).max(1).default(1),
+  stream: z.boolean().default(false),
+  stream_options: z
+    .object({
+      include_usage: z.boolean().default(false),
+    })
+    .optional(),
+})
+
+app.post(
+  '/api/chat/completions',
+  sValidator('json', chatCompletionsSchema),
+  (c) => {
+    const {
+      model: inputModel,
+      messages,
+      stream,
+      stream_options,
+    } = c.req.valid('json')
+    const id = Array.from({ length: 30 }, () =>
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.charAt(
+        Math.floor(Math.random() * 62)
+      )
+    ).join('')
+    const created = Math.floor(Date.now() / 1000)
+    const model = `${inputModel}-${new Date().toISOString().split('T')[0]}`
+    const content = `This is fake response,\nHow may I assist you today?\n${messages[0].content}🤖`
+    const usage = stream_options?.include_usage
+      ? {
+          prompt_tokens: 10,
+          completion_tokens: 18,
+          total_tokens: 28,
+        }
+      : undefined
+    if (!stream) {
+      return c.json({
+        id,
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content,
+            },
+            logprobs: null,
+            finish_reason: 'stop',
+          },
+        ],
+        usage,
+      })
+    }
+    return streamSSE(c, async (stream) => {
+      const chunk = {
+        id,
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            logprobs: null,
+            finish_reason: null,
+          },
+        ],
+        usage: stream_options?.include_usage ? null : undefined,
+      }
+      for (const char of content) {
+        await stream.writeSSE({
+          data: JSON.stringify({
+            ...chunk,
+            choices: [{ ...chunk.choices[0], delta: { content: char } }],
+          }),
+        })
+        await stream.sleep(50)
+      }
+      await stream.writeSSE({
+        data: JSON.stringify({
+          ...chunk,
+          choices: [{ ...chunk.choices[0], delta: {}, finish_reason: 'stop' }],
+          usage: stream_options?.include_usage ? usage : undefined,
+        }),
+      })
+      await stream.writeSSE({ data: '[DONE]' })
     })
   }
 )
