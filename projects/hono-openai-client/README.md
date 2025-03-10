@@ -2,6 +2,15 @@
 
 ## Quick Start
 
+Fake-mode:
+
+```sh
+API_KEY="DUMMY" \
+BASE_URL="http://localhost:3000/api" \
+MODEL="fake-chat" \
+bun run dev
+```
+
 OpenAI:
 
 ```sh
