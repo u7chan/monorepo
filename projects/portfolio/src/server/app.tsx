@@ -46,6 +46,28 @@ const app = new Hono<Env>()
     sValidator(
       'json',
       z.object({
+        messages: z
+          .object({
+            role: z.enum(['system', 'user', 'assistant']),
+            content: z.string().min(1),
+          })
+          .array(),
+        model: z.string().min(1),
+        stream: z.boolean().default(false),
+        temperature: z.number().min(0).max(1).nullish(),
+        maxTokens: z.number().min(1).nullish(),
+      }),
+    ),
+    (c) => {
+      const data = c.req.valid('json')
+      return c.json({ data })
+    },
+  )
+  .post(
+    '/api/chat_old',
+    sValidator(
+      'json',
+      z.object({
         llm: z.enum(['openai', 'deepseek', 'test'], {
           message: "llmは'openai','deepseek', 'test'のいずれかを指定してください",
         }),

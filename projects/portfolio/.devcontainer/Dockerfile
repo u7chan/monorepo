@@ -11,6 +11,7 @@ RUN apt-get update \
   curl \
   git \
   openssh-client \
+  jq \
   && npm i -g bun \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*

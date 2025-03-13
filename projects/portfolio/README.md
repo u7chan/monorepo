@@ -71,3 +71,9 @@
     --env DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
     portfolio
   ```
+
+## cURL
+
+```sh
+url -v --json @.tmp.json localhost:5173/api/chat | jq
+```
