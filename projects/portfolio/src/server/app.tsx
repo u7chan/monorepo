@@ -7,7 +7,7 @@ import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { getLLMProvider } from './llm/getLLMProvider'
-import { HTTPException } from 'hono/http-exception'
+import OpenAI from 'openai'
 
 type Env = {
   Bindings: {
@@ -45,20 +45,19 @@ const app = new Hono<Env>()
   )
   .post(
     '/api/chat',
-    validator('header', (value) => {
+    validator('header', (value, c) => {
       const apiKey = value['api-key']
       const basePath = value['base-path']
       if (!apiKey) {
-        throw new HTTPException(400, {
-          message: `Validation Error: Missing required header 'api-key'`,
-        })
+        return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
       if (!basePath) {
-        throw new HTTPException(400, {
-          message: `Validation Error: Missing required header 'base-path'`,
-        })
+        return c.json({ message: `Validation Error: Missing required header 'base-path'` }, 400)
       }
-      return { apiKey, basePath }
+      if (!z.string().url().safeParse(basePath).success) {
+        return c.json({ message: `Validation Error: Invalid url 'base-path'` }, 400)
+      }
+      return { 'api-key': apiKey, 'base-path': basePath }
     }),
     sValidator(
       'json',
@@ -71,15 +70,41 @@ const app = new Hono<Env>()
           .array(),
         model: z.string().min(1),
         stream: z.boolean().default(false),
-        temperature: z.number().min(0).max(1).nullish(),
-        maxTokens: z.number().min(1).nullish(),
+        temperature: z.number().min(0).max(1).optional(),
+        max_tokens: z.number().min(1).optional(),
+        stream_options: z
+          .object({
+            include_usage: z.boolean().optional(),
+          })
+          .optional(),
       }),
     ),
-    (c) => {
+    async (c) => {
       const header = c.req.valid('header')
       const data = c.req.valid('json')
-      // TODO:
-      return c.json({ header, data })
+      try {
+        const openai = new OpenAI({
+          apiKey: header['api-key'],
+          baseURL: header['base-path'],
+        })
+        const completion = await openai.chat.completions.create({
+          messages: data.messages,
+          model: data.model,
+          stream: data.stream,
+          temperature: data.temperature,
+          max_tokens: data.max_tokens,
+          stream_options: data.stream_options,
+        })
+        if (!data.stream) {
+          const nonStream = completion as OpenAI.ChatCompletion
+          return c.json(nonStream)
+        }
+        // TODO:
+        throw new Error('Not implemented yet')
+      } catch (e) {
+        console.error(e)
+        return c.json({ message: e instanceof Error && e.message }, 500)
+      }
     },
   )
   .post(

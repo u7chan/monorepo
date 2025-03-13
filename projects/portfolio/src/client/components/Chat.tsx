@@ -203,7 +203,7 @@ export const Chat: FC = () => {
       llm: supportedModels.find((x) => x.value === value)?.llm || 'test',
       model: supportedModels.find((x) => x.value === value)?.model || '',
       temperature: Number(formData.get('temperature')),
-      maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : null,
+      maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
     if (!form.userInput.trim()) {
@@ -229,50 +229,70 @@ export const Chat: FC = () => {
 
     // Call the Chat API
     abortControllerRef.current = new AbortController()
+
+    // TODO: [!] Cognitive Complexity
     try {
       const res = await client.api.chat.$post(
         {
+          header: {
+            'api-key': '<YOUR_API_KEY>',
+            'base-path': 'https://api.openai.com/v1',
+          },
           json: {
-            llm: form.llm,
-            model: form.model,
-            temperature: form.temperature,
-            maxTokens: form.maxTokens,
+            // llm: form.llm,
             messages: interactiveMode ? newMessages : [userMessage],
+            model: form.model,
+            stream: false,
+            temperature: form.temperature,
+            max_tokens: form.maxTokens,
           },
         },
         { init: { signal: abortControllerRef.current.signal } },
       )
-
       if (!res.ok) {
-        const { error } = (await res.json()) as { error: unknown }
-        result = typeof error === 'string' ? error : JSON.stringify(error)
+        const error = (await res.json()) as unknown as { message?: string }
+        result = error?.message || JSON.stringify(error)
       } else {
-        const reader = res.body?.getReader()
-        while (true) {
-          const { done, value } = (await reader?.read()) || {}
-          if (done) break
-          const chunk = new TextDecoder().decode(value)
-          const data = chunk
-            .split('\n')
-            .map((x) => x.split('data: ')[1])
-            .filter((x) => x)
-            .map(
-              (x) =>
-                JSON.parse(x) as {
-                  content: string
-                  finish_reason?: string
-                  usage?: {
-                    prompt_tokens: number
-                    completion_tokens: number
-                    total_tokens: number
-                  }
-                },
-            )
-          // Append chunk to result
-          result += data.map((x) => x.content).join('')
-          finishReason = data.find((x) => x.finish_reason)?.finish_reason || ''
-          usage = data.find((x) => x.usage)?.usage ?? null
-          setStream(`${result}●`)
+        const nonStream = res.headers.get('Content-Type') === 'application/json'
+        if (nonStream) {
+          const data = (await res.json()) as unknown as {
+            choices: { message: { content: string } }[]
+            usage?: {
+              prompt_tokens: number
+              completion_tokens: number
+              total_tokens: number
+            }
+          }
+          result = data.choices[0].message.content
+          usage = data?.usage ?? null
+        } else {
+          const reader = res.body?.getReader()
+          while (true) {
+            const { done, value } = (await reader?.read()) || {}
+            if (done) break
+            const chunk = new TextDecoder().decode(value)
+            const data = chunk
+              .split('\n')
+              .map((x) => x.split('data: ')[1])
+              .filter((x) => x)
+              .map(
+                (x) =>
+                  JSON.parse(x) as {
+                    content: string
+                    finish_reason?: string
+                    usage?: {
+                      prompt_tokens: number
+                      completion_tokens: number
+                      total_tokens: number
+                    }
+                  },
+              )
+            // Append chunk to result
+            result += data.map((x) => x.content).join('')
+            finishReason = data.find((x) => x.finish_reason)?.finish_reason || ''
+            usage = data.find((x) => x.usage)?.usage ?? null
+            setStream(`${result}●`)
+          }
         }
       }
     } catch (e) {
