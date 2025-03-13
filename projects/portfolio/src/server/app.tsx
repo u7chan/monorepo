@@ -1,11 +1,13 @@
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
+import { validator } from 'hono/validator'
 import { sValidator } from '@hono/standard-validator'
 import { streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { getLLMProvider } from './llm/getLLMProvider'
+import { HTTPException } from 'hono/http-exception'
 
 type Env = {
   Bindings: {
@@ -43,6 +45,21 @@ const app = new Hono<Env>()
   )
   .post(
     '/api/chat',
+    validator('header', (value) => {
+      const apiKey = value['api-key']
+      const basePath = value['base-path']
+      if (!apiKey) {
+        throw new HTTPException(400, {
+          message: `Validation Error: Missing required header 'api-key'`,
+        })
+      }
+      if (!basePath) {
+        throw new HTTPException(400, {
+          message: `Validation Error: Missing required header 'base-path'`,
+        })
+      }
+      return { apiKey, basePath }
+    }),
     sValidator(
       'json',
       z.object({
@@ -59,8 +76,10 @@ const app = new Hono<Env>()
       }),
     ),
     (c) => {
+      const header = c.req.valid('header')
       const data = c.req.valid('json')
-      return c.json({ data })
+      // TODO:
+      return c.json({ header, data })
     },
   )
   .post(

@@ -72,8 +72,11 @@
     portfolio
   ```
 
-## cURL
+## cURL: Note
 
 ```sh
-url -v --json @.tmp.json localhost:5173/api/chat | jq
+curl -v --json @.tmp.json localhost:5173/api/chat | jq
+curl -v --json @.tmp.json \
+  -H 'api-key:hoge' -H 'base-path:http://localhost:5173/api' \
+  localhost:5173/api/chat | jq
 ```
