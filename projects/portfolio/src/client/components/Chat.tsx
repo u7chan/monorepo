@@ -31,6 +31,7 @@ type Settings = {
   temperature: string
   maxTokens: string
   markdownPreview: boolean
+  streamMode: boolean
   interactiveMode: boolean
 }
 
@@ -114,6 +115,7 @@ export const Chat: FC = () => {
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
+  const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
   const [textAreaRows, setTextAreaRows] = useState(MIN_TEXT_LINE_COUNT)
   const [composing, setComposition] = useState(false)
@@ -181,6 +183,12 @@ export const Chat: FC = () => {
     saveToLocalStorage({ markdownPreview: newMarkdownPreview })
   }
 
+  const handleClickStreamModePreview = () => {
+    const newStreamMode = !streamMode
+    setStreamMode(newStreamMode)
+    saveToLocalStorage({ streamMode: newStreamMode })
+  }
+
   const handleClickInteractiveMode = () => {
     const newInteractiveMode = !interactiveMode
     setInteractiveMode(newInteractiveMode)
@@ -242,7 +250,7 @@ export const Chat: FC = () => {
             // llm: form.llm,
             messages: interactiveMode ? newMessages : [userMessage],
             model: form.model,
-            stream: false,
+            stream: streamMode,
             temperature: form.temperature,
             max_tokens: form.maxTokens,
           },
@@ -415,6 +423,11 @@ export const Chat: FC = () => {
           label='Markdown Preview'
           value={markdownPreview}
           onClick={handleClickShowMarkdownPreview}
+        />
+        <ToggleInput
+          label='Stream Mode'
+          value={streamMode}
+          onClick={handleClickStreamModePreview}
         />
         <ToggleInput
           label='Interactive Mode'
