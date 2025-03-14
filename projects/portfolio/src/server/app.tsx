@@ -48,17 +48,17 @@ const app = new Hono<Env>()
     '/api/chat',
     validator('header', (value, c) => {
       const apiKey = value['api-key']
-      const basePath = value['base-path']
+      const baseURL = value['base-url']
       if (!apiKey) {
         return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
-      if (!basePath) {
-        return c.json({ message: `Validation Error: Missing required header 'base-path'` }, 400)
+      if (!baseURL) {
+        return c.json({ message: `Validation Error: Missing required header 'base-url'` }, 400)
       }
-      if (!z.string().url().safeParse(basePath).success) {
-        return c.json({ message: `Validation Error: Invalid url 'base-path'` }, 400)
+      if (!z.string().url().safeParse(baseURL).success) {
+        return c.json({ message: `Validation Error: Invalid url 'base-url'` }, 400)
       }
-      return { 'api-key': apiKey, 'base-path': basePath }
+      return { 'api-key': apiKey, 'base-url': baseURL }
     }),
     sValidator(
       'json',
@@ -86,7 +86,7 @@ const app = new Hono<Env>()
       try {
         const openai = new OpenAI({
           apiKey: header['api-key'],
-          baseURL: header['base-path'],
+          baseURL: header['base-url'],
         })
         const completion = await openai.chat.completions.create({
           messages: data.messages,

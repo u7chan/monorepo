@@ -28,6 +28,8 @@ const client = hc<AppType>('/')
 
 type Settings = {
   model: string
+  baseURL: string
+  apiKey: string
   temperature: string
   maxTokens: string
   markdownPreview: boolean
@@ -57,31 +59,9 @@ function CodeBlock(props: any) {
   return <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
 }
 
-const supportedModels = [
-  {
-    value: 'OpenAI (gpt-4o-mini)',
-    llm: 'openai',
-    model: 'gpt-4o-mini',
-  },
-  {
-    value: 'OpenAI (gpt-4o)',
-    llm: 'openai',
-    model: 'gpt-4o',
-  },
-  {
-    value: 'DeepSeek (DeepSeek-V3)',
-    llm: 'deepseek',
-    model: 'deepseek-chat',
-  },
-  {
-    value: 'Test Stream',
-    llm: 'test',
-    model: 'dummy',
-  },
-] as const
-
 const MIN_TEXT_LINE_COUNT = 2
 const MAX_TEXT_LINE_COUNT = 5
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
@@ -163,8 +143,16 @@ export const Chat: FC = () => {
     setShowMenu(false)
   }
 
-  const handleChangeModel = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
     saveToLocalStorage({ model: event.target.value })
+  }
+
+  const handleChangeBaseURL = (event: ChangeEvent<HTMLInputElement>) => {
+    saveToLocalStorage({ baseURL: event.target.value })
+  }
+
+  const handleChangeApiKey = (event: ChangeEvent<HTMLInputElement>) => {
+    saveToLocalStorage({ apiKey: event.target.value })
   }
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
@@ -205,10 +193,10 @@ export const Chat: FC = () => {
     event.preventDefault()
 
     const formData = new FormData(event.currentTarget)
-    const value = formData.get('model')?.toString() || ''
     const form = {
-      llm: supportedModels.find((x) => x.value === value)?.llm || 'test',
-      model: supportedModels.find((x) => x.value === value)?.model || '',
+      model: formData.get('model')?.toString() || '',
+      baseURL: formData.get('baseURL')?.toString() || '',
+      apiKey: formData.get('apiKey')?.toString() || '',
       temperature: Number(formData.get('temperature')),
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
@@ -242,11 +230,10 @@ export const Chat: FC = () => {
       const res = await client.api.chat.$post(
         {
           header: {
-            'api-key': '<YOUR_API_KEY>',
-            'base-path': 'https://api.openai.com/v1',
+            'api-key': form.apiKey,
+            'base-url': form.baseURL,
           },
           json: {
-            // llm: form.llm,
             messages: interactiveMode ? newMessages : [userMessage],
             model: form.model,
             stream: streamMode,
@@ -363,14 +350,14 @@ export const Chat: FC = () => {
           <button
             type='button'
             onClick={handleClickNewChat}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <NewChatIcon color='#5D5D5D' />
           </button>
           <button
             type='button'
             onClick={() => setShowMenu(!showMenu)}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <GearIcon color='#5D5D5D' />
           </button>
@@ -380,44 +367,64 @@ export const Chat: FC = () => {
       <div
         className={`fixed ${mobile ? ' top-30 left-4' : 'top-18 left-60 '} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
-        <select
-          name='model'
-          required
-          defaultValue={defaultSettings.model}
-          onChange={handleChangeModel}
-          className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-        >
-          {supportedModels.map(({ value }) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <div className='flex items-center gap-2'>
-          <span className='ml-1 text-md'>Temperature</span>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>Model</span>
           <input
-            name='temperature'
-            type='range'
-            min='0'
-            max='1'
-            step='0.01'
-            value={temperature}
-            onChange={handleChangeTemperature}
-            disabled={!!stream}
-            className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+            name='model'
+            defaultValue={defaultSettings.model || 'gpt-4o-mini'}
+            onChange={handleChangeModel}
+            placeholder='model'
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
           />
-          <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
         </div>
-        <input
-          name='maxTokens'
-          type='number'
-          min={1}
-          max={4096}
-          defaultValue={defaultSettings.maxTokens}
-          placeholder='Max Tokens'
-          onChange={handleChangeMaxTokens}
-          className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-        />
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>BaseURL</span>
+          <input
+            name='baseURL'
+            defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
+            onChange={handleChangeBaseURL}
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+          />
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>API KEY</span>
+          <input
+            name='apiKey'
+            type='password'
+            defaultValue={defaultSettings.apiKey}
+            onChange={handleChangeApiKey}
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+          />
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>Temperature</span>
+          <div className='flex w-full items-center gap-2'>
+            <input
+              name='temperature'
+              type='range'
+              min='0'
+              max='1'
+              step='0.01'
+              value={temperature}
+              onChange={handleChangeTemperature}
+              disabled={!!stream}
+              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+            />
+            <div className='mr-1 text-sm'>{temperature.toFixed(2)}</div>
+          </div>
+        </div>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>Max Tokens</span>
+          <input
+            name='maxTokens'
+            type='number'
+            min={1}
+            max={4096}
+            defaultValue={defaultSettings.maxTokens}
+            onChange={handleChangeMaxTokens}
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+          />
+        </div>
         <ToggleInput
           label='Markdown Preview'
           value={markdownPreview}
