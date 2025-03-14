@@ -103,7 +103,6 @@ export const Chat: FC = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [stream, setStream] = useState('')
   const [streamResult, setStreamResult] = useState<{
-    finishReason: string
     usage?: {
       promptTokens: number
       completionTokens: number
@@ -226,9 +225,9 @@ export const Chat: FC = () => {
     setMessages(newMessages)
     setInput('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
+    setStreamResult(null)
 
     let result = ''
-    let finishReason = ''
     let usage: {
       prompt_tokens: number
       completion_tokens: number
@@ -253,6 +252,11 @@ export const Chat: FC = () => {
             stream: streamMode,
             temperature: form.temperature,
             max_tokens: form.maxTokens,
+            stream_options: streamMode
+              ? {
+                  include_usage: true,
+                }
+              : undefined,
           },
         },
         { init: { signal: abortControllerRef.current.signal } },
@@ -275,30 +279,26 @@ export const Chat: FC = () => {
           usage = data?.usage ?? null
         } else {
           const reader = res.body?.getReader()
+          const decoder = new TextDecoder('utf-8')
           while (true) {
-            const { done, value } = (await reader?.read()) || {}
-            if (done) break
-            const chunk = new TextDecoder().decode(value)
-            const data = chunk
+            const stream = await reader?.read()
+            if (stream?.done || !!stream?.done) {
+              break
+            }
+            if (!stream?.value) {
+              continue
+            }
+            const chunk = decoder.decode(stream.value, { stream: true })
+            const chunkJSONs = chunk
+              .replaceAll('data: ', '')
               .split('\n')
-              .map((x) => x.split('data: ')[1])
-              .filter((x) => x)
-              .map(
-                (x) =>
-                  JSON.parse(x) as {
-                    content: string
-                    finish_reason?: string
-                    usage?: {
-                      prompt_tokens: number
-                      completion_tokens: number
-                      total_tokens: number
-                    }
-                  },
-              )
+              .filter((x) => x && x !== '[DONE]')
+              .map((x) => JSON.parse(x))
             // Append chunk to result
-            result += data.map((x) => x.content).join('')
-            finishReason = data.find((x) => x.finish_reason)?.finish_reason || ''
-            usage = data.find((x) => x.usage)?.usage ?? null
+            result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
+            if (!usage) {
+              usage = chunkJSONs.find((x) => x.usage)?.usage ?? null
+            }
             setStream(`${result}●`)
           }
         }
@@ -313,7 +313,6 @@ export const Chat: FC = () => {
     if (result) {
       setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
       setStreamResult({
-        finishReason,
         usage: usage && {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,

@@ -2,12 +2,13 @@ import { Hono } from 'hono'
 import { env } from 'hono/adapter'
 import { validator } from 'hono/validator'
 import { sValidator } from '@hono/standard-validator'
-import { streamText } from 'hono/streaming'
+import { streamSSE, streamText } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { getLLMProvider } from './llm/getLLMProvider'
 import OpenAI from 'openai'
+import type { Stream } from 'openai/streaming'
 
 type Env = {
   Bindings: {
@@ -96,11 +97,15 @@ const app = new Hono<Env>()
           stream_options: data.stream_options,
         })
         if (!data.stream) {
-          const nonStream = completion as OpenAI.ChatCompletion
-          return c.json(nonStream)
+          return c.json(completion as OpenAI.ChatCompletion)
         }
-        // TODO:
-        throw new Error('Not implemented yet')
+        return streamSSE(c, async (stream) => {
+          for await (const chunk of completion as Stream<OpenAI.ChatCompletionChunk>) {
+            console.log('#chunk', chunk)
+            await stream.writeSSE({ data: JSON.stringify(chunk) })
+          }
+          await stream.writeSSE({ data: '[DONE]' })
+        })
       } catch (e) {
         console.error(e)
         return c.json({ message: e instanceof Error && e.message }, 500)
