@@ -148,12 +148,95 @@ const app = new Hono<Env>()
       await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
       return req.stream
         ? streamSSE(c, async (stream) => {
-            //
+            let aborted = false
+            stream.onAbort(() => {
+              aborted = true
+            })
+            const chunkResponse: OpenAI.ChatCompletionChunk = {
+              id: 'chatcmpl-1234567890abcdef',
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: req.model,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: 'assistant',
+                    content: '',
+                  },
+                  finish_reason: null,
+                },
+              ],
+              usage: null,
+            }
+            const chunkSize = 5
+            const repeatCount = 3
+            const generateChunkedRepeatedStrings = (
+              input: string,
+              chunkSize: number,
+              repeatCount: number,
+            ): string[] => {
+              const repeatedString = input.repeat(repeatCount)
+              const chunks: string[] = []
+              for (let i = 0; i < repeatedString.length; i += chunkSize) {
+                chunks.push(repeatedString.slice(i, i + chunkSize))
+              }
+              return chunks
+            }
+            const chunkList = [
+              `これからストリームで返すデータは ${repeatCount} 回繰り返します 🚀`,
+              '\n\n',
+              ...generateChunkedRepeatedStrings(content, chunkSize, repeatCount),
+              'ストリームの終端です 🚀',
+            ]
+            for (const chunkText of chunkList) {
+              if (aborted) {
+                break
+              }
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  ...chunkResponse,
+                  choices: [
+                    {
+                      ...chunkResponse.choices[0],
+                      delta: {
+                        role: 'assistant',
+                        content: chunkText,
+                      },
+                    },
+                  ],
+                }),
+              })
+              await stream.sleep(35) // delay
+            }
+            if (aborted) {
+              return
+            }
+            if (req.stream_options?.include_usage) {
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  ...chunkResponse,
+                  choices: [
+                    {
+                      ...chunkResponse.choices[0],
+                      delta: null,
+                    },
+                  ],
+                  usage: {
+                    prompt_tokens: 10,
+                    completion_tokens: 20,
+                    total_tokens: 30,
+                  },
+                }),
+              })
+            }
+            await stream.writeSSE({ data: '[DONE]' })
           })
         : c.json({
             id: 'chatcmpl-1234567890abcdef',
             object: 'chat.completion',
             created: Math.floor(Date.now() / 1000),
+            model: req.model,
             choices: [
               {
                 index: 0,
