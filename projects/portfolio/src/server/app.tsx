@@ -96,15 +96,24 @@ const app = new Hono<Env>()
           max_tokens: data.max_tokens,
           stream_options: data.stream_options,
         })
+
         if (!data.stream) {
           return c.json(completion as OpenAI.ChatCompletion)
         }
+
         return streamSSE(c, async (stream) => {
-          for await (const chunk of completion as Stream<OpenAI.ChatCompletionChunk>) {
-            console.log('#chunk', chunk)
+          let aborted = false
+          stream.onAbort(() => {
+            aborted = true
+            completionStream.controller.abort()
+          })
+          const completionStream = completion as Stream<OpenAI.ChatCompletionChunk>
+          for await (const chunk of completionStream) {
             await stream.writeSSE({ data: JSON.stringify(chunk) })
           }
-          await stream.writeSSE({ data: '[DONE]' })
+          if (!aborted) {
+            await stream.writeSSE({ data: '[DONE]' })
+          }
         })
       } catch (e) {
         console.error(e)
