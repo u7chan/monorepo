@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
 import { validator } from 'hono/validator'
@@ -5,7 +7,6 @@ import { sValidator } from '@hono/standard-validator'
 import { streamSSE } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
-
 import OpenAI from 'openai'
 import type { Stream } from 'openai/streaming'
 
@@ -81,21 +82,21 @@ const app = new Hono<Env>()
     ),
     async (c) => {
       const header = c.req.valid('header')
-      const data = c.req.valid('json')
+      const req = c.req.valid('json')
       try {
         const openai = new OpenAI({
           apiKey: header['api-key'],
           baseURL: header['base-url'],
         })
         const completion = await openai.chat.completions.create({
-          messages: data.messages,
-          model: data.model,
-          stream: data.stream,
-          temperature: data.temperature,
-          max_tokens: data.max_tokens,
-          stream_options: data.stream_options,
+          messages: req.messages,
+          model: req.model,
+          stream: req.stream,
+          temperature: req.temperature,
+          max_tokens: req.max_tokens,
+          stream_options: req.stream_options,
         })
-        return data.stream
+        return req.stream
           ? streamSSE(c, async (stream) => {
               let aborted = false
               stream.onAbort(() => {
@@ -117,7 +118,60 @@ const app = new Hono<Env>()
       }
     },
   )
-
+  .post(
+    '/api/chat/completions',
+    sValidator(
+      'json',
+      z.object({
+        messages: z
+          .object({
+            role: z.enum(['system', 'user', 'assistant']),
+            content: z.string().min(1),
+          })
+          .array(),
+        model: z.string().min(1),
+        stream: z.boolean().default(false),
+        temperature: z.number().min(0).max(1).optional(),
+        max_tokens: z.number().min(1).optional(),
+        stream_options: z
+          .object({
+            include_usage: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+    ),
+    async (c) => {
+      const req = c.req.valid('json')
+      console.log('req', req)
+      const filePath = path.join(process.cwd(), 'src/server/data/test.md')
+      const content = fs.readFileSync(filePath, 'utf8')
+      await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
+      return req.stream
+        ? streamSSE(c, async (stream) => {
+            //
+          })
+        : c.json({
+            id: 'chatcmpl-1234567890abcdef',
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1000),
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content,
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 20,
+              total_tokens: 30,
+            },
+          } as OpenAI.ChatCompletion)
+    },
+  )
   .get('*', (c) => {
     const { NODE_ENV } = env<{ NODE_ENV?: string }>(c)
     const prod = NODE_ENV === 'production'
