@@ -408,7 +408,7 @@ export const Chat: FC = () => {
               value={temperature}
               onChange={handleChangeTemperature}
               disabled={!!stream}
-              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800'
             />
             <div className='mr-1 text-sm'>{temperature.toFixed(2)}</div>
           </div>
