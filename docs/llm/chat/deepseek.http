@@ -1,0 +1,35 @@
+@apiKey={{$dotenv DEEPSEEK_API_KEY}}
+@model=deepseek-chat
+@baseURL=https://api.deepseek.com
+
+#### chat/completions
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "日本の首都は"
+    }
+  ]
+}
+
+#### chat/completions - stream
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "日本の首都は"
+    }
+  ],
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}
