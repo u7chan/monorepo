@@ -376,32 +376,41 @@ export const Chat: FC = () => {
         className={`fixed ${mobile ? ' top-30 left-4' : 'top-18 left-60 '} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
         <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-sm'>Model</span>
+          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
+            Model
+          </span>
           <input
             name='model'
             defaultValue={defaultSettings.model || 'gpt-4o-mini'}
+            disabled={fakeMode}
             onChange={handleChangeModel}
             placeholder='model'
-            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <div className='flex items-center gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-sm'>BaseURL</span>
+          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
+            BaseURL
+          </span>
           <input
             name='baseURL'
             defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
+            disabled={fakeMode}
             onChange={handleChangeBaseURL}
-            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <div className='flex items-center gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-sm'>API KEY</span>
+          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
+            API KEY
+          </span>
           <input
             name='apiKey'
             type='password'
+            disabled={fakeMode}
             defaultValue={defaultSettings.apiKey}
             onChange={handleChangeApiKey}
-            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
