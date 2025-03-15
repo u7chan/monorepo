@@ -11,14 +11,15 @@ import OpenAI from 'openai'
 import type { Stream } from 'openai/streaming'
 
 type Env = {
-  Bindings: {
-    NODE_ENV?: string
-    OPENAI_API_KEY?: string
-    DEEPSEEK_API_KEY?: string
-  }
+  NODE_ENV?: string
+  SERVER_PORT?: string
 }
 
-const app = new Hono<Env>()
+type HonoEnv = {
+  Bindings: Env
+}
+
+const app = new Hono<HonoEnv>()
   .post(
     '/api/profile',
     sValidator(
@@ -49,16 +50,19 @@ const app = new Hono<Env>()
     validator('header', (value, c) => {
       const apiKey = value['api-key']
       const baseURL = value['base-url']
+      const fakeMode = apiKey === 'fakemode' && apiKey === 'fakemode'
       if (!apiKey) {
         return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
       if (!baseURL) {
         return c.json({ message: `Validation Error: Missing required header 'base-url'` }, 400)
       }
-      if (!z.string().url().safeParse(baseURL).success) {
+      if (!fakeMode && !z.string().url().safeParse(baseURL).success) {
         return c.json({ message: `Validation Error: Invalid url 'base-url'` }, 400)
       }
-      return { 'api-key': apiKey, 'base-url': baseURL }
+      const { SERVER_PORT: port } = env<Env>(c)
+      const fakeBaseURL = `http://localhost:${port || 3000}/api`
+      return { 'api-key': apiKey, 'base-url': fakeMode ? fakeBaseURL : baseURL }
     }),
     sValidator(
       'json',
@@ -256,7 +260,7 @@ const app = new Hono<Env>()
     },
   )
   .get('*', (c) => {
-    const { NODE_ENV } = env<{ NODE_ENV?: string }>(c)
+    const { NODE_ENV } = env<Env>(c)
     const prod = NODE_ENV === 'production'
     return c.html(
       renderToString(

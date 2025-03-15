@@ -199,12 +199,11 @@ export const Chat: FC = () => {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-
     const formData = new FormData(event.currentTarget)
     const form = {
-      model: formData.get('model')?.toString() || '',
-      baseURL: formData.get('baseURL')?.toString() || '',
-      apiKey: formData.get('apiKey')?.toString() || '',
+      model: fakeMode ? 'fakemode' : formData.get('model')?.toString() || '',
+      baseURL: fakeMode ? 'fakemode' : formData.get('baseURL')?.toString() || '',
+      apiKey: fakeMode ? 'fakemode' : formData.get('apiKey')?.toString() || '',
       temperature: Number(formData.get('temperature')),
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
