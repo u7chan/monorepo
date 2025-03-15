@@ -4,7 +4,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 
 import app from './app'
 
-const port = 3000
+const port = process.env.SERVER_PORT ? Number(process.env.SERVER_PORT) : 3000
 console.log(`Server is running on http://localhost:${port}`)
 
 const hono = new Hono()
