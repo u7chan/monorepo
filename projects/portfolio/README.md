@@ -22,7 +22,7 @@
   bun run dev
   ```
 
-  open <http://127.0.0.1:5173/>
+  open <http://localhost:3000/>
 
 - Lint:
 
@@ -61,11 +61,11 @@
 - Run container:
 
   ```sh
-  ANY_ENV_EXAMPLE=example; \
+  SERVER_PORT=3000; \
   docker run \
     -p 3000:3000 \
     -itd \
     --restart=always \
-    --env ANY_ENV_EXAMPLE=$ANY_ENV_EXAMPLE \
+    --env SERVER_PORT=$SERVER_PORT \
     portfolio
   ```

@@ -11,6 +11,9 @@ export default defineConfig(({ mode }) => {
           entry: './src/server/app.tsx',
         }),
       ],
+      server: {
+        port: process.env.SERVER_PORT ? Number(process.env.SERVER_PORT) : undefined,
+      },
     }
   }
   return {
