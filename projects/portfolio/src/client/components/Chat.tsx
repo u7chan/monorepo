@@ -32,6 +32,7 @@ type Settings = {
   apiKey: string
   temperature: string
   maxTokens: string
+  fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
@@ -93,6 +94,7 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
+  const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
@@ -164,13 +166,19 @@ export const Chat: FC = () => {
     saveToLocalStorage({ maxTokens: event.target.value })
   }
 
+  const handleClickFakeMode = () => {
+    const newFakeMode = !fakeMode
+    setFakeMode(newFakeMode)
+    saveToLocalStorage({ fakeMode: newFakeMode })
+  }
+
   const handleClickShowMarkdownPreview = () => {
     const newMarkdownPreview = !markdownPreview
     setMarkdownPreview(newMarkdownPreview)
     saveToLocalStorage({ markdownPreview: newMarkdownPreview })
   }
 
-  const handleClickStreamModePreview = () => {
+  const handleClickStreamMode = () => {
     const newStreamMode = !streamMode
     setStreamMode(newStreamMode)
     saveToLocalStorage({ streamMode: newStreamMode })
@@ -396,6 +404,7 @@ export const Chat: FC = () => {
             className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
           />
         </div>
+        <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
         <div className='flex items-center gap-2'>
           <span className='ml-1 w-[154px] font-medium text-sm'>Temperature</span>
           <div className='flex w-full items-center gap-2'>
@@ -430,11 +439,7 @@ export const Chat: FC = () => {
           value={markdownPreview}
           onClick={handleClickShowMarkdownPreview}
         />
-        <ToggleInput
-          label='Stream Mode'
-          value={streamMode}
-          onClick={handleClickStreamModePreview}
-        />
+        <ToggleInput label='Stream Mode' value={streamMode} onClick={handleClickStreamMode} />
         <ToggleInput
           label='Interactive Mode'
           value={interactiveMode}
