@@ -28,9 +28,12 @@ const client = hc<AppType>('/')
 
 type Settings = {
   model: string
+  baseURL: string
+  apiKey: string
   temperature: string
   maxTokens: string
   markdownPreview: boolean
+  streamMode: boolean
   interactiveMode: boolean
 }
 
@@ -56,31 +59,9 @@ function CodeBlock(props: any) {
   return <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
 }
 
-const supportedModels = [
-  {
-    value: 'OpenAI (gpt-4o-mini)',
-    llm: 'openai',
-    model: 'gpt-4o-mini',
-  },
-  {
-    value: 'OpenAI (gpt-4o)',
-    llm: 'openai',
-    model: 'gpt-4o',
-  },
-  {
-    value: 'DeepSeek (DeepSeek-V3)',
-    llm: 'deepseek',
-    model: 'deepseek-chat',
-  },
-  {
-    value: 'Test Stream',
-    llm: 'test',
-    model: 'dummy',
-  },
-] as const
-
 const MIN_TEXT_LINE_COUNT = 2
 const MAX_TEXT_LINE_COUNT = 5
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
@@ -102,7 +83,6 @@ export const Chat: FC = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [stream, setStream] = useState('')
   const [streamResult, setStreamResult] = useState<{
-    finishReason: string
     usage?: {
       promptTokens: number
       completionTokens: number
@@ -114,6 +94,7 @@ export const Chat: FC = () => {
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
+  const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
   const [textAreaRows, setTextAreaRows] = useState(MIN_TEXT_LINE_COUNT)
   const [composing, setComposition] = useState(false)
@@ -162,8 +143,16 @@ export const Chat: FC = () => {
     setShowMenu(false)
   }
 
-  const handleChangeModel = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
     saveToLocalStorage({ model: event.target.value })
+  }
+
+  const handleChangeBaseURL = (event: ChangeEvent<HTMLInputElement>) => {
+    saveToLocalStorage({ baseURL: event.target.value })
+  }
+
+  const handleChangeApiKey = (event: ChangeEvent<HTMLInputElement>) => {
+    saveToLocalStorage({ apiKey: event.target.value })
   }
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
@@ -179,6 +168,12 @@ export const Chat: FC = () => {
     const newMarkdownPreview = !markdownPreview
     setMarkdownPreview(newMarkdownPreview)
     saveToLocalStorage({ markdownPreview: newMarkdownPreview })
+  }
+
+  const handleClickStreamModePreview = () => {
+    const newStreamMode = !streamMode
+    setStreamMode(newStreamMode)
+    saveToLocalStorage({ streamMode: newStreamMode })
   }
 
   const handleClickInteractiveMode = () => {
@@ -198,12 +193,12 @@ export const Chat: FC = () => {
     event.preventDefault()
 
     const formData = new FormData(event.currentTarget)
-    const value = formData.get('model')?.toString() || ''
     const form = {
-      llm: supportedModels.find((x) => x.value === value)?.llm || 'test',
-      model: supportedModels.find((x) => x.value === value)?.model || '',
+      model: formData.get('model')?.toString() || '',
+      baseURL: formData.get('baseURL')?.toString() || '',
+      apiKey: formData.get('apiKey')?.toString() || '',
       temperature: Number(formData.get('temperature')),
-      maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : null,
+      maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
     if (!form.userInput.trim()) {
@@ -218,9 +213,9 @@ export const Chat: FC = () => {
     setMessages(newMessages)
     setInput('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
+    setStreamResult(null)
 
     let result = ''
-    let finishReason = ''
     let usage: {
       prompt_tokens: number
       completion_tokens: number
@@ -229,50 +224,70 @@ export const Chat: FC = () => {
 
     // Call the Chat API
     abortControllerRef.current = new AbortController()
+
+    // TODO: [!] Cognitive Complexity
     try {
       const res = await client.api.chat.$post(
         {
+          header: {
+            'api-key': form.apiKey,
+            'base-url': form.baseURL,
+          },
           json: {
-            llm: form.llm,
-            model: form.model,
-            temperature: form.temperature,
-            maxTokens: form.maxTokens,
             messages: interactiveMode ? newMessages : [userMessage],
+            model: form.model,
+            stream: streamMode,
+            temperature: form.temperature,
+            max_tokens: form.maxTokens,
+            stream_options: streamMode
+              ? {
+                  include_usage: true,
+                }
+              : undefined,
           },
         },
         { init: { signal: abortControllerRef.current.signal } },
       )
-
       if (!res.ok) {
-        const { error } = (await res.json()) as { error: unknown }
-        result = typeof error === 'string' ? error : JSON.stringify(error)
+        const error = (await res.json()) as unknown as { message?: string }
+        result = error?.message || JSON.stringify(error)
       } else {
-        const reader = res.body?.getReader()
-        while (true) {
-          const { done, value } = (await reader?.read()) || {}
-          if (done) break
-          const chunk = new TextDecoder().decode(value)
-          const data = chunk
-            .split('\n')
-            .map((x) => x.split('data: ')[1])
-            .filter((x) => x)
-            .map(
-              (x) =>
-                JSON.parse(x) as {
-                  content: string
-                  finish_reason?: string
-                  usage?: {
-                    prompt_tokens: number
-                    completion_tokens: number
-                    total_tokens: number
-                  }
-                },
-            )
-          // Append chunk to result
-          result += data.map((x) => x.content).join('')
-          finishReason = data.find((x) => x.finish_reason)?.finish_reason || ''
-          usage = data.find((x) => x.usage)?.usage ?? null
-          setStream(`${result}●`)
+        const nonStream = res.headers.get('Content-Type') === 'application/json'
+        if (nonStream) {
+          const data = (await res.json()) as unknown as {
+            choices: { message: { content: string } }[]
+            usage?: {
+              prompt_tokens: number
+              completion_tokens: number
+              total_tokens: number
+            }
+          }
+          result = data.choices[0].message.content
+          usage = data?.usage ?? null
+        } else {
+          const reader = res.body?.getReader()
+          const decoder = new TextDecoder('utf-8')
+          while (true) {
+            const stream = await reader?.read()
+            if (stream?.done || !!stream?.done) {
+              break
+            }
+            if (!stream?.value) {
+              continue
+            }
+            const chunk = decoder.decode(stream.value, { stream: true })
+            const chunkJSONs = chunk
+              .replaceAll('data: ', '')
+              .split('\n')
+              .filter((x) => x && x !== '[DONE]')
+              .map((x) => JSON.parse(x))
+            // Append chunk to result
+            result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
+            if (!usage) {
+              usage = chunkJSONs.find((x) => x.usage)?.usage ?? null
+            }
+            setStream(`${result}●`)
+          }
         }
       }
     } catch (e) {
@@ -285,7 +300,6 @@ export const Chat: FC = () => {
     if (result) {
       setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
       setStreamResult({
-        finishReason,
         usage: usage && {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
@@ -336,14 +350,14 @@ export const Chat: FC = () => {
           <button
             type='button'
             onClick={handleClickNewChat}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <NewChatIcon color='#5D5D5D' />
           </button>
           <button
             type='button'
             onClick={() => setShowMenu(!showMenu)}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600'
+            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <GearIcon color='#5D5D5D' />
           </button>
@@ -353,48 +367,73 @@ export const Chat: FC = () => {
       <div
         className={`fixed ${mobile ? ' top-30 left-4' : 'top-18 left-60 '} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
-        <select
-          name='model'
-          required
-          defaultValue={defaultSettings.model}
-          onChange={handleChangeModel}
-          className='block w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-        >
-          {supportedModels.map(({ value }) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <div className='flex items-center gap-2'>
-          <span className='ml-1 text-md'>Temperature</span>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>Model</span>
           <input
-            name='temperature'
-            type='range'
-            min='0'
-            max='1'
-            step='0.01'
-            value={temperature}
-            onChange={handleChangeTemperature}
-            disabled={!!stream}
-            className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-300'
+            name='model'
+            defaultValue={defaultSettings.model || 'gpt-4o-mini'}
+            onChange={handleChangeModel}
+            placeholder='model'
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
           />
-          <div className='mr-1 text-md'>{temperature.toFixed(2)}</div>
         </div>
-        <input
-          name='maxTokens'
-          type='number'
-          min={1}
-          max={4096}
-          defaultValue={defaultSettings.maxTokens}
-          placeholder='Max Tokens'
-          onChange={handleChangeMaxTokens}
-          className='w-full rounded-sm border border-gray-300 p-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600'
-        />
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>BaseURL</span>
+          <input
+            name='baseURL'
+            defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
+            onChange={handleChangeBaseURL}
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+          />
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>API KEY</span>
+          <input
+            name='apiKey'
+            type='password'
+            defaultValue={defaultSettings.apiKey}
+            onChange={handleChangeApiKey}
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+          />
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>Temperature</span>
+          <div className='flex w-full items-center gap-2'>
+            <input
+              name='temperature'
+              type='range'
+              min='0'
+              max='1'
+              step='0.01'
+              value={temperature}
+              onChange={handleChangeTemperature}
+              disabled={!!stream}
+              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800'
+            />
+            <div className='mr-1 text-sm'>{temperature.toFixed(2)}</div>
+          </div>
+        </div>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='ml-1 w-[154px] font-medium text-sm'>Max Tokens</span>
+          <input
+            name='maxTokens'
+            type='number'
+            min={1}
+            max={4096}
+            defaultValue={defaultSettings.maxTokens}
+            onChange={handleChangeMaxTokens}
+            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+          />
+        </div>
         <ToggleInput
           label='Markdown Preview'
           value={markdownPreview}
           onClick={handleClickShowMarkdownPreview}
+        />
+        <ToggleInput
+          label='Stream Mode'
+          value={streamMode}
+          onClick={handleClickStreamModePreview}
         />
         <ToggleInput
           label='Interactive Mode'

@@ -1,11 +1,14 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
+import { validator } from 'hono/validator'
 import { sValidator } from '@hono/standard-validator'
-import { streamText } from 'hono/streaming'
+import { streamSSE } from 'hono/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
-
-import { getLLMProvider } from './llm/getLLMProvider'
+import OpenAI from 'openai'
+import type { Stream } from 'openai/streaming'
 
 type Env = {
   Bindings: {
@@ -43,107 +46,213 @@ const app = new Hono<Env>()
   )
   .post(
     '/api/chat',
+    validator('header', (value, c) => {
+      const apiKey = value['api-key']
+      const baseURL = value['base-url']
+      if (!apiKey) {
+        return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
+      }
+      if (!baseURL) {
+        return c.json({ message: `Validation Error: Missing required header 'base-url'` }, 400)
+      }
+      if (!z.string().url().safeParse(baseURL).success) {
+        return c.json({ message: `Validation Error: Invalid url 'base-url'` }, 400)
+      }
+      return { 'api-key': apiKey, 'base-url': baseURL }
+    }),
     sValidator(
       'json',
       z.object({
-        llm: z.enum(['openai', 'deepseek', 'test'], {
-          message: "llmは'openai','deepseek', 'test'のいずれかを指定してください",
-        }),
-        model: z.string().min(1),
-        temperature: z.number().min(0).max(1).nullish(),
-        maxTokens: z
-          .number()
-          .min(1, { message: 'maxTokensは1以上でなければなりません' })
-          .max(4096, { message: 'maxTokensは4096以下でなければなりません' })
-          .nullish(),
         messages: z
           .object({
-            role: z.enum(['user', 'assistant']),
-            content: z.string().min(1, { message: 'messagesは1文字以上でなければなりません' }),
+            role: z.enum(['system', 'user', 'assistant']),
+            content: z.string().min(1),
           })
           .array(),
+        model: z.string().min(1),
+        stream: z.boolean().default(false),
+        temperature: z.number().min(0).max(1).optional(),
+        max_tokens: z.number().min(1).optional(),
+        stream_options: z
+          .object({
+            include_usage: z.boolean().optional(),
+          })
+          .optional(),
       }),
-      (values, c) => {
-        const { success, error = [] } = values as {
-          success: boolean
-          error?: { message: string }[]
-        }
-        if (success) {
-          return
-        }
-        return c.json({ error: error.map((x) => x.message).join(',') || '' }, 400)
-      },
     ),
     async (c) => {
-      const { llm, model, temperature, maxTokens, messages } = c.req.valid('json')
-      const envs = env<{
-        OPENAI_API_KEY?: string
-        DEEPSEEK_API_KEY?: string
-      }>(c)
-      const llmProvider = getLLMProvider(llm, envs)
-      const reader = await llmProvider.chatStream(model, messages, temperature, maxTokens)
-
-      const decoder = new TextDecoder('utf-8')
-      let buffer = ''
-      return streamText(c, async (stream) => {
-        let aborted = false
-        stream.onAbort(() => {
-          aborted = true
+      const header = c.req.valid('header')
+      const req = c.req.valid('json')
+      try {
+        const openai = new OpenAI({
+          apiKey: header['api-key'],
+          baseURL: header['base-url'],
         })
-        while (true) {
-          const { done, value } = (await reader.read()) || {}
-          if (done || aborted) {
-            break
-          }
-
-          buffer += decoder.decode(value, { stream: true })
-          let boundary = buffer.indexOf('\n')
-
-          while (boundary !== -1) {
-            const chunk = buffer.slice(0, boundary).trim()
-            buffer = buffer.slice(boundary + 1)
-            boundary = buffer.indexOf('\n')
-
-            if (!chunk.startsWith('data:')) {
-              continue
-            }
-
-            const jsonStr = chunk.slice(5).trim() // 'data:'部分を除去
-            if (jsonStr !== '[DONE]') {
-              try {
-                const { choices, usage } = JSON.parse(jsonStr) as {
-                  id: string
-                  model: string
-                  choices: { delta: { content?: string }; finish_reason?: string }[]
-                  usage: {
-                    prompt_tokens: number
-                    completion_tokens: number
-                    total_tokens: number
-                  } | null
-                }
-                const text = choices.at(0)?.delta?.content || ''
-                const finishReason = choices.at(0)?.finish_reason || ''
-
-                if (finishReason) {
-                  console.log(`finish_reason=${finishReason}`)
-                }
-
-                if (usage) {
-                  console.log(
-                    `prompt_tokens=${usage.prompt_tokens}, completion_tokens=${usage.completion_tokens}`,
-                  )
-                }
-
-                await stream.writeln(
-                  `data: ${JSON.stringify({ content: text, finish_reason: finishReason, usage })}`,
-                )
-              } catch (error) {
-                console.error('Failed to parse JSON:', error)
+        const completion = await openai.chat.completions.create({
+          messages: req.messages,
+          model: req.model,
+          stream: req.stream,
+          temperature: req.temperature,
+          max_tokens: req.max_tokens,
+          stream_options: req.stream_options,
+        })
+        return req.stream
+          ? streamSSE(c, async (stream) => {
+              let aborted = false
+              stream.onAbort(() => {
+                aborted = true
+                completionStream.controller.abort()
+              })
+              const completionStream = completion as Stream<OpenAI.ChatCompletionChunk>
+              for await (const chunk of completionStream) {
+                await stream.writeSSE({ data: JSON.stringify(chunk) })
               }
+              if (!aborted) {
+                await stream.writeSSE({ data: '[DONE]' })
+              }
+            })
+          : c.json(completion as OpenAI.ChatCompletion)
+      } catch (e) {
+        console.error(e)
+        return c.json({ message: e instanceof Error && e.message }, 500)
+      }
+    },
+  )
+  .post(
+    '/api/chat/completions',
+    sValidator(
+      'json',
+      z.object({
+        messages: z
+          .object({
+            role: z.enum(['system', 'user', 'assistant']),
+            content: z.string().min(1),
+          })
+          .array(),
+        model: z.string().min(1),
+        stream: z.boolean().default(false),
+        temperature: z.number().min(0).max(1).optional(),
+        max_tokens: z.number().min(1).optional(),
+        stream_options: z
+          .object({
+            include_usage: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+    ),
+    async (c) => {
+      const req = c.req.valid('json')
+      console.log('req', req)
+      const filePath = path.join(process.cwd(), 'src/server/data/test.md')
+      const content = fs.readFileSync(filePath, 'utf8')
+      await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
+      return req.stream
+        ? streamSSE(c, async (stream) => {
+            let aborted = false
+            stream.onAbort(() => {
+              aborted = true
+            })
+            const chunkResponse: OpenAI.ChatCompletionChunk = {
+              id: 'chatcmpl-1234567890abcdef',
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: req.model,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: 'assistant',
+                    content: '',
+                  },
+                  finish_reason: null,
+                },
+              ],
+              usage: null,
             }
-          }
-        }
-      })
+            const chunkSize = 5
+            const repeatCount = 3
+            const generateChunkedRepeatedStrings = (
+              input: string,
+              chunkSize: number,
+              repeatCount: number,
+            ): string[] => {
+              const repeatedString = input.repeat(repeatCount)
+              const chunks: string[] = []
+              for (let i = 0; i < repeatedString.length; i += chunkSize) {
+                chunks.push(repeatedString.slice(i, i + chunkSize))
+              }
+              return chunks
+            }
+            const chunkList = [
+              `これからストリームで返すデータは ${repeatCount} 回繰り返します 🚀`,
+              '\n\n',
+              ...generateChunkedRepeatedStrings(content, chunkSize, repeatCount),
+              'ストリームの終端です 🚀',
+            ]
+            for (const chunkText of chunkList) {
+              if (aborted) {
+                break
+              }
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  ...chunkResponse,
+                  choices: [
+                    {
+                      ...chunkResponse.choices[0],
+                      delta: {
+                        role: 'assistant',
+                        content: chunkText,
+                      },
+                    },
+                  ],
+                }),
+              })
+              await stream.sleep(35) // delay
+            }
+            if (aborted) {
+              return
+            }
+            if (req.stream_options?.include_usage) {
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  ...chunkResponse,
+                  choices: [
+                    {
+                      ...chunkResponse.choices[0],
+                      delta: null,
+                    },
+                  ],
+                  usage: {
+                    prompt_tokens: 10,
+                    completion_tokens: 20,
+                    total_tokens: 30,
+                  },
+                }),
+              })
+            }
+            await stream.writeSSE({ data: '[DONE]' })
+          })
+        : c.json({
+            id: 'chatcmpl-1234567890abcdef',
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1000),
+            model: req.model,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content,
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 20,
+              total_tokens: 30,
+            },
+          } as OpenAI.ChatCompletion)
     },
   )
   .get('*', (c) => {
