@@ -1,0 +1,35 @@
+@apiKey={{$dotenv GEMINI_API_KEY}}
+@model=gemini-2.0-flash
+@baseURL=https://generativelanguage.googleapis.com/v1beta/openai
+
+#### chat/completions
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "日本の首都は"
+    }
+  ]
+}
+
+#### chat/completions - stream
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "日本の首都は"
+    }
+  ],
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}

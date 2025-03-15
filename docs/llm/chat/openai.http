@@ -1,0 +1,35 @@
+@apiKey={{$dotenv OPENAI_API_KEY}}
+@model=gpt-4o-mini
+@baseURL=https://api.openai.com/v1
+
+#### chat/completions
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "日本の首都は"
+    }
+  ]
+}
+
+#### chat/completions - stream
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "日本の首都は"
+    }
+  ],
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}
