@@ -61,13 +61,11 @@
 - Run container:
 
   ```sh
-  OPENAI_API_KEY=xxx; \
-  DEEPSEEK_API_KEY=yyy; \
+  ANY_ENV_EXAMPLE=example; \
   docker run \
     -p 3000:3000 \
     -itd \
     --restart=always \
-    --env OPENAI_API_KEY=$OPENAI_API_KEY \
-    --env DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
+    --env ANY_ENV_EXAMPLE=$ANY_ENV_EXAMPLE \
     portfolio
   ```
