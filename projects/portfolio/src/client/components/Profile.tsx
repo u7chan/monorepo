@@ -1,4 +1,4 @@
-import { useRef, useState, type FC, type FormEvent } from 'react'
+import { type ReactNode, useRef, useState, type FC, type FormEvent } from 'react'
 import { hc } from 'hono/client'
 
 import type { AppType } from '../../server/app'
@@ -7,6 +7,8 @@ import { CloseIcon } from './svg/CloseIcon'
 const client = hc<AppType>('/')
 
 export const Profile: FC = () => {
+  const [uploadImage, setUploadImage] = useState('')
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
@@ -26,6 +28,11 @@ export const Profile: FC = () => {
       alert(e instanceof Error && e.message)
     }
   }
+
+  const handleUploadImageChange = (src: string) => {
+    setUploadImage(src)
+  }
+
   return (
     <form onSubmit={handleSubmit} className='p-4'>
       <h2 className='mb-4 font-semibold text-xl'>Profile</h2>
@@ -54,7 +61,9 @@ export const Profile: FC = () => {
         />
       </div>
       <div className='mb-4'>
-        <FileInputContainer />
+        <FileImageInputContainer src={uploadImage} onImageChange={handleUploadImageChange}>
+          <FileImageInput onImageChange={handleUploadImageChange} />
+        </FileImageInputContainer>
       </div>
       <button
         type='submit'
@@ -66,13 +75,12 @@ export const Profile: FC = () => {
   )
 }
 
-function FileInputContainer() {
-  const [imagePreview, setImagePreview] = useState('')
+function FileImageInputContainer({
+  src,
+  children,
+  onImageChange,
+}: { src?: string; children?: ReactNode; onImageChange?: (src: string) => void }) {
   const [showImage, setShowImage] = useState(false)
-
-  const handleFileChange = (src: string) => {
-    setImagePreview(src)
-  }
 
   const handleShowImage = () => {
     setShowImage(true)
@@ -83,24 +91,22 @@ function FileInputContainer() {
   }
 
   const handleRemoveImage = () => {
-    setImagePreview('')
+    if (onImageChange) {
+      onImageChange('')
+    }
   }
 
   return (
     <div>
-      {!imagePreview && <FileInput onFileChange={handleFileChange} />}
-      {imagePreview && (
-        <ImagePreview
-          src={imagePreview}
-          onImageClick={handleShowImage}
-          onCloseClick={handleRemoveImage}
-        />
+      {!src && <>{children}</>}
+      {src && (
+        <ImagePreview src={src} onImageClick={handleShowImage} onCloseClick={handleRemoveImage} />
       )}
       {showImage && (
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/75'>
           <div className='relative w-full max-w-3xl p-4'>
             <img
-              src={imagePreview}
+              src={src}
               alt='preview'
               className='max-h-[80vh] w-full rounded object-contain shadow-lg'
             />
@@ -118,7 +124,7 @@ function FileInputContainer() {
   )
 }
 
-function FileInput({ onFileChange }: { onFileChange?: (src: string) => void }) {
+function FileImageInput({ onImageChange }: { onImageChange?: (src: string) => void }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleClick = () => {
@@ -130,7 +136,7 @@ function FileInput({ onFileChange }: { onFileChange?: (src: string) => void }) {
       const file = e.target.files[0]
       const reader = new FileReader()
       reader.onloadend = () => {
-        onFileChange?.(reader.result as string)
+        onImageChange?.(reader.result as string)
       }
       reader.readAsDataURL(file)
     }
