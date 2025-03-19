@@ -61,9 +61,20 @@ export const Profile: FC = () => {
         />
       </div>
       <div className='mb-4'>
-        <FileImageInputContainer src={uploadImage} onImageChange={handleUploadImageChange}>
-          <FileImageInput onImageChange={handleUploadImageChange} />
-        </FileImageInputContainer>
+        <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
+          <FileImageInput
+            fileInputButton={(onClick) => (
+              <button
+                type='button'
+                onClick={onClick}
+                className='mb-4 rounded bg-primary-800 px-4 py-2 text-white hover:bg-primary-700'
+              >
+                ファイルを選択
+              </button>
+            )}
+            onImageChange={handleUploadImageChange}
+          />
+        </FileImagePreview>
       </div>
       <button
         type='submit'
@@ -75,7 +86,7 @@ export const Profile: FC = () => {
   )
 }
 
-function FileImageInputContainer({
+function FileImagePreview({
   src,
   children,
   onImageChange,
@@ -91,13 +102,11 @@ function FileImageInputContainer({
   }
 
   const handleRemoveImage = () => {
-    if (onImageChange) {
-      onImageChange('')
-    }
+    onImageChange?.('')
   }
 
   return (
-    <div>
+    <>
       {!src && <>{children}</>}
       {src && (
         <ImagePreview src={src} onImageClick={handleShowImage} onCloseClick={handleRemoveImage} />
@@ -120,11 +129,17 @@ function FileImageInputContainer({
           </button>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
-function FileImageInput({ onImageChange }: { onImageChange?: (src: string) => void }) {
+function FileImageInput({
+  fileInputButton,
+  onImageChange,
+}: {
+  fileInputButton?: (onClick: () => void) => ReactNode
+  onImageChange?: (src: string) => void
+}) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleClick = () => {
@@ -151,13 +166,7 @@ function FileImageInput({ onImageChange }: { onImageChange?: (src: string) => vo
         className='hidden'
         onChange={handleFileChange}
       />
-      <button
-        type='button'
-        onClick={handleClick}
-        className='mb-4 rounded bg-primary-800 px-4 py-2 text-white hover:bg-primary-700'
-      >
-        ファイルを選択
-      </button>
+      {fileInputButton?.(handleClick)}
     </div>
   )
 }
