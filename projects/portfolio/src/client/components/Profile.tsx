@@ -68,25 +68,63 @@ export const Profile: FC = () => {
 
 function FileInputContainer() {
   const [imagePreview, setImagePreview] = useState('')
+  const [showImage, setShowImage] = useState(false)
+
   const handleFileChange = (src: string) => {
     setImagePreview(src)
   }
+
+  const handleShowImage = () => {
+    setShowImage(true)
+  }
+
+  const handleHideImage = () => {
+    setShowImage(false)
+  }
+
   const handleRemoveImage = () => {
     setImagePreview('')
   }
+
   return (
     <div>
       {!imagePreview && <FileInput onFileChange={handleFileChange} />}
-      {imagePreview && <ImagePreview src={imagePreview} onRemoveImage={handleRemoveImage} />}
+      {imagePreview && (
+        <ImagePreview
+          src={imagePreview}
+          onImageClick={handleShowImage}
+          onCloseClick={handleRemoveImage}
+        />
+      )}
+      {showImage && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/75'>
+          <div className='relative w-full max-w-3xl p-4'>
+            <img
+              src={imagePreview}
+              alt='preview'
+              className='max-h-[80vh] w-full rounded object-contain shadow-lg'
+            />
+          </div>
+          <button
+            type='button'
+            onClick={handleHideImage}
+            className='absolute top-0 right-0 font-bold text-2xl text-white hover:text-gray-300'
+          >
+            <CloseIcon size={48} color='white' />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
 function FileInput({ onFileChange }: { onFileChange?: (src: string) => void }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
   const handleClick = () => {
     fileInputRef.current?.click()
   }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const file = e.target.files[0]
@@ -97,6 +135,7 @@ function FileInput({ onFileChange }: { onFileChange?: (src: string) => void }) {
       reader.readAsDataURL(file)
     }
   }
+
   return (
     <div>
       <input
@@ -117,18 +156,27 @@ function FileInput({ onFileChange }: { onFileChange?: (src: string) => void }) {
   )
 }
 
-function ImagePreview({ src, onRemoveImage }: { src?: string; onRemoveImage?: () => void }) {
+function ImagePreview({
+  src,
+  onImageClick,
+  onCloseClick,
+}: { src?: string; onImageClick?: () => void; onCloseClick?: () => void }) {
   return (
-    <div className='relative'>
+    <div className='relative h-12 w-12 '>
       <img
         src={src}
-        alt='Preview'
-        className='h-12 w-12 rounded-md border border-gray-300 object-cover'
+        alt='thumbnail'
+        className='pointer-events-none h-full w-full rounded-md border border-gray-300 object-cover'
       />
       <button
         type='button'
-        onClick={onRemoveImage}
-        className='-top-[8px] absolute left-[38px] flex items-center justify-center rounded-full border bg-primary-800 hover:bg-primary-700'
+        onClick={onImageClick}
+        className='absolute inset-0 h-full w-full rounded focus:outline-none focus:ring-2 focus:ring-gray-400'
+      />
+      <button
+        type='button'
+        onClick={onCloseClick}
+        className='-top-[8px] absolute left-[38px] flex cursor-pointer items-center justify-center rounded-full border bg-primary-800 hover:bg-primary-700'
       >
         <CloseIcon size={16} color='white' />
       </button>
