@@ -171,7 +171,7 @@ function ImagePreview({
       <button
         type='button'
         onClick={onImageClick}
-        className='absolute inset-0 h-full w-full rounded focus:outline-none focus:ring-2 focus:ring-gray-400'
+        className='absolute inset-0 h-full w-full cursor-pointer rounded focus:outline-none focus:ring-2 focus:ring-gray-400'
       />
       <button
         type='button'
