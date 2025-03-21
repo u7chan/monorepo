@@ -14,6 +14,7 @@ interface Props {
   placeholder?: string
   disabled?: boolean
   rightBottom?: ReactNode
+  leftBottom?: ReactNode
   handleChangeInput?: (event: ChangeEvent<HTMLTextAreaElement>) => void
   handleKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   handleChangeComposition?: (composition: boolean) => void
@@ -26,6 +27,7 @@ export function ChatInput({
   placeholder,
   disabled,
   rightBottom,
+  leftBottom,
   handleChangeInput,
   handleKeyDown,
   handleChangeComposition,
@@ -47,24 +49,26 @@ export function ChatInput({
     }
   }, [])
   return (
-    <div className={'flex h-[162px] items-center px-4'}>
-      <div
-        className={`grid min-h-[84px] flex-1 grid-flow-col grid-cols-[1fr_34px] items-start gap-2 rounded-2xl border bg-white p-2 ${focus ? 'border-gray-300 shadow-lg' : 'shadow-md'}`}
-      >
-        <textarea
-          ref={ref}
-          name={name}
-          value={value}
-          onChange={handleChangeInput}
-          onKeyDown={handleKeyDown}
-          onCompositionStart={() => handleChangeComposition?.(true)}
-          onCompositionEnd={() => handleChangeComposition?.(false)}
-          rows={textAreaRows}
-          placeholder={placeholder}
-          disabled={disabled}
-          className={`max-h-34 w-full resize-none overflow-y-auto border-gray-300 p-2 focus:outline-hidden ${disabled && 'opacity-40'}`}
-        />
-        <div className='flex h-full items-end'>{rightBottom}</div>
+    <div
+      className={`mx-4 rounded-3xl border bg-white p-3 ${focus ? 'border-gray-300 shadow-lg' : 'shadow-md'}`}
+    >
+      <textarea
+        ref={ref}
+        name={name}
+        value={value}
+        onChange={handleChangeInput}
+        onKeyDown={handleKeyDown}
+        onCompositionStart={() => handleChangeComposition?.(true)}
+        onCompositionEnd={() => handleChangeComposition?.(false)}
+        rows={textAreaRows}
+        placeholder={placeholder}
+        disabled={disabled}
+        className='w-full resize-none overflow-y-auto p-2 focus:outline-hidden disabled:opacity-40'
+      />
+
+      <div className='mt-1 flex items-center justify-between'>
+        {leftBottom}
+        {rightBottom}
       </div>
     </div>
   )
