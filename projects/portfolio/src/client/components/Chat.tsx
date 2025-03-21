@@ -24,6 +24,7 @@ import { useResponsive } from './hooks/useResponsive'
 import { ArrowUpIcon } from './svg/ArrowUpIcon'
 import { StopIcon } from './svg/StopIcon'
 import { UploadIcon } from './svg/UploadIcon'
+import { FileImageInput, FileImagePreview } from './input/FileImageInput'
 
 const client = hc<AppType>('/')
 
@@ -92,6 +93,7 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
+  const [uploadImage, setUploadImage] = useState('')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
@@ -139,6 +141,7 @@ export const Chat: FC = () => {
     setShowMenu(false)
     setMessages([])
     setInput('')
+    setUploadImage('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }
 
@@ -198,6 +201,10 @@ export const Chat: FC = () => {
     }
   }
 
+  const handleUploadImageChange = (src: string) => {
+    setUploadImage(src)
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
@@ -220,6 +227,7 @@ export const Chat: FC = () => {
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
+    setUploadImage('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setStreamResult(null)
 
@@ -485,13 +493,22 @@ export const Chat: FC = () => {
                   />
                 }
                 leftBottom={
-                  <button
-                    type='button'
-                    className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:hover:cursor-default disabled:hover:bg-white'
-                  >
-                    <UploadIcon />
-                    <div className='text-black text-sm'>画像</div>
-                  </button>
+                  <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
+                    <FileImageInput
+                      fileInputButton={(onClick) => (
+                        <button
+                          type='button'
+                          onClick={onClick}
+                          disabled={loading || !!stream}
+                          className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
+                        >
+                          <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
+                          <div className='text-sm'>画像</div>
+                        </button>
+                      )}
+                      onImageChange={handleUploadImageChange}
+                    />
+                  </FileImagePreview>
                 }
                 handleChangeInput={handleChangeInput}
                 handleKeyDown={handleKeyDown}
@@ -601,14 +618,22 @@ export const Chat: FC = () => {
               />
             }
             leftBottom={
-              <button
-                type='button'
-                disabled={loading || !!stream}
-                className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
-              >
-                <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
-                <div className='text-sm'>画像</div>
-              </button>
+              <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
+                <FileImageInput
+                  fileInputButton={(onClick) => (
+                    <button
+                      type='button'
+                      onClick={onClick}
+                      disabled={loading || !!stream}
+                      className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
+                    >
+                      <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
+                      <div className='text-sm'>画像</div>
+                    </button>
+                  )}
+                  onImageChange={handleUploadImageChange}
+                />
+              </FileImagePreview>
             }
             handleChangeInput={handleChangeInput}
             handleKeyDown={handleKeyDown}
