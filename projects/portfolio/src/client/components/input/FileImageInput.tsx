@@ -79,7 +79,7 @@ export function FileImagePreview({ src, children, onImageChange }: FileImagePrev
             onClick={handleHideImage}
             className='absolute top-0 right-0 font-bold text-2xl text-white hover:text-gray-300'
           >
-            <CloseIcon size={48} color='white' />
+            <CloseIcon size={48} className='fill-white' />
           </button>
         </div>
       )}
@@ -111,7 +111,7 @@ function ImagePreview({ src, onImageClick, onCloseClick }: ImagePreviewProps) {
         onClick={onCloseClick}
         className='-top-[8px] absolute left-[38px] flex cursor-pointer items-center justify-center rounded-full border bg-primary-800 hover:bg-primary-700'
       >
-        <CloseIcon size={16} color='white' />
+        <CloseIcon size={16} className='fill-white' />
       </button>
     </div>
   )

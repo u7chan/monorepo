@@ -368,14 +368,14 @@ export const Chat: FC = () => {
             onClick={handleClickNewChat}
             className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
-            <NewChatIcon color='#5D5D5D' />
+            <NewChatIcon className='fill-[#5D5D5D]' />
           </button>
           <button
             type='button'
             onClick={() => setShowMenu(!showMenu)}
             className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
-            <GearIcon color='#5D5D5D' />
+            <GearIcon className='fill-[#5D5D5D]' />
           </button>
         </div>
       </div>
@@ -536,7 +536,7 @@ export const Chat: FC = () => {
                   {role === 'assistant' && (
                     <div className='mt-2 flex'>
                       <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                        <ChatbotIcon size={32} color='#5D5D5D' />
+                        <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                       </div>
                       <div className='message text-left'>
                         {markdownPreview ? (
@@ -558,7 +558,7 @@ export const Chat: FC = () => {
               {loading && (
                 <div className='mt-2 flex align-item'>
                   <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                    <ChatbotIcon size={32} color='#5D5D5D' />
+                    <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                   </div>
                   {stream ? (
                     <div className='message text-left'>
@@ -673,7 +673,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
           onClick={handleClickStop}
           className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
         >
-          <StopIcon color='#ffffff' size={18} />
+          <StopIcon className='fill-white' size={18} />
         </button>
       ) : (
         <button
@@ -681,7 +681,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
           disabled={disabled}
           className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
         >
-          <ArrowUpIcon color='#ffffff' size={22} />
+          <ArrowUpIcon className='fill-white' size={22} />
         </button>
       )}
     </>

@@ -1,15 +1,15 @@
 interface Props {
   size?: number
-  color?: string
+  className?: string
 }
 
-export function GearIcon({ size = 24, color = 'black' }: Props) {
+export function GearIcon({ size = 24, className = 'fill-black' }: Props) {
   return (
     <svg
       width={size}
       height={size}
       viewBox='0 0 24 24'
-      fill={color}
+      className={className}
       xmlns='http://www.w3.org/2000/svg'
     >
       <title>gear-icon</title>
