@@ -5,7 +5,7 @@
     "dev": "dotenv -- vite --mode dev --host 0.0.0.0",
     "build": "vite build",
     "start": "NODE_ENV=production bunx tsx ./src/server/node-server.ts",
-    "lint": "bunx tsc && biome lint ./src",
+    "lint": "tsc && biome lint ./src",
     "format": "biome format --write ./src"
   },
   "dependencies": {
@@ -36,6 +36,7 @@
     "dotenv-cli": "^8.0.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.0.15",
+    "typescript": "^5.8.2",
     "vite": "^6.2.3"
   }
 }
