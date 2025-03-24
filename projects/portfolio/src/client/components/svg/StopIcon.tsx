@@ -1,9 +1,9 @@
 interface Props {
   size?: number
-  color?: string
+  className?: string
 }
 
-export function StopIcon({ size = 24, color = 'black' }: Props) {
+export function StopIcon({ size = 24, className = 'fill-black' }: Props) {
   return (
     <svg
       width={size}
@@ -17,7 +17,7 @@ export function StopIcon({ size = 24, color = 'black' }: Props) {
         fillRule='evenodd'
         clipRule='evenodd'
         d='M4 18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12z'
-        fill={color}
+        className={className}
       />
     </svg>
   )

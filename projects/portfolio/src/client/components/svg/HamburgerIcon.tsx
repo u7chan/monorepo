@@ -1,9 +1,9 @@
 interface Props {
   size?: number
-  color?: string
+  className?: string
 }
 
-export function HamburgerIcon({ size = 24, color = 'black' }: Props) {
+export function HamburgerIcon({ size = 24, className = 'fill-black' }: Props) {
   return (
     <svg
       width={size}
@@ -14,9 +14,9 @@ export function HamburgerIcon({ size = 24, color = 'black' }: Props) {
     >
       <title>hamburger-icon</title>
       <rect width='24' height='24' fill='none' />
-      <rect x='3' y='6' width='18' height='2' fill={color} />
-      <rect x='3' y='11' width='18' height='2' fill={color} />
-      <rect x='3' y='16' width='18' height='2' fill={color} />
+      <rect x='3' y='6' width='18' height='2' className={className} />
+      <rect x='3' y='11' width='18' height='2' className={className} />
+      <rect x='3' y='16' width='18' height='2' className={className} />
     </svg>
   )
 }

@@ -1,8 +1,8 @@
 interface Props {
-  color?: string
+  className?: string
 }
 
-export function SpinnerIcon({ color = '#4299e1' }: Props) {
+export function SpinnerIcon({ className = 'fill-[#4299e1]' }: Props) {
   return (
     <svg
       viewBox='0 0 24 24'
@@ -24,7 +24,7 @@ export function SpinnerIcon({ color = '#4299e1' }: Props) {
 
       {/* 回転する部分 */}
       <path
-        fill={color}
+        className={className}
         d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
       />
     </svg>

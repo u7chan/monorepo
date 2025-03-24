@@ -39,7 +39,7 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
               className='rounded-lg border border-gray-300 p-2 hover:bg-primary-500 focus:outline-none focus:ring-2 focus:ring-gray-400'
               onClick={toggleMenu}
             >
-              <HamburgerIcon color='#E0E0E0' />
+              <HamburgerIcon className='fill-[#E0E0E0]' />
             </button>
           </header>
           {menuOpen && (
