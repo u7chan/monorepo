@@ -3,8 +3,11 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "strict": true,
+    "strict": true, // 厳格な型チェック
+    "noEmit": true, // tscした際に js ファイルの出力を行わない
+    "skipLibCheck": true, // node_modules を無視する設定と合わせてコレも必要
     "jsx": "react-jsx",
     "jsxImportSource": "react"
-  }
+  },
+  "exclude": ["node_modules"] // コンパイル対象外
 }
