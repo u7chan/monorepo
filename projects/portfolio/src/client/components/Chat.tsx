@@ -3,6 +3,7 @@ import React, {
   useRef,
   useState,
   useMemo,
+  Fragment,
   type FC,
   type FormEvent,
   type ChangeEvent,
@@ -65,10 +66,30 @@ function CodeBlock(props: any) {
 const MIN_TEXT_LINE_COUNT = 2
 const MAX_TEXT_LINE_COUNT = 5
 
-interface Message {
-  role: 'user' | 'assistant'
+type MessageAssistant = {
+  role: 'assistant'
   content: string
 }
+
+type MessageUser = {
+  role: 'user'
+  content:
+    | string
+    | (
+        | {
+            type: 'text'
+            text: string
+          }
+        | {
+            type: 'image_url'
+            image_url: {
+              url: string
+            }
+          }
+      )[]
+}
+
+type Message = MessageAssistant | MessageUser
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
@@ -220,11 +241,27 @@ export const Chat: FC = () => {
       return
     }
 
+    const userMessage: Message = {
+      role: 'user',
+      content: uploadImage
+        ? [
+            {
+              type: 'text',
+              text: form.userInput,
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: uploadImage,
+              },
+            },
+          ]
+        : form.userInput,
+    }
+    const newMessages = [...messages, userMessage]
+
     setShowMenu(false)
     setLoading(true)
-
-    const userMessage: Message = { role: 'user', content: form.userInput }
-    const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
     setUploadImage('')
@@ -524,13 +561,32 @@ export const Chat: FC = () => {
                 <React.Fragment key={`chat_${index}`}>
                   {role === 'user' && (
                     <div className={'message mt-2 text-right'}>
-                      <p
+                      <div
                         className={
                           'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
                         }
                       >
-                        {content}
-                      </p>
+                        {typeof content === 'string' ? (
+                          content
+                        ) : (
+                          <>
+                            {content.map((value, i) => {
+                              return (
+                                <Fragment key={`${i}`}>
+                                  <div>{value.type === 'text' && value.text}</div>
+                                  {value.type === 'image_url' && (
+                                    <img
+                                      src={value.image_url.url}
+                                      alt='upload-img'
+                                      className='mt-2 max-w-3xs border'
+                                    />
+                                  )}
+                                </Fragment>
+                              )
+                            })}
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
                   {role === 'assistant' && (

@@ -19,6 +19,38 @@ type HonoEnv = {
   Bindings: Env
 }
 
+const MessageSchema = z.union([
+  z.object({
+    role: z.enum(['system']),
+    content: z.string().min(1),
+  }),
+  z.object({
+    role: z.enum(['assistant']),
+    content: z.string().min(1),
+  }),
+  z.object({
+    role: z.enum(['user']),
+    content: z.union([
+      z.string().min(1),
+      z
+        .union([
+          z.object({
+            type: z.enum(['text']),
+            text: z.string().min(1),
+          }),
+          z.object({
+            type: z.enum(['image_url']),
+            image_url: z.object({
+              url: z.string().min(1),
+              detail: z.enum(['auto', 'low', 'high']).optional(),
+            }),
+          }),
+        ])
+        .array(),
+    ]),
+  }),
+])
+
 const app = new Hono<HonoEnv>()
   .post(
     '/api/profile',
@@ -67,12 +99,7 @@ const app = new Hono<HonoEnv>()
     sValidator(
       'json',
       z.object({
-        messages: z
-          .object({
-            role: z.enum(['system', 'user', 'assistant']),
-            content: z.string().min(1),
-          })
-          .array(),
+        messages: MessageSchema.array(),
         model: z.string().min(1),
         stream: z.boolean().default(false),
         temperature: z.number().min(0).max(1).optional(),
@@ -127,12 +154,7 @@ const app = new Hono<HonoEnv>()
     sValidator(
       'json',
       z.object({
-        messages: z
-          .object({
-            role: z.enum(['system', 'user', 'assistant']),
-            content: z.string().min(1),
-          })
-          .array(),
+        messages: MessageSchema.array(),
         model: z.string().min(1),
         stream: z.boolean().default(false),
         temperature: z.number().min(0).max(1).optional(),
@@ -146,7 +168,11 @@ const app = new Hono<HonoEnv>()
     ),
     async (c) => {
       const req = c.req.valid('json')
-      console.log('req', req)
+
+      console.log('[Request]-->')
+      console.dir(req, { depth: null })
+      console.log('<--[Request]')
+
       const filePath = path.join(process.cwd(), 'src/server/data/test.md')
       const content = fs.readFileSync(filePath, 'utf8')
       await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
