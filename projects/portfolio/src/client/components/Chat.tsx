@@ -336,8 +336,9 @@ export const Chat: FC = () => {
               .map((x) => JSON.parse(x))
             // Append chunk to result
             result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
-            if (!usage) {
-              usage = chunkJSONs.find((x) => x.usage)?.usage ?? null
+            const newUsage = chunkJSONs.find((x) => x.usage)?.usage ?? null
+            if (newUsage) {
+              usage = newUsage
             }
             setStream(`${result}●`)
           }
