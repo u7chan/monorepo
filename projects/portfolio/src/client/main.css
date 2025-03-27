@@ -34,8 +34,10 @@
   --color-primary-950: #020617;
 }
 
-body {
-  overflow: hidden
+@layer utilities {
+  .h-calc {
+      height: calc(100vh - var(--height));
+  }
 }
 
 /*
