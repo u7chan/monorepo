@@ -534,7 +534,7 @@ export const Chat: FC = () => {
         }
       >
         {emptyMessage && (
-          <div className='flex flex-1 items-center justify-center'>
+          <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
               <div className='text-center font-bold text-2xl text-gray-700'>
                 お手伝いできることはありますか？
@@ -686,7 +686,7 @@ export const Chat: FC = () => {
         )}
       </div>
 
-      <div ref={bottomChatInputContainerRef}>
+      <div ref={bottomChatInputContainerRef} className='container mx-auto max-w-screen-lg'>
         {!emptyMessage && (
           <>
             <ChatInput
