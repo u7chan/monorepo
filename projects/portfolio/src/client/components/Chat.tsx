@@ -579,7 +579,7 @@ export const Chat: FC = () => {
                                     <img
                                       src={value.image_url.url}
                                       alt='upload-img'
-                                      className='mt-2 max-w-3xs border'
+                                      className='my-1 max-w-3xs border'
                                     />
                                   )}
                                 </Fragment>
