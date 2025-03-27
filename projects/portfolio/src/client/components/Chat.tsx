@@ -94,7 +94,8 @@ type Message = MessageAssistant | MessageUser
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const buttomContainerRef = useRef<HTMLDivElement>(null)
+  const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
+  const [bottomChatInputContainerHeight, setbottomChatInputContainerHeight] = useState(0)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -128,12 +129,27 @@ export const Chat: FC = () => {
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
 
+  console.log('#height', bottomChatInputContainerHeight)
+
   useEffect(() => {
     scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
-    buttomContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+    bottomChatInputContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+
+    const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {
+      setbottomChatInputContainerHeight(element.contentRect.height)
+    })
+
+    if (bottomChatInputContainerRef?.current) {
+      buttomChatInputContainerObserver.observe(bottomChatInputContainerRef?.current)
+    }
+
     return () => {
       scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
-      buttomContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      bottomChatInputContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+
+      if (bottomChatInputContainerRef?.current) {
+        buttomChatInputContainerObserver.unobserve(bottomChatInputContainerRef?.current)
+      }
     }
   }, [])
 
@@ -145,7 +161,7 @@ export const Chat: FC = () => {
   useEffect(() => {
     if (!autoScroll) return
     messageEndRef?.current?.scrollIntoView()
-  }, [stream, autoScroll])
+  }, [stream, autoScroll, bottomChatInputContainerHeight])
 
   const handleScroll = () => {
     if (!scrollContainerRef.current) return
@@ -396,7 +412,7 @@ export const Chat: FC = () => {
   const emptyMessage = messages.length === 0
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className=''>
+    <form ref={formRef} onSubmit={handleSubmit}>
       <div
         className={`absolute transition-opacity duration-200 ease-in ${mobile ? ' top-12' : 'top-2'} ${loading ? 'opacity-0' : 'opacity-100'}`}
       >
@@ -507,12 +523,19 @@ export const Chat: FC = () => {
         className={
           emptyMessage
             ? `flex ${mobile ? 'h-[calc(100vh-56px)]' : 'h-screen'}`
-            : `flex overflow-y-auto ${mobile ? 'h-[calc(100vh-56px)] max-h-[calc(100vh-162px-56px)]' : 'h-screen max-h-[calc(100vh-162px)]'}`
+            : 'flex h-calc overflow-y-auto'
+        }
+        style={
+          {
+            '--height': mobile
+              ? `${56 + bottomChatInputContainerHeight}px`
+              : `${bottomChatInputContainerHeight}px`,
+          } as never
         }
       >
         {emptyMessage && (
           <div className='flex flex-1 items-center justify-center'>
-            <div className='grid flex-1 gap-2'>
+            <div className='grid flex-1 gap-3'>
               <div className='text-center font-bold text-2xl text-gray-700'>
                 お手伝いできることはありますか？
               </div>
@@ -592,9 +615,11 @@ export const Chat: FC = () => {
                   )}
                   {role === 'assistant' && (
                     <div className='mt-2 flex'>
-                      <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                        <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
-                      </div>
+                      {!mobile && (
+                        <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                          <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+                        </div>
+                      )}
                       <div className='message text-left'>
                         {markdownPreview ? (
                           <div className='prose mt-1 ml-2'>
@@ -614,9 +639,11 @@ export const Chat: FC = () => {
               ))}
               {loading && (
                 <div className='mt-2 flex align-item'>
-                  <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                    <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
-                  </div>
+                  {!mobile && (
+                    <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                      <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+                    </div>
+                  )}
                   {stream ? (
                     <div className='message text-left'>
                       {markdownPreview ? (
@@ -653,49 +680,53 @@ export const Chat: FC = () => {
                   </div>
                 </div>
               )}
-              <div ref={messageEndRef} />
+              <div ref={messageEndRef} className='h-4' />
             </div>
           </div>
         )}
       </div>
-      <div ref={buttomContainerRef}>
+
+      <div ref={bottomChatInputContainerRef}>
         {!emptyMessage && (
-          <ChatInput
-            name='userInput'
-            value={input}
-            textAreaRows={textAreaRows}
-            placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
-            disabled={loading}
-            rightBottom={
-              <SendButton
-                color={interactiveMode ? 'primary' : 'green'}
-                loading={loading}
-                disabled={loading || !!stream || input.trim().length <= 0}
-                handleClickStop={handleStreamCancel}
-              />
-            }
-            leftBottom={
-              <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
-                <FileImageInput
-                  fileInputButton={(onClick) => (
-                    <button
-                      type='button'
-                      onClick={onClick}
-                      disabled={loading || !!stream}
-                      className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
-                    >
-                      <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
-                      <div className='text-sm'>画像</div>
-                    </button>
-                  )}
-                  onImageChange={handleUploadImageChange}
+          <>
+            <ChatInput
+              name='userInput'
+              value={input}
+              textAreaRows={textAreaRows}
+              placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
+              disabled={loading}
+              rightBottom={
+                <SendButton
+                  color={interactiveMode ? 'primary' : 'green'}
+                  loading={loading}
+                  disabled={loading || !!stream || input.trim().length <= 0}
+                  handleClickStop={handleStreamCancel}
                 />
-              </FileImagePreview>
-            }
-            handleChangeInput={handleChangeInput}
-            handleKeyDown={handleKeyDown}
-            handleChangeComposition={handleChangeComposition}
-          />
+              }
+              leftBottom={
+                <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
+                  <FileImageInput
+                    fileInputButton={(onClick) => (
+                      <button
+                        type='button'
+                        onClick={onClick}
+                        disabled={loading || !!stream}
+                        className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
+                      >
+                        <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
+                        <div className='text-sm'>画像</div>
+                      </button>
+                    )}
+                    onImageChange={handleUploadImageChange}
+                  />
+                </FileImagePreview>
+              }
+              handleChangeInput={handleChangeInput}
+              handleKeyDown={handleKeyDown}
+              handleChangeComposition={handleChangeComposition}
+            />
+            <div className='h-4' />
+          </>
         )}
       </div>
     </form>

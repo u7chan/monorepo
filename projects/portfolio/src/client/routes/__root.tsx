@@ -1,6 +1,7 @@
 import React from 'react'
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { Layout } from '../components/Layout'
+import { useResponsive } from '../components/hooks/useResponsive'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production
@@ -12,7 +13,12 @@ const TanStackRouterDevtoolsPanel = import.meta.env.PROD
     )
 
 export const Route = createRootRoute({
-  component: () => (
+  component: () => <Root />,
+})
+
+function Root() {
+  const { mobile } = useResponsive()
+  return (
     <>
       <Layout
         title='Portfolio'
@@ -26,7 +32,7 @@ export const Route = createRootRoute({
       >
         <Outlet />
       </Layout>
-      <TanStackRouterDevtoolsPanel position='bottom-right' />
+      {!mobile && <TanStackRouterDevtoolsPanel position='bottom-right' />}
     </>
-  ),
-})
+  )
+}
