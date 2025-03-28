@@ -129,8 +129,6 @@ export const Chat: FC = () => {
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
 
-  console.log('#height', bottomChatInputContainerHeight)
-
   useEffect(() => {
     scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
     bottomChatInputContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
