@@ -14,7 +14,7 @@
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/react-router": "^1.114.29",
     "hono": "^4.7.5",
-    "openai": "^4.89.1",
+    "openai": "^4.90.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
