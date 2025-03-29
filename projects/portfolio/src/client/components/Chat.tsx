@@ -107,7 +107,8 @@ export const Chat: FC = () => {
 
   const [messages, setMessages] = useState<Message[]>([])
   const [stream, setStream] = useState('')
-  const [streamResult, setStreamResult] = useState<{
+  const [chatResults, setChatResults] = useState<{
+    model?: string
     usage?: {
       promptTokens: number
       completionTokens: number
@@ -153,19 +154,19 @@ export const Chat: FC = () => {
 
   useEffect(() => {
     if (!loading) return
-    messageEndRef?.current?.scrollIntoView()
+    messageEndRef?.current?.scrollIntoView({ behavior: 'smooth' })
   }, [loading])
 
   useEffect(() => {
     if (!autoScroll) return
-    messageEndRef?.current?.scrollIntoView()
-  }, [stream, autoScroll, bottomChatInputContainerHeight])
+    messageEndRef?.current?.scrollIntoView(!streamMode && { behavior: 'smooth' })
+  }, [stream, chatResults, streamMode, markdownPreview, autoScroll, bottomChatInputContainerHeight])
 
   const handleScroll = () => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-
-    if (scrollTop + clientHeight >= scrollHeight - 36) {
+    const threshold = 36
+    if (scrollTop + clientHeight >= scrollHeight - threshold) {
       setAutoScroll(true)
     } else {
       setAutoScroll(false)
@@ -280,7 +281,7 @@ export const Chat: FC = () => {
     setInput('')
     setUploadImage('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
-    setStreamResult(null)
+    setChatResults(null)
 
     let result = ''
     let usage: {
@@ -288,6 +289,7 @@ export const Chat: FC = () => {
       completion_tokens: number
       total_tokens: number
     } | null = null
+    let model = 'N/A'
 
     // Call the Chat API
     abortControllerRef.current = new AbortController()
@@ -323,6 +325,7 @@ export const Chat: FC = () => {
         if (nonStream) {
           const data = (await res.json()) as unknown as {
             choices: { message: { content: string } }[]
+            model?: string
             usage?: {
               prompt_tokens: number
               completion_tokens: number
@@ -330,6 +333,7 @@ export const Chat: FC = () => {
             }
           }
           result = data.choices[0].message.content
+          model = data?.model || 'N/A'
           usage = data?.usage ?? null
         } else {
           const reader = res.body?.getReader()
@@ -350,9 +354,14 @@ export const Chat: FC = () => {
               .map((x) => JSON.parse(x))
             // Append chunk to result
             result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
-            const newUsage = chunkJSONs.find((x) => x.usage)?.usage ?? null
-            if (newUsage) {
-              usage = newUsage
+
+            const _model = chunkJSONs.find((x) => x.model)?.model ?? null
+            if (_model) {
+              model = _model
+            }
+            const _usage = chunkJSONs.find((x) => x.usage)?.usage ?? null
+            if (_usage) {
+              usage = _usage
             }
             setStream(`${result}●`)
           }
@@ -367,7 +376,8 @@ export const Chat: FC = () => {
     }
     if (result) {
       setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
-      setStreamResult({
+      setChatResults({
+        model,
         usage: usage && {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
@@ -664,16 +674,19 @@ export const Chat: FC = () => {
                 </div>
               )}
 
-              {!loading && streamResult?.usage && (
-                <div className='mt-2 flex justify-end'>
-                  <div className='flex items-center gap-2 rounded bg-gray-100 px-2 py-1 text-xs'>
+              {!loading && chatResults?.usage && (
+                <div className='mt-2 flex justify-end gap-1'>
+                  <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                    <span>{chatResults.model}</span>
+                  </div>
+                  <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
                     <div>
                       <span className='mr-1'>Input:</span>
-                      <span>{streamResult.usage?.promptTokens}</span>
+                      <span>{chatResults.usage?.promptTokens}</span>
                     </div>
                     <div>
                       <span className='mr-1'>Output:</span>
-                      <span>{streamResult.usage?.completionTokens}</span>
+                      <span>{chatResults.usage?.completionTokens}</span>
                     </div>
                   </div>
                 </div>
