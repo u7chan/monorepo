@@ -289,7 +289,7 @@ export const Chat: FC = () => {
       completion_tokens: number
       total_tokens: number
     } | null = null
-    let model = ''
+    let model = 'N/A'
 
     // Call the Chat API
     abortControllerRef.current = new AbortController()
@@ -354,7 +354,8 @@ export const Chat: FC = () => {
               .map((x) => JSON.parse(x))
             // Append chunk to result
             result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
-            const _model = chunkJSONs.find((x) => x.model)?.model || 'N/A'
+
+            const _model = chunkJSONs.find((x) => x.model)?.model ?? null
             if (_model) {
               model = _model
             }
