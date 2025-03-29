@@ -154,19 +154,19 @@ export const Chat: FC = () => {
 
   useEffect(() => {
     if (!loading) return
-    messageEndRef?.current?.scrollIntoView()
+    messageEndRef?.current?.scrollIntoView({ behavior: 'smooth' })
   }, [loading])
 
   useEffect(() => {
     if (!autoScroll) return
-    messageEndRef?.current?.scrollIntoView()
-  }, [stream, autoScroll, bottomChatInputContainerHeight])
+    messageEndRef?.current?.scrollIntoView(!streamMode && { behavior: 'smooth' })
+  }, [stream, chatResults, streamMode, markdownPreview, autoScroll, bottomChatInputContainerHeight])
 
   const handleScroll = () => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-
-    if (scrollTop + clientHeight >= scrollHeight - 36) {
+    const threshold = 36
+    if (scrollTop + clientHeight >= scrollHeight - threshold) {
       setAutoScroll(true)
     } else {
       setAutoScroll(false)
