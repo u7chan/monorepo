@@ -18,3 +18,27 @@ services:
       - 8001:8000
     env_file:
       - .env
+
+  litellm:
+    container_name: litellm
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - 4000:4000
+    env_file:
+      - .env
+    environment:
+      STORE_MODEL_IN_DB: "True"
+    depends_on:
+      - litellm-db
+
+  litellm-db:
+    image: postgres:17-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-db-data:/var/lib/postgresql/data
+
+volumes:
+  litellm-db-data:
