@@ -14,7 +14,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 
-import type { AppType } from '@/server/app'
+import type { AppType } from '@/server/app.d'
 
 import { GearIcon } from '@/client/components/svg/GearIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'

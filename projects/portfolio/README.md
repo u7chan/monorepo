@@ -36,6 +36,12 @@
   bun run format
   ```
 
+- TypeGen:
+
+  ```sh
+  bun run typegen
+  ```
+
 - Build:
 
   ```sh

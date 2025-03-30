@@ -1,7 +1,7 @@
 import { useState, type FC, type FormEvent } from 'react'
 import { hc } from 'hono/client'
 
-import type { AppType } from '@/server/app'
+import type { AppType } from '@/server/app.d'
 
 import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
 

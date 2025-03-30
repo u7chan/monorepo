@@ -7,12 +7,12 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "ignore": ["src/client/routeTree.gen.ts"]
+    "ignore": ["src/client/routeTree.gen.ts", "src/server/app.d.ts"]
   },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
-    "ignore": ["src/client/routeTree.gen.ts"]
+    "ignore": ["src/client/routeTree.gen.ts", "src/server/app.d.ts"]
   },
   "organizeImports": {
     "enabled": true
