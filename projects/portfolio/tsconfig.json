@@ -7,7 +7,10 @@
     "noEmit": true, // tscした際に js ファイルの出力を行わない
     "skipLibCheck": true, // node_modules を無視する設定と合わせてコレも必要
     "jsx": "react-jsx",
-    "jsxImportSource": "react"
+    "jsxImportSource": "react",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "exclude": ["node_modules"] // コンパイル対象外
 }
