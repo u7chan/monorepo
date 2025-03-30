@@ -1,5 +1,6 @@
 import { type ReactNode, useRef, useState } from 'react'
-import { CloseIcon } from '../svg/CloseIcon'
+
+import { CloseIcon } from '@/client/components/svg/CloseIcon'
 
 interface Props {
   fileInputButton?: (onClick: () => void) => ReactNode
