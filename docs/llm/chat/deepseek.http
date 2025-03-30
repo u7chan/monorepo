@@ -28,14 +28,14 @@ Authorization: Bearer {{ apiKey }}
   "messages": [
     {
       "role": "user",
-      "content": "日本の首都は"
+      "content": "who are you?"
     }
   ],
   "stream": true,
   "stream_options": { "include_usage": true }
 }
 
-#### chat/completions with image (※画像の読み込みはサポートしていない）
+#### chat/completions with image (The image reading is not supported.）
 POST {{ baseURL }}/chat/completions
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}
@@ -48,7 +48,7 @@ Authorization: Bearer {{ apiKey }}
       "content": [
         {
           "type": "text",
-          "text": "この画像は何ですか？"
+          "text": "What is this image?"
         },
         {
           "type": "image_url",

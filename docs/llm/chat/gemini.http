@@ -13,7 +13,7 @@ Authorization: Bearer {{ apiKey }}
   "messages": [
     {
       "role": "user",
-      "content": "日本の首都は"
+      "content": "who are you?"
     }
   ]
 }
@@ -28,7 +28,7 @@ Authorization: Bearer {{ apiKey }}
   "messages": [
     {
       "role": "user",
-      "content": "日本の首都は"
+      "content": "who are you?"
     }
   ],
   "stream": true,
@@ -48,7 +48,7 @@ Authorization: Bearer {{ apiKey }}
       "content": [
         {
           "type": "text",
-          "text": "この画像は何ですか？"
+          "text": "What is this image?"
         },
         {
           "type": "image_url",
