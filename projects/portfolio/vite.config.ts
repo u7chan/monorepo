@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite'
 import devServer from '@hono/vite-dev-server'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
+import tsconfigPaths from "vite-tsconfig-paths"
 
 export default defineConfig(({ mode }) => {
   if (mode === 'dev') {
     return {
       plugins: [
         TanStackRouterVite(),
+        tsconfigPaths(),
         devServer({
           entry: './src/server/app.tsx',
         }),
@@ -17,7 +19,7 @@ export default defineConfig(({ mode }) => {
     }
   }
   return {
-    plugins: [TanStackRouterVite()],
+    plugins: [TanStackRouterVite(), tsconfigPaths()],
     build: {
       minify: true,
       outDir: './dist/static',
