@@ -22,6 +22,7 @@ services:
   litellm:
     container_name: litellm
     image: ghcr.io/berriai/litellm:main-latest
+    restart: always
     ports:
       - 4000:4000
     env_file:
@@ -33,6 +34,9 @@ services:
 
   litellm-db:
     image: postgres:17-alpine
+    restart: always
+    ports:
+      - 5432:5432
     env_file:
       - .env
     environment:
