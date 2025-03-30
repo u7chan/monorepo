@@ -48,7 +48,7 @@ Portfolio へようこそ！
 export function About() {
   const { mobile } = useResponsive()
   return (
-    <div className={`overflow-y-auto p-4 ${mobile ? 'h-[calc(100vh-56px)]' : 'h-screen'}`}>
+    <div className={`overflow-y-auto p-4 ${mobile ? '' : 'h-screen'}`}>
       <div className='prose'>
         <Markdown remarkPlugins={[remarkGfm]}>{source}</Markdown>
       </div>
