@@ -1,0 +1,62 @@
+@apiKey={{$dotenv XAI_API_KEY}}
+@model=grok-2-latest
+@baseURL=https://api.x.ai/v1
+@uploadImage={{$dotenv UPLOAD_IMAGE}}
+
+#### chat/completions
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "who are you?"
+    }
+  ]
+}
+
+#### chat/completions - stream
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "who are you?"
+    }
+  ],
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}
+
+#### chat/completions with image (The image reading is not supported.）
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What is this image?"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "{{ uploadImage }}"
+          }
+        }
+      ]
+    }
+  ]
+}
