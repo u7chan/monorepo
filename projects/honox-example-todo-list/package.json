@@ -1,13 +1,17 @@
 {
   "name": "honox-example-todo-list",
+  "type": "module",
+  "private": true,
   "scripts": {
-    "dev": "bun run --hot src/server.ts"
+    "dev": "vite"
   },
   "dependencies": {
     "hono": "^4.7.5",
     "honox": "^0.1.39"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.4"
   }
 }
