@@ -1,4 +1,5 @@
 import { createRoute } from 'honox/factory'
+import { css } from 'hono/css'
 
 export default createRoute(async (c) => {
   const { todos } = (await Bun.file('app/data/todo.json').json()) as {
@@ -13,9 +14,15 @@ export default createRoute(async (c) => {
       <h1>ToDo List</h1>
       <ul>
         {todos.map((todo) => (
-          <li key={todo.title} style="display:flex;gap:2px;">
-            <input type="checkbox" checked={todo.done} />
-            <div>{todo.title}</div>
+          <li
+            key={todo.title}
+            class={css`
+              display: flex;
+              gap: 2px;
+            `}
+          >
+            <input type="checkbox" id={todo.id} checked={todo.done} />
+            <label for={todo.id}>{todo.title}</label>
           </li>
         ))}
       </ul>
