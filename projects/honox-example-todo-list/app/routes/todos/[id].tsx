@@ -3,14 +3,12 @@ import { css } from 'hono/css'
 
 export default createRoute(async (c) => {
   const { id } = c.req.param<'/:id'>()
-  const { todos } = (await Bun.file('app/data/todo.json').json()) as {
-    todos: {
-      id: string
-      title: string
-      content: string
-      done: boolean
-    }[]
-  }
+  const todos = (await Bun.file('app/data/todo.json').json()) as {
+    id: string
+    title: string
+    content: string
+    done: boolean
+  }[]
 
   const todo = todos.find((x) => x.id === id)
   if (!todo) {
