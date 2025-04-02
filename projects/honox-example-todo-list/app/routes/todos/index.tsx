@@ -6,6 +6,7 @@ export default createRoute(async (c) => {
     todos: {
       id: string
       title: string
+      content: string
       done: boolean
     }[]
   }
@@ -18,11 +19,16 @@ export default createRoute(async (c) => {
             key={todo.title}
             class={css`
               display: flex;
-              gap: 2px;
+              gap: 8px;
+              padding: 8px;
+              & > *:nth-child(2) {
+                flex-grow: 1;
+              }
             `}
           >
             <input type="checkbox" id={todo.id} checked={todo.done} />
             <label for={todo.id}>{todo.title}</label>
+            <a href={`/todos/${todo.id}`}>Detail</a>
           </li>
         ))}
       </ul>
