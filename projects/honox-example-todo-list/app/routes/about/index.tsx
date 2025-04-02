@@ -2,13 +2,10 @@ import { Hono } from 'hono'
 
 const app = new Hono()
 
-app.get('/:name', (c) => {
-  const name = c.req.param('name')
+app.get('/about', (c) => {
   return c.render(
     <div>
       <h1>About</h1>
-      <hr />
-      <p>{name}</p>
     </div>
   )
 })

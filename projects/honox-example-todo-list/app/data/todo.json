@@ -1,0 +1,19 @@
+{
+  "todos": [
+    {
+      "id": "a19fe5fb-4d9d-49b5-a952-a99eda1018bd",
+      "title": "買い物",
+      "done": false
+    },
+    {
+      "id": "b2a8c3e2-5e1e-4a7c-8b6d-f8d0e9f7c2a1",
+      "title": "今日のタスク",
+      "done": true
+    },
+    {
+      "id": "c3b7d1f9-6f2f-4b4a-9c8e-a0f1e2b3d7c0",
+      "title": "週末の計画",
+      "done": false
+    }
+  ]
+}
