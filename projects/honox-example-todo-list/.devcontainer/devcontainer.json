@@ -4,5 +4,16 @@
 	"build": {
 		"dockerfile": "Dockerfile",
 		"context": "."
+	},
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"editor.defaultFormatter": "esbenp.prettier-vscode",
+				"editor.formatOnSave": true
+			},
+			"extensions": [
+				"esbenp.prettier-vscode"
+			]
+		}
 	}
 }
