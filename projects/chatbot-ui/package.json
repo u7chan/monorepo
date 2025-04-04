@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "lint": "biome lint --error-on-warnings ./src",
+    "lint": "tsc && biome lint --error-on-warnings ./src",
     "format": "biome check --write ./src"
   },
   "dependencies": {
@@ -13,6 +13,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@types/node": "^22.14.0",
-    "tsx": "^4.19.3"
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
   }
 }
