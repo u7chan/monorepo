@@ -16,7 +16,7 @@
     "SHELL": "/bin/bash"
   },
   "remoteUser": "u7chan",
-  "postCreateCommand": "echo TODO",
+  "postCreateCommand": "bun i",
   "customizations": {
     "vscode": {
       "settings": {
