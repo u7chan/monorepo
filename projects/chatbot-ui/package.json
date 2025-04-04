@@ -2,13 +2,16 @@
   "name": "chatbot-ui",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "lint": "biome lint --error-on-warnings ./src",
+    "format": "biome check --write ./src"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
     "hono": "^4.7.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@types/node": "^22.14.0",
     "tsx": "^4.19.3"
   }
