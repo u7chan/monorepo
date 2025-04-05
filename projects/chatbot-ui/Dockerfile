@@ -1,14 +1,26 @@
+# -----------------------------------------------
+# base stage
+# -----------------------------------------------
 FROM node:22-alpine AS base
 
 WORKDIR /app
 
-FROM base AS builder
-
-ENV PATH="/root/.bun/bin:${PATH}"
+# -----------------------------------------------
+# setup stage
+# -----------------------------------------------
+FROM base AS setup
 
 RUN apk add --no-cache bash curl \
     && curl -fsSL https://bun.sh/install -sSf | bash
 
+# -----------------------------------------------
+# builder stage
+# -----------------------------------------------
+FROM base AS builder
+
+ENV PATH="/root/.bun/bin:${PATH}"
+
+COPY --from=setup /root/.bun/bin/bun /root/.bun/bin/
 COPY . .
 
 RUN bun install --frozen-lockfile \
@@ -20,6 +32,9 @@ COPY package.json bun.lock ./temp/prod/
 RUN cd ./temp/prod \
     && bun install --frozen-lockfile --production
 
+# -----------------------------------------------
+# final stage
+# -----------------------------------------------
 FROM base AS final
 
 ENV NODE_ENV=production
