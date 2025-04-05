@@ -25,7 +25,8 @@ COPY --from=setup /root/.bun/bin/bun /root/.bun/bin/
 COPY . .
 RUN bun install --frozen-lockfile \
     && bun run lint \
-    && bun run build
+    && bun run build \
+    && bun run test
 
 # -----------------------------------------------
 # builder stage
