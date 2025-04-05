@@ -1,4 +1,4 @@
-import app from '@/app'
+import app from '@/server/app'
 import { describe, expect, test } from 'vitest'
 
 describe('App', () => {

@@ -4,13 +4,31 @@ import { defineConfig } from 'vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
 const port = 3000
-const entry = './src/app.ts'
+const entry = './src/server/app.tsx'
+const client = './src/client/main.tsx'
 
-export default defineConfig(({ command }) =>
+export default defineConfig(({ command, mode }) =>
   command === 'build'
-    ? {
-        plugins: [tsconfigPaths(), build({ entry, port })],
-      }
+    ? (() => {
+        switch (mode) {
+          case 'client':
+            return {
+              plugins: [tsconfigPaths()],
+              build: {
+                outDir: 'dist/static',
+                rollupOptions: {
+                  input: [client],
+                  output: { entryFileNames: 'client.js', assetFileNames: '[name].[ext]' },
+                },
+              },
+            }
+          case 'server':
+            return {
+              plugins: [tsconfigPaths(), build({ entry, port })],
+            }
+        }
+        throw new Error(`Invalid build mode: ${mode}`)
+      })()
     : {
         plugins: [tsconfigPaths(), devServer({ entry })],
         server: { port, host: true },
