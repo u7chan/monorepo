@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import app from '@/app'
+import { describe, expect, test } from 'vitest'
 
-describe('Hello', () => {
-  it('Hello test!!', () => {
-    expect(1 + 1).toBe(2)
+describe('App', () => {
+  test('GET /api/health', async () => {
+    const res = await app.request('/api/health')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toStrictEqual({ status: 'OK' })
   })
 })
