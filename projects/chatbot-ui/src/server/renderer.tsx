@@ -1,9 +1,9 @@
-import type { Env } from '@/server/env'
 import { reactRenderer } from '@hono/react-renderer'
 import type { Context } from 'hono'
 import { env } from 'hono/adapter'
 import type { MiddlewareHandler } from 'hono/types'
 import type { ReactNode } from 'react'
+import type { Env } from '#/server/env'
 
 type Props = {
   children: ReactNode
