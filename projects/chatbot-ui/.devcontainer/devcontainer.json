@@ -6,6 +6,7 @@
   "features": {
     "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
     "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
     "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {},
     "ghcr.io/shyim/devcontainers-features/bun:0": {}
   },
