@@ -1,5 +1,5 @@
-import { App } from '@/client/App'
 import { createRoot } from 'react-dom/client'
+import { App } from '#/client/App'
 
 const elem = document.querySelector('#root')
 if (elem) {

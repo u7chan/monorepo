@@ -1,8 +1,8 @@
-import type { Env } from '@/server/env'
-import { renderer } from '@/server/renderer'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
+import type { Env } from '#/server/env'
+import { renderer } from '#/server/renderer'
 
 const app = new Hono<Env>()
 app.use(logger())

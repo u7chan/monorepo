@@ -1,5 +1,5 @@
-import app from '@/server/app'
 import { describe, expect, test } from 'vitest'
+import app from '#/server/app'
 
 describe('App', () => {
   test('GET /api/health', async () => {
