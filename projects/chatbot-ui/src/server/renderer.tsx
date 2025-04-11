@@ -17,6 +17,7 @@ export const renderer: MiddlewareHandler = reactRenderer(({ children, c }: Props
       <head>
         <meta charSet='utf-8' />
         <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+        <link rel='stylesheet' href={devmode ? '/src/client/main.css' : '<TODO>'} />
         <script type='module' src={devmode ? '/src/client/main.tsx' : '/static/client.js'} />
       </head>
       <body>{children}</body>
