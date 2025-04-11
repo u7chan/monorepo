@@ -4,7 +4,7 @@
     "": {
       "name": "portfolio",
       "dependencies": {
-        "@hono/node-server": "^1.14.0",
+        "@hono/node-server": "^1.14.1",
         "@hono/standard-validator": "^0.1.2",
         "@tailwindcss/typography": "^0.5.16",
         "@tanstack/react-router": "^1.115.2",
@@ -149,7 +149,7 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.0", "", { "os": "win32", "cpu": "x64" }, "sha512-ZENoHJBxA20C2zFzh6AI4fT6RraMzjYw4xKWemRTRmRVtN9c5DcH9r/f2ihEkMjOW5eGgrwCslG/+Y/3bL+DHQ=="],
 
-    "@hono/node-server": ["@hono/node-server@1.14.0", "", { "peerDependencies": { "hono": "^4" } }, "sha512-YUCxJwgHRKSqjrdTk9e4VMGKN27MK5r4+MGPyZTgKH+IYbK+KtYbHeOcPGJ91KGGD6RIQiz2dAHxvjauNhOS8g=="],
+    "@hono/node-server": ["@hono/node-server@1.14.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-vmbuM+HPinjWzPe7FFPWMMQMsbKE9gDPhaH0FFdqbGpkT5lp++tcWDTxwBl5EgS5y6JVgIaCdjeHRfQ4XRBRjQ=="],
 
     "@hono/standard-validator": ["@hono/standard-validator@0.1.2", "", { "peerDependencies": { "@standard-schema/spec": "1.0.0", "hono": ">=3.9.0" } }, "sha512-mVyv2fpx/o0MNAEhjXhvuVbW3BWTGnf8F4w8ZifztE+TWXjUAKr7KAOZfcDhVrurgVhKw7RbTnEog2beZM6QtQ=="],
 
