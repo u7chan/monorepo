@@ -10,7 +10,7 @@
       },
       "devDependencies": {
         "@biomejs/biome": "1.9.4",
-        "@hono/react-renderer": "^0.3.0",
+        "@hono/react-renderer": "^1.0.1",
         "@hono/vite-build": "^1.6.0",
         "@hono/vite-dev-server": "^0.19.0",
         "@types/node": "^22.14.0",
@@ -94,7 +94,7 @@
 
     "@hono/node-server": ["@hono/node-server@1.14.0", "", { "peerDependencies": { "hono": "^4" } }, "sha512-YUCxJwgHRKSqjrdTk9e4VMGKN27MK5r4+MGPyZTgKH+IYbK+KtYbHeOcPGJ91KGGD6RIQiz2dAHxvjauNhOS8g=="],
 
-    "@hono/react-renderer": ["@hono/react-renderer@0.3.0", "", { "peerDependencies": { "hono": "*" } }, "sha512-K5g0shsuoMOT6CGfM76cdBp1Of5ucINzVEvELfeFHzC07rjYTAAiPBn6+bqeV6yOZ/ojWCye5q52C95Wi9l3XA=="],
+    "@hono/react-renderer": ["@hono/react-renderer@1.0.1", "", { "peerDependencies": { "hono": "*", "react": "^19.0.0", "react-dom": "^19.0.0" } }, "sha512-vjQ/70hVrbgsi2O44N7w5sO0v51lRcuXau/4caVzw0A1hje+U2zAnuhiBC3JhX56gGfhGT4kO5B0di4SROx0Lg=="],
 
     "@hono/vite-build": ["@hono/vite-build@1.6.0", "", { "peerDependencies": { "hono": "*" } }, "sha512-7YJHgOVb4MnlTGI4anWTneJqRJ+h7xar6m4iz7Bnjf+QEdR6T6p5M8feqbwyQ89K1jFnGOshBVKdbUw1fPwbew=="],
 
