@@ -5,7 +5,7 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 
 const port = 3000
 const entry = './src/server/app.tsx'
-const client = './src/client/main.tsx'
+const client = ['./src/client/main.tsx', './src/client/styles.css']
 
 export default defineConfig(({ command, mode }) =>
   command === 'build'
@@ -17,7 +17,7 @@ export default defineConfig(({ command, mode }) =>
               build: {
                 outDir: 'dist/static',
                 rollupOptions: {
-                  input: [client],
+                  input: client,
                   output: { entryFileNames: 'client.js', assetFileNames: '[name].[ext]' },
                 },
               },

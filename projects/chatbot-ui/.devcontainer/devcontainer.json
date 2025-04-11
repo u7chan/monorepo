@@ -39,14 +39,6 @@
         },
         "files.associations": {
           "*.css": "tailwindcss"
-        },
-        "emeraldwalk.runonsave": {
-          "commands": [
-            {
-              "match": "\\.(ts|tsx|js|jsx|html)$",
-              "cmd": "bunx @biomejs/biome lint \"${file}\" --write --unsafe"
-            }
-          ]
         }
       },
       "extensions": [
@@ -58,7 +50,6 @@
         "oderwat.indent-rainbow",
         "wix.vscode-import-cost",
         "shardulm94.trailing-spaces",
-        "emeraldwalk.RunOnSave",
         "bradlc.vscode-tailwindcss",
         "stivo.tailwind-fold"
       ]
