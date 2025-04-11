@@ -30,7 +30,7 @@ export default defineConfig(({ command, mode }) =>
         throw new Error(`Invalid build mode: ${mode}`)
       })()
     : {
-        plugins: [ tsconfigPaths(), devServer({ entry })],
+        plugins: [tsconfigPaths(), devServer({ entry })],
         server: { port, host: true },
       },
 )
