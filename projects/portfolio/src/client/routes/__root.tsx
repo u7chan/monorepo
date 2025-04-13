@@ -1,8 +1,8 @@
+import { Outlet, createRootRoute } from '@tanstack/react-router'
 import React from 'react'
-import { createRootRoute, Outlet } from '@tanstack/react-router'
 
-import { Layout } from '@/client/components/Layout'
 import { useResponsive } from '@/client//components/hooks/useResponsive'
+import { Layout } from '@/client/components/Layout'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production

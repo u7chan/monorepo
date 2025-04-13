@@ -21,7 +21,7 @@
 }
 
 @theme {
-  --color-primary-50:  #f8fafc;
+  --color-primary-50: #f8fafc;
   --color-primary-100: #f1f5f9;
   --color-primary-200: #e2e8f0;
   --color-primary-300: #cbd5e1;
@@ -36,7 +36,7 @@
 
 @layer utilities {
   .h-calc {
-      height: calc(100vh - var(--height));
+    height: calc(100vh - var(--height));
   }
 }
 
