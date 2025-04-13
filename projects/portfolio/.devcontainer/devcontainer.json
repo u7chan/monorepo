@@ -3,7 +3,9 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "appPort": ["3000:3000"],
+  "appPort": [
+    "3000:3000"
+  ],
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
@@ -22,15 +24,15 @@
         // for Tailwind CSS --
         "files.associations": {
           "*.css": "tailwindcss"
-        },
-        "emeraldwalk.runonsave": {
-          "commands": [
-            {
-              "match": "\\.(ts|tsx|js|jsx|html)$",
-              "cmd": "bunx @biomejs/biome lint \"${file}\" --write --unsafe"
-            }
-          ]
         }
+        // "emeraldwalk.runonsave": {
+        //   "commands": [
+        //     {
+        //       "match": "\\.(ts|tsx|js|jsx|html)$",
+        //       "cmd": "bunx @biomejs/biome lint \"${file}\" --write --unsafe"
+        //     }
+        //   ]
+        // }
         // -- for Tailwind CSS
       },
       "extensions": [
@@ -43,7 +45,7 @@
         "wix.vscode-import-cost",
         // for Tailwind CSS --
         "shardulm94.trailing-spaces",
-        "emeraldwalk.RunOnSave",
+        // "emeraldwalk.RunOnSave",
         "bradlc.vscode-tailwindcss",
         "stivo.tailwind-fold"
         // -- for Tailwind CSS

@@ -1,10 +1,10 @@
 import {
+  type ChangeEvent,
+  type KeyboardEvent,
   type ReactNode,
   useEffect,
   useRef,
   useState,
-  type ChangeEvent,
-  type KeyboardEvent,
 } from 'react'
 
 interface Props {
