@@ -1,3 +1,4 @@
+import { hc } from 'hono/client'
 import React, {
   useEffect,
   useRef,
@@ -9,24 +10,25 @@ import React, {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { hc } from 'hono/client'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import remarkGfm from 'remark-gfm'
 
 import type { AppType } from '@/server/app.d'
 
-import { GearIcon } from '@/client/components/svg/GearIcon'
-import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
-import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
-import { NewChatIcon } from '@/client/components/svg/NewChatIcon'
+import { useResponsive } from '@/client/components/hooks/useResponsive'
+import { ChatInput } from '@/client/components/input/ChatInput'
+import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
+import { ToggleInput } from '@/client/components/input/ToggleInput'
 import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
+import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
+import { CopyIcon } from '@/client/components/svg/CopyIcon'
+import { CheckIcon } from '@/client/components/svg/CheckIcon'
+import { GearIcon } from '@/client/components/svg/GearIcon'
+import { NewChatIcon } from '@/client/components/svg/NewChatIcon'
+import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
-import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
-import { ChatInput } from '@/client/components/input/ChatInput'
-import { ToggleInput } from '@/client/components/input/ToggleInput'
-import { useResponsive } from '@/client/components/hooks/useResponsive'
 
 const client = hc<AppType>('/')
 
@@ -55,13 +57,43 @@ function saveToLocalStorage(settings: Partial<Settings>) {
 
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
 function CodeBlock(props: any) {
+  const [copied, setCopied] = useState(false)
   const { className = '', children = '' } = props as {
     className?: string
     children?: string
   }
   const language = className?.split('-')[1]
   if (!language) return <code>{children}</code>
-  return <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
+  const handleClickCopy = () => {
+    setCopied(true)
+    setTimeout(() => {
+      setCopied(false)
+    }, 3000)
+  }
+  return (
+    <>
+      <div className='flex justify-end'>
+        <button
+          type='button'
+          onClick={handleClickCopy}
+          className='flex cursor-pointer gap-1 align-center'
+        >
+          {copied ? (
+            <>
+              <CheckIcon size={18} className='stroke-white' />
+              <span className='text-xs'>コピーしました</span>
+            </>
+          ) : (
+            <>
+              <CopyIcon size={18} className='stroke-white' />
+              <span className='text-xs'>コピーする</span>
+            </>
+          )}
+        </button>
+      </div>
+      <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
+    </>
+  )
 }
 
 const MIN_TEXT_LINE_COUNT = 2
@@ -106,7 +138,13 @@ export const Chat: FC = () => {
     return readFromLocalStorage()
   }, [])
 
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'assistant',
+      content:
+        '## aaaaaa\n aaaaaaaaaaaaaaaaaa\n ```js\nvar abc = 2;\nvar a ="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";',
+    },
+  ])
   const [stream, setStream] = useState('')
   const [chatResults, setChatResults] = useState<{
     model?: string
