@@ -55,6 +55,20 @@ function saveToLocalStorage(settings: Partial<Settings>) {
   localStorage.setItem(key, JSON.stringify(newSettings))
 }
 
+async function copyToClipboard(text: string) {
+  if (navigator.clipboard) {
+    // https only
+    await navigator.clipboard.writeText(text)
+  } else {
+    const input = document.createElement('textarea')
+    input.value = text
+    document.body.appendChild(input)
+    input.select()
+    document.execCommand('copy')
+    document.body.removeChild(input)
+  }
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
 function CodeBlock(props: any) {
   const [copied, setCopied] = useState(false)
@@ -64,11 +78,15 @@ function CodeBlock(props: any) {
   }
   const language = className?.split('-')[1]
   if (!language) return <code>{children}</code>
-  const handleClickCopy = () => {
+  const handleClickCopy = async () => {
     setCopied(true)
-    setTimeout(() => {
-      setCopied(false)
-    }, 3000)
+    try {
+      await copyToClipboard(children.trim())
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    } catch (e) {
+      alert(e)
+    }
+    setCopied(false)
   }
   return (
     <>
@@ -138,13 +156,7 @@ export const Chat: FC = () => {
     return readFromLocalStorage()
   }, [])
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content:
-        '## aaaaaa\n aaaaaaaaaaaaaaaaaa\n ```js\nvar abc = 2;\nvar a ="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";',
-    },
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [stream, setStream] = useState('')
   const [chatResults, setChatResults] = useState<{
     model?: string
