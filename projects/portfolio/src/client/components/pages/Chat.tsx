@@ -22,8 +22,8 @@ import { FileImageInput, FileImagePreview } from '@/client/components/input/File
 import { ToggleInput } from '@/client/components/input/ToggleInput'
 import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
-import { CopyIcon } from '@/client/components/svg/CopyIcon'
 import { CheckIcon } from '@/client/components/svg/CheckIcon'
+import { CopyIcon } from '@/client/components/svg/CopyIcon'
 import { GearIcon } from '@/client/components/svg/GearIcon'
 import { NewChatIcon } from '@/client/components/svg/NewChatIcon'
 import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
@@ -94,6 +94,7 @@ function CodeBlock(props: any) {
         <button
           type='button'
           onClick={handleClickCopy}
+          disabled={copied}
           className='flex cursor-pointer gap-1 align-center'
         >
           {copied ? (
@@ -157,6 +158,7 @@ export const Chat: FC = () => {
   }, [])
 
   const [messages, setMessages] = useState<Message[]>([])
+  const [copied, setCopied] = useState(false)
   const [stream, setStream] = useState('')
   const [chatResults, setChatResults] = useState<{
     model?: string
@@ -640,62 +642,91 @@ export const Chat: FC = () => {
         {!emptyMessage && (
           <div className='container mx-auto mt-4 max-w-screen-lg px-4'>
             <div className='message-list'>
-              {messages.map(({ role, content }, index) => (
-                <React.Fragment key={`chat_${index}`}>
-                  {role === 'user' && (
-                    <div className={'message mt-2 text-right'}>
-                      <div
-                        className={
-                          'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
-                        }
-                      >
-                        {typeof content === 'string' ? (
-                          content
-                        ) : (
-                          <>
-                            {content.map((value, i) => {
-                              return (
-                                <Fragment key={`${i}`}>
-                                  <div>{value.type === 'text' && value.text}</div>
-                                  {value.type === 'image_url' && (
-                                    <img
-                                      src={value.image_url.url}
-                                      alt='upload-img'
-                                      className='my-1 max-w-3xs border'
-                                    />
-                                  )}
-                                </Fragment>
-                              )
-                            })}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {role === 'assistant' && (
-                    <div className='mt-2 flex'>
-                      {!mobile && (
-                        <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                          <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+              {messages.map(({ role, content }, index) => {
+                const handleClickCopy = async (message: string) => {
+                  setCopied(true)
+                  try {
+                    await copyToClipboard(message)
+                    await new Promise((resolve) => setTimeout(resolve, 3000))
+                  } catch (e) {
+                    alert(e)
+                  }
+                  setCopied(false)
+                }
+                return (
+                  <React.Fragment key={`chat_${index}`}>
+                    {role === 'user' && (
+                      <div className={'message mt-2 text-right'}>
+                        <div
+                          className={
+                            'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
+                          }
+                        >
+                          {typeof content === 'string' ? (
+                            content
+                          ) : (
+                            <>
+                              {content.map((value, i) => {
+                                return (
+                                  <Fragment key={`${i}`}>
+                                    <div>{value.type === 'text' && value.text}</div>
+                                    {value.type === 'image_url' && (
+                                      <img
+                                        src={value.image_url.url}
+                                        alt='upload-img'
+                                        className='my-1 max-w-3xs border'
+                                      />
+                                    )}
+                                  </Fragment>
+                                )
+                              })}
+                            </>
+                          )}
                         </div>
-                      )}
-                      <div className='message text-left'>
-                        {markdownPreview ? (
-                          <div className='prose mt-1 ml-2'>
-                            <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
-                              {content}
-                            </Markdown>
-                          </div>
-                        ) : (
-                          <div className='message text-left'>
-                            <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{content}</p>
+                      </div>
+                    )}
+                    {role === 'assistant' && (
+                      <div className='mt-2 flex'>
+                        {!mobile && (
+                          <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                            <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                           </div>
                         )}
+                        <div className='message group text-left '>
+                          {markdownPreview ? (
+                            <div className='prose mt-1 ml-2'>
+                              <Markdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{ code: CodeBlock }}
+                              >
+                                {content}
+                              </Markdown>
+                            </div>
+                          ) : (
+                            <div className='message text-left'>
+                              <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>
+                                {content}
+                              </p>
+                            </div>
+                          )}
+                          <div
+                            className={`ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
+                          >
+                            <button
+                              type='button'
+                              className='mt-1 cursor-pointer p-1'
+                              onClick={() => handleClickCopy(content)}
+                              disabled={copied}
+                            >
+                              {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </React.Fragment>
-              ))}
+                    )}
+                  </React.Fragment>
+                )
+              })}
               {loading && (
                 <div className='mt-2 flex align-item'>
                   {!mobile && (
