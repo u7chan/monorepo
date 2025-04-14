@@ -158,7 +158,7 @@ export const Chat: FC = () => {
   }, [])
 
   const [messages, setMessages] = useState<Message[]>([])
-  const [copied, setCopied] = useState(false)
+  const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState('')
   const [chatResults, setChatResults] = useState<{
     model?: string
@@ -643,50 +643,67 @@ export const Chat: FC = () => {
           <div className='container mx-auto mt-4 max-w-screen-lg px-4'>
             <div className='message-list'>
               {messages.map(({ role, content }, index) => {
+                const copied = copiedId === `chat_${index}`
                 const handleClickCopy = async (message: string) => {
-                  setCopied(true)
+                  setCopiedId(`chat_${index}`)
                   try {
                     await copyToClipboard(message)
                     await new Promise((resolve) => setTimeout(resolve, 3000))
                   } catch (e) {
                     alert(e)
                   }
-                  setCopied(false)
+                  setCopiedId('')
                 }
                 return (
                   <React.Fragment key={`chat_${index}`}>
                     {role === 'user' && (
                       <div className={'message mt-2 text-right'}>
-                        <div
-                          className={
-                            'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
-                          }
-                        >
-                          {typeof content === 'string' ? (
-                            content
-                          ) : (
-                            <>
-                              {content.map((value, i) => {
-                                return (
-                                  <Fragment key={`${i}`}>
-                                    <div>{value.type === 'text' && value.text}</div>
-                                    {value.type === 'image_url' && (
-                                      <img
-                                        src={value.image_url.url}
-                                        alt='upload-img'
-                                        className='my-1 max-w-3xs border'
-                                      />
-                                    )}
-                                  </Fragment>
-                                )
-                              })}
-                            </>
-                          )}
+                        <div className='group'>
+                          <div
+                            className={
+                              'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
+                            }
+                          >
+                            {typeof content === 'string' ? (
+                              content
+                            ) : (
+                              <>
+                                {content.map((value, i) => {
+                                  return (
+                                    <Fragment key={`${i}`}>
+                                      <div>{value.type === 'text' && value.text}</div>
+                                      {value.type === 'image_url' && (
+                                        <img
+                                          src={value.image_url.url}
+                                          alt='upload-img'
+                                          className='my-1 max-w-3xs border'
+                                        />
+                                      )}
+                                    </Fragment>
+                                  )
+                                })}
+                              </>
+                            )}
+                          </div>
+                          <div
+                            className={`ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
+                          >
+                            <button
+                              type='button'
+                              className='mt-1 cursor-pointer p-1'
+                              onClick={() =>
+                                handleClickCopy(typeof content === 'string' ? content : '')
+                              }
+                              disabled={copied}
+                            >
+                              {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
                     {role === 'assistant' && (
-                      <div className='mt-2 flex'>
+                      <div className='flex'>
                         {!mobile && (
                           <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                             <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
@@ -728,7 +745,7 @@ export const Chat: FC = () => {
                 )
               })}
               {loading && (
-                <div className='mt-2 flex align-item'>
+                <div className='flex align-item'>
                   {!mobile && (
                     <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                       <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
