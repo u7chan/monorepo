@@ -1,14 +1,13 @@
-import { Outlet, createRootRoute } from '@tanstack/react-router'
-import React from 'react'
-
 import { useResponsive } from '@/client//components/hooks/useResponsive'
 import { Layout } from '@/client/components/Layout'
+import { Outlet, createRootRoute } from '@tanstack/react-router'
+import React from 'react'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production
   : React.lazy(() =>
       // Lazy load in development
-      import('@tanstack/router-devtools').then((res) => ({
+      import('@tanstack/react-router-devtools').then((res) => ({
         default: res.TanStackRouterDevtools,
       })),
     )
