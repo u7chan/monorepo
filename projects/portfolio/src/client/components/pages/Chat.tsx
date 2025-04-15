@@ -697,7 +697,7 @@ export const Chat: FC = () => {
                             )}
                           </div>
                           <div
-                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
+                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'} ${loading || stream ? 'hidden' : ''}`}
                           >
                             <button
                               type='button'
