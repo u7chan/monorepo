@@ -24,6 +24,7 @@ import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
 import { CheckIcon } from '@/client/components/svg/CheckIcon'
 import { CopyIcon } from '@/client/components/svg/CopyIcon'
+import { DeleteIcon } from '@/client/components/svg/DeleteIcon'
 import { GearIcon } from '@/client/components/svg/GearIcon'
 import { NewChatIcon } from '@/client/components/svg/NewChatIcon'
 import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
@@ -654,6 +655,16 @@ export const Chat: FC = () => {
                   }
                   setCopiedId('')
                 }
+                const handleClickDelete = (i: number) => {
+                  if (confirm('本当に削除しますか？')) {
+                    setMessages((prevMessages) => {
+                      const newMessage = [...prevMessages]
+                      newMessage.splice(i, 1) // user
+                      newMessage.splice(i, 1) // assistant
+                      return newMessage
+                    })
+                  }
+                }
                 return (
                   <React.Fragment key={`chat_${index}`}>
                     {role === 'user' && (
@@ -686,17 +697,24 @@ export const Chat: FC = () => {
                             )}
                           </div>
                           <div
-                            className={`ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
+                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
                           >
                             <button
                               type='button'
-                              className='mt-1 cursor-pointer p-1'
+                              className='cursor-pointer p-1'
                               onClick={() =>
                                 handleClickCopy(typeof content === 'string' ? content : '')
                               }
                               disabled={copied}
                             >
                               {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
+                            </button>
+                            <button
+                              type='button'
+                              className='cursor-pointer p-1'
+                              onClick={() => handleClickDelete(index)}
+                            >
+                              <DeleteIcon size={20} />
                             </button>
                           </div>
                         </div>
@@ -727,11 +745,11 @@ export const Chat: FC = () => {
                             </div>
                           )}
                           <div
-                            className={`ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
+                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
                           >
                             <button
                               type='button'
-                              className='mt-1 cursor-pointer p-1'
+                              className='cursor-pointer p-1'
                               onClick={() => handleClickCopy(content)}
                               disabled={copied}
                             >
