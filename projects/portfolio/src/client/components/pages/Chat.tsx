@@ -12,7 +12,9 @@ import React, {
 } from 'react'
 import Markdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 
 import type { AppType } from '@/server/app.d'
 
@@ -30,6 +32,8 @@ import { NewChatIcon } from '@/client/components/svg/NewChatIcon'
 import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
+
+import 'katex/dist/katex.min.css'
 
 const client = hc<AppType>('/')
 
@@ -753,7 +757,8 @@ export const Chat: FC = () => {
                           {markdownPreview ? (
                             <div className='prose mt-1 ml-2'>
                               <Markdown
-                                remarkPlugins={[remarkGfm]}
+                                remarkPlugins={[remarkGfm, remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                               >
                                 {content}
@@ -796,7 +801,8 @@ export const Chat: FC = () => {
                       {markdownPreview ? (
                         <div className='prose mt-1 ml-2'>
                           <Markdown
-                            remarkPlugins={[remarkGfm]}
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                           >
                             {stream}
