@@ -14,7 +14,7 @@
     "@hono/standard-validator": "^0.1.2",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/react-router": "^1.116.0",
-    "hono": "^4.7.6",
+    "hono": "^4.7.7",
     "openai": "^4.94.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -38,7 +38,7 @@
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3",
-    "vite": "^6.2.6",
+    "vite": "^6.3.0",
     "vite-plugin-dts": "^4.5.3",
     "vite-tsconfig-paths": "^5.1.4"
   }
