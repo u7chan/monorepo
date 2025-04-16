@@ -33,7 +33,7 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
-import 'katex/dist/katex.min.css'
+// import 'katex/dist/di.min.css' // hotfix: #148
 
 const client = hc<AppType>('/')
 
