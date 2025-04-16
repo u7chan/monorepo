@@ -10,7 +10,7 @@ import React, {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import Markdown from 'react-markdown'
+import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
@@ -756,13 +756,13 @@ export const Chat: FC = () => {
                         <div className='message group text-left '>
                           {markdownPreview ? (
                             <div className='prose mt-1 ml-2'>
-                              <Markdown
+                              <ReactMarkdown
                                 remarkPlugins={[remarkGfm, remarkMath]}
                                 rehypePlugins={[rehypeKatex]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                               >
                                 {content}
-                              </Markdown>
+                              </ReactMarkdown>
                             </div>
                           ) : (
                             <div className='message text-left'>
@@ -800,13 +800,13 @@ export const Chat: FC = () => {
                     <div className='message text-left'>
                       {markdownPreview ? (
                         <div className='prose mt-1 ml-2'>
-                          <Markdown
+                          <ReactMarkdown
                             remarkPlugins={[remarkGfm, remarkMath]}
                             rehypePlugins={[rehypeKatex]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                           >
                             {stream}
-                          </Markdown>
+                          </ReactMarkdown>
                         </div>
                       ) : (
                         <div className='message text-left'>
