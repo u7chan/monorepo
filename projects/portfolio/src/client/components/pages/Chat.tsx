@@ -72,13 +72,12 @@ async function copyToClipboard(text: string) {
 
 type MarkdownLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
 
-function MarkdownLink(props: MarkdownLinkProps) {
-  const { href, children } = props as {
-    href: string
-    children: React.ReactNode
-  }
+function MarkdownLink({ href, children }: MarkdownLinkProps) {
   const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
+    if (!href) {
+      return
+    }
     if (href.startsWith('http')) {
       window.open(href, '_blank')
     } else {
@@ -92,15 +91,16 @@ function MarkdownLink(props: MarkdownLinkProps) {
   )
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-function CodeBlock(props: any) {
+type MarkdownCodeBlockProps = React.HTMLAttributes<HTMLElement> & {
+  children?: React.ReactNode | string
+}
+
+function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
   const [copied, setCopied] = useState(false)
-  const { className = '', children = '' } = props as {
-    className?: string
-    children?: string
-  }
   const language = className?.split('-')[1]
-  if (!language) return <code>{children}</code>
+  if (typeof children !== 'string' || !language) {
+    return <code>{children}</code>
+  }
   const handleClickCopy = async () => {
     setCopied(true)
     try {
@@ -754,7 +754,7 @@ export const Chat: FC = () => {
                             <div className='prose mt-1 ml-2'>
                               <Markdown
                                 remarkPlugins={[remarkGfm]}
-                                components={{ a: MarkdownLink, code: CodeBlock }}
+                                components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                               >
                                 {content}
                               </Markdown>
@@ -795,7 +795,10 @@ export const Chat: FC = () => {
                     <div className='message text-left'>
                       {markdownPreview ? (
                         <div className='prose mt-1 ml-2'>
-                          <Markdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
+                          <Markdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
+                          >
                             {stream}
                           </Markdown>
                         </div>
