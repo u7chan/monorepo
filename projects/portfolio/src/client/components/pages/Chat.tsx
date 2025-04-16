@@ -72,13 +72,12 @@ async function copyToClipboard(text: string) {
 
 type MarkdownLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
 
-function MarkdownLink(props: MarkdownLinkProps) {
-  const { href, children } = props as {
-    href: string
-    children: React.ReactNode
-  }
+function MarkdownLink({ href, children }: MarkdownLinkProps) {
   const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
+    if (!href) {
+      return
+    }
     if (href.startsWith('http')) {
       window.open(href, '_blank')
     } else {
