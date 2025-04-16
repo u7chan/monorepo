@@ -504,7 +504,7 @@ export const Chat: FC = () => {
           </span>
           <input
             name='model'
-            defaultValue={defaultSettings.model || 'gpt-4o-mini'}
+            defaultValue={defaultSettings.model || 'gpt-4.1-mini'}
             disabled={fakeMode}
             onChange={handleChangeModel}
             placeholder='model'
