@@ -70,6 +70,28 @@ async function copyToClipboard(text: string) {
   }
 }
 
+type MarkdownLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
+
+function MarkdownLink(props: MarkdownLinkProps) {
+  const { href, children } = props as {
+    href: string
+    children: React.ReactNode
+  }
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    if (href.startsWith('http')) {
+      window.open(href, '_blank')
+    } else {
+      window.location.href = href
+    }
+  }
+  return (
+    <a href={href} onClick={handleClick} className='text-primary-800 underline'>
+      {children}
+    </a>
+  )
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
 function CodeBlock(props: any) {
   const [copied, setCopied] = useState(false)
@@ -732,7 +754,7 @@ export const Chat: FC = () => {
                             <div className='prose mt-1 ml-2'>
                               <Markdown
                                 remarkPlugins={[remarkGfm]}
-                                components={{ code: CodeBlock }}
+                                components={{ a: MarkdownLink, code: CodeBlock }}
                               >
                                 {content}
                               </Markdown>
