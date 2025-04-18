@@ -437,7 +437,15 @@ export const Chat: FC = () => {
               .replaceAll('data: ', '')
               .split('\n')
               .filter((x) => x && x !== '[DONE]')
-              .map((x) => JSON.parse(x))
+              .map((x) => {
+                try {
+                  return JSON.parse(x)
+                } catch (e) {
+                  console.error(`Failed to parse chunk JSON: \`${x}\``)
+                  alert('Failed to parse chunk (Please check the console logs)')
+                  throw e
+                }
+              })
             // Append chunk to result
             result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
 
