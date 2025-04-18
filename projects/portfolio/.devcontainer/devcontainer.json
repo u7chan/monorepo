@@ -43,6 +43,7 @@
         "eamodio.gitlens",
         "oderwat.indent-rainbow",
         "wix.vscode-import-cost",
+        "github.vscode-pull-request-github",
         // for Tailwind CSS --
         "shardulm94.trailing-spaces",
         // "emeraldwalk.RunOnSave",
