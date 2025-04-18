@@ -8,7 +8,7 @@ interface Props {
 export function ToggleInput({ label, value, disabled, onClick }: Props) {
   return (
     <div className='flex items-center justify-between gap-2'>
-      <span className='ml-1 font-medium text-sm'>{label}</span>
+      {label && <span className='ml-1 font-medium text-sm'>{label}</span>}
       <button
         type='button'
         disabled={disabled}
