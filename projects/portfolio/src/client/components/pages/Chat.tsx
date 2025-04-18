@@ -38,6 +38,7 @@ type Settings = {
   baseURL: string
   apiKey: string
   temperature: string
+  temperatureEnabled: boolean
   maxTokens: string
   fakeMode: boolean
   markdownPreview: boolean
@@ -196,6 +197,9 @@ export const Chat: FC = () => {
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
+  const [temperatureEnabled, setTemperatureEnabled] = useState(
+    defaultSettings?.temperatureEnabled ?? false,
+  )
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
@@ -282,6 +286,12 @@ export const Chat: FC = () => {
     saveToLocalStorage({ maxTokens: event.target.value })
   }
 
+  const handleClickTemperatureEnabled = () => {
+    const newTemperatureEnabled = !temperatureEnabled
+    setTemperatureEnabled(newTemperatureEnabled)
+    saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
+  }
+
   const handleClickFakeMode = () => {
     const newFakeMode = !fakeMode
     setFakeMode(newFakeMode)
@@ -324,7 +334,7 @@ export const Chat: FC = () => {
       model: fakeMode ? 'fakemode' : formData.get('model')?.toString() || '',
       baseURL: fakeMode ? 'fakemode' : formData.get('baseURL')?.toString() || '',
       apiKey: fakeMode ? 'fakemode' : formData.get('apiKey')?.toString() || '',
-      temperature: Number(formData.get('temperature')),
+      temperature: temperatureEnabled ? Number(formData.get('temperature')) : undefined,
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
@@ -560,7 +570,11 @@ export const Chat: FC = () => {
         </div>
         <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
         <div className='flex items-center gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-sm'>Temperature</span>
+          <span
+            className={`ml-1 w-[154px] font-medium text-sm ${temperatureEnabled ? '' : 'opacity-50'}`}
+          >
+            Temperature
+          </span>
           <div className='flex w-full items-center gap-2'>
             <input
               name='temperature'
@@ -570,10 +584,11 @@ export const Chat: FC = () => {
               step='0.01'
               value={temperature}
               onChange={handleChangeTemperature}
-              disabled={!!stream}
-              className='range-slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800'
+              disabled={!temperatureEnabled || !!stream}
+              className={`h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 ${temperatureEnabled ? '' : 'opacity-50'}`}
             />
             <div className='mr-1 text-sm'>{temperature.toFixed(2)}</div>
+            <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
           </div>
         </div>
         <div className='flex items-center justify-between gap-2'>
