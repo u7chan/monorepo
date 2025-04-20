@@ -795,10 +795,14 @@ export const Chat: FC = () => {
                             <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                           </div>
                         )}
-                        <div className='message group text-left '>
-                          {message.reasoning_content && <div>{message.reasoning_content}</div>}
+                        <div className='message group ml-2 text-left'>
+                          {message.reasoning_content && (
+                            <div className='whitespace-pre-line text-gray-400 text-xs'>
+                              {message.reasoning_content}
+                            </div>
+                          )}
                           {markdownPreview ? (
-                            <div className='prose mt-1 ml-2'>
+                            <div className='prose mt-1'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
@@ -808,7 +812,7 @@ export const Chat: FC = () => {
                             </div>
                           ) : (
                             <div className='message text-left'>
-                              <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>
+                              <p className='mt-1 inline-block whitespace-pre-wrap'>
                                 {message.content}
                               </p>
                             </div>
@@ -839,10 +843,14 @@ export const Chat: FC = () => {
                     </div>
                   )}
                   {stream ? (
-                    <div className='message text-left'>
-                      {stream.reasoningContent && <div>{stream.reasoningContent}</div>}
+                    <div className='message ml-2 text-left'>
+                      {stream.reasoningContent && (
+                        <div className='whitespace-pre-line text-gray-400 text-xs'>
+                          {stream.reasoningContent}
+                        </div>
+                      )}
                       {markdownPreview ? (
-                        <div className='prose mt-1 ml-2'>
+                        <div className='prose mt-1'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
@@ -852,9 +860,7 @@ export const Chat: FC = () => {
                         </div>
                       ) : (
                         <div className='message text-left'>
-                          <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>
-                            {stream.content}
-                          </p>
+                          <p className='mt-1 inline-block whitespace-pre-wrap'>{stream.content}</p>
                         </div>
                       )}
                     </div>
