@@ -173,6 +173,14 @@ const app = new Hono<HonoEnv>()
       console.dir(req, { depth: null })
       console.log('<--[Request]')
 
+      const splitByLength = (text: string, length: number): string[] => {
+        const result = []
+        for (let i = 0; i < text.length; i += length) {
+          result.push(text.slice(i, i + length))
+        }
+        return result
+      }
+
       const filePath = path.join(process.cwd(), 'src/server/data/test.md')
       const content = fs.readFileSync(filePath, 'utf8')
       await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
@@ -201,28 +209,16 @@ const app = new Hono<HonoEnv>()
             }
             const chunkSize = 5
             const repeatCount = 3
-            const generateChunkedRepeatedStrings = (
-              input: string,
-              chunkSize: number,
-              repeatCount: number,
-            ): string[] => {
-              const repeatedString = input.repeat(repeatCount)
-              const chunks: string[] = []
-              for (let i = 0; i < repeatedString.length; i += chunkSize) {
-                chunks.push(repeatedString.slice(i, i + chunkSize))
-              }
-              return chunks
-            }
             const contentList = [
               `これからストリームで返すデータは ${repeatCount} 回繰り返します 🚀`,
               '\n\n',
-              ...generateChunkedRepeatedStrings(content, chunkSize, repeatCount),
+              ...splitByLength(content.repeat(repeatCount), chunkSize),
               'ストリームの終端です 🚀',
             ]
             const reasoningContent =
               'こちらのコンテンツは、推論を行うための基盤となる情報や知識を提供し、さまざまな状況や問題に対して論理的に考える力を養うことを目的としています。\nこれにより、より深い理解と正確な結論を導き出すための思考の枠組みを構築できるようになることを意図しています。\nそしてこれはダミーの推論です。'
             const chunkList = [
-              ...reasoningContent.split('').map((text) => ({
+              ...splitByLength(reasoningContent, chunkSize).map((text) => ({
                 content: undefined,
                 reasoning_content: text,
               })),
