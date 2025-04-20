@@ -145,6 +145,7 @@ const MAX_TEXT_LINE_COUNT = 5
 type MessageAssistant = {
   role: 'assistant'
   content: string
+  reasoning_content?: string
 }
 
 type MessageUser = {
@@ -183,7 +184,10 @@ export const Chat: FC = () => {
 
   const [messages, setMessages] = useState<Message[]>([])
   const [copiedId, setCopiedId] = useState('')
-  const [stream, setStream] = useState('')
+  const [stream, setStream] = useState<{
+    content: string
+    reasoningContent?: string
+  } | null>(null)
   const [chatResults, setChatResults] = useState<{
     model?: string
     usage?: {
@@ -369,7 +373,10 @@ export const Chat: FC = () => {
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
 
-    let result = ''
+    const result = {
+      content: '',
+      reasoningContent: '',
+    }
     let usage: {
       prompt_tokens: number
       completion_tokens: number
@@ -405,12 +412,12 @@ export const Chat: FC = () => {
       )
       if (!res.ok) {
         const error = (await res.json()) as unknown as { message?: string }
-        result = error?.message || JSON.stringify(error)
+        result.content = error?.message || JSON.stringify(error)
       } else {
         const nonStream = res.headers.get('Content-Type') === 'application/json'
         if (nonStream) {
           const data = (await res.json()) as unknown as {
-            choices: { message: { content: string } }[]
+            choices: { message: { content: string; reasoning_content?: string } }[]
             model?: string
             usage?: {
               prompt_tokens: number
@@ -418,7 +425,8 @@ export const Chat: FC = () => {
               total_tokens: number
             }
           }
-          result = data.choices[0].message.content
+          result.reasoningContent = data.choices[0].message?.reasoning_content || ''
+          result.content = data.choices[0].message.content
           model = data?.model || 'N/A'
           usage = data?.usage ?? null
         } else {
@@ -447,7 +455,10 @@ export const Chat: FC = () => {
                 }
               })
             // Append chunk to result
-            result += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
+            result.reasoningContent += chunkJSONs
+              .map((x) => x.choices.at(0)?.delta?.reasoning_content)
+              .join('')
+            result.content += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
 
             const _model = chunkJSONs.find((x) => x.model)?.model ?? null
             if (_model) {
@@ -457,7 +468,10 @@ export const Chat: FC = () => {
             if (_usage) {
               usage = _usage
             }
-            setStream(`${result}●`)
+            setStream({
+              content: result.content ? `${result.content}●` : '',
+              reasoningContent: result.reasoningContent,
+            })
           }
         }
       }
@@ -468,8 +482,15 @@ export const Chat: FC = () => {
         throw e
       }
     }
-    if (result) {
-      setMessages((prevMessages) => [...prevMessages, { role: 'assistant', content: result }])
+    if (result.content) {
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        {
+          role: 'assistant',
+          content: result.content,
+          reasoning_content: result.reasoningContent || '',
+        },
+      ])
       setChatResults({
         model,
         usage: usage && {
@@ -479,7 +500,7 @@ export const Chat: FC = () => {
         },
       })
     }
-    setStream('')
+    setStream(null)
     setLoading(false)
   }
 
@@ -688,7 +709,7 @@ export const Chat: FC = () => {
         {!emptyMessage && (
           <div className='container mx-auto mt-4 max-w-screen-lg px-4'>
             <div className='message-list'>
-              {messages.map(({ role, content }, index) => {
+              {messages.map((message, index) => {
                 const copied = copiedId === `chat_${index}`
                 const handleClickCopy = async (message: string) => {
                   setCopiedId(`chat_${index}`)
@@ -712,7 +733,7 @@ export const Chat: FC = () => {
                 }
                 return (
                   <React.Fragment key={`chat_${index}`}>
-                    {role === 'user' && (
+                    {message.role === 'user' && (
                       <div className={'message mt-2 text-right'}>
                         <div className='group'>
                           <div
@@ -720,11 +741,11 @@ export const Chat: FC = () => {
                               'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
                             }
                           >
-                            {typeof content === 'string' ? (
-                              content
+                            {typeof message.content === 'string' ? (
+                              message.content
                             ) : (
                               <>
-                                {content.map((value, i) => {
+                                {message.content.map((value, i) => {
                                   return (
                                     <Fragment key={`${i}`}>
                                       <div>{value.type === 'text' && value.text}</div>
@@ -742,13 +763,15 @@ export const Chat: FC = () => {
                             )}
                           </div>
                           <div
-                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'} ${loading || stream ? 'hidden' : ''}`}
+                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'} ${loading || stream ? 'invisible' : ''}`}
                           >
                             <button
                               type='button'
                               className='cursor-pointer p-1'
                               onClick={() =>
-                                handleClickCopy(typeof content === 'string' ? content : '')
+                                handleClickCopy(
+                                  typeof message.content === 'string' ? message.content : '',
+                                )
                               }
                               disabled={copied}
                             >
@@ -765,27 +788,32 @@ export const Chat: FC = () => {
                         </div>
                       </div>
                     )}
-                    {role === 'assistant' && (
+                    {message.role === 'assistant' && (
                       <div className='flex'>
                         {!mobile && (
                           <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                             <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                           </div>
                         )}
-                        <div className='message group text-left '>
+                        <div className='message group ml-2 text-left'>
+                          {message.reasoning_content && (
+                            <div className='whitespace-pre-line text-gray-400 text-xs'>
+                              {message.reasoning_content}
+                            </div>
+                          )}
                           {markdownPreview ? (
-                            <div className='prose mt-1 ml-2'>
+                            <div className='prose mt-1'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                               >
-                                {content}
+                                {message.content}
                               </ReactMarkdown>
                             </div>
                           ) : (
                             <div className='message text-left'>
-                              <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>
-                                {content}
+                              <p className='mt-1 inline-block whitespace-pre-wrap'>
+                                {message.content}
                               </p>
                             </div>
                           )}
@@ -795,7 +823,7 @@ export const Chat: FC = () => {
                             <button
                               type='button'
                               className='cursor-pointer p-1'
-                              onClick={() => handleClickCopy(content)}
+                              onClick={() => handleClickCopy(message.content)}
                               disabled={copied}
                             >
                               {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
@@ -815,19 +843,24 @@ export const Chat: FC = () => {
                     </div>
                   )}
                   {stream ? (
-                    <div className='message text-left'>
+                    <div className='message ml-2 text-left'>
+                      {stream.reasoningContent && (
+                        <div className='whitespace-pre-line text-gray-400 text-xs'>
+                          {stream.reasoningContent}
+                        </div>
+                      )}
                       {markdownPreview ? (
-                        <div className='prose mt-1 ml-2'>
+                        <div className='prose mt-1'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                           >
-                            {stream}
+                            {stream.content}
                           </ReactMarkdown>
                         </div>
                       ) : (
                         <div className='message text-left'>
-                          <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{stream}</p>
+                          <p className='mt-1 inline-block whitespace-pre-wrap'>{stream.content}</p>
                         </div>
                       )}
                     </div>
