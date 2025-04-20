@@ -213,13 +213,25 @@ const app = new Hono<HonoEnv>()
               }
               return chunks
             }
-            const chunkList = [
+            const contentList = [
               `これからストリームで返すデータは ${repeatCount} 回繰り返します 🚀`,
               '\n\n',
               ...generateChunkedRepeatedStrings(content, chunkSize, repeatCount),
               'ストリームの終端です 🚀',
             ]
-            for (const chunkText of chunkList) {
+            const reasoningContent =
+              'こちらのコンテンツは、推論を行うための基盤となる情報や知識を提供し、さまざまな状況や問題に対して論理的に考える力を養うことを目的としています。\nこれにより、より深い理解と正確な結論を導き出すための思考の枠組みを構築できるようになることを意図しています。\nそしてこれはダミーの推論です。'
+            const chunkList = [
+              ...reasoningContent.split('').map((text) => ({
+                content: undefined,
+                reasoning_content: text,
+              })),
+              ...contentList.map((text) => ({
+                content: text,
+                reasoning_content: undefined,
+              })),
+            ]
+            for (const chunk of chunkList) {
               if (aborted) {
                 break
               }
@@ -231,7 +243,8 @@ const app = new Hono<HonoEnv>()
                       ...chunkResponse.choices[0],
                       delta: {
                         role: 'assistant',
-                        content: chunkText,
+                        content: chunk.content,
+                        reasoning_content: chunk.reasoning_content,
                       },
                     },
                   ],

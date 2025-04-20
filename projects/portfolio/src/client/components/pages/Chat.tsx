@@ -184,8 +184,10 @@ export const Chat: FC = () => {
 
   const [messages, setMessages] = useState<Message[]>([])
   const [copiedId, setCopiedId] = useState('')
-  const [stream, setStream] = useState('')
-  const [reasoningStream, setReasoningStream] = useState('')
+  const [stream, setStream] = useState<{
+    content: string
+    reasoningContent?: string
+  } | null>(null)
   const [chatResults, setChatResults] = useState<{
     model?: string
     usage?: {
@@ -466,12 +468,10 @@ export const Chat: FC = () => {
             if (_usage) {
               usage = _usage
             }
-            if (result.content) {
-              setStream(`${result.content}●`)
-            }
-            if (result.reasoningContent) {
-              setReasoningStream(result.reasoningContent)
-            }
+            setStream({
+              content: result.content ? `${result.content}●` : '',
+              reasoningContent: result.reasoningContent,
+            })
           }
         }
       }
@@ -500,8 +500,7 @@ export const Chat: FC = () => {
         },
       })
     }
-    setStream('')
-    setReasoningStream('')
+    setStream(null)
     setLoading(false)
   }
 
@@ -841,19 +840,21 @@ export const Chat: FC = () => {
                   )}
                   {stream ? (
                     <div className='message text-left'>
-                      {reasoningStream && <div>{reasoningStream}</div>}
+                      {stream.reasoningContent && <div>{stream.reasoningContent}</div>}
                       {markdownPreview ? (
                         <div className='prose mt-1 ml-2'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
                           >
-                            {stream}
+                            {stream.content}
                           </ReactMarkdown>
                         </div>
                       ) : (
                         <div className='message text-left'>
-                          <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>{stream}</p>
+                          <p className='mt-1 ml-2 inline-block whitespace-pre-wrap'>
+                            {stream.content}
+                          </p>
                         </div>
                       )}
                     </div>
