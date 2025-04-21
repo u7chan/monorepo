@@ -451,9 +451,13 @@ export const Chat: FC = () => {
                 } catch (e) {
                   console.error(`Failed to parse chunk JSON: \`${x}\``)
                   alert('Failed to parse chunk (Please check the console logs)')
-                  throw e
+                  return { choices: [] }
                 }
-              })
+              }) as {
+              choices: { delta: { content: string; reasoning_content?: string } }[]
+              model?: string
+              usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+            }[]
             // Append chunk to result
             result.reasoningContent += chunkJSONs
               .map((x) => x.choices.at(0)?.delta?.reasoning_content)
