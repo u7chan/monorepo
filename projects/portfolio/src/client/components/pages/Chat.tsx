@@ -695,8 +695,10 @@ export const Chat: FC = () => {
                           disabled={loading || !!stream}
                           className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
                         >
-                          <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
-                          <div className='text-sm'>画像</div>
+                          <UploadIcon
+                            className={loading || stream ? 'fill-gray-300' : 'fill-gray-800'}
+                          />
+                          <div className='text-gray-800 text-sm'>画像</div>
                         </button>
                       )}
                       onImageChange={handleUploadImageChange}
@@ -926,8 +928,14 @@ export const Chat: FC = () => {
                         disabled={loading || !!stream}
                         className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
                       >
-                        <UploadIcon className={loading || stream ? 'fill-gray-300' : undefined} />
-                        <div className='text-sm'>画像</div>
+                        <UploadIcon
+                          className={loading || stream ? 'fill-gray-300' : 'fill-gray-800'}
+                        />
+                        <div
+                          className={`text-sm ${loading || stream ? 'text-gray-300' : 'text-gray-800'}`}
+                        >
+                          画像
+                        </div>
                       </button>
                     )}
                     onImageChange={handleUploadImageChange}
