@@ -3,5 +3,8 @@
   "private": true,
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2"
   }
 }
