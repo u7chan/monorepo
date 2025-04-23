@@ -303,7 +303,7 @@ const app = new Hono<HonoEnv>()
           <head>
             <meta charSet='utf-8' />
             <meta content='width=device-width, initial-scale=1' name='viewport' />
-            <link rel='icon' href='/static/favicon.ico' />
+            <link rel='icon' href={prod ? '/static/favicon.ico' : 'favicon.ico'} />
             <link rel='stylesheet' href={prod ? '/static/main.css' : '/src/client/main.css'} />
             <script type='module' src={prod ? '/static/client.js' : '/src/client/main.tsx'} />
           </head>
