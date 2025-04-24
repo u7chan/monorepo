@@ -1,21 +1,16 @@
+import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
-import express from "express";
 
-const app = express();
-app.use(express.json());
+const server = new McpServer({
+  name: "backwards-compatible-server",
+  version: "1.0.0",
+});
 
-const transport: StreamableHTTPServerTransport =
-  new StreamableHTTPServerTransport({
-    // ステートレスなサーバーの場合、undefined を指定する
-    sessionIdGenerator: undefined,
-  });
-
-const mcpServer = new McpServer({ name: "my-server", version: "0.0.1" });
-
-// シンプルにサイコロを振った結果を返すツール
-mcpServer.tool(
+// ... set up server resources, tools, and prompts ...
+server.tool(
   // ツールの名前
   "dice",
   // ツールの説明
@@ -37,85 +32,45 @@ mcpServer.tool(
   }
 );
 
-const setupServer = async () => {
-  await mcpServer.connect(transport);
+const app = express();
+app.use(express.json());
+
+// Store transports for each session type
+const transports = {
+  streamable: {} as Record<string, StreamableHTTPServerTransport>,
+  sse: {} as Record<string, SSEServerTransport>,
 };
 
-// POST リクエストで受け付ける
-app.post("/mcp", async (req, res) => {
-  console.log("Received MCP request:", req.body);
-  try {
-    await transport.handleRequest(req, res, req.body);
-  } catch (error) {
-    console.error("Error handling MCP request:", error);
-    if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: "2.0",
-        error: {
-          // JSON-RPC 2.0のエラーコードを指定
-          // http://www.jsonrpc.org/specification#error_object
-          code: -32603,
-          message: "Internal server error",
-        },
-        id: null,
-      });
-    }
-  }
+// Modern Streamable HTTP endpoint
+app.all("/mcp", async (req, res) => {
+  // Handle Streamable HTTP transport for modern clients
+  // Implementation as shown in the "With Session Management" example
+  // ...
 });
 
-// GET リクエストは SSE エンドポイントとの互換性のために実装する必要がある
-// SSE エンドポイントを実装しない場合は、405 Method Not Allowed を返す
-app.get("/mcp", async (req, res) => {
-  console.log("Received GET MCP request");
-  res.writeHead(405).end(
-    JSON.stringify({
-      jsonrpc: "2.0",
-      error: {
-        code: -32000,
-        message: "Method not allowed.",
-      },
-      id: null,
-    })
-  );
-});
+// Legacy SSE endpoint for older clients
+app.get("/sse", async (req, res) => {
+  // Create SSE transport for legacy clients
+  const transport = new SSEServerTransport("/messages", res);
+  transports.sse[transport.sessionId] = transport;
 
-// DELETE リクエストはステートフルなサーバーの場合に実装する必要がある
-app.delete("/mcp", async (req, res) => {
-  console.log("Received DELETE MCP request");
-  res.writeHead(405).end(
-    JSON.stringify({
-      jsonrpc: "2.0",
-      error: {
-        code: -32000,
-        message: "Method not allowed.",
-      },
-      id: null,
-    })
-  );
-});
-
-setupServer()
-  .then(() => {
-    app.listen(3000, () => {
-      console.log("Server is running on http://localhost:3000/mcp");
-    });
-  })
-  .catch((err) => {
-    console.error("Error setting up server:", err);
-    process.exit(1);
+  res.on("close", () => {
+    delete transports.sse[transport.sessionId];
   });
 
-// graceful shutdown
-process.on("SIGINT", async () => {
-  console.log("Shutting down server...");
-  try {
-    console.log(`Closing transport`);
-    await transport.close();
-  } catch (error) {
-    console.error(`Error closing transport:`, error);
-  }
-
-  await mcpServer.close();
-  console.log("Server shutdown complete");
-  process.exit(0);
+  await server.connect(transport);
 });
+
+// Legacy message endpoint for older clients
+app.post("/messages", async (req, res) => {
+  const sessionId = req.query.sessionId as string;
+  const transport = transports.sse[sessionId];
+  if (transport) {
+    await transport.handlePostMessage(req, res, req.body);
+  } else {
+    res.status(400).send("No transport found for sessionId");
+  }
+});
+
+console.log("Server is running on http://localhost:3000");
+app.listen(3000);
