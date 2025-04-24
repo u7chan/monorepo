@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "node-mcp-server-remote": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
