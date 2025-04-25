@@ -137,7 +137,7 @@ const app = new Hono<HonoEnv>()
               const completionStream = completion as Stream<OpenAI.ChatCompletionChunk>
               for await (const chunk of completionStream) {
                 await stream.writeSSE({ data: JSON.stringify(chunk) })
-                await new Promise((resolve) => setTimeout(resolve, 1))
+                await new Promise((resolve) => setTimeout(resolve, 10))
               }
               if (!aborted) {
                 await stream.writeSSE({ data: '[DONE]' })
