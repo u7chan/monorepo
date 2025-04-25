@@ -7,6 +7,7 @@
     "@modelcontextprotocol/sdk": "^1.10.2",
     "hono": "^4.7.7",
     "hono-mcp-server-sse-transport": "^0.0.6",
+    "openai": "^4.96.0",
     "zod": "^3.24.3"
   },
   "devDependencies": {
