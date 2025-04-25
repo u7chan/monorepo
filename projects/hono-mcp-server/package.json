@@ -4,7 +4,10 @@
     "dev": "bun run --hot src/index.ts"
   },
   "dependencies": {
-    "hono": "^4.7.7"
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "hono": "^4.7.7",
+    "hono-mcp-server-sse-transport": "^0.0.6",
+    "zod": "^3.24.3"
   },
   "devDependencies": {
     "@types/bun": "latest"
