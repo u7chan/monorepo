@@ -2,8 +2,7 @@ import OpenAI from 'openai'
 
 const openai = new OpenAI()
 
-export async function translateToEnglish(input: string): Promise<string> {
-  console.info('» [translateToEnglish] input:', input)
+export async function translateToEnglish(content: string): Promise<string> {
   // Call OpenAI API to translate the text
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-nano',
@@ -15,11 +14,9 @@ export async function translateToEnglish(input: string): Promise<string> {
       },
       {
         role: 'user',
-        content: input,
+        content,
       },
     ],
   })
-  const output = response.choices[0].message.content || ''
-  console.info('» [translateToEnglish] output:', output)
-  return output
+  return response.choices[0].message.content || ''
 }
