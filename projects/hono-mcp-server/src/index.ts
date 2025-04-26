@@ -3,31 +3,8 @@ import { streamSSE } from 'hono/streaming'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { SSETransport } from 'hono-mcp-server-sse-transport'
 import { z } from 'zod'
-import OpenAI from 'openai'
 
-const openai = new OpenAI()
-
-async function translateToEnglish(input: string): Promise<string> {
-  console.info('» Translating to English:', input)
-  // Call OpenAI API to translate the text
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4.1-nano',
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a professional translator. Translate the following Japanese text to English while preserving the original meaning and nuance.',
-      },
-      {
-        role: 'user',
-        content: input,
-      },
-    ],
-  })
-  const translatedText = response.choices[0].message.content || ''
-  console.info('» Translated text:', translatedText)
-  return translatedText
-}
+import { translateToEnglish } from './features/translate-to-english'
 
 const mcpServer = new McpServer({
   name: 'hono-mcp-server',
