@@ -60,3 +60,32 @@ Authorization: Bearer {{ apiKey }}
     }
   ]
 }
+
+### chat/completions - websearch
+POST {{ baseURL }}/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{apiKey}}
+
+{
+  "model": "gpt-4o-mini-search-preview",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "今日の「Yahoo!ニュース」で１つ内容をピックアップして"
+        }
+      ],
+      "web_search_options": {
+        "search_context_size": "low",
+        "user_location": {
+          "type": "approximate",
+          "approximate": {
+            "country": "JP"
+          }
+        }
+      }
+    }
+  ]
+}
