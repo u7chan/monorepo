@@ -70,7 +70,8 @@
         const messagesContainer = document.getElementById('chat-messages')
         const button = document.querySelector('button')
 
-        button.addEventListener('click', async () => {
+        // メッセージ送信処理
+        function sendMessage() {
           const userQuery = input.value.trim()
           if (userQuery === '') return
 
@@ -80,13 +81,16 @@
 
           // スクロールを一番下へ
           messagesContainer.scrollTop = messagesContainer.scrollHeight
-        })
+        }
+
+        // ボタンクリックで送信
+        button.addEventListener('click', sendMessage)
 
         // Enterキーでも送信
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
-            button.click()
+            sendMessage()
           }
         })
       </script>
