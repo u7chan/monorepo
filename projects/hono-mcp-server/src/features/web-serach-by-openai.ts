@@ -2,15 +2,14 @@ import OpenAI from 'openai'
 
 const openai = new OpenAI()
 
-export async function webSerachByOpenAI(input: string): Promise<string> {
-  console.info('» [webSerachByOpenAI] input:', input)
+export async function webSerachByOpenAI(content: string): Promise<string> {
   // Call OpenAI API to web serach the text
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini-search-preview',
     messages: [
       {
         role: 'user',
-        content: input,
+        content,
       },
     ],
     web_search_options: {
@@ -25,7 +24,5 @@ export async function webSerachByOpenAI(input: string): Promise<string> {
       },
     },
   })
-  const output = response.choices[0].message.content || ''
-  console.info('» [webSerachByOpenAI] output:', output)
-  return output
+  return response.choices[0].message.content || ''
 }
