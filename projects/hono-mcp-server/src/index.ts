@@ -12,7 +12,7 @@ const mcpServer = new McpServer({
 })
 
 mcpServer.tool(
-  'Translate to English',
+  'translate_to_english',
   '入力された文章を英語に翻訳します',
   { text: z.string() },
   async (input) => {
