@@ -1,0 +1,12 @@
+{
+  "name": "hono-mcp-client-minimum",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "dependencies": {
+    "hono": "^4.7.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
