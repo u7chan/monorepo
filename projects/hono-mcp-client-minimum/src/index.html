@@ -48,16 +48,8 @@
         </div>
       </div>
       <script>
-        // シンプルな送信動作
-        const input = document.querySelector('input[type="text"]')
-        const messagesContainer = document.getElementById('chat-messages')
-        const button = document.querySelector('button')
-
-        button.addEventListener('click', () => {
-          const messageText = input.value.trim()
-          if (messageText === '') return
-
-          // 自分のメッセージを追加
+        // メッセージ要素を作成する関数
+        function createMessageElement(messageText, messagesContainer) {
           const messageElem = document.createElement('div')
           messageElem.className = 'mb-2 flex justify-end items-start'
 
@@ -68,6 +60,21 @@
 
           messageElem.appendChild(messageBubble)
           messagesContainer.appendChild(messageElem)
+
+          return messageElem
+        }
+
+        // シンプルな送信動作
+        const input = document.querySelector('input[type="text"]')
+        const messagesContainer = document.getElementById('chat-messages')
+        const button = document.querySelector('button')
+
+        button.addEventListener('click', async () => {
+          const messageText = input.value.trim()
+          if (messageText === '') return
+
+          // 自分のメッセージを追加
+          createMessageElement(messageText, messagesContainer)
 
           input.value = ''
 
