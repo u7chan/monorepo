@@ -49,13 +49,16 @@
       </div>
       <script>
         // メッセージ要素を作成する関数
-        function createMessageElement(text) {
+        function createMessageElement(text, left = false) {
           const messageElem = document.createElement('div')
-          messageElem.className = 'mb-2 flex justify-end items-start'
+          messageElem.className = `mb-2 flex items-start ${
+            left ? '' : 'justify-end'
+          }`
 
           const messageBubble = document.createElement('div')
-          messageBubble.className =
-            'bg-blue-500 text-white rounded-lg px-3 py-2 max-w-xs ml-auto'
+          messageBubble.className = `rounded-lg px-3 py-2 max-w-xs ${
+            left ? 'bg-gray-200' : 'bg-blue-500 text-white ml-auto'
+          }`
 
           const messageText = document.createElement('p')
           messageText.className = 'text-sm'
@@ -77,7 +80,7 @@
           if (userQuery === '') return
 
           // 自分のメッセージを追加
-          messagesContainer.appendChild(createMessageElement(userQuery))
+          messagesContainer.appendChild(createMessageElement(userQuery, false))
           input.value = ''
 
           // スクロールを一番下へ
