@@ -86,9 +86,20 @@
         // ボタンクリックで送信
         button.addEventListener('click', sendMessage)
 
-        // Enterキーでも送信
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
+        // IME変換状態を追跡
+        let isComposing = false
+
+        input.addEventListener('compositionstart', () => {
+          isComposing = true
+        })
+
+        input.addEventListener('compositionend', () => {
+          isComposing = false
+        })
+
+        // Enterキーで送信 (IME変換中は無視)
+        input.addEventListener('keyup', (e) => {
+          if (e.key === 'Enter' && !isComposing) {
             e.preventDefault()
             sendMessage()
           }
