@@ -5,6 +5,7 @@ import { SSETransport } from 'hono-mcp-server-sse-transport'
 import { z } from 'zod'
 
 import { translateToEnglish } from './features/translate-to-english'
+import { webSerachByOpenAI } from './features/web-serach-by-openai'
 
 const mcpServer = new McpServer({
   name: 'hono-mcp-server',
@@ -21,6 +22,22 @@ mcpServer.tool(
         {
           type: 'text',
           text: await translateToEnglish(input.text),
+        },
+      ],
+    }
+  }
+)
+
+mcpServer.tool(
+  'web_serach',
+  '入力された文章をWeb検索します',
+  { text: z.string() },
+  async (input) => {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: await webSerachByOpenAI(input.text),
         },
       ],
     }
