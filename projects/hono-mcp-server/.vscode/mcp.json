@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "localhost:3000": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
