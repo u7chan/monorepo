@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { logger as honoLogger } from 'hono/logger'
-import log4js from 'log4js'
+import log4js, { levels } from 'log4js'
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { SSETransport } from 'hono-mcp-server-sse-transport'
@@ -11,7 +11,7 @@ import { translateToEnglish } from './features/translate-to-english'
 import { webSerachByOpenAI } from './features/web-serach-by-openai'
 
 const logger = log4js.getLogger()
-logger.level = 'info'
+logger.level = levels.INFO
 
 const mcpServer = new McpServer({
   name: 'hono-mcp-server',
