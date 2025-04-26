@@ -10,6 +10,15 @@ services:
     environment:
       SERVER_PORT: 3000
 
+  mcp-server:
+    container_name: mcp-server
+    build:
+      context: ../../projects/hono-mcp-server
+    ports:
+      - 8001:3000
+    env_file:
+      - .env
+
   litellm:
     container_name: litellm
     image: ghcr.io/berriai/litellm:main-latest

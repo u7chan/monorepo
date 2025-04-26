@@ -10,6 +10,15 @@ services:
     environment:
       SERVER_PORT: 3000
 
+  mcp-server:
+    container_name: mcp-server
+    image: ghcr.io/u7chan/monorepo/hono-mcp-server:latest
+    restart: always
+    ports:
+      - 8001:3000
+    env_file:
+      - .env
+
   litellm:
     container_name: litellm
     image: ghcr.io/berriai/litellm:main-latest
