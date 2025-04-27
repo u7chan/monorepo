@@ -4,6 +4,7 @@
     "dev": "dotenv -- bun run --hot src/index.tsx"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
     "hono": "^4.7.7",
     "openai": "^4.96.0"
   },
