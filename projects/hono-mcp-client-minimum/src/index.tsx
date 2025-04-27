@@ -1,47 +1,81 @@
 import { Hono } from 'hono'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import OpenAI from 'openai'
 import {
   ChatCompletionMessageToolCall,
   ChatCompletionTool,
 } from 'openai/resources/index.mjs'
+import { z } from 'zod'
+
+type CallToolResult = z.infer<typeof CallToolResultSchema>
 
 export async function chat(
   model: string,
   query: string,
   mcpTools: ChatCompletionTool[],
-  callbackMcpTool: (tool: ChatCompletionMessageToolCall) => Promise<void> // TODO: 一旦 void
+  callbackMcpTool: (
+    tool: ChatCompletionMessageToolCall
+  ) => Promise<CallToolResult>
 ): Promise<string> {
   const openai = new OpenAI({
     apiKey: process.env.LITELLM_API_KEY || '',
     baseURL: process.env.LITELLM_API_BASE_URL || '',
   })
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    {
+      role: 'system',
+      content:
+        'あなたは優秀なAIエージェントです。必ず`plain/text`形式の日本語で回答してください。',
+    },
+    {
+      role: 'user',
+      content: query,
+    },
+  ]
   const response = await openai.chat.completions.create({
     model,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'あなたは優秀なAIエージェントです。必ず`plain/text`形式の日本語で回答してください。',
-      },
-      {
-        role: 'user',
-        content: query,
-      },
-    ],
+    messages,
     tools: mcpTools,
   })
-  const [choice] = response.choices
+  let choice: OpenAI.ChatCompletion.Choice | undefined = response.choices.at(0)
   if (!choice) {
     throw new Error('No choices found in the response')
   }
+  // Check if the response contains a tool call
   if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
     for (const tool of choice.message.tool_calls) {
-      await callbackMcpTool(tool)
+      const toolResult = await callbackMcpTool(tool)
+      if (toolResult.error) {
+        console.error('Tool call error:', toolResult.error)
+        throw new Error(`Tool call failed: ${tool.function.name}`)
+      }
+      const [content] = toolResult.content
+      if (!content) {
+        throw new Error('No content found in the tool result')
+      }
+      if (content.type !== 'text') {
+        throw new Error('Tool result is not text')
+      }
+      messages.push({
+        role: 'user',
+        content: content.text,
+      })
+      const response = await openai.chat.completions.create({
+        model,
+        messages,
+      })
+      choice = response.choices.at(0)
+      if (!choice) {
+        throw new Error('No choices found in the response')
+      }
+      messages.push({
+        role: 'assistant',
+        content: choice.message.content,
+      })
     }
   }
-  console.log('choice.finish_reason', choice.finish_reason)
   return choice.message.content || ''
 }
 
@@ -86,6 +120,7 @@ app.post('/api/chat', async (c) => {
         arguments: JSON.parse(tool.function.arguments),
       })
       console.log('Tool result:', result)
+      return result as CallToolResult
     }
   )
   console.log('Response:', message)
