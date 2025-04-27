@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
     "strict": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
