@@ -2,8 +2,13 @@ import { Hono } from 'hono'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import OpenAI from 'openai'
+import { ChatCompletionTool } from 'openai/resources/index.mjs'
 
-export async function chat(model: string, query: string): Promise<string> {
+export async function chat(
+  model: string,
+  query: string,
+  mcpTools: ChatCompletionTool[]
+): Promise<string> {
   const openai = new OpenAI({
     apiKey: process.env.LITELLM_API_KEY || '',
     baseURL: process.env.LITELLM_API_BASE_URL || '',
@@ -21,8 +26,19 @@ export async function chat(model: string, query: string): Promise<string> {
         content: query,
       },
     ],
+    tools: mcpTools,
   })
-  return response.choices[0].message.content || ''
+  const [choice] = response.choices
+  if (!choice) {
+    throw new Error('No choices found in the response')
+  }
+  if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+    for (const tool of choice.message.tool_calls) {
+      console.log('Tool call:', tool)
+    }
+  }
+  console.log('choice.finish_reason', choice.finish_reason)
+  return choice.message.content || ''
 }
 
 async function getMCPClient() {
@@ -39,19 +55,28 @@ async function getMCPClient() {
   )
   await mcpClient.connect(sseTransport)
   const mcpTools = await mcpClient.listTools()
-  console.log(
-    'MCP Tools:',
-    mcpTools.tools.map(({ name, description }: any) => ({ name, description }))
-  )
-  return mcpClient
+  console.log('MCP Tools:', mcpTools.tools)
+  return { mcpClient, mcpTools }
 }
 
-const mcpClient = await getMCPClient()
+const { mcpClient, mcpTools } = await getMCPClient()
 const app = new Hono()
 
 app.post('/api/chat', async (c) => {
   const { model, query } = await c.req.json()
-  const message = await chat(model, query)
+  const message = await chat(
+    model,
+    query,
+    mcpTools.tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema,
+      },
+    }))
+  )
+  console.log('Response:', message)
   return c.json({ message })
 })
 
