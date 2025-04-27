@@ -3,8 +3,8 @@ import OpenAI from 'openai'
 
 export async function chat(model: string, query: string): Promise<string> {
   const openai = new OpenAI({
-    apiKey: process.env.LITELLM_API_BASE_URL || '',
-    baseURL: process.env.LITELLM_API_KEY || '',
+    apiKey: process.env.LITELLM_API_KEY || '',
+    baseURL: process.env.LITELLM_API_BASE_URL || '',
   })
   const response = await openai.chat.completions.create({
     model,
@@ -25,7 +25,7 @@ export async function chat(model: string, query: string): Promise<string> {
 
 const app = new Hono()
 
-app.post('/chat', async (c) => {
+app.post('/api/chat', async (c) => {
   const { model, query } = await c.req.json()
   const message = await chat(model, query)
   return c.json({ message })

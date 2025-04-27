@@ -79,6 +79,34 @@
           messagesContainer.appendChild(createMessageElement(userQuery, false))
           input.value = ''
 
+          // APIにリクエストを送信
+          fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              query: userQuery,
+            }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error('Network response was not ok')
+              }
+              return response.json()
+            })
+            .then(({ message }) => {
+              // レスポンスをチャットに追加
+              messagesContainer.appendChild(createMessageElement(message, true))
+            })
+            .catch((error) => {
+              console.error('Error:', error)
+              messagesContainer.appendChild(
+                createMessageElement('エラーが発生しました', true)
+              )
+            })
+
           // スクロールを一番下へ
           messagesContainer.scrollTop = messagesContainer.scrollHeight
         }
