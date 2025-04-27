@@ -2,12 +2,16 @@ import { Hono } from 'hono'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import OpenAI from 'openai'
-import { ChatCompletionTool } from 'openai/resources/index.mjs'
+import {
+  ChatCompletionMessageToolCall,
+  ChatCompletionTool,
+} from 'openai/resources/index.mjs'
 
 export async function chat(
   model: string,
   query: string,
-  mcpTools: ChatCompletionTool[]
+  mcpTools: ChatCompletionTool[],
+  callbackMcpTool: (tool: ChatCompletionMessageToolCall) => Promise<void> // TODO: 一旦 void
 ): Promise<string> {
   const openai = new OpenAI({
     apiKey: process.env.LITELLM_API_KEY || '',
@@ -34,7 +38,7 @@ export async function chat(
   }
   if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
     for (const tool of choice.message.tool_calls) {
-      console.log('Tool call:', tool)
+      await callbackMcpTool(tool)
     }
   }
   console.log('choice.finish_reason', choice.finish_reason)
@@ -74,7 +78,15 @@ app.post('/api/chat', async (c) => {
         description: tool.description,
         parameters: tool.inputSchema,
       },
-    }))
+    })),
+    async (tool) => {
+      console.log('Tool call:', tool)
+      const result = await mcpClient.callTool({
+        name: tool.function.name,
+        arguments: JSON.parse(tool.function.arguments),
+      })
+      console.log('Tool result:', result)
+    }
   )
   console.log('Response:', message)
   return c.json({ message })
