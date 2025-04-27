@@ -1,0 +1,17 @@
+{
+  "name": "hono-mcp-client-minimum",
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv -- bun run --hot src/index.tsx"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "hono": "^4.7.7",
+    "openai": "^4.96.0",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "dotenv-cli": "^8.0.0"
+  }
+}

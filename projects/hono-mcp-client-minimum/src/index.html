@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>MCP Client</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  </head>
+  <body>
+    <main
+      class="flex items-center justify-center min-h-screen bg-gray-100 py-2"
+    >
+      <div
+        class="w-full max-w-md bg-white rounded-lg shadow-lg p-4 flex flex-col h-full"
+      >
+        <!-- ヘッダー -->
+        <div class="mb-4 border-b border-gray-200 pb-2">
+          <h2 class="text-xl font-semibold text-center">MCP Client</h2>
+        </div>
+        <!-- メッセージ一覧 -->
+        <div class="flex-1 overflow-y-auto mb-4" id="chat-messages">
+          <!-- 例: メッセージ -->
+          <div class="mb-2 flex items-start">
+            <div class="bg-gray-200 rounded-lg px-3 py-2 max-w-xs">
+              <p class="text-sm">
+                私はAIエージェントです。何かご用はありますか？😊
+              </p>
+            </div>
+          </div>
+        </div>
+        <!-- 入力エリア -->
+        <div class="flex border-t border-gray-200 pt-2">
+          <input
+            type="text"
+            placeholder="メッセージを入力"
+            class="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          />
+          <button
+            class="ml-2 bg-blue-500 text-white rounded-full px-4 py-2 hover:bg-blue-600"
+          >
+            送信
+          </button>
+        </div>
+      </div>
+      <script>
+        // メッセージ要素を作成する関数
+        function createMessageElement(text, left = false) {
+          const messageElem = document.createElement('div')
+          messageElem.className = `mb-2 flex items-start ${
+            left ? '' : 'justify-end'
+          }`
+
+          const messageBubble = document.createElement('div')
+          messageBubble.className = `rounded-lg px-3 py-2 max-w-xs ${
+            left ? 'bg-gray-200' : 'bg-blue-500 text-white ml-auto'
+          }`
+
+          const messageText = document.createElement('p')
+          messageText.className = 'text-sm'
+          messageText.innerText = text
+
+          messageBubble.appendChild(messageText)
+          messageElem.appendChild(messageBubble)
+
+          return messageElem
+        }
+
+        // シンプルな送信動作
+        const input = document.querySelector('input[type="text"]')
+        const messagesContainer = document.getElementById('chat-messages')
+        const button = document.querySelector('button')
+
+        // メッセージ送信処理
+        function sendMessage() {
+          const userQuery = input.value.trim()
+          if (userQuery === '') return
+
+          // 自分のメッセージを追加
+          messagesContainer.appendChild(createMessageElement(userQuery, false))
+          input.value = ''
+
+          // APIにリクエストを送信
+          fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              query: userQuery,
+            }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error('Network response was not ok')
+              }
+              return response.json()
+            })
+            .then(({ message }) => {
+              // レスポンスをチャットに追加
+              messagesContainer.appendChild(createMessageElement(message, true))
+            })
+            .catch((error) => {
+              console.error('Error:', error)
+              messagesContainer.appendChild(
+                createMessageElement('エラーが発生しました', true)
+              )
+            })
+
+          // スクロールを一番下へ
+          messagesContainer.scrollTop = messagesContainer.scrollHeight
+        }
+
+        // ボタンクリックで送信
+        button.addEventListener('click', sendMessage)
+
+        // IME変換状態を追跡
+        let isComposing = false
+
+        input.addEventListener('compositionstart', () => {
+          isComposing = true
+        })
+
+        input.addEventListener('compositionend', () => {
+          isComposing = false
+        })
+
+        // Enterキーで送信 (IME変換中は無視)
+        input.addEventListener('keyup', (e) => {
+          if (e.key === 'Enter' && !isComposing) {
+            e.preventDefault()
+            sendMessage()
+          }
+        })
+      </script>
+    </main>
+  </body>
+</html>
