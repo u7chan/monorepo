@@ -127,6 +127,11 @@ app.post('/api/chat', async (c) => {
   return c.json({ message })
 })
 
-app.get('/', (c) => c.html(Bun.file('src/index.html').text()))
+app.get('/', async (c) => {
+  const toolsText = mcpTools.tools.map((tool) => `・${tool.name}`).join('\n')
+  const assistantMessage = `何かご用はありますか？😊\n利用可能なMCPツールは以下の通りです。\n${toolsText}`
+  const template = await Bun.file('src/index.html').text()
+  return c.html(template.replace('{{assistantMessage}}', assistantMessage))
+})
 
 export default app

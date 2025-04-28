@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>MCP Client</title>
+    <title>Hono-MCP</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   </head>
@@ -15,16 +15,14 @@
       >
         <!-- ヘッダー -->
         <div class="mb-4 border-b border-gray-200 pb-2">
-          <h2 class="text-xl font-semibold text-center">MCP Client</h2>
+          <h2 class="text-xl font-semibold text-center">MCP Hosts</h2>
         </div>
         <!-- メッセージ一覧 -->
         <div class="flex-1 overflow-y-auto mb-4" id="chat-messages">
           <!-- 例: メッセージ -->
           <div class="mb-2 flex items-start">
             <div class="bg-gray-200 rounded-lg px-3 py-2 max-w-xs">
-              <p class="text-sm">
-                私はAIエージェントです。何かご用はありますか？😊
-              </p>
+              <p class="text-sm whitespace-pre-wrap">{{assistantMessage}}</p>
             </div>
           </div>
         </div>
@@ -56,7 +54,7 @@
           }`
 
           const messageText = document.createElement('p')
-          messageText.className = 'text-sm'
+          messageText.className = 'text-sm whitespace-pre-wrap'
           messageText.innerText = text
 
           messageBubble.appendChild(messageText)
