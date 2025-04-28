@@ -1,5 +1,5 @@
 [project]
-name = "llm-wrapper-api"
+name = "fastapi-api-base"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
