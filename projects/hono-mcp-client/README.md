@@ -1,4 +1,4 @@
-# hono-mcp-client-minimum
+# hono-mcp-client
 
 ## How to setup
 

@@ -11,7 +11,7 @@ import { z } from 'zod'
 
 type CallToolResult = z.infer<typeof CallToolResultSchema>
 
-export async function chat(
+export async function chatCompletion(
   model: string,
   query: string,
   mcpTools: ChatCompletionTool[],
@@ -79,7 +79,7 @@ export async function chat(
   return choice.message.content || ''
 }
 
-async function getMCPClient() {
+async function initializeMCPClient() {
   if (!process.env.MCP_SERVER_URL) {
     throw new Error('MCP_SERVER_URL is not set')
   }
@@ -97,12 +97,12 @@ async function getMCPClient() {
   return { mcpClient, mcpTools }
 }
 
-const { mcpClient, mcpTools } = await getMCPClient()
+const { mcpClient, mcpTools } = await initializeMCPClient()
 const app = new Hono()
 
 app.post('/api/chat', async (c) => {
   const { model, query } = await c.req.json()
-  const message = await chat(
+  const message = await chatCompletion(
     model,
     query,
     mcpTools.tools.map((tool) => ({
