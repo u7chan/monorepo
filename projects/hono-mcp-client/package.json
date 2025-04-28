@@ -1,5 +1,5 @@
 {
-  "name": "hono-mcp-client-minimum",
+  "name": "hono-mcp-client",
   "type": "module",
   "scripts": {
     "dev": "dotenv -- bun run --hot src/index.tsx"
