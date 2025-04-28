@@ -153,7 +153,7 @@ wheels = [
 ]
 
 [[package]]
-name = "llm-wrapper-api"
+name = "fastapi-api-base"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

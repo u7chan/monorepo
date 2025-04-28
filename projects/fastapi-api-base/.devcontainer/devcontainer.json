@@ -1,5 +1,5 @@
 {
-  "name": "llm-wrapper-api",
+  "name": "fastapi-api-base",
   "build": {
     "dockerfile": "Dockerfile"
   },

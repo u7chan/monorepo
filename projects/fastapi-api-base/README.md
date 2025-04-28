@@ -1,6 +1,6 @@
-# llm-wrapper-api
+# fastapi-api-base
 
-This project is a wrapper API for LLM built using FastAPI.
+This project is a development platform for FastAPI.
 
 ## Setup
 
