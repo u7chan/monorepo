@@ -5,8 +5,8 @@
       "name": "Run app",
       "type": "debugpy",
       "request": "launch",
-      "module": "uvicorn",
-      "args": ["src.main:app", "--reload", "--host", "0.0.0.0"],
+      "module": "fastapi",
+      "args": ["dev", "src/main.py"],
       "console": "integratedTerminal",
       "justMyCode": true
     },
@@ -15,7 +15,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-s","-vv", "--tb=short", "${workspaceFolder}/tests"],
+      "args": ["-s", "-vv", "--tb=short", "${workspaceFolder}/tests"],
       "console": "integratedTerminal",
       "justMyCode": true
     },
@@ -24,7 +24,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-s","-vv", "--tb=short", "--cov", "${workspaceFolder}/tests"],
+      "args": ["-s", "-vv", "--tb=short", "--cov", "${workspaceFolder}/tests"],
       "console": "integratedTerminal",
       "justMyCode": true
     }

@@ -57,4 +57,4 @@ COPY --from=builder --chown=$USERNAME:$USERNAME /app/src src
 USER $USERNAME
 
 EXPOSE 8000
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0"]
+CMD ["fastapi", "run", "src/main.py"]
