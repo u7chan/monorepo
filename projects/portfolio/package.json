@@ -21,7 +21,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^15.6.1",
     "remark-gfm": "^4.0.1",
-    "tsx": "^4.19.3",
+    "tsx": "^4.19.4",
     "zod": "^3.24.3"
   },
   "devDependencies": {
