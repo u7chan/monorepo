@@ -20,8 +20,8 @@ export async function chatCompletion(
   ) => Promise<CallToolResult>
 ): Promise<string> {
   const openai = new OpenAI({
-    apiKey: process.env.LITELLM_API_KEY || '',
-    baseURL: process.env.LITELLM_API_BASE_URL || '',
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_API_BASE_URL,
   })
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     {
