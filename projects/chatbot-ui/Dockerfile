@@ -3,6 +3,8 @@
 # -----------------------------------------------
 FROM node:22-alpine AS base
 
+ARG COMMIT_HASH=""
+
 WORKDIR /app
 
 # -----------------------------------------------
@@ -33,10 +35,14 @@ RUN bun install --frozen-lockfile \
 # -----------------------------------------------
 FROM base AS builder
 
-ENV PATH="/root/.bun/bin:${PATH}"
-COPY --from=setup /root/.bun/bin/bun /root/.bun/bin/
+ARG COMMIT_HASH
 
+ENV VITE_COMMIT_HASH=${COMMIT_HASH}
+ENV PATH="/root/.bun/bin:${PATH}"
+
+COPY --from=setup /root/.bun/bin/bun /root/.bun/bin/
 COPY . .
+
 RUN bun install --frozen-lockfile \
     && bun run build \
     && mkdir -p ./temp/prod
