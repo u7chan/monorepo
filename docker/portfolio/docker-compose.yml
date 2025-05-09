@@ -5,19 +5,8 @@ services:
     restart: always
     ports:
       - 8000:3000
-    env_file:
-      - .env
     environment:
       SERVER_PORT: 3000
-
-  mcp-server:
-    container_name: mcp-server
-    image: ghcr.io/u7chan/monorepo/hono-mcp-server:latest
-    restart: always
-    ports:
-      - 8001:3000
-    env_file:
-      - .env
 
   litellm:
     container_name: litellm
@@ -26,7 +15,7 @@ services:
     ports:
       - 4000:4000
     env_file:
-      - .env
+      - .env.secret
     environment:
       STORE_MODEL_IN_DB: "True"
     depends_on:
@@ -38,7 +27,7 @@ services:
     ports:
       - 5432:5432
     env_file:
-      - .env
+      - .env.secret
     environment:
       POSTGRES_DB: litellm
     volumes:
