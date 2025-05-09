@@ -16,6 +16,9 @@ export const renderer: MiddlewareHandler = reactRenderer(({ children, c }: Props
     <html lang='ja'>
       <head>
         <meta charSet='utf-8' />
+        {import.meta.env.VITE_COMMIT_HASH && (
+          <meta name='git' content={import.meta.env.VITE_COMMIT_HASH} />
+        )}
         <meta name='viewport' content='width=device-width, initial-scale=1.0' />
         <link rel='stylesheet' href={devmode ? '/src/client/styles.css' : '/static/styles.css'} />
         <script type='module' src={devmode ? '/src/client/main.tsx' : '/static/client.js'} />
