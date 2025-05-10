@@ -1,0 +1,13 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  chatbot-ui:
+    container_name: chatbot-ui
+    image: ghcr.io/u7chan/monorepo/chatbot-ui:latest
+    restart: always
+    ports:
+      - 8001:3000
+    env_file:
+      - .env.secret
