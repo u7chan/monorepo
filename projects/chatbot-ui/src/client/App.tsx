@@ -56,7 +56,7 @@ export function App() {
   return (
     <div className='flex flex-col h-screen bg-background'>
       {/* ヘッダー */}
-      <header className='border-b p-4 bg-card'>
+      <header className='border-b p-3 bg-card'>
         <div className='container mx-auto flex items-center'>
           <h1 className='text-xl font-bold'>Chatbot UI</h1>
         </div>
