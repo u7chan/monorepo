@@ -1,0 +1,32 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  litellm:
+    container_name: litellm
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: always
+    ports:
+      - 4000:4000
+    env_file:
+      - .env.secret
+    environment:
+      STORE_MODEL_IN_DB: "True"
+    depends_on:
+      - litellm-db
+
+  litellm-db:
+    image: postgres:17-alpine
+    restart: always
+    ports:
+      - 5432:5432
+    env_file:
+      - .env.secret
+    environment:
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-db-data:/var/lib/postgresql/data
+
+volumes:
+  litellm-db-data:
