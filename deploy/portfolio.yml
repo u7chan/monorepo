@@ -3,7 +3,7 @@ networks:
 
 services:
   portfolio:
-    name: portfolio
+    container_name: portfolio
     image: ghcr.io/u7chan/monorepo/portfolio:latest
     restart: always
     ports:
