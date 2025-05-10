@@ -1,0 +1,11 @@
+networks:
+  home_network:
+
+services:
+  name: portfolio
+  image: ghcr.io/u7chan/monorepo/portfolio:latest
+  restart: always
+  ports:
+    - 8000:3000
+  environment:
+    SERVER_PORT: 3000
