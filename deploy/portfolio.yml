@@ -9,6 +9,7 @@ services:
     restart: always
     ports:
       - 8000:3000
+    env_file:
+      - .env.secret
     environment:
       SERVER_PORT: 3000
-      TEST_SECRET: ""
