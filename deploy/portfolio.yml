@@ -1,5 +1,6 @@
 networks:
-  home_network:
+  default:
+    name: home_network
 
 services:
   portfolio:
