@@ -16,12 +16,7 @@ app.get('/api/health', (c) => {
 })
 
 app.get('/', (c) => {
-  return c.render(
-    <>
-      <p>Server Side Rendering: {new Date().toISOString()}</p>
-      <div id='root' />
-    </>,
-  )
+  return c.render(<div id='root' />)
 })
 
 export default app
