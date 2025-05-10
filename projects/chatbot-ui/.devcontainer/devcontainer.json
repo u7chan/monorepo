@@ -51,7 +51,8 @@
         "wix.vscode-import-cost",
         "shardulm94.trailing-spaces",
         "bradlc.vscode-tailwindcss",
-        "stivo.tailwind-fold"
+        "stivo.tailwind-fold",
+        "saoudrizwan.claude-dev"
       ]
     }
   }
