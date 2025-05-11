@@ -13,7 +13,7 @@
     "SHELL": "/bin/bash"
   },
   "remoteUser": "u7chan",
-  "postCreateCommand": "uv sync && cp .env.example .env",
+  "postCreateCommand": "uv sync && cp .env.example .env && cp mcp.json.example mcp.json",
   "customizations": {
     "vscode": {
       "settings": {
