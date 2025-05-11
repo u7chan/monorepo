@@ -4,16 +4,15 @@
     "dockerfile": "../Dockerfile"
   },
   "features": {
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
     "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {}
+    "ghcr.io/devcontainers/features/sshd:1": {},
+    "ghcr.io/devcontainers-extra/features/curl-apt-get:1": {}
   },
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
   "remoteUser": "u7chan",
-  "postCreateCommand": "uv sync && cp .env.example .env && cp mcp.json.example mcp.json",
+  "postCreateCommand": "cp .env.example .env && cp mcp.json.example mcp.json && uv sync",
   "customizations": {
     "vscode": {
       "settings": {

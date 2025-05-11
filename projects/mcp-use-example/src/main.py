@@ -1,5 +1,4 @@
 import asyncio
-import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -11,9 +10,7 @@ async def main():
     load_dotenv()
 
     # Create configuration dictionary
-    client = MCPClient.from_config_file(
-        os.path.join(os.path.dirname(__file__), "mcp.json")
-    )
+    client = MCPClient.from_config_file("./mcp.json")
 
     # Create LLM
     llm = ChatOpenAI(model="gpt-4.1-nano")
