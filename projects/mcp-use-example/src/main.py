@@ -20,7 +20,7 @@ async def main():
 
     # Run the query
     result = await agent.run(
-        "Base64にして「あいうえお」",
+        "Base64に変換するMCPツールを利用して。入力: 'あいうえお'",
     )
     print(f"\nResult: {result}")
 
