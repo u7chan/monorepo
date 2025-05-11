@@ -1,28 +1,28 @@
-import OpenAI from "openai";
+import OpenAI from 'openai'
 
-const openai = new OpenAI();
+const openai = new OpenAI()
 
 export async function webSerachByOpenAI(content: string): Promise<string> {
 	// Call OpenAI API to web serach the text
 	const response = await openai.chat.completions.create({
-		model: "gpt-4o-mini-search-preview",
+		model: 'gpt-4o-mini-search-preview',
 		messages: [
 			{
-				role: "user",
+				role: 'user',
 				content,
 			},
 		],
 		web_search_options: {
-			search_context_size: "low",
+			search_context_size: 'low',
 			user_location: {
-				type: "approximate",
+				type: 'approximate',
 				approximate: {
-					country: "JP",
-					region: "Tokyo",
-					timezone: "Asia/Tokyo",
+					country: 'JP',
+					region: 'Tokyo',
+					timezone: 'Asia/Tokyo',
 				},
 			},
 		},
-	});
-	return response.choices[0].message.content || "";
+	})
+	return response.choices[0].message.content || ''
 }

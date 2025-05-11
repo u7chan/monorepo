@@ -7,10 +7,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { SSETransport } from 'hono-mcp-server-sse-transport'
 import { z } from 'zod'
 
-import { base64Encoding } from './features/base64-encoding'
-import { getCurrentTime } from './features/get-current-time'
-import { translateToEnglish } from './features/translate-to-english'
-import { webSerachByOpenAI } from './features/web-serach-by-openai'
+import { base64Encoding } from './features/base64Encoding'
+import { getCurrentTime } from './features/getCurrentTime'
+import { translateToEnglish } from './features/translateToEnglish'
+import { webSerachByOpenAI } from './features/webSearchByOpenAI'
 
 const logger = log4js.getLogger()
 logger.level = levels.INFO
