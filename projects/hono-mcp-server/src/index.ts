@@ -20,7 +20,7 @@ const mcpServer = new McpServer({
 	version: '1.0.0',
 })
 
-mcpServer.tool('get_current_time', '現在の時刻を取得します', {}, async () => {
+mcpServer.tool('get_current_time', '現在の時刻を取得します', {}, () => {
 	logger.info('» [getCurrentTime] input:', {})
 	const output = getCurrentTime()
 	logger.info('« [getCurrentTime] output:', output)
@@ -38,7 +38,7 @@ mcpServer.tool(
 	'base64_encoding',
 	'Base64エンコードを行います',
 	{ text: z.string() },
-	async (input) => {
+	(input) => {
 		logger.info('» [base64Encoding] input:', input.text)
 		const output = base64Encoding(input.text)
 		logger.info('« [base64Encoding] output:', output)
