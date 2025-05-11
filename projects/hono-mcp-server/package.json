@@ -1,17 +1,18 @@
 {
-  "name": "hono-mcp-server",
-  "scripts": {
-    "dev": "bun run --hot src/index.ts"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.1",
-    "hono": "^4.7.9",
-    "hono-mcp-server-sse-transport": "^0.0.6",
-    "log4js": "^6.9.1",
-    "openai": "^4.98.0",
-    "zod": "^3.24.4"
-  },
-  "devDependencies": {
-    "@types/bun": "latest"
-  }
+	"name": "hono-mcp-server",
+	"scripts": {
+		"dev": "bun run --hot src/index.ts"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.11.1",
+		"hono": "^4.7.9",
+		"hono-mcp-server-sse-transport": "^0.0.6",
+		"log4js": "^6.9.1",
+		"openai": "^4.98.0",
+		"zod": "^3.24.4"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@types/bun": "latest"
+	}
 }

@@ -1,52 +1,52 @@
 {
-  "name": "hono-mcp-server",
-  "build": {
-    "dockerfile": "../Dockerfile"
-  },
-  "features": {
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {},
-  },
-  "containerEnv": {
-    "SHELL": "/bin/bash"
-  },
-  "remoteUser": "u7chan",
-  "postCreateCommand": "bun i && cp .env.example .env",
-  "customizations": {
-    "vscode": {
-      "settings": {
-        "editor.tabSize": 2,
-        "editor.formatOnSave": true,
-        "biome.lspBin": "./node_modules/.bin/biome",
-        "[typescript]": {
-          "editor.defaultFormatter": "biomejs.biome"
-        },
-        "[typescriptreact]": {
-          "editor.defaultFormatter": "biomejs.biome"
-        },
-        "[json]": {
-          "editor.defaultFormatter": "biomejs.biome"
-        },
-        "[jsonc]": {
-          "editor.defaultFormatter": "biomejs.biome"
-        },
-        "editor.codeActionsOnSave": {
-          "source.organizeImports.biome": "explicit"
-        },
-        "files.associations": {
-          "*.css": "tailwindcss"
-        }
-      },
-      "extensions": [
-        "biomejs.biome",
-        "mhutchie.git-graph",
-        "eamodio.gitlens",
-        "oderwat.indent-rainbow",
-        "wix.vscode-import-cost",
-        "saoudrizwan.claude-dev"
-      ]
-    }
-  }
+	"name": "hono-mcp-server",
+	"build": {
+		"dockerfile": "../Dockerfile"
+	},
+	"features": {
+		"ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
+		"ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {}
+	},
+	"containerEnv": {
+		"SHELL": "/bin/bash"
+	},
+	"remoteUser": "u7chan",
+	"postCreateCommand": "bun i && cp .env.example .env",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"editor.tabSize": 2,
+				"editor.formatOnSave": true,
+				"biome.lspBin": "./node_modules/.bin/biome",
+				"[typescript]": {
+					"editor.defaultFormatter": "biomejs.biome"
+				},
+				"[typescriptreact]": {
+					"editor.defaultFormatter": "biomejs.biome"
+				},
+				"[json]": {
+					"editor.defaultFormatter": "biomejs.biome"
+				},
+				"[jsonc]": {
+					"editor.defaultFormatter": "biomejs.biome"
+				},
+				"editor.codeActionsOnSave": {
+					"source.organizeImports.biome": "explicit"
+				},
+				"files.associations": {
+					"*.css": "tailwindcss"
+				}
+			},
+			"extensions": [
+				"biomejs.biome",
+				"mhutchie.git-graph",
+				"eamodio.gitlens",
+				"oderwat.indent-rainbow",
+				"wix.vscode-import-cost",
+				"saoudrizwan.claude-dev"
+			]
+		}
+	}
 }
