@@ -1,0 +1,13 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  hono-mcp-server:
+    container_name: hono-mcp-server
+    image: ghcr.io/u7chan/monorepo/hono-mcp-server:latest
+    restart: always
+    ports:
+      - 8002:3000
+    env_file:
+      - .env.secret
