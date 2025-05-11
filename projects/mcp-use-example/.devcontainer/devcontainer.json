@@ -1,7 +1,7 @@
 {
   "name": "mcp-use-example",
   "build": {
-    "dockerfile": "../Dockerfile"
+    "dockerfile": "./Dockerfile"
   },
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
