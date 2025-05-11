@@ -45,7 +45,8 @@
 				"eamodio.gitlens",
 				"oderwat.indent-rainbow",
 				"wix.vscode-import-cost",
-				"saoudrizwan.claude-dev"
+				"saoudrizwan.claude-dev",
+				"DavidAnson.vscode-markdownlint"
 			]
 		}
 	}

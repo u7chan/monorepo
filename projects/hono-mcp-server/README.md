@@ -3,6 +3,23 @@
 Honoフレームワークを使用したMCP (Model Context Protocol) サーバー実装です。  
 SSE (Server-Sent Events) を介してクライアントと通信し、様々なツール機能を提供します。
 
+本サーバーは SSETransport で待ち受けているため、クライアントは SSE（サーバー送信イベント）で接続可能です。
+
+## 技術スタック
+
+| カテゴリ | 技術/ツール | バージョン/詳細 |
+|----------------|---------------------------|------------------------------------|
+| ランタイム | Bun | 1.x系 (oven/bun:alpine ベース) |
+| Webフレームワーク | Hono | 4.x系 |
+| 言語 | TypeScript | 5.x系 |
+| ORM/バリデーション | Zod | 3.x系 |
+| ロギング | log4js | 6.x系 |
+| AI統合 | OpenAI API | 4.x系 |
+| MCP統合 | @modelcontextprotocol/sdk | 1.x系 |
+| フォーマッター | Biome | 1.x系 |
+| コンテナ | Docker | Alpine Linuxベース |
+| 環境 | タイムゾーン | Asia/Tokyo |
+
 ## 主な機能
 
 - 現在時刻の取得
@@ -28,11 +45,13 @@ MCPクライアント設定 (SSE):
 ## セットアップ手順
 
 1. リポジトリをクローン:
+
    ```bash
    git clone git@github.com:u7chan/monorepo.git
    ```
 
 1. VSCodeでプロジェクトを開く
+
    ```bash
    cd projects/hono-mcp-server
    code .
@@ -46,6 +65,7 @@ MCPクライアント設定 (SSE):
    1. コンテナが起動し、自動的に依存関係がインストールされます
 
 1. サーバーを起動:
+
    ```bash
    bun run dev
    ```
@@ -55,6 +75,7 @@ MCPクライアント設定 (SSE):
 各機能はMCPクライアントから以下のように呼び出せます:
 
 - 現在時刻取得:
+
   ```json
   {
     "tool_name": "get_current_time"
@@ -62,6 +83,7 @@ MCPクライアント設定 (SSE):
   ```
 
 - Base64エンコード:
+
   ```json
   {
     "tool_name": "base64_encoding",
@@ -72,6 +94,7 @@ MCPクライアント設定 (SSE):
   ```
 
 - 翻訳:
+
   ```json
   {
     "tool_name": "translate_to_english",
@@ -82,6 +105,7 @@ MCPクライアント設定 (SSE):
   ```
 
 - Web検索:
+
   ```json
   {
     "tool_name": "web_serach",
