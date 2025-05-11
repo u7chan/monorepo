@@ -1,7 +1,9 @@
 {
 	"name": "hono-mcp-server",
 	"scripts": {
-		"dev": "bun run --hot src/index.ts"
+		"dev": "bun run --hot src/index.ts",
+		"lint": "tsc && biome lint --error-on-warnings ./src",
+		"format": "biome check --write ."
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.11.1",
