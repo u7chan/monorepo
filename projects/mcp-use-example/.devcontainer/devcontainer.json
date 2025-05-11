@@ -17,6 +17,7 @@
   "customizations": {
     "vscode": {
       "settings": {
+        "editor.tabSize": 4,
         "editor.formatOnSave": true,
         "python.defaultInterpreterPath": ".venv/bin/python",
         "[python]": {
