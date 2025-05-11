@@ -1,0 +1,56 @@
+{
+  "name": "mcp-use-example",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "features": {
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {}
+  },
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+  "remoteUser": "u7chan",
+  "postCreateCommand": "uv sync",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.formatOnSave": true,
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          },
+          "[json]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+          },
+          "[jsonc]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+          },
+          "[jsonl]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+          },
+          "[markdown]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+          }
+        }
+      },
+      "extensions": [
+        "mhutchie.git-graph",
+        "eamodio.gitlens",
+        "oderwat.indent-rainbow",
+        "esbenp.prettier-vscode",
+        "aaron-bond.better-comments",
+        "usernamehw.errorlens",
+        "saoudrizwan.claude-dev",
+        "charliermarsh.ruff",
+        "KevinRose.vsc-python-indent",
+        "njpwerner.autodocstring"
+      ]
+    }
+  }
+}
