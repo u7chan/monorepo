@@ -668,9 +668,25 @@ export const Chat: FC = () => {
         {emptyMessage && (
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div className='text-center font-bold text-2xl text-gray-700'>
+              <div className='mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'>
                 お手伝いできることはありますか？
               </div>
+
+              <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
+                <div className='rounded-xl border border-gray-200 bg-white p-5'>
+                  <div className='mb-2 font-semibold text-gray-700 text-md'>
+                    英語のコミットメッセージを作ります
+                  </div>
+                  <p className='text-gray-600'>
+                    <input
+                      type='text'
+                      className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                      placeholder='例: モックレイアウトの実装'
+                    />
+                  </p>
+                </div>
+              </div>
+
               <ChatInput
                 name='userInput'
                 value={input}
