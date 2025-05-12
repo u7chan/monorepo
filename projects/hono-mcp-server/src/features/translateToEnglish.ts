@@ -8,8 +8,9 @@ export async function translateToEnglish(content: string): Promise<string> {
 		messages: [
 			{
 				role: 'system',
-				content:
-					'You are a professional translator. Translate the following Japanese text to English while preserving the original meaning and nuance.',
+				content: `You are a professional translator.
+					Translate the following Japanese text to English while preserving the original meaning and nuance.
+					If translation is not possible, please indicate \`Could not be translated.\``,
 			},
 			{
 				role: 'user',
