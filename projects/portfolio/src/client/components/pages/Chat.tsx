@@ -31,6 +31,23 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
+const promptTemplates = [
+  {
+    title: '英語のコミットメッセージを作ります',
+    placeholder: '例: モックレイアウトの実装',
+    prompt: `
+You are an assistant that creates English commit messages based on the user's input.
+Always prepend the commit message with one of the following prefixes according to the nature of the change:
+
+\`feat: \` for new features
+\`fix: \` for bug fixes
+\`refactor: \` for code restructuring or improvements without changing functionality
+
+input: {content}
+            `.trim(),
+  },
+]
+
 const client = hc<AppType>('/')
 
 type Settings = {
@@ -197,6 +214,7 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
+  const [templateInput, setTemplateInput] = useState('')
   const [uploadImage, setUploadImage] = useState('')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
@@ -342,7 +360,9 @@ export const Chat: FC = () => {
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
-    if (!form.userInput.trim()) {
+
+    const inputText = form.userInput.trim() || templateInput.trim()
+    if (!inputText) {
       return
     }
 
@@ -352,7 +372,7 @@ export const Chat: FC = () => {
         ? [
             {
               type: 'text',
-              text: form.userInput,
+              text: inputText,
             },
             {
               type: 'image_url',
@@ -361,7 +381,7 @@ export const Chat: FC = () => {
               },
             },
           ]
-        : form.userInput,
+        : inputText,
     }
     const newMessages = [...messages, userMessage]
 
@@ -369,6 +389,7 @@ export const Chat: FC = () => {
     setLoading(true)
     setMessages(newMessages)
     setInput('')
+    setTemplateInput('')
     setUploadImage('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
@@ -532,6 +553,16 @@ export const Chat: FC = () => {
     }
   }
 
+  const handleKeyDownTemplate = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      if (formRef.current) {
+        setTemplateInput(event.currentTarget.value)
+        formRef.current.requestSubmit()
+      }
+    }
+  }
+
   const handleChangeComposition = (composition: boolean) => {
     setComposition(composition)
   }
@@ -673,18 +704,22 @@ export const Chat: FC = () => {
               </div>
 
               <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
-                <div className='rounded-xl border border-gray-200 bg-white p-5'>
-                  <div className='mb-2 font-semibold text-gray-700 text-md'>
-                    英語のコミットメッセージを作ります
+                {promptTemplates.map((template) => (
+                  <div
+                    key={template.title}
+                    className='rounded-xl border border-gray-200 bg-white p-5'
+                  >
+                    <div className='mb-2 font-semibold text-gray-700 text-md'>{template.title}</div>
+                    <p className='text-gray-600'>
+                      <input
+                        type='text'
+                        className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                        placeholder={template.placeholder}
+                        onKeyDown={handleKeyDownTemplate}
+                      />
+                    </p>
                   </div>
-                  <p className='text-gray-600'>
-                    <input
-                      type='text'
-                      className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
-                      placeholder='例: モックレイアウトの実装'
-                    />
-                  </p>
-                </div>
+                ))}
               </div>
 
               <ChatInput
