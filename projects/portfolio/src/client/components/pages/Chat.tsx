@@ -34,7 +34,7 @@ import { UploadIcon } from '@/client/components/svg/UploadIcon'
 const promptTemplates = [
   {
     title: '英語のコミットメッセージを作ります',
-    placeholder: '例: モックレイアウトの実装',
+    placeholder: '例: ユーザー登録機能を追加',
     prompt: `
 You are an assistant that creates English commit messages based on the user's input.
 Always prepend the commit message with one of the following prefixes according to the nature of the change:
