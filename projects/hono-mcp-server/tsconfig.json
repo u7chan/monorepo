@@ -1,12 +1,12 @@
 {
-	"compilerOptions": {
-		"moduleResolution": "bundler",
-		"target": "ESNext",
-		"strict": true,
-		"noEmit": true,
-		"skipLibCheck": true,
-		"jsx": "react-jsx",
-		"jsxImportSource": "hono/jsx"
-	},
-	"exclude": ["node_modules"]
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
+  },
+  "exclude": ["node_modules"]
 }
