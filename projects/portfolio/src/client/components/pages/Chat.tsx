@@ -33,10 +33,20 @@ import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
 const promptTemplates = [
   {
-    title: '英語のコミットメッセージを作ります',
+    title: '🇯🇵 日本語に翻訳',
+    placeholder: '例: How do you say this in Japanese?',
+    prompt: `
+You are a Japanese translation assistant. Please accurately and naturally translate the user's input text into Japanese.
+Pay attention to context and nuances, and aim to convey the meaning clearly and understandably.
+
+Use the very last user input in the system prompt.`.trim(),
+  },
+  {
+    title: '📝 コミットメッセージ作成',
     placeholder: '例: ユーザー登録機能を追加',
     prompt: `
 You are an assistant that creates English commit messages based on the user's input.
+Please ensure that the commit messages are always written in English.
 Always prepend the commit message with one of the following prefixes according to the nature of the change:
   - \`feat: \` for new features
   - \`fix: \` for bug fixes
