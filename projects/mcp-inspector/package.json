@@ -1,0 +1,9 @@
+{
+  "name": "mcp-inspector",
+  "scripts": {
+    "start": "node node_modules/.bin/mcp-inspector"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/inspector": "^0.11.0"
+  }
+}
