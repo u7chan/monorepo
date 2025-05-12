@@ -38,13 +38,11 @@ const promptTemplates = [
     prompt: `
 You are an assistant that creates English commit messages based on the user's input.
 Always prepend the commit message with one of the following prefixes according to the nature of the change:
+  - \`feat: \` for new features
+  - \`fix: \` for bug fixes
+  - \`refactor: \` for code restructuring or improvements without changing functionality
 
-\`feat: \` for new features
-\`fix: \` for bug fixes
-\`refactor: \` for code restructuring or improvements without changing functionality
-
-input: {content}
-            `.trim(),
+Use the very last user input in the system prompt.`.trim(),
   },
 ]
 
@@ -165,6 +163,11 @@ type MessageAssistant = {
   reasoning_content?: string
 }
 
+type MessageSystem = {
+  role: 'system'
+  content: string
+}
+
 type MessageUser = {
   role: 'user'
   content:
@@ -183,7 +186,7 @@ type MessageUser = {
       )[]
 }
 
-type Message = MessageAssistant | MessageUser
+type Message = MessageSystem | MessageAssistant | MessageUser
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
@@ -214,7 +217,9 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
-  const [templateInput, setTemplateInput] = useState('')
+  const [templateInput, setTemplateInput] = useState<{ prompt: string; content: string } | null>(
+    null,
+  )
   const [uploadImage, setUploadImage] = useState('')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
@@ -361,35 +366,48 @@ export const Chat: FC = () => {
       userInput: formData.get('userInput')?.toString() || '',
     }
 
-    const inputText = form.userInput.trim() || templateInput.trim()
-    if (!inputText) {
+    const inputText = form.userInput.trim()
+    if (!inputText && !templateInput) {
       return
     }
 
     const userMessage: Message = {
       role: 'user',
-      content: uploadImage
+      content:
+        uploadImage && !templateInput
+          ? [
+              {
+                type: 'text',
+                text: inputText,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: uploadImage,
+                },
+              },
+            ]
+          : templateInput
+            ? templateInput.content
+            : inputText,
+    }
+
+    const newMessages: Message[] =
+      messages.length === 0 && templateInput
         ? [
             {
-              type: 'text',
-              text: inputText,
+              role: 'system',
+              content: templateInput.prompt,
             },
-            {
-              type: 'image_url',
-              image_url: {
-                url: uploadImage,
-              },
-            },
+            userMessage,
           ]
-        : inputText,
-    }
-    const newMessages = [...messages, userMessage]
+        : [...messages, userMessage]
 
     setShowMenu(false)
     setLoading(true)
     setMessages(newMessages)
     setInput('')
-    setTemplateInput('')
+    setTemplateInput(null)
     setUploadImage('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
@@ -553,11 +571,15 @@ export const Chat: FC = () => {
     }
   }
 
-  const handleKeyDownTemplate = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+  const handleKeyDownTemplate = (event: KeyboardEvent<HTMLInputElement>, prompt: string) => {
+    const content = event.currentTarget.value.trim()
+    if (event.key === 'Enter' && !event.shiftKey && content) {
       event.preventDefault()
       if (formRef.current) {
-        setTemplateInput(event.currentTarget.value)
+        setTemplateInput({
+          prompt,
+          content,
+        })
         formRef.current.requestSubmit()
       }
     }
@@ -715,7 +737,7 @@ export const Chat: FC = () => {
                         type='text'
                         className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                         placeholder={template.placeholder}
-                        onKeyDown={handleKeyDownTemplate}
+                        onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
                       />
                     </p>
                   </div>
