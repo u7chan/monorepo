@@ -9,8 +9,8 @@ import { z } from 'zod'
 
 import { base64Encoding } from './features/base64Encoding'
 import { getCurrentTime } from './features/getCurrentTime'
+import { omikuji } from './features/omikuji'
 import { translateToEnglish } from './features/translateToEnglish'
-import { webSerachByOpenAI } from './features/webSearchByOpenAI'
 
 const logger = log4js.getLogger()
 logger.level = levels.INFO
@@ -72,24 +72,19 @@ mcpServer.tool(
 	},
 )
 
-mcpServer.tool(
-	'web_serach',
-	'入力された文章をWeb検索します',
-	{ text: z.string() },
-	async (input) => {
-		logger.info('» [webSerachByOpenAI] input:', input.text)
-		const output = await webSerachByOpenAI(input.text)
-		logger.info('« [webSerachByOpenAI] output:', output)
-		return {
-			content: [
-				{
-					type: 'text',
-					text: output,
-				},
-			],
-		}
-	},
-)
+mcpServer.tool('omikuji', 'ランダムにおみくじ結果を返します', {}, () => {
+	logger.info('» [omikuji] input:', {})
+	const output = omikuji()
+	logger.info('« [omikuji] output:', output)
+	return {
+		content: [
+			{
+				type: 'text',
+				text: output,
+			},
+		],
+	}
+})
 
 const app = new Hono()
 const customLogger = (message: string) => {
