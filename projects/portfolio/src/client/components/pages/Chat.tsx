@@ -31,6 +31,31 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
+const promptTemplates = [
+  {
+    title: '🇯🇵 日本語に翻訳',
+    placeholder: '例: How do you say this in Japanese?',
+    prompt: `
+You are a Japanese translation assistant. Please accurately and naturally translate the user's input text into Japanese.
+Pay attention to context and nuances, and aim to convey the meaning clearly and understandably.
+
+Use the very last user input in the system prompt.`.trim(),
+  },
+  {
+    title: '📝 コミットメッセージ作成',
+    placeholder: '例: ユーザー登録機能を追加',
+    prompt: `
+You are an assistant that creates English commit messages based on the user's input.
+Please ensure that the commit messages are always written in English.
+Always prepend the commit message with one of the following prefixes according to the nature of the change:
+  - \`feat: \` for new features
+  - \`fix: \` for bug fixes
+  - \`refactor: \` for code restructuring or improvements without changing functionality
+
+Use the very last user input in the system prompt.`.trim(),
+  },
+]
+
 const client = hc<AppType>('/')
 
 type Settings = {
@@ -148,6 +173,11 @@ type MessageAssistant = {
   reasoning_content?: string
 }
 
+type MessageSystem = {
+  role: 'system'
+  content: string
+}
+
 type MessageUser = {
   role: 'user'
   content:
@@ -166,7 +196,7 @@ type MessageUser = {
       )[]
 }
 
-type Message = MessageAssistant | MessageUser
+type Message = MessageSystem | MessageAssistant | MessageUser
 
 export const Chat: FC = () => {
   const formRef = useRef<HTMLFormElement>(null)
@@ -197,6 +227,9 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
+  const [templateInput, setTemplateInput] = useState<{ prompt: string; content: string } | null>(
+    null,
+  )
   const [uploadImage, setUploadImage] = useState('')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
@@ -342,33 +375,49 @@ export const Chat: FC = () => {
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
-    if (!form.userInput.trim()) {
+
+    const inputText = form.userInput.trim()
+    if (!inputText && !templateInput) {
       return
     }
 
     const userMessage: Message = {
       role: 'user',
-      content: uploadImage
+      content:
+        uploadImage && !templateInput
+          ? [
+              {
+                type: 'text',
+                text: inputText,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: uploadImage,
+                },
+              },
+            ]
+          : templateInput
+            ? templateInput.content
+            : inputText,
+    }
+
+    const newMessages: Message[] =
+      messages.length === 0 && templateInput
         ? [
             {
-              type: 'text',
-              text: form.userInput,
+              role: 'system',
+              content: templateInput.prompt,
             },
-            {
-              type: 'image_url',
-              image_url: {
-                url: uploadImage,
-              },
-            },
+            userMessage,
           ]
-        : form.userInput,
-    }
-    const newMessages = [...messages, userMessage]
+        : [...messages, userMessage]
 
     setShowMenu(false)
     setLoading(true)
     setMessages(newMessages)
     setInput('')
+    setTemplateInput(null)
     setUploadImage('')
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
@@ -532,6 +581,20 @@ export const Chat: FC = () => {
     }
   }
 
+  const handleKeyDownTemplate = (event: KeyboardEvent<HTMLInputElement>, prompt: string) => {
+    const content = event.currentTarget.value.trim()
+    if (event.key === 'Enter' && !event.shiftKey && content) {
+      event.preventDefault()
+      if (formRef.current) {
+        setTemplateInput({
+          prompt,
+          content,
+        })
+        formRef.current.requestSubmit()
+      }
+    }
+  }
+
   const handleChangeComposition = (composition: boolean) => {
     setComposition(composition)
   }
@@ -668,9 +731,29 @@ export const Chat: FC = () => {
         {emptyMessage && (
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div className='text-center font-bold text-2xl text-gray-700'>
+              <div className='mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'>
                 お手伝いできることはありますか？
               </div>
+
+              <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
+                {promptTemplates.map((template) => (
+                  <div
+                    key={template.title}
+                    className='rounded-xl border border-gray-200 bg-white p-5'
+                  >
+                    <div className='mb-2 font-semibold text-gray-700 text-md'>{template.title}</div>
+                    <p className='text-gray-600'>
+                      <input
+                        type='text'
+                        className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                        placeholder={template.placeholder}
+                        onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                      />
+                    </p>
+                  </div>
+                ))}
+              </div>
+
               <ChatInput
                 name='userInput'
                 value={input}
