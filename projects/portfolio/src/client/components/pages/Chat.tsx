@@ -33,7 +33,16 @@ import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
 const promptTemplates = [
   {
-    title: '🇯🇵 日本語に翻訳',
+    title: '🇺🇸 英語へ翻訳',
+    placeholder: '例: これを英語で言うと？',
+    prompt: `
+You are an English translation assistant. Please accurately and naturally translate the user's input text from Japanese into English.
+Pay attention to context and nuances, and aim to convey the meaning clearly and understandably.
+
+Use the very last user input in the system prompt.`.trim(),
+  },
+  {
+    title: '🇯🇵 日本語へ翻訳',
     placeholder: '例: How do you say this in Japanese?',
     prompt: `
 You are a Japanese translation assistant. Please accurately and naturally translate the user's input text into Japanese.
