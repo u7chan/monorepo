@@ -791,15 +791,16 @@ export const Chat: FC = () => {
                 {promptTemplates.map((template) => (
                   <div
                     key={template.title}
-                    className='rounded-xl border border-gray-200 bg-white p-5'
+                    className='rounded-xl border border-gray-200 bg-white p-4'
                   >
                     <div className='mb-2 flex items-center justify-between'>
                       <div className='font-semibold text-gray-700 text-md'>{template.title}</div>
                       <div className='flex items-center gap-2'>
-                        <div className='text-sm'>Model</div>
+                        <div className='text-gray-500 text-xs'>Model</div>
                         <input
                           type='text'
-                          className='rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                          spellCheck='false'
+                          className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden'
                           onChange={(e) => handleChangeTemplateModel(e, template.id)}
                           defaultValue={
                             defaultSettings?.templateModels?.[template.id]?.model || model
@@ -811,6 +812,7 @@ export const Chat: FC = () => {
                       {template.inputType === 'text' ? (
                         <input
                           type='text'
+                          spellCheck='false'
                           className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
                           onKeyDown={(e) => handleKeyDownTemplate(e, template)}
