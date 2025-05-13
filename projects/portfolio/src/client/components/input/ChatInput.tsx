@@ -50,7 +50,7 @@ export function ChatInput({
   }, [])
   return (
     <div
-      className={`mx-4 rounded-3xl border bg-white p-3 ${focus ? 'border-gray-300 shadow-lg' : 'shadow-md'}`}
+      className={`mx-4 rounded-3xl border bg-white p-3 transition-colors ${focus ? 'border-primary-700' : 'border-gray-300'}`}
     >
       <textarea
         ref={ref}

@@ -31,8 +31,14 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
-const promptTemplates = [
+const promptTemplates: {
+  inputType: 'text' | 'textarea'
+  title: string
+  placeholder: string
+  prompt: string
+}[] = [
   {
+    inputType: 'textarea',
     title: '🇺🇸 英語へ翻訳',
     placeholder: '例: これを英語で言うと？',
     prompt: `
@@ -42,6 +48,7 @@ Pay attention to context and nuances, and aim to convey the meaning clearly and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    inputType: 'textarea',
     title: '🇯🇵 日本語へ翻訳',
     placeholder: '例: How do you say this in Japanese?',
     prompt: `
@@ -51,18 +58,19 @@ Pay attention to context and nuances, and aim to convey the meaning clearly and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    inputType: 'text',
     title: '📝 コミットメッセージ作成',
     placeholder: '例: ユーザー登録機能を追加',
     prompt: `
 Assistant to create commit messages.
 Create an English sentence from what you have entered.
 Please enclose the English sentences in triple backtick code blocks when outputting.
-Adopt \`Semantic Commit Message\` and prefix it.
 Be sure to translate the output English into Japanese again with a new line and output it in “Japanese”.
 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    inputType: 'textarea',
     title: '✍️ 文章を校正',
     placeholder: '例: 入力した文章を校正します',
     prompt: `
@@ -600,7 +608,10 @@ export const Chat: FC = () => {
     }
   }
 
-  const handleKeyDownTemplate = (event: KeyboardEvent<HTMLInputElement>, prompt: string) => {
+  const handleKeyDownTemplate = (
+    event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+    prompt: string,
+  ) => {
     const content = event.currentTarget.value.trim()
     if (event.key === 'Enter' && !event.shiftKey && content) {
       event.preventDefault()
@@ -762,12 +773,20 @@ export const Chat: FC = () => {
                   >
                     <div className='mb-2 font-semibold text-gray-700 text-md'>{template.title}</div>
                     <p className='text-gray-600'>
-                      <input
-                        type='text'
-                        className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
-                        placeholder={template.placeholder}
-                        onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
-                      />
+                      {template.inputType === 'text' ? (
+                        <input
+                          type='text'
+                          className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                          placeholder={template.placeholder}
+                          onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                        />
+                      ) : (
+                        <textarea
+                          className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                          placeholder={template.placeholder}
+                          onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                        />
+                      )}
                     </p>
                   </div>
                 ))}
@@ -811,6 +830,7 @@ export const Chat: FC = () => {
                 handleKeyDown={handleKeyDown}
                 handleChangeComposition={handleChangeComposition}
               />
+              <div className='py-4' />
             </div>
           </div>
         )}
