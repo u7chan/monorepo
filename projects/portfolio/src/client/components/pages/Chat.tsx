@@ -32,12 +32,14 @@ import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
 const promptTemplates: {
+  id: string
   inputType: 'text' | 'textarea'
   title: string
   placeholder: string
   prompt: string
 }[] = [
   {
+    id: 'translate_en',
     inputType: 'textarea',
     title: '🇺🇸 英語へ翻訳',
     placeholder: '例: これを英語で言うと？',
@@ -48,6 +50,7 @@ Pay attention to context and nuances, and aim to convey the meaning clearly and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    id: 'translate_ja',
     inputType: 'textarea',
     title: '🇯🇵 日本語へ翻訳',
     placeholder: '例: How do you say this in Japanese?',
@@ -58,6 +61,7 @@ Pay attention to context and nuances, and aim to convey the meaning clearly and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    id: 'commit_message',
     inputType: 'text',
     title: '📝 コミットメッセージ作成',
     placeholder: '例: ユーザー登録機能を追加',
@@ -70,6 +74,7 @@ Be sure to translate the output English into Japanese again with a new line and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    id: 'text_summarization',
     inputType: 'textarea',
     title: '✍️ 文章を校正',
     placeholder: '例: 入力した文章を校正します',
@@ -96,6 +101,11 @@ type Settings = {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  templateModels: {
+    [key: string]: {
+      model: string
+    }
+  }
 }
 
 function readFromLocalStorage(): Partial<Settings> {
@@ -258,6 +268,7 @@ export const Chat: FC = () => {
     null,
   )
   const [uploadImage, setUploadImage] = useState('')
+  const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
@@ -329,7 +340,12 @@ export const Chat: FC = () => {
     setShowMenu(false)
   }
 
+  const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement>, id: string) => {
+    saveToLocalStorage({ templateModels: { [id]: { model: event.target.value } } })
+  }
+
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
+    setModel(event.target.value)
     saveToLocalStorage({ model: event.target.value })
   }
 
@@ -662,7 +678,7 @@ export const Chat: FC = () => {
           </span>
           <input
             name='model'
-            defaultValue={defaultSettings.model || 'gpt-4.1-mini'}
+            defaultValue={model}
             disabled={fakeMode}
             onChange={handleChangeModel}
             placeholder='model'
@@ -771,7 +787,20 @@ export const Chat: FC = () => {
                     key={template.title}
                     className='rounded-xl border border-gray-200 bg-white p-5'
                   >
-                    <div className='mb-2 font-semibold text-gray-700 text-md'>{template.title}</div>
+                    <div className='mb-2 flex items-center justify-between'>
+                      <div className='font-semibold text-gray-700 text-md'>{template.title}</div>
+                      <div className='flex items-center gap-2'>
+                        <div className='text-sm'>Model</div>
+                        <input
+                          type='text'
+                          className='rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                          onChange={(e) => handleChangeTemplateModel(e, template.id)}
+                          defaultValue={
+                            defaultSettings?.templateModels?.[template.id]?.model || model
+                          }
+                        />
+                      </div>
+                    </div>
                     <p className='text-gray-600'>
                       {template.inputType === 'text' ? (
                         <input
