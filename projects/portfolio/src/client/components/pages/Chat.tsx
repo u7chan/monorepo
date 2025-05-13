@@ -65,7 +65,6 @@ Use the very last user input in the system prompt.`.trim(),
 Assistant to create commit messages.
 Create an English sentence from what you have entered.
 Please enclose the English sentences in triple backtick code blocks when outputting.
-Adopt \`Semantic Commit Message\` and prefix it.
 Be sure to translate the output English into Japanese again with a new line and output it in “Japanese”.
 
 Use the very last user input in the system prompt.`.trim(),
