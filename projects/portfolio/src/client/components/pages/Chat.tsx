@@ -33,7 +33,16 @@ import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
 const promptTemplates = [
   {
-    title: '🇯🇵 日本語に翻訳',
+    title: '🇺🇸 英語へ翻訳',
+    placeholder: '例: これを英語で言うと？',
+    prompt: `
+You are an English translation assistant. Please accurately and naturally translate the user's input text from Japanese into English.
+Pay attention to context and nuances, and aim to convey the meaning clearly and understandably.
+
+Use the very last user input in the system prompt.`.trim(),
+  },
+  {
+    title: '🇯🇵 日本語へ翻訳',
     placeholder: '例: How do you say this in Japanese?',
     prompt: `
 You are a Japanese translation assistant. Please accurately and naturally translate the user's input text into Japanese.
@@ -45,12 +54,22 @@ Use the very last user input in the system prompt.`.trim(),
     title: '📝 コミットメッセージ作成',
     placeholder: '例: ユーザー登録機能を追加',
     prompt: `
-You are an assistant that creates English commit messages based on the user's input.
-Please ensure that the commit messages are always written in English.
-Always prepend the commit message with one of the following prefixes according to the nature of the change:
-  - \`feat: \` for new features
-  - \`fix: \` for bug fixes
-  - \`refactor: \` for code restructuring or improvements without changing functionality
+Assistant to create commit messages.
+Create an English sentence from what you have entered.
+Please enclose the English sentences in triple backtick code blocks when outputting.
+Adopt \`Semantic Commit Message\` and prefix it.
+Be sure to translate the output English into Japanese again with a new line and output it in “Japanese”.
+
+Use the very last user input in the system prompt.`.trim(),
+  },
+  {
+    title: '✍️ 文章を校正',
+    placeholder: '例: 入力した文章を校正します',
+    prompt: `
+You are an expert proofreader.
+Please carefully edit the following text for spelling, grammar, punctuation, and sentence structure errors.
+Correct any awkward or unnatural phrasing and improve clarity while preserving the original meaning and intent.
+Provide the revised, polished version of the entire text.
 
 Use the very last user input in the system prompt.`.trim(),
   },
