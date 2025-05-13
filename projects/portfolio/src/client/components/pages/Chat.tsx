@@ -31,13 +31,15 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
-const promptTemplates: {
+type PromptTemplate = {
   id: string
   inputType: 'text' | 'textarea'
   title: string
   placeholder: string
   prompt: string
-}[] = [
+}
+
+const promptTemplates: PromptTemplate[] = [
   {
     id: 'translate_en',
     inputType: 'textarea',
@@ -264,9 +266,11 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
-  const [templateInput, setTemplateInput] = useState<{ prompt: string; content: string } | null>(
-    null,
-  )
+  const [templateInput, setTemplateInput] = useState<{
+    model: string
+    prompt: string
+    content: string
+  } | null>(null)
   const [uploadImage, setUploadImage] = useState('')
   const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
   const [temperature, setTemperature] = useState<number>(
@@ -341,7 +345,8 @@ export const Chat: FC = () => {
   }
 
   const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement>, id: string) => {
-    saveToLocalStorage({ templateModels: { [id]: { model: event.target.value } } })
+    const pre = readFromLocalStorage().templateModels || {}
+    saveToLocalStorage({ templateModels: { ...pre, [id]: { model: event.target.value } } })
   }
 
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
@@ -489,7 +494,7 @@ export const Chat: FC = () => {
           },
           json: {
             messages: interactiveMode ? newMessages : [userMessage],
-            model: form.model,
+            model: templateInput ? templateInput.model : form.model,
             stream: streamMode,
             temperature: form.temperature,
             max_tokens: form.maxTokens,
@@ -626,13 +631,14 @@ export const Chat: FC = () => {
 
   const handleKeyDownTemplate = (
     event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-    prompt: string,
+    { id, prompt }: PromptTemplate,
   ) => {
     const content = event.currentTarget.value.trim()
     if (event.key === 'Enter' && !event.shiftKey && content) {
       event.preventDefault()
       if (formRef.current) {
         setTemplateInput({
+          model: readFromLocalStorage()?.templateModels?.[id]?.model ?? model,
           prompt,
           content,
         })
@@ -807,13 +813,13 @@ export const Chat: FC = () => {
                           type='text'
                           className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
-                          onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                          onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                         />
                       ) : (
                         <textarea
                           className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
-                          onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                          onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                         />
                       )}
                     </p>
