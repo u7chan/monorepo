@@ -31,13 +31,17 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
-const promptTemplates: {
+type PromptTemplate = {
+  id: string
   inputType: 'text' | 'textarea'
   title: string
   placeholder: string
   prompt: string
-}[] = [
+}
+
+const promptTemplates: PromptTemplate[] = [
   {
+    id: 'translate_en',
     inputType: 'textarea',
     title: '🇺🇸 英語へ翻訳',
     placeholder: '例: これを英語で言うと？',
@@ -48,6 +52,7 @@ Pay attention to context and nuances, and aim to convey the meaning clearly and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    id: 'translate_ja',
     inputType: 'textarea',
     title: '🇯🇵 日本語へ翻訳',
     placeholder: '例: How do you say this in Japanese?',
@@ -58,6 +63,7 @@ Pay attention to context and nuances, and aim to convey the meaning clearly and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    id: 'commit_message',
     inputType: 'text',
     title: '📝 コミットメッセージ作成',
     placeholder: '例: ユーザー登録機能を追加',
@@ -70,6 +76,7 @@ Be sure to translate the output English into Japanese again with a new line and 
 Use the very last user input in the system prompt.`.trim(),
   },
   {
+    id: 'text_summarization',
     inputType: 'textarea',
     title: '✍️ 文章を校正',
     placeholder: '例: 入力した文章を校正します',
@@ -96,6 +103,11 @@ type Settings = {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  templateModels: {
+    [key: string]: {
+      model: string
+    }
+  }
 }
 
 function readFromLocalStorage(): Partial<Settings> {
@@ -254,10 +266,13 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
-  const [templateInput, setTemplateInput] = useState<{ prompt: string; content: string } | null>(
-    null,
-  )
+  const [templateInput, setTemplateInput] = useState<{
+    model: string
+    prompt: string
+    content: string
+  } | null>(null)
   const [uploadImage, setUploadImage] = useState('')
+  const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
   )
@@ -329,7 +344,13 @@ export const Chat: FC = () => {
     setShowMenu(false)
   }
 
+  const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement>, id: string) => {
+    const pre = readFromLocalStorage().templateModels || {}
+    saveToLocalStorage({ templateModels: { ...pre, [id]: { model: event.target.value } } })
+  }
+
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
+    setModel(event.target.value)
     saveToLocalStorage({ model: event.target.value })
   }
 
@@ -473,7 +494,7 @@ export const Chat: FC = () => {
           },
           json: {
             messages: interactiveMode ? newMessages : [userMessage],
-            model: form.model,
+            model: templateInput ? templateInput.model : form.model,
             stream: streamMode,
             temperature: form.temperature,
             max_tokens: form.maxTokens,
@@ -610,13 +631,14 @@ export const Chat: FC = () => {
 
   const handleKeyDownTemplate = (
     event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-    prompt: string,
+    { id, prompt }: PromptTemplate,
   ) => {
     const content = event.currentTarget.value.trim()
     if (event.key === 'Enter' && !event.shiftKey && content) {
       event.preventDefault()
       if (formRef.current) {
         setTemplateInput({
+          model: readFromLocalStorage()?.templateModels?.[id]?.model ?? model,
           prompt,
           content,
         })
@@ -662,7 +684,7 @@ export const Chat: FC = () => {
           </span>
           <input
             name='model'
-            defaultValue={defaultSettings.model || 'gpt-4.1-mini'}
+            defaultValue={model}
             disabled={fakeMode}
             onChange={handleChangeModel}
             placeholder='model'
@@ -769,22 +791,37 @@ export const Chat: FC = () => {
                 {promptTemplates.map((template) => (
                   <div
                     key={template.title}
-                    className='rounded-xl border border-gray-200 bg-white p-5'
+                    className='rounded-xl border border-gray-200 bg-white p-4'
                   >
-                    <div className='mb-2 font-semibold text-gray-700 text-md'>{template.title}</div>
+                    <div className='mb-2 flex items-center justify-between'>
+                      <div className='font-semibold text-gray-700 text-md'>{template.title}</div>
+                      <div className='flex items-center gap-2'>
+                        <div className='text-gray-500 text-xs'>Model</div>
+                        <input
+                          type='text'
+                          spellCheck='false'
+                          className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden'
+                          onChange={(e) => handleChangeTemplateModel(e, template.id)}
+                          defaultValue={
+                            defaultSettings?.templateModels?.[template.id]?.model || model
+                          }
+                        />
+                      </div>
+                    </div>
                     <p className='text-gray-600'>
                       {template.inputType === 'text' ? (
                         <input
                           type='text'
+                          spellCheck='false'
                           className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
-                          onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                          onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                         />
                       ) : (
                         <textarea
                           className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
-                          onKeyDown={(e) => handleKeyDownTemplate(e, template.prompt)}
+                          onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                         />
                       )}
                     </p>
