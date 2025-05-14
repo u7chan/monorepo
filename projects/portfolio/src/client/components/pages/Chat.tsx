@@ -65,7 +65,7 @@ Use the very last user input in the system prompt.`.trim(),
   {
     id: 'commit_message',
     inputType: 'text',
-    title: '📝 コミットメッセージ作成',
+    title: '📝 コミットメッセージを作成',
     placeholder: '例: ユーザー登録機能を追加',
     prompt: `
 Assistant to create commit messages.
