@@ -93,7 +93,7 @@ export const Layout: FC<Props> = ({ title, version, menuItems, children }: Props
             {version && <span className='text-sm text-white'>{version}</span>}
           </div>
         )}
-        <main className='flex-1 overflow-y-auto bg-white'>{children}</main>
+        <main className='flex-1 overflow-y-hidden bg-white sm:overflow-y-auto'>{children}</main>
       </div>
     </div>
   )

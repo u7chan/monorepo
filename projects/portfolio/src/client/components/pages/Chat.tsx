@@ -767,7 +767,9 @@ export const Chat: FC = () => {
         <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div className='mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'>
+              <div
+                className={`text-center font-bold text-2xl text-gray-700 sm:text-3xl ${mobile ? 'mt-14' : 'mb-2'}`}
+              >
                 お手伝いできることはありますか？
               </div>
               <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
