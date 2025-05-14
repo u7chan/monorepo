@@ -851,12 +851,15 @@ export const Chat: FC = () => {
                           type='button'
                           onClick={onClick}
                           disabled={loading || !!stream}
-                          className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
+                          className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white'
                         >
                           <UploadIcon
-                            className={loading || stream ? 'fill-gray-300' : 'fill-gray-800'}
+                            size={20}
+                            className='fill-gray-500 group-disabled:fill-gray-300'
                           />
-                          <div className='text-gray-800 text-sm'>画像</div>
+                          <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300'>
+                            画像
+                          </div>
                         </button>
                       )}
                       onImageChange={handleUploadImageChange}
@@ -1085,14 +1088,13 @@ export const Chat: FC = () => {
                         type='button'
                         onClick={onClick}
                         disabled={loading || !!stream}
-                        className='flex cursor-pointer items-center gap-0.5 rounded-3xl border bg-white px-2 py-1 text-black hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:text-gray-300 disabled:hover:cursor-default disabled:hover:bg-white'
+                        className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white'
                       >
                         <UploadIcon
-                          className={loading || stream ? 'fill-gray-300' : 'fill-gray-800'}
+                          size={20}
+                          className='fill-gray-500 group-disabled:fill-gray-300'
                         />
-                        <div
-                          className={`text-sm ${loading || stream ? 'text-gray-300' : 'text-gray-800'}`}
-                        >
+                        <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300'>
                           画像
                         </div>
                       </button>
