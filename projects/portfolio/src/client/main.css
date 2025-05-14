@@ -47,6 +47,15 @@ body {
   font-family: "M PLUS Rounded 1c", sans-serif;
 }
 
+.line-clamp-2 {
+  display: -webkit-box; /* flexboxに代わるボックス表示 */
+  -webkit-box-orient: vertical; /* 縦方向にボックスを展開 */
+  overflow: hidden; /* はみ出した部分は非表示 */
+  text-overflow: ellipsis; /* ...を表示 */
+  -webkit-line-clamp: 2; /* 最大3行表示 */
+  line-clamp: 2; /* 一部ブラウザのため */
+}
+
 /*
   react-markdown customs
 */

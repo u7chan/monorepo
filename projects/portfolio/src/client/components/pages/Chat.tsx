@@ -763,30 +763,13 @@ export const Chat: FC = () => {
           onClick={handleClickInteractiveMode}
         />
       </div>
-
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className={
-          emptyMessage
-            ? `flex ${mobile ? 'h-[calc(100vh-56px)]' : 'h-screen'}`
-            : 'flex h-calc overflow-y-auto'
-        }
-        style={
-          {
-            '--height': mobile
-              ? `${56 + bottomChatInputContainerHeight}px`
-              : `${bottomChatInputContainerHeight}px`,
-          } as never
-        }
-      >
-        {emptyMessage && (
+      {emptyMessage && (
+        <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
               <div className='mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'>
                 お手伝いできることはありますか？
               </div>
-
               <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
                 {promptTemplates.map((template) => (
                   <div
@@ -794,7 +777,9 @@ export const Chat: FC = () => {
                     className='rounded-xl border border-gray-200 bg-white p-4'
                   >
                     <div className='mb-2 flex items-center justify-between'>
-                      <div className='font-semibold text-gray-700 text-md'>{template.title}</div>
+                      <div className='line-clamp-2 font-semibold text-gray-700 text-sm'>
+                        {template.title}
+                      </div>
                       <div className='flex items-center gap-2'>
                         <div className='text-gray-500 text-xs'>Model</div>
                         <input
@@ -828,7 +813,6 @@ export const Chat: FC = () => {
                   </div>
                 ))}
               </div>
-
               <ChatInput
                 name='userInput'
                 value={input}
@@ -873,7 +857,20 @@ export const Chat: FC = () => {
               <div className='py-4' />
             </div>
           </div>
-        )}
+        </div>
+      )}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className={emptyMessage ? 'hidden' : 'h-calc overflow-y-auto'}
+        style={
+          {
+            '--height': mobile
+              ? `${56 + bottomChatInputContainerHeight}px`
+              : `${bottomChatInputContainerHeight}px`,
+          } as never
+        }
+      >
         {!emptyMessage && (
           <div className='container mx-auto mt-4 max-w-screen-lg px-4'>
             <div className='message-list'>
