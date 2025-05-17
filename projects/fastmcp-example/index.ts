@@ -34,6 +34,42 @@ server.addTool({
   },
 });
 
+function readConversationHistoryMock(user: string): Promise<string> {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(
+        JSON.stringify([
+          {
+            role: "user",
+            content: `Hello, ${user}!`,
+          },
+          {
+            role: "assistant",
+            content: `Hi, ${user}! How can I help you today?`,
+          },
+        ])
+      );
+    }, 1000);
+  });
+}
+
+server.addResourceTemplate({
+  uriTemplate: "file:///conversation_history/{user}.log",
+  name: "User Conversation history Logs",
+  mimeType: "application/json",
+  arguments: [
+    {
+      name: "user",
+      description: "The user name",
+    },
+  ],
+  async load({ user }) {
+    return {
+      text: await readConversationHistoryMock(user),
+    };
+  },
+});
+
 server.start({
   transportType: "httpStream",
   httpStream: {
