@@ -634,7 +634,7 @@ export const Chat: FC = () => {
     { id, prompt }: PromptTemplate,
   ) => {
     const content = event.currentTarget.value.trim()
-    if (event.key === 'Enter' && !event.shiftKey && content) {
+    if (event.key === 'Enter' && !event.shiftKey && content && !composing) {
       event.preventDefault()
       if (formRef.current) {
         setTemplateInput({
@@ -803,12 +803,16 @@ export const Chat: FC = () => {
                           className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
                           onKeyDown={(e) => handleKeyDownTemplate(e, template)}
+                          onCompositionStart={() => handleChangeComposition(true)}
+                          onCompositionEnd={() => handleChangeComposition(false)}
                         />
                       ) : (
                         <textarea
                           className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
                           placeholder={template.placeholder}
                           onKeyDown={(e) => handleKeyDownTemplate(e, template)}
+                          onCompositionStart={() => handleChangeComposition(true)}
+                          onCompositionEnd={() => handleChangeComposition(false)}
                         />
                       )}
                     </p>
