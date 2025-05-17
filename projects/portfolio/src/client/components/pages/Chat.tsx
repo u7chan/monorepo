@@ -852,9 +852,9 @@ export const Chat: FC = () => {
                     />
                   </FileImagePreview>
                 }
-                handleChangeInput={handleChangeInput}
-                handleKeyDown={handleKeyDown}
-                handleChangeComposition={handleChangeComposition}
+                onChangeInput={handleChangeInput}
+                onKeyDown={handleKeyDown}
+                onChangeComposition={handleChangeComposition}
               />
               <div className='py-4' />
             </div>
@@ -1102,9 +1102,9 @@ export const Chat: FC = () => {
                   />
                 </FileImagePreview>
               }
-              handleChangeInput={handleChangeInput}
-              handleKeyDown={handleKeyDown}
-              handleChangeComposition={handleChangeComposition}
+              onChangeInput={handleChangeInput}
+              onKeyDown={handleKeyDown}
+              onChangeComposition={handleChangeComposition}
             />
             <div className='h-4' />
           </>
