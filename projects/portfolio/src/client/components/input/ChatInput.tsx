@@ -15,9 +15,9 @@ interface Props {
   disabled?: boolean
   rightBottom?: ReactNode
   leftBottom?: ReactNode
-  handleChangeInput?: (event: ChangeEvent<HTMLTextAreaElement>) => void
-  handleKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
-  handleChangeComposition?: (composition: boolean) => void
+  onChangeInput?: (event: ChangeEvent<HTMLTextAreaElement>) => void
+  onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  onChangeComposition?: (composition: boolean) => void
 }
 
 export function ChatInput({
@@ -28,9 +28,9 @@ export function ChatInput({
   disabled,
   rightBottom,
   leftBottom,
-  handleChangeInput,
-  handleKeyDown,
-  handleChangeComposition,
+  onChangeInput,
+  onKeyDown,
+  onChangeComposition,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [focus, setFocus] = useState(false)
@@ -56,10 +56,10 @@ export function ChatInput({
         ref={ref}
         name={name}
         value={value}
-        onChange={handleChangeInput}
-        onKeyDown={handleKeyDown}
-        onCompositionStart={() => handleChangeComposition?.(true)}
-        onCompositionEnd={() => handleChangeComposition?.(false)}
+        onChange={onChangeInput}
+        onKeyDown={onKeyDown}
+        onCompositionStart={() => onChangeComposition?.(true)}
+        onCompositionEnd={() => onChangeComposition?.(false)}
         rows={textAreaRows}
         placeholder={placeholder}
         disabled={disabled}
