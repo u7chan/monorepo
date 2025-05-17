@@ -1,0 +1,19 @@
+{
+  "name": "fastmcp-example",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "fastmcp": "^1.27.6",
+    "zod": "^3.24.4"
+  }
+}
