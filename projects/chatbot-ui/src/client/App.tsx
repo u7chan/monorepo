@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MessageInput } from "#/components/MessageInput";
 import { MessageArea, type Message } from "#/components/MessageArea";
+import { Header } from "#/components/Header";
 
 export function App() {
   // メッセージの状態管理
@@ -40,11 +41,7 @@ export function App() {
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* ヘッダー */}
-      <header className="border-b p-3 bg-card">
-        <div className="container mx-auto flex items-center">
-          <h1 className="text-xl font-bold">Chatbot UI</h1>
-        </div>
-      </header>
+      <Header />
 
       {/* メッセージエリア */}
       <MessageArea messages={messages} />
