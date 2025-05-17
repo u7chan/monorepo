@@ -105,7 +105,7 @@ export function App() {
 
                 {/* メッセージカード */}
                 <Card
-                  className={`${message.sender === 'user' ? 'bg-slate-300' : 'bg-card'}`}
+                  className={`${message.sender === 'user' ? 'bg-slate-200 border-none' : 'bg-card'}`}
                 >
                   <CardContent className='p-3'>
                     <p>{message.content}</p>
