@@ -11,6 +11,8 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
   const [inputMessage, setInputMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [composition, setComposition] = useState(false);
+
   // テキストエリアの高さを調整する（5行まで自動拡張、それ以上はスクロール）
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -34,9 +36,15 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
     }
   }, [inputMessage]); // inputMessageが変更されたときに高さを調整
 
+  const handleChangeComposition = (composition: boolean) => {
+    setComposition(composition);
+  };
+
   // メッセージ送信処理
   const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
+    if (!inputMessage.trim() || composition) {
+      return;
+    }
     onSendMessage(inputMessage);
     setInputMessage("");
   };
@@ -55,6 +63,8 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
             ref={textareaRef}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
+            onCompositionStart={() => handleChangeComposition(true)}
+            onCompositionEnd={() => handleChangeComposition(false)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 if (e.shiftKey) {
