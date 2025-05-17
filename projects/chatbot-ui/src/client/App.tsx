@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, AvatarFallback } from '#/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent } from '#/components/ui/card'
 import { Textarea } from '#/components/ui/textarea'
@@ -98,13 +98,14 @@ export function App() {
                 className={`flex gap-3 max-w-[80%] ${message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
               >
                 {/* アバター */}
-                <Avatar className={message.sender === 'bot' ? 'bg-primary' : 'bg-secondary'}>
+                <Avatar className={message.sender === 'bot' ? 'bg-primary' : 'bg-secondary'} >
+                  <AvatarImage src={message.sender === 'user' ? 'https://avatars.githubusercontent.com/u/34462401' : 'https://github.com/shadcn.png'} />
                   <AvatarFallback>{message.sender === 'user' ? 'U' : 'B'}</AvatarFallback>
                 </Avatar>
 
                 {/* メッセージカード */}
                 <Card
-                  className={`${message.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card'}`}
+                  className={`${message.sender === 'user' ? 'bg-slate-200 border-none' : 'bg-card'}`}
                 >
                   <CardContent className='p-3'>
                     <p>{message.content}</p>
