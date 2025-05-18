@@ -24,13 +24,12 @@ runs:
 
         COMMIT_HASH=$(git rev-parse --short HEAD) # 現在のコミットハッシュを取得
 
-        for project in "${BUILD_PROJECT_ARRAY[@]}"; do # 各プロジェクトに対してループ
-
+        for project in "${BUILD_PROJECT_ARRAY[@]}"; do
           GHCR_URI="ghcr.io/${{ github.repository }}/$project:latest" # GitHub Container RegistryのURI生成
           PROJECT_DIR="$PROJECTS_DIR/$project" # 各プロジェクトのディレクトリパス
           DOCKER_FILE="$PROJECT_DIR/Dockerfile" # Dockerfileのパス
-          SEARCH_KEYWORD="AS ${{ inputs.stage }}" # 検索するキーワード
-          PREBUILD_SCRIPT_NAME="pre-docker-build.sh" # プレビルドスクリプトの名前
+          SEARCH_KEYWORD="AS ${{ inputs.stage }}" # Dockerfile内で検索するステージのキーワード
+          PREBUILD_SCRIPT_NAME="pre-docker-build.sh" # プレビルドスクリプトのファイル名
 
           # 環境変数の出力
           echo "GHCR_URI: $GHCR_URI"
@@ -39,9 +38,9 @@ runs:
           echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
           echo "PREBUILD_SCRIPT_NAME: $PREBUILD_SCRIPT_NAME"
 
-          # プレビルドスクリプトが存在する場合は実行
+          # プレビルドスクリプトがプロジェクト配下に存在する場合は実行
           if [ -e "$PROJECT_DIR/$PREBUILD_SCRIPT_NAME" ]; then
-            echo "Running pre-build script: $PREBUILD_SCRIPT_NAME" # スクリプト実行のメッセージ
+            echo "Running pre-build script: $PREBUILD_SCRIPT_NAME"
             cd "$PROJECT_DIR" # プロジェクトディレクトリに移動
             sh "$PREBUILD_SCRIPT_NAME" # プレビルドスクリプトを実行
             cd - # 元のディレクトリに戻る
