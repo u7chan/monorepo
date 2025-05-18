@@ -11,7 +11,7 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: 'こんにちは！何かお手伝いできることはありますか？',
+      content: 'こんにちは！\n何かお手伝いできることはありますか？',
       sender: 'bot',
       timestamp: new Date(),
     },

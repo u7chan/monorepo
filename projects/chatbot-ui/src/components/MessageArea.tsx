@@ -43,7 +43,7 @@ export function MessageArea({ messages }: MessageAreaProps) {
               className={`${message.sender === 'user' ? 'border-none bg-slate-200' : 'bg-card'}`}
             >
               <CardContent className='p-3'>
-                <p>{message.content}</p>
+                <p className='whitespace-pre-wrap'>{message.content}</p>
                 <div className='mt-1 text-right text-xs opacity-70'>
                   {message.timestamp.toLocaleTimeString([], {
                     hour: '2-digit',
