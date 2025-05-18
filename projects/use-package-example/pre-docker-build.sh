@@ -28,10 +28,18 @@ echo "$WORKSPACE_LIBS" | sed -e 's/^\[//; s/\]$//; s/,//g; s/"//g; s/'"'"'//g' |
     # cpで現在のディレクトリにライブラリをコピー
     cp -r "$WORKSPACE_PATH" "./packages"
 
-    # package.jsonの置換処理
-    ## TODO: package.jsonのdependenciesを修正（以下のように置換したい）
-    ## before: "{package_dir_name}": "workspace:../../{package_dir_name}"
-    ## after: "{package_dir_name}": "workspace:{package_dir_name}"
+    # package.jsonのdependenciesを修正
+    node -e "
+    const fs = require('fs');
+    const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+    for (const [dep, version] of Object.entries(packageJson.dependencies || {})) {
+        if (version.startsWith('workspace:')) {
+            const newPath = version.replace(/workspace:.*\//, 'workspace:packages/');
+            packageJson.dependencies[dep] = newPath;
+        }
+    }
+    fs.writeFileSync('./package.json', JSON.stringify(packageJson, null, 2));
+    "
 done
 
 echo "All workspace libraries processed successfully 🚀"
