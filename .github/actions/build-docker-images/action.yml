@@ -1,5 +1,5 @@
 name: Build Docker Images
-description: Building the Dockerfiles for multiple projects.
+description: Building Dockerfiles for multiple projects.
 
 inputs:
   stage:
