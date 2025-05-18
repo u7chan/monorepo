@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Header } from '#/components/Header'
 import { type Message, MessageArea } from '#/components/MessageArea'
+import { MessageAreaScroll } from '#/components/MessageAreaScroll'
 import { MessageInput } from '#/components/MessageInput'
 
 export function App() {
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
   // メッセージの状態管理
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -38,15 +41,21 @@ export function App() {
     }, 1000)
   }
 
+  useEffect(() => {
+    // メッセージが更新されたときにスクロール
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
   return (
     <div className='flex h-screen flex-col bg-background'>
       {/* ヘッダー */}
       <Header />
 
-      <div className='flex flex-1 flex-col overflow-y-auto p-4'>
-        {/* メッセージエリア */}
+      {/* メッセージエリア */}
+      <MessageAreaScroll ref={messagesEndRef}>
         <MessageArea messages={messages} />
-      </div>
+      </MessageAreaScroll>
 
       {/* 入力エリア */}
       <MessageInput onSendMessage={handleSendMessage} />
