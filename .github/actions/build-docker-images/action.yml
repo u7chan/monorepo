@@ -24,15 +24,23 @@ runs:
         COMMIT_HASH=$(git rev-parse --short HEAD)
 
         for project in "${BUILD_PROJECT_ARRAY[@]}"; do
-          GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
-          PROJECT_DIR=$PROJECTS_DIR/$project
-          DOCKER_FILE=$PROJECT_DIR/Dockerfile
+          GHCR_URI="ghcr.io/${{ github.repository }}/$project:latest"
+          PROJECT_DIR="$PROJECTS_DIR/$project"
+          DOCKER_FILE="$PROJECT_DIR/Dockerfile"
           SEARCH_KEYWORD="AS ${{ inputs.stage }}"
+          PREBUILD_SCRIPT="pre-docker-build.sh"
 
           echo "GHCR_URI: $GHCR_URI"
           echo "PROJECT_DIR: $PROJECT_DIR"
           echo "DOCKER_FILE: $DOCKER_FILE"
           echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
+
+          if [ -e "$PROJECT_DIR/$PREBUILD_SCRIPT" ]; then
+            echo "Running pre-build script: $PREBUILD_SCRIPT"
+            cd "$PROJECT_DIR"
+            sh "$PREBUILD_SCRIPT"
+            cd -
+          fi
 
           if grep -q "$SEARCH_KEYWORD" "$DOCKER_FILE" 2>/dev/null; then
             echo "Found starge: ${{ inputs.stage }}"

@@ -1,7 +1,0 @@
-FROM oven/bun:1
-
-COPY package.json bun.lock index.ts ./
-
-RUN bun install # Cannot reference the library
-
-CMD ["sleep", "infinity"]
