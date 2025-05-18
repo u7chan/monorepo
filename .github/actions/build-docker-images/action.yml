@@ -37,7 +37,9 @@ runs:
 
           if [ -e "$PREBUILD_SCRIPT" ]; then
             echo "Running pre-build script: $PREBUILD_SCRIPT"
+            cd "$PROJECT_DIR"
             sh "$PREBUILD_SCRIPT"
+            cd -
           fi
 
           if grep -q "$SEARCH_KEYWORD" "$DOCKER_FILE" 2>/dev/null; then
