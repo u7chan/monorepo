@@ -3,9 +3,11 @@
   "workspaces": {
     "": {
       "name": "use-package-example",
+      "dependencies": {
+        "example-lib": "workspace:../../packages/example-lib",
+      },
       "devDependencies": {
         "@types/bun": "latest",
-        "example-lib": "workspace:../../packages/example-lib",
       },
       "peerDependencies": {
         "typescript": "^5",

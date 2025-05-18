@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "bun run --watch index.ts"
   },
-  "devDependencies": {
-    "@types/bun": "latest",
+  "dependencies": {
     "example-lib": "workspace:../../packages/example-lib"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
