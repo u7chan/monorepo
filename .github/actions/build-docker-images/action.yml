@@ -42,7 +42,7 @@ runs:
           if [ -e "$PROJECT_DIR/$PREBUILD_SCRIPT_NAME" ]; then
             echo "Running pre-build script: $PREBUILD_SCRIPT_NAME"
             cd "$PROJECT_DIR" # プロジェクトディレクトリに移動
-            sh "$PREBUILD_SCRIPT_NAME" # プレビルドスクリプトを実行
+            chmod +x "$PREBUILD_SCRIPT_NAME" && "$PREBUILD_SCRIPT_NAME" # プレビルドスクリプトを実行
             cd - # 元のディレクトリに戻る
           fi
 

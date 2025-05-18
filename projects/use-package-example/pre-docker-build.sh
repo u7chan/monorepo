@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # このシェルスクリプトは、CI/CDのDockerビルド前に実行されます。
 # Node.jsプロジェクト内の`package.json`から依存関係として指定されている`workspace:`を使用したライブラリを抽出し、
