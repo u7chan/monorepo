@@ -24,11 +24,11 @@ runs:
         COMMIT_HASH=$(git rev-parse --short HEAD)
 
         for project in "${BUILD_PROJECT_ARRAY[@]}"; do
-          GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
-          PROJECT_DIR=$PROJECTS_DIR/$project
-          DOCKER_FILE=$PROJECT_DIR/Dockerfile
+          GHCR_URI="ghcr.io/${{ github.repository }}/$project:latest"
+          PROJECT_DIR="$PROJECTS_DIR/$project"
+          DOCKER_FILE="$PROJECT_DIR/Dockerfile"
           SEARCH_KEYWORD="AS ${{ inputs.stage }}"
-          PREBUILD_SCRIPT="$PROJECT_DIR/pre-docker-build.sh"
+          PREBUILD_SCRIPT="pre-docker-build.sh"
 
           echo "GHCR_URI: $GHCR_URI"
           echo "PROJECT_DIR: $PROJECT_DIR"
