@@ -1,8 +1,10 @@
 {
   "name": "example-lib",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "build": "bun build src/index.ts --outdir=dist"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -1,4 +1,4 @@
-import { getHelloMessage } from "example-lib/src";
+import { getHelloMessage } from "example-lib";
 
 function main() {
   console.log(getHelloMessage());
