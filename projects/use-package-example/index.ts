@@ -1,8 +1,7 @@
-import { printa, printb } from "example-lib";
+import { getHelloMessage } from "example-lib/src";
 
 function main() {
-  printa();
-  printb();
+  console.log(getHelloMessage());
 }
 
 main();
