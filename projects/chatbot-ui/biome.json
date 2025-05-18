@@ -24,6 +24,16 @@
         "noUnusedImports": "warn",
         "noUnusedVariables": "warn",
         "useExhaustiveDependencies": "off"
+      },
+      "nursery": {
+        "useSortedClasses": {
+          "level": "error",
+          "fix": "unsafe",
+          "options": {
+            "attributes": ["className", "tw"],
+            "functions": ["tw"]
+          }
+        }
       }
     }
   },

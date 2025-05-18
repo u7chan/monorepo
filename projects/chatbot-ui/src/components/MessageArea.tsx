@@ -1,74 +1,60 @@
-import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar";
-import { Card, CardContent } from "#/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
+import { Card, CardContent } from '#/components/ui/card'
 
 // メッセージの型定義
 export type Message = {
-  id: string;
-  content: string;
-  sender: "user" | "bot";
-  timestamp: Date;
-};
+  id: string
+  content: string
+  sender: 'user' | 'bot'
+  timestamp: Date
+}
 
 interface MessageAreaProps {
-  messages: Message[];
+  messages: Message[]
 }
 
 export function MessageArea({ messages }: MessageAreaProps) {
   return (
-    <div className="flex-1 overflow-y-auto p-4">
-      <div className="container mx-auto max-w-4xl space-y-4">
-        {messages.map((message) => (
+    <div className='container mx-auto max-w-4xl space-y-4'>
+      {messages.map((message) => (
+        <div
+          key={message.id}
+          className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+        >
           <div
-            key={message.id}
-            className={`flex ${
-              message.sender === "user" ? "justify-end" : "justify-start"
+            className={`flex max-w-[80%] gap-3 ${
+              message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
             }`}
           >
-            <div
-              className={`flex gap-3 max-w-[80%] ${
-                message.sender === "user" ? "flex-row-reverse" : "flex-row"
-              }`}
-            >
-              {/* アバター */}
-              <Avatar
-                className={
-                  message.sender === "bot" ? "bg-primary" : "bg-secondary"
+            {/* アバター */}
+            <Avatar className={message.sender === 'bot' ? 'bg-primary' : 'bg-secondary'}>
+              <AvatarImage
+                src={
+                  message.sender === 'user'
+                    ? 'https://avatars.githubusercontent.com/u/34462401'
+                    : 'https://github.com/shadcn.png'
                 }
-              >
-                <AvatarImage
-                  src={
-                    message.sender === "user"
-                      ? "https://avatars.githubusercontent.com/u/34462401"
-                      : "https://github.com/shadcn.png"
-                  }
-                />
-                <AvatarFallback>
-                  {message.sender === "user" ? "U" : "B"}
-                </AvatarFallback>
-              </Avatar>
+              />
+              <AvatarFallback>{message.sender === 'user' ? 'U' : 'B'}</AvatarFallback>
+            </Avatar>
 
-              {/* メッセージカード */}
-              <Card
-                className={`${
-                  message.sender === "user"
-                    ? "bg-slate-200 border-none"
-                    : "bg-card"
-                }`}
-              >
-                <CardContent className="p-3">
-                  <p>{message.content}</p>
-                  <div className="text-xs opacity-70 mt-1 text-right">
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            {/* メッセージカード */}
+            <Card
+              className={`${message.sender === 'user' ? 'border-none bg-slate-200' : 'bg-card'}`}
+            >
+              <CardContent className='p-3'>
+                <p>{message.content}</p>
+                <div className='mt-1 text-right text-xs opacity-70'>
+                  {message.timestamp.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
-  );
+  )
 }
