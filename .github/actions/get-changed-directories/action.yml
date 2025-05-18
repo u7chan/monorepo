@@ -1,5 +1,6 @@
 name: Get Changed Directories
 description: Get a list of unique directories that were changed in the latest commit.
+
 runs:
   using: composite
   steps:
