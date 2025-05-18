@@ -1,52 +1,60 @@
 name: Build Docker Images
 description: Building the Dockerfiles for multiple projects.
+
 inputs:
   stage:
-    description: "Docker build arguments --target option"
+    description: "Docker build arguments --target option" # Dockerビルドの引数 --target オプション
     required: true
+
 runs:
   using: composite
   steps:
     - name: Build Docker Images
       shell: bash
       run: |
-        PROJECTS_DIR="projects"
+        PROJECTS_DIR="projects" # プロジェクトディレクトリのパスを定義
 
-        # BUILD_PROJECTが指定されているかチェック
         if [ -z "${{ env.BUILD_PROJECT }}" ]; then
           echo "Error: BUILD_PROJECT is not set."
           exit 1
         fi
 
-        IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
-        echo "Build project count: ${#BUILD_PROJECT_ARRAY[@]}"
+        IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}" # プロジェクト名をカンマで分割して配列に格納
+        echo "Build project count: ${#BUILD_PROJECT_ARRAY[@]}" # ビルド対象プロジェクトの数を出力
 
-        COMMIT_HASH=$(git rev-parse --short HEAD)
+        COMMIT_HASH=$(git rev-parse --short HEAD) # 現在のコミットハッシュを取得
 
-        for project in "${BUILD_PROJECT_ARRAY[@]}"; do
-          GHCR_URI="ghcr.io/${{ github.repository }}/$project:latest"
-          PROJECT_DIR="$PROJECTS_DIR/$project"
-          DOCKER_FILE="$PROJECT_DIR/Dockerfile"
-          SEARCH_KEYWORD="AS ${{ inputs.stage }}"
-          PREBUILD_SCRIPT="pre-docker-build.sh"
+        for project in "${BUILD_PROJECT_ARRAY[@]}"; do # 各プロジェクトに対してループ
 
+          GHCR_URI="ghcr.io/${{ github.repository }}/$project:latest" # GitHub Container RegistryのURI生成
+          PROJECT_DIR="$PROJECTS_DIR/$project" # 各プロジェクトのディレクトリパス
+          DOCKER_FILE="$PROJECT_DIR/Dockerfile" # Dockerfileのパス
+          SEARCH_KEYWORD="AS ${{ inputs.stage }}" # 検索するキーワード
+          PREBUILD_SCRIPT_NAME="pre-docker-build.sh" # プレビルドスクリプトの名前
+
+          # 環境変数の出力
           echo "GHCR_URI: $GHCR_URI"
           echo "PROJECT_DIR: $PROJECT_DIR"
-          echo "DOCKER_FILE: $DOCKER_FILE"
+          echo "DOCKER_FILE: "$DOCKER_FILE"
           echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
+          echo "PREBUILD_SCRIPT_NAME: $PREBUILD_SCRIPT_NAME"
 
-          if [ -e "$PROJECT_DIR/$PREBUILD_SCRIPT" ]; then
-            echo "Running pre-build script: $PREBUILD_SCRIPT"
-            cd "$PROJECT_DIR"
-            sh "$PREBUILD_SCRIPT"
-            cd -
+          # プレビルドスクリプトが存在する場合は実行
+          if [ -e "$PROJECT_DIR/$PREBUILD_SCRIPT_NAME" ]; then
+            echo "Running pre-build script: $PREBUILD_SCRIPT_NAME" # スクリプト実行のメッセージ
+            cd "$PROJECT_DIR" # プロジェクトディレクトリに移動
+            sh "$PREBUILD_SCRIPT_NAME" # プレビルドスクリプトを実行
+            cd - # 元のディレクトリに戻る
           fi
 
+          # Dockerfile内に指定したステージが存在するかチェック
           if grep -q "$SEARCH_KEYWORD" "$DOCKER_FILE" 2>/dev/null; then
-            echo "Found starge: ${{ inputs.stage }}"
+            echo "Found stage: ${{ inputs.stage }}"
+            # 指定したステージをターゲットにビルド
             docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI --target=${{ inputs.stage }} $PROJECT_DIR
           else
-            echo "Not found starge: ${{ inputs.stage }}"
+            echo "Not found stage: ${{ inputs.stage }}"
+            # ターゲットなしでビルド
             docker build --build-arg COMMIT_HASH=$COMMIT_HASH -t $GHCR_URI $PROJECT_DIR
           fi
         done

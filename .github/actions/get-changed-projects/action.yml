@@ -1,5 +1,6 @@
 name: Get Changed Projects
 description: Get a list of projects with Dockerfile whose differences have been changed
+
 runs:
   using: composite
   steps:

@@ -1,4 +1,4 @@
-name: Detect Changed Directories
+name: Detect Changed Directories # このアクションは現在は使用していない（サンプルのため残している）
 
 on:
   push:
