@@ -35,7 +35,7 @@ runs:
           # 環境変数の出力
           echo "GHCR_URI: $GHCR_URI"
           echo "PROJECT_DIR: $PROJECT_DIR"
-          echo "DOCKER_FILE: "$DOCKER_FILE"
+          echo "DOCKER_FILE: $DOCKER_FILE"
           echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
           echo "PREBUILD_SCRIPT_NAME: $PREBUILD_SCRIPT_NAME"
 
