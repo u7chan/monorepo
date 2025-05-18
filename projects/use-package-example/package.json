@@ -7,7 +7,8 @@
     "dev": "bun run --watch index.ts"
   },
   "dependencies": {
-    "example-lib": "workspace:../../packages/example-lib"
+    "example-lib-a": "workspace:../../packages/example-lib-a",
+    "example-lib-b": "workspace:../../packages/example-lib-b"
   },
   "devDependencies": {
     "@types/bun": "latest"
