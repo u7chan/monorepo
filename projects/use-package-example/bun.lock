@@ -15,7 +15,7 @@
       },
     },
     "../../packages/example-lib-a": {
-      "name": "example-lib",
+      "name": "example-lib-a",
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -24,7 +24,7 @@
       },
     },
     "../../packages/example-lib-b": {
-      "name": "example-lib",
+      "name": "example-lib-b",
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -40,9 +40,9 @@
 
     "bun-types": ["bun-types@1.2.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-rRjA1T6n7wto4gxhAO/ErZEtOXyEZEmnIHQfl0Dt1QQSB4QV0iP6BZ9/YB5fZaHFQ2dwHFrmPaRQ9GGMX01k9Q=="],
 
-    "example-lib-a": ["example-lib@workspace:../../packages/example-lib-a"],
+    "example-lib-a": ["example-lib-a@workspace:../../packages/example-lib-a"],
 
-    "example-lib-b": ["example-lib@workspace:../../packages/example-lib-b"],
+    "example-lib-b": ["example-lib-b@workspace:../../packages/example-lib-b"],
 
     "typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
 

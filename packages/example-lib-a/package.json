@@ -1,5 +1,5 @@
 {
-  "name": "example-lib",
+  "name": "example-lib-a",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

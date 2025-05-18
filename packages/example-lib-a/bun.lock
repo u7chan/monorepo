@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "example-lib",
+      "name": "example-lib-a",
       "devDependencies": {
         "@types/bun": "latest",
       },
