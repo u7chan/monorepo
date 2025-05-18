@@ -28,11 +28,17 @@ runs:
           PROJECT_DIR=$PROJECTS_DIR/$project
           DOCKER_FILE=$PROJECT_DIR/Dockerfile
           SEARCH_KEYWORD="AS ${{ inputs.stage }}"
+          PREBUILD_SCRIPT="pre-docker-build.sh"
 
           echo "GHCR_URI: $GHCR_URI"
           echo "PROJECT_DIR: $PROJECT_DIR"
           echo "DOCKER_FILE: $DOCKER_FILE"
           echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
+
+          if -e "$PREBUILD_SCRIPT"; then
+            echo "Running pre-build script: $PREBUILD_SCRIPT"
+            sh "$PREBUILD_SCRIPT"
+          fi
 
           if grep -q "$SEARCH_KEYWORD" "$DOCKER_FILE" 2>/dev/null; then
             echo "Found starge: ${{ inputs.stage }}"
