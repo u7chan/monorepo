@@ -35,7 +35,7 @@ runs:
           echo "DOCKER_FILE: $DOCKER_FILE"
           echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
 
-          if [ -e "$PREBUILD_SCRIPT" ]; then
+          if [ -e "$PROJECT_DIR/$PREBUILD_SCRIPT" ]; then
             echo "Running pre-build script: $PREBUILD_SCRIPT"
             cd "$PROJECT_DIR"
             sh "$PREBUILD_SCRIPT"
