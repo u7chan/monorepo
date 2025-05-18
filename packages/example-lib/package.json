@@ -1,0 +1,12 @@
+{
+  "name": "example-lib",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "exports": "./index.ts"
+}

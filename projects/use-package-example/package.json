@@ -1,0 +1,16 @@
+{
+  "name": "use-package-example",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "example-lib": "workspace:../../packages/example-lib"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
