@@ -4,10 +4,11 @@ import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 
 interface MessageInputProps {
+  disabled?: boolean
   onSendMessage: (message: string) => void
 }
 
-export function MessageInput({ onSendMessage }: MessageInputProps) {
+export function MessageInput({ disabled, onSendMessage }: MessageInputProps) {
   // 入力メッセージの状態管理
   const [inputMessage, setInputMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -80,12 +81,13 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
             placeholder='メッセージを入力...'
             className='max-h-[120px] min-h-[40px] flex-1 px-2 text-md'
             rows={1}
+            disabled={disabled}
           />
           <Button
             type='submit'
             className='rounded-full'
             size='icon'
-            disabled={!inputMessage.trim()}
+            disabled={disabled || !inputMessage.trim()}
           >
             <ArrowUp className='scale-150' />
           </Button>

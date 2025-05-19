@@ -9,10 +9,8 @@ app.use(logger())
 app.use('/static/*', serveStatic({ root: './dist' }))
 app.use(renderer)
 
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'OK',
-  })
+app.post('/api/chat', (c) => {
+  return c.text('Hello from API!')
 })
 
 app.get('/', (c) => {
