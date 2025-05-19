@@ -10,11 +10,11 @@
     "format": "biome check ./src --write --unsafe"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.1",
+    "@hono/node-server": "^1.14.2",
     "@hono/standard-validator": "^0.1.2",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/react-router": "^1.120.5",
-    "hono": "^4.7.9",
+    "hono": "^4.7.10",
     "openai": "^4.100.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -22,15 +22,15 @@
     "react-syntax-highlighter": "^15.6.1",
     "remark-gfm": "^4.0.1",
     "tsx": "^4.19.4",
-    "zod": "^3.24.4"
+    "zod": "^3.25.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@hono/vite-dev-server": "^0.19.0",
     "@tailwindcss/postcss": "^4.1.7",
-    "@tanstack/react-router-devtools": "^1.120.5",
+    "@tanstack/react-router-devtools": "^1.120.6",
     "@tanstack/router-plugin": "^1.120.5",
-    "@types/node": "^22.15.18",
+    "@types/node": "^22.15.19",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
     "@types/react-syntax-highlighter": "^15.5.13",
