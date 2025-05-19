@@ -1,3 +1,4 @@
+import { Loader2 } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
 import { Card, CardContent } from '#/components/ui/card'
 
@@ -11,9 +12,10 @@ export type Message = {
 
 interface MessageAreaProps {
   messages: Message[]
+  loading?: boolean
 }
 
-export function MessageArea({ messages }: MessageAreaProps) {
+export function MessageArea({ messages, loading }: MessageAreaProps) {
   return (
     <div className='container mx-auto max-w-4xl space-y-4'>
       {messages.map((message) => (
@@ -55,6 +57,20 @@ export function MessageArea({ messages }: MessageAreaProps) {
           </div>
         </div>
       ))}
+      {loading && (
+        <div className='flex gap-3'>
+          {/* アバター */}
+          <Avatar className='bg-primary'>
+            <AvatarImage src='https://github.com/shadcn.png' />
+          </Avatar>
+          <Card className='bg-card'>
+            <CardContent className='p-3'>
+              <Loader2 className='h-5 w-5 animate-spin text-gray-500' />
+              <span className='text-muted-foreground text-xs'>応答を生成中...</span>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

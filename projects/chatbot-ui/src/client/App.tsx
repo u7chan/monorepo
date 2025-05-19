@@ -73,7 +73,7 @@ export function App() {
 
       {/* メッセージエリア */}
       <MessageAreaScroll ref={messagesEndRef}>
-        <MessageArea messages={messages} />
+        <MessageArea messages={messages} loading={loading} />
       </MessageAreaScroll>
 
       {/* 入力エリア */}
