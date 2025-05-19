@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { ArrowUp } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 
@@ -10,8 +11,8 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
   // 入力メッセージの状態管理
   const [inputMessage, setInputMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
   const [composition, setComposition] = useState(false)
+  const isMobile = useMemo(() => /iPhone|Android/i.test(navigator.userAgent), [])
 
   // テキストエリアの高さを調整する（5行まで自動拡張、それ以上はスクロール）
   useEffect(() => {
@@ -53,7 +54,7 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
     <div className='border-t bg-card p-4'>
       <div className='container mx-auto max-w-4xl'>
         <form
-          className='flex gap-2'
+          className='flex items-center gap-3'
           onSubmit={(e) => {
             e.preventDefault()
             handleSendMessage()
@@ -67,8 +68,8 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
             onCompositionEnd={() => handleChangeComposition(false)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                if (e.shiftKey) {
-                  // Shift+Enterの場合は常に改行を許可
+                if (e.shiftKey || isMobile) {
+                  // Shift+Enterまたはモバイルの場合は改行を許可
                   return
                 }
                 // 通常のEnterはメッセージ送信
@@ -77,11 +78,16 @@ export function MessageInput({ onSendMessage }: MessageInputProps) {
               }
             }}
             placeholder='メッセージを入力...'
-            className='max-h-[120px] min-h-[36px] flex-1'
+            className='max-h-[120px] min-h-[40px] flex-1 px-2 text-md'
             rows={1}
           />
-          <Button type='submit' disabled={!inputMessage.trim()}>
-            送信
+          <Button
+            type='submit'
+            className='rounded-full'
+            size='icon'
+            disabled={!inputMessage.trim()}
+          >
+            <ArrowUp className='scale-150' />
           </Button>
         </form>
       </div>
