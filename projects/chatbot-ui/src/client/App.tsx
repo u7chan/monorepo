@@ -32,21 +32,15 @@ export function App() {
 
     setMessages((prev) => [...prev, userMessage])
 
-    let content = ''
-    const useMock = true
-    if (useMock) {
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-      content = 'ご質問ありがとうございます。どのようにお手伝いできますか？'
-    } else {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message }),
-      })
-      content = response.ok ? await response.text() : 'エラーが発生しました。'
-    }
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message }),
+    })
+    const content = response.ok ? await response.text() : 'エラーが発生しました。'
+
     setMessages((prev) => [
       ...prev,
       {
