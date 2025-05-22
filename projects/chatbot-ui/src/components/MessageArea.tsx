@@ -12,10 +12,11 @@ export type Message = {
 
 interface MessageAreaProps {
   messages: Message[]
+  streamingText?: string
   loading?: boolean
 }
 
-export function MessageArea({ messages, loading }: MessageAreaProps) {
+export function MessageArea({ messages, streamingText, loading }: MessageAreaProps) {
   return (
     <div className='container mx-auto max-w-4xl space-y-4'>
       {messages.map((message) => (
@@ -65,8 +66,14 @@ export function MessageArea({ messages, loading }: MessageAreaProps) {
           </Avatar>
           <Card className='bg-card'>
             <CardContent className='p-3'>
-              <Loader2 className='h-5 w-5 animate-spin text-gray-500' />
-              <span className='text-muted-foreground text-xs'>応答を生成中...</span>
+              {streamingText ? (
+                <p className='whitespace-pre-wrap'>{streamingText}</p>
+              ) : (
+                <>
+                  <Loader2 className='h-5 w-5 animate-spin text-gray-500' />
+                  <span className='text-muted-foreground text-xs'>応答を生成中...</span>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

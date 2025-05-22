@@ -17,6 +17,7 @@ export function App() {
       timestamp: new Date(),
     },
   ])
+  const [streamingText, setStreamingText] = useState('')
 
   // メッセージ送信処理
   const handleSendMessage = async (message: string) => {
@@ -32,31 +33,51 @@ export function App() {
 
     setMessages((prev) => [...prev, userMessage])
 
-    let content = ''
-    const useMock = true
-    if (useMock) {
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-      content = 'ご質問ありがとうございます。どのようにお手伝いできますか？'
-    } else {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message }),
-      })
-      content = response.ok ? await response.text() : 'エラーが発生しました。'
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message }),
+    })
+
+    if (!response.ok) {
+      alert(`Error fetching chat response: ${response.statusText}`)
+      setLoading(false)
+      return
     }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('Failed to get reader from response body.')
+    }
+
+    let chunks = ''
+
+    const decoder = new TextDecoder('utf-8')
+    let done = false
+
+    while (!done) {
+      const { done: isDone, value } = await reader.read()
+      done = isDone
+
+      if (value) {
+        chunks += decoder.decode(value, { stream: true })
+        setStreamingText(`${chunks}`)
+      }
+    }
+
+    setStreamingText('')
+    setLoading(false)
     setMessages((prev) => [
       ...prev,
       {
         id: (Date.now() + 1).toString(),
-        content,
+        content: chunks,
         sender: 'bot',
         timestamp: new Date(),
       },
     ])
-    setLoading(false)
   }
 
   useEffect(() => {
@@ -73,7 +94,7 @@ export function App() {
 
       {/* メッセージエリア */}
       <MessageAreaScroll ref={messagesEndRef}>
-        <MessageArea messages={messages} loading={loading} />
+        <MessageArea messages={messages} streamingText={streamingText} loading={loading} />
       </MessageAreaScroll>
 
       {/* 入力エリア */}
