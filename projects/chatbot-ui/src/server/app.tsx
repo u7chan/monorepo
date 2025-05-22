@@ -1,6 +1,7 @@
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
+import { streamText } from 'hono/streaming'
 
 import type { Env } from '#/server/env'
 import { renderer } from '#/server/renderer'
@@ -13,7 +14,16 @@ app.use(renderer)
 app.post('/api/chat', async (c) => {
   const { message } = await c.req.json()
   await new Promise((resolve) => setTimeout(resolve, 3000)) // Simulate a delay
-  return c.text(`${message}とご質問ありがとうございます。\nどのようにお手伝いできますか？`)
+
+  return streamText(c, async (stream) => {
+    stream.writeln('こん\nにちは！')
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    stream.writeln(`「${message}」とご質問ありがとうございます。`)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    stream.writeln('お待たせしました！')
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    stream.writeln('どのようにお手伝いできますか？')
+  })
 })
 
 app.get('/', (c) => {
