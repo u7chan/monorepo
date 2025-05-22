@@ -5,6 +5,7 @@ import { streamText } from 'hono/streaming'
 
 import type { Env } from '#/server/env'
 import { renderer } from '#/server/renderer'
+import { delay } from './utils/delay'
 
 const app = new Hono<Env>()
 app.use(logger())
@@ -13,15 +14,14 @@ app.use(renderer)
 
 app.post('/api/chat', async (c) => {
   const { message } = await c.req.json()
-  await new Promise((resolve) => setTimeout(resolve, 3000)) // Simulate a delay
-
+  await delay(3000)
   return streamText(c, async (stream) => {
     stream.writeln('こん\nにちは！')
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await delay(1000)
     stream.writeln(`「${message}」とご質問ありがとうございます。`)
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await delay(1000)
     stream.writeln('お待たせしました！')
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await delay(1000)
     stream.writeln('どのようにお手伝いできますか？')
   })
 })

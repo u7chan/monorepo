@@ -1,5 +1,18 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+
 import app from '#/server/app'
+
+vi.mock('#/server/utils/delay', () => {
+  return {
+    delay: (_ms: number) => {
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          resolve()
+        }, 0)
+      })
+    },
+  }
+})
 
 describe('App', () => {
   test('POST /api/chat should stream text response', async () => {
@@ -41,7 +54,7 @@ describe('App', () => {
       expect(receivedText).toContain('お待たせしました！')
       expect(receivedText).toContain('どのようにお手伝いできますか？')
     }
-  }, 10000) // 10秒のタイムアウトを設定
+  })
 
   test('GET /', async () => {
     const res = await app.request('/', {
