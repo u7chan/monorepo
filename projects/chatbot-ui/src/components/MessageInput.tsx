@@ -1,14 +1,15 @@
-import { ArrowUp } from 'lucide-react'
+import { ArrowUp, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 
 interface MessageInputProps {
-  disabled?: boolean
+  loading?: boolean
   onSendMessage: (message: string) => void
+  onSendMessageCancel?: () => void
 }
 
-export function MessageInput({ disabled, onSendMessage }: MessageInputProps) {
+export function MessageInput({ loading, onSendMessage, onSendMessageCancel }: MessageInputProps) {
   // 入力メッセージの状態管理
   const [inputMessage, setInputMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -81,16 +82,21 @@ export function MessageInput({ disabled, onSendMessage }: MessageInputProps) {
             placeholder='メッセージを入力...'
             className='max-h-[120px] min-h-[40px] flex-1 px-2 text-md'
             rows={1}
-            disabled={disabled}
           />
-          <Button
-            type='submit'
-            className='rounded-full'
-            size='icon'
-            disabled={disabled || !inputMessage.trim()}
-          >
-            <ArrowUp className='scale-150' />
-          </Button>
+          {onSendMessageCancel && loading ? (
+            <Button type='button' variant='icon' size='icon' onClick={onSendMessageCancel}>
+              <Square className='scale-100' fill='white' />
+            </Button>
+          ) : (
+            <Button
+              type='submit'
+              variant='icon'
+              size='icon'
+              disabled={loading || !inputMessage.trim()}
+            >
+              <ArrowUp className='scale-150' />
+            </Button>
+          )}
         </form>
       </div>
     </div>

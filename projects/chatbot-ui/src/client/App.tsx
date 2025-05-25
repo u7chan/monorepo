@@ -80,6 +80,10 @@ export function App() {
     ])
   }
 
+  const handleSendMessageCancel = () => {
+    // TODO
+  }
+
   useEffect(() => {
     // メッセージが更新されたときにスクロール
     if (messagesEndRef.current) {
@@ -98,7 +102,11 @@ export function App() {
       </MessageAreaScroll>
 
       {/* 入力エリア */}
-      <MessageInput onSendMessage={handleSendMessage} disabled={loading} />
+      <MessageInput
+        loading={loading}
+        onSendMessage={handleSendMessage}
+        onSendMessageCancel={handleSendMessageCancel}
+      />
     </div>
   )
 }
