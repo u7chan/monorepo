@@ -15,14 +15,14 @@ export function App() {
       <MessageAreaScroll ref={chat.messagesEndRef}>
         <MessageArea
           messages={chat.messages}
-          streamingText={chat.streamingText}
-          loading={chat.loading}
+          streamingText={chat.streaming.text}
+          loading={chat.streaming.state === 'streaming'}
         />
       </MessageAreaScroll>
 
       {/* 入力エリア */}
       <MessageInput
-        loading={chat.loading}
+        loading={chat.streaming.state === 'streaming'}
         onSendMessage={chat.handleSendMessage}
         onSendMessageCancel={chat.handleSendMessageCancel}
       />
