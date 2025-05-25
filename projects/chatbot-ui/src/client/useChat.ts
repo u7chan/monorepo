@@ -95,6 +95,7 @@ export function useChat() {
       return
     }
     streaming.abortController.abort()
+    messages.pop() // キャンセル時には最後の要素を消す
     setStreaming({
       state: 'idle',
       text: '',
