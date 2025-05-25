@@ -16,6 +16,10 @@ app.post('/api/chat', async (c) => {
   const { message } = await c.req.json()
   await delay(3000)
   return streamText(c, async (stream) => {
+    let aborted = false
+    stream.onAbort(() => {
+      aborted = true
+    })
     stream.writeln('こん\nにちは！')
     await delay(1000)
     stream.writeln(`「${message}」とご質問ありがとうございます。`)
@@ -23,6 +27,7 @@ app.post('/api/chat', async (c) => {
     stream.writeln('お待たせしました！')
     await delay(1000)
     stream.writeln('どのようにお手伝いできますか？')
+    console.log('Streamed response:', { aborted, message })
   })
 })
 
