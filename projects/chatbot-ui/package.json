@@ -2,7 +2,7 @@
   "name": "chatbot-ui",
   "type": "module",
   "scripts": {
-    "dev": "DEV_MODE=true vite",
+    "dev": "DEV_MODE=true dotenv vite",
     "build": "vite build --mode client && vite build --mode server",
     "start": "node dist/index.js",
     "lint": "tsc && biome lint --error-on-warnings ./src",
@@ -31,6 +31,7 @@
     "@types/node": "^22.15.21",
     "@types/react": "^19.1.5",
     "@types/react-dom": "^19.1.5",
+    "dotenv-cli": "^8.0.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.7",
     "tw-animate-css": "^1.3.0",
