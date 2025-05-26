@@ -528,51 +528,52 @@ export const Chat: FC = () => {
           usage = data?.usage ?? null
         } else {
           const reader = res.body?.getReader()
+          if (!reader) {
+            throw new Error('Failed to get reader from response body.')
+          }
           const decoder = new TextDecoder('utf-8')
+          let buffer = ''
           while (true) {
-            const stream = await reader?.read()
-            if (stream?.done || !!stream?.done) {
-              break
-            }
-            if (!stream?.value) {
-              continue
-            }
-            const chunk = decoder.decode(stream.value, { stream: true })
-            const chunkJSONs = chunk
-              .replaceAll('data: ', '')
-              .split('\n')
-              .filter((x) => x && x !== '[DONE]')
-              .map((x) => {
-                try {
-                  return JSON.parse(x)
-                } catch (e) {
-                  console.error(`Failed to parse chunk JSON: \`${x}\``)
-                  alert('Failed to parse chunk (Please check the console logs)')
-                  return { choices: [] }
-                }
-              }) as {
-              choices: { delta: { content: string; reasoning_content?: string } }[]
-              model?: string
-              usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-            }[]
-            // Append chunk to result
-            result.reasoningContent += chunkJSONs
-              .map((x) => x.choices.at(0)?.delta?.reasoning_content)
-              .join('')
-            result.content += chunkJSONs.map((x) => x.choices.at(0)?.delta?.content).join('')
+            const { done, value } = await reader.read()
+            if (done) break
 
-            const _model = chunkJSONs.find((x) => x.model)?.model ?? null
-            if (_model) {
-              model = _model
+            buffer += decoder.decode(value, { stream: true })
+            while (true) {
+              const idx = buffer.indexOf('\n')
+              if (idx === -1) break
+
+              const line = buffer.slice(0, idx).trim()
+              buffer = buffer.slice(idx + 1)
+              if (!line.startsWith('data: ')) continue
+
+              const jsonStr = line.replace(/^data:\s*/, '')
+              if (jsonStr === '[DONE]') {
+                console.log('Stream completed.')
+                return
+              }
+              try {
+                const parsedChunk = JSON.parse(jsonStr) as {
+                  choices: { delta: { content: string; reasoning_content?: string } }[]
+                  model?: string
+                  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+                }
+                // Append chunk to result
+                result.reasoningContent += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
+                result.content += parsedChunk.choices.at(0)?.delta?.content || ''
+                if (!model && parsedChunk?.model) {
+                  model = parsedChunk.model
+                }
+                if (!usage && parsedChunk?.usage) {
+                  usage = parsedChunk.usage
+                }
+                setStream({
+                  content: result.content ? `${result.content}●` : '',
+                  reasoningContent: result.reasoningContent,
+                })
+              } catch (e) {
+                console.error('JSON parse error:', e)
+              }
             }
-            const _usage = chunkJSONs.find((x) => x.usage)?.usage ?? null
-            if (_usage) {
-              usage = _usage
-            }
-            setStream({
-              content: result.content ? `${result.content}●` : '',
-              reasoningContent: result.reasoningContent,
-            })
           }
         }
       }
