@@ -533,12 +533,13 @@ export const Chat: FC = () => {
           }
           const decoder = new TextDecoder('utf-8')
           let buffer = ''
-          while (true) {
+          let running = true
+          while (running) {
             const { done, value } = await reader.read()
             if (done) break
 
             buffer += decoder.decode(value, { stream: true })
-            while (true) {
+            while (running) {
               const idx = buffer.indexOf('\n')
               if (idx === -1) break
 
@@ -549,7 +550,8 @@ export const Chat: FC = () => {
               const jsonStr = line.replace(/^data:\s*/, '')
               if (jsonStr === '[DONE]') {
                 console.log('Stream completed.')
-                return
+                running = false
+                break
               }
               try {
                 const parsedChunk = JSON.parse(jsonStr) as {
@@ -560,10 +562,10 @@ export const Chat: FC = () => {
                 // Append chunk to result
                 result.reasoningContent += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
                 result.content += parsedChunk.choices.at(0)?.delta?.content || ''
-                if (!model && parsedChunk?.model) {
+                if (parsedChunk?.model) {
                   model = parsedChunk.model
                 }
-                if (!usage && parsedChunk?.usage) {
+                if (parsedChunk?.usage) {
                   usage = parsedChunk.usage
                 }
                 setStream({
@@ -572,6 +574,8 @@ export const Chat: FC = () => {
                 })
               } catch (e) {
                 console.error('JSON parse error:', e)
+                running = false
+                break
               }
             }
           }
