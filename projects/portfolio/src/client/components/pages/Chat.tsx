@@ -974,7 +974,7 @@ export const Chat: FC = () => {
                             </div>
                           )}
                           {markdownPreview ? (
-                            <div className='prose mt-1'>
+                            <div className='prose mt-1 max-w-full'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
@@ -1022,7 +1022,7 @@ export const Chat: FC = () => {
                         </div>
                       )}
                       {markdownPreview ? (
-                        <div className='prose mt-1'>
+                        <div className='prose mt-1 max-w-full'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
