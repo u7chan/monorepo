@@ -56,15 +56,11 @@ export function useChat() {
         throw new Error('Failed to get reader from response body.')
       }
 
-      let chunks = ''
-
       const decoder = new TextDecoder('utf-8')
-      let done = false
-
-      while (!done) {
-        const { done: isDone, value } = await reader.read()
-        done = isDone
-
+      let chunks = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
         if (value) {
           chunks += decoder.decode(value, { stream: true })
           setStreaming((p) => ({ ...p, text: `${chunks}` }))
