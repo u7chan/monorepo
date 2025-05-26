@@ -19,9 +19,11 @@ app.post('/api/chat', async (c) => {
   return streamText(c, async (stream) => {
     const controller = new AbortController()
 
+    let aborted = false
     stream.onAbort(() => {
       console.log('Stream aborted, aborting fetch request...')
-      controller?.abort()
+      // controller?.abort()
+      aborted = true
     })
 
     const res = await fetch(CHAT_BASE_URL, {
@@ -54,6 +56,7 @@ app.post('/api/chat', async (c) => {
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
+      if (aborted) break
 
       buffer += decoder.decode(value, { stream: true })
       while (true) {
