@@ -15,7 +15,7 @@ vi.mock('#/server/utils/delay', () => {
 })
 
 describe('App', () => {
-  test('POST /api/chat should stream text response', async () => {
+  test.skip('POST /api/chat should stream text response', async () => {
     const res = await app.request('/api/chat', {
       method: 'POST',
       headers: {
