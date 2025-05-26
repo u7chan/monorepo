@@ -773,52 +773,54 @@ export const Chat: FC = () => {
               >
                 お手伝いできることはありますか？
               </div>
-              <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
-                {promptTemplates.map((template) => (
-                  <div
-                    key={template.title}
-                    className='rounded-xl border border-gray-200 bg-white p-4'
-                  >
-                    <div className='mb-2 flex items-center justify-between'>
-                      <div className='line-clamp-2 font-semibold text-gray-700 text-sm'>
-                        {template.title}
+              <div className='hidden sm:block'>
+                <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
+                  {promptTemplates.map((template) => (
+                    <div
+                      key={template.title}
+                      className='rounded-xl border border-gray-200 bg-white p-4'
+                    >
+                      <div className='mb-2 flex items-center justify-between'>
+                        <div className='line-clamp-2 font-semibold text-gray-700 text-sm'>
+                          {template.title}
+                        </div>
+                        <div className='flex items-center gap-2'>
+                          <div className='text-gray-500 text-xs'>Model</div>
+                          <input
+                            type='text'
+                            spellCheck='false'
+                            className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden'
+                            onChange={(e) => handleChangeTemplateModel(e, template.id)}
+                            defaultValue={
+                              defaultSettings?.templateModels?.[template.id]?.model || model
+                            }
+                          />
+                        </div>
                       </div>
-                      <div className='flex items-center gap-2'>
-                        <div className='text-gray-500 text-xs'>Model</div>
-                        <input
-                          type='text'
-                          spellCheck='false'
-                          className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden'
-                          onChange={(e) => handleChangeTemplateModel(e, template.id)}
-                          defaultValue={
-                            defaultSettings?.templateModels?.[template.id]?.model || model
-                          }
-                        />
-                      </div>
+                      <p className='text-gray-600'>
+                        {template.inputType === 'text' ? (
+                          <input
+                            type='text'
+                            spellCheck='false'
+                            className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                            placeholder={template.placeholder}
+                            onKeyDown={(e) => handleKeyDownTemplate(e, template)}
+                            onCompositionStart={() => handleChangeComposition(true)}
+                            onCompositionEnd={() => handleChangeComposition(false)}
+                          />
+                        ) : (
+                          <textarea
+                            className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                            placeholder={template.placeholder}
+                            onKeyDown={(e) => handleKeyDownTemplate(e, template)}
+                            onCompositionStart={() => handleChangeComposition(true)}
+                            onCompositionEnd={() => handleChangeComposition(false)}
+                          />
+                        )}
+                      </p>
                     </div>
-                    <p className='text-gray-600'>
-                      {template.inputType === 'text' ? (
-                        <input
-                          type='text'
-                          spellCheck='false'
-                          className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
-                          placeholder={template.placeholder}
-                          onKeyDown={(e) => handleKeyDownTemplate(e, template)}
-                          onCompositionStart={() => handleChangeComposition(true)}
-                          onCompositionEnd={() => handleChangeComposition(false)}
-                        />
-                      ) : (
-                        <textarea
-                          className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
-                          placeholder={template.placeholder}
-                          onKeyDown={(e) => handleKeyDownTemplate(e, template)}
-                          onCompositionStart={() => handleChangeComposition(true)}
-                          onCompositionEnd={() => handleChangeComposition(false)}
-                        />
-                      )}
-                    </p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
               <ChatInput
                 name='userInput'
