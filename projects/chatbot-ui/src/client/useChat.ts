@@ -13,6 +13,7 @@ export function useChat() {
       timestamp: new Date(),
     },
   ])
+
   // ストリーミングの状態管理
   const [streaming, setStreaming] = useState({
     state: 'idle' as 'idle' | 'streaming',
@@ -105,7 +106,7 @@ export function useChat() {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages])
+  }, [messages, streaming.text])
 
   return {
     messages,
