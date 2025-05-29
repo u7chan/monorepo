@@ -38,6 +38,15 @@
 複数行にわたることもできます。
 ```
 
+```
+Dear Team,
+
+I hope this message finds you well. I wanted to take a moment to express my appreciation for all the hard work and dedication each of you has shown over the past few months. Our team has faced numerous challenges, yet your resilience and commitment have been truly inspiring. As we continue to work towards our goals, I encourage everyone to maintain open communication and support one another. Together, we can achieve great success and overcome any obstacles that come our way. Thank you for your ongoing efforts and enthusiasm. I look forward to a productive and prosperous future with all of you.
+
+Best regards,
+john doe
+```
+
 [リンクテキスト](https://example.com)
 
 #### 画像です。
