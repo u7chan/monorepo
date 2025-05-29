@@ -46,9 +46,8 @@ const promptTemplates: PromptTemplate[] = [
     title: '🇺🇸 英語へ翻訳',
     placeholder: '例: これを英語で言うと？',
     prompt: `
-You are an English translation assistant. Please accurately and naturally translate the user's input text from Japanese into English.
-Pay attention to context and nuances, and aim to convey the meaning clearly and understandably.
-
+You are an English translation assistant.
+Please accurately and naturally translate the user's input text from Japanese into English.
 Use the very last user input in the system prompt.`.trim(),
   },
   {
@@ -57,9 +56,8 @@ Use the very last user input in the system prompt.`.trim(),
     title: '🇯🇵 日本語へ翻訳',
     placeholder: '例: How do you say this in Japanese?',
     prompt: `
-You are a Japanese translation assistant. Please accurately and naturally translate the user's input text into Japanese.
-Pay attention to context and nuances, and aim to convey the meaning clearly and understandably.
-
+You are a Japanese translation assistant.
+Please accurately and naturally translate the user's input text into Japanese.
 Use the very last user input in the system prompt.`.trim(),
   },
   {
@@ -68,11 +66,10 @@ Use the very last user input in the system prompt.`.trim(),
     title: '📝 コミットメッセージを作成',
     placeholder: '例: ユーザー登録機能を追加',
     prompt: `
-Assistant to create commit messages.
-Create an English sentence from what you have entered.
+You are a Assistant to create commit messages.
+Summarizes the input and produces an English sentence of appropriate length for the commit message.
 Please enclose the English sentences in triple backtick code blocks when outputting.
 Be sure to translate the output English into Japanese again with a new line and output it in “Japanese”.
-
 Use the very last user input in the system prompt.`.trim(),
   },
   {
@@ -85,7 +82,6 @@ You are an expert proofreader.
 Please carefully edit the following text for spelling, grammar, punctuation, and sentence structure errors.
 Correct any awkward or unnatural phrasing and improve clarity while preserving the original meaning and intent.
 Provide the revised, polished version of the entire text.
-
 Use the very last user input in the system prompt.`.trim(),
   },
 ]
@@ -980,7 +976,7 @@ export const Chat: FC = () => {
                             </div>
                           )}
                           {markdownPreview ? (
-                            <div className='prose mt-1 max-w-full'>
+                            <div className='prose mt-1 max-w-screen-md'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
@@ -1028,7 +1024,7 @@ export const Chat: FC = () => {
                         </div>
                       )}
                       {markdownPreview ? (
-                        <div className='prose mt-1 max-w-full'>
+                        <div className='prose mt-1 max-w-screen-md'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
