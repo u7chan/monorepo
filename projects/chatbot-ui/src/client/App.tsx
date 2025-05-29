@@ -12,7 +12,11 @@ export function App() {
       <Header />
 
       {/* メッセージエリア */}
-      <MessageAreaScroll ref={chat.messagesEndRef}>
+      <MessageAreaScroll
+        ref={chat.messagesEndRef}
+        scrollContainerRef={chat.scrollContainerRef}
+        onScroll={chat.handleScroll}
+      >
         <MessageArea
           messages={chat.messages}
           streamingText={chat.streaming.text}

@@ -3,6 +3,8 @@ import type { Message } from '#/components/MessageArea'
 
 export function useChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
 
   // メッセージの状態管理
   const [messages, setMessages] = useState<Message[]>([
@@ -13,6 +15,7 @@ export function useChat() {
       timestamp: new Date(),
     },
   ])
+
   // ストリーミングの状態管理
   const [streaming, setStreaming] = useState({
     state: 'idle' as 'idle' | 'streaming',
@@ -100,18 +103,29 @@ export function useChat() {
     })
   }
 
+  // スクロール位置を監視して自動スクロールするかどうかを判定
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return
+
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100 // 100px以内なら一番下とみなす
+    setShouldAutoScroll(isNearBottom)
+  }
+
   useEffect(() => {
-    // メッセージが更新されたときにスクロール
-    if (messagesEndRef.current) {
+    // メッセージが更新されたときに、一番下にいる場合のみスクロール
+    if (shouldAutoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages])
+  }, [messages, streaming.text, shouldAutoScroll])
 
   return {
     messages,
     messagesEndRef,
+    scrollContainerRef,
     streaming,
     handleSendMessage,
     handleSendMessageCancel,
+    handleScroll,
   }
 }
