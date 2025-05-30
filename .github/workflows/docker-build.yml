@@ -32,22 +32,9 @@ jobs:
         run: |
           docker images
 
-      - name: Log in to GitHub Container Registry
-        if: env.BUILD_PROJECT != ''
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.PRIVATE_REPO_TOKEN }}
-
       - name: Push Docker Images
         if: env.BUILD_PROJECT != ''
-        run: |
-          IFS=',' read -ra BUILD_PROJECT_ARRAY <<< "${{ env.BUILD_PROJECT }}"
-
-          for project in "${BUILD_PROJECT_ARRAY[@]}"; do
-            # ビルドした Docker イメージの URI を取得
-            GHCR_URI=ghcr.io/${{ github.repository }}/$project:latest
-            echo "docker push $GHCR_URI"
-            docker push $GHCR_URI
-          done
+        uses: ./.github/actions/push-docker-images
+        with:
+          username: ${{ github.actor }}
+          password: ${{ secrets.PRIVATE_REPO_TOKEN }}
