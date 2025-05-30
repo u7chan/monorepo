@@ -3,7 +3,11 @@ import { Moon, Sun } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { useTheme } from '#/hooks/useTheme'
 
-export function ThemeToggle() {
+interface ThemeToggleProps {
+  showLabel?: boolean
+}
+
+export function ThemeToggle({ showLabel }: ThemeToggleProps) {
   const { theme, setTheme } = useTheme()
 
   const toggleTheme = () => {
@@ -45,7 +49,7 @@ export function ThemeToggle() {
       title={`現在: ${getLabel()}`}
     >
       {getIcon()}
-      <span className='hidden sm:inline'>{getLabel()}</span>
+      {showLabel && <span className='sm:hidden'>{getLabel()}</span>}
     </Button>
   )
 }
