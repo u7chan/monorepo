@@ -7,19 +7,5 @@ runs:
     - name: Get Changed Directories
       shell: bash
       run: |
-        PROJECTS_DIR="projects"
-
-        echo "> diff"
-        git diff --name-only HEAD HEAD~1
-        echo ""
-
-        # 最新のコミットとその1つ前のコミットの差分を取得
-        git diff --name-only HEAD HEAD~1 | \
-        # projects配下のファイルのディレクトリ名を取得
-        awk -F/ -v dir="$PROJECTS_DIR" '$1 == dir {print $2}' | \
-        # 重複を取り除く
-        sort -u > changed_dirs.txt
-
-        echo "> changes"
-        cat changed_dirs.txt
-        echo ""
+        # 共通スクリプトを実行
+        ${{ github.action_path }}/get-changed-dirs.sh
