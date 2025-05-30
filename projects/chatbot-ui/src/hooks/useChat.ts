@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Message } from '#/components/MessageArea'
 
+const NEAR_BOTTOM_THRESHOLD = 200 // 200px以内なら一番下とみなす
+
 export function useChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -108,7 +110,7 @@ export function useChat() {
     if (!scrollContainerRef.current) return
 
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100 // 100px以内なら一番下とみなす
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_THRESHOLD
     setShouldAutoScroll(isNearBottom)
   }
 
