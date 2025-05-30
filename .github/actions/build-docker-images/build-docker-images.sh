@@ -49,10 +49,10 @@ echo "Build project count: ${#PROJECT_ARRAY[@]}"
 for project in "${PROJECT_ARRAY[@]}"; do
   # 空行をスキップ
   [[ -z "$project" ]] && continue
-  
+
   # プロジェクト名を取得（パスの最後の部分）
   project_name=$(basename "$project")
-  
+
   GHCR_URI="ghcr.io/$GITHUB_REPOSITORY/$project_name:latest"
   DOCKER_FILE="$project/Dockerfile"
   SEARCH_KEYWORD="AS $STAGE"
@@ -89,7 +89,7 @@ for project in "${PROJECT_ARRAY[@]}"; do
     echo "Building without target"
     docker build --build-arg COMMIT_HASH="$COMMIT_HASH" -t "$GHCR_URI" "$project"
   fi
-  
+
   echo "Successfully built: $GHCR_URI"
 done
 
