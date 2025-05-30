@@ -22,17 +22,26 @@ diff_with_renames() {
   git diff --name-only $1 $2 | grep -vFf <(git diff --name-only --diff-filter=R $1 $2)
 }
 
-echo "> diff"
-diff_with_renames HEAD origin/main
+# GitHub Actions環境での比較対象を決定
+if [ -n "$GITHUB_BASE_REF" ]; then
+  # プルリクエストの場合、ベースブランチとの比較
+  BASE_REF="refs/remotes/origin/$GITHUB_BASE_REF"
+else
+  # プッシュイベントの場合、前のコミットとの比較
+  BASE_REF="HEAD~1"
+fi
+
+echo "> diff with $BASE_REF"
+diff_with_renames HEAD "$BASE_REF"
 echo ""
 
 # 対象ディレクトリの配列をAWKに渡すための文字列を作成
 TARGET_DIRS_STR=$(printf "%s," "${TARGET_DIRS[@]}")
 TARGET_DIRS_STR=${TARGET_DIRS_STR%,}  # 末尾のカンマを削除
 
-# 最新のコミットととリモートのmainブランチの差分を取得
+# 最新のコミットとベースリファレンスの差分を取得
 # 対象ディレクトリ配下のファイルのディレクトリ名を取得
-diff_with_renames HEAD origin/main | \
+diff_with_renames HEAD "$BASE_REF" | \
 awk -F/ -v target_dirs="$TARGET_DIRS_STR" '
   BEGIN {
     # 対象ディレクトリを動的に配列として定義
