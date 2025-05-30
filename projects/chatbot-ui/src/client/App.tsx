@@ -3,10 +3,8 @@ import { MessageArea } from '#/components/MessageArea'
 import { MessageAreaScroll } from '#/components/MessageAreaScroll'
 import { MessageInput } from '#/components/MessageInput'
 import { useChat } from '#/hooks/useChat'
-import { useTheme } from '#/hooks/useTheme'
 
 export function App() {
-  useTheme()
   const chat = useChat()
   return (
     <div className='flex h-dvh flex-col bg-background'>
