@@ -7,19 +7,5 @@ runs:
     - name: Get Changed Projects
       shell: bash
       run: |
-        PROJECTS_DIR="projects"
-
-        # 変更されたプロジェクトを確認し、Dockerfile が存在するかチェック
-        BUILD_PROJECT=""
-        while read -r target; do
-          if [[ -f "$PROJECTS_DIR/$target/Dockerfile" ]]; then
-            echo "Dockerfile found: $target"
-            if [ -z "$BUILD_PROJECT" ]; then
-              BUILD_PROJECT="$target"
-            else
-              BUILD_PROJECT="$BUILD_PROJECT,$target"
-            fi
-          fi
-        done < changed_dirs.txt
-        echo "BUILD_PROJECT: $BUILD_PROJECT"
-        echo "BUILD_PROJECT=$BUILD_PROJECT" >> $GITHUB_ENV
+        # 共通スクリプトを実行
+        ${{ github.action_path }}/get-changed-projects.sh
