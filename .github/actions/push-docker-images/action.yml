@@ -1,0 +1,23 @@
+name: Push Docker Images
+description: Push Docker images to GitHub Container Registry
+
+inputs:
+  registry:
+    description: "Container registry URL"
+    required: false
+    default: "ghcr.io"
+  username:
+    description: "Registry username"
+    required: true
+  password:
+    description: "Registry password"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Push Docker Images
+      shell: bash
+      run: |
+        # 共通スクリプトを実行
+        ${{ github.action_path }}/push-docker-images.sh "${{ inputs.registry }}" "${{ inputs.username }}" "${{ inputs.password }}"
