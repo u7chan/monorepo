@@ -43,7 +43,7 @@ export function MessageArea({ messages, streamingText, loading }: MessageAreaPro
 
             {/* メッセージカード */}
             <Card
-              className={`${message.sender === 'user' ? 'border-none bg-slate-200' : 'bg-card'}`}
+              className={`${message.sender === 'user' ? 'border-none bg-slate-200 dark:bg-slate-700' : 'bg-card'}`}
             >
               <CardContent className='p-3'>
                 <p className='whitespace-pre-wrap'>{message.content}</p>

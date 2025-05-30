@@ -85,7 +85,7 @@ export function MessageInput({ loading, onSendMessage, onSendMessageCancel }: Me
           />
           {onSendMessageCancel && loading ? (
             <Button type='button' variant='icon' size='icon' onClick={onSendMessageCancel}>
-              <Square className='scale-100' fill='white' />
+              <Square className='scale-100 fill-white dark:fill-gray-800' />
             </Button>
           ) : (
             <Button
