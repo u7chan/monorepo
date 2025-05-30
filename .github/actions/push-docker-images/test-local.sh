@@ -10,13 +10,14 @@ echo "=== Testing push-docker-images action locally ==="
 
 # テスト用の環境変数を設定
 export GITHUB_REPOSITORY="test/monorepo"
-export MOCK_DOCKER_COMMANDS="true"  # モックモードを有効化
+# 環境変数が設定されていない場合のみモックモードを有効化
+export MOCK_DOCKER_COMMANDS="${MOCK_DOCKER_COMMANDS:-true}"
 
 # テスト用のbuild_projects.txtを作成
 echo "Creating test build_projects.txt..."
 cat > build_projects.txt << EOF
-projects/portfolio
-projects/hono-mcp-server
+projects/example1
+projects/example2
 EOF
 
 echo "Contents of build_projects.txt:"
@@ -28,7 +29,11 @@ TEST_USERNAME="testuser"
 TEST_PASSWORD="testpass"
 
 echo ""
-echo "Mock mode enabled - skipping actual Docker image creation"
+if [[ "$MOCK_DOCKER_COMMANDS" == "true" ]]; then
+  echo "Mock mode enabled - skipping actual Docker image creation"
+else
+  echo "Real Docker mode enabled - will execute actual Docker commands"
+fi
 echo "MOCK_DOCKER_COMMANDS=$MOCK_DOCKER_COMMANDS"
 
 echo ""
@@ -45,13 +50,7 @@ echo ""
 ./push-docker-images.sh "$TEST_REGISTRY" "$TEST_USERNAME" "$TEST_PASSWORD"
 
 echo ""
-echo "=== Mock test completed successfully ==="
-echo "All Docker commands were simulated in mock mode."
-echo ""
-echo "To test with actual Docker commands:"
-echo "1. Set MOCK_DOCKER_COMMANDS=false"
-echo "2. Ensure Docker images exist locally"
-echo "3. Optionally start a local registry: docker run -d -p 5000:5000 --name registry registry:2"
+echo "=== Test completed ==="
 
 # クリーンアップ
 echo ""
