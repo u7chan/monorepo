@@ -116,33 +116,39 @@ export function useChat() {
     setShouldAutoScroll(isNearBottom)
   }
 
+  // 現在のスクロール位置が一番下付近かどうかをチェック
+  const isNearBottom = useCallback(() => {
+    if (!scrollContainerRef.current) return false
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
+    return scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_THRESHOLD
+  }, [])
+
   // スクロール処理をthrottleで間引く
   const throttledScrollToBottom = useCallback(() => {
     const now = Date.now()
     const timeSinceLastScroll = now - lastScrollTimeRef.current
+
+    const executeScroll = () => {
+      // 実行時に改めてスクロール位置をチェック
+      if (isNearBottom() && messagesEndRef.current) {
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+          lastScrollTimeRef.current = Date.now()
+        })
+      }
+    }
 
     // 100ms以内の連続スクロールは間引く
     if (timeSinceLastScroll < 100) {
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current)
       }
-      scrollTimeoutRef.current = window.setTimeout(() => {
-        if (shouldAutoScroll && messagesEndRef.current) {
-          requestAnimationFrame(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-            lastScrollTimeRef.current = Date.now()
-          })
-        }
-      }, 100)
+      scrollTimeoutRef.current = window.setTimeout(executeScroll, 100)
     } else {
-      if (shouldAutoScroll && messagesEndRef.current) {
-        requestAnimationFrame(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-          lastScrollTimeRef.current = now
-        })
-      }
+      executeScroll()
+      lastScrollTimeRef.current = now
     }
-  }, [shouldAutoScroll])
+  }, [isNearBottom])
 
   useEffect(() => {
     // メッセージが更新されたときに、一番下にいる場合のみスクロール
