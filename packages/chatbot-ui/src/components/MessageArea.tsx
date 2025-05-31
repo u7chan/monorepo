@@ -1,6 +1,5 @@
 import { Loader2 } from 'lucide-react'
 import type { ReactNode } from 'react'
-
 import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
 import { Card, CardContent } from '#/components/ui/card'
 
@@ -16,6 +15,8 @@ interface MessageAreaProps {
   messages: Message[]
   streamingText?: string
   loading?: boolean
+  userIcon?: string | ReactNode
+  botIcon?: string | ReactNode
   renderer?: (content: string) => ReactNode
 }
 
@@ -25,6 +26,8 @@ export function MessageArea({
   messages,
   streamingText,
   loading,
+  userIcon,
+  botIcon,
   renderer = defaultRenderer,
 }: MessageAreaProps) {
   return (
@@ -39,17 +42,33 @@ export function MessageArea({
               message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
             }`}
           >
-            {/* アバター */}
-            <Avatar className={message.sender === 'bot' ? 'bg-primary' : 'bg-secondary'}>
-              <AvatarImage
-                src={
-                  message.sender === 'user'
-                    ? 'https://avatars.githubusercontent.com/u/34462401'
-                    : 'https://github.com/shadcn.png'
-                }
-              />
-              <AvatarFallback>{message.sender === 'user' ? 'U' : 'B'}</AvatarFallback>
-            </Avatar>
+            {/* ユーザーアバター */}
+            {message.sender === 'user' && (
+              <>
+                {userIcon && typeof userIcon === 'string' ? (
+                  <Avatar className='bg-secondary'>
+                    <AvatarImage src={userIcon} />
+                    <AvatarFallback>U</AvatarFallback>
+                  </Avatar>
+                ) : (
+                  userIcon
+                )}
+              </>
+            )}
+
+            {/* Botアバター */}
+            {message.sender === 'bot' && (
+              <>
+                {botIcon && typeof botIcon === 'string' ? (
+                  <Avatar className='bg-primary'>
+                    <AvatarImage src={botIcon} />
+                    <AvatarFallback>B</AvatarFallback>
+                  </Avatar>
+                ) : (
+                  botIcon
+                )}
+              </>
+            )}
 
             {/* メッセージカード */}
             <Card
@@ -70,10 +89,15 @@ export function MessageArea({
       ))}
       {loading && (
         <div className='flex gap-3'>
-          {/* アバター */}
-          <Avatar className='bg-primary'>
-            <AvatarImage src='https://github.com/shadcn.png' />
-          </Avatar>
+          {/* Botアバター */}
+          {botIcon && typeof botIcon === 'string' ? (
+            <Avatar className='bg-primary'>
+              <AvatarImage src={botIcon} />
+              <AvatarFallback>B</AvatarFallback>
+            </Avatar>
+          ) : (
+            botIcon
+          )}
           <Card className='bg-card'>
             <CardContent className='p-3'>
               {streamingText ? (

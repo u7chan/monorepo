@@ -22,6 +22,8 @@ export function App() {
           messages={chat.messages}
           streamingText={chat.streaming.text}
           loading={chat.streaming.state === 'streaming'}
+          userIcon='https://avatars.githubusercontent.com/u/34462401'
+          botIcon='https://github.com/shadcn.png'
           renderer={(content) => <MarkdownRenderer content={content} />}
         />
       </MessageAreaScroll>
