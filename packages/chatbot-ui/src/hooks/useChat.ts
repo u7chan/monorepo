@@ -129,8 +129,8 @@ export function useChat() {
     const timeSinceLastScroll = now - lastScrollTimeRef.current
 
     const executeScroll = () => {
-      // 実行時に改めてスクロール位置をチェック
-      if (isNearBottom() && messagesEndRef.current) {
+      // shouldAutoScrollとリアルタイムチェックの両方を確認
+      if (shouldAutoScroll && isNearBottom() && messagesEndRef.current) {
         requestAnimationFrame(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
           lastScrollTimeRef.current = Date.now()
@@ -148,7 +148,7 @@ export function useChat() {
       executeScroll()
       lastScrollTimeRef.current = now
     }
-  }, [isNearBottom])
+  }, [shouldAutoScroll, isNearBottom])
 
   useEffect(() => {
     // メッセージが更新されたときに、一番下にいる場合のみスクロール
