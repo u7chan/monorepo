@@ -1,0 +1,53 @@
+{
+  "name": "chat-mcp-client",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "features": {
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {},
+    "ghcr.io/shyim/devcontainers-features/bun:0": {}
+  },
+  "appPort": ["3000:3000"],
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+  "remoteUser": "u7chan",
+  "postCreateCommand": "bun i",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.tabSize": 2,
+        "editor.formatOnSave": true,
+        "biome.lspBin": "./node_modules/.bin/biome",
+        "[typescript]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[json]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[jsonc]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "editor.codeActionsOnSave": {
+          "source.organizeImports.biome": "explicit"
+        }
+      },
+      "extensions": [
+        "biomejs.biome",
+        "formulahendry.auto-close-tag",
+        "formulahendry.auto-rename-tag",
+        "mhutchie.git-graph",
+        "eamodio.gitlens",
+        "oderwat.indent-rainbow",
+        "wix.vscode-import-cost",
+        "saoudrizwan.claude-dev"
+      ]
+    }
+  }
+}
