@@ -1,0 +1,14 @@
+{
+  "name": "chat-mcp-client",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "format": "biome check --write --unsafe ."
+  },
+  "dependencies": {
+    "hono": "^4.7.10"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/bun": "latest"
+  }
+}
