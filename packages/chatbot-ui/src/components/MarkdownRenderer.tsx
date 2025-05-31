@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import remarkGfm from 'remark-gfm'
 
 interface MarkdownRendererProps {
   content: string
@@ -141,7 +142,9 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
 
   return (
     <div className={`prose prose-gray dark:prose-invert max-w-none ${className}`}>
-      <ReactMarkdown components={components}>{content}</ReactMarkdown>
+      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }
