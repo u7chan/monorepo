@@ -1,4 +1,6 @@
 import { Loader2 } from 'lucide-react'
+import type { ReactNode } from 'react'
+
 import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
 import { Card, CardContent } from '#/components/ui/card'
 
@@ -14,9 +16,17 @@ interface MessageAreaProps {
   messages: Message[]
   streamingText?: string
   loading?: boolean
+  renderer?: (content: string) => ReactNode
 }
 
-export function MessageArea({ messages, streamingText, loading }: MessageAreaProps) {
+const defaultRenderer = (content: string) => <p className='whitespace-pre-wrap'>{content}</p>
+
+export function MessageArea({
+  messages,
+  streamingText,
+  loading,
+  renderer = defaultRenderer,
+}: MessageAreaProps) {
   return (
     <div className='container mx-auto max-w-4xl space-y-4'>
       {messages.map((message) => (
@@ -46,7 +56,7 @@ export function MessageArea({ messages, streamingText, loading }: MessageAreaPro
               className={`${message.sender === 'user' ? 'border-none bg-slate-200 dark:bg-slate-700' : 'bg-card'}`}
             >
               <CardContent className='p-3'>
-                <p className='whitespace-pre-wrap'>{message.content}</p>
+                {renderer(message.content)}
                 <div className='mt-1 text-right text-xs opacity-70'>
                   {message.timestamp.toLocaleTimeString([], {
                     hour: '2-digit',
@@ -67,7 +77,7 @@ export function MessageArea({ messages, streamingText, loading }: MessageAreaPro
           <Card className='bg-card'>
             <CardContent className='p-3'>
               {streamingText ? (
-                <p className='whitespace-pre-wrap'>{streamingText}</p>
+                renderer(streamingText)
               ) : (
                 <>
                   <Loader2 className='h-5 w-5 animate-spin text-gray-500' />

@@ -1,4 +1,5 @@
 import { Header } from '#/components/Header'
+import { MarkdownRenderer } from '#/components/MarkdownRenderer'
 import { MessageArea } from '#/components/MessageArea'
 import { MessageAreaScroll } from '#/components/MessageAreaScroll'
 import { MessageInput } from '#/components/MessageInput'
@@ -21,6 +22,7 @@ export function App() {
           messages={chat.messages}
           streamingText={chat.streaming.text}
           loading={chat.streaming.state === 'streaming'}
+          renderer={(content) => <MarkdownRenderer content={content} />}
         />
       </MessageAreaScroll>
 
