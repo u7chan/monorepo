@@ -1,4 +1,3 @@
-import type React from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -10,7 +9,7 @@ interface MarkdownRendererProps {
   className?: string
 }
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
+export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
   const components: Components = {
     code({ className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || '')
@@ -71,7 +70,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
       )
     },
     p({ children }) {
-      return <p className='mb-4 text-gray-700 leading-relaxed dark:text-gray-300'>{children}</p>
+      return (
+        <p className='mb-4 whitespace-pre-wrap text-gray-700 leading-relaxed dark:text-gray-300'>
+          {children}
+        </p>
+      )
     },
     ul({ children }) {
       return <ul className='mb-4 ml-6 list-disc text-gray-700 dark:text-gray-300'>{children}</ul>
@@ -148,5 +151,3 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
     </div>
   )
 }
-
-export default MarkdownRenderer
