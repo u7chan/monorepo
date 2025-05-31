@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Message } from '#/components/MessageArea'
 
 const NEAR_BOTTOM_THRESHOLD = 200 // 200px以内なら一番下とみなす
@@ -7,6 +7,8 @@ export function useChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+  const scrollTimeoutRef = useRef<number | null>(null)
+  const lastScrollTimeRef = useRef<number>(0)
 
   // メッセージの状態管理
   const [messages, setMessages] = useState<Message[]>([
@@ -114,12 +116,53 @@ export function useChat() {
     setShouldAutoScroll(isNearBottom)
   }
 
+  // 現在のスクロール位置が一番下付近かどうかをチェック
+  const isNearBottom = useCallback(() => {
+    if (!scrollContainerRef.current) return false
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
+    return scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_THRESHOLD
+  }, [])
+
+  // スクロール処理をthrottleで間引く
+  const throttledScrollToBottom = useCallback(() => {
+    const now = Date.now()
+    const timeSinceLastScroll = now - lastScrollTimeRef.current
+
+    const executeScroll = () => {
+      // shouldAutoScrollとリアルタイムチェックの両方を確認
+      if (shouldAutoScroll && isNearBottom() && messagesEndRef.current) {
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+          lastScrollTimeRef.current = Date.now()
+        })
+      }
+    }
+
+    // 100ms以内の連続スクロールは間引く
+    if (timeSinceLastScroll < 100) {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      scrollTimeoutRef.current = window.setTimeout(executeScroll, 100)
+    } else {
+      executeScroll()
+      lastScrollTimeRef.current = now
+    }
+  }, [shouldAutoScroll, isNearBottom])
+
   useEffect(() => {
     // メッセージが更新されたときに、一番下にいる場合のみスクロール
-    if (shouldAutoScroll && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    throttledScrollToBottom()
+  }, [messages, streaming.text, throttledScrollToBottom])
+
+  // コンポーネントのアンマウント時にタイマーをクリア
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
     }
-  }, [messages, streaming.text, shouldAutoScroll])
+  }, [])
 
   return {
     messages,
