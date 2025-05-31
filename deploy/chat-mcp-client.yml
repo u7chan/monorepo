@@ -1,0 +1,13 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  chat-mcp-client:
+    container_name: chat-mcp-client
+    image: ghcr.io/u7chan/monorepo/chat-mcp-client:latest
+    restart: always
+    ports:
+      - 8003:3000
+    env_file:
+      - .env.secret
