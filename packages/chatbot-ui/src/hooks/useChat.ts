@@ -47,6 +47,7 @@ export function useChat() {
     }
 
     setMessages((prev) => [...prev, userMessage])
+    throttledScrollToBottom()
 
     const response = await fetch('/api/chat', {
       method: 'POST',
