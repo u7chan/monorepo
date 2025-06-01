@@ -2,21 +2,21 @@ import { ArrowUp, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '#/components/ui/button'
-import { ChatTextarea } from '#/components/ui/chat-textarea'
+import { Textarea } from '#/components/ui/textarea'
 
-interface ChatTextAreaInputProps {
+interface ChatTextInputProps {
   placeholder?: string
   loading?: boolean
   onSendMessage: (message: string) => void
   onSendMessageCancel?: () => void
 }
 
-export function ChatTextAreaInput({
+export function ChatTextInput({
   loading,
   placeholder = 'メッセージを入力...',
   onSendMessage,
   onSendMessageCancel,
-}: ChatTextAreaInputProps) {
+}: ChatTextInputProps) {
   // 入力メッセージの状態管理
   const [inputMessage, setInputMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -69,7 +69,7 @@ export function ChatTextAreaInput({
             handleSendMessage()
           }}
         >
-          <ChatTextarea
+          <Textarea
             className='max-h-[120px] min-h-[56px] flex-1 px-4 py-4 text-md'
             ref={textareaRef}
             value={inputMessage}
