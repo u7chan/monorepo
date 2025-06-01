@@ -99,7 +99,20 @@ export function useChat() {
       return
     }
     streaming.abortController.abort()
-    messages.pop() // キャンセル時には最後の要素を消す
+    if (streaming.text === '') {
+      // ストリーミング中に応答が返る前にキャンセルされた場合、メッセージは追加しない
+      messages.pop()
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          content: streaming.text,
+          sender: 'bot',
+          timestamp: new Date(),
+        },
+      ])
+    }
     setStreaming({
       state: 'idle',
       text: '',
