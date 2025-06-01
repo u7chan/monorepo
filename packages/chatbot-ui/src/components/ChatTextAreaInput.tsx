@@ -61,7 +61,7 @@ export function ChatTextAreaInput({
 
   return (
     <div className='p-4'>
-      <div className='container mx-auto max-w-4xl rounded-3xl border border-gray-300 dark:border-gray-600'>
+      <div className='container mx-auto max-w-4xl rounded-3xl border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-800'>
         <form
           className=''
           onSubmit={(e) => {
