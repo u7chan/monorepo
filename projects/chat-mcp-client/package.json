@@ -9,6 +9,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^0.2.14",
     "@hono/standard-validator": "^0.1.2",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "ai": "^4.3.16",
     "hono": "^4.7.11"
   },

@@ -1,6 +1,8 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { sValidator } from '@hono/standard-validator'
-import { APICallError, streamText } from 'ai'
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
+// import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { APICallError, experimental_createMCPClient as createMCPClient, streamText } from 'ai'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
@@ -22,6 +24,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
   console.log('Received chat request:', c.req.valid('json'))
   const req = c.req.valid('json')
 
+  // OpenAI互換のクライアントを作成
   const litellm = createOpenAICompatible({
     name: 'litellm',
     baseURL: process.env.LITELLM_API_BASE_URL ?? '',
@@ -35,10 +38,25 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     return c.json({ error: 'Model is required' }, 400)
   }
 
+  // MCPツールの取得する関数
+  const getMcpTools = async () => {
+    if (!process.env.MCP_API_BASE_URL) {
+      return undefined
+    }
+    // MCPクライアントを作成
+    const mcpClient = await createMCPClient({
+      transport: new SSEClientTransport(new URL(process.env.MCP_API_BASE_URL)),
+    })
+    // toolsを取得
+    return await mcpClient.tools()
+  }
+
+  // AI SDKを使用してテキストをストリーミング
   const result = streamText({
     model: litellm(useModel),
     messages: req.messages,
     maxSteps: 5,
+    tools: await getMcpTools(),
     // maxTokens: 4096,
     // temperature: 0.7,
     onError: ({ error: apiError }: { error: unknown }) => {
