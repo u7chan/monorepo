@@ -32,16 +32,21 @@ export function ChatTextInput({
   useEffect(() => {
     const textarea = textareaRef.current
     if (textarea) {
+      // 一時的にoverflowYをautoに設定してscrollHeightを正確に取得
+      textarea.style.overflowY = 'auto'
       textarea.style.height = 'auto'
-      // 行数を計算（改行の数+1）
-      const lineCount = (inputMessage.match(/\n/g) || []).length + 1
 
-      // 最小高さから最大高さまで自動拡張
-      const newHeight = Math.max(MIN_HEIGHT, Math.min(textarea.scrollHeight, MAX_HEIGHT))
+      // scrollHeightを取得して高さを計算
+      const scrollHeight = textarea.scrollHeight
+      const newHeight = Math.max(MIN_HEIGHT, Math.min(scrollHeight, MAX_HEIGHT))
       textarea.style.height = `${newHeight}px`
 
-      // 最大行数以下ならスクロールバーを非表示、それ以上ならスクロールバーを表示
-      textarea.style.overflowY = lineCount <= MAX_LINES ? 'hidden' : 'auto'
+      // 高さが最大高さに達した場合、またはscrollHeightが最大高さを超える場合はスクロールバーを表示
+      if (scrollHeight > MAX_HEIGHT) {
+        textarea.style.overflowY = 'auto'
+      } else {
+        textarea.style.overflowY = 'hidden'
+      }
     }
   }, [inputMessage]) // inputMessageが変更されたときに高さを調整
 
