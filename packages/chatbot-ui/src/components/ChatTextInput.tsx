@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 
+// テキストエリアの高さ定数
+const MIN_HEIGHT = 56 // 最小高さ (px)
+const MAX_HEIGHT = 120 // 最大高さ (px)
+const MAX_LINES = 5 // 自動拡張する最大行数
+
 interface ChatTextInputProps {
   placeholder?: string
   loading?: boolean
@@ -28,21 +33,15 @@ export function ChatTextInput({
     const textarea = textareaRef.current
     if (textarea) {
       textarea.style.height = 'auto'
-      // 入力が完全に空の場合のみ最小の高さに設定
-      if (inputMessage === '') {
-        textarea.style.height = '36px' // min-h-[36px]と同じ値
-        textarea.style.overflowY = 'hidden'
-      } else {
-        // 行数を計算（改行の数+1）
-        const lineCount = (inputMessage.match(/\n/g) || []).length + 1
+      // 行数を計算（改行の数+1）
+      const lineCount = (inputMessage.match(/\n/g) || []).length + 1
 
-        // 5行までは自動拡張（1行あたり約24px）
-        const newHeight = Math.min(textarea.scrollHeight, 5 * 24)
-        textarea.style.height = `${newHeight}px`
+      // 最小高さから最大高さまで自動拡張
+      const newHeight = Math.max(MIN_HEIGHT, Math.min(textarea.scrollHeight, MAX_HEIGHT))
+      textarea.style.height = `${newHeight}px`
 
-        // 5行以下ならスクロールバーを非表示、それ以上ならスクロールバーを表示
-        textarea.style.overflowY = lineCount <= 5 ? 'hidden' : 'auto'
-      }
+      // 最大行数以下ならスクロールバーを非表示、それ以上ならスクロールバーを表示
+      textarea.style.overflowY = lineCount <= MAX_LINES ? 'hidden' : 'auto'
     }
   }, [inputMessage]) // inputMessageが変更されたときに高さを調整
 
@@ -70,7 +69,7 @@ export function ChatTextInput({
           }}
         >
           <Textarea
-            className='max-h-[120px] min-h-[56px] flex-1 px-4 py-4 text-md'
+            className={`max-h-[${MAX_HEIGHT}px] min-h-[${MIN_HEIGHT}px] flex-1 px-4 py-4 text-md`}
             ref={textareaRef}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
