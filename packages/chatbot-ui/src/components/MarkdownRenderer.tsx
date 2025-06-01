@@ -14,24 +14,46 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     code({ className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || '')
       const language = match ? match[1] : ''
-      const isInline = !props.node || props.node.tagName !== 'code'
-
-      return !isInline && language ? (
+      const isInline = !String(children).includes('\n')
+      return language ? (
         <SyntaxHighlighter
           style={oneDark}
           language={language}
           PreTag='div'
           className='my-4 rounded-lg text-sm'
+          wrapLines
+          wrapLongLines
+          showLineNumbers
+          lineProps={{
+            style: { display: 'flex', width: 0 },
+          }}
         >
           {String(children).replace(/\n$/, '')}
         </SyntaxHighlighter>
       ) : (
-        <code
-          className={`${className} rounded bg-gray-100 px-1 py-0.5 font-mono text-sm dark:bg-gray-800`}
-          {...props}
-        >
-          {children}
-        </code>
+        <>
+          {isInline ? (
+            <code
+              className={`${className} rounded bg-gray-100 px-1 py-0.5 font-mono text-sm dark:bg-gray-800`}
+              {...props}
+            >
+              {children}
+            </code>
+          ) : (
+            <SyntaxHighlighter
+              style={oneDark}
+              PreTag='div'
+              className='my-4 rounded-lg text-sm'
+              wrapLines
+              wrapLongLines
+              lineProps={{
+                style: { display: 'flex', width: 0 },
+              }}
+            >
+              {String(children).replace(/\n$/, '')}
+            </SyntaxHighlighter>
+          )}
+        </>
       )
     },
     pre({ children }) {
@@ -85,9 +107,12 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     li({ children }) {
       return <li className='mb-1'>{children}</li>
     },
-    blockquote({ children }) {
+    blockquote({ children, ...props }) {
       return (
-        <blockquote className='mb-4 border-gray-300 border-l-4 pl-4 text-gray-600 italic dark:border-gray-600 dark:text-gray-400'>
+        <blockquote
+          className='mb-4 border-gray-300 border-l-4 pl-4 text-gray-600 italic dark:border-gray-600 dark:text-gray-400'
+          {...props}
+        >
           {children}
         </blockquote>
       )
@@ -144,7 +169,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
   }
 
   return (
-    <div className={`prose prose-gray dark:prose-invert max-w-none ${className}`}>
+    <div className={`prose prose-gray dark:prose-invert ${className}`}>
       <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
         {content}
       </ReactMarkdown>
