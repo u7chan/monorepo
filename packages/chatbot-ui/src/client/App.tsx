@@ -1,8 +1,8 @@
+import { ChatTextAreaInput } from '#/components/ChatTextAreaInput'
 import { Header } from '#/components/Header'
 import { MarkdownRenderer } from '#/components/MarkdownRenderer'
 import { MessageArea } from '#/components/MessageArea'
 import { MessageAreaScroll } from '#/components/MessageAreaScroll'
-import { MessageInput } from '#/components/MessageInput'
 import { useChat } from '#/hooks/useChat'
 
 export function App() {
@@ -29,7 +29,7 @@ export function App() {
       </MessageAreaScroll>
 
       {/* 入力エリア */}
-      <MessageInput
+      <ChatTextAreaInput
         loading={chat.streaming.state === 'streaming'}
         onSendMessage={chat.handleSendMessage}
         onSendMessageCancel={chat.handleSendMessageCancel}
