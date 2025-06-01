@@ -10,7 +10,7 @@
     "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {},
     "ghcr.io/shyim/devcontainers-features/bun:0": {}
   },
-  // "appPort": ["3000:3000"],　 BFFなのでスマホ等から直接通信しないためポートは解放はしない
+  "appPort": ["3000:3000"],
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
