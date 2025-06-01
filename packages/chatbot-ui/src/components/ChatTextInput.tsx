@@ -7,7 +7,7 @@ import { Textarea } from '#/components/ui/textarea'
 // テキストエリアの高さ定数
 const MIN_HEIGHT = 56 // 最小高さ (px)
 const MAX_HEIGHT = 120 // 最大高さ (px)
-const MAX_LINES = 5 // 自動拡張する最大行数
+const _MAX_LINES = 5 // 自動拡張する最大行数
 
 interface ChatTextInputProps {
   placeholder?: string
@@ -67,14 +67,14 @@ export function ChatTextInput({
     <div className='p-4'>
       <div className='container mx-auto max-w-4xl rounded-3xl border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-800'>
         <form
-          className=''
+          className='pr-2'
           onSubmit={(e) => {
             e.preventDefault()
             handleSendMessage()
           }}
         >
           <Textarea
-            className={`max-h-[${MAX_HEIGHT}px] min-h-[${MIN_HEIGHT}px] flex-1 px-4 py-4 text-md`}
+            className={`max-h-[${MAX_HEIGHT}px] min-h-[${MIN_HEIGHT}px] chat-scrollbar-custom my-3 flex-1 px-4 text-md`}
             ref={textareaRef}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
@@ -94,7 +94,7 @@ export function ChatTextInput({
             placeholder={placeholder}
             rows={1}
           />
-          <div className='flex justify-end p-2'>
+          <div className='flex justify-end pb-2'>
             {onSendMessageCancel && loading ? (
               <Button
                 className='dark:bg-gray-500'
