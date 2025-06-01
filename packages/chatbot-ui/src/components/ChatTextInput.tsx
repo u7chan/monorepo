@@ -74,7 +74,7 @@ export function ChatTextInput({
           }}
         >
           <Textarea
-            className={`max-h-[${MAX_HEIGHT}px] min-h-[${MIN_HEIGHT}px] chat-scrollbar-custom my-3 flex-1 px-4 text-md`}
+            className={`max-h-[${MAX_HEIGHT}px] min-h-[${MIN_HEIGHT}px] my-3 flex-1 px-4 text-md`}
             ref={textareaRef}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
