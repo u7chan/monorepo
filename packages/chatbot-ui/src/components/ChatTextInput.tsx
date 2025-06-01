@@ -1,15 +1,22 @@
 import { ArrowUp, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+
 import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 
-interface MessageInputProps {
+interface ChatTextInputProps {
+  placeholder?: string
   loading?: boolean
   onSendMessage: (message: string) => void
   onSendMessageCancel?: () => void
 }
 
-export function MessageInput({ loading, onSendMessage, onSendMessageCancel }: MessageInputProps) {
+export function ChatTextInput({
+  loading,
+  placeholder = 'メッセージを入力...',
+  onSendMessage,
+  onSendMessageCancel,
+}: ChatTextInputProps) {
   // 入力メッセージの状態管理
   const [inputMessage, setInputMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -53,16 +60,17 @@ export function MessageInput({ loading, onSendMessage, onSendMessageCancel }: Me
   }
 
   return (
-    <div className='border-t bg-card p-4'>
-      <div className='container mx-auto max-w-4xl'>
+    <div className='p-4'>
+      <div className='container mx-auto max-w-4xl rounded-3xl border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-800'>
         <form
-          className='flex items-center gap-3'
+          className=''
           onSubmit={(e) => {
             e.preventDefault()
             handleSendMessage()
           }}
         >
           <Textarea
+            className='max-h-[120px] min-h-[56px] flex-1 px-4 py-4 text-md'
             ref={textareaRef}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
@@ -79,24 +87,32 @@ export function MessageInput({ loading, onSendMessage, onSendMessageCancel }: Me
                 handleSendMessage()
               }
             }}
-            placeholder='メッセージを入力...'
-            className='max-h-[120px] min-h-[40px] flex-1 px-2 text-md'
+            placeholder={placeholder}
             rows={1}
           />
-          {onSendMessageCancel && loading ? (
-            <Button type='button' variant='icon' size='icon' onClick={onSendMessageCancel}>
-              <Square className='scale-100 fill-white dark:fill-gray-800' />
-            </Button>
-          ) : (
-            <Button
-              type='submit'
-              variant='icon'
-              size='icon'
-              disabled={loading || !inputMessage.trim()}
-            >
-              <ArrowUp className='scale-150' />
-            </Button>
-          )}
+          <div className='flex justify-end p-2'>
+            {onSendMessageCancel && loading ? (
+              <Button
+                className='dark:bg-gray-500'
+                type='button'
+                variant='icon'
+                size='icon'
+                onClick={onSendMessageCancel}
+              >
+                <Square className='scale-85 fill-white dark:fill-white dark:stroke-white' />
+              </Button>
+            ) : (
+              <Button
+                className='dark:bg-gray-500'
+                type='submit'
+                variant='icon'
+                size='icon'
+                disabled={loading || !inputMessage.trim()}
+              >
+                <ArrowUp className='scale-125 stroke-white dark:stroke-white' />
+              </Button>
+            )}
+          </div>
         </form>
       </div>
     </div>
