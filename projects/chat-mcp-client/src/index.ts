@@ -1,4 +1,4 @@
-import { createOpenAI } from '@ai-sdk/openai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { sValidator } from '@hono/standard-validator'
 import { streamText } from 'ai'
 import { Hono } from 'hono'
@@ -21,13 +21,18 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
   console.log('Received chat request:', c.req.valid('json'))
   const { messages } = c.req.valid('json')
 
-  const openai = createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_BASE_URL,
+  const litellm = createOpenAICompatible({
+    name: 'litellm',
+    baseURL: process.env.LITELLM_API_BASE_URL ?? '',
+    headers: {
+      Authorization: `Bearer ${process.env.LITELLM_API_KEY ?? ''}`,
+    },
   })
 
+  const model = 'gpt-4.1-nano'
+
   const result = streamText({
-    model: openai.responses('gpt-4.1-nano'),
+    model: litellm(model),
     messages,
     maxSteps: 5,
     onError: (error) => {
@@ -46,7 +51,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4.1-nano',
+        model,
         choices: [
           {
             index: 0,
@@ -68,7 +73,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
       id,
       object: 'chat.completion.chunk',
       created,
-      model: 'gpt-4.1-nano',
+      model,
       choices: [
         {
           index: 0,
