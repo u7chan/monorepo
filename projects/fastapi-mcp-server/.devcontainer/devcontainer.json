@@ -1,0 +1,44 @@
+{
+  "name": "fastapi-mcp-server",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "target": "dev"
+  },
+  "features": {
+    "ghcr.io/casl0/devcontainer-features/eksctl:1": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": {}
+  },
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+  "remoteUser": "pyuser",
+  "updateRemoteUserUID": false,
+  // "postCreateCommand": "uv sync",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.formatOnSave": true,
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          }
+        }
+      },
+      "extensions": [
+        "charliermarsh.ruff",
+        "astral-sh.ty",
+        "KevinRose.vsc-python-indent",
+        "njpwerner.autodocstring",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "aaron-bond.better-comments",
+        "usernamehw.errorlens",
+        "oderwat.indent-rainbow"
+      ]
+    }
+  }
+}
