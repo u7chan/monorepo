@@ -20,13 +20,6 @@ SSE (Server-Sent Events) を介してクライアントと通信し、様々な�
 | コンテナ | Docker | Alpine Linuxベース |
 | 環境 | タイムゾーン | Asia/Tokyo |
 
-## 主な機能
-
-- 現在時刻の取得
-- Base64エンコード/デコード
-- 日本語から英語への翻訳
-- Web検索機能
-
 ## 接続方法
 
 MCPクライアント設定 (SSE):
@@ -72,48 +65,7 @@ MCPクライアント設定 (SSE):
 
 ## 使用方法
 
-各機能はMCPクライアントから以下のように呼び出せます:
-
-- 現在時刻取得:
-
-  ```json
-  {
-    "tool_name": "get_current_time"
-  }
-  ```
-
-- Base64エンコード:
-
-  ```json
-  {
-    "tool_name": "base64_encoding",
-    "arguments": {
-      "text": "エンコードするテキスト"
-    }
-  }
-  ```
-
-- 翻訳:
-
-  ```json
-  {
-    "tool_name": "translate_to_english",
-    "arguments": {
-      "text": "翻訳する日本語テキスト"
-    }
-  }
-  ```
-
-- Web検索:
-
-  ```json
-  {
-    "tool_name": "web_serach",
-    "arguments": {
-      "text": "検索クエリ"
-    }
-  }
-  ```
+各機能はMCPクライアントを通じて動作することが可能です。
 
 ## 開発者向け情報
 
