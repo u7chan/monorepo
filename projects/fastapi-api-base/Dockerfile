@@ -14,6 +14,8 @@ WORKDIR /app
 # -----------------------------------------------
 FROM base AS dev
 
+ARG UID
+
 ENV TZ=Asia/Tokyo
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
