@@ -43,6 +43,7 @@
       },
       "extensions": [
         "charliermarsh.ruff",
+        "astral-sh.ty",
         "KevinRose.vsc-python-indent",
         "njpwerner.autodocstring",
         "eamodio.gitlens",
