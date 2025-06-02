@@ -15,6 +15,7 @@ COPY tsconfig.json ./
 FROM base AS runner
 
 ENV TZ=Asia/Tokyo
+ENV NODE_ENV=production
 
 WORKDIR /app
 

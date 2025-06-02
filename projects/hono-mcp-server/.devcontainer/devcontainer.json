@@ -19,7 +19,7 @@
       "settings": {
         "editor.tabSize": 2,
         "editor.formatOnSave": true,
-        "biome.lspBin": "./node_modules/.bin/biome",
+        "biome.lsp.bin": "./node_modules/.bin/biome",
         "[typescript]": {
           "editor.defaultFormatter": "biomejs.biome"
         },
