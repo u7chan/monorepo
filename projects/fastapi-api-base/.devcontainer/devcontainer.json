@@ -1,7 +1,14 @@
 {
   "name": "fastapi-api-base",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "../Dockerfile",
+    "target": "dev"
+  },
+  "features": {
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-git:0": {},
+    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {}
   },
   "containerEnv": {
     "SHELL": "/bin/bash"
