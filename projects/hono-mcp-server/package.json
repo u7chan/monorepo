@@ -10,7 +10,6 @@
     "hono": "^4.7.11",
     "hono-mcp-server-sse-transport": "^0.0.6",
     "log4js": "^6.9.1",
-    "openai": "^4.104.0",
     "zod": "^3.25.48"
   },
   "devDependencies": {
