@@ -4,9 +4,26 @@
 FROM python:3.13-alpine AS base
 
 ARG USERNAME=pyuser
+ARG UID=1000
 ARG COMMIT_HASH=""
 
 WORKDIR /app
+
+# -----------------------------------------------
+# dev stage
+# -----------------------------------------------
+FROM base AS dev
+
+ENV TZ=Asia/Tokyo
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+RUN adduser \
+  --disabled-password \
+  --uid "${UID}" \
+  vscode
 
 # -----------------------------------------------
 # test stage (--target=testを付けてビルド)
@@ -15,6 +32,8 @@ WORKDIR /app
 FROM base AS test
 
 ENV TZ=Asia/Tokyo
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -46,8 +65,10 @@ ARG USERNAME
 ARG COMMIT_HASH
 
 ENV TZ=Asia/Tokyo
-ENV PATH=/app/.venv/bin:$PATH
-ENV APP_VERSION=${COMMIT_HASH}
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH"
+ENV APP_VERSION="${COMMIT_HASH}"
 
 RUN adduser -D $USERNAME
 
@@ -57,4 +78,4 @@ COPY --from=builder --chown=$USERNAME:$USERNAME /app/src src
 USER $USERNAME
 
 EXPOSE 8000
-CMD ["fastapi", "run", "src/main.py"]
+CMD ["fastapi", "run", "src/main.py", "--port", "8000"]
