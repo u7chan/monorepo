@@ -7,10 +7,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { SSETransport } from 'hono-mcp-server-sse-transport'
 import { z } from 'zod'
 
-import { base64Encoding } from './features/base64Encoding'
-import { getCurrentTime } from './features/getCurrentTime'
+import { currentTime } from './features/currentTime'
 import { omikuji } from './features/omikuji'
-import { translateToEnglish } from './features/translateToEnglish'
+import { reverseString } from './features/reverseString'
 
 const logger = log4js.getLogger()
 logger.level = levels.INFO
@@ -20,10 +19,10 @@ const mcpServer = new McpServer({
   version: '1.0.0',
 })
 
-mcpServer.tool('get_current_time', '現在の時刻を取得します', {}, () => {
-  logger.info('» [getCurrentTime] input:', {})
-  const output = getCurrentTime()
-  logger.info('« [getCurrentTime] output:', output)
+mcpServer.tool('current_time', '現在の時刻を取得します', {}, () => {
+  logger.info('» [currentTime] input:', {})
+  const output = currentTime()
+  logger.info('« [currentTime] output:', output)
   return {
     content: [
       {
@@ -35,32 +34,13 @@ mcpServer.tool('get_current_time', '現在の時刻を取得します', {}, () =
 })
 
 mcpServer.tool(
-  'base64_encoding',
-  'Base64エンコードを行います',
+  'reverse_string',
+  '文字列を逆（反転）します',
   { text: z.string() },
   (input) => {
-    logger.info('» [base64Encoding] input:', input.text)
-    const output = base64Encoding(input.text)
-    logger.info('« [base64Encoding] output:', output)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: output,
-        },
-      ],
-    }
-  },
-)
-
-mcpServer.tool(
-  'translate_to_english',
-  '入力された文章を英語に翻訳します',
-  { text: z.string() },
-  async (input) => {
-    logger.info('» [translateToEnglish] input:', input.text)
-    const output = await translateToEnglish(input.text)
-    logger.info('« [translateToEnglish] output:', output)
+    logger.info('» [reverseString] input:', input.text)
+    const output = reverseString(input.text)
+    logger.info('« [reverseString] output:', output)
     return {
       content: [
         {
