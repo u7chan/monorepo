@@ -35,7 +35,7 @@ mcpServer.tool('current_time', '現在の時刻を取得します', {}, () => {
 
 mcpServer.tool(
   'reverse_string',
-  '文字列を逆（反転）します',
+  '入力文字列を反転します',
   { text: z.string() },
   (input) => {
     logger.info('» [reverseString] input:', input.text)
