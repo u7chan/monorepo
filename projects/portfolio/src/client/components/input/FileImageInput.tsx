@@ -1,4 +1,4 @@
-import { type ReactNode, useRef, useState, useEffect } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { CloseIcon } from '@/client/components/svg/CloseIcon'
 
@@ -135,11 +135,11 @@ interface ImagePreviewProps {
 
 function ImagePreview({ src, onImageClick, onCloseClick }: ImagePreviewProps) {
   return (
-    <div className='relative h-12 w-12 '>
+    <div className='relative h-12 w-12'>
       <img
         src={src}
         alt='thumbnail'
-        className='pointer-events-none h-full w-full rounded-md border border-gray-300 object-cover'
+        className='pointer-events-none h-full w-full rounded-md border border-gray-300 bg-black object-contain'
       />
       <button
         type='button'
