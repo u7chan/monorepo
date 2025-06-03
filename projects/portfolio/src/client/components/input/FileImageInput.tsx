@@ -1,4 +1,4 @@
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useRef, useState, useEffect } from 'react'
 
 import { CloseIcon } from '@/client/components/svg/CloseIcon'
 
@@ -47,6 +47,22 @@ interface FileImagePreviewProps {
 
 export function FileImagePreview({ src, children, onImageChange }: FileImagePreviewProps) {
   const [showImage, setShowImage] = useState(false)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleHideImage()
+      }
+    }
+
+    if (showImage) {
+      window.addEventListener('keydown', handleKeyDown)
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showImage])
 
   const handleShowImage = () => {
     setShowImage(true)
