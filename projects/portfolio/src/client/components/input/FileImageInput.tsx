@@ -1,10 +1,10 @@
-import { type ReactNode, useRef, useState, useEffect } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { CloseIcon } from '@/client/components/svg/CloseIcon'
 
 interface Props {
   fileInputButton?: (onClick: () => void) => ReactNode
-  onImageChange?: (src: string) => void
+  onImageChange?: (src: string, index?: number) => void
 }
 
 export function FileImageInput({ fileInputButton, onImageChange }: Props) {
@@ -20,6 +20,7 @@ export function FileImageInput({ fileInputButton, onImageChange }: Props) {
       const reader = new FileReader()
       reader.onloadend = () => {
         onImageChange?.(reader.result as string)
+        e.target.value = ''
       }
       reader.readAsDataURL(file)
     }
@@ -40,13 +41,19 @@ export function FileImageInput({ fileInputButton, onImageChange }: Props) {
 }
 
 interface FileImagePreviewProps {
-  src?: string
+  maxImages?: number
+  src?: string | string[]
   children?: ReactNode
-  onImageChange?: (src: string) => void
+  onImageChange?: (src: string, index?: number) => void
 }
 
-export function FileImagePreview({ src, children, onImageChange }: FileImagePreviewProps) {
-  const [showImage, setShowImage] = useState(false)
+export function FileImagePreview({
+  maxImages = 3,
+  src,
+  children,
+  onImageChange,
+}: FileImagePreviewProps) {
+  const [showImageIndex, setShowImageIndex] = useState<number | null>(null)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -55,38 +62,54 @@ export function FileImagePreview({ src, children, onImageChange }: FileImagePrev
       }
     }
 
-    if (showImage) {
+    if (showImageIndex !== null) {
       window.addEventListener('keydown', handleKeyDown)
     }
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [showImage])
+  }, [showImageIndex])
 
-  const handleShowImage = () => {
-    setShowImage(true)
+  const handleShowImage = (index: number) => {
+    setShowImageIndex(index)
   }
 
   const handleHideImage = () => {
-    setShowImage(false)
+    setShowImageIndex(null)
   }
 
-  const handleRemoveImage = () => {
-    onImageChange?.('')
+  const handleRemoveImage = (index: number) => {
+    onImageChange?.('', index)
   }
+
+  const showChildren = src ? (typeof src === 'string' ? !src : src.length < maxImages) : false
 
   return (
-    <>
-      {!src && <>{children}</>}
-      {src && (
-        <ImagePreview src={src} onImageClick={handleShowImage} onCloseClick={handleRemoveImage} />
-      )}
-      {showImage && (
+    <div className='flex items-center gap-2'>
+      {showChildren && children}
+      {src &&
+        (typeof src === 'string' ? (
+          <ImagePreview
+            src={src}
+            onImageClick={() => handleShowImage(0)}
+            onCloseClick={() => handleRemoveImage(0)}
+          />
+        ) : (
+          src.map((x, i) => (
+            <ImagePreview
+              key={i}
+              src={x}
+              onImageClick={() => handleShowImage(i)}
+              onCloseClick={() => handleRemoveImage(i)}
+            />
+          ))
+        ))}
+      {src && showImageIndex !== null && (
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/75'>
           <div className='relative w-full max-w-3xl p-4'>
             <img
-              src={src}
+              src={typeof src === 'string' ? src : src[showImageIndex]}
               alt='preview'
               className='max-h-[80vh] w-full rounded object-contain shadow-lg'
             />
@@ -100,7 +123,7 @@ export function FileImagePreview({ src, children, onImageChange }: FileImagePrev
           </button>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -112,11 +135,11 @@ interface ImagePreviewProps {
 
 function ImagePreview({ src, onImageClick, onCloseClick }: ImagePreviewProps) {
   return (
-    <div className='relative h-12 w-12 '>
+    <div className='relative h-12 w-12'>
       <img
         src={src}
         alt='thumbnail'
-        className='pointer-events-none h-full w-full rounded-md border border-gray-300 object-cover'
+        className='pointer-events-none h-full w-full rounded-md border border-gray-300 bg-black object-contain'
       />
       <button
         type='button'

@@ -217,7 +217,7 @@ type MessageUser = {
   role: 'user'
   content:
     | string
-    | (
+    | Array<
         | {
             type: 'text'
             text: string
@@ -228,7 +228,7 @@ type MessageUser = {
               url: string
             }
           }
-      )[]
+      >
 }
 
 type Message = MessageSystem | MessageAssistant | MessageUser
@@ -265,9 +265,22 @@ export const Chat: FC = () => {
   const [templateInput, setTemplateInput] = useState<{
     model: string
     prompt: string
-    content: string
+    content:
+      | string
+      | Array<
+          | {
+              type: 'text'
+              text: string
+            }
+          | {
+              type: 'image_url'
+              image_url: {
+                url: string
+              }
+            }
+        >
   } | null>(null)
-  const [uploadImage, setUploadImage] = useState('')
+  const [uploadImages, setUploadImages] = useState<string[]>([])
   const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
   const [temperature, setTemperature] = useState<number>(
     defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
@@ -332,7 +345,7 @@ export const Chat: FC = () => {
     setShowMenu(false)
     setMessages([])
     setInput('')
-    setUploadImage('')
+    setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }
 
@@ -404,8 +417,18 @@ export const Chat: FC = () => {
     }
   }
 
-  const handleUploadImageChange = (src: string) => {
-    setUploadImage(src)
+  const handleUploadImageChange = (src: string, index?: number) => {
+    if (!src && index !== undefined) {
+      // pop
+      if (uploadImages.length === 1) {
+        setUploadImages([])
+      } else {
+        setUploadImages((pre) => pre.filter((_, idx) => idx !== index))
+      }
+    } else {
+      // push
+      setUploadImages([...uploadImages, src])
+    }
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -425,21 +448,21 @@ export const Chat: FC = () => {
       return
     }
 
-    const userMessage: Message = {
+    const userMessage: MessageUser = {
       role: 'user',
       content:
-        uploadImage && !templateInput
+        uploadImages.length > 0 && !templateInput
           ? [
               {
-                type: 'text',
+                type: 'text' as const,
                 text: inputText,
               },
-              {
-                type: 'image_url',
+              ...uploadImages.map((image) => ({
+                type: 'image_url' as const,
                 image_url: {
-                  url: uploadImage,
+                  url: image,
                 },
-              },
+              })),
             ]
           : templateInput
             ? templateInput.content
@@ -462,7 +485,7 @@ export const Chat: FC = () => {
     setMessages(newMessages)
     setInput('')
     setTemplateInput(null)
-    setUploadImage('')
+    setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
 
@@ -837,7 +860,7 @@ export const Chat: FC = () => {
                   />
                 }
                 leftBottom={
-                  <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
+                  <FileImagePreview src={uploadImages} onImageChange={handleUploadImageChange}>
                     <FileImageInput
                       fileInputButton={(onClick) => (
                         <button
@@ -1087,7 +1110,7 @@ export const Chat: FC = () => {
                 />
               }
               leftBottom={
-                <FileImagePreview src={uploadImage} onImageChange={handleUploadImageChange}>
+                <FileImagePreview src={uploadImages} onImageChange={handleUploadImageChange}>
                   <FileImageInput
                     fileInputButton={(onClick) => (
                       <button
