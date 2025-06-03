@@ -1,10 +1,14 @@
+ARG NODE_VERSION=22
+ARG USERNAME=vscode
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+ARG COMMIT_HASH=""
+
 # -----------------------------------------------
 # base stage
 # -----------------------------------------------
 FROM oven/bun:debian AS bun
-FROM node:22-slim AS base
-
-ARG COMMIT_HASH=""
+FROM node:${NODE_VERSION}-slim AS base
 
 WORKDIR /app
 
@@ -13,9 +17,9 @@ WORKDIR /app
 # -----------------------------------------------
 FROM base AS dev
 
-ARG USERNAME=vscode
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
+ARG USERNAME
+ARG USER_UID
+ARG USER_GID
 
 ENV TZ=Asia/Tokyo
 
@@ -28,10 +32,7 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME
 
 RUN apt-get update \
-  && apt-get install --no-install-recommends -y \
-  curl \
-  git \
-  openssh-client \
+  && apt-get install --no-install-recommends -y curl git openssh-client \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
@@ -57,7 +58,7 @@ FROM base AS builder
 
 ARG COMMIT_HASH
 
-ENV VITE_APP_VERSION=${COMMIT_HASH}
+ENV VITE_APP_VERSION="${COMMIT_HASH}"
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 COPY . .
