@@ -1,6 +1,9 @@
 import { Layout } from '@/client/components/Layout'
 import { useResponsive } from '@/client/components/hooks/useResponsive'
+import { AboutIcon } from '@/client/components/svg/AboutIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
+import { DashboardIcon } from '@/client/components/svg/DashboardIcon'
+import { ProfileIcon } from '@/client/components/svg/ProfileIcon'
 import { Outlet, createRootRoute } from '@tanstack/react-router'
 import React from 'react'
 
@@ -24,9 +27,9 @@ function Root() {
       <Layout
         version={import.meta.env.VITE_APP_VERSION || ''}
         menuItems={[
-          { label: 'Home', icon: <ChatbotIcon size={28} />, to: '/' },
-          { label: 'About', icon: <ChatbotIcon size={28} />, to: '/about' },
-          { label: 'Profile', icon: <ChatbotIcon size={28} />, to: '/profile' },
+          { label: 'Home', icon: <DashboardIcon size={28} />, to: '/' },
+          { label: 'About', icon: <AboutIcon size={20} />, to: '/about' },
+          { label: 'Profile', icon: <ProfileIcon size={24} />, to: '/profile' },
           { label: 'Chat', icon: <ChatbotIcon size={28} />, to: '/chat' },
         ]}
       >

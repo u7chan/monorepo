@@ -75,7 +75,7 @@ export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
         {/* Sidebar for PC or Tablet */}
         {!mobile && (
           <div className='flex h-screen w-16 flex-col justify-between border-r bg-gray-100 px-2 py-4'>
-            <nav className='flex flex-col space-y-4'>
+            <nav className='flex flex-col space-y-2'>
               {menuItems.map((menuItem) => (
                 <div key={menuItem.label}>
                   <Link
