@@ -1,5 +1,6 @@
-import { useResponsive } from '@/client//components/hooks/useResponsive'
 import { Layout } from '@/client/components/Layout'
+import { useResponsive } from '@/client/components/hooks/useResponsive'
+import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
 import { Outlet, createRootRoute } from '@tanstack/react-router'
 import React from 'react'
 
@@ -21,13 +22,12 @@ function Root() {
   return (
     <>
       <Layout
-        title='Portfolio'
-        version={import.meta.env.VITE_APP_VERSION ? `v.${import.meta.env.VITE_APP_VERSION}` : ''}
+        version={import.meta.env.VITE_APP_VERSION || ''}
         menuItems={[
-          { label: 'Home', to: '/' },
-          { label: 'About', to: '/about' },
-          { label: 'Profile', to: '/profile' },
-          { label: 'Chat', to: '/chat' },
+          { label: 'Home', icon: <ChatbotIcon size={28} />, to: '/' },
+          { label: 'About', icon: <ChatbotIcon size={28} />, to: '/about' },
+          { label: 'Profile', icon: <ChatbotIcon size={28} />, to: '/profile' },
+          { label: 'Chat', icon: <ChatbotIcon size={28} />, to: '/chat' },
         ]}
       >
         <Outlet />
