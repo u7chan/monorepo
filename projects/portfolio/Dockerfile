@@ -1,11 +1,40 @@
+ARG NODE_VERSION=22
+ARG USERNAME=vscode
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+ARG COMMIT_HASH=""
+
 # -----------------------------------------------
 # base stage
 # -----------------------------------------------
-FROM node:22-slim AS base
-
-ARG COMMIT_HASH=""
+FROM oven/bun:debian AS bun
+FROM node:${NODE_VERSION}-slim AS base
 
 WORKDIR /app
+
+# -----------------------------------------------
+# dev stage
+# -----------------------------------------------
+FROM base AS dev
+
+ARG USERNAME
+ARG USER_UID
+ARG USER_GID
+
+ENV TZ=Asia/Tokyo
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
+
+RUN groupmod -g 1234 node \
+  && usermod -u 1234 -g 1234 node
+
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME
+
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y curl git openssh-client \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------
 # test stage (--target=testを付けてビルド)
@@ -15,7 +44,7 @@ FROM base AS test
 
 ENV TZ=Asia/Tokyo
 
-COPY --from=oven/bun:latest /usr/local/bin/bun /bin/bun
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 COPY . .
 
 RUN bun install --frozen-lockfile \
@@ -26,11 +55,12 @@ RUN bun install --frozen-lockfile \
 # builder stage
 # -----------------------------------------------
 FROM base AS builder
+
 ARG COMMIT_HASH
 
-ENV VITE_APP_VERSION=${COMMIT_HASH}
+ENV VITE_APP_VERSION="${COMMIT_HASH}"
 
-COPY --from=oven/bun:latest /usr/local/bin/bun /bin/bun
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 COPY . .
 
 RUN bun install --frozen-lockfile \
@@ -46,10 +76,6 @@ RUN cd ./temp/prod \
 # final stage
 # -----------------------------------------------
 FROM base AS final
-
-ARG USERNAME
-ARG USER_UID
-ARG USER_GID
 
 ENV TZ=Asia/Tokyo
 ENV NODE_ENV=production

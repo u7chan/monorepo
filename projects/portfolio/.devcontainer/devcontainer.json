@@ -1,7 +1,8 @@
 {
   "name": "portfolio",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "../Dockerfile",
+    "target": "dev"
   },
   "appPort": [
     "3000:3000"
