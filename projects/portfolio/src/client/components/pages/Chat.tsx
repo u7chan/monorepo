@@ -988,7 +988,7 @@ export const Chat: FC = () => {
                     {message.role === 'assistant' && (
                       <div className='flex'>
                         {!mobile && (
-                          <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                          <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                             <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                           </div>
                         )}
@@ -1035,7 +1035,7 @@ export const Chat: FC = () => {
               {loading && (
                 <div className='flex align-item'>
                   {!mobile && (
-                    <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                       <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                     </div>
                   )}
