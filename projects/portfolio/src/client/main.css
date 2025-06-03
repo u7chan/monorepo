@@ -83,3 +83,18 @@ body {
 .prose pre code span.token {
   background: unset !important;
 }
+
+::-webkit-scrollbar {
+  width: 6px; /* 縦スクロールバーの幅 */
+  height: 6px; /* 横スクロールバーの高さ */
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; /* スクロールバーの背景色を変更 */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #c0c0c0; /* スクロールバーのつまみ部分の色 */
+  border-radius: 4px;
+  border: none;
+}
