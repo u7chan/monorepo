@@ -20,6 +20,7 @@ export function FileImageInput({ fileInputButton, onImageChange }: Props) {
       const reader = new FileReader()
       reader.onloadend = () => {
         onImageChange?.(reader.result as string)
+        e.target.value = ''
       }
       reader.readAsDataURL(file)
     }
