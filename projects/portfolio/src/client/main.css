@@ -60,20 +60,44 @@ body {
   react-markdown customs
 */
 
+.prose > p {
+  line-height: 1.5em;
+  margin-top: 1.0em;
+  margin-bottom: 1.0em;
+}
+
+.prose > blockquote > p {
+  white-space: pre-wrap;
+}
+
+/* ブロッククォートの before スタイルを無効にする */
+:where(.prose > blockquote > p):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::before {
+  content: none;
+}
+
+/* ブロッククォートの after スタイルを無効にする */
+:where(.prose > blockquote > p):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::after {
+  content: none;
+}
+
 /* インラインコードブロックのスタイル */
-.prose p code {
+.prose > p > code {
   @apply font-mono text-sm inline bg-gray-200 rounded px-1 py-1;
 }
 
 /* インラインコードブロックの before スタイルを無効にする */
-:where(.prose p code):not(
+:where(.prose > p > code):not(
     :where([class~="not-prose"], [class~="not-prose"] *)
   )::before {
   content: none;
 }
 
 /* インラインコードブロックの after スタイルを無効にする */
-:where(.prose p code):not(
+:where(.prose > p > code):not(
     :where([class~="not-prose"], [class~="not-prose"] *)
   )::after {
   content: none;
@@ -82,4 +106,19 @@ body {
 /* コードブロック内のトークンスタイルを無効にする */
 .prose pre code span.token {
   background: unset !important;
+}
+
+::-webkit-scrollbar {
+  width: 6px; /* 縦スクロールバーの幅 */
+  height: 6px; /* 横スクロールバーの高さ */
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; /* スクロールバーの背景色を変更 */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #c0c0c0; /* スクロールバーのつまみ部分の色 */
+  border-radius: 4px;
+  border: none;
 }

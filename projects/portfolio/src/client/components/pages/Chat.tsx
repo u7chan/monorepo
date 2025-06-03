@@ -686,14 +686,14 @@ export const Chat: FC = () => {
           <button
             type='button'
             onClick={handleClickNewChat}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <NewChatIcon className='fill-[#5D5D5D]' />
           </button>
           <button
             type='button'
             onClick={() => setShowMenu(!showMenu)}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <GearIcon className='fill-[#5D5D5D]' />
           </button>
@@ -988,7 +988,7 @@ export const Chat: FC = () => {
                     {message.role === 'assistant' && (
                       <div className='flex'>
                         {!mobile && (
-                          <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                          <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                             <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                           </div>
                         )}
@@ -1035,7 +1035,7 @@ export const Chat: FC = () => {
               {loading && (
                 <div className='flex align-item'>
                   {!mobile && (
-                    <div className='flex h-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
                       <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
                     </div>
                   )}
