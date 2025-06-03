@@ -686,14 +686,14 @@ export const Chat: FC = () => {
           <button
             type='button'
             onClick={handleClickNewChat}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <NewChatIcon className='fill-[#5D5D5D]' />
           </button>
           <button
             type='button'
             onClick={() => setShowMenu(!showMenu)}
-            className='flex cursor-pointer items-center justify-center rounded-full bg-white p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <GearIcon className='fill-[#5D5D5D]' />
           </button>
