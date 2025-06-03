@@ -85,7 +85,7 @@ export function FileImagePreview({
   const showChildren = src ? (typeof src === 'string' ? !src : src.length < maxImages) : false
 
   return (
-    <>
+    <div className='flex items-center gap-2'>
       {showChildren && children}
       {src &&
         (typeof src === 'string' ? (
@@ -122,7 +122,7 @@ export function FileImagePreview({
           </button>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
