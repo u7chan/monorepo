@@ -83,6 +83,7 @@ const app = new Hono<HonoEnv>()
       const apiKey = value['api-key']
       const baseURL = value['base-url']
       const fakeMode = apiKey === 'fakemode' && apiKey === 'fakemode'
+      const mcpServerURLs = value['mcp-server-urls']
       if (!apiKey) {
         return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
@@ -94,7 +95,11 @@ const app = new Hono<HonoEnv>()
       }
       const { SERVER_PORT: port } = env<Env>(c)
       const fakeBaseURL = `http://localhost:${port || 3000}/api`
-      return { 'api-key': apiKey, 'base-url': fakeMode ? fakeBaseURL : baseURL }
+      return {
+        'api-key': apiKey,
+        'base-url': fakeMode ? fakeBaseURL : baseURL,
+        'mcp-server-urls': mcpServerURLs,
+      }
     }),
     sValidator(
       'json',
@@ -118,6 +123,38 @@ const app = new Hono<HonoEnv>()
         const openai = new OpenAI({
           apiKey: header['api-key'],
           baseURL: header['base-url'],
+          fetch: async (url, options = {}) => {
+            // カスタムヘッダーを追加
+            const customHeaders = {
+              'mcp-server-urls': header['mcp-server-urls'],
+            }
+            // options.headers の型をチェックして、適切にマージ
+            let existingHeaders: Record<string, string> = {}
+
+            if (options.headers instanceof Headers) {
+              // Headersオブジェクトの場合は安全にRecord<string, string>に変換
+              existingHeaders = {}
+              options.headers.forEach((value, key) => {
+                if (typeof key === 'string' && typeof value === 'string') {
+                  existingHeaders[key] = value
+                }
+              })
+            } else if (typeof options.headers === 'object' && options.headers !== null) {
+              // plain objectの場合は安全にフィルタリングしてコピー
+              existingHeaders = Object.fromEntries(
+                Object.entries(options.headers).filter(
+                  ([key, value]) => typeof key === 'string' && typeof value === 'string',
+                ),
+              )
+            }
+
+            // マージして新しいヘッダーをセット
+            options.headers = {
+              ...existingHeaders,
+              ...customHeaders,
+            }
+            return fetch(url, options)
+          },
         })
         const completion = await openai.chat.completions.create({
           messages: req.messages,

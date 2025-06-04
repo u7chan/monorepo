@@ -30,6 +30,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 header: {
                     'api-key': string;
                     'base-url': string;
+                    'mcp-server-urls': string;
                 };
             } & {
                 json: {

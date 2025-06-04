@@ -92,6 +92,7 @@ type Settings = {
   model: string
   baseURL: string
   apiKey: string
+  mcpServerURLs: string
   temperature: string
   temperatureEnabled: boolean
   maxTokens: string
@@ -371,6 +372,10 @@ export const Chat: FC = () => {
     saveToLocalStorage({ apiKey: event.target.value })
   }
 
+  const handleChangeMcpServerURLs = (event: ChangeEvent<HTMLInputElement>) => {
+    saveToLocalStorage({ mcpServerURLs: event.target.value })
+  }
+
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
     setTemperature(Number.parseFloat(event.target.value))
     saveToLocalStorage({ temperature: event.target.value })
@@ -438,6 +443,7 @@ export const Chat: FC = () => {
       model: fakeMode ? 'fakemode' : formData.get('model')?.toString() || '',
       baseURL: fakeMode ? 'fakemode' : formData.get('baseURL')?.toString() || '',
       apiKey: fakeMode ? 'fakemode' : formData.get('apiKey')?.toString() || '',
+      mcpServerURLs: fakeMode ? '' : formData.get('mcpServerURLs')?.toString() || '',
       temperature: temperatureEnabled ? Number(formData.get('temperature')) : undefined,
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
@@ -510,6 +516,7 @@ export const Chat: FC = () => {
           header: {
             'api-key': form.apiKey,
             'base-url': form.baseURL,
+            'mcp-server-urls': form.mcpServerURLs,
           },
           json: {
             messages: interactiveMode ? newMessages : [userMessage],
@@ -737,6 +744,18 @@ export const Chat: FC = () => {
             disabled={fakeMode}
             defaultValue={defaultSettings.apiKey}
             onChange={handleChangeApiKey}
+            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
+          />
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className={`ml-1 w-[154px] font-medium text-xs ${fakeMode ? 'opacity-50' : ''}`}>
+            MCP Server URLs (,)
+          </span>
+          <input
+            name='mcpServerURLs'
+            defaultValue={defaultSettings.mcpServerURLs || ''}
+            disabled={fakeMode}
+            onChange={handleChangeMcpServerURLs}
             className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
