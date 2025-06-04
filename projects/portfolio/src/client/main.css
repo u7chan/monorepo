@@ -62,8 +62,8 @@ body {
 
 .prose > p {
   line-height: 1.5em;
-  margin-top: 1.0em;
-  margin-bottom: 1.0em;
+  margin-top: 0em;
+  margin-bottom: 2.0em;
 }
 
 .prose > blockquote > p {
