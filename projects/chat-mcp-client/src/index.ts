@@ -111,6 +111,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
         }),
       })
     }
+    let numStep = 1
 
     // ストリームのチャンク処理
     for await (const chunk of result.fullStream) {
@@ -120,16 +121,19 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
       console.log(`chunk.type: ${chunk.type}`)
       switch (chunk.type) {
         case 'step-start':
+          console.log(`-> step (${numStep})`)
           id = chunk.messageId
           break
         case 'step-finish':
+          console.log(`<- step (${numStep})`)
           model = chunk.response.modelId
+          ++numStep
           break
         case 'tool-call':
-          console.log(`  - ${chunk.toolName}`)
+          console.log(`-> ${chunk.toolName}`)
           break
         case 'tool-result':
-          console.log(`  - ${chunk.toolName}`)
+          console.log(`<- ${chunk.toolName}`)
           break
         case 'text-delta':
           sendChunk({ content: chunk.textDelta })
