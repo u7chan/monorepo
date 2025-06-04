@@ -27,10 +27,10 @@ function Root() {
       <Layout
         version={import.meta.env.VITE_APP_VERSION || ''}
         menuItems={[
-          { label: 'Home', icon: <DashboardIcon size={28} />, to: '/' },
-          { label: 'About', icon: <AboutIcon size={20} />, to: '/about' },
+          { label: 'Home', icon: <DashboardIcon size={24} />, to: '/' },
+          { label: 'About', icon: <AboutIcon size={18} />, to: '/about' },
           { label: 'Profile', icon: <ProfileIcon size={24} />, to: '/profile' },
-          { label: 'Chat', icon: <ChatbotIcon size={28} />, to: '/chat' },
+          { label: 'Chat', icon: <ChatbotIcon size={26} />, to: '/chat' },
         ]}
       >
         <Outlet />

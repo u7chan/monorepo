@@ -80,15 +80,13 @@ export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
                 <div key={menuItem.label}>
                   <Link
                     to={menuItem.to}
-                    className='peer block rounded transition duration-200 hover:bg-gray-200 [&.active]:bg-gray-200'
+                    className='peer block rounded py-0.5 text-gray-400 transition duration-200 hover:bg-gray-200 [&.active]:bg-gray-200 [&.active]:text-primary-800 [&.active]:underline'
                   >
-                    <div className='flex h-12 w-12 items-center justify-center'>
+                    <div className='my-0.5 flex max-h-[20px] w-12 items-center justify-center'>
                       {menuItem.icon}
                     </div>
+                    <div className='flex justify-center text-[10px]'>{menuItem.label}</div>
                   </Link>
-                  <div className='flex justify-center text-[10px] text-gray-400 peer-[&.active]:font-extrabold peer-[&.active]:text-primary-800'>
-                    {menuItem.label}
-                  </div>
                 </div>
               ))}
             </nav>
