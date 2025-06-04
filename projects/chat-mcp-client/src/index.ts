@@ -2,7 +2,12 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { sValidator } from '@hono/standard-validator'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 // import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { APICallError, experimental_createMCPClient as createMCPClient, streamText } from 'ai'
+import {
+  APICallError,
+  type Tool,
+  experimental_createMCPClient as createMCPClient,
+  streamText,
+} from 'ai'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
@@ -10,6 +15,7 @@ import { z } from 'zod'
 const app = new Hono()
 
 const chatRequestSchema = z.object({
+  // OpenAIの Chat Completion APIのリクエストに準拠
   model: z.string().min(1).optional(),
   messages: z
     .object({
@@ -20,7 +26,31 @@ const chatRequestSchema = z.object({
     .min(1),
   temperature: z.number().min(0).max(1).optional(),
   maxTokens: z.number().min(1).optional(),
+  // 拡張フィールド (OpenAIに準拠していない独自パラメータ)
+  mcpServerUrls: z.string().array().optional(),
 })
+
+async function fetchMcpTools(baseUrl: string) {
+  const mcpClient = await createMCPClient({
+    transport: new SSEClientTransport(new URL(baseUrl)),
+  })
+  return await mcpClient.tools()
+}
+
+async function fetchMcpToolsFromServers(serverUrls: string[], filters?: string[]) {
+  const filteredTools: { [k: string]: Tool } = {}
+  for (const baseUrl of serverUrls) {
+    const tools = await fetchMcpTools(baseUrl)
+    const availableTools = Object.keys(tools).filter((key) =>
+      filters ? filters.includes(key) : true,
+    )
+    for (const key of availableTools) {
+      console.log(`AvailableTool: ${key}, ${tools[key].description}`)
+      filteredTools[key] = tools[key]
+    }
+  }
+  return filteredTools
+}
 
 app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (c) => {
   console.log('Received chat request:', c.req.valid('json'))
@@ -40,18 +70,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     return c.json({ error: 'Model is required' }, 400)
   }
 
-  // MCPツールの取得する関数
-  const getMcpTools = async () => {
-    if (!process.env.MCP_API_BASE_URL) {
-      return undefined
-    }
-    // MCPクライアントを作成
-    const mcpClient = await createMCPClient({
-      transport: new SSEClientTransport(new URL(process.env.MCP_API_BASE_URL)),
-    })
-    // toolsを取得
-    return await mcpClient.tools()
-  }
+  const tools = await fetchMcpToolsFromServers(req.mcpServerUrls ?? [])
 
   // AI SDKを使用してテキストをストリーミング
   const result = streamText({
@@ -59,8 +78,8 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     messages: req.messages,
     temperature: req.temperature,
     maxTokens: req.maxTokens,
-    tools: await getMcpTools(),
-    maxSteps: 5,
+    tools,
+    maxSteps: 1, // 最低1以上。LLM呼び出しの無限ループを防ぐために、最大数を設定する必要がある。
     onError: ({ error: apiError }: { error: unknown }) => {
       if (APICallError.isInstance(apiError)) {
         console.error('API call error:', apiError.message)
@@ -132,9 +151,9 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
         case 'tool-call':
           console.log(`-> ${chunk.toolName}`)
           break
-        case 'tool-result':
-          console.log(`<- ${chunk.toolName}`)
-          break
+        // case 'tool-result':
+        //   console.log(`<- ${chunk.toolName}`)
+        //   break
         case 'text-delta':
           sendChunk({ content: chunk.textDelta })
           break
