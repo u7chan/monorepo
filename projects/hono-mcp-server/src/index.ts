@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { currentTime } from './features/currentTime'
 import { omikuji } from './features/omikuji'
 import { reverseString } from './features/reverseString'
+import { kotowaza } from './features/kotowaza'
 
 const logger = log4js.getLogger()
 logger.level = levels.INFO
@@ -56,6 +57,20 @@ mcpServer.tool('omikuji', 'ランダムにおみくじ結果を返します', {}
   logger.info('» [omikuji] input:', {})
   const output = omikuji()
   logger.info('« [omikuji] output:', output)
+  return {
+    content: [
+      {
+        type: 'text',
+        text: output,
+      },
+    ],
+  }
+})
+
+mcpServer.tool('kotowaza', 'ランダムにことわざを返します', {}, () => {
+  logger.info('» [kotowaza] input:', {})
+  const output = kotowaza()
+  logger.info('« [kotowaza] output:', output)
   return {
     content: [
       {
