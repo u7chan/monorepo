@@ -18,6 +18,8 @@ const chatRequestSchema = z.object({
     .array()
     .min(1),
   model: z.string().min(1).optional(),
+  temperature: z.number().min(0).max(1).optional(),
+  maxTokens: z.number().min(1).optional(),
 })
 
 app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (c) => {
@@ -57,8 +59,8 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     messages: req.messages,
     maxSteps: 5,
     tools: await getMcpTools(),
-    // maxTokens: 4096,
-    // temperature: 0.7,
+    maxTokens: req.maxTokens,
+    temperature: req.temperature,
     onError: ({ error: apiError }: { error: unknown }) => {
       if (APICallError.isInstance(apiError)) {
         console.error('API call error:', apiError.message)
@@ -73,6 +75,12 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
   })
 
   return streamSSE(c, async (stream) => {
+    let aborted = false
+    stream.onAbort(() => {
+      aborted = true
+      console.log('Stream aborted')
+    })
+
     let id = ''
     let finish_reason = ''
     let model: string | undefined
@@ -85,19 +93,31 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
 
     // ストリームのチャンク処理
     for await (const chunk of result.fullStream) {
+      if (aborted) {
+        break
+      }
       let chunkText = ''
-
+      console.log(`chunk.type: ${chunk.type}`)
       switch (chunk.type) {
         case 'step-start':
           id = chunk.messageId
           break
         case 'step-finish':
-          finish_reason = chunk.finishReason
-          usage = chunk.usage
           model = chunk.response.modelId
+          break
+        case 'tool-call':
+          console.log(`  - ${chunk.toolName}`)
+          break
+        case 'tool-result':
+          console.log(`  - ${chunk.toolName}`)
           break
         case 'text-delta':
           chunkText = chunk.textDelta
+          break
+        case 'finish':
+          usage = chunk.usage
+          finish_reason = chunk.finishReason
+          console.log({ usage, finish_reason })
           break
       }
 
