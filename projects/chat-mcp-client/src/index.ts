@@ -10,6 +10,7 @@ import { z } from 'zod'
 const app = new Hono()
 
 const chatRequestSchema = z.object({
+  model: z.string().min(1).optional(),
   messages: z
     .object({
       role: z.enum(['user', 'assistant', 'system']),
@@ -17,7 +18,6 @@ const chatRequestSchema = z.object({
     })
     .array()
     .min(1),
-  model: z.string().min(1).optional(),
   temperature: z.number().min(0).max(1).optional(),
   maxTokens: z.number().min(1).optional(),
 })
@@ -57,10 +57,10 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
   const result = streamText({
     model: litellm(useModel),
     messages: req.messages,
-    maxSteps: 5,
-    tools: await getMcpTools(),
-    maxTokens: req.maxTokens,
     temperature: req.temperature,
+    maxTokens: req.maxTokens,
+    tools: await getMcpTools(),
+    maxSteps: 5,
     onError: ({ error: apiError }: { error: unknown }) => {
       if (APICallError.isInstance(apiError)) {
         console.error('API call error:', apiError.message)
