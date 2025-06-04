@@ -14,8 +14,8 @@ import { z } from 'zod'
 
 const app = new Hono()
 
+// OpenAIの Chat Completion APIのリクエストに準拠
 const chatRequestSchema = z.object({
-  // OpenAIの Chat Completion APIのリクエストに準拠
   model: z.string().min(1).optional(),
   messages: z
     .object({
@@ -26,8 +26,6 @@ const chatRequestSchema = z.object({
     .min(1),
   temperature: z.number().min(0).max(1).optional(),
   maxTokens: z.number().min(1).optional(),
-  // 拡張フィールド (OpenAIに準拠していない独自パラメータ)
-  mcpServerUrls: z.string().array().optional(),
 })
 
 async function fetchMcpTools(baseUrl: string) {
@@ -45,7 +43,7 @@ async function fetchMcpToolsFromServers(serverUrls: string[], filters?: string[]
       filters ? filters.includes(key) : true,
     )
     for (const key of availableTools) {
-      console.log(`AvailableTool: ${key}, ${tools[key].description}`)
+      console.log(`Available Tools: ${key}, ${tools[key].description}`)
       filteredTools[key] = tools[key]
     }
   }
@@ -55,6 +53,14 @@ async function fetchMcpToolsFromServers(serverUrls: string[], filters?: string[]
 app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (c) => {
   console.log('Received chat request:', c.req.valid('json'))
   const req = c.req.valid('json')
+
+  // 拡張ヘッダ (OpenAI標準に準拠しない独自パラメータ)
+  const rawMcpServerUrls = c.req.header('mcp-server-urls') || ''
+  const mcpServerUrls = rawMcpServerUrls
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean)
+  console.log('MCP Servers:', mcpServerUrls)
 
   // OpenAI互換のクライアントを作成
   const litellm = createOpenAICompatible({
@@ -70,7 +76,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     return c.json({ error: 'Model is required' }, 400)
   }
 
-  const tools = await fetchMcpToolsFromServers(req.mcpServerUrls ?? [])
+  const tools = await fetchMcpToolsFromServers(mcpServerUrls)
 
   // AI SDKを使用してテキストをストリーミング
   const result = streamText({
@@ -79,7 +85,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     temperature: req.temperature,
     maxTokens: req.maxTokens,
     tools,
-    maxSteps: 1, // 最低1以上。LLM呼び出しの無限ループを防ぐために、最大数を設定する必要がある。
+    maxSteps: 5, // 最低1以上。LLM呼び出しの無限ループを防ぐために、最大数を設定する必要がある。
     onError: ({ error: apiError }: { error: unknown }) => {
       if (APICallError.isInstance(apiError)) {
         console.error('API call error:', apiError.message)
