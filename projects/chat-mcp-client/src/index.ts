@@ -82,21 +82,41 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     })
 
     let id = ''
-    let finish_reason = ''
     let model: string | undefined
-    let usage = {
-      promptTokens: -1,
-      completionTokens: -1,
-      totalTokens: -1,
-    }
     const created = Math.floor(Date.now() / 1000)
+
+    const sendChunk = async (
+      delta: { content?: string },
+      finish_reason?: string,
+      usage?: {
+        prompt_tokens: number
+        completion_tokens: number
+        total_tokens: number
+      },
+    ) => {
+      await stream.writeSSE({
+        data: JSON.stringify({
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model,
+          choices: [
+            {
+              index: 0,
+              delta,
+              finish_reason,
+            },
+          ],
+          usage,
+        }),
+      })
+    }
 
     // ストリームのチャンク処理
     for await (const chunk of result.fullStream) {
       if (aborted) {
         break
       }
-      let chunkText = ''
       console.log(`chunk.type: ${chunk.type}`)
       switch (chunk.type) {
         case 'step-start':
@@ -112,55 +132,21 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
           console.log(`  - ${chunk.toolName}`)
           break
         case 'text-delta':
-          chunkText = chunk.textDelta
+          sendChunk({ content: chunk.textDelta })
           break
         case 'finish':
-          usage = chunk.usage
-          finish_reason = chunk.finishReason
-          console.log({ usage, finish_reason })
+          console.log({
+            finish_reason: chunk.finishReason,
+            usage: chunk.usage,
+          })
+          sendChunk({}, chunk.finishReason, {
+            prompt_tokens: chunk.usage.promptTokens,
+            completion_tokens: chunk.usage.completionTokens,
+            total_tokens: chunk.usage.totalTokens,
+          })
           break
       }
-
-      await stream.writeSSE({
-        data: JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model,
-          choices: [
-            {
-              index: 0,
-              delta: {
-                content: chunkText,
-              },
-              finish_reason: null,
-            },
-          ],
-        }),
-      })
     }
-
-    // 終了チャンク処理
-    await stream.writeSSE({
-      data: JSON.stringify({
-        id,
-        object: 'chat.completion.chunk',
-        created,
-        model,
-        choices: [
-          {
-            index: 0,
-            delta: {},
-            finish_reason,
-          },
-        ],
-        usage: {
-          prompt_tokens: usage.promptTokens,
-          completion_tokens: usage.completionTokens,
-          total_tokens: usage.totalTokens,
-        },
-      }),
-    })
 
     // ストリームの終了シグナル
     await stream.writeSSE({
