@@ -95,13 +95,9 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
 
   return streamSSE(c, async (stream) => {
     let aborted = false
-    stream.onAbort(() => {
-      aborted = true
-      console.log('Stream aborted')
-    })
-
     let id = ''
     let model: string | undefined
+    let numStep = 1
     const created = Math.floor(Date.now() / 1000)
 
     const sendChunk = async (
@@ -130,7 +126,11 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
         }),
       })
     }
-    let numStep = 1
+
+    stream.onAbort(() => {
+      aborted = true
+      console.log('Stream aborted')
+    })
 
     // ストリームのチャンク処理
     for await (const chunk of result.fullStream) {
