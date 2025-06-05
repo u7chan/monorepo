@@ -88,7 +88,7 @@ export function MessageArea({
         </div>
       ))}
       {loading && (
-        <div className='flex gap-3'>
+        <div className='flex max-w-[80%] gap-3'>
           {/* Botアバター */}
           {botIcon && typeof botIcon === 'string' ? (
             <Avatar className='bg-primary'>
