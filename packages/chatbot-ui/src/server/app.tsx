@@ -27,7 +27,6 @@ const app = new Hono<Env>()
     ),
     async (c) => {
       const req = c.req.valid('json')
-      console.debug('req: ', req)
       const envs = env(c)
 
       return streamText(c, async (stream) => {
@@ -52,23 +51,26 @@ const app = new Hono<Env>()
         })
 
         try {
+          const body = JSON.stringify({
+            model: envs.CHAT_MODEL,
+            messages: req.messages,
+            stream: true,
+          })
+          console.log('Request body: ', body)
           const res = await fetch(envs.CHAT_BASE_URL, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${envs.CHAT_API_KEY}`,
             },
-            body: JSON.stringify({
-              model: envs.CHAT_MODEL,
-              messages: req.messages,
-              stream: true,
-            }),
+            body,
             signal: controller.signal,
           })
 
           console.log('Response status:', res.status, res.statusText)
           if (!res.ok) {
             const text = await res.text()
+            console.error('Error:', text)
             stream.writeln(`APIからの応答に失敗しました: ${text}`)
             return
           }
