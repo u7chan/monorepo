@@ -1,5 +1,9 @@
+import { hc } from 'hono/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Message } from '#/components/MessageArea'
+import type { AppType } from '#/server/app'
+
+const client = hc<AppType>('/')
 
 const NEAR_BOTTOM_THRESHOLD = 200 // 200px以内なら一番下とみなす
 
@@ -13,9 +17,9 @@ export function useChat() {
   // メッセージの状態管理
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: '1',
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
       content: 'こんにちは！\n何かお手伝いできることはありますか？',
-      sender: 'bot',
       timestamp: new Date(),
     },
   ])
@@ -41,22 +45,26 @@ export function useChat() {
     // ユーザーメッセージを追加
     const userMessage: Message = {
       id: Date.now().toString(),
+      role: 'user',
       content: message,
-      sender: 'user',
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    const newMessages = [...messages, userMessage]
+    setMessages(newMessages)
     throttledScrollToBottom()
 
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await client.api.chat.$post(
+      {
+        json: {
+          messages: newMessages.slice(1).map((x) => ({
+            role: x.role,
+            content: x.content,
+          })),
+        },
       },
-      body: JSON.stringify({ message }),
-      signal: abortController.signal,
-    })
+      { init: { signal: abortController.signal } },
+    )
 
     if (response.ok) {
       const reader = response.body?.getReader()
@@ -79,8 +87,8 @@ export function useChat() {
         ...prev,
         {
           id: (Date.now() + 1).toString(),
+          role: 'assistant',
           content: chunks,
-          sender: 'bot',
           timestamp: new Date(),
         },
       ])
@@ -107,8 +115,8 @@ export function useChat() {
         ...prev,
         {
           id: (Date.now() + 1).toString(),
+          role: 'assistant',
           content: streaming.text,
-          sender: 'bot',
           timestamp: new Date(),
         },
       ])

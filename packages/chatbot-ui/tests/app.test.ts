@@ -45,12 +45,22 @@ describe('App', () => {
 
     // 環境変数をモック
     vi.stubEnv('CHAT_BASE_URL', 'http://mock-api.example.com/chat')
+    vi.stubEnv('CHAT_MODEL', 'unit_test_model')
+    vi.stubEnv('CHAT_API_KEY', 'unit_test_key')
+
     const res = await app.request('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ message: 'テストメッセージ' }),
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: 'テストメッセージ',
+          },
+        ],
+      }),
     })
 
     expect(res.status).toBe(200)
@@ -83,20 +93,19 @@ describe('App', () => {
       expect(receivedText).toContain('への応答です。')
 
       // fetchが正しいパラメータで呼ばれたことを確認
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://mock-api.example.com/chat',
-        expect.objectContaining({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messages: [{ role: 'user', content: 'テストメッセージ' }],
-            model: 'dummy-model',
-            stream: true,
-          }),
+      expect(mockFetch).toHaveBeenCalledWith('http://mock-api.example.com/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer unit_test_key',
+        },
+        body: JSON.stringify({
+          model: 'unit_test_model',
+          messages: [{ role: 'user', content: 'テストメッセージ' }],
+          stream: true,
         }),
-      )
+        signal: expect.any(AbortSignal),
+      })
     }
   })
 
@@ -110,13 +119,17 @@ describe('App', () => {
 
     // 環境変数をモック
     vi.stubEnv('CHAT_BASE_URL', 'http://mock-api.example.com/chat')
+    vi.stubEnv('CHAT_MODEL', 'unit_test_model')
+    vi.stubEnv('CHAT_API_KEY', 'unit_test_key')
 
     const res = await app.request('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ message: 'テストメッセージ' }),
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'テストメッセージ' }],
+      }),
     })
 
     expect(res.status).toBe(200)

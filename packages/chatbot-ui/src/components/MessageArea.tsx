@@ -6,8 +6,8 @@ import { Card, CardContent } from '#/components/ui/card'
 // メッセージの型定義
 export type Message = {
   id: string
+  role: 'user' | 'assistant'
   content: string
-  sender: 'user' | 'bot'
   timestamp: Date
 }
 
@@ -35,15 +35,15 @@ export function MessageArea({
       {messages.map((message) => (
         <div
           key={message.id}
-          className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+          className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
         >
           <div
             className={`flex max-w-[80%] gap-3 ${
-              message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
+              message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
             }`}
           >
             {/* ユーザーアバター */}
-            {message.sender === 'user' && (
+            {message.role === 'user' && (
               <>
                 {userIcon && typeof userIcon === 'string' ? (
                   <Avatar className='bg-secondary'>
@@ -57,7 +57,7 @@ export function MessageArea({
             )}
 
             {/* Botアバター */}
-            {message.sender === 'bot' && (
+            {message.role === 'assistant' && (
               <>
                 {botIcon && typeof botIcon === 'string' ? (
                   <Avatar className='bg-primary'>
@@ -72,7 +72,7 @@ export function MessageArea({
 
             {/* メッセージカード */}
             <Card
-              className={`${message.sender === 'user' ? 'border-none bg-slate-200 dark:bg-slate-700' : 'bg-card'}`}
+              className={`${message.role === 'user' ? 'border-none bg-slate-200 dark:bg-slate-700' : 'bg-card'}`}
             >
               <CardContent className='p-3'>
                 {renderer(message.content)}
