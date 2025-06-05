@@ -9,10 +9,19 @@ import {
   streamText,
 } from 'ai'
 import { Hono } from 'hono'
+import { env } from 'hono/adapter'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 
-const app = new Hono()
+interface HonoEnv {
+  Bindings: {
+    LITELLM_API_BASE_URL: string
+    LITELLM_API_KEY: string
+    LITELLM_API_DEFAULT_MODEL: string
+  }
+}
+
+const app = new Hono<HonoEnv>()
 
 // OpenAIの Chat Completion APIのリクエストに準拠
 const chatRequestSchema = z.object({
@@ -53,9 +62,10 @@ async function fetchMcpToolsFromServers(serverUrls: string[], filters?: string[]
 app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (c) => {
   console.log('Received chat request:', c.req.valid('json'))
   const req = c.req.valid('json')
+  const envs = env(c)
 
   // 拡張ヘッダ (OpenAI標準に準拠しない独自パラメータ)
-  const rawMcpServerUrls = c.req.header('mcp-server-urls') || ''
+  const rawMcpServerUrls = c.req.header('mcp-server-urls') ?? ''
   const mcpServerUrls = rawMcpServerUrls
     .split(',')
     .map((url) => url.trim())
@@ -65,13 +75,13 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
   // OpenAI互換のクライアントを作成
   const litellm = createOpenAICompatible({
     name: 'litellm',
-    baseURL: process.env.LITELLM_API_BASE_URL ?? '',
+    baseURL: envs.LITELLM_API_BASE_URL ?? '',
     headers: {
-      Authorization: `Bearer ${process.env.LITELLM_API_KEY ?? ''}`,
+      Authorization: `Bearer ${envs.LITELLM_API_KEY ?? ''}`,
     },
   })
 
-  const useModel = req.model ?? process.env.LITELLM_DEFAULT_MODEL
+  const useModel = req.model || envs.LITELLM_API_DEFAULT_MODEL
   if (!useModel) {
     return c.json({ error: 'Model is required' }, 400)
   }
