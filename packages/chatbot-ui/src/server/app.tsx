@@ -56,7 +56,7 @@ const app = new Hono<Env>()
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${envs.CHAT_BASE_URL}`,
+              Authorization: `Bearer ${envs.CHAT_API_KEY}`,
             },
             body: JSON.stringify({
               model: 'gpt-4.1-nano',
