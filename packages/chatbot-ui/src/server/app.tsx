@@ -59,7 +59,7 @@ const app = new Hono<Env>()
               Authorization: `Bearer ${envs.CHAT_API_KEY}`,
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: envs.CHAT_MODEL,
               messages: req.messages,
               stream: true,
             }),

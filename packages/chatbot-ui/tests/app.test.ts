@@ -45,7 +45,9 @@ describe('App', () => {
 
     // 環境変数をモック
     vi.stubEnv('CHAT_BASE_URL', 'http://mock-api.example.com/chat')
+    vi.stubEnv('CHAT_MODEL', 'unit_test_model')
     vi.stubEnv('CHAT_API_KEY', 'unit_test_key')
+
     const res = await app.request('/api/chat', {
       method: 'POST',
       headers: {
@@ -98,7 +100,7 @@ describe('App', () => {
           Authorization: 'Bearer unit_test_key',
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-nano',
+          model: 'unit_test_model',
           messages: [{ role: 'user', content: 'テストメッセージ' }],
           stream: true,
         }),
@@ -117,6 +119,8 @@ describe('App', () => {
 
     // 環境変数をモック
     vi.stubEnv('CHAT_BASE_URL', 'http://mock-api.example.com/chat')
+    vi.stubEnv('CHAT_MODEL', 'unit_test_model')
+    vi.stubEnv('CHAT_API_KEY', 'unit_test_key')
 
     const res = await app.request('/api/chat', {
       method: 'POST',
@@ -125,8 +129,6 @@ describe('App', () => {
       },
       body: JSON.stringify({
         messages: [{ role: 'user', content: 'テストメッセージ' }],
-        model: 'gpt-4.1-nano',
-        stream: true,
       }),
     })
 
