@@ -16,7 +16,7 @@ const app = new Hono()
 
 // OpenAIの Chat Completion APIのリクエストに準拠
 const chatRequestSchema = z.object({
-  model: z.string().min(1).optional(),
+  model: z.string().optional(),
   messages: z
     .object({
       role: z.enum(['user', 'assistant', 'system']),
