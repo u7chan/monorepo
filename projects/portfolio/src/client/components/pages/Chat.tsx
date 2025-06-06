@@ -687,7 +687,7 @@ export const Chat: FC = () => {
   return (
     <form ref={formRef} onSubmit={handleSubmit}>
       <div
-        className={`absolute transition-opacity duration-200 ease-in ${mobile ? ' top-12' : 'top-2'} ${loading ? 'opacity-0' : 'opacity-100'}`}
+        className={`absolute top-2 transition-opacity duration-200 ease-in ${loading ? 'opacity-0' : 'opacity-100'}`}
       >
         <div className='relative top-4 left-4 flex items-center gap-2'>
           <button
@@ -707,7 +707,7 @@ export const Chat: FC = () => {
         </div>
       </div>
       <div
-        className={`fixed ${mobile ? ' top-30 left-4' : 'top-18 left-60 '} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
+        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
