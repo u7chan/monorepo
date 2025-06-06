@@ -205,7 +205,7 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
       </div>
       <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
       {isMermaid && (
-        <div className='mt-2 rounded-md bg-white p-2'>
+        <div className='mt-4 mb-1 rounded-md bg-white p-2'>
           <code ref={mermaidRef} data-name='mermaid' />
         </div>
       )}
