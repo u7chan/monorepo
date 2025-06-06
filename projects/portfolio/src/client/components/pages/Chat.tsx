@@ -1,6 +1,8 @@
 import { hc } from 'hono/client'
+import mermaid from 'mermaid'
 import React, {
   useEffect,
+  useCallback,
   useRef,
   useState,
   useMemo,
@@ -156,9 +158,16 @@ type MarkdownCodeBlockProps = React.HTMLAttributes<HTMLElement> & {
   children?: React.ReactNode | string
 }
 
+const randomid = () => Number.parseInt(String(Math.random() * 1e15), 10).toString(36)
+
 function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
   const [copied, setCopied] = useState(false)
+  const demoid = useRef(`dome${randomid()}`)
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const code =
+    typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
   const language = className?.split('-')[1]
+  const isMermaid = className && /^language-mermaid/.test(className.toLocaleLowerCase())
   if (typeof children !== 'string' || !language) {
     return <code>{children}</code>
   }
@@ -172,6 +181,27 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
     }
     setCopied(false)
   }
+  const reRender = async () => {
+    if (container && isMermaid) {
+      try {
+        const str = await mermaid.render(demoid.current, code)
+        container.innerHTML = str.svg
+      } catch (error) {
+        container.innerHTML = String(error)
+      }
+    }
+  }
+
+  useEffect(() => {
+    reRender()
+  }, [container, isMermaid, code, demoid])
+
+  const refElement = useCallback((node: HTMLDivElement | null) => {
+    if (node !== null) {
+      setContainer(node)
+    }
+  }, [])
+
   return (
     <>
       <div className='flex justify-end'>
@@ -195,6 +225,19 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
         </button>
       </div>
       <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
+      {isMermaid && (
+        <div className='flex justify-end'>
+          <button type='button' className='flex cursor-pointer gap-1 align-center'>
+            <CheckIcon size={18} className='stroke-white' />
+            <span className='text-xs'>プレビュー表示</span>
+          </button>
+        </div>
+      )}
+      {isMermaid && (
+        <div className='my-1 bg-white p-2'>
+          <code ref={refElement} data-name='mermaid' />
+        </div>
+      )}
     </>
   )
 }
