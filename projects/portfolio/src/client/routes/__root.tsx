@@ -1,5 +1,4 @@
 import { Layout } from '@/client/components/Layout'
-import { useResponsive } from '@/client/components/hooks/useResponsive'
 import { AboutIcon } from '@/client/components/svg/AboutIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
 import { DashboardIcon } from '@/client/components/svg/DashboardIcon'
@@ -21,7 +20,6 @@ export const Route = createRootRoute({
 })
 
 function Root() {
-  const { mobile } = useResponsive()
   return (
     <>
       <Layout
@@ -35,7 +33,7 @@ function Root() {
       >
         <Outlet />
       </Layout>
-      {!mobile && <TanStackRouterDevtoolsPanel position='bottom-right' />}
+      <TanStackRouterDevtoolsPanel position='bottom-right' />
     </>
   )
 }

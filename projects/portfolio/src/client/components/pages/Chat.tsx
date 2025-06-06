@@ -16,7 +16,6 @@ import remarkGfm from 'remark-gfm'
 
 import type { AppType } from '@/server/app.d'
 
-import { useResponsive } from '@/client/components/hooks/useResponsive'
 import { ChatInput } from '@/client/components/input/ChatInput'
 import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
 import { ToggleInput } from '@/client/components/input/ToggleInput'
@@ -241,8 +240,6 @@ export const Chat: FC = () => {
   const [bottomChatInputContainerHeight, setbottomChatInputContainerHeight] = useState(0)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-
-  const { mobile } = useResponsive()
 
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
@@ -687,7 +684,7 @@ export const Chat: FC = () => {
   return (
     <form ref={formRef} onSubmit={handleSubmit}>
       <div
-        className={`absolute transition-opacity duration-200 ease-in ${mobile ? ' top-12' : 'top-2'} ${loading ? 'opacity-0' : 'opacity-100'}`}
+        className={`absolute top-2 transition-opacity duration-200 ease-in ${loading ? 'opacity-0' : 'opacity-100'}`}
       >
         <div className='relative top-4 left-4 flex items-center gap-2'>
           <button
@@ -707,7 +704,7 @@ export const Chat: FC = () => {
         </div>
       </div>
       <div
-        className={`fixed ${mobile ? ' top-30 left-4' : 'top-18 left-60 '} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
+        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
@@ -810,9 +807,7 @@ export const Chat: FC = () => {
         <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div
-                className={`text-center font-bold text-2xl text-gray-700 sm:text-3xl ${mobile ? 'mt-14' : 'mb-2'}`}
-              >
+              <div className={'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'}>
                 お手伝いできることはありますか？
               </div>
               <div className='hidden sm:block'>
@@ -916,9 +911,7 @@ export const Chat: FC = () => {
         className={emptyMessage ? 'hidden' : 'h-calc overflow-y-auto'}
         style={
           {
-            '--height': mobile
-              ? `${56 + bottomChatInputContainerHeight}px`
-              : `${bottomChatInputContainerHeight}px`,
+            '--height': `${bottomChatInputContainerHeight}px`,
           } as never
         }
       >
@@ -1006,11 +999,9 @@ export const Chat: FC = () => {
                     )}
                     {message.role === 'assistant' && (
                       <div className='flex'>
-                        {!mobile && (
-                          <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                            <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
-                          </div>
-                        )}
+                        <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                          <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+                        </div>
                         <div className='message group ml-2 text-left'>
                           {message.reasoning_content && (
                             <div className='whitespace-pre-line text-gray-400 text-xs'>
@@ -1053,11 +1044,9 @@ export const Chat: FC = () => {
               })}
               {loading && (
                 <div className='flex align-item'>
-                  {!mobile && (
-                    <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
-                      <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
-                    </div>
-                  )}
+                  <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center '>
+                    <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+                  </div>
                   {stream ? (
                     <div className='message ml-2 text-left'>
                       {stream.reasoningContent && (
