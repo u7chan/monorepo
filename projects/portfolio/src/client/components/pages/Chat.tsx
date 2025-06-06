@@ -19,7 +19,7 @@ import type { AppType } from '@/server/app.d'
 import { ChatInput } from '@/client/components/input/ChatInput'
 import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
 import { ToggleInput } from '@/client/components/input/ToggleInput'
-import { useMermaid } from '@/client/components/markdown/useMermaid'
+// import { useMermaid } from '@/client/components/markdown/useMermaid'
 import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
 import { CheckIcon } from '@/client/components/svg/CheckIcon'
@@ -164,7 +164,7 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
 
   const language = className?.split('-')[1]
 
-  const { isMermaid, mermaidRef } = useMermaid(code, className)
+  // const { isMermaid, mermaidRef } = useMermaid(code, className)
 
   if (typeof children !== 'string' || !language) {
     return <code>{children}</code>
@@ -204,11 +204,11 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
         </button>
       </div>
       <SyntaxHighlighter language={language}>{children}</SyntaxHighlighter>
-      {isMermaid && (
+      {/* {isMermaid && (
         <div className='mt-4 mb-1 rounded-md bg-white p-2'>
           <code ref={mermaidRef} data-name='mermaid' />
         </div>
-      )}
+      )} */}
     </>
   )
 }
