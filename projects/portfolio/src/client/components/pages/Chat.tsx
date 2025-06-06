@@ -916,9 +916,7 @@ export const Chat: FC = () => {
         className={emptyMessage ? 'hidden' : 'h-calc overflow-y-auto'}
         style={
           {
-            '--height': mobile
-              ? `${56 + bottomChatInputContainerHeight}px`
-              : `${bottomChatInputContainerHeight}px`,
+            '--height': `${bottomChatInputContainerHeight}px`,
           } as never
         }
       >
