@@ -71,6 +71,60 @@ john doe
 | みかん  | ¥80     |
 | バナナ  | ¥120    |
 
+#### mermaid形式です。
+
+1. フローチャート図の例
+
+```mermaid
+flowchart LR
+
+A[Hard] -->|Text| B(Round)
+B --> C{Decision}
+C -->|One| D[Result 1]
+C -->|Two| E[Result 2]
+```
+
+2. シーケンス図の例
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Browser
+    participant Server
+    participant Database
+
+    User->>Browser: Open webpage
+    Browser->>Server: Send HTTP request
+    Server->>Database: Query user data
+    Database-->>Server: Return user data
+    Server-->>Browser: Send webpage with data
+    Browser-->>User: Display webpage
+```
+
+3. ERD（エンティティリレーションシップ図）の例
+
+```mermaid
+erDiagram
+    CUSTOMER {
+        int id
+        string name
+        string email
+    }
+    ORDER {
+        int id
+        date orderDate
+        float totalAmount
+    }
+    PRODUCT {
+        int id
+        string name
+        float price
+    }
+    CUSTOMER ||--o{ ORDER: places
+    ORDER ||--|{ ORDER_ITEM: contains
+    PRODUCT ||--o{ ORDER_ITEM: included_in
+```
+
 #### Pythonのコードブロックです。
 
 ```python
