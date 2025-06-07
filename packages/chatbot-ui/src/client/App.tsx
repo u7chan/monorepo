@@ -5,8 +5,8 @@ import {
   MessageArea,
   MessageAreaScroll,
   initializeTheme,
-  useChat,
 } from '#/chatbot-ui'
+import { useChat } from './useChat'
 
 // テーマを初期化
 initializeTheme()
