@@ -1,9 +1,15 @@
-import { ChatTextInput } from '#/components/ChatTextInput'
-import { Header } from '#/components/Header'
-import { MarkdownRenderer } from '#/components/MarkdownRenderer'
-import { MessageArea } from '#/components/MessageArea'
-import { MessageAreaScroll } from '#/components/MessageAreaScroll'
-import { useChat } from '#/hooks/useChat'
+import {
+  ChatTextInput,
+  Header,
+  MarkdownRenderer,
+  MessageArea,
+  MessageAreaScroll,
+  initializeTheme,
+} from '#/chatbot-ui'
+import { useChat } from './useChat'
+
+// テーマを初期化
+initializeTheme()
 
 export function App() {
   const chat = useChat()

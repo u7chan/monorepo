@@ -53,7 +53,7 @@ FROM base AS final
 
 ENV NODE_ENV=production
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/build ./build
 
 RUN apk --no-cache add tzdata \
     && cp /usr/share/zoneinfo/Asia/Tokyo /etc/localtime \
@@ -63,4 +63,4 @@ RUN apk --no-cache add tzdata \
 USER u7chan
 EXPOSE 3000
 
-CMD ["node", "./dist/index.js"]
+CMD ["node", "./build/index.js"]
