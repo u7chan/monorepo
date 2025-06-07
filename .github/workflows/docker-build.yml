@@ -1,4 +1,5 @@
-name: Docker Build on Project Changes
+# Docker Build on Project Changes
+name: CD
 
 on:
   push:
@@ -13,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # 最新の2つのコミットをフェッチ
+          fetch-depth: 2 # 最新の2つのコミットをフェッチ (PRからのマージコミットが取れれば良い)
 
       - name: Get Changed Directories
         uses: ./.github/actions/get-changed-directories
