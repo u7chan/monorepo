@@ -149,11 +149,15 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     })
 
     // ストリームのチャンク処理
+    let preChunkType = ''
     for await (const chunk of result.fullStream) {
       if (aborted) {
         break
       }
-      console.log(`chunk.type: ${chunk.type}`)
+      if (preChunkType !== chunk.type) {
+        preChunkType = chunk.type
+        console.log(`chunk.type: ${chunk.type}`)
+      }
       switch (chunk.type) {
         case 'step-start':
           console.log(`-> step (${numStep})`)
