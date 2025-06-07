@@ -1,7 +1,7 @@
 {
   "name": "chatbot-ui",
   "type": "module",
-  "main": "lib/index.js",
+
   "scripts": {
     "dev": "DEV_MODE=true dotenv vite",
     "build": "vite build --mode client && vite build --mode server",

@@ -1,6 +1,6 @@
 import { hc } from 'hono/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Message } from '#/components/MessageArea'
+import type { Message } from '#/chatbot-ui/components/MessageArea'
 import type { AppType } from '#/server/app'
 
 const client = hc<AppType>('/')

@@ -1,8 +1,8 @@
 import { ArrowUp, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Button } from '#/components/ui/button'
-import { Textarea } from '#/components/ui/textarea'
+import { Button } from '#/chatbot-ui/components/ui/button'
+import { Textarea } from '#/chatbot-ui/components/ui/textarea'
 
 // テキストエリアの高さ定数
 const MIN_HEIGHT = 56 // 最小高さ (px)
