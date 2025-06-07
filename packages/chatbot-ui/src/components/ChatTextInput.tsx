@@ -7,12 +7,11 @@ import { Textarea } from '#/components/ui/textarea'
 // テキストエリアの高さ定数
 const MIN_HEIGHT = 56 // 最小高さ (px)
 const MAX_HEIGHT = 120 // 最大高さ (px)
-const _MAX_LINES = 5 // 自動拡張する最大行数
 
 interface ChatTextInputProps {
   placeholder?: string
   loading?: boolean
-  onSendMessage: (message: string) => void
+  onSendMessage?: (message: string) => void
   onSendMessageCancel?: () => void
 }
 
@@ -59,7 +58,7 @@ export function ChatTextInput({
     if (!inputMessage.trim() || composition) {
       return
     }
-    onSendMessage(inputMessage)
+    onSendMessage?.(inputMessage)
     setInputMessage('')
   }
 
