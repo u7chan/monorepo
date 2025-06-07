@@ -18,6 +18,7 @@ export default defineConfig(({ command, mode }) => {
           return {
             plugins: [tsconfigPaths()],
             build: {
+              // minify: false,
               lib: {
                 entry: entry.lib,
                 name: 'chatbot-ui',
@@ -25,11 +26,12 @@ export default defineConfig(({ command, mode }) => {
                 formats: ['es'],
               },
               rollupOptions: {
-                external: ['react', 'react-dom'],
+                external: ['react', 'react-dom', 'react/jsx-runtime'],
                 output: {
                   globals: {
                     react: 'React',
                     'react-dom': 'ReactDOM',
+                    'react/jsx-runtime': 'jsxRuntime',
                   },
                 },
               },
