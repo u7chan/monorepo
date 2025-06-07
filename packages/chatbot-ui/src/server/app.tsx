@@ -10,7 +10,7 @@ import { renderer } from '#/server/renderer'
 
 const app = new Hono<Env>()
   .use(logger())
-  .use('/static/*', serveStatic({ root: './dist' }))
+  .use('/static/*', serveStatic({ root: './build' }))
   .use(renderer)
   .post(
     '/api/chat',
