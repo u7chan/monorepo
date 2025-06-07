@@ -1,4 +1,5 @@
-name: Pull Request Check on Project Changes
+# Pull Request Check on Project Changes
+name: CI
 
 on:
   pull_request:
