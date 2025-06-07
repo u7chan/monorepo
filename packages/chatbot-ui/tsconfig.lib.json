@@ -7,5 +7,11 @@
     "outDir": "./dist/types"
   },
   "include": ["src/chatbot-ui/**/*"],
-  "exclude": ["src/server/**/*", "src/client/**/*", "node_modules", "dist"]
+  "exclude": [
+    "src/server/**/*",
+    "src/client/**/*",
+    "node_modules",
+    "dist",
+    "build"
+  ]
 }

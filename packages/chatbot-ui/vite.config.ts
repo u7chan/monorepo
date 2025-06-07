@@ -39,7 +39,7 @@ export default defineConfig(({ command, mode }) => {
           return {
             plugins: [tsconfigPaths()],
             build: {
-              outDir: 'dist/static',
+              outDir: 'build/static',
               rollupOptions: {
                 input: entry.client,
                 output: { entryFileNames: 'client.js', assetFileNames: '[name].[ext]' },
@@ -48,7 +48,7 @@ export default defineConfig(({ command, mode }) => {
           }
         case 'server':
           return {
-            plugins: [tsconfigPaths(), build({ entry: entry.server, port })],
+            plugins: [tsconfigPaths(), build({ entry: entry.server, port, outputDir: 'build' })],
           }
       }
       throw new Error(`Invalid build mode: ${mode}`)
