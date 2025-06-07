@@ -1,7 +1,7 @@
 import { Moon, Sun } from 'lucide-react'
 
-import { Button } from '#/chatbot-ui/components/ui/button'
-import { useTheme } from '#/chatbot-ui/hooks/useTheme'
+import { useTheme } from '../hooks/useTheme'
+import { Button } from './ui/button'
 
 interface ThemeToggleProps {
   showLabel?: boolean

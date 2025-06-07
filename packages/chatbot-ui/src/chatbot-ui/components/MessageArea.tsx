@@ -1,7 +1,8 @@
 import { Loader2 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { Avatar, AvatarFallback, AvatarImage } from '#/chatbot-ui/components/ui/avatar'
-import { Card, CardContent } from '#/chatbot-ui/components/ui/card'
+
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar'
+import { Card, CardContent } from './ui/card'
 
 // メッセージの型定義
 export type Message = {
