@@ -89,6 +89,11 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
   const tools = await fetchMcpToolsFromServers(mcpServerUrls)
 
   // AI SDKを使用してテキストをストリーミング
+  console.log('Stream Start:', {
+    model: useModel,
+    temperature: req.temperature,
+    maxTokens: req.maxTokens,
+  })
   const result = streamText({
     model: litellm(useModel),
     messages: req.messages,
@@ -117,7 +122,7 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     const created = Math.floor(Date.now() / 1000)
 
     const sendChunk = async (
-      delta: { content?: string },
+      delta: { content?: string; reasoning_content?: string },
       finish_reason?: string,
       usage?: {
         prompt_tokens: number
@@ -149,14 +154,16 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
     })
 
     // ストリームのチャンク処理
-    let preChunkType = ''
+    let chunkType = ''
+    let contentLenght = 0
+    let reasoningContentLenght = 0
     for await (const chunk of result.fullStream) {
       if (aborted) {
         break
       }
-      if (preChunkType !== chunk.type) {
-        preChunkType = chunk.type
-        console.log(`chunk.type: ${chunk.type}`)
+      if (chunkType !== chunk.type) {
+        chunkType = chunk.type
+        console.log(`chunkType: ${chunkType}`)
       }
       switch (chunk.type) {
         case 'step-start':
@@ -174,18 +181,29 @@ app.post('/api/chat/completions', sValidator('json', chatRequestSchema), async (
         // case 'tool-result':
         //   console.log(`<- ${chunk.toolName}`)
         //   break
+        case 'reasoning':
+          reasoningContentLenght += chunk.textDelta.length
+          sendChunk({ reasoning_content: chunk.textDelta })
+          break
         case 'text-delta':
+          contentLenght += chunk.textDelta.length
           sendChunk({ content: chunk.textDelta })
           break
         case 'finish':
           console.log({
+            content_lenght: contentLenght,
+            reasoning_content_lenght: reasoningContentLenght,
             finish_reason: chunk.finishReason,
             usage: chunk.usage,
           })
           sendChunk({}, chunk.finishReason, {
-            prompt_tokens: chunk.usage.promptTokens,
-            completion_tokens: chunk.usage.completionTokens,
-            total_tokens: chunk.usage.totalTokens,
+            prompt_tokens: Number.isNaN(chunk.usage.promptTokens) ? 0 : chunk.usage.promptTokens,
+            completion_tokens: Number.isNaN(chunk.usage.completionTokens)
+              ? 0
+              : chunk.usage.completionTokens,
+            total_tokens: Number.isNaN(chunk.usage.completionTokens)
+              ? 0
+              : chunk.usage.completionTokens,
           })
           break
       }
