@@ -46,6 +46,7 @@
         "wix.vscode-import-cost",
         "github.vscode-pull-request-github",
         "saoudrizwan.claude-dev",
+        "cweijan.vscode-mysql-client2",
         // for Tailwind CSS --
         "shardulm94.trailing-spaces",
         // "emeraldwalk.RunOnSave",
