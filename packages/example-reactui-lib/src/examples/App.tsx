@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { TextInput } from './ui/components/TextInput'
-import { Button } from './ui/components/Button'
+import { TextInput } from '../ui/components/TextInput'
+import { Button } from '../ui/components/Button'
 
 export function App() {
   const [combinedText, setCombinedText] = useState('default')
