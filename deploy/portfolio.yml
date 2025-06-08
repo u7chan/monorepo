@@ -13,3 +13,17 @@ services:
       - .env.secret
     environment:
       SERVER_PORT: 3000
+
+  portfolio-db:
+    container_name: portfolio-db
+    image: postgres:17-alpine
+    restart: always
+    ports:
+      - 7000:5432
+    env_file:
+      - .env.secret
+    volumes:
+      - portfolio-db-data:/var/lib/postgresql/data
+
+volumes:
+  portfolio-db-data:
