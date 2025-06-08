@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationDir": "./dist",
+    "emitDeclarationOnly": true,
+    "outDir": "./dist",
+    "declarationMap": false
+  },
+  "include": [
+    "src/index.ts",
+    "src/ui/components/Button.tsx",
+    "src/ui/components/TextInput.tsx"
+  ],
+  "exclude": [
+    "src/**/*.test.*",
+    "src/**/*.spec.*"
+  ]
+}
