@@ -41,35 +41,61 @@
 
 `インラインコード`
 
+#### コードブロックです。
+
 ```
 コードブロックです。
 複数行にわたることもできます。
 ```
 
+#### 横に長いインラインコードです。
+
 ```
 Dear Team,
 
-I hope this message finds you well. I wanted to take a moment to express my appreciation for all the hard work and dedication each of you has shown over the past few months. Our team has faced numerous challenges, yet your resilience and commitment have been truly inspiring. As we continue to work towards our goals, I encourage everyone to maintain open communication and support one another. Together, we can achieve great success and overcome any obstacles that come our way. Thank you for your ongoing efforts and enthusiasm. I look forward to a productive and prosperous future with all of you.
+Thank you all for your hard work and dedication these past months. Despite challenges, your resilience has been inspiring. Let’s keep supporting each other and communicating openly. Together, we can achieve great success. I appreciate your efforts and look forward to a productive future.
 
 Best regards,
 john doe
 ```
 
-[リンクテキスト](https://example.com)
+#### リンクです。
+
+1. 通常リンク
+
+    [example](https://example.com)
+
+1. アンカーリンク
+
+    [見出し1へ](#見出し1)
+
+1. 自動リンク
+
+    https://www.google.com
+
+1. メールリンク
+
+    <mailto:example@example.com>
 
 #### 画像です。
 
-![画像の代替テキスト](https://picsum.photos/200)
+1. マークダウン形式
+
+    ![画像の代替テキスト](https://picsum.photos/200)
+
+1. imgタグ形式
+
+    <img src="https://picsum.photos/200" width="50%" />
 
 ---
 
 #### テーブルの例です。
 
-| 商品名  | 価格    |
-|---------|---------|
-| りんご  | ¥100    |
-| みかん  | ¥80     |
-| バナナ  | ¥120    |
+| 名前       | 説明                              | 備考                   |
+|------------|---------------------------------|------------------------|
+| 商品A      | 価格は1000円<br>送料無料         | 使用方法は `簡単`          |
+| 商品B      | 在庫あり<br>発送まで2日          | 注意事項は `要確認`          |
+| 商品C      | レビュー多数<br>人気商品          | 評価は `高評価`            |
 
 #### mermaid形式です。
 
