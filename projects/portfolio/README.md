@@ -81,3 +81,29 @@
     --env SERVER_PORT=$SERVER_PORT \
     portfolio
   ```
+
+## Database Migration
+
+- Schema creation (only during the initial setup):
+
+  ```sh
+  CREATE DATABASE portfolio;
+  ```
+
+- Create migration:
+
+  ```sh
+  bun run db:generate
+  ```
+
+- Apply migration:
+
+  ```sh
+  bun run db:migrate
+  ```
+
+- Run Seeders:
+
+  ```sh
+  bun run db:seed:users
+  ```
