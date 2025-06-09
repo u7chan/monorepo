@@ -6,12 +6,26 @@ type HonoEnv = {
     Bindings: Env;
 };
 declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
+    "api/signin": {
+        $post: {
+            input: {
+                json: {
+                    email: string;
+                    password: string;
+                };
+            };
+            output: {};
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
     "/api/profile": {
         $post: {
             input: {
                 form: {
-                    name: string;
                     email: string;
+                    name: string;
                 };
             };
             output: {
