@@ -68,6 +68,9 @@ const app = new Hono<HonoEnv>()
     async (c) => {
       const { email, password } = c.req.valid('json')
       const { COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = env<Env>(c)
+      if (password !== 'test') {
+        return c.json({}, 401)
+      }
       const cookieExpiresSec = parseDurationToSeconds(COOKIE_EXPIRES)
       await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, {
         path: '/',
