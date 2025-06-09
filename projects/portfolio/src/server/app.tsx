@@ -53,6 +53,20 @@ const MessageSchema = z.union([
 
 const app = new Hono<HonoEnv>()
   .post(
+    'api/signin',
+    sValidator(
+      'json',
+      z.object({
+        email: z.string().email(),
+        password: z.string().min(1),
+      }),
+    ),
+    (c) => {
+      const { email, password } = c.req.valid('json')
+      return c.json({})
+    },
+  )
+  .post(
     '/api/profile',
     sValidator(
       'form',
