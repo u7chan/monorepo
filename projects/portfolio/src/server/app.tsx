@@ -3,7 +3,7 @@ import path from 'node:path'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
-import { getSignedCookie, setSignedCookie } from 'hono/cookie'
+import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import OpenAI from 'openai'
@@ -360,15 +360,20 @@ const app = new Hono<HonoEnv>()
           } as OpenAI.ChatCompletion)
     },
   )
-  .get('*', (c) => {
-    const { NODE_ENV } = env<Env>(c)
+  .get('*', async (c) => {
+    const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'
+    const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+    if (!email) {
+      deleteCookie(c, COOKIE_NAME)
+    }
     return c.html(
       renderToString(
         <html lang='ja'>
           <head>
             <meta charSet='utf-8' />
-            <meta content='width=device-width, initial-scale=1' name='viewport' />
+            <meta name='viewport' content='width=device-width, initial-scale=1' />
+            <meta name='props' content={`${JSON.stringify({ email })}`} />
             <title>Portfolio</title>
             <link rel='icon' href={prod ? '/static/favicon.ico' : 'favicon.ico'} />
             <link rel='stylesheet' href={prod ? '/static/main.css' : '/src/client/main.css'} />
