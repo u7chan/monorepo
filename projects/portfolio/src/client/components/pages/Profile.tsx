@@ -79,7 +79,7 @@ export const Profile: FC = () => {
       </div>
       <button
         type='submit'
-        className='w-full rounded-sm bg-primary-800 p-2 text-white hover:bg-primary-700'
+        className='w-full cursor-pointer rounded-sm bg-primary-800 p-2 text-white hover:bg-primary-700'
       >
         Save
       </button>
