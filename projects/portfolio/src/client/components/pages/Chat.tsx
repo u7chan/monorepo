@@ -179,6 +179,7 @@ export const Chat: FC = () => {
   } | null>(null)
   const [chatResults, setChatResults] = useState<{
     model?: string
+    finish_reason: string
     usage?: {
       promptTokens: number
       completionTokens: number
@@ -401,6 +402,7 @@ export const Chat: FC = () => {
         ])
         setChatResults({
           model: result.model,
+          finish_reason: result.finish_reason,
           usage: result.usage,
         })
       }
@@ -792,10 +794,13 @@ export const Chat: FC = () => {
                   )}
                 </div>
               )}
-              {!loading && chatResults?.usage && (
+              {!loading && chatResults && (
                 <div className='mt-2 flex justify-end gap-1'>
                   <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
                     <span>{chatResults.model}</span>
+                  </div>
+                  <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                    <span>{chatResults.finish_reason}</span>
                   </div>
                   <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
                     <div>
@@ -990,6 +995,7 @@ const sendChatCompletion = async (req: {
   onStream?: (stream: { content: string; reasoning_content: string }) => void
 }): Promise<{
   model: string
+  finish_reason: string
   message: {
     content: string
     reasoning_content: string
@@ -1004,6 +1010,7 @@ const sendChatCompletion = async (req: {
     content: '',
     reasoning_content: '',
   }
+  let finish_reason = ''
   let usage: {
     prompt_tokens: number
     completion_tokens: number
@@ -1084,13 +1091,20 @@ const sendChatCompletion = async (req: {
             }
             try {
               const parsedChunk = JSON.parse(jsonStr) as {
-                choices: { delta: { content: string; reasoning_content?: string } }[]
+                choices: {
+                  delta: { content: string; reasoning_content?: string }
+                  finish_reason: string
+                }[]
                 model?: string
                 usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
               }
               // Append chunk to result
               result.reasoning_content += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
               result.content += parsedChunk.choices.at(0)?.delta?.content || ''
+              const _finish_reason = parsedChunk.choices.at(0)?.finish_reason || ''
+              if (_finish_reason) {
+                finish_reason = _finish_reason
+              }
               if (parsedChunk?.model) {
                 responseModel = parsedChunk.model
               }
@@ -1123,6 +1137,7 @@ const sendChatCompletion = async (req: {
   }
   return {
     model: responseModel,
+    finish_reason,
     message: result,
     usage: usage
       ? {
