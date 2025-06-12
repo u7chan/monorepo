@@ -17,6 +17,11 @@ import remarkGfm from 'remark-gfm'
 import type { AppType } from '@/server/app.d'
 
 import { ChatInput } from '@/client/components/chat/ChatInput'
+import { PromptTemplate, type TemplateInput } from '@/client/components/chat/PromptTeplate'
+import {
+  readFromLocalStorage,
+  saveToLocalStorage,
+} from '@/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
 import { ToggleInput } from '@/client/components/input/ToggleInput'
 import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
@@ -30,92 +35,7 @@ import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
 import { StopIcon } from '@/client/components/svg/StopIcon'
 import { UploadIcon } from '@/client/components/svg/UploadIcon'
 
-type PromptTemplate = {
-  id: string
-  inputType: 'text' | 'textarea'
-  title: string
-  placeholder: string
-  prompt: string
-}
-
-const promptTemplates: PromptTemplate[] = [
-  {
-    id: 'translate_en',
-    inputType: 'textarea',
-    title: '🇺🇸 英語へ翻訳',
-    placeholder: '例: これを英語で言うと？',
-    prompt: `
-You are an English translation assistant.
-Please accurately and naturally translate the user's input text from Japanese into English.
-Use the very last user input in the system prompt.`.trim(),
-  },
-  {
-    id: 'translate_ja',
-    inputType: 'textarea',
-    title: '🇯🇵 日本語へ翻訳',
-    placeholder: '例: How do you say this in Japanese?',
-    prompt: `
-You are a Japanese translation assistant.
-Please accurately and naturally translate the user's input text into Japanese.
-Use the very last user input in the system prompt.`.trim(),
-  },
-  {
-    id: 'commit_message',
-    inputType: 'text',
-    title: '📝 コミットメッセージを作成',
-    placeholder: '例: ユーザー登録機能を追加',
-    prompt: `
-You are a Assistant to create commit messages.
-Summarizes the input and produces an English sentence of appropriate length for the commit message.
-Please enclose the English sentences in triple backtick code blocks when outputting.
-Be sure to translate the output English into Japanese again with a new line and output it in “Japanese”.
-Use the very last user input in the system prompt.`.trim(),
-  },
-  {
-    id: 'text_summarization',
-    inputType: 'textarea',
-    title: '✍️ 文章を校正',
-    placeholder: '例: 入力した文章を校正します',
-    prompt: `
-You are an expert proofreader.
-Please carefully edit the following text for spelling, grammar, punctuation, and sentence structure errors.
-Correct any awkward or unnatural phrasing and improve clarity while preserving the original meaning and intent.
-Provide the revised, polished version of the entire text.
-Use the very last user input in the system prompt.`.trim(),
-  },
-]
-
 const client = hc<AppType>('/')
-
-type Settings = {
-  model: string
-  baseURL: string
-  apiKey: string
-  mcpServerURLs: string
-  temperature: string
-  temperatureEnabled: boolean
-  maxTokens: string
-  fakeMode: boolean
-  markdownPreview: boolean
-  streamMode: boolean
-  interactiveMode: boolean
-  templateModels: {
-    [key: string]: {
-      model: string
-    }
-  }
-}
-
-function readFromLocalStorage(): Partial<Settings> {
-  const key = 'portfolio.chat-settings'
-  return JSON.parse(localStorage.getItem(key) || '{}')
-}
-
-function saveToLocalStorage(settings: Partial<Settings>) {
-  const key = 'portfolio.chat-settings'
-  const newSettings = { ...readFromLocalStorage(), ...settings }
-  localStorage.setItem(key, JSON.stringify(newSettings))
-}
 
 async function copyToClipboard(text: string) {
   if (navigator.clipboard) {
@@ -271,24 +191,8 @@ export const Chat: FC = () => {
     } | null
   } | null>(null)
   const [input, setInput] = useState('')
-  const [templateInput, setTemplateInput] = useState<{
-    model: string
-    prompt: string
-    content:
-      | string
-      | Array<
-          | {
-              type: 'text'
-              text: string
-            }
-          | {
-              type: 'image_url'
-              image_url: {
-                url: string
-              }
-            }
-        >
-  } | null>(null)
+  const [templateInput, setTemplateInput] = useState<TemplateInput | null>(null)
+
   const [uploadImages, setUploadImages] = useState<string[]>([])
   const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
   const [temperature, setTemperature] = useState<number>(
@@ -306,6 +210,166 @@ export const Chat: FC = () => {
   const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+
+  const sendChatCompletion = async (
+    header: {
+      apiKey: string
+      baseURL: string
+      mcpServerURLs: string
+    },
+    mode: string,
+    message: Message[],
+    temperature?: number,
+    maxTokens?: number,
+  ) => {
+    setShowMenu(false)
+    setLoading(true)
+    setMessages(message)
+    setInput('')
+    setUploadImages([])
+    setTextAreaRows(MIN_TEXT_LINE_COUNT)
+    setChatResults(null)
+
+    const result = {
+      content: '',
+      reasoningContent: '',
+    }
+    let usage: {
+      prompt_tokens: number
+      completion_tokens: number
+      total_tokens: number
+    } | null = null
+    let model = 'N/A'
+
+    // Call the Chat API
+    abortControllerRef.current = new AbortController()
+
+    // TODO: [!] Cognitive Complexity
+    try {
+      const res = await client.api.chat.$post(
+        {
+          header: {
+            'api-key': header.apiKey,
+            'base-url': header.baseURL,
+            'mcp-server-urls': header.mcpServerURLs,
+          },
+          json: {
+            messages,
+            model,
+            stream: streamMode,
+            temperature,
+            max_tokens: maxTokens,
+            stream_options: streamMode
+              ? {
+                  include_usage: true,
+                }
+              : undefined,
+          },
+        },
+        { init: { signal: abortControllerRef.current.signal } },
+      )
+      if (!res.ok) {
+        const error = (await res.json()) as unknown as { message?: string }
+        result.content = error?.message || JSON.stringify(error)
+      } else {
+        const nonStream = res.headers.get('Content-Type') === 'application/json'
+        if (nonStream) {
+          const data = (await res.json()) as unknown as {
+            choices: { message: { content: string; reasoning_content?: string } }[]
+            model?: string
+            usage?: {
+              prompt_tokens: number
+              completion_tokens: number
+              total_tokens: number
+            }
+          }
+          result.reasoningContent = data.choices[0].message?.reasoning_content || ''
+          result.content = data.choices[0].message.content
+          model = data?.model || 'N/A'
+          usage = data?.usage ?? null
+        } else {
+          const reader = res.body?.getReader()
+          if (!reader) {
+            throw new Error('Failed to get reader from response body.')
+          }
+          const decoder = new TextDecoder('utf-8')
+          let buffer = ''
+          let running = true
+          while (running) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            while (running) {
+              const idx = buffer.indexOf('\n')
+              if (idx === -1) break
+
+              const line = buffer.slice(0, idx).trim()
+              buffer = buffer.slice(idx + 1)
+              if (!line.startsWith('data: ')) continue
+
+              const jsonStr = line.replace(/^data:\s*/, '')
+              if (jsonStr === '[DONE]') {
+                console.log('Stream completed.')
+                running = false
+                break
+              }
+              try {
+                const parsedChunk = JSON.parse(jsonStr) as {
+                  choices: { delta: { content: string; reasoning_content?: string } }[]
+                  model?: string
+                  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+                }
+                // Append chunk to result
+                result.reasoningContent += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
+                result.content += parsedChunk.choices.at(0)?.delta?.content || ''
+                if (parsedChunk?.model) {
+                  model = parsedChunk.model
+                }
+                if (parsedChunk?.usage) {
+                  usage = parsedChunk.usage
+                }
+                setStream({
+                  content: result.content ? `${result.content}●` : '',
+                  reasoningContent: result.reasoningContent,
+                })
+              } catch (e) {
+                console.error('JSON parse error:', e)
+                running = false
+                break
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        // Stream canceled
+      } else {
+        throw e
+      }
+    }
+    if (result.content) {
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        {
+          role: 'assistant',
+          content: result.content,
+          reasoning_content: result.reasoningContent || '',
+        },
+      ])
+      setChatResults({
+        model,
+        usage: usage && {
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens,
+        },
+      })
+    }
+    setStream(null)
+    setLoading(false)
+  }
 
   useEffect(() => {
     scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
@@ -360,11 +424,6 @@ export const Chat: FC = () => {
 
   const handleClickScrollContainer = () => {
     setShowMenu(false)
-  }
-
-  const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement>, id: string) => {
-    const pre = readFromLocalStorage().templateModels || {}
-    saveToLocalStorage({ templateModels: { ...pre, [id]: { model: event.target.value } } })
   }
 
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
@@ -456,43 +515,18 @@ export const Chat: FC = () => {
       maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
-
+    const options = {
+      interactiveMode,
+      messages,
+      uploadImages,
+    }
     const inputText = form.userInput.trim()
-    if (!inputText && !templateInput) {
+    const newMessages = templateInput
+      ? createTemplateMessage(templateInput, options)
+      : createMessage(inputText, options)
+    if (newMessages.length <= 0) {
       return
     }
-
-    const userMessage: MessageUser = {
-      role: 'user',
-      content:
-        uploadImages.length > 0 && !templateInput
-          ? [
-              {
-                type: 'text' as const,
-                text: inputText,
-              },
-              ...uploadImages.map((image) => ({
-                type: 'image_url' as const,
-                image_url: {
-                  url: image,
-                },
-              })),
-            ]
-          : templateInput
-            ? templateInput.content
-            : inputText,
-    }
-
-    const newMessages: Message[] =
-      messages.length === 0 && templateInput
-        ? [
-            {
-              role: 'system',
-              content: templateInput.prompt,
-            },
-            userMessage,
-          ]
-        : [...messages, userMessage]
 
     setShowMenu(false)
     setLoading(true)
@@ -527,7 +561,7 @@ export const Chat: FC = () => {
             'mcp-server-urls': form.mcpServerURLs,
           },
           json: {
-            messages: interactiveMode ? newMessages : [userMessage],
+            messages: newMessages,
             model: templateInput ? templateInput.model : form.model,
             stream: streamMode,
             temperature: form.temperature,
@@ -668,24 +702,6 @@ export const Chat: FC = () => {
     }
   }
 
-  const handleKeyDownTemplate = (
-    event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-    { id, prompt }: PromptTemplate,
-  ) => {
-    const content = event.currentTarget.value.trim()
-    if (event.key === 'Enter' && !event.shiftKey && content && !composing) {
-      event.preventDefault()
-      if (formRef.current) {
-        setTemplateInput({
-          model: readFromLocalStorage()?.templateModels?.[id]?.model ?? model,
-          prompt,
-          content,
-        })
-        formRef.current.requestSubmit()
-      }
-    }
-  }
-
   const handleChangeComposition = (composition: boolean) => {
     setComposition(composition)
   }
@@ -821,55 +837,12 @@ export const Chat: FC = () => {
               <div className={'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'}>
                 お手伝いできることはありますか？
               </div>
-              <div className='hidden sm:block'>
-                <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
-                  {promptTemplates.map((template) => (
-                    <div
-                      key={template.title}
-                      className='rounded-xl border border-gray-200 bg-white p-4'
-                    >
-                      <div className='mb-2 flex items-center justify-between'>
-                        <div className='line-clamp-2 font-semibold text-gray-700 text-sm'>
-                          {template.title}
-                        </div>
-                        <div className='flex items-center gap-2'>
-                          <div className='text-gray-500 text-xs'>Model</div>
-                          <input
-                            type='text'
-                            spellCheck='false'
-                            className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden'
-                            onChange={(e) => handleChangeTemplateModel(e, template.id)}
-                            defaultValue={
-                              defaultSettings?.templateModels?.[template.id]?.model || model
-                            }
-                          />
-                        </div>
-                      </div>
-                      <p className='text-gray-600'>
-                        {template.inputType === 'text' ? (
-                          <input
-                            type='text'
-                            spellCheck='false'
-                            className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
-                            placeholder={template.placeholder}
-                            onKeyDown={(e) => handleKeyDownTemplate(e, template)}
-                            onCompositionStart={() => handleChangeComposition(true)}
-                            onCompositionEnd={() => handleChangeComposition(false)}
-                          />
-                        ) : (
-                          <textarea
-                            className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
-                            placeholder={template.placeholder}
-                            onKeyDown={(e) => handleKeyDownTemplate(e, template)}
-                            onCompositionStart={() => handleChangeComposition(true)}
-                            onCompositionEnd={() => handleChangeComposition(false)}
-                          />
-                        )}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <PromptTemplate
+                onSubmit={(templateInput) => {
+                  setTemplateInput(templateInput)
+                  formRef?.current?.requestSubmit()
+                }}
+              />
               <ChatInput
                 name='userInput'
                 value={input}
@@ -1087,7 +1060,6 @@ export const Chat: FC = () => {
                   )}
                 </div>
               )}
-
               {!loading && chatResults?.usage && (
                 <div className='mt-2 flex justify-end gap-1'>
                   <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
@@ -1204,4 +1176,56 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
       )}
     </>
   )
+}
+
+const createMessage = (
+  inputText: string,
+  {
+    interactiveMode,
+    messages,
+    uploadImages,
+  }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] },
+): Message[] => {
+  if (!inputText) {
+    return []
+  }
+  const userMessage: MessageUser = {
+    role: 'user',
+    content:
+      uploadImages.length > 0
+        ? [
+            {
+              type: 'text' as const,
+              text: inputText,
+            },
+            ...uploadImages.map((image) => ({
+              type: 'image_url' as const,
+              image_url: {
+                url: image,
+              },
+            })),
+          ]
+        : inputText,
+  }
+  const newMessages: Message[] = [...messages, userMessage]
+  return interactiveMode ? newMessages : [userMessage]
+}
+
+const createTemplateMessage = (
+  templateInput: TemplateInput,
+  { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] },
+): Message[] => {
+  const userMessage: MessageUser = {
+    role: 'user',
+    content: templateInput.content,
+  }
+  const systemMessage: Message = {
+    role: 'system',
+    content: templateInput.prompt,
+  }
+  const newMessages: Message[] =
+    messages.length === 0 && templateInput
+      ? [systemMessage, userMessage]
+      : [...messages, userMessage]
+  return interactiveMode ? newMessages : [systemMessage, userMessage]
 }
