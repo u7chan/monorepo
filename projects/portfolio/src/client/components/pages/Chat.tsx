@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { AppType } from '@/server/app.d'
 
-import { ChatInput } from '@/client/components/input/ChatInput'
+import { ChatInput } from '@/client/components/chat/ChatInput'
 import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
 import { ToggleInput } from '@/client/components/input/ToggleInput'
 import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
