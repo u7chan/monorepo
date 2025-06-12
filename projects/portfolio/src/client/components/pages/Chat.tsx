@@ -19,7 +19,6 @@ import type { AppType } from '@/server/app.d'
 import { ChatInput } from '@/client/components/input/ChatInput'
 import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
 import { ToggleInput } from '@/client/components/input/ToggleInput'
-// import { useMermaid } from '@/client/components/markdown/useMermaid'
 import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
 import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
 import { CheckIcon } from '@/client/components/svg/CheckIcon'
@@ -163,8 +162,6 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
     typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
 
   const language = className?.split('-')[1]
-
-  // const { isMermaid, mermaidRef } = useMermaid(code, className)
 
   if (typeof children !== 'string' || !language) {
     return <code>{children}</code>
