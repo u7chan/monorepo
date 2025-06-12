@@ -367,7 +367,7 @@ export const Chat: FC = () => {
 
     setShowMenu(false)
     setLoading(true)
-    setMessages([...messages, ...params.messages])
+    setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
     setInput('')
     setTemplateInput(null)
     setUploadImages([])
