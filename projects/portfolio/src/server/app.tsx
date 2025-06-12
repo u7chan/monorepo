@@ -338,24 +338,25 @@ const app = new Hono<HonoEnv>()
             if (aborted) {
               return
             }
-            if (req.stream_options?.include_usage) {
-              await stream.writeSSE({
-                data: JSON.stringify({
-                  ...chunkResponse,
-                  choices: [
-                    {
-                      ...chunkResponse.choices[0],
-                      delta: null,
-                    },
-                  ],
-                  usage: {
-                    prompt_tokens: 10,
-                    completion_tokens: 20,
-                    total_tokens: 30,
+            await stream.writeSSE({
+              data: JSON.stringify({
+                ...chunkResponse,
+                choices: [
+                  {
+                    ...chunkResponse.choices[0],
+                    delta: null,
+                    finish_reason: 'stop',
                   },
-                }),
-              })
-            }
+                ],
+                usage: req.stream_options?.include_usage
+                  ? {
+                      prompt_tokens: 10,
+                      completion_tokens: 20,
+                      total_tokens: 30,
+                    }
+                  : undefined,
+              }),
+            })
             await stream.writeSSE({ data: '[DONE]' })
           })
         : c.json({
