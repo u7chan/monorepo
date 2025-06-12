@@ -371,7 +371,7 @@ export const Chat: FC = () => {
 
     setShowMenu(false)
     setLoading(true)
-    setMessages(params.messages)
+    setMessages([...messages, ...params.messages])
     setInput('')
     setTemplateInput(null)
     setUploadImages([])
@@ -949,7 +949,10 @@ const createMessage = (
         : inputText,
   }
   const newMessages: Message[] = [...messages, userMessage]
-  return { model, messages: interactiveMode ? newMessages : [userMessage] }
+  return {
+    model,
+    messages: interactiveMode ? newMessages : [userMessage],
+  }
 }
 
 const createTemplateMessage = (
