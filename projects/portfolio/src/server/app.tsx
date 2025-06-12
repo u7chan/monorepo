@@ -178,7 +178,6 @@ const app = new Hono<HonoEnv>()
                 ),
               )
             }
-
             // マージして新しいヘッダーをセット
             options.headers = {
               ...existingHeaders,
@@ -296,10 +295,7 @@ const app = new Hono<HonoEnv>()
                 reasoning_content: undefined,
               })),
             ]
-            for (const chunk of chunkList) {
-              if (aborted) {
-                break
-              }
+            if (req.max_tokens !== undefined) {
               await stream.writeSSE({
                 data: JSON.stringify({
                   ...chunkResponse,
@@ -308,36 +304,59 @@ const app = new Hono<HonoEnv>()
                       ...chunkResponse.choices[0],
                       delta: {
                         role: 'assistant',
-                        content: chunk.content,
-                        reasoning_content: chunk.reasoning_content,
+                        content: 'Stop👻',
+                        reasoning_content: undefined,
                       },
+                      finish_reason: 'length',
                     },
                   ],
                 }),
               })
-              await stream.sleep(35) // delay
+            } else {
+              for (const chunk of chunkList) {
+                if (aborted) {
+                  break
+                }
+                await stream.writeSSE({
+                  data: JSON.stringify({
+                    ...chunkResponse,
+                    choices: [
+                      {
+                        ...chunkResponse.choices[0],
+                        delta: {
+                          role: 'assistant',
+                          content: chunk.content,
+                          reasoning_content: chunk.reasoning_content,
+                        },
+                      },
+                    ],
+                  }),
+                })
+                await stream.sleep(35) // delay
+              }
             }
             if (aborted) {
               return
             }
-            if (req.stream_options?.include_usage) {
-              await stream.writeSSE({
-                data: JSON.stringify({
-                  ...chunkResponse,
-                  choices: [
-                    {
-                      ...chunkResponse.choices[0],
-                      delta: null,
-                    },
-                  ],
-                  usage: {
-                    prompt_tokens: 10,
-                    completion_tokens: 20,
-                    total_tokens: 30,
+            await stream.writeSSE({
+              data: JSON.stringify({
+                ...chunkResponse,
+                choices: [
+                  {
+                    ...chunkResponse.choices[0],
+                    delta: null,
+                    finish_reason: 'stop',
                   },
-                }),
-              })
-            }
+                ],
+                usage: req.stream_options?.include_usage
+                  ? {
+                      prompt_tokens: 10,
+                      completion_tokens: 20,
+                      total_tokens: 30,
+                    }
+                  : undefined,
+              }),
+            })
             await stream.writeSSE({ data: '[DONE]' })
           })
         : c.json({

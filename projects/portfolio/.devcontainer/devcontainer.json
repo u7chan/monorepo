@@ -19,6 +19,7 @@
         "editor.tabSize": 2,
         "editor.formatOnSave": true,
         "biome.lsp.bin": "./node_modules/.bin/biome",
+        "typescript.preferences.importModuleSpecifier": "non-relative",
         "[typescriptreact]": {
           "editor.defaultFormatter": "biomejs.biome"
         },
