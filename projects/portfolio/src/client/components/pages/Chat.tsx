@@ -180,7 +180,7 @@ export const Chat: FC = () => {
   const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState<{
     content: string
-    reasoningContent?: string
+    reasoning_content?: string
   } | null>(null)
   const [chatResults, setChatResults] = useState<{
     model?: string
@@ -360,6 +360,7 @@ export const Chat: FC = () => {
       messages,
       uploadImages,
     }
+
     const inputText = form.userInput.trim()
     const params = templateInput
       ? createTemplateMessage(templateInput, options)
@@ -370,8 +371,9 @@ export const Chat: FC = () => {
 
     setShowMenu(false)
     setLoading(true)
-    setMessages(options.messages)
+    setMessages(params.messages)
     setInput('')
+    setTemplateInput(null)
     setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
@@ -391,7 +393,6 @@ export const Chat: FC = () => {
       temperature: form.temperature,
       maxTokens: form.maxTokens,
       onStream: (stream) => {
-        console.log('#', stream)
         setStream(stream)
       },
     }).then((result) => {
@@ -429,9 +430,10 @@ export const Chat: FC = () => {
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const content = event.currentTarget.value.trim()
     if (event.key === 'Enter' && !event.shiftKey && !composing) {
       event.preventDefault()
-      if (formRef.current) {
+      if (content && formRef.current) {
         formRef.current.requestSubmit()
       }
     }
@@ -768,9 +770,9 @@ export const Chat: FC = () => {
                   </div>
                   {stream ? (
                     <div className='message ml-2 text-left'>
-                      {stream.reasoningContent && (
+                      {stream.reasoning_content && (
                         <div className='whitespace-pre-line text-gray-400 text-xs'>
-                          {stream.reasoningContent}
+                          {stream.reasoning_content}
                         </div>
                       )}
                       {markdownPreview ? (
@@ -1101,7 +1103,6 @@ const sendChatCompletion = async (req: {
                 content: result.content ? `${result.content}` : '',
                 reasoning_content: result.reasoning_content,
               }
-              console.log('#streamChunk', streamChunk)
               req.onStream?.(streamChunk)
             } catch (e) {
               console.error('JSON parse error:', e)
