@@ -217,7 +217,7 @@ export const Chat: FC = () => {
       baseURL: string
       mcpServerURLs: string
     },
-    mode: string,
+    model: string,
     message: Message[],
     temperature?: number,
     maxTokens?: number,
@@ -239,7 +239,7 @@ export const Chat: FC = () => {
       completion_tokens: number
       total_tokens: number
     } | null = null
-    let model = 'N/A'
+    let responseModel = 'N/A'
 
     // Call the Chat API
     abortControllerRef.current = new AbortController()
@@ -285,7 +285,7 @@ export const Chat: FC = () => {
           }
           result.reasoningContent = data.choices[0].message?.reasoning_content || ''
           result.content = data.choices[0].message.content
-          model = data?.model || 'N/A'
+          responseModel = data?.model || 'N/A'
           usage = data?.usage ?? null
         } else {
           const reader = res.body?.getReader()
@@ -324,7 +324,7 @@ export const Chat: FC = () => {
                 result.reasoningContent += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
                 result.content += parsedChunk.choices.at(0)?.delta?.content || ''
                 if (parsedChunk?.model) {
-                  model = parsedChunk.model
+                  responseModel = parsedChunk.model
                 }
                 if (parsedChunk?.usage) {
                   usage = parsedChunk.usage
@@ -359,7 +359,7 @@ export const Chat: FC = () => {
         },
       ])
       setChatResults({
-        model,
+        model: responseModel,
         usage: usage && {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
@@ -521,161 +521,23 @@ export const Chat: FC = () => {
       uploadImages,
     }
     const inputText = form.userInput.trim()
-    const newMessages = templateInput
+    const params = templateInput
       ? createTemplateMessage(templateInput, options)
-      : createMessage(inputText, options)
-    if (newMessages.length <= 0) {
+      : createMessage(inputText, form.model, options)
+    if (!params) {
       return
     }
-
-    setShowMenu(false)
-    setLoading(true)
-    setMessages(newMessages)
-    setInput('')
-    setTemplateInput(null)
-    setUploadImages([])
-    setTextAreaRows(MIN_TEXT_LINE_COUNT)
-    setChatResults(null)
-
-    const result = {
-      content: '',
-      reasoningContent: '',
-    }
-    let usage: {
-      prompt_tokens: number
-      completion_tokens: number
-      total_tokens: number
-    } | null = null
-    let model = 'N/A'
-
-    // Call the Chat API
-    abortControllerRef.current = new AbortController()
-
-    // TODO: [!] Cognitive Complexity
-    try {
-      const res = await client.api.chat.$post(
-        {
-          header: {
-            'api-key': form.apiKey,
-            'base-url': form.baseURL,
-            'mcp-server-urls': form.mcpServerURLs,
-          },
-          json: {
-            messages: newMessages,
-            model: templateInput ? templateInput.model : form.model,
-            stream: streamMode,
-            temperature: form.temperature,
-            max_tokens: form.maxTokens,
-            stream_options: streamMode
-              ? {
-                  include_usage: true,
-                }
-              : undefined,
-          },
-        },
-        { init: { signal: abortControllerRef.current.signal } },
-      )
-      if (!res.ok) {
-        const error = (await res.json()) as unknown as { message?: string }
-        result.content = error?.message || JSON.stringify(error)
-      } else {
-        const nonStream = res.headers.get('Content-Type') === 'application/json'
-        if (nonStream) {
-          const data = (await res.json()) as unknown as {
-            choices: { message: { content: string; reasoning_content?: string } }[]
-            model?: string
-            usage?: {
-              prompt_tokens: number
-              completion_tokens: number
-              total_tokens: number
-            }
-          }
-          result.reasoningContent = data.choices[0].message?.reasoning_content || ''
-          result.content = data.choices[0].message.content
-          model = data?.model || 'N/A'
-          usage = data?.usage ?? null
-        } else {
-          const reader = res.body?.getReader()
-          if (!reader) {
-            throw new Error('Failed to get reader from response body.')
-          }
-          const decoder = new TextDecoder('utf-8')
-          let buffer = ''
-          let running = true
-          while (running) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            while (running) {
-              const idx = buffer.indexOf('\n')
-              if (idx === -1) break
-
-              const line = buffer.slice(0, idx).trim()
-              buffer = buffer.slice(idx + 1)
-              if (!line.startsWith('data: ')) continue
-
-              const jsonStr = line.replace(/^data:\s*/, '')
-              if (jsonStr === '[DONE]') {
-                console.log('Stream completed.')
-                running = false
-                break
-              }
-              try {
-                const parsedChunk = JSON.parse(jsonStr) as {
-                  choices: { delta: { content: string; reasoning_content?: string } }[]
-                  model?: string
-                  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-                }
-                // Append chunk to result
-                result.reasoningContent += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
-                result.content += parsedChunk.choices.at(0)?.delta?.content || ''
-                if (parsedChunk?.model) {
-                  model = parsedChunk.model
-                }
-                if (parsedChunk?.usage) {
-                  usage = parsedChunk.usage
-                }
-                setStream({
-                  content: result.content ? `${result.content}●` : '',
-                  reasoningContent: result.reasoningContent,
-                })
-              } catch (e) {
-                console.error('JSON parse error:', e)
-                running = false
-                break
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (e instanceof Error && e.name === 'AbortError') {
-        // Stream canceled
-      } else {
-        throw e
-      }
-    }
-    if (result.content) {
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        {
-          role: 'assistant',
-          content: result.content,
-          reasoning_content: result.reasoningContent || '',
-        },
-      ])
-      setChatResults({
-        model,
-        usage: usage && {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-        },
-      })
-    }
-    setStream(null)
-    setLoading(false)
+    await sendChatCompletion(
+      {
+        apiKey: form.apiKey,
+        baseURL: form.baseURL,
+        mcpServerURLs: form.mcpServerURLs,
+      },
+      params.model,
+      params.messages,
+      form.temperature,
+      form.maxTokens,
+    )
   }
 
   const handleChangeInput = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -1180,14 +1042,18 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
 
 const createMessage = (
   inputText: string,
+  model: string,
   {
     interactiveMode,
     messages,
     uploadImages,
   }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] },
-): Message[] => {
+): {
+  model: string
+  messages: Message[]
+} | null => {
   if (!inputText) {
-    return []
+    return null
   }
   const userMessage: MessageUser = {
     role: 'user',
@@ -1208,13 +1074,16 @@ const createMessage = (
         : inputText,
   }
   const newMessages: Message[] = [...messages, userMessage]
-  return interactiveMode ? newMessages : [userMessage]
+  return { model, messages: interactiveMode ? newMessages : [userMessage] }
 }
 
 const createTemplateMessage = (
   templateInput: TemplateInput,
   { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] },
-): Message[] => {
+): {
+  model: string
+  messages: Message[]
+} => {
   const userMessage: MessageUser = {
     role: 'user',
     content: templateInput.content,
@@ -1227,5 +1096,8 @@ const createTemplateMessage = (
     messages.length === 0 && templateInput
       ? [systemMessage, userMessage]
       : [...messages, userMessage]
-  return interactiveMode ? newMessages : [systemMessage, userMessage]
+  return {
+    model: templateInput.model,
+    messages: interactiveMode ? newMessages : [systemMessage, userMessage],
+  }
 }
