@@ -211,166 +211,6 @@ export const Chat: FC = () => {
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
 
-  const sendChatCompletion = async (
-    header: {
-      apiKey: string
-      baseURL: string
-      mcpServerURLs: string
-    },
-    model: string,
-    message: Message[],
-    temperature?: number,
-    maxTokens?: number,
-  ) => {
-    setShowMenu(false)
-    setLoading(true)
-    setMessages(message)
-    setInput('')
-    setUploadImages([])
-    setTextAreaRows(MIN_TEXT_LINE_COUNT)
-    setChatResults(null)
-
-    const result = {
-      content: '',
-      reasoningContent: '',
-    }
-    let usage: {
-      prompt_tokens: number
-      completion_tokens: number
-      total_tokens: number
-    } | null = null
-    let responseModel = 'N/A'
-
-    // Call the Chat API
-    abortControllerRef.current = new AbortController()
-
-    // TODO: [!] Cognitive Complexity
-    try {
-      const res = await client.api.chat.$post(
-        {
-          header: {
-            'api-key': header.apiKey,
-            'base-url': header.baseURL,
-            'mcp-server-urls': header.mcpServerURLs,
-          },
-          json: {
-            messages,
-            model,
-            stream: streamMode,
-            temperature,
-            max_tokens: maxTokens,
-            stream_options: streamMode
-              ? {
-                  include_usage: true,
-                }
-              : undefined,
-          },
-        },
-        { init: { signal: abortControllerRef.current.signal } },
-      )
-      if (!res.ok) {
-        const error = (await res.json()) as unknown as { message?: string }
-        result.content = error?.message || JSON.stringify(error)
-      } else {
-        const nonStream = res.headers.get('Content-Type') === 'application/json'
-        if (nonStream) {
-          const data = (await res.json()) as unknown as {
-            choices: { message: { content: string; reasoning_content?: string } }[]
-            model?: string
-            usage?: {
-              prompt_tokens: number
-              completion_tokens: number
-              total_tokens: number
-            }
-          }
-          result.reasoningContent = data.choices[0].message?.reasoning_content || ''
-          result.content = data.choices[0].message.content
-          responseModel = data?.model || 'N/A'
-          usage = data?.usage ?? null
-        } else {
-          const reader = res.body?.getReader()
-          if (!reader) {
-            throw new Error('Failed to get reader from response body.')
-          }
-          const decoder = new TextDecoder('utf-8')
-          let buffer = ''
-          let running = true
-          while (running) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            while (running) {
-              const idx = buffer.indexOf('\n')
-              if (idx === -1) break
-
-              const line = buffer.slice(0, idx).trim()
-              buffer = buffer.slice(idx + 1)
-              if (!line.startsWith('data: ')) continue
-
-              const jsonStr = line.replace(/^data:\s*/, '')
-              if (jsonStr === '[DONE]') {
-                console.log('Stream completed.')
-                running = false
-                break
-              }
-              try {
-                const parsedChunk = JSON.parse(jsonStr) as {
-                  choices: { delta: { content: string; reasoning_content?: string } }[]
-                  model?: string
-                  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-                }
-                // Append chunk to result
-                result.reasoningContent += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
-                result.content += parsedChunk.choices.at(0)?.delta?.content || ''
-                if (parsedChunk?.model) {
-                  responseModel = parsedChunk.model
-                }
-                if (parsedChunk?.usage) {
-                  usage = parsedChunk.usage
-                }
-                setStream({
-                  content: result.content ? `${result.content}●` : '',
-                  reasoningContent: result.reasoningContent,
-                })
-              } catch (e) {
-                console.error('JSON parse error:', e)
-                running = false
-                break
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (e instanceof Error && e.name === 'AbortError') {
-        // Stream canceled
-      } else {
-        throw e
-      }
-    }
-    if (result.content) {
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        {
-          role: 'assistant',
-          content: result.content,
-          reasoning_content: result.reasoningContent || '',
-        },
-      ])
-      setChatResults({
-        model: responseModel,
-        usage: usage && {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-        },
-      })
-    }
-    setStream(null)
-    setLoading(false)
-  }
-
   useEffect(() => {
     scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
     bottomChatInputContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
@@ -503,7 +343,7 @@ export const Chat: FC = () => {
     }
   }
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const form = {
@@ -527,17 +367,50 @@ export const Chat: FC = () => {
     if (!params) {
       return
     }
-    await sendChatCompletion(
-      {
+
+    setShowMenu(false)
+    setLoading(true)
+    setMessages(options.messages)
+    setInput('')
+    setUploadImages([])
+    setTextAreaRows(MIN_TEXT_LINE_COUNT)
+    setChatResults(null)
+
+    abortControllerRef.current = new AbortController()
+
+    sendChatCompletion({
+      abortController: abortControllerRef.current,
+      header: {
         apiKey: form.apiKey,
         baseURL: form.baseURL,
         mcpServerURLs: form.mcpServerURLs,
       },
-      params.model,
-      params.messages,
-      form.temperature,
-      form.maxTokens,
-    )
+      model: params.model,
+      messages: params.messages,
+      streamMode,
+      temperature: form.temperature,
+      maxTokens: form.maxTokens,
+      onStream: (stream) => {
+        console.log('#', stream)
+        setStream(stream)
+      },
+    }).then((result) => {
+      if (result) {
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          {
+            role: 'assistant',
+            ...result.message,
+          },
+        ])
+        setChatResults({
+          model: result.model,
+          usage: result.usage,
+        })
+      }
+      setStream(null)
+      setLoading(false)
+    })
   }
 
   const handleChangeInput = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -1099,5 +972,165 @@ const createTemplateMessage = (
   return {
     model: templateInput.model,
     messages: interactiveMode ? newMessages : [systemMessage, userMessage],
+  }
+}
+
+const sendChatCompletion = async (req: {
+  abortController: AbortController
+  header: {
+    apiKey: string
+    baseURL: string
+    mcpServerURLs: string
+  }
+  model: string
+  messages: Message[]
+  streamMode: boolean
+  temperature?: number
+  maxTokens?: number
+  onStream?: (stream: { content: string; reasoning_content: string }) => void
+}): Promise<{
+  model: string
+  message: {
+    content: string
+    reasoning_content: string
+  }
+  usage: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  } | null
+} | null> => {
+  const result = {
+    content: '',
+    reasoning_content: '',
+  }
+  let usage: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+  } | null = null
+  let responseModel = 'N/A'
+
+  // Call the Chat API
+  // TODO: [!] Cognitive Complexity
+  try {
+    const res = await client.api.chat.$post(
+      {
+        header: {
+          'api-key': req.header.apiKey,
+          'base-url': req.header.baseURL,
+          'mcp-server-urls': req.header.mcpServerURLs,
+        },
+        json: {
+          messages: req.messages,
+          model: req.model,
+          stream: req.streamMode,
+          temperature: req.temperature,
+          max_tokens: req.maxTokens,
+          stream_options: req.streamMode
+            ? {
+                include_usage: true,
+              }
+            : undefined,
+        },
+      },
+      { init: { signal: req.abortController.signal } },
+    )
+    if (!res.ok) {
+      const error = (await res.json()) as unknown as { message?: string }
+      result.content = error?.message || JSON.stringify(error)
+    } else {
+      const nonStream = res.headers.get('Content-Type') === 'application/json'
+      if (nonStream) {
+        const data = (await res.json()) as unknown as {
+          choices: { message: { content: string; reasoning_content?: string } }[]
+          model?: string
+          usage?: {
+            prompt_tokens: number
+            completion_tokens: number
+            total_tokens: number
+          }
+        }
+        result.reasoning_content = data.choices[0].message?.reasoning_content || ''
+        result.content = data.choices[0].message.content
+        responseModel = data?.model || 'N/A'
+        usage = data?.usage ?? null
+      } else {
+        const reader = res.body?.getReader()
+        if (!reader) {
+          throw new Error('Failed to get reader from response body.')
+        }
+        const decoder = new TextDecoder('utf-8')
+        let buffer = ''
+        let running = true
+        while (running) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          while (running) {
+            const idx = buffer.indexOf('\n')
+            if (idx === -1) break
+
+            const line = buffer.slice(0, idx).trim()
+            buffer = buffer.slice(idx + 1)
+            if (!line.startsWith('data: ')) continue
+
+            const jsonStr = line.replace(/^data:\s*/, '')
+            if (jsonStr === '[DONE]') {
+              console.log('Stream completed.')
+              running = false
+              break
+            }
+            try {
+              const parsedChunk = JSON.parse(jsonStr) as {
+                choices: { delta: { content: string; reasoning_content?: string } }[]
+                model?: string
+                usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+              }
+              // Append chunk to result
+              result.reasoning_content += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
+              result.content += parsedChunk.choices.at(0)?.delta?.content || ''
+              if (parsedChunk?.model) {
+                responseModel = parsedChunk.model
+              }
+              if (parsedChunk?.usage) {
+                usage = parsedChunk.usage
+              }
+              const streamChunk = {
+                content: result.content ? `${result.content}` : '',
+                reasoning_content: result.reasoning_content,
+              }
+              console.log('#streamChunk', streamChunk)
+              req.onStream?.(streamChunk)
+            } catch (e) {
+              console.error('JSON parse error:', e)
+              running = false
+              break
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      // Stream canceled
+    } else {
+      throw e
+    }
+  }
+  if (!result.content) {
+    return null
+  }
+  return {
+    model: responseModel,
+    message: result,
+    usage: usage
+      ? {
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens,
+        }
+      : null,
   }
 }

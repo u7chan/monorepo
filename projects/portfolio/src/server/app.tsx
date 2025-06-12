@@ -150,6 +150,7 @@ const app = new Hono<HonoEnv>()
     async (c) => {
       const header = c.req.valid('header')
       const req = c.req.valid('json')
+      console.log('[req]:', req)
       try {
         const openai = new OpenAI({
           apiKey: header['api-key'],
