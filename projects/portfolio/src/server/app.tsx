@@ -150,7 +150,6 @@ const app = new Hono<HonoEnv>()
     async (c) => {
       const header = c.req.valid('header')
       const req = c.req.valid('json')
-      console.log('[req]:', req)
       try {
         const openai = new OpenAI({
           apiKey: header['api-key'],
@@ -179,7 +178,6 @@ const app = new Hono<HonoEnv>()
                 ),
               )
             }
-
             // マージして新しいヘッダーをセット
             options.headers = {
               ...existingHeaders,
@@ -297,10 +295,7 @@ const app = new Hono<HonoEnv>()
                 reasoning_content: undefined,
               })),
             ]
-            for (const chunk of chunkList) {
-              if (aborted) {
-                break
-              }
+            if (req.max_tokens !== undefined) {
               await stream.writeSSE({
                 data: JSON.stringify({
                   ...chunkResponse,
@@ -309,14 +304,36 @@ const app = new Hono<HonoEnv>()
                       ...chunkResponse.choices[0],
                       delta: {
                         role: 'assistant',
-                        content: chunk.content,
-                        reasoning_content: chunk.reasoning_content,
+                        content: 'Stop👻',
+                        reasoning_content: undefined,
                       },
+                      finish_reason: 'length',
                     },
                   ],
                 }),
               })
-              await stream.sleep(35) // delay
+            } else {
+              for (const chunk of chunkList) {
+                if (aborted) {
+                  break
+                }
+                await stream.writeSSE({
+                  data: JSON.stringify({
+                    ...chunkResponse,
+                    choices: [
+                      {
+                        ...chunkResponse.choices[0],
+                        delta: {
+                          role: 'assistant',
+                          content: chunk.content,
+                          reasoning_content: chunk.reasoning_content,
+                        },
+                      },
+                    ],
+                  }),
+                })
+                await stream.sleep(35) // delay
+              }
             }
             if (aborted) {
               return
