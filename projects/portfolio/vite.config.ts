@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => {
             name: 'typegen',
             formats: ['es'],
           },
+          rollupOptions: {
+            external: ['node:fs', 'node:path'],
+          },
         },
       }
 
