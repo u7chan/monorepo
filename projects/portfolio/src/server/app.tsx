@@ -3,6 +3,7 @@ import path from 'node:path'
 import { AuthenticationError, auth } from '@/server/features/auth/auth'
 import { parseDurationToSeconds } from '@/server/features/auth/parseDurationToSeconds'
 import { MessageSchema, chat } from '@/server/features/chat/chat'
+import type { StreamChunk } from '@/server/features/chat/chat'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
@@ -10,7 +11,6 @@ import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import type OpenAI from 'openai'
-import type { Stream } from 'openai/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
@@ -148,7 +148,7 @@ const app = new Hono<HonoEnv>()
               aborted = true
               completionStream.controller.abort()
             })
-            const completionStream = completion as Stream<OpenAI.ChatCompletionChunk>
+            const completionStream = completion as StreamChunk
             for await (const chunk of completionStream) {
               await stream.writeSSE({ data: JSON.stringify(chunk) })
               await new Promise((resolve) => setTimeout(resolve, 10))
