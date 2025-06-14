@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import devServer from '@hono/vite-dev-server'
-import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
+import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import dts from 'vite-plugin-dts'
 
@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
     case 'typegen':
       return {
         plugins: [
+          tsconfigPaths(),
           dts({
             include: resolve(__dirname, 'src/server/app.tsx'),
             outDir: resolve(__dirname, 'src/server'),
@@ -22,13 +23,18 @@ export default defineConfig(({ mode }) => {
             name: 'typegen',
             formats: ['es'],
           },
+          rollupOptions: {
+            external: ['node:fs', 'node:path'],
+          },
         },
       }
 
     case 'dev':
       return {
         plugins: [
-          TanStackRouterVite(),
+          tanstackRouter({
+            target: 'react',
+          }),
           tsconfigPaths(),
           devServer({
             entry: resolve(__dirname, 'src/server/app.tsx'),
@@ -41,7 +47,12 @@ export default defineConfig(({ mode }) => {
 
     default:
       return {
-        plugins: [TanStackRouterVite(), tsconfigPaths()],
+        plugins: [
+          tanstackRouter({
+            target: 'react',
+          }),
+          tsconfigPaths(),
+        ],
         build: {
           minify: true,
           outDir: resolve(__dirname, 'dist/static'),

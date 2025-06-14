@@ -796,21 +796,24 @@ export const Chat: FC = () => {
               )}
               {!loading && chatResults && (
                 <div className='mt-2 flex justify-end gap-1'>
-                  <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                    <span className='mr-1'>model:</span>
                     <span>{chatResults.model}</span>
                   </div>
-                  <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
-                    <span>{chatResults.finish_reason}</span>
-                  </div>
-                  <div className='flex items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-xs'>
-                    <div>
-                      <span className='mr-1'>Input:</span>
-                      <span>{chatResults.usage?.promptTokens}</span>
+                  {chatResults.finish_reason && (
+                    <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                      <span className='mr-1'>finish_reason:</span>
+                      <span>{chatResults.finish_reason}</span>
                     </div>
-                    <div>
-                      <span className='mr-1'>Output:</span>
-                      <span>{chatResults.usage?.completionTokens}</span>
-                    </div>
+                  )}
+                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                    <span className='mr-1'>usage:</span>
+                    <span className='mr-0.5'>(input:</span>
+                    <span>{chatResults.usage?.promptTokens || '--'}</span>
+                    <span className='mr-0.5'>/</span>
+                    <span className='mr-0.5'>output:</span>
+                    <span>{chatResults.usage?.completionTokens || '--'}</span>
+                    <span>)</span>
                   </div>
                 </div>
               )}
