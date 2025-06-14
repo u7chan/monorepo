@@ -1,17 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { AuthenticationError, auth } from '@/server/features/auth/auth'
+import { parseDurationToSeconds } from '@/server/features/auth/parseDurationToSeconds'
+import { MessageSchema, chat } from '@/server/features/chat/chat'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type { Stream } from 'openai/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
-import { parseDurationToSeconds } from '@/server/features/auth/parseDurationToSeconds'
-import { auth, AuthenticationError } from '@/server/features/auth/auth'
 
 type Env = {
   NODE_ENV?: string
@@ -24,38 +25,6 @@ type Env = {
 type HonoEnv = {
   Bindings: Env
 }
-
-const MessageSchema = z.union([
-  z.object({
-    role: z.enum(['system']),
-    content: z.string().min(1),
-  }),
-  z.object({
-    role: z.enum(['assistant']),
-    content: z.string().min(1),
-  }),
-  z.object({
-    role: z.enum(['user']),
-    content: z.union([
-      z.string().min(1),
-      z
-        .union([
-          z.object({
-            type: z.enum(['text']),
-            text: z.string().min(1),
-          }),
-          z.object({
-            type: z.enum(['image_url']),
-            image_url: z.object({
-              url: z.string().min(1),
-              detail: z.enum(['auto', 'low', 'high']).optional(),
-            }),
-          }),
-        ])
-        .array(),
-    ]),
-  }),
-])
 
 const app = new Hono<HonoEnv>()
   .onError((err, c) => {
@@ -157,71 +126,38 @@ const app = new Hono<HonoEnv>()
     async (c) => {
       const header = c.req.valid('header')
       const req = c.req.valid('json')
-      try {
-        const openai = new OpenAI({
+      const completion = await chat.completions(
+        {
           apiKey: header['api-key'],
           baseURL: header['base-url'],
-          fetch: async (url, options = {}) => {
-            // カスタムヘッダーを追加
-            const customHeaders = {
-              'mcp-server-urls': header['mcp-server-urls'],
-            }
-            // options.headers の型をチェックして、適切にマージ
-            let existingHeaders: Record<string, string> = {}
-
-            if (options.headers instanceof Headers) {
-              // Headersオブジェクトの場合は安全にRecord<string, string>に変換
-              existingHeaders = {}
-              options.headers.forEach((value, key) => {
-                if (typeof key === 'string' && typeof value === 'string') {
-                  existingHeaders[key] = value
-                }
-              })
-            } else if (typeof options.headers === 'object' && options.headers !== null) {
-              // plain objectの場合は安全にフィルタリングしてコピー
-              existingHeaders = Object.fromEntries(
-                Object.entries(options.headers).filter(
-                  ([key, value]) => typeof key === 'string' && typeof value === 'string',
-                ),
-              )
-            }
-            // マージして新しいヘッダーをセット
-            options.headers = {
-              ...existingHeaders,
-              ...customHeaders,
-            }
-            return fetch(url, options)
-          },
-        })
-        const completion = await openai.chat.completions.create({
-          messages: req.messages,
+          mcpServerURLs: header['mcp-server-urls'],
+        },
+        {
           model: req.model,
-          stream: req.stream,
+          messages: req.messages,
           temperature: req.temperature,
-          max_tokens: req.max_tokens,
-          stream_options: req.stream_options,
-        })
-        return req.stream
-          ? streamSSE(c, async (stream) => {
-              let aborted = false
-              stream.onAbort(() => {
-                aborted = true
-                completionStream.controller.abort()
-              })
-              const completionStream = completion as Stream<OpenAI.ChatCompletionChunk>
-              for await (const chunk of completionStream) {
-                await stream.writeSSE({ data: JSON.stringify(chunk) })
-                await new Promise((resolve) => setTimeout(resolve, 10))
-              }
-              if (!aborted) {
-                await stream.writeSSE({ data: '[DONE]' })
-              }
+          maxTokens: req.max_tokens,
+          stream: req.stream,
+          includeUsage: req.stream_options?.include_usage,
+        },
+      )
+      return req.stream
+        ? streamSSE(c, async (stream) => {
+            let aborted = false
+            stream.onAbort(() => {
+              aborted = true
+              completionStream.controller.abort()
             })
-          : c.json(completion as OpenAI.ChatCompletion)
-      } catch (e) {
-        console.error(e)
-        return c.json({ message: e instanceof Error && e.message }, 500)
-      }
+            const completionStream = completion as Stream<OpenAI.ChatCompletionChunk>
+            for await (const chunk of completionStream) {
+              await stream.writeSSE({ data: JSON.stringify(chunk) })
+              await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            if (!aborted) {
+              await stream.writeSSE({ data: '[DONE]' })
+            }
+          })
+        : c.json(completion as OpenAI.ChatCompletion)
     },
   )
   .post(
