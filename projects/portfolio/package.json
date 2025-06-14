@@ -10,7 +10,7 @@
     "format": "biome check ./src --write --unsafe",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed:users": "dotenv -- bun run src/server/db/seeders/users.ts"
+    "db:seed:users": "dotenv -- bun run src/db/seeders/users.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
