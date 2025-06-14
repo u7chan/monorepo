@@ -10,6 +10,8 @@ import OpenAI from 'openai'
 import type { Stream } from 'openai/streaming'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
+import { parseDurationToSeconds } from '@/server/features/auth/parseDurationToSeconds'
+import { auth, AuthenticationError } from '@/server/features/auth/auth'
 
 type Env = {
   NODE_ENV?: string
@@ -56,6 +58,13 @@ const MessageSchema = z.union([
 ])
 
 const app = new Hono<HonoEnv>()
+  .onError((err, c) => {
+    if (err instanceof AuthenticationError) {
+      return c.json({ error: err.message }, 401)
+    }
+    console.error('Unknown Error', err)
+    return c.json({ error: err.message }, 500)
+  })
   .post(
     'api/signin',
     sValidator(
@@ -68,9 +77,7 @@ const app = new Hono<HonoEnv>()
     async (c) => {
       const { email, password } = c.req.valid('json')
       const { COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = env<Env>(c)
-      if (password !== 'test') {
-        return c.json({}, 401)
-      }
+      await auth.login(email, password)
       const cookieExpiresSec = parseDurationToSeconds(COOKIE_EXPIRES)
       await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, {
         path: '/',
@@ -408,51 +415,6 @@ const app = new Hono<HonoEnv>()
       ),
     )
   })
-  .onError((err, c) => {
-    console.error('[ERROR]:', err)
-    return c.json({ error: err.message }, 500)
-  })
-
-/**
- * 期間を表す文字列（例: '1d', '12h', '30m', '10s'）を受け取り、秒に変換して返します。
- *
- * サポートする単位:
- * - d: 日 (day)
- * - h: 時間 (hour)
- * - m: 分 (minute)
- * - s: 秒 (second)
- *
- * @param duration - 変換対象の期間を表す文字列（数値と単位のみ、例: '1d'）
- * @returns 変換した秒数。引数が無効な場合は 0 を返す
- *
- * 例: '1d' → 86400 (秒)
- *     '12h' → 43200
- *     '30m' → 1800
- *     '10s' → 10
- */
-function parseDurationToSeconds(duration: string): number {
-  if (!duration || typeof duration !== 'string') return 0
-
-  const regex = /^(\d+)(d|h|m|s)$/i
-  const match = duration.match(regex)
-  if (!match) return 0
-
-  const value = Number(match[1])
-  const unit = match[2].toLowerCase()
-
-  switch (unit) {
-    case 'd':
-      return value * 24 * 60 * 60
-    case 'h':
-      return value * 60 * 60
-    case 'm':
-      return value * 60
-    case 's':
-      return value
-    default:
-      return 0
-  }
-}
 
 export type AppType = typeof app
 export default app
