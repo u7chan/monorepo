@@ -2,9 +2,9 @@ import OpenAI from 'openai'
 import type { Stream } from 'openai/streaming'
 import z from 'zod'
 
-export type StreamChunk = Stream<OpenAI.ChatCompletionChunk>
 export type CompletionChunk = OpenAI.ChatCompletion
-type Completions = StreamChunk | CompletionChunk
+export type StreamChunk = Stream<OpenAI.ChatCompletionChunk>
+type Completions = CompletionChunk | StreamChunk
 
 export const MessageSchema = z.union([
   z.object({
@@ -128,7 +128,7 @@ export const chat: Chat = {
         ? {
             include_usage: !!includeUsage,
           }
-        : null,
+        : undefined,
     })
     return completion
   },

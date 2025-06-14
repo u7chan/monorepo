@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { AuthenticationError, auth } from '@/server/features/auth/auth'
 import { parseDurationToSeconds } from '@/server/features/auth/parseDurationToSeconds'
+import { chatStub } from '@/server/features/chat-stub/chat-stub'
 import { MessageSchema, chat } from '@/server/features/chat/chat'
 import type { StreamChunk } from '@/server/features/chat/chat'
 import { sValidator } from '@hono/standard-validator'
@@ -182,147 +183,42 @@ const app = new Hono<HonoEnv>()
 
       console.log('[Request]-->')
       console.dir(req, { depth: null })
-      console.log('<--[Request]')
-
-      const splitByLength = (text: string, length: number): string[] => {
-        const result = []
-        for (let i = 0; i < text.length; i += length) {
-          result.push(text.slice(i, i + length))
-        }
-        return result
-      }
-
-      const filePath = path.join(process.cwd(), 'src/server/data/test.md')
-      const content = fs.readFileSync(filePath, 'utf8')
       await new Promise((resolve) => setTimeout(resolve, 3000)) // delay
+
+      const reasoningContent = fs.readFileSync(
+        path.join(process.cwd(), 'src/server/data/chat-stub-reasoning-content.md'),
+        'utf8',
+      )
+      const content = fs.readFileSync(
+        path.join(process.cwd(), 'src/server/data/chat-stub-content.md'),
+        'utf8',
+      )
+
+      console.log('<--[Request]')
       return req.stream
         ? streamSSE(c, async (stream) => {
             let aborted = false
             stream.onAbort(() => {
               aborted = true
             })
-            const chunkResponse: OpenAI.ChatCompletionChunk = {
-              id: 'chatcmpl-1234567890abcdef',
-              object: 'chat.completion.chunk',
-              created: Math.floor(Date.now() / 1000),
+            await chatStub.streamCompletions({
               model: req.model,
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    role: 'assistant',
-                    content: '',
-                  },
-                  finish_reason: null,
-                },
-              ],
-              usage: null,
-            }
-            const chunkSize = 5
-            const repeatCount = 3
-            const contentList = [
-              `これからストリームで返すデータは ${repeatCount} 回繰り返します 🚀`,
-              '\n\n',
-              ...splitByLength(content.repeat(repeatCount), chunkSize),
-              'ストリームの終端です 🚀',
-            ]
-            const reasoningContent =
-              'こちらのコンテンツは、推論を行うための基盤となる情報や知識を提供し、さまざまな状況や問題に対して論理的に考える力を養うことを目的としています。\nこれにより、より深い理解と正確な結論を導き出すための思考の枠組みを構築できるようになることを意図しています。\nそしてこれはダミーの推論です。'
-            const chunkList = [
-              ...splitByLength(reasoningContent, chunkSize).map((text) => ({
-                content: undefined,
-                reasoning_content: text,
-              })),
-              ...contentList.map((text) => ({
-                content: text,
-                reasoning_content: undefined,
-              })),
-            ]
-            if (req.max_tokens !== undefined) {
-              await stream.writeSSE({
-                data: JSON.stringify({
-                  ...chunkResponse,
-                  choices: [
-                    {
-                      ...chunkResponse.choices[0],
-                      delta: {
-                        role: 'assistant',
-                        content: 'Stop👻',
-                        reasoning_content: undefined,
-                      },
-                      finish_reason: 'length',
-                    },
-                  ],
-                }),
-              })
-            } else {
-              for (const chunk of chunkList) {
-                if (aborted) {
-                  break
-                }
+              reasoningContent,
+              content,
+              maxTokens: req.max_tokens,
+              includeUsage: req.stream_options?.include_usage,
+              onChunk: async (chunk) => {
                 await stream.writeSSE({
-                  data: JSON.stringify({
-                    ...chunkResponse,
-                    choices: [
-                      {
-                        ...chunkResponse.choices[0],
-                        delta: {
-                          role: 'assistant',
-                          content: chunk.content,
-                          reasoning_content: chunk.reasoning_content,
-                        },
-                      },
-                    ],
-                  }),
+                  data: JSON.stringify(chunk),
                 })
-                await stream.sleep(35) // delay
-              }
-            }
-            if (aborted) {
-              return
-            }
-            await stream.writeSSE({
-              data: JSON.stringify({
-                ...chunkResponse,
-                choices: [
-                  {
-                    ...chunkResponse.choices[0],
-                    delta: null,
-                    finish_reason: 'stop',
-                  },
-                ],
-                usage: req.stream_options?.include_usage
-                  ? {
-                      prompt_tokens: 10,
-                      completion_tokens: 20,
-                      total_tokens: 30,
-                    }
-                  : undefined,
-              }),
-            })
-            await stream.writeSSE({ data: '[DONE]' })
-          })
-        : c.json({
-            id: 'chatcmpl-1234567890abcdef',
-            object: 'chat.completion',
-            created: Math.floor(Date.now() / 1000),
-            model: req.model,
-            choices: [
-              {
-                index: 0,
-                message: {
-                  role: 'assistant',
-                  content,
-                },
-                finish_reason: 'stop',
+                return aborted
               },
-            ],
-            usage: {
-              prompt_tokens: 10,
-              completion_tokens: 20,
-              total_tokens: 30,
-            },
-          } as OpenAI.ChatCompletion)
+            })
+            if (!aborted) {
+              await stream.writeSSE({ data: '[DONE]' })
+            }
+          })
+        : c.json(await chatStub.completions(req.model, content))
     },
   )
   .get('*', async (c) => {
