@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
     case 'typegen':
       return {
         plugins: [
+          tsconfigPaths(),
           dts({
             include: resolve(__dirname, 'src/server/app.tsx'),
             outDir: resolve(__dirname, 'src/server'),

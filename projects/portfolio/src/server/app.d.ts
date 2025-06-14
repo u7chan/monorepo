@@ -1,6 +1,9 @@
 type Env = {
     NODE_ENV?: string;
     SERVER_PORT?: string;
+    COOKIE_SECRET?: string;
+    COOKIE_NAME?: string;
+    COOKIE_EXPIRES?: string;
 };
 type HonoEnv = {
     Bindings: Env;
@@ -48,14 +51,14 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 };
             } & {
                 json: {
+                    model: string;
                     messages: ({
+                        content: string;
                         role: "system";
-                        content: string;
                     } | {
+                        content: string;
                         role: "assistant";
-                        content: string;
                     } | {
-                        role: "user";
                         content: string | ({
                             type: "text";
                             text: string;
@@ -66,10 +69,10 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                                 detail?: "auto" | "low" | "high" | undefined;
                             };
                         })[];
+                        role: "user";
                     })[];
-                    model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
+                    stream?: boolean | undefined;
                     max_tokens?: number | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
@@ -86,14 +89,14 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
         $post: {
             input: {
                 json: {
+                    model: string;
                     messages: ({
+                        content: string;
                         role: "system";
-                        content: string;
                     } | {
+                        content: string;
                         role: "assistant";
-                        content: string;
                     } | {
-                        role: "user";
                         content: string | ({
                             type: "text";
                             text: string;
@@ -104,10 +107,10 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                                 detail?: "auto" | "low" | "high" | undefined;
                             };
                         })[];
+                        role: "user";
                     })[];
-                    model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
+                    stream?: boolean | undefined;
                     max_tokens?: number | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
