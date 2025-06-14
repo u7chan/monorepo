@@ -1,10 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { AuthenticationError, auth } from '@/server/features/auth/auth'
-import { parseDurationToSeconds } from '@/server/features/auth/parseDurationToSeconds'
 import { chatStub } from '@/server/features/chat-stub/chat-stub'
 import { MessageSchema, chat } from '@/server/features/chat/chat'
 import type { StreamChunk } from '@/server/features/chat/chat'
+import { cookie } from '@/server/features/cookie/cookie'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
@@ -48,15 +48,14 @@ const app = new Hono<HonoEnv>()
       const { email, password } = c.req.valid('json')
       const { COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = env<Env>(c)
       await auth.login(email, password)
-      const cookieExpiresSec = parseDurationToSeconds(COOKIE_EXPIRES)
-      await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, {
-        path: '/',
-        secure: false, // httpのため
-        httpOnly: true,
-        maxAge: cookieExpiresSec,
-        expires: new Date(Date.now() + cookieExpiresSec),
-        sameSite: 'Strict',
-      })
+
+      await setSignedCookie(
+        c,
+        COOKIE_NAME,
+        email,
+        COOKIE_SECRET,
+        cookie.createOptions(COOKIE_EXPIRES),
+      )
       return c.json({})
     },
   )

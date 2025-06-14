@@ -1,3 +1,29 @@
+interface CookieOptions {
+  path: string
+  secure: boolean
+  httpOnly: boolean
+  maxAge: number
+  expires: Date
+  sameSite: 'Strict' | 'Lax' | 'None'
+}
+
+interface Cookie {
+  createOptions(duration: string): CookieOptions
+}
+export const cookie: Cookie = {
+  createOptions(duration: string): CookieOptions {
+    const cookieExpiresSec = parseDurationToSeconds(duration)
+    return {
+      path: '/',
+      secure: false, // httpのため
+      httpOnly: true,
+      maxAge: cookieExpiresSec,
+      expires: new Date(Date.now() + cookieExpiresSec),
+      sameSite: 'Strict',
+    }
+  },
+}
+
 /**
  * 期間を表す文字列（例: '1d', '12h', '30m', '10s'）を受け取り、秒に変換して返します。
  *
