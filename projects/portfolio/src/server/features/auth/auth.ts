@@ -1,3 +1,8 @@
+import { eq } from 'drizzle-orm'
+
+import { getDatabase } from '#/db'
+import { usersTable } from '#/db/schema'
+
 export class AuthenticationError extends Error {
   constructor(message: string) {
     super(message)
@@ -7,13 +12,18 @@ export class AuthenticationError extends Error {
 }
 
 interface Auth {
-  login(email: string, password: string): Promise<void>
+  login(databaseUrl: string, email: string, password: string): Promise<void>
   logout(email: string): Promise<void>
 }
 
 export const auth: Auth = {
-  async login(email: string, password: string): Promise<void> {
-    if (password !== 'test') {
+  async login(databaseUrl: string, email: string, password: string): Promise<void> {
+    const db = getDatabase(databaseUrl)
+    const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
+    const userExists = users.length > 0
+
+    // TODO: DBを用いたパスワード認証に置き換える
+    if (!userExists || password !== 'testexample') {
       throw new AuthenticationError('認証に失敗しました')
     }
   },

@@ -1,7 +1,7 @@
 import { uuidv7 } from 'uuidv7'
 
 import { getDatabase } from '../'
-import { users } from '../schema'
+import { usersTable } from '../schema'
 
 const initialUsers = [
   {
@@ -13,7 +13,7 @@ const initialUsers = [
 
 async function main() {
   const db = getDatabase(process.env.DATABASE_URL || '')
-  await db.insert(users).values(initialUsers)
+  await db.insert(usersTable).values(initialUsers)
   console.log('🚀 User initial data seeding has been completed successfully.')
 }
 

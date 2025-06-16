@@ -13,8 +13,8 @@ import React, {
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
+import { v4 as uuidv4 } from 'uuid'
 
-import type { AppType } from '#/server/app.d'
 import { ChatInput } from '#/client/components/chat/ChatInput'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import {
@@ -33,6 +33,7 @@ import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
 import { StopIcon } from '#/client/components/svg/StopIcon'
 import { UploadIcon } from '#/client/components/svg/UploadIcon'
+import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
 
@@ -170,6 +171,7 @@ export const Chat: FC = () => {
     return readFromLocalStorage()
   }, [])
 
+  const [conversationId, setConversationId] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState<{
@@ -251,6 +253,7 @@ export const Chat: FC = () => {
 
   const handleClickNewChat = () => {
     setShowMenu(false)
+    setConversationId('')
     setMessages([])
     setInput('')
     setUploadImages([])
@@ -373,6 +376,11 @@ export const Chat: FC = () => {
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
 
+    const currentConversationId = conversationId || uuidv4()
+    if (!conversationId) {
+      setConversationId(currentConversationId)
+    }
+
     abortControllerRef.current = new AbortController()
 
     sendChatCompletion({
@@ -381,6 +389,7 @@ export const Chat: FC = () => {
         apiKey: form.apiKey,
         baseURL: form.baseURL,
         mcpServerURLs: form.mcpServerURLs,
+        conversationId: currentConversationId,
       },
       model: params.model,
       messages: params.messages,
@@ -648,6 +657,7 @@ export const Chat: FC = () => {
                   setCopiedId('')
                 }
                 const handleClickDelete = (i: number) => {
+                  // TODO: DBの会話履歴も消す必要がある
                   if (confirm('本当に削除しますか？')) {
                     setMessages((prevMessages) => {
                       const newMessage = [...prevMessages]
@@ -988,6 +998,7 @@ const sendChatCompletion = async (req: {
     apiKey: string
     baseURL: string
     mcpServerURLs: string
+    conversationId: string
   }
   model: string
   messages: Message[]
@@ -1029,6 +1040,7 @@ const sendChatCompletion = async (req: {
           'api-key': req.header.apiKey,
           'base-url': req.header.baseURL,
           'mcp-server-urls': req.header.mcpServerURLs,
+          'conversation-id': req.header.conversationId,
         },
         json: {
           messages: req.messages,
