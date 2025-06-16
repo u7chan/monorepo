@@ -1,5 +1,5 @@
 {
-  "id": "1f53e801-ba6a-405a-9c2b-9a2ec2d18b17",
+  "id": "c3d6d541-029f-498d-b566-dbc19f522f69",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -81,6 +81,12 @@
         },
         "content": {
           "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reasoning_content": {
+          "name": "reasoning_content",
           "type": "text",
           "primaryKey": false,
           "notNull": true

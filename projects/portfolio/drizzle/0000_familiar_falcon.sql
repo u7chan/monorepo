@@ -10,6 +10,7 @@ CREATE TABLE "messages" (
 	"conversation_id" uuid NOT NULL,
 	"role" text NOT NULL,
 	"content" text NOT NULL,
+	"reasoning_content" text NOT NULL,
 	"metadata" jsonb,
 	"created_at" timestamp NOT NULL
 );

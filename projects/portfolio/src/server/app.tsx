@@ -7,14 +7,22 @@ import { env } from 'hono/adapter'
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie'
 import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
-import type OpenAI from 'openai'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
+import {
+  chatConversationRepository,
+  type ChatConversation,
+  type MutableChatConversation,
+} from '#/server/features/chat-conversations/chat-conversations'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { MessageSchema, chat } from '#/server/features/chat/chat'
-import type { StreamChunk } from '#/server/features/chat/chat'
+import type {
+  CompletionChunk,
+  StreamChunk,
+  StreamCompletionChunk,
+} from '#/server/features/chat/chat'
 import { cookie } from '#/server/features/cookie/cookie'
 
 type Env = Partial<{
@@ -151,20 +159,77 @@ const app = new Hono<HonoEnv>()
       return req.stream
         ? streamSSE(c, async (stream) => {
             let aborted = false
+            const chunks: StreamCompletionChunk[] = []
             stream.onAbort(() => {
               aborted = true
               completionStream.controller.abort()
             })
             const completionStream = completion as StreamChunk
             for await (const chunk of completionStream) {
+              chunks.push(chunk)
               await stream.writeSSE({ data: JSON.stringify(chunk) })
               await new Promise((resolve) => setTimeout(resolve, 10))
             }
             if (!aborted) {
               await stream.writeSSE({ data: '[DONE]' })
             }
+            const data: ChatConversation = chunks.reduce(
+              (p, c) => {
+                if (c.choices[0].delta?.content) {
+                  p.content += c.choices[0].delta.content || ''
+                }
+                if (c.choices[0].delta?.reasoning_content) {
+                  p.reasoning_content += c.choices[0].delta.reasoning_content || ''
+                }
+                if (c.model) {
+                  p.model = c.model
+                }
+                if (c.choices[0].finish_reason) {
+                  p.finish_reason = c.choices[0].finish_reason || ''
+                }
+                if (c.usage?.completion_tokens) {
+                  p.completion_tokens = c.usage.completion_tokens
+                }
+                if (c.usage?.prompt_tokens) {
+                  p.prompt_tokens = c.usage.prompt_tokens
+                }
+                if (c.usage?.total_tokens) {
+                  p.total_tokens = c.usage.total_tokens
+                }
+                if (c.usage?.completion_tokens_details?.reasoning_tokens) {
+                  p.reasoning_tokens = c.usage.completion_tokens_details.reasoning_tokens
+                }
+                return p
+              },
+              {
+                content: '',
+                reasoning_content: '',
+                model: '',
+                finish_reason: '',
+              } as MutableChatConversation,
+            )
+            await chatConversationRepository.save(data)
           })
-        : c.json(completion as OpenAI.ChatCompletion)
+        : await (async () => {
+            const result = completion as CompletionChunk
+            const { model, usage } = result
+            const {
+              finish_reason,
+              message: { content, reasoning_content },
+            } = result.choices[0]
+            const data: ChatConversation = {
+              content: content || '',
+              reasoning_content: reasoning_content || '',
+              model,
+              finish_reason,
+              completion_tokens: usage?.completion_tokens,
+              prompt_tokens: usage?.prompt_tokens,
+              total_tokens: usage?.total_tokens,
+              reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
+            }
+            await chatConversationRepository.save(data)
+            return c.json(result)
+          })()
     },
   )
   .post(

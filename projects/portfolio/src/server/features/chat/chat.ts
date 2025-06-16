@@ -2,8 +2,31 @@ import OpenAI from 'openai'
 import type { Stream } from 'openai/streaming'
 import z from 'zod'
 
-export type CompletionChunk = OpenAI.ChatCompletion
-export type StreamChunk = Stream<OpenAI.ChatCompletionChunk>
+export type CompletionChunk = OpenAI.ChatCompletion & {
+  choices: {
+    message: {
+      reasoning_content?: string // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+    }
+  }[]
+  usage?: {
+    completion_tokens_details?: {
+      reasoning_tokens: number // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+    }
+  }
+}
+export type StreamCompletionChunk = OpenAI.ChatCompletionChunk & {
+  choices: {
+    delta: {
+      reasoning_content?: string // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+    }
+  }[]
+  usage?: {
+    completion_tokens_details?: {
+      reasoning_tokens: number // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+    }
+  }
+}
+export type StreamChunk = Stream<StreamCompletionChunk>
 type Completions = CompletionChunk | StreamChunk
 
 export const MessageSchema = z.union([
@@ -130,6 +153,6 @@ export const chat: Chat = {
           }
         : undefined,
     })
-    return completion
+    return completion as Completions
   },
 }

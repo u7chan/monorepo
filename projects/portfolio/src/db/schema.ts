@@ -26,6 +26,7 @@ export const messages = pgTable('messages', {
     .references(() => conversations.id),
   role: text('role').notNull(), // 'user' | 'assistant'
   content: text('content').notNull(),
+  reasoningContent: text('reasoning_content').notNull(),
   metadata: jsonb('metadata'), // JSONデータ型
   createdAt: timestamp('created_at', { mode: 'date' }).notNull(),
 })
