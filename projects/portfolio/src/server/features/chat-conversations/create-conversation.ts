@@ -32,13 +32,21 @@ export async function createConversation(
   const createdAt = new Date()
 
   return await db.transaction(async (tx) => {
-    // 会話の登録
-    await tx.insert(conversationsTable).values({
-      id: conversationId,
-      userId,
-      title,
-      createdAt,
-    })
+    // 会話がすでに存在するかチェック
+    const existingConversations = await tx
+      .select()
+      .from(conversationsTable)
+      .where(eq(conversationsTable.id, conversationId))
+
+    if (existingConversations.length === 0) {
+      // 存在しなければ会話を登録
+      await tx.insert(conversationsTable).values({
+        id: conversationId,
+        userId,
+        title,
+        createdAt,
+      })
+    }
 
     // メッセージの登録
     const messageValues = messages.map((message) => ({
