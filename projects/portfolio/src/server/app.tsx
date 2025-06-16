@@ -142,6 +142,18 @@ const app = new Hono<HonoEnv>()
       const { DATABASE_URL = '' } = env<Env>(c)
       const header = c.req.valid('header')
       const req = c.req.valid('json')
+
+      const lastContent = req.messages.at(-1)?.content
+      const userMessage: ChatMessage = {
+        content: typeof lastContent === 'string' ? lastContent : '',
+        metadata: {
+          model: req.model,
+          stream: req.stream,
+          temperature: req.temperature,
+          max_tokens: req.max_tokens,
+        },
+      }
+
       const completion = await chat.completions(
         {
           apiKey: header['api-key'],
@@ -174,7 +186,7 @@ const app = new Hono<HonoEnv>()
             if (!aborted) {
               await stream.writeSSE({ data: '[DONE]' })
             }
-            const assistantMessage: ChatMessage = chunks.reduce(
+            const assistantMessage = chunks.reduce(
               (p, c) => {
                 if (c.choices[0].delta?.content) {
                   p.content += c.choices[0].delta.content || ''
@@ -183,33 +195,38 @@ const app = new Hono<HonoEnv>()
                   p.reasoning_content += c.choices[0].delta.reasoning_content || ''
                 }
                 if (c.model) {
-                  p.model = c.model
+                  p.metadata.model = c.model
                 }
                 if (c.choices[0].finish_reason) {
-                  p.finish_reason = c.choices[0].finish_reason || ''
+                  p.metadata.finish_reason = c.choices[0].finish_reason || ''
                 }
                 if (c.usage?.completion_tokens) {
-                  p.completion_tokens = c.usage.completion_tokens
+                  p.metadata.completion_tokens = c.usage.completion_tokens
                 }
                 if (c.usage?.prompt_tokens) {
-                  p.prompt_tokens = c.usage.prompt_tokens
+                  p.metadata.prompt_tokens = c.usage.prompt_tokens
                 }
                 if (c.usage?.total_tokens) {
-                  p.total_tokens = c.usage.total_tokens
+                  p.metadata.total_tokens = c.usage.total_tokens
                 }
                 if (c.usage?.completion_tokens_details?.reasoning_tokens) {
-                  p.reasoning_tokens = c.usage.completion_tokens_details.reasoning_tokens
+                  p.metadata.reasoning_tokens = c.usage.completion_tokens_details.reasoning_tokens
                 }
                 return p
               },
               {
                 content: '',
                 reasoning_content: '',
-                model: '',
-                finish_reason: '',
+                metadata: {
+                  model: '',
+                  finish_reason: '',
+                },
               } as MutableChatMessage,
             )
-            await chatConversationRepository.save(DATABASE_URL, assistantMessage)
+            await chatConversationRepository.save(DATABASE_URL, {
+              user: userMessage,
+              assistant: assistantMessage,
+            })
           })
         : await (async () => {
             const result = completion as CompletionChunk
@@ -221,14 +238,19 @@ const app = new Hono<HonoEnv>()
             const assistantMessage: ChatMessage = {
               content: content || '',
               reasoning_content: reasoning_content || '',
-              model,
-              finish_reason,
-              completion_tokens: usage?.completion_tokens,
-              prompt_tokens: usage?.prompt_tokens,
-              total_tokens: usage?.total_tokens,
-              reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
+              metadata: {
+                model,
+                finish_reason,
+                completion_tokens: usage?.completion_tokens,
+                prompt_tokens: usage?.prompt_tokens,
+                total_tokens: usage?.total_tokens,
+                reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
+              },
             }
-            await chatConversationRepository.save(DATABASE_URL, assistantMessage)
+            await chatConversationRepository.save(DATABASE_URL, {
+              user: userMessage,
+              assistant: assistantMessage,
+            })
             return c.json(result)
           })()
     },
