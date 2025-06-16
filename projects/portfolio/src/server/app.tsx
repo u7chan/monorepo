@@ -17,13 +17,14 @@ import { MessageSchema, chat } from '#/server/features/chat/chat'
 import type { StreamChunk } from '#/server/features/chat/chat'
 import { cookie } from '#/server/features/cookie/cookie'
 
-type Env = {
-  NODE_ENV?: string
-  SERVER_PORT?: string
-  COOKIE_SECRET?: string
-  COOKIE_NAME?: string
-  COOKIE_EXPIRES?: string
-}
+type Env = Partial<{
+  NODE_ENV: string
+  SERVER_PORT: string
+  DATABASE_URL: string
+  COOKIE_SECRET: string
+  COOKIE_NAME: string
+  COOKIE_EXPIRES: string
+}>
 
 type HonoEnv = {
   Bindings: Env
@@ -48,9 +49,13 @@ const app = new Hono<HonoEnv>()
     ),
     async (c) => {
       const { email, password } = c.req.valid('json')
-      const { COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = env<Env>(c)
-      await auth.login(email, password)
-
+      const {
+        DATABASE_URL = '',
+        COOKIE_SECRET = '',
+        COOKIE_NAME = '',
+        COOKIE_EXPIRES = '1d',
+      } = env<Env>(c)
+      await auth.login(DATABASE_URL, email, password)
       await setSignedCookie(
         c,
         COOKIE_NAME,

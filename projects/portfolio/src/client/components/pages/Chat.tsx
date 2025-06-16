@@ -14,7 +14,6 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
 
-import type { AppType } from '#/server/app.d'
 import { ChatInput } from '#/client/components/chat/ChatInput'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import {
@@ -33,6 +32,7 @@ import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
 import { StopIcon } from '#/client/components/svg/StopIcon'
 import { UploadIcon } from '#/client/components/svg/UploadIcon'
+import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
 
