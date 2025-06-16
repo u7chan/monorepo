@@ -21,18 +21,39 @@ export type MutableChatMessage = {
 export type ChatMessage = Readonly<MutableChatMessage>
 
 interface ChatConversationRepository {
-  save(databaseUrl: string, messages: { user: ChatMessage; assistant: ChatMessage }): Promise<void>
+  save(
+    databaseUrl: string,
+    email: string,
+    messages: { user: ChatMessage; assistant: ChatMessage },
+  ): Promise<void>
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
   async save(
     databaseUrl: string,
-    messages: { user: ChatMessage; assistant: ChatMessage },
+    email: string,
+    { user, assistant }: { user: ChatMessage; assistant: ChatMessage },
   ): Promise<void> {
-    // await createConversation(databaseUrl, {
-    //   userId: '',
-    //   title: 'untitled',
-    //   messages: [],
-    // })
+    if (!email) {
+      return
+    }
+    await createConversation(databaseUrl, {
+      userEmail: email,
+      title: 'untitled',
+      messages: [
+        {
+          role: 'user',
+          content: user.content,
+          reasoningContent: '',
+          metadata: user.metadata,
+        },
+        {
+          role: 'assistant',
+          content: assistant.content,
+          reasoningContent: assistant.reasoning_content || '',
+          metadata: assistant.metadata,
+        },
+      ],
+    })
   },
 }

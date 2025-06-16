@@ -139,9 +139,15 @@ const app = new Hono<HonoEnv>()
       }),
     ),
     async (c) => {
-      const { DATABASE_URL = '' } = env<Env>(c)
+      const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+
       const header = c.req.valid('header')
       const req = c.req.valid('json')
+
+      const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+      if (!email) {
+        deleteCookie(c, COOKIE_NAME)
+      }
 
       const lastContent = req.messages.at(-1)?.content
       const userMessage: ChatMessage = {
@@ -223,7 +229,7 @@ const app = new Hono<HonoEnv>()
                 },
               } as MutableChatMessage,
             )
-            await chatConversationRepository.save(DATABASE_URL, {
+            await chatConversationRepository.save(DATABASE_URL, email || '', {
               user: userMessage,
               assistant: assistantMessage,
             })
@@ -247,7 +253,7 @@ const app = new Hono<HonoEnv>()
                 reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
               },
             }
-            await chatConversationRepository.save(DATABASE_URL, {
+            await chatConversationRepository.save(DATABASE_URL, email || '', {
               user: userMessage,
               assistant: assistantMessage,
             })

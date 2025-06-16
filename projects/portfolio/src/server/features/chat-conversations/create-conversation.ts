@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { eq } from 'drizzle-orm'
 
 import { getDatabase } from '#/db'
-import { conversationsTable, messagesTable } from '#/db/schema'
+import { usersTable, conversationsTable, messagesTable } from '#/db/schema'
 
 type CreateConversationParams = {
-  userId: string
+  userEmail: string
   title?: string
   messages: {
     role: 'user' | 'assistant'
@@ -16,9 +17,17 @@ type CreateConversationParams = {
 
 export async function createConversation(
   databaseUrl: string,
-  { userId, title, messages }: CreateConversationParams,
+  { userEmail, title, messages }: CreateConversationParams,
 ) {
   const db = getDatabase(databaseUrl)
+
+  // ユーザーIDの取得
+  const users = await db.select().from(usersTable).where(eq(usersTable.email, userEmail))
+  if (users.length <= 0) {
+    console.warn(`Warning: No users found with email: ${userEmail}`)
+    return null
+  }
+  const userId = users[0].id
 
   const conversationId = `${randomUUID()}`
   const createdAt = new Date()
