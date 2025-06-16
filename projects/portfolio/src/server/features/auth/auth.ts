@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
+
 import { getDatabase } from '#/db'
-import { users } from '#/db/schema'
+import { usersTable } from '#/db/schema'
 
 export class AuthenticationError extends Error {
   constructor(message: string) {
@@ -18,8 +19,10 @@ interface Auth {
 export const auth: Auth = {
   async login(databaseUrl: string, email: string, password: string): Promise<void> {
     const db = getDatabase(databaseUrl)
-    const invalidUser = (await db.select().from(users).where(eq(users.email, email))).length <= 0
-    if (invalidUser || password !== 'test') {
+    const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
+    const userExists = users.length > 0
+
+    if (!userExists || password !== 'test') {
       throw new AuthenticationError('認証に失敗しました')
     }
   },

@@ -12,9 +12,9 @@ import { z } from 'zod'
 
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
 import {
+  type ChatMessage,
+  type MutableChatMessage,
   chatConversationRepository,
-  type ChatConversation,
-  type MutableChatConversation,
 } from '#/server/features/chat-conversations/chat-conversations'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { MessageSchema, chat } from '#/server/features/chat/chat'
@@ -139,6 +139,7 @@ const app = new Hono<HonoEnv>()
       }),
     ),
     async (c) => {
+      const { DATABASE_URL = '' } = env<Env>(c)
       const header = c.req.valid('header')
       const req = c.req.valid('json')
       const completion = await chat.completions(
@@ -173,7 +174,7 @@ const app = new Hono<HonoEnv>()
             if (!aborted) {
               await stream.writeSSE({ data: '[DONE]' })
             }
-            const data: ChatConversation = chunks.reduce(
+            const assistantMessage: ChatMessage = chunks.reduce(
               (p, c) => {
                 if (c.choices[0].delta?.content) {
                   p.content += c.choices[0].delta.content || ''
@@ -206,9 +207,9 @@ const app = new Hono<HonoEnv>()
                 reasoning_content: '',
                 model: '',
                 finish_reason: '',
-              } as MutableChatConversation,
+              } as MutableChatMessage,
             )
-            await chatConversationRepository.save(data)
+            await chatConversationRepository.save(DATABASE_URL, assistantMessage)
           })
         : await (async () => {
             const result = completion as CompletionChunk
@@ -217,7 +218,7 @@ const app = new Hono<HonoEnv>()
               finish_reason,
               message: { content, reasoning_content },
             } = result.choices[0]
-            const data: ChatConversation = {
+            const assistantMessage: ChatMessage = {
               content: content || '',
               reasoning_content: reasoning_content || '',
               model,
@@ -227,7 +228,7 @@ const app = new Hono<HonoEnv>()
               total_tokens: usage?.total_tokens,
               reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
             }
-            await chatConversationRepository.save(data)
+            await chatConversationRepository.save(DATABASE_URL, assistantMessage)
             return c.json(result)
           })()
     },

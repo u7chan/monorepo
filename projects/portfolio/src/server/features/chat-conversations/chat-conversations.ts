@@ -1,4 +1,6 @@
-export type MutableChatConversation = {
+import { createConversation } from '#/server/features/chat-conversations/create-conversation'
+
+export type MutableChatMessage = {
   content: string
   reasoning_content: string
   model: string
@@ -9,15 +11,18 @@ export type MutableChatConversation = {
   reasoning_tokens?: number
 }
 
-export type ChatConversation = Readonly<MutableChatConversation>
+export type ChatMessage = Readonly<MutableChatMessage>
 
 interface ChatConversationRepository {
-  save(chatConversation: ChatConversation): Promise<void>
+  save(databaseUrl: string, chatMessage: ChatMessage): Promise<void>
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
-  async save(chatConversation: ChatConversation): Promise<void> {
-    // TODO:
-    console.log('save:', JSON.stringify(chatConversation))
+  async save(databaseUrl: string, chatMessage: ChatMessage): Promise<void> {
+    // await createConversation(databaseUrl, {
+    //   userId: '',
+    //   title: 'untitled',
+    //   messages: [],
+    // })
   },
 }
