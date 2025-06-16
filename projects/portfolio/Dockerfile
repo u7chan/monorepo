@@ -64,12 +64,8 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 COPY . .
 
 RUN bun install --frozen-lockfile \
-  && bun run build
-
-# install with --production (exclude devDependencies)
-RUN mkdir -p ./temp/prod
-COPY package.json bun.lock ./temp/prod/
-RUN cd ./temp/prod \
+  && bun run build \
+  && rm -rf node_modules \
   && bun install --frozen-lockfile --production
 
 # -----------------------------------------------
@@ -81,7 +77,7 @@ ENV TZ=Asia/Tokyo
 ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/temp/prod/node_modules ./node_modules
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src/server ./src/server
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
