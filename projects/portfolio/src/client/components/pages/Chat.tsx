@@ -14,26 +14,25 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
 
-import type { AppType } from '@/server/app.d'
-
-import { ChatInput } from '@/client/components/chat/ChatInput'
-import { PromptTemplate, type TemplateInput } from '@/client/components/chat/PromptTeplate'
+import type { AppType } from '#/server/app.d'
+import { ChatInput } from '#/client/components/chat/ChatInput'
+import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import {
   readFromLocalStorage,
   saveToLocalStorage,
-} from '@/client/components/chat/remoteStorageSettings'
-import { FileImageInput, FileImagePreview } from '@/client/components/input/FileImageInput'
-import { ToggleInput } from '@/client/components/input/ToggleInput'
-import { ArrowUpIcon } from '@/client/components/svg/ArrowUpIcon'
-import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
-import { CheckIcon } from '@/client/components/svg/CheckIcon'
-import { CopyIcon } from '@/client/components/svg/CopyIcon'
-import { DeleteIcon } from '@/client/components/svg/DeleteIcon'
-import { GearIcon } from '@/client/components/svg/GearIcon'
-import { NewChatIcon } from '@/client/components/svg/NewChatIcon'
-import { SpinnerIcon } from '@/client/components/svg/SpinnerIcon'
-import { StopIcon } from '@/client/components/svg/StopIcon'
-import { UploadIcon } from '@/client/components/svg/UploadIcon'
+} from '#/client/components/chat/remoteStorageSettings'
+import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
+import { ToggleInput } from '#/client/components/input/ToggleInput'
+import { ArrowUpIcon } from '#/client/components/svg/ArrowUpIcon'
+import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
+import { CheckIcon } from '#/client/components/svg/CheckIcon'
+import { CopyIcon } from '#/client/components/svg/CopyIcon'
+import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
+import { GearIcon } from '#/client/components/svg/GearIcon'
+import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
+import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
+import { StopIcon } from '#/client/components/svg/StopIcon'
+import { UploadIcon } from '#/client/components/svg/UploadIcon'
 
 const client = hc<AppType>('/')
 
