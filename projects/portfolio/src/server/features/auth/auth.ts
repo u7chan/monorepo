@@ -22,7 +22,8 @@ export const auth: Auth = {
     const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
     const userExists = users.length > 0
 
-    if (!userExists || password !== 'test') {
+    // TODO: DBを用いたパスワード認証に置き換える
+    if (!userExists || password !== 'testexample') {
       throw new AuthenticationError('認証に失敗しました')
     }
   },

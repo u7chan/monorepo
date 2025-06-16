@@ -106,6 +106,7 @@ const app = new Hono<HonoEnv>()
       const baseURL = value['base-url']
       const fakeMode = apiKey === 'fakemode' && apiKey === 'fakemode'
       const mcpServerURLs = value['mcp-server-urls']
+      const conversationId = value['conversation-id']
       if (!apiKey) {
         return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
@@ -121,6 +122,7 @@ const app = new Hono<HonoEnv>()
         'api-key': apiKey,
         'base-url': fakeMode ? fakeBaseURL : baseURL,
         'mcp-server-urls': mcpServerURLs,
+        'conversation-id': conversationId,
       }
     }),
     sValidator(
@@ -149,6 +151,7 @@ const app = new Hono<HonoEnv>()
         deleteCookie(c, COOKIE_NAME)
       }
 
+      const conversationId = header['conversation-id']
       const lastContent = req.messages.at(-1)?.content
       const userMessage: ChatMessage = {
         content: typeof lastContent === 'string' ? lastContent : '',
@@ -229,7 +232,7 @@ const app = new Hono<HonoEnv>()
                 },
               } as MutableChatMessage,
             )
-            await chatConversationRepository.save(DATABASE_URL, email || '', {
+            await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
               user: userMessage,
               assistant: assistantMessage,
             })
@@ -253,7 +256,7 @@ const app = new Hono<HonoEnv>()
                 reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
               },
             }
-            await chatConversationRepository.save(DATABASE_URL, email || '', {
+            await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
               user: userMessage,
               assistant: assistantMessage,
             })

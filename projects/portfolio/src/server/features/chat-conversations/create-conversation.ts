@@ -1,11 +1,12 @@
-import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
+import { v4 as uuidv4 } from 'uuid'
 
 import { getDatabase } from '#/db'
-import { usersTable, conversationsTable, messagesTable } from '#/db/schema'
+import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 
 type CreateConversationParams = {
-  userEmail: string
+  email: string
+  conversationId: string
   title?: string
   messages: {
     role: 'user' | 'assistant'
@@ -17,19 +18,17 @@ type CreateConversationParams = {
 
 export async function createConversation(
   databaseUrl: string,
-  { userEmail, title, messages }: CreateConversationParams,
+  { email, conversationId, title, messages }: CreateConversationParams,
 ) {
   const db = getDatabase(databaseUrl)
 
   // ユーザーIDの取得
-  const users = await db.select().from(usersTable).where(eq(usersTable.email, userEmail))
+  const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
   if (users.length <= 0) {
-    console.warn(`Warning: No users found with email: ${userEmail}`)
+    console.warn(`Warning: No users found with email: ${email}`)
     return null
   }
   const userId = users[0].id
-
-  const conversationId = `${randomUUID()}`
   const createdAt = new Date()
 
   return await db.transaction(async (tx) => {
@@ -43,7 +42,7 @@ export async function createConversation(
 
     // メッセージの登録
     const messageValues = messages.map((message) => ({
-      id: `${randomUUID()}`,
+      id: uuidv4(),
       conversationId,
       role: message.role,
       content: message.content,

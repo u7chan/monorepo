@@ -24,6 +24,7 @@ interface ChatConversationRepository {
   save(
     databaseUrl: string,
     email: string,
+    conversationId: string,
     messages: { user: ChatMessage; assistant: ChatMessage },
   ): Promise<void>
 }
@@ -32,14 +33,16 @@ export const chatConversationRepository: ChatConversationRepository = {
   async save(
     databaseUrl: string,
     email: string,
+    conversationId: string,
     { user, assistant }: { user: ChatMessage; assistant: ChatMessage },
   ): Promise<void> {
     if (!email) {
       return
     }
     await createConversation(databaseUrl, {
-      userEmail: email,
-      title: 'untitled',
+      email,
+      conversationId,
+      title: 'untitled', // TODO:
       messages: [
         {
           role: 'user',

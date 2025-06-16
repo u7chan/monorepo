@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
             include: resolve(__dirname, 'src/server/app.tsx'),
             outDir: resolve(__dirname, 'src/server'),
             declarationOnly: true,
+            insertTypesEntry: false,
+            rollupTypes: false,
+            copyDtsFiles: false,
+            entryRoot: resolve(__dirname, 'src/server'),
           }),
         ],
         build: {
@@ -24,7 +28,7 @@ export default defineConfig(({ mode }) => {
             formats: ['es'],
           },
           rollupOptions: {
-            external: ['node:fs', 'node:path'],
+            external: ['node:fs', 'node:path', 'pg', 'pgpass', 'pg-cloudflare'],
           },
         },
       }
