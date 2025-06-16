@@ -1,10 +1,10 @@
-import { Layout } from '@/client/components/Layout'
-import { AboutIcon } from '@/client/components/svg/AboutIcon'
-import { ChatbotIcon } from '@/client/components/svg/ChatbotIcon'
-import { DashboardIcon } from '@/client/components/svg/DashboardIcon'
-import { ProfileIcon } from '@/client/components/svg/ProfileIcon'
 import { Outlet, createRootRoute } from '@tanstack/react-router'
 import React from 'react'
+import { Layout } from '#/client/components/Layout'
+import { AboutIcon } from '#/client/components/svg/AboutIcon'
+import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
+import { DashboardIcon } from '#/client/components/svg/DashboardIcon'
+import { ProfileIcon } from '#/client/components/svg/ProfileIcon'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production

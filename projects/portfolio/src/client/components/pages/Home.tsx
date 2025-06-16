@@ -1,6 +1,7 @@
-import type { AppType } from '@/server/app.d'
 import { hc } from 'hono/client'
 import { type FormEvent, useMemo, useState } from 'react'
+
+import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
 

@@ -1,9 +1,10 @@
+import { useMemo, useState } from 'react'
+import type { ChangeEvent, KeyboardEvent } from 'react'
+
 import {
   readFromLocalStorage,
   saveToLocalStorage,
-} from '@/client/components/chat/remoteStorageSettings'
-import { useMemo, useState } from 'react'
-import type { ChangeEvent, KeyboardEvent } from 'react'
+} from '#/client/components/chat/remoteStorageSettings'
 
 interface PromptTemplate {
   id: string
