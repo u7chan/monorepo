@@ -37,6 +37,7 @@
         "noArrayIndexKey": "off"
       },
       "nursery": {
+        "useUniqueElementIds": "off",
         "useSortedClasses": {
           "level": "error",
           "fix": "unsafe",
