@@ -4,34 +4,50 @@ import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
 
 export function Chat() {
-  const [showSettings, setShowSettings] = useState(false)
-  const [settings, setSettings] = useState<Settings>(readFromLocalStorage())
+  const [viewModel, setViewModel] = useState<{
+    showSettingsActions: boolean
+    showSettingsPopup: boolean
+    settings: Settings
+  }>({
+    showSettingsActions: true,
+    showSettingsPopup: false,
+    settings: readFromLocalStorage(),
+  })
 
   const handleNewChat = () => {
-    setShowSettings(false)
+    setViewModel((p) => ({ ...p, showSettingsPopup: false }))
   }
 
   const handleShowMenu = () => {
-    setShowSettings(true)
+    setViewModel((p) => ({ ...p, showSettingsPopup: true }))
   }
 
   const handleChangeSettings = (settings: Settings) => {
-    setSettings(settings)
+    setViewModel((p) => ({ ...p, settings }))
   }
 
-  const handleClickOutside = () => {
-    setShowSettings(false)
+  const handleChatClickOutside = () => {
+    setViewModel((p) => ({ ...p, showSettingsPopup: false }))
+  }
+
+  const handleChatSubmitting = (submitting: boolean) => {
+    setViewModel((p) => ({ ...p, showSettingsActions: !submitting }))
   }
 
   return (
     <>
       <ChatSettings
-        show={showSettings}
+        showActions={viewModel.showSettingsActions}
+        showPopup={viewModel.showSettingsPopup}
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
         onChange={handleChangeSettings}
       />
-      <ChatMain settings={settings} onClickOutside={handleClickOutside} />
+      <ChatMain
+        settings={viewModel.settings}
+        onClickOutside={handleChatClickOutside}
+        onSubmitting={handleChatSubmitting}
+      />
     </>
   )
 }

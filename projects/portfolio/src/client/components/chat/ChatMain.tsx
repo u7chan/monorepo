@@ -155,9 +155,10 @@ type Message = MessageSystem | MessageAssistant | MessageUser
 interface Props {
   settings: Settings
   onClickOutside?: () => void
+  onSubmitting?: (submitting: boolean) => void
 }
 
-export function ChatMain({ settings, onClickOutside }: Props) {
+export function ChatMain({ settings, onClickOutside, onSubmitting }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const outsideContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -312,6 +313,7 @@ export function ChatMain({ settings, onClickOutside }: Props) {
 
     abortControllerRef.current = new AbortController()
 
+    onSubmitting?.(true)
     sendChatCompletion({
       abortController: abortControllerRef.current,
       header: {
@@ -345,6 +347,7 @@ export function ChatMain({ settings, onClickOutside }: Props) {
       }
       setStream(null)
       setLoading(false)
+      onSubmitting?.(false)
     })
   }
 

@@ -10,13 +10,14 @@ import { GearIcon } from '#/client/components/svg/GearIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 
 interface Props {
-  show?: boolean
+  showActions?: boolean
+  showPopup?: boolean
   onNewChat?: () => void
   onShowMenu?: () => void
   onChange?: (settings: Settings) => void
 }
 
-export function ChatSettings({ show, onNewChat, onShowMenu, onChange }: Props) {
+export function ChatSettings({ showActions, showPopup, onNewChat, onShowMenu, onChange }: Props) {
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
@@ -110,26 +111,30 @@ export function ChatSettings({ show, onNewChat, onShowMenu, onChange }: Props) {
 
   return (
     <>
-      <div className={'absolute top-2'}>
-        <div className='relative top-4 left-4 flex items-center gap-2'>
-          <button
-            type='button'
-            onClick={handleClickNewChat}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-          >
-            <NewChatIcon className='fill-[#5D5D5D]' />
-          </button>
-          <button
-            type='button'
-            onClick={handleClickShowMenu}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-          >
-            <GearIcon className='fill-[#5D5D5D]' />
-          </button>
+      {/* ボタン群 */}
+      {showActions && (
+        <div className={'absolute top-2'}>
+          <div className='relative top-4 left-4 flex items-center gap-2'>
+            <button
+              type='button'
+              onClick={handleClickNewChat}
+              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            >
+              <NewChatIcon className='fill-[#5D5D5D]' />
+            </button>
+            <button
+              type='button'
+              onClick={handleClickShowMenu}
+              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            >
+              <GearIcon className='fill-[#5D5D5D]' />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+      {/* ポップアップメニュー */}
       <div
-        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${show ? 'opacity-100' : ''}`}
+        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : ''}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
