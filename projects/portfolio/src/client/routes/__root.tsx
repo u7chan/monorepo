@@ -1,5 +1,6 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import React from 'react'
+
 import { Layout } from '#/client/components/Layout'
 import { AboutIcon } from '#/client/components/svg/AboutIcon'
 import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
