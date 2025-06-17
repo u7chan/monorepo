@@ -21,7 +21,7 @@ export function Chat() {
   }
 
   const handleShowMenu = () => {
-    setViewModel((p) => ({ ...p, showSettingsPopup: true }))
+    setViewModel((p) => ({ ...p, showSettingsPopup: !p.showSettingsPopup }))
   }
 
   const handleChangeSettings = (settings: Settings) => {
