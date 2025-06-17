@@ -10,11 +10,13 @@ import { GearIcon } from '#/client/components/svg/GearIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 
 interface Props {
+  show?: boolean
   onNewChat?: () => void
+  onShowMenu?: () => void
   onChange?: (settings: Settings) => void
 }
 
-export function ChatSettings({ onNewChat, onChange }: Props) {
+export function ChatSettings({ show, onNewChat, onShowMenu, onChange }: Props) {
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
@@ -29,11 +31,12 @@ export function ChatSettings({ onNewChat, onChange }: Props) {
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
 
-  const [showMenu, setShowMenu] = useState(false)
-
   const handleClickNewChat = () => {
-    setShowMenu(false)
     onNewChat?.()
+  }
+
+  const handleClickShowMenu = () => {
+    onShowMenu?.()
   }
 
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
@@ -118,7 +121,7 @@ export function ChatSettings({ onNewChat, onChange }: Props) {
           </button>
           <button
             type='button'
-            onClick={() => setShowMenu(!showMenu)}
+            onClick={handleClickShowMenu}
             className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
           >
             <GearIcon className='fill-[#5D5D5D]' />
@@ -126,7 +129,7 @@ export function ChatSettings({ onNewChat, onChange }: Props) {
         </div>
       </div>
       <div
-        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showMenu ? 'opacity-100' : ''}`}
+        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${show ? 'opacity-100' : ''}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>

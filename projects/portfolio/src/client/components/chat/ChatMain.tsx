@@ -154,10 +154,12 @@ type Message = MessageSystem | MessageAssistant | MessageUser
 
 interface Props {
   settings: Settings
+  onClickOutside?: () => void
 }
 
-export function ChatMain({ settings }: Props) {
+export function ChatMain({ settings, onClickOutside }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
+  const outsideContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
   const [bottomChatInputContainerHeight, setbottomChatInputContainerHeight] = useState(0)
@@ -189,8 +191,8 @@ export function ChatMain({ settings }: Props) {
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
-    scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
-    bottomChatInputContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+    outsideContainerRef?.current?.addEventListener('click', handleClickOutsideContainer)
+    bottomChatInputContainerRef?.current?.addEventListener('click', handleClickOutsideContainer)
 
     const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {
       setbottomChatInputContainerHeight(element.contentRect.height)
@@ -201,8 +203,11 @@ export function ChatMain({ settings }: Props) {
     }
 
     return () => {
-      scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
-      bottomChatInputContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      outsideContainerRef?.current?.removeEventListener('click', handleClickOutsideContainer)
+      bottomChatInputContainerRef?.current?.removeEventListener(
+        'click',
+        handleClickOutsideContainer,
+      )
 
       if (bottomChatInputContainerRef?.current) {
         buttomChatInputContainerObserver.unobserve(bottomChatInputContainerRef?.current)
@@ -240,8 +245,8 @@ export function ChatMain({ settings }: Props) {
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }
 
-  const handleClickScrollContainer = () => {
-    // setShowMenu(false)
+  const handleClickOutsideContainer = () => {
+    onClickOutside?.()
   }
 
   const handleStreamCancel = () => {
@@ -377,7 +382,7 @@ export function ChatMain({ settings }: Props) {
   return (
     <form ref={formRef} onSubmit={handleSubmit}>
       {emptyMessage && (
-        <div className='flex h-full items-center justify-center'>
+        <div className='flex h-full items-center justify-center' ref={outsideContainerRef}>
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
               <div className={'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'}>
