@@ -193,7 +193,6 @@ export function ChatMain({ initTrigger, settings, onClickOutside, onSubmitting }
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
-    console.log('##init')
     setConversationId('')
     setMessages([])
     setInput('')
