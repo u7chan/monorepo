@@ -11,18 +11,18 @@ import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
-import {
-  type ChatMessage,
-  type MutableChatMessage,
-  chatConversationRepository,
-} from '#/server/features/chat-conversations/chat-conversations'
-import { chatStub } from '#/server/features/chat-stub/chat-stub'
-import { MessageSchema, chat } from '#/server/features/chat/chat'
 import type {
   CompletionChunk,
   StreamChunk,
   StreamCompletionChunk,
 } from '#/server/features/chat/chat'
+import { chat, MessageSchema } from '#/server/features/chat/chat'
+import {
+  type ChatMessage,
+  chatConversationRepository,
+  type MutableChatMessage,
+} from '#/server/features/chat-conversations/chat-conversations'
+import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { cookie } from '#/server/features/cookie/cookie'
 
 type Env = Partial<{

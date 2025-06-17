@@ -1,14 +1,14 @@
 import { hc } from 'hono/client'
 import React, {
-  useEffect,
-  useRef,
-  useState,
-  useMemo,
-  Fragment,
+  type ChangeEvent,
   type FC,
   type FormEvent,
-  type ChangeEvent,
+  Fragment,
   type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -677,11 +677,9 @@ export const Chat: FC = () => {
                               'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
                             }
                           >
-                            {typeof message.content === 'string' ? (
-                              message.content
-                            ) : (
-                              <>
-                                {message.content.map((value, i) => {
+                            {typeof message.content === 'string'
+                              ? message.content
+                              : message.content.map((value, i) => {
                                   return (
                                     <Fragment key={`${i}`}>
                                       <div>{value.type === 'text' && value.text}</div>
@@ -695,8 +693,6 @@ export const Chat: FC = () => {
                                     </Fragment>
                                   )
                                 })}
-                              </>
-                            )}
                           </div>
                           <div
                             className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'} ${loading || stream ? 'invisible' : ''}`}
