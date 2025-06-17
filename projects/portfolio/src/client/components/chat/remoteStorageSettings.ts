@@ -1,5 +1,8 @@
 import crypto from 'crypto-js'
 
+const SCHEMA_VERSION = '1.0.0'
+const AES_KEY = '3f1a9c7e5d4b8f012367a9c4e2d5b7f0'
+
 export interface Settings {
   schemaVersion: string
   model: string
@@ -20,8 +23,6 @@ export interface Settings {
   }
 }
 
-const SCHEMA_VERSION = '1.0.0'
-
 const defaultSettings: Settings = {
   schemaVersion: SCHEMA_VERSION,
   model: 'gpt-4.1-mini',
@@ -37,8 +38,6 @@ const defaultSettings: Settings = {
   interactiveMode: true,
   templateModels: {},
 }
-
-const AES_KEY = '3f1a9c7e5d4b8f012367a9c4e2d5b7f0'
 
 export function readFromLocalStorage(): Settings {
   const key = 'portfolio.chat-settings'
