@@ -2,6 +2,7 @@ import { type ChangeEvent, useMemo, useState } from 'react'
 
 import {
   readFromLocalStorage,
+  type Settings,
   saveToLocalStorage,
 } from '#/client/components/chat/remoteStorageSettings'
 import { ToggleInput } from '#/client/components/input/ToggleInput'
@@ -10,19 +11,16 @@ import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 
 interface Props {
   onNewChat?: () => void
+  onChange?: (settings: Settings) => void
 }
 
-export function ChatSettings({ onNewChat }: Props) {
-  const [_bottomChatInputContainerHeight, _setbottomChatInputContainerHeight] = useState(0)
-
+export function ChatSettings({ onNewChat, onChange }: Props) {
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
 
-  const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
-  const [temperature, setTemperature] = useState<number>(
-    defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
-  )
+  const [model, setModel] = useState(defaultSettings.model)
+  const [temperature, setTemperature] = useState<number>(defaultSettings.temperature)
   const [temperatureEnabled, setTemperatureEnabled] = useState(
     defaultSettings?.temperatureEnabled ?? false,
   )
@@ -40,58 +38,71 @@ export function ChatSettings({ onNewChat }: Props) {
 
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
     setModel(event.target.value)
-    saveToLocalStorage({ model: event.target.value })
+    const settings = saveToLocalStorage({ model: event.target.value })
+    onChange?.(settings)
   }
 
   const handleChangeBaseURL = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ baseURL: event.target.value })
+    const settings = saveToLocalStorage({ baseURL: event.target.value })
+    onChange?.(settings)
   }
 
   const handleChangeApiKey = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ apiKey: event.target.value })
+    const settings = saveToLocalStorage({ apiKey: event.target.value })
+    onChange?.(settings)
   }
 
   const handleChangeMcpServerURLs = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ mcpServerURLs: event.target.value })
+    const settings = saveToLocalStorage({ mcpServerURLs: event.target.value })
+    onChange?.(settings)
   }
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
     setTemperature(Number.parseFloat(event.target.value))
-    saveToLocalStorage({ temperature: event.target.value })
+    const settings = saveToLocalStorage({ temperature: Number.parseFloat(event.target.value) })
+    onChange?.(settings)
   }
 
   const handleChangeMaxTokens = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ maxTokens: event.target.value })
+    const settings = saveToLocalStorage({
+      maxTokens: event.target.value ? Number.parseFloat(event.target.value) : undefined,
+    })
+    onChange?.(settings)
   }
 
   const handleClickTemperatureEnabled = () => {
     const newTemperatureEnabled = !temperatureEnabled
     setTemperatureEnabled(newTemperatureEnabled)
-    saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
+    const settings = saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
+    onChange?.(settings)
   }
 
   const handleClickFakeMode = () => {
     const newFakeMode = !fakeMode
     setFakeMode(newFakeMode)
-    saveToLocalStorage({ fakeMode: newFakeMode })
+    const settings = saveToLocalStorage({ fakeMode: newFakeMode })
+    onChange?.(settings)
   }
 
   const handleClickShowMarkdownPreview = () => {
     const newMarkdownPreview = !markdownPreview
     setMarkdownPreview(newMarkdownPreview)
-    saveToLocalStorage({ markdownPreview: newMarkdownPreview })
+    const settings = saveToLocalStorage({ markdownPreview: newMarkdownPreview })
+    onChange?.(settings)
   }
 
   const handleClickStreamMode = () => {
     const newStreamMode = !streamMode
     setStreamMode(newStreamMode)
-    saveToLocalStorage({ streamMode: newStreamMode })
+    const settings = saveToLocalStorage({ streamMode: newStreamMode })
+    onChange?.(settings)
   }
 
   const handleClickInteractiveMode = () => {
     const newInteractiveMode = !interactiveMode
     setInteractiveMode(newInteractiveMode)
-    saveToLocalStorage({ interactiveMode: newInteractiveMode })
+    const settings = saveToLocalStorage({ interactiveMode: newInteractiveMode })
+    onChange?.(settings)
   }
 
   return (
