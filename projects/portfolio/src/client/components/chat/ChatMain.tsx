@@ -1,7 +1,6 @@
 import { hc } from 'hono/client'
 import React, {
   type ChangeEvent,
-  type FC,
   type FormEvent,
   Fragment,
   type KeyboardEvent,
