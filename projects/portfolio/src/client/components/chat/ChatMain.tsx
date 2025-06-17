@@ -1,7 +1,6 @@
 import { hc } from 'hono/client'
 import React, {
   type ChangeEvent,
-  type FC,
   type FormEvent,
   Fragment,
   type KeyboardEvent,
@@ -17,19 +16,13 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { ChatInput } from '#/client/components/chat/ChatInput'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
-import {
-  readFromLocalStorage,
-  saveToLocalStorage,
-} from '#/client/components/chat/remoteStorageSettings'
+import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
-import { ToggleInput } from '#/client/components/input/ToggleInput'
 import { ArrowUpIcon } from '#/client/components/svg/ArrowUpIcon'
 import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
 import { CheckIcon } from '#/client/components/svg/CheckIcon'
 import { CopyIcon } from '#/client/components/svg/CopyIcon'
 import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
-import { GearIcon } from '#/client/components/svg/GearIcon'
-import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
 import { StopIcon } from '#/client/components/svg/StopIcon'
 import { UploadIcon } from '#/client/components/svg/UploadIcon'
@@ -159,17 +152,21 @@ type MessageUser = {
 
 type Message = MessageSystem | MessageAssistant | MessageUser
 
-export const Chat: FC = () => {
+interface Props {
+  initTrigger?: number
+  settings: Settings
+  onClickOutside?: () => void
+  onSubmitting?: (submitting: boolean) => void
+}
+
+export function ChatMain({ initTrigger, settings, onClickOutside, onSubmitting }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
+  const outsideContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
   const [bottomChatInputContainerHeight, setbottomChatInputContainerHeight] = useState(0)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-
-  const defaultSettings = useMemo(() => {
-    return readFromLocalStorage()
-  }, [])
 
   const [conversationId, setConversationId] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -189,28 +186,23 @@ export const Chat: FC = () => {
   } | null>(null)
   const [input, setInput] = useState('')
   const [templateInput, setTemplateInput] = useState<TemplateInput | null>(null)
-
   const [uploadImages, setUploadImages] = useState<string[]>([])
-  const [model, setModel] = useState(defaultSettings.model || 'gpt-4.1-mini')
-  const [temperature, setTemperature] = useState<number>(
-    defaultSettings.temperature ? Number(defaultSettings.temperature) : 0.7,
-  )
-  const [temperatureEnabled, setTemperatureEnabled] = useState(
-    defaultSettings?.temperatureEnabled ?? false,
-  )
-  const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
-  const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
-  const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
-  const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
   const [textAreaRows, setTextAreaRows] = useState(MIN_TEXT_LINE_COUNT)
   const [composing, setComposition] = useState(false)
-  const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
-    scrollContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
-    bottomChatInputContainerRef?.current?.addEventListener('click', handleClickScrollContainer)
+    setConversationId('')
+    setMessages([])
+    setInput('')
+    setUploadImages([])
+    setTextAreaRows(MIN_TEXT_LINE_COUNT)
+  }, [initTrigger])
+
+  useEffect(() => {
+    outsideContainerRef?.current?.addEventListener('click', handleClickOutsideContainer)
+    bottomChatInputContainerRef?.current?.addEventListener('click', handleClickOutsideContainer)
 
     const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {
       setbottomChatInputContainerHeight(element.contentRect.height)
@@ -221,8 +213,11 @@ export const Chat: FC = () => {
     }
 
     return () => {
-      scrollContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
-      bottomChatInputContainerRef?.current?.removeEventListener('click', handleClickScrollContainer)
+      outsideContainerRef?.current?.removeEventListener('click', handleClickOutsideContainer)
+      bottomChatInputContainerRef?.current?.removeEventListener(
+        'click',
+        handleClickOutsideContainer,
+      )
 
       if (bottomChatInputContainerRef?.current) {
         buttomChatInputContainerObserver.unobserve(bottomChatInputContainerRef?.current)
@@ -237,8 +232,8 @@ export const Chat: FC = () => {
 
   useEffect(() => {
     if (!autoScroll) return
-    messageEndRef?.current?.scrollIntoView(!streamMode && { behavior: 'smooth' })
-  }, [stream, chatResults, streamMode, markdownPreview, autoScroll, bottomChatInputContainerHeight])
+    messageEndRef?.current?.scrollIntoView(!settings.streamMode && { behavior: 'smooth' })
+  }, [stream, chatResults, settings, autoScroll, bottomChatInputContainerHeight])
 
   const handleScroll = () => {
     if (!scrollContainerRef.current) return
@@ -251,73 +246,8 @@ export const Chat: FC = () => {
     }
   }
 
-  const handleClickNewChat = () => {
-    setShowMenu(false)
-    setConversationId('')
-    setMessages([])
-    setInput('')
-    setUploadImages([])
-    setTextAreaRows(MIN_TEXT_LINE_COUNT)
-  }
-
-  const handleClickScrollContainer = () => {
-    setShowMenu(false)
-  }
-
-  const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
-    setModel(event.target.value)
-    saveToLocalStorage({ model: event.target.value })
-  }
-
-  const handleChangeBaseURL = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ baseURL: event.target.value })
-  }
-
-  const handleChangeApiKey = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ apiKey: event.target.value })
-  }
-
-  const handleChangeMcpServerURLs = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ mcpServerURLs: event.target.value })
-  }
-
-  const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
-    setTemperature(Number.parseFloat(event.target.value))
-    saveToLocalStorage({ temperature: event.target.value })
-  }
-
-  const handleChangeMaxTokens = (event: ChangeEvent<HTMLInputElement>) => {
-    saveToLocalStorage({ maxTokens: event.target.value })
-  }
-
-  const handleClickTemperatureEnabled = () => {
-    const newTemperatureEnabled = !temperatureEnabled
-    setTemperatureEnabled(newTemperatureEnabled)
-    saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
-  }
-
-  const handleClickFakeMode = () => {
-    const newFakeMode = !fakeMode
-    setFakeMode(newFakeMode)
-    saveToLocalStorage({ fakeMode: newFakeMode })
-  }
-
-  const handleClickShowMarkdownPreview = () => {
-    const newMarkdownPreview = !markdownPreview
-    setMarkdownPreview(newMarkdownPreview)
-    saveToLocalStorage({ markdownPreview: newMarkdownPreview })
-  }
-
-  const handleClickStreamMode = () => {
-    const newStreamMode = !streamMode
-    setStreamMode(newStreamMode)
-    saveToLocalStorage({ streamMode: newStreamMode })
-  }
-
-  const handleClickInteractiveMode = () => {
-    const newInteractiveMode = !interactiveMode
-    setInteractiveMode(newInteractiveMode)
-    saveToLocalStorage({ interactiveMode: newInteractiveMode })
+  const handleClickOutsideContainer = () => {
+    onClickOutside?.()
   }
 
   const handleStreamCancel = () => {
@@ -345,16 +275,16 @@ export const Chat: FC = () => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const form = {
-      model: fakeMode ? 'fakemode' : formData.get('model')?.toString() || '',
-      baseURL: fakeMode ? 'fakemode' : formData.get('baseURL')?.toString() || '',
-      apiKey: fakeMode ? 'fakemode' : formData.get('apiKey')?.toString() || '',
-      mcpServerURLs: fakeMode ? '' : formData.get('mcpServerURLs')?.toString() || '',
-      temperature: temperatureEnabled ? Number(formData.get('temperature')) : undefined,
-      maxTokens: formData.get('maxTokens') ? Number(formData.get('maxTokens')) : undefined,
+      model: settings.fakeMode ? 'fakemode' : settings.model,
+      baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
+      apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
+      mcpServerURLs: settings.fakeMode ? '' : settings.mcpServerURLs,
+      temperature: settings.temperatureEnabled ? settings.temperature : undefined,
+      maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
     const options = {
-      interactiveMode,
+      interactiveMode: settings.interactiveMode,
       messages,
       uploadImages,
     }
@@ -367,7 +297,7 @@ export const Chat: FC = () => {
       return
     }
 
-    setShowMenu(false)
+    // setShowMenu(false)
     setLoading(true)
     setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
     setInput('')
@@ -383,6 +313,7 @@ export const Chat: FC = () => {
 
     abortControllerRef.current = new AbortController()
 
+    onSubmitting?.(true)
     sendChatCompletion({
       abortController: abortControllerRef.current,
       header: {
@@ -393,7 +324,7 @@ export const Chat: FC = () => {
       },
       model: params.model,
       messages: params.messages,
-      streamMode,
+      streamMode: settings.streamMode,
       temperature: form.temperature,
       maxTokens: form.maxTokens,
       onStream: (stream) => {
@@ -416,6 +347,7 @@ export const Chat: FC = () => {
       }
       setStream(null)
       setLoading(false)
+      onSubmitting?.(false)
     })
   }
 
@@ -452,128 +384,8 @@ export const Chat: FC = () => {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit}>
-      <div
-        className={`absolute top-2 transition-opacity duration-200 ease-in ${loading ? 'opacity-0' : 'opacity-100'}`}
-      >
-        <div className='relative top-4 left-4 flex items-center gap-2'>
-          <button
-            type='button'
-            onClick={handleClickNewChat}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-          >
-            <NewChatIcon className='fill-[#5D5D5D]' />
-          </button>
-          <button
-            type='button'
-            onClick={() => setShowMenu(!showMenu)}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-          >
-            <GearIcon className='fill-[#5D5D5D]' />
-          </button>
-        </div>
-      </div>
-      <div
-        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 shadow-xl ${!showMenu && 'hidden'}`}
-      >
-        <div className='flex items-center justify-between gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
-            Model
-          </span>
-          <input
-            name='model'
-            defaultValue={model}
-            disabled={fakeMode}
-            onChange={handleChangeModel}
-            placeholder='model'
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
-            BaseURL
-          </span>
-          <input
-            name='baseURL'
-            defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
-            disabled={fakeMode}
-            onChange={handleChangeBaseURL}
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
-            API KEY
-          </span>
-          <input
-            name='apiKey'
-            type='password'
-            disabled={fakeMode}
-            defaultValue={defaultSettings.apiKey}
-            onChange={handleChangeApiKey}
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-xs ${fakeMode ? 'opacity-50' : ''}`}>
-            MCP Server URLs (,)
-          </span>
-          <input
-            name='mcpServerURLs'
-            defaultValue={defaultSettings.mcpServerURLs || ''}
-            disabled={fakeMode}
-            onChange={handleChangeMcpServerURLs}
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 w-[154px] font-medium text-sm ${temperatureEnabled ? '' : 'opacity-50'}`}
-          >
-            Temperature
-          </span>
-          <div className='flex w-full items-center gap-2'>
-            <input
-              name='temperature'
-              type='range'
-              min='0'
-              max='1'
-              step='0.01'
-              value={temperature}
-              onChange={handleChangeTemperature}
-              disabled={!temperatureEnabled || !!stream}
-              className={`h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 ${temperatureEnabled ? '' : 'opacity-50'}`}
-            />
-            <div className='mr-1 text-sm'>{temperature.toFixed(2)}</div>
-            <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
-          </div>
-        </div>
-        <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-sm'>Max Tokens</span>
-          <input
-            name='maxTokens'
-            type='number'
-            min={1}
-            max={4096}
-            defaultValue={defaultSettings.maxTokens}
-            onChange={handleChangeMaxTokens}
-            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
-          />
-        </div>
-        <ToggleInput
-          label='Markdown Preview'
-          value={markdownPreview}
-          onClick={handleClickShowMarkdownPreview}
-        />
-        <ToggleInput label='Stream Mode' value={streamMode} onClick={handleClickStreamMode} />
-        <ToggleInput
-          label='Interactive Mode'
-          value={interactiveMode}
-          onClick={handleClickInteractiveMode}
-        />
-      </div>
       {emptyMessage && (
-        <div className='flex h-full items-center justify-center'>
+        <div className='flex h-full items-center justify-center' ref={outsideContainerRef}>
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
               <div className={'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'}>
@@ -593,7 +405,7 @@ export const Chat: FC = () => {
                 disabled={loading}
                 rightBottom={
                   <SendButton
-                    color={interactiveMode ? 'primary' : 'green'}
+                    color={settings.interactiveMode ? 'primary' : 'green'}
                     loading={loading}
                     disabled={loading || !!stream || input.trim().length <= 0}
                     handleClickStop={handleStreamCancel}
@@ -731,7 +543,7 @@ export const Chat: FC = () => {
                               {message.reasoning_content}
                             </div>
                           )}
-                          {markdownPreview ? (
+                          {settings.markdownPreview ? (
                             <div className='prose mt-1 max-w-screen-md'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
@@ -777,7 +589,7 @@ export const Chat: FC = () => {
                           {stream.reasoning_content}
                         </div>
                       )}
-                      {markdownPreview ? (
+                      {settings.markdownPreview ? (
                         <div className='prose mt-1 max-w-screen-md'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -839,7 +651,7 @@ export const Chat: FC = () => {
               disabled={loading}
               rightBottom={
                 <SendButton
-                  color={interactiveMode ? 'primary' : 'green'}
+                  color={settings.interactiveMode ? 'primary' : 'green'}
                   loading={loading}
                   disabled={loading || !!stream || input.trim().length <= 0}
                   handleClickStop={handleStreamCancel}

@@ -23,10 +23,10 @@ export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
               {/* メニューリンク */}
               <Link
                 to={menuItem.to}
-                className='peer block rounded py-0.5 text-gray-400 transition duration-200 hover:bg-gray-200 [&.active]:bg-gray-200 [&.active]:text-primary-800 [&.active]:underline'
+                className='peer block w-12 rounded py-0.5 text-gray-400 transition duration-200 hover:bg-gray-200 [&.active]:bg-gray-200 [&.active]:text-primary-800 [&.active]:underline'
               >
                 {/* アイコン */}
-                <div className='my-0.5 flex max-h-[20px] w-12 items-center justify-center'>
+                <div className='my-0.5 flex max-h-[20px] items-center justify-center'>
                   {menuItem.icon}
                 </div>
                 {/* ラベル */}
