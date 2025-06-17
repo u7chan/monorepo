@@ -7,15 +7,17 @@ export function Chat() {
   const [viewModel, setViewModel] = useState<{
     showSettingsActions: boolean
     showSettingsPopup: boolean
+    newChatTrigger: number
     settings: Settings
   }>({
     showSettingsActions: true,
     showSettingsPopup: false,
+    newChatTrigger: Date.now(),
     settings: readFromLocalStorage(),
   })
 
   const handleNewChat = () => {
-    setViewModel((p) => ({ ...p, showSettingsPopup: false }))
+    setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
   }
 
   const handleShowMenu = () => {
@@ -44,6 +46,7 @@ export function Chat() {
         onChange={handleChangeSettings}
       />
       <ChatMain
+        initTrigger={viewModel.newChatTrigger}
         settings={viewModel.settings}
         onClickOutside={handleChatClickOutside}
         onSubmitting={handleChatSubmitting}

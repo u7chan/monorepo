@@ -153,12 +153,13 @@ type MessageUser = {
 type Message = MessageSystem | MessageAssistant | MessageUser
 
 interface Props {
+  initTrigger?: number
   settings: Settings
   onClickOutside?: () => void
   onSubmitting?: (submitting: boolean) => void
 }
 
-export function ChatMain({ settings, onClickOutside, onSubmitting }: Props) {
+export function ChatMain({ initTrigger, settings, onClickOutside, onSubmitting }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const outsideContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -190,6 +191,15 @@ export function ChatMain({ settings, onClickOutside, onSubmitting }: Props) {
   const [composing, setComposition] = useState(false)
   const [loading, setLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+
+  useEffect(() => {
+    console.log('##init')
+    setConversationId('')
+    setMessages([])
+    setInput('')
+    setUploadImages([])
+    setTextAreaRows(MIN_TEXT_LINE_COUNT)
+  }, [initTrigger])
 
   useEffect(() => {
     outsideContainerRef?.current?.addEventListener('click', handleClickOutsideContainer)
@@ -235,15 +245,6 @@ export function ChatMain({ settings, onClickOutside, onSubmitting }: Props) {
     } else {
       setAutoScroll(false)
     }
-  }
-
-  const _handleClickNewChat = () => {
-    // setShowMenu(false)
-    setConversationId('')
-    setMessages([])
-    setInput('')
-    setUploadImages([])
-    setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }
 
   const handleClickOutsideContainer = () => {
