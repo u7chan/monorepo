@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   readFromLocalStorage,

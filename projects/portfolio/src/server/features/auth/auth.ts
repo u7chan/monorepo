@@ -28,7 +28,7 @@ export const auth: Auth = {
     }
   },
 
-  async logout(email: string): Promise<void> {
+  async logout(_email: string): Promise<void> {
     // TODO
   },
 }
