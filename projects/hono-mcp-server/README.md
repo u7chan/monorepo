@@ -1,9 +1,19 @@
 # hono-mcp-server
 
-Honoフレームワークを使用したMCP (Model Context Protocol) サーバー実装です。  
-SSE (Server-Sent Events) を介してクライアントと通信し、様々なツール機能を提供します。
+Honoフレームワークを利用したMCP（Model Context Protocol）サーバーの実装です。
 
-本サーバーは SSETransport で待ち受けているため、クライアントは SSE（サーバー送信イベント）で接続可能です。
+## トランスポート
+
+SSE（Server-Sent Events）を介してクライアントと通信し、さまざまなツール機能を提供します。  
+本サーバーは「SSE Transport」で待ち受けているため、クライアントはSSE（サーバー送信イベント）を使って接続できます。
+
+## プラグイン
+
+本サーバーはHono上に非公式の「SSE Transport」用プラグインを導入し、MCPサーバーとしての機能を実現しています。
+
+[hono-mcp-server-sse-transport](https://github.com/NikaBuligini/hono-mcp-server-sse-transport)
+
+また、[Hono v4.8.0](https://github.com/honojs/hono/releases/tag/v4.8.0) では公式にMCPミドルウェアのプラグインが追加されており、さらに`Streamable HTTP Transport`で動作し、コードの記述量も減少するため、今後はこの公式プラグインが主に活用される見込みです。
 
 ## 技術スタック
 
