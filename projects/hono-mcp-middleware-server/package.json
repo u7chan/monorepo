@@ -1,0 +1,15 @@
+{
+  "name": "hono-mcp-middleware-server",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "dependencies": {
+    "@hono/mcp": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.12.3",
+    "hono": "^4.7.11",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
