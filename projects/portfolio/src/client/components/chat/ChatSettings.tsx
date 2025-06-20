@@ -11,6 +11,7 @@ import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 
 interface Props {
   showActions?: boolean
+  showNewChat?: boolean
   showPopup?: boolean
   onNewChat?: () => void
   onShowMenu?: () => void
@@ -20,6 +21,7 @@ interface Props {
 
 export function ChatSettings({
   showActions,
+  showNewChat = true,
   showPopup,
   onNewChat,
   onShowMenu,
@@ -140,13 +142,15 @@ export function ChatSettings({
       {/* ボタン群 */}
       {showActions && (
         <div className='flex items-center gap-2'>
-          <button
-            type='button'
-            onClick={handleClickNewChat}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-          >
-            <NewChatIcon className='fill-[#5D5D5D]' />
-          </button>
+          {showNewChat && (
+            <button
+              type='button'
+              onClick={handleClickNewChat}
+              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            >
+              <NewChatIcon className='fill-[#5D5D5D]' />
+            </button>
+          )}
           <button
             type='button'
             onClick={handleClickShowMenu}
@@ -158,7 +162,7 @@ export function ChatSettings({
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`absolute top-15 left-25 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>

@@ -3,6 +3,10 @@ import { useState } from 'react'
 import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
+import {
+  type Conversation,
+  ConversationHistory,
+} from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
 
 export function Chat() {
@@ -17,6 +21,45 @@ export function Chat() {
     newChatTrigger: Date.now(),
     settings: readFromLocalStorage(),
   })
+
+  // 会話履歴の状態管理
+  const [conversations, setConversations] = useState<Conversation[]>([
+    // テスト用のサンプルデータ
+    {
+      id: '1',
+      title: 'React開発について',
+      messages: [
+        {
+          id: '1-1',
+          role: 'user',
+          content: 'Reactの基本的な使い方を教えてください',
+        },
+        {
+          id: '1-2',
+          role: 'assistant',
+          content: 'Reactは...',
+          reasoning_content: 'ユーザーはReactの基本について質問している',
+        },
+      ],
+    },
+    {
+      id: '2',
+      title: 'TypeScriptの型定義',
+      messages: [
+        {
+          id: '2-1',
+          role: 'user',
+          content: 'TypeScriptでインターフェースを定義する方法は？',
+        },
+        {
+          id: '2-2',
+          role: 'assistant',
+          content: 'TypeScriptでインターフェースを定義するには...',
+        },
+      ],
+    },
+  ])
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
 
   const handleNewChat = () => {
     setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
@@ -38,12 +81,44 @@ export function Chat() {
     setViewModel((p) => ({ ...p, showSettingsActions: !submitting }))
   }
 
-  const showConversations = false
+  // 会話履歴の操作ハンドラー
+  const handleSelectConversation = (conversationId: string) => {
+    setCurrentConversationId(conversationId)
+    // 選択した会話のメッセージを読み込む処理をここに追加
+    setViewModel((p) => ({ ...p, newChatTrigger: Date.now() }))
+  }
+
+  const handleDeleteConversation = (conversationId: string) => {
+    setConversations((prev) => prev.filter((conv) => conv.id !== conversationId))
+    if (currentConversationId === conversationId) {
+      setCurrentConversationId(null)
+      setViewModel((p) => ({ ...p, newChatTrigger: Date.now() }))
+    }
+  }
+
+  const handleNewConversation = () => {
+    setCurrentConversationId(null)
+    setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
+  }
 
   return (
-    <ChatLayout conversations={showConversations && <div>会話履歴</div>}>
+    <ChatLayout
+      conversations={
+        conversations.length > 0 && (
+          <ConversationHistory
+            conversations={conversations}
+            currentConversationId={currentConversationId}
+            disabled={!viewModel.showSettingsActions}
+            onSelectConversation={handleSelectConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onNewConversation={handleNewConversation}
+          />
+        )
+      }
+    >
       <ChatSettings
         showActions={viewModel.showSettingsActions}
+        showNewChat={conversations.length <= 0}
         showPopup={viewModel.showSettingsPopup}
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
