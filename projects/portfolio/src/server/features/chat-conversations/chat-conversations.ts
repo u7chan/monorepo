@@ -42,7 +42,7 @@ export const chatConversationRepository: ChatConversationRepository = {
     await createConversation(databaseUrl, {
       email,
       conversationId,
-      title: 'untitled', // TODO:
+      title: `${user.content.slice(10)}...`,
       messages: [
         {
           role: 'user',
