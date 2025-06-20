@@ -6,7 +6,6 @@ import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import {
   type Conversation,
   ConversationHistory,
-  type Message,
 } from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
 
@@ -104,22 +103,8 @@ export function Chat() {
     : null
 
   // メッセージ更新のハンドラー
-  const handleMessagesChange = (messages: Message[]) => {
-    if (!currentConversationId) return
-
-    setConversations((prev) =>
-      prev.map((conv) =>
-        conv.id === currentConversationId
-          ? {
-              ...conv,
-              messages: messages.map((msg) => ({
-                role: msg.role,
-                content: msg.content,
-              })),
-            }
-          : conv,
-      ),
-    )
+  const handleConversationChange = (conversation: Conversation) => {
+    setConversations((p) => [conversation, ...p])
   }
 
   return (
@@ -151,7 +136,7 @@ export function Chat() {
         settings={viewModel.settings}
         onSubmitting={handleChatSubmitting}
         currentConversation={currentConversation}
-        onMessagesChange={handleMessagesChange}
+        onConversationChange={handleConversationChange}
       />
     </ChatLayout>
   )

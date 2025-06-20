@@ -15,10 +15,7 @@ import remarkGfm from 'remark-gfm'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ChatInput } from '#/client/components/chat/ChatInput'
-import type {
-  Conversation,
-  Message as ConversationMessage,
-} from '#/client/components/chat/ConversationHistory'
+import type { Conversation } from '#/client/components/chat/ConversationHistory'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
@@ -161,7 +158,7 @@ interface Props {
   settings: Settings
   onSubmitting?: (submitting: boolean) => void
   currentConversation?: Conversation | null
-  onMessagesChange?: (conversationMessage: ConversationMessage[]) => void
+  onConversationChange?: (conversation: Conversation) => void
 }
 
 export function ChatMain({
@@ -169,7 +166,7 @@ export function ChatMain({
   settings,
   onSubmitting,
   currentConversation,
-  onMessagesChange,
+  onConversationChange,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -355,16 +352,20 @@ export function ChatMain({
           },
         ]
         setMessages(newMessages)
+
+        const userInput = params.messages?.at(-1)?.content
+
         // 親コンポーネントに更新されたメッセージを通知
-        if (conversationId && onMessagesChange) {
-          onMessagesChange(
-            newMessages.map(({ role, content }) => ({
-              role: `${role}`,
-              content: typeof content === 'string' ? content : '',
-              reasoning_content: result.message.reasoning_content,
-            })),
-          )
-        }
+        onConversationChange?.({
+          id: result.conversationId,
+          title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
+          messages: newMessages.map(({ role, content }) => ({
+            role: `${role}`,
+            content: typeof content === 'string' ? content : '',
+            reasoning_content: result.message.reasoning_content,
+          })),
+        })
+
         setChatResults({
           model: result.model,
           finish_reason: result.finish_reason,
@@ -501,15 +502,15 @@ export function ChatMain({
                       const newMessages = [...prevMessages]
                       newMessages.splice(i, 1) // user
                       newMessages.splice(i, 1) // assistant
-                      // 親コンポーネントに更新されたメッセージを通知
-                      if (conversationId && onMessagesChange) {
-                        onMessagesChange(
-                          newMessages.map(({ role, content }) => ({
-                            role: `${role}`,
-                            content: typeof content === 'string' ? content : '',
-                          })),
-                        )
-                      }
+                      // TODO: 親コンポーネントに更新されたメッセージを通知
+                      // if (conversationId && onMessagesChange) {
+                      //   onConversationChange(
+                      //     newMessages.map(({ role, content }) => ({
+                      //       role: `${role}`,
+                      //       content: typeof content === 'string' ? content : '',
+                      //     })),
+                      //   )
+                      // }
                       return newMessages
                     })
                   }
@@ -850,6 +851,7 @@ const sendChatCompletion = async (req: {
   maxTokens?: number
   onStream?: (stream: { content: string; reasoning_content: string }) => void
 }): Promise<{
+  conversationId: string
   model: string
   finish_reason: string
   message: {
@@ -993,6 +995,7 @@ const sendChatCompletion = async (req: {
     return null
   }
   return {
+    conversationId: req.header.conversationId,
     model: responseModel,
     finish_reason,
     message: result,
