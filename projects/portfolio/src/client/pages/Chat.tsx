@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
+import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
-import { ChatLayout } from '#/client/components/chat/ChatLayout'
 
 export function Chat() {
   const [viewModel, setViewModel] = useState<{
@@ -48,11 +48,11 @@ export function Chat() {
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
         onChange={handleChangeSettings}
+        onHidePopup={handleChatClickOutside}
       />
       <ChatMain
         initTrigger={viewModel.newChatTrigger}
         settings={viewModel.settings}
-        onClickOutside={handleChatClickOutside}
         onSubmitting={handleChatSubmitting}
       />
     </ChatLayout>
