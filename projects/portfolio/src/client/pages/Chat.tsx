@@ -6,6 +6,7 @@ import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import {
   type Conversation,
   ConversationHistory,
+  type Message,
 } from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
 
@@ -30,12 +31,10 @@ export function Chat() {
       title: 'React開発について',
       messages: [
         {
-          id: '1-1',
           role: 'user',
           content: 'Reactの基本的な使い方を教えてください',
         },
         {
-          id: '1-2',
           role: 'assistant',
           content: 'Reactは...',
           reasoning_content: 'ユーザーはReactの基本について質問している',
@@ -47,12 +46,10 @@ export function Chat() {
       title: 'TypeScriptの型定義',
       messages: [
         {
-          id: '2-1',
           role: 'user',
           content: 'TypeScriptでインターフェースを定義する方法は？',
         },
         {
-          id: '2-2',
           role: 'assistant',
           content: 'TypeScriptでインターフェースを定義するには...',
         },
@@ -106,6 +103,25 @@ export function Chat() {
     ? conversations.find((conv) => conv.id === currentConversationId) || null
     : null
 
+  // メッセージ更新のハンドラー
+  const handleMessagesChange = (messages: Message[]) => {
+    if (!currentConversationId) return
+
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === currentConversationId
+          ? {
+              ...conv,
+              messages: messages.map((msg) => ({
+                role: msg.role,
+                content: msg.content,
+              })),
+            }
+          : conv,
+      ),
+    )
+  }
+
   return (
     <ChatLayout
       conversations={
@@ -135,6 +151,7 @@ export function Chat() {
         settings={viewModel.settings}
         onSubmitting={handleChatSubmitting}
         currentConversation={currentConversation}
+        onMessagesChange={handleMessagesChange}
       />
     </ChatLayout>
   )

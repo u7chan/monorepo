@@ -15,7 +15,10 @@ import remarkGfm from 'remark-gfm'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ChatInput } from '#/client/components/chat/ChatInput'
-import type { Conversation } from '#/client/components/chat/ConversationHistory'
+import type {
+  Conversation,
+  Message as ConversationMessage,
+} from '#/client/components/chat/ConversationHistory'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
@@ -158,7 +161,7 @@ interface Props {
   settings: Settings
   onSubmitting?: (submitting: boolean) => void
   currentConversation?: Conversation | null
-  onMessagesChange?: (messages: Message[]) => void
+  onMessagesChange?: (conversationMessage: ConversationMessage[]) => void
 }
 
 export function ChatMain({
@@ -344,13 +347,24 @@ export function ChatMain({
       },
     }).then((result) => {
       if (result) {
-        setMessages((prevMessages) => [
-          ...prevMessages,
+        const newMessages = [
+          ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
           {
-            role: 'assistant',
+            role: 'assistant' as const,
             ...result.message,
           },
-        ])
+        ]
+        setMessages(newMessages)
+        // 親コンポーネントに更新されたメッセージを通知
+        if (conversationId && onMessagesChange) {
+          onMessagesChange(
+            newMessages.map(({ role, content }) => ({
+              role: `${role}`,
+              content: typeof content === 'string' ? content : '',
+              reasoning_content: result.message.reasoning_content,
+            })),
+          )
+        }
         setChatResults({
           model: result.model,
           finish_reason: result.finish_reason,
@@ -484,10 +498,19 @@ export function ChatMain({
                   // TODO: DBの会話履歴も消す必要がある
                   if (confirm('本当に削除しますか？')) {
                     setMessages((prevMessages) => {
-                      const newMessage = [...prevMessages]
-                      newMessage.splice(i, 1) // user
-                      newMessage.splice(i, 1) // assistant
-                      return newMessage
+                      const newMessages = [...prevMessages]
+                      newMessages.splice(i, 1) // user
+                      newMessages.splice(i, 1) // assistant
+                      // 親コンポーネントに更新されたメッセージを通知
+                      if (conversationId && onMessagesChange) {
+                        onMessagesChange(
+                          newMessages.map(({ role, content }) => ({
+                            role: `${role}`,
+                            content: typeof content === 'string' ? content : '',
+                          })),
+                        )
+                      }
+                      return newMessages
                     })
                   }
                 }

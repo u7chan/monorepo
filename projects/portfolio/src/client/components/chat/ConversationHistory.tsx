@@ -3,7 +3,6 @@ import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 
 export interface Message {
-  id: string
   role: string
   content: string
   reasoning_content?: string
