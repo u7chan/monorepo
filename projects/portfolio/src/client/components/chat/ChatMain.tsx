@@ -15,6 +15,7 @@ import remarkGfm from 'remark-gfm'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ChatInput } from '#/client/components/chat/ChatInput'
+import type { Conversation } from '#/client/components/chat/ConversationHistory'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
@@ -156,9 +157,17 @@ interface Props {
   initTrigger?: number
   settings: Settings
   onSubmitting?: (submitting: boolean) => void
+  currentConversation?: Conversation | null
+  onMessagesChange?: (messages: Message[]) => void
 }
 
-export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
+export function ChatMain({
+  initTrigger,
+  settings,
+  onSubmitting,
+  currentConversation,
+  onMessagesChange,
+}: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
@@ -197,6 +206,24 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
     setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }, [initTrigger])
+
+  // 選択された会話のメッセージを設定
+  useEffect(() => {
+    if (currentConversation) {
+      // 会話が選択された時、そのメッセージを設定
+      const convertedMessages: Message[] = currentConversation.messages.map((msg) => ({
+        role: msg.role as 'user' | 'assistant' | 'system',
+        content: msg.content,
+        reasoning_content: msg.reasoning_content,
+      }))
+      setMessages(convertedMessages)
+      setConversationId(currentConversation.id)
+    } else if (!initTrigger) {
+      // 新しい会話の場合はリセット（initTriggerが変更された場合は上のuseEffectで処理される）
+      setMessages([])
+      setConversationId('')
+    }
+  }, [currentConversation, initTrigger])
 
   useEffect(() => {
     const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {

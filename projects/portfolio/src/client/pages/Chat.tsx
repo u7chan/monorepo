@@ -85,7 +85,7 @@ export function Chat() {
   const handleSelectConversation = (conversationId: string) => {
     setCurrentConversationId(conversationId)
     // 選択した会話のメッセージを読み込む処理をここに追加
-    setViewModel((p) => ({ ...p, newChatTrigger: Date.now() }))
+    // newChatTriggerは新しい会話の時のみ使用するため、ここでは設定しない
   }
 
   const handleDeleteConversation = (conversationId: string) => {
@@ -100,6 +100,11 @@ export function Chat() {
     setCurrentConversationId(null)
     setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
   }
+
+  // 現在選択されている会話データを取得
+  const currentConversation = currentConversationId
+    ? conversations.find((conv) => conv.id === currentConversationId) || null
+    : null
 
   return (
     <ChatLayout
@@ -129,6 +134,7 @@ export function Chat() {
         initTrigger={viewModel.newChatTrigger}
         settings={viewModel.settings}
         onSubmitting={handleChatSubmitting}
+        currentConversation={currentConversation}
       />
     </ChatLayout>
   )
