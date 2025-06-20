@@ -1,4 +1,6 @@
+import type { Conversation } from '#/client/components/chat/ConversationHistory'
 import { createConversation } from '#/server/features/chat-conversations/create-conversation'
+import { readConversation } from '#/server/features/chat-conversations/read-conversation'
 
 export type MutableChatMessage = {
   content: string
@@ -21,6 +23,7 @@ export type MutableChatMessage = {
 export type ChatMessage = Readonly<MutableChatMessage>
 
 interface ChatConversationRepository {
+  read(databaseUrl: string, email: string): Promise<Conversation[] | null>
   save(
     databaseUrl: string,
     email: string,
@@ -30,6 +33,12 @@ interface ChatConversationRepository {
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
+  async read(databaseUrl: string, email: string): Promise<Conversation[] | null> {
+    if (!email) {
+      return null
+    }
+    return readConversation(databaseUrl, email)
+  },
   async save(
     databaseUrl: string,
     email: string,

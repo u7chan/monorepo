@@ -15,7 +15,10 @@ interface Conversation {
   messages: Message[]
 }
 
-export async function readConversation(databaseUrl: string, email: string): Promise<Conversation[] | null> {
+export async function readConversation(
+  databaseUrl: string,
+  email: string,
+): Promise<Conversation[] | null> {
   const db = getDatabase(databaseUrl)
 
   // ユーザーIDの取得

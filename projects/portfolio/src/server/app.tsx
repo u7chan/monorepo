@@ -325,11 +325,17 @@ const app = new Hono<HonoEnv>()
     },
   )
   .get('*', async (c) => {
-    const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+    const { NODE_ENV, DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'
     const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
     if (!email) {
       deleteCookie(c, COOKIE_NAME)
+    } else {
+      // 検証用
+      if (c.req.path === '/chat') {
+        const conversations = await chatConversationRepository.read(DATABASE_URL, email)
+        console.log('#conversations', conversations)
+      }
     }
     return c.html(
       renderToString(
