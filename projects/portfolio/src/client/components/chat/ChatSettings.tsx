@@ -136,7 +136,7 @@ export function ChatSettings({
   }, [showPopup])
 
   return (
-    <div className='relative inline-block p-4' ref={wrapperRef}>
+    <div className='fixed inline-block p-4' ref={wrapperRef}>
       {/* ボタン群 */}
       {showActions && (
         <div className='flex items-center gap-2'>
