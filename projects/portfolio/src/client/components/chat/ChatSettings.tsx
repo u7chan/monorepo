@@ -134,7 +134,7 @@ export function ChatSettings({ showActions, showPopup, onNewChat, onShowMenu, on
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`fixed top-18 left-78 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
