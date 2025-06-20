@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
@@ -37,21 +38,23 @@ export function Chat() {
     setViewModel((p) => ({ ...p, showSettingsActions: !submitting }))
   }
 
+  const showConversations = false
+
   return (
-    <>
+    <ChatLayout conversations={showConversations && <div>会話履歴</div>}>
       <ChatSettings
         showActions={viewModel.showSettingsActions}
         showPopup={viewModel.showSettingsPopup}
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
         onChange={handleChangeSettings}
+        onHidePopup={handleChatClickOutside}
       />
       <ChatMain
         initTrigger={viewModel.newChatTrigger}
         settings={viewModel.settings}
-        onClickOutside={handleChatClickOutside}
         onSubmitting={handleChatSubmitting}
       />
-    </>
+    </ChatLayout>
   )
 }

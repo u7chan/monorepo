@@ -1,4 +1,4 @@
-import { type ChangeEvent, useMemo, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   readFromLocalStorage,
@@ -15,9 +15,19 @@ interface Props {
   onNewChat?: () => void
   onShowMenu?: () => void
   onChange?: (settings: Settings) => void
+  onHidePopup?: () => void
 }
 
-export function ChatSettings({ showActions, showPopup, onNewChat, onShowMenu, onChange }: Props) {
+export function ChatSettings({
+  showActions,
+  showPopup,
+  onNewChat,
+  onShowMenu,
+  onChange,
+  onHidePopup,
+}: Props) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
@@ -109,32 +119,46 @@ export function ChatSettings({ showActions, showPopup, onNewChat, onShowMenu, on
     onChange?.(settings)
   }
 
+  // 領域外クリックでメニューを閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        onHidePopup?.()
+      }
+    }
+    // メニューが開いているときだけリスナをつける
+    if (showPopup) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showPopup])
+
   return (
-    <>
+    <div className='fixed inline-block p-4' ref={wrapperRef}>
       {/* ボタン群 */}
       {showActions && (
-        <div className={'absolute top-2'}>
-          <div className='relative top-4 left-4 flex items-center gap-2'>
-            <button
-              type='button'
-              onClick={handleClickNewChat}
-              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-            >
-              <NewChatIcon className='fill-[#5D5D5D]' />
-            </button>
-            <button
-              type='button'
-              onClick={handleClickShowMenu}
-              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
-            >
-              <GearIcon className='fill-[#5D5D5D]' />
-            </button>
-          </div>
+        <div className='flex items-center gap-2'>
+          <button
+            type='button'
+            onClick={handleClickNewChat}
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+          >
+            <NewChatIcon className='fill-[#5D5D5D]' />
+          </button>
+          <button
+            type='button'
+            onClick={handleClickShowMenu}
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+          >
+            <GearIcon className='fill-[#5D5D5D]' />
+          </button>
         </div>
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`fixed top-18 left-38 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`absolute top-15 left-25 z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
@@ -233,6 +257,6 @@ export function ChatSettings({ showActions, showPopup, onNewChat, onShowMenu, on
           onClick={handleClickInteractiveMode}
         />
       </div>
-    </>
+    </div>
   )
 }
