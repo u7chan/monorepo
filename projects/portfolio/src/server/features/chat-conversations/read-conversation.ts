@@ -48,7 +48,7 @@ export async function readConversation(
     }
 
     // メッセージが存在する場合のみ追加（LEFT JOINでメッセージがない会話も含まれるため）
-    if (row.messageRole && row.messageContent && row.messageReasoningContent) {
+    if (row.messageRole && row.messageContent !== null && row.messageReasoningContent !== null) {
       const conversation = conversationMap.get(row.conversationId)
       if (conversation) {
         conversation.messages.push({
