@@ -324,18 +324,25 @@ const app = new Hono<HonoEnv>()
         : c.json(await chatStub.completions(req.model, content))
     },
   )
+  .get('/api/conversations', async (c) => {
+    const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+    const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+    if (!email) {
+      deleteCookie(c, COOKIE_NAME)
+      return c.json({ data: [] })
+    }
+    const conversations = await chatConversationRepository.read(DATABASE_URL, email)
+    if (!conversations) {
+      return c.json({ data: [] })
+    }
+    return c.json({ data: conversations })
+  })
   .get('*', async (c) => {
-    const { NODE_ENV, DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+    const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'
     const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
     if (!email) {
       deleteCookie(c, COOKIE_NAME)
-    } else {
-      // 検証用
-      if (c.req.path === '/chat') {
-        const conversations = await chatConversationRepository.read(DATABASE_URL, email)
-        console.log('#conversations', conversations)
-      }
     }
     return c.html(
       renderToString(

@@ -73,8 +73,8 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                         })[];
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
+                    stream?: boolean | undefined;
                     max_tokens?: number | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
@@ -111,8 +111,8 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                         })[];
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
+                    stream?: boolean | undefined;
                     max_tokens?: number | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
@@ -122,6 +122,25 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             output: {};
             outputFormat: string;
             status: import('hono/utils/http-status').StatusCode;
+        };
+    };
+} & {
+    "/api/conversations": {
+        $get: {
+            input: {};
+            output: {
+                data: {
+                    id: string;
+                    title: string;
+                    messages: {
+                        role: string;
+                        content: string;
+                        reasoning_content?: string | undefined;
+                    }[];
+                }[];
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
