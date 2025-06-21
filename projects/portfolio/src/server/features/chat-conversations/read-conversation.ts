@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm'
+import { asc, desc, eq, sql } from 'drizzle-orm'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
@@ -35,7 +35,7 @@ export async function readConversation(
     .where(eq(conversationsTable.userId, userId))
     .orderBy(
       desc(conversationsTable.updatedAt),
-      desc(messagesTable.createdAt),
+      asc(messagesTable.createdAt),
       sql`CASE
         WHEN ${messagesTable.role} = 'system' THEN 1
         WHEN ${messagesTable.role} = 'user' THEN 2
