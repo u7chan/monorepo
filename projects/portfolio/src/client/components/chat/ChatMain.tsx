@@ -12,8 +12,7 @@ import React, {
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
-import { v4 as uuidv4 } from 'uuid'
-
+import { uuidv7 } from 'uuidv7'
 import { ChatInput } from '#/client/components/chat/ChatInput'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
@@ -27,6 +26,7 @@ import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
 import { StopIcon } from '#/client/components/svg/StopIcon'
 import { UploadIcon } from '#/client/components/svg/UploadIcon'
 import type { AppType } from '#/server/app.d'
+import type { Conversation } from '#/types'
 
 const client = hc<AppType>('/')
 
@@ -156,9 +156,17 @@ interface Props {
   initTrigger?: number
   settings: Settings
   onSubmitting?: (submitting: boolean) => void
+  currentConversation?: Conversation | null
+  onConversationChange?: (conversation: Conversation) => void
 }
 
-export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
+export function ChatMain({
+  initTrigger,
+  settings,
+  onSubmitting,
+  currentConversation,
+  onConversationChange,
+}: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
@@ -166,7 +174,7 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const [conversationId, setConversationId] = useState('')
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState<{
@@ -191,12 +199,33 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
-    setConversationId('')
     setMessages([])
+    setChatResults(null)
     setInput('')
     setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
   }, [initTrigger])
+
+  // 選択された会話のメッセージを設定
+  useEffect(() => {
+    if (!currentConversation) {
+      return
+    }
+
+    // 会話が選択された時、そのメッセージを設定
+    const convertedMessages: Message[] = currentConversation.messages.map((msg) => ({
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content: msg.content,
+      reasoning_content: msg.reasoningContent,
+    }))
+    setConversationId(currentConversation.id)
+    setMessages(convertedMessages)
+    setChatResults(null)
+    setTimeout(() => {
+      // メッセージの末尾にスクロール
+      messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
+    }, 0)
+  }, [currentConversation])
 
   useEffect(() => {
     const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {
@@ -282,7 +311,6 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
       return
     }
 
-    // setShowMenu(false)
     setLoading(true)
     setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
     setInput('')
@@ -290,11 +318,6 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
     setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
-
-    const currentConversationId = conversationId || uuidv4()
-    if (!conversationId) {
-      setConversationId(currentConversationId)
-    }
 
     abortControllerRef.current = new AbortController()
 
@@ -305,25 +328,76 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
         apiKey: form.apiKey,
         baseURL: form.baseURL,
         mcpServerURLs: form.mcpServerURLs,
-        conversationId: currentConversationId,
       },
       model: params.model,
       messages: params.messages,
-      streamMode: settings.streamMode,
+      stream: settings.streamMode,
       temperature: form.temperature,
       maxTokens: form.maxTokens,
       onStream: (stream) => {
         setStream(stream)
       },
     }).then((result) => {
+      const userInput = params.messages?.at(-1)?.content
+      const newConversationMessages = [
+        // TODO: append system message
+        {
+          role: 'user' as const,
+          content: typeof userInput === 'string' ? userInput : '',
+          reasoningContent: '',
+          metadata: {
+            model: params.model,
+            stream: settings.streamMode,
+            temperature: form.temperature,
+            maxTokens: form.maxTokens,
+          },
+        },
+        ...(result
+          ? [
+              {
+                role: 'assistant' as const,
+                content: result.message.content,
+                reasoningContent: result.message.reasoning_content,
+                metadata: {
+                  model: result.model,
+                  finishReason: result.finish_reason,
+                  usage: {
+                    promptTokens: result.usage?.promptTokens || 0,
+                    completionTokens: result.usage?.completionTokens || 0,
+                    totalTokens: result.usage?.totalTokens || 0,
+                    reasoningTokens: result.usage?.reasoningTokens,
+                  },
+                },
+              },
+            ]
+          : []),
+      ]
+
+      // 会話IDが指定されていない場合は会話IDを新規作成
+      const currentConversationId =
+        conversationId ||
+        (() => {
+          const newConversationId = uuidv7()
+          setConversationId(newConversationId)
+          return newConversationId
+        })()
+
+      // 親コンポーネントに更新されたメッセージを通知
+      onConversationChange?.({
+        id: currentConversationId,
+        title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
+        messages: newConversationMessages,
+      })
+
       if (result) {
-        setMessages((prevMessages) => [
-          ...prevMessages,
+        const newMessages = [
+          ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
           {
-            role: 'assistant',
+            role: 'assistant' as const,
             ...result.message,
           },
-        ])
+        ]
+        setMessages(newMessages)
         setChatResults({
           model: result.model,
           finish_reason: result.finish_reason,
@@ -457,10 +531,19 @@ export function ChatMain({ initTrigger, settings, onSubmitting }: Props) {
                   // TODO: DBの会話履歴も消す必要がある
                   if (confirm('本当に削除しますか？')) {
                     setMessages((prevMessages) => {
-                      const newMessage = [...prevMessages]
-                      newMessage.splice(i, 1) // user
-                      newMessage.splice(i, 1) // assistant
-                      return newMessage
+                      const newMessages = [...prevMessages]
+                      newMessages.splice(i, 1) // user
+                      newMessages.splice(i, 1) // assistant
+                      // TODO: 親コンポーネントに更新されたメッセージを通知
+                      // if (conversationId && onMessagesChange) {
+                      //   onConversationChange(
+                      //     newMessages.map(({ role, content }) => ({
+                      //       role: `${role}`,
+                      //       content: typeof content === 'string' ? content : '',
+                      //     })),
+                      //   )
+                      // }
+                      return newMessages
                     })
                   }
                 }
@@ -791,11 +874,10 @@ const sendChatCompletion = async (req: {
     apiKey: string
     baseURL: string
     mcpServerURLs: string
-    conversationId: string
   }
   model: string
   messages: Message[]
-  streamMode: boolean
+  stream: boolean
   temperature?: number
   maxTokens?: number
   onStream?: (stream: { content: string; reasoning_content: string }) => void
@@ -810,6 +892,7 @@ const sendChatCompletion = async (req: {
     promptTokens: number
     completionTokens: number
     totalTokens: number
+    reasoningTokens?: number
   } | null
 } | null> => {
   const result = {
@@ -821,6 +904,9 @@ const sendChatCompletion = async (req: {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
+    completion_tokens_details?: {
+      reasoning_tokens?: number
+    }
   } | null = null
   let responseModel = 'N/A'
 
@@ -833,15 +919,14 @@ const sendChatCompletion = async (req: {
           'api-key': req.header.apiKey,
           'base-url': req.header.baseURL,
           'mcp-server-urls': req.header.mcpServerURLs,
-          'conversation-id': req.header.conversationId,
         },
         json: {
           messages: req.messages,
           model: req.model,
-          stream: req.streamMode,
+          stream: req.stream,
           temperature: req.temperature,
           max_tokens: req.maxTokens,
-          stream_options: req.streamMode
+          stream_options: req.stream
             ? {
                 include_usage: true,
               }
@@ -863,6 +948,7 @@ const sendChatCompletion = async (req: {
             prompt_tokens: number
             completion_tokens: number
             total_tokens: number
+            reasoning_tokens: number
           }
         }
         result.reasoning_content = data.choices[0].message?.reasoning_content || ''
@@ -903,7 +989,14 @@ const sendChatCompletion = async (req: {
                   finish_reason: string
                 }[]
                 model?: string
-                usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+                usage?: {
+                  prompt_tokens: number
+                  completion_tokens: number
+                  total_tokens: number
+                  completion_tokens_details?: {
+                    reasoning_tokens?: number
+                  }
+                }
               }
               // Append chunk to result
               result.reasoning_content += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
@@ -951,6 +1044,7 @@ const sendChatCompletion = async (req: {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
           totalTokens: usage.total_tokens,
+          reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
         }
       : null,
   }

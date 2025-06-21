@@ -1,24 +1,14 @@
 import { eq } from 'drizzle-orm'
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv7 } from 'uuidv7'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import type { Conversation } from '#/types'
 
-type CreateConversationParams = {
-  email: string
-  conversationId: string
-  title?: string
-  messages: {
-    role: 'user' | 'assistant'
-    content: string
-    reasoningContent: string
-    metadata?: Record<string, unknown>
-  }[]
-}
-
-export async function createConversation(
+export async function upsertConversation(
   databaseUrl: string,
-  { email, conversationId, title, messages }: CreateConversationParams,
+  email: string,
+  { id, title, messages }: Conversation,
 ) {
   const db = getDatabase(databaseUrl)
 
@@ -29,38 +19,44 @@ export async function createConversation(
     return null
   }
   const userId = users[0].id
-  const createdAt = new Date()
 
   return await db.transaction(async (tx) => {
     // 会話がすでに存在するかチェック
     const existingConversations = await tx
       .select()
       .from(conversationsTable)
-      .where(eq(conversationsTable.id, conversationId))
+      .where(eq(conversationsTable.id, id))
+
+    const now = new Date()
 
     if (existingConversations.length === 0) {
       // 存在しなければ会話を登録
       await tx.insert(conversationsTable).values({
-        id: conversationId,
+        id,
         userId,
         title,
-        createdAt,
+        createdAt: now,
+        updatedAt: now,
       })
+    } else {
+      // 存在すれば会話のupdatedAtを更新
+      await tx
+        .update(conversationsTable)
+        .set({ updatedAt: now })
+        .where(eq(conversationsTable.id, id))
     }
 
     // メッセージの登録
     const messageValues = messages.map((message) => ({
-      id: uuidv4(),
-      conversationId,
+      id: uuidv7(),
+      conversationId: id,
       role: message.role,
       content: message.content,
       reasoningContent: message.reasoningContent,
       metadata: message.metadata ? JSON.stringify(message.metadata) : null,
-      createdAt,
+      createdAt: now,
     }))
 
     await tx.insert(messagesTable).values(messageValues)
-
-    return { conversationId }
   })
 }

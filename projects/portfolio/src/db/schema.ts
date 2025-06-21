@@ -16,6 +16,7 @@ export const conversationsTable = pgTable('conversations', {
     .references(() => usersTable.id),
   title: text('title'),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull(),
 })
 
 // メッセージ

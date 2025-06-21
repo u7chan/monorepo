@@ -1,62 +1,17 @@
-import { createConversation } from '#/server/features/chat-conversations/create-conversation'
-
-export type MutableChatMessage = {
-  content: string
-  reasoning_content?: string
-  metadata: {
-    model: string
-    // request
-    stream?: boolean
-    temperature?: number
-    max_tokens?: number
-    // response
-    finish_reason?: string
-    completion_tokens?: number
-    prompt_tokens?: number
-    total_tokens?: number
-    reasoning_tokens?: number
-  }
-}
-
-export type ChatMessage = Readonly<MutableChatMessage>
+import { readConversation } from '#/server/features/chat-conversations/read-conversation'
+import { upsertConversation } from '#/server/features/chat-conversations/upsert-conversation'
+import type { Conversation } from '#/types'
 
 interface ChatConversationRepository {
-  save(
-    databaseUrl: string,
-    email: string,
-    conversationId: string,
-    messages: { user: ChatMessage; assistant: ChatMessage },
-  ): Promise<void>
+  read(databaseUrl: string, email: string): Promise<Conversation[] | null>
+  upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void>
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
-  async save(
-    databaseUrl: string,
-    email: string,
-    conversationId: string,
-    { user, assistant }: { user: ChatMessage; assistant: ChatMessage },
-  ): Promise<void> {
-    if (!email) {
-      return
-    }
-    await createConversation(databaseUrl, {
-      email,
-      conversationId,
-      title: 'untitled', // TODO:
-      messages: [
-        {
-          role: 'user',
-          content: user.content,
-          reasoningContent: '',
-          metadata: user.metadata,
-        },
-        {
-          role: 'assistant',
-          content: assistant.content,
-          reasoningContent: assistant.reasoning_content || '',
-          metadata: assistant.metadata,
-        },
-      ],
-    })
+  async read(databaseUrl: string, email: string): Promise<Conversation[] | null> {
+    return readConversation(databaseUrl, email)
+  },
+  async upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void> {
+    await upsertConversation(databaseUrl, email, conversation)
   },
 }

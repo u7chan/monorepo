@@ -49,7 +49,6 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     'api-key': string;
                     'base-url': string;
                     'mcp-server-urls': string;
-                    'conversation-id': string;
                 };
             } & {
                 json: {
@@ -73,8 +72,8 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                         })[];
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
+                    stream?: boolean | undefined;
                     max_tokens?: number | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
@@ -111,8 +110,8 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                         })[];
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
+                    stream?: boolean | undefined;
                     max_tokens?: number | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
@@ -122,6 +121,138 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             output: {};
             outputFormat: string;
             status: import('hono/utils/http-status').StatusCode;
+        };
+    };
+} & {
+    "/api/conversations": {
+        $get: {
+            input: {};
+            output: {
+                data: {
+                    id: string;
+                    title: string;
+                    messages: ({
+                        role: "user";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            temperature?: number | undefined;
+                            maxTokens?: number | undefined;
+                            stream?: boolean | undefined;
+                        };
+                    } | {
+                        role: "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            usage: {
+                                completionTokens?: number | undefined;
+                                promptTokens?: number | undefined;
+                                totalTokens?: number | undefined;
+                                reasoningTokens?: number | undefined;
+                            };
+                            finishReason?: string | undefined;
+                        };
+                    } | {
+                        role: "system";
+                        content: string;
+                        reasoningContent: string;
+                        metadata?: {} | undefined;
+                    })[];
+                }[];
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/conversations": {
+        $post: {
+            input: {
+                json: {
+                    id: string;
+                    title: string;
+                    messages: ({
+                        role: "user";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            temperature?: number | undefined;
+                            maxTokens?: number | undefined;
+                            stream?: boolean | undefined;
+                        };
+                    } | {
+                        role: "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            usage: {
+                                completionTokens?: number | undefined;
+                                promptTokens?: number | undefined;
+                                totalTokens?: number | undefined;
+                                reasoningTokens?: number | undefined;
+                            };
+                            finishReason?: string | undefined;
+                        };
+                    } | {
+                        role: "system";
+                        content: string;
+                        reasoningContent: string;
+                        metadata?: {} | undefined;
+                    })[];
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 401;
+        } | {
+            input: {
+                json: {
+                    id: string;
+                    title: string;
+                    messages: ({
+                        role: "user";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            temperature?: number | undefined;
+                            maxTokens?: number | undefined;
+                            stream?: boolean | undefined;
+                        };
+                    } | {
+                        role: "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            usage: {
+                                completionTokens?: number | undefined;
+                                promptTokens?: number | undefined;
+                                totalTokens?: number | undefined;
+                                reasoningTokens?: number | undefined;
+                            };
+                            finishReason?: string | undefined;
+                        };
+                    } | {
+                        role: "system";
+                        content: string;
+                        reasoningContent: string;
+                        metadata?: {} | undefined;
+                    })[];
+                };
+            };
+            output: {
+                conversationId: string;
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {

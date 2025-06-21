@@ -11,19 +11,12 @@ import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
-import type {
-  CompletionChunk,
-  StreamChunk,
-  StreamCompletionChunk,
-} from '#/server/features/chat/chat'
+import type { StreamChunk, StreamCompletionChunk } from '#/server/features/chat/chat'
 import { chat, MessageSchema } from '#/server/features/chat/chat'
-import {
-  type ChatMessage,
-  chatConversationRepository,
-  type MutableChatMessage,
-} from '#/server/features/chat-conversations/chat-conversations'
+import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversations'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { cookie } from '#/server/features/cookie/cookie'
+import { ConversationSchema } from '#/types'
 
 type Env = Partial<{
   NODE_ENV: string
@@ -106,7 +99,7 @@ const app = new Hono<HonoEnv>()
       const baseURL = value['base-url']
       const fakeMode = apiKey === 'fakemode' && apiKey === 'fakemode'
       const mcpServerURLs = value['mcp-server-urls']
-      const conversationId = value['conversation-id']
+
       if (!apiKey) {
         return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
@@ -122,7 +115,6 @@ const app = new Hono<HonoEnv>()
         'api-key': apiKey,
         'base-url': fakeMode ? fakeBaseURL : baseURL,
         'mcp-server-urls': mcpServerURLs,
-        'conversation-id': conversationId,
       }
     }),
     sValidator(
@@ -141,7 +133,7 @@ const app = new Hono<HonoEnv>()
       }),
     ),
     async (c) => {
-      const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+      const { COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
 
       const header = c.req.valid('header')
       const req = c.req.valid('json')
@@ -149,18 +141,6 @@ const app = new Hono<HonoEnv>()
       const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
       if (!email) {
         deleteCookie(c, COOKIE_NAME)
-      }
-
-      const conversationId = header['conversation-id']
-      const lastContent = req.messages.at(-1)?.content
-      const userMessage: ChatMessage = {
-        content: typeof lastContent === 'string' ? lastContent : '',
-        metadata: {
-          model: req.model,
-          stream: req.stream,
-          temperature: req.temperature,
-          max_tokens: req.max_tokens,
-        },
       }
 
       const completion = await chat.completions(
@@ -195,73 +175,8 @@ const app = new Hono<HonoEnv>()
             if (!aborted) {
               await stream.writeSSE({ data: '[DONE]' })
             }
-            const assistantMessage = chunks.reduce(
-              (p, c) => {
-                if (c.choices[0].delta?.content) {
-                  p.content += c.choices[0].delta.content || ''
-                }
-                if (c.choices[0].delta?.reasoning_content) {
-                  p.reasoning_content += c.choices[0].delta.reasoning_content || ''
-                }
-                if (c.model) {
-                  p.metadata.model = c.model
-                }
-                if (c.choices[0].finish_reason) {
-                  p.metadata.finish_reason = c.choices[0].finish_reason || ''
-                }
-                if (c.usage?.completion_tokens) {
-                  p.metadata.completion_tokens = c.usage.completion_tokens
-                }
-                if (c.usage?.prompt_tokens) {
-                  p.metadata.prompt_tokens = c.usage.prompt_tokens
-                }
-                if (c.usage?.total_tokens) {
-                  p.metadata.total_tokens = c.usage.total_tokens
-                }
-                if (c.usage?.completion_tokens_details?.reasoning_tokens) {
-                  p.metadata.reasoning_tokens = c.usage.completion_tokens_details.reasoning_tokens
-                }
-                return p
-              },
-              {
-                content: '',
-                reasoning_content: '',
-                metadata: {
-                  model: '',
-                  finish_reason: '',
-                },
-              } as MutableChatMessage,
-            )
-            await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
-              user: userMessage,
-              assistant: assistantMessage,
-            })
           })
-        : await (async () => {
-            const result = completion as CompletionChunk
-            const { model, usage } = result
-            const {
-              finish_reason,
-              message: { content, reasoning_content },
-            } = result.choices[0]
-            const assistantMessage: ChatMessage = {
-              content: content || '',
-              reasoning_content: reasoning_content || '',
-              metadata: {
-                model,
-                finish_reason,
-                completion_tokens: usage?.completion_tokens,
-                prompt_tokens: usage?.prompt_tokens,
-                total_tokens: usage?.total_tokens,
-                reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
-              },
-            }
-            await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
-              user: userMessage,
-              assistant: assistantMessage,
-            })
-            return c.json(result)
-          })()
+        : c.json(completion)
     },
   )
   .post(
@@ -324,6 +239,30 @@ const app = new Hono<HonoEnv>()
         : c.json(await chatStub.completions(req.model, content))
     },
   )
+  .get('/api/conversations', async (c) => {
+    const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+    const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+    if (!email) {
+      deleteCookie(c, COOKIE_NAME)
+      return c.json({ data: [] })
+    }
+    const conversations = await chatConversationRepository.read(DATABASE_URL, email)
+    if (!conversations) {
+      return c.json({ data: [] })
+    }
+    return c.json({ data: conversations })
+  })
+  .post('/api/conversations', sValidator('json', ConversationSchema), async (c) => {
+    const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+    const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+    if (!email) {
+      deleteCookie(c, COOKIE_NAME)
+      return c.json({ error: 'Authentication error' }, 401)
+    }
+    const req = c.req.valid('json')
+    await chatConversationRepository.upsert(DATABASE_URL, email, req)
+    return c.json({ conversationId: req.id })
+  })
   .get('*', async (c) => {
     const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'
