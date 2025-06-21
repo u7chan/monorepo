@@ -18,44 +18,48 @@ export async function readConversation(
   }
   const userId = users[0].id
 
-  // 会話一覧を最新順で取得
-  const conversations = await db
+  // 会話とメッセージを一括取得（JOINを使用してN+1問題を解決）
+  const conversationsWithMessages = await db
     .select({
-      id: conversationsTable.id,
-      title: conversationsTable.title,
-      createdAt: conversationsTable.createdAt,
+      conversationId: conversationsTable.id,
+      conversationTitle: conversationsTable.title,
+      conversationCreatedAt: conversationsTable.createdAt,
+      messageRole: messagesTable.role,
+      messageContent: messagesTable.content,
+      messageReasoningContent: messagesTable.reasoningContent,
+      messageMetadata: messagesTable.metadata,
+      messageCreatedAt: messagesTable.createdAt,
     })
     .from(conversationsTable)
+    .leftJoin(messagesTable, eq(conversationsTable.id, messagesTable.conversationId))
     .where(eq(conversationsTable.userId, userId))
-    .orderBy(desc(conversationsTable.createdAt))
+    .orderBy(desc(conversationsTable.createdAt), messagesTable.createdAt)
 
-  // 各会話のメッセージを取得
-  const conversationsWithMessages: Conversation[] = []
+  // JOINの結果を会話ごとにグループ化
+  const conversationMap = new Map<string, Conversation>()
 
-  for (const conversation of conversations) {
-    const messages = await db
-      .select({
-        role: messagesTable.role,
-        content: messagesTable.content,
-        reasoningContent: messagesTable.reasoningContent,
-        metadata: messagesTable.metadata,
-        createdAt: messagesTable.createdAt,
+  for (const row of conversationsWithMessages) {
+    if (!conversationMap.has(row.conversationId)) {
+      conversationMap.set(row.conversationId, {
+        id: row.conversationId,
+        title: row.conversationTitle || 'Untitled Conversation',
+        messages: []
       })
-      .from(messagesTable)
-      .where(eq(messagesTable.conversationId, conversation.id))
-      .orderBy(messagesTable.createdAt) // メッセージは時系列順
+    }
 
-    conversationsWithMessages.push({
-      id: conversation.id,
-      title: conversation.title || 'Untitled Conversation',
-      messages: messages.map((message) => ({
-        role: message.role as never,
-        content: message.content,
-        reasoningContent: message.reasoningContent,
-        metadata: message.metadata as never,
-      })),
-    })
+    // メッセージが存在する場合のみ追加（LEFT JOINでメッセージがない会話も含まれるため）
+    if (row.messageRole && row.messageContent && row.messageReasoningContent) {
+      const conversation = conversationMap.get(row.conversationId)
+      if (conversation) {
+        conversation.messages.push({
+          role: row.messageRole as never,
+          content: row.messageContent,
+          reasoningContent: row.messageReasoningContent,
+          metadata: row.messageMetadata as never,
+        })
+      }
+    }
   }
 
-  return conversationsWithMessages
+  return Array.from(conversationMap.values())
 }
