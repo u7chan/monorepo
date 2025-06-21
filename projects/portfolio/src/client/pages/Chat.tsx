@@ -29,7 +29,7 @@ export function Chat() {
     settings: readFromLocalStorage(),
   })
 
-  const { isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ['conversations'],
     queryFn: async () => {
       const res = await client.api.conversations.$get()
@@ -59,7 +59,6 @@ export function Chat() {
     setViewModel((p) => ({ ...p, showSettingsActions: !submitting }))
   }
 
-  // 会話履歴の操作ハンドラー
   const handleSelectConversation = (conversationId: string) => {
     setViewModel((p) => ({ ...p, conversationId }))
   }
@@ -82,15 +81,19 @@ export function Chat() {
     }))
   }
 
-  // メッセージ更新のハンドラー
   const handleConversationChange = (conversation: Conversation) => {
+    // カレントの会話IDを更新
+    setViewModel((p) => ({ ...p, conversationId: conversation.id }))
+
+    // サーバーに会話履歴を更新
     client.api.conversations
       .$post({
         json: conversation,
       })
       .then((res) => {
         if (res.status === 200) {
-          // TODO: 成功した場合、会話履歴を更新
+          // 成功した場合は、会話履歴を再取得
+          query.refetch()
         }
       })
       .catch((error) => {
@@ -101,7 +104,7 @@ export function Chat() {
   return (
     <ChatLayout
       conversations={
-        isLoading
+        query.isLoading
           ? 'Loading...'
           : viewModel.conversations.length > 0 && (
               <ConversationHistory
