@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
@@ -33,7 +33,16 @@ export async function readConversation(
     .from(conversationsTable)
     .leftJoin(messagesTable, eq(conversationsTable.id, messagesTable.conversationId))
     .where(eq(conversationsTable.userId, userId))
-    .orderBy(desc(conversationsTable.createdAt), messagesTable.createdAt)
+    .orderBy(
+      desc(conversationsTable.createdAt),
+      desc(messagesTable.createdAt),
+      sql`CASE
+        WHEN ${messagesTable.role} = 'system' THEN 1
+        WHEN ${messagesTable.role} = 'user' THEN 2
+        WHEN ${messagesTable.role} = 'assistant' THEN 3
+        ELSE 4
+      END`
+    )
 
   // JOINの結果を会話ごとにグループ化
   const conversationMap = new Map<string, Conversation>()
