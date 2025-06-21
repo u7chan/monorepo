@@ -1,5 +1,6 @@
-import { useState } from 'react'
-
+import { useQuery } from '@tanstack/react-query'
+import { hc } from 'hono/client'
+import { useEffect, useState } from 'react'
 import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
@@ -8,6 +9,9 @@ import {
   ConversationHistory,
 } from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
+import type { AppType } from '#/server/app.d'
+
+const client = hc<AppType>('/')
 
 export function Chat() {
   const [viewModel, setViewModel] = useState<{
@@ -22,39 +26,18 @@ export function Chat() {
     settings: readFromLocalStorage(),
   })
 
+  const { isLoading } = useQuery({
+    queryKey: ['todos'],
+    queryFn: async () => {
+      const res = await client.api.conversations.$get()
+      const { data } = await res.json()
+      setConversations(data)
+      return data
+    },
+  })
+
   // 会話履歴の状態管理
-  const [conversations, setConversations] = useState<Conversation[]>([
-    // テスト用のサンプルデータ
-    {
-      id: '1',
-      title: 'React開発について',
-      messages: [
-        {
-          role: 'user',
-          content: 'Reactの基本的な使い方を教えてください',
-        },
-        {
-          role: 'assistant',
-          content: 'Reactは...',
-          reasoning_content: 'ユーザーはReactの基本について質問している',
-        },
-      ],
-    },
-    {
-      id: '2',
-      title: 'TypeScriptの型定義',
-      messages: [
-        {
-          role: 'user',
-          content: 'TypeScriptでインターフェースを定義する方法は？',
-        },
-        {
-          role: 'assistant',
-          content: 'TypeScriptでインターフェースを定義するには...',
-        },
-      ],
-    },
-  ])
+  const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
 
   const handleNewChat = () => {
@@ -110,16 +93,18 @@ export function Chat() {
   return (
     <ChatLayout
       conversations={
-        conversations.length > 0 && (
-          <ConversationHistory
-            conversations={conversations}
-            currentConversationId={currentConversationId}
-            disabled={!viewModel.showSettingsActions}
-            onSelectConversation={handleSelectConversation}
-            onDeleteConversation={handleDeleteConversation}
-            onNewConversation={handleNewConversation}
-          />
-        )
+        isLoading
+          ? 'Loading...'
+          : conversations.length > 0 && (
+              <ConversationHistory
+                conversations={conversations}
+                currentConversationId={currentConversationId}
+                disabled={!viewModel.showSettingsActions}
+                onSelectConversation={handleSelectConversation}
+                onDeleteConversation={handleDeleteConversation}
+                onNewConversation={handleNewConversation}
+              />
+            )
       }
     >
       <ChatSettings
