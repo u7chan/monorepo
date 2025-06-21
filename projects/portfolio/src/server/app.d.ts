@@ -143,6 +143,64 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
         };
     };
 } & {
+    "/api/conversations": {
+        $post: {
+            input: {
+                json: {
+                    id: string;
+                    title: string;
+                    messages: {
+                        role: "user" | "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            temperature?: number | undefined;
+                            maxTokens?: number | undefined;
+                            stream?: boolean | undefined;
+                            finishReason?: string | undefined;
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        };
+                    }[];
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 401;
+        } | {
+            input: {
+                json: {
+                    id: string;
+                    title: string;
+                    messages: {
+                        role: "user" | "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            temperature?: number | undefined;
+                            maxTokens?: number | undefined;
+                            stream?: boolean | undefined;
+                            finishReason?: string | undefined;
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        };
+                    }[];
+                };
+            };
+            output: {
+                conversationId: string;
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
     "*": {
         $get: {
             input: {};
