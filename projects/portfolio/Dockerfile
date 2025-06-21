@@ -80,6 +80,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src/db ./src/db
 COPY --from=builder /app/src/server ./src/server
+COPY --from=builder /app/src/types ./src/types
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 USER node
