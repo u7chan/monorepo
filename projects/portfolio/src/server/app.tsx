@@ -11,11 +11,7 @@ import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
 
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
-import type {
-  CompletionChunk,
-  StreamChunk,
-  StreamCompletionChunk,
-} from '#/server/features/chat/chat'
+import type { StreamChunk, StreamCompletionChunk } from '#/server/features/chat/chat'
 import { chat, MessageSchema } from '#/server/features/chat/chat'
 import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversations'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'

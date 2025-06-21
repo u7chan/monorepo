@@ -3,22 +3,12 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
-
-type UpsertConversationParams = {
-  email: string
-  conversationId: string
-  title?: string
-  messages: {
-    role: 'user' | 'assistant' | 'system'
-    content: string
-    reasoningContent: string
-    metadata?: Record<string, unknown>
-  }[]
-}
+import type { Conversation } from '#/types'
 
 export async function upsertConversation(
   databaseUrl: string,
-  { email, conversationId, title, messages }: UpsertConversationParams,
+  email: string,
+  { id, title, messages }: Conversation,
 ) {
   const db = getDatabase(databaseUrl)
 
@@ -29,38 +19,35 @@ export async function upsertConversation(
     return null
   }
   const userId = users[0].id
-  const createdAt = new Date()
 
   return await db.transaction(async (tx) => {
     // 会話がすでに存在するかチェック
     const existingConversations = await tx
       .select()
       .from(conversationsTable)
-      .where(eq(conversationsTable.id, conversationId))
+      .where(eq(conversationsTable.id, id))
 
     if (existingConversations.length === 0) {
       // 存在しなければ会話を登録
       await tx.insert(conversationsTable).values({
-        id: conversationId,
+        id,
         userId,
         title,
-        createdAt,
+        createdAt: new Date(),
       })
     }
 
     // メッセージの登録
     const messageValues = messages.map((message) => ({
       id: uuidv4(),
-      conversationId,
+      conversationId: id,
       role: message.role,
       content: message.content,
       reasoningContent: message.reasoningContent,
       metadata: message.metadata ? JSON.stringify(message.metadata) : null,
-      createdAt,
+      createdAt: new Date(),
     }))
 
     await tx.insert(messagesTable).values(messageValues)
-
-    return { conversationId }
   })
 }
