@@ -219,9 +219,10 @@ export function ChatMain({
     }))
     setMessages(convertedMessages)
     setChatResults(null)
-
-    // メッセージの末尾にスクロール
-    messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
+    setTimeout(() => {
+      // メッセージの末尾にスクロール
+      messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
+    }, 0)
   }, [currentConversation])
 
   useEffect(() => {
