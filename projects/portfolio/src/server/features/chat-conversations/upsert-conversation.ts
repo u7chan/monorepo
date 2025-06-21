@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 
-type CreateConversationParams = {
+type UpsertConversationParams = {
   email: string
   conversationId: string
   title?: string
@@ -16,9 +16,9 @@ type CreateConversationParams = {
   }[]
 }
 
-export async function createConversation(
+export async function upsertConversation(
   databaseUrl: string,
-  { email, conversationId, title, messages }: CreateConversationParams,
+  { email, conversationId, title, messages }: UpsertConversationParams,
 ) {
   const db = getDatabase(databaseUrl)
 

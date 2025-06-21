@@ -20,6 +20,7 @@ import { chat, MessageSchema } from '#/server/features/chat/chat'
 import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversations'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { cookie } from '#/server/features/cookie/cookie'
+import { ConversationSchema } from '#/types'
 
 type Env = Partial<{
   NODE_ENV: string
@@ -331,6 +332,17 @@ const app = new Hono<HonoEnv>()
       return c.json({ data: [] })
     }
     return c.json({ data: conversations })
+  })
+  .post('/api/conversations', sValidator('json', ConversationSchema), async (c) => {
+    const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+    const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+    if (!email) {
+      deleteCookie(c, COOKIE_NAME)
+      return c.json({ error: 'Authentication error' }, 401)
+    }
+    const req = c.req.valid('json')
+    await chatConversationRepository.upsert(DATABASE_URL, email, req)
+    return c.json({ conversationId: req.id })
   })
   .get('*', async (c) => {
     const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
