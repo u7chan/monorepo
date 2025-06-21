@@ -2,18 +2,7 @@ import { desc, eq } from 'drizzle-orm'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
-
-interface Message {
-  role: string
-  content: string
-  reasoning_content?: string
-}
-
-interface Conversation {
-  id: string
-  title: string
-  messages: Message[]
-}
+import type { Conversation } from '#/types'
 
 export async function readConversation(
   databaseUrl: string,
@@ -49,22 +38,22 @@ export async function readConversation(
         role: messagesTable.role,
         content: messagesTable.content,
         reasoningContent: messagesTable.reasoningContent,
+        metadata: messagesTable.metadata,
         createdAt: messagesTable.createdAt,
       })
       .from(messagesTable)
       .where(eq(messagesTable.conversationId, conversation.id))
       .orderBy(messagesTable.createdAt) // メッセージは時系列順
 
-    const formattedMessages: Message[] = messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      reasoning_content: message.reasoningContent || undefined,
-    }))
-
     conversationsWithMessages.push({
       id: conversation.id,
       title: conversation.title || 'Untitled Conversation',
-      messages: formattedMessages,
+      messages: messages.map((message) => ({
+        role: message.role as never,
+        content: message.content,
+        reasoningContent: message.reasoningContent,
+        metadata: message.metadata as never
+      })),
     })
   }
 

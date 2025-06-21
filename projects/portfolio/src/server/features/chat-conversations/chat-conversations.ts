@@ -1,16 +1,15 @@
-import type { Conversation as ClientConversation } from '#/client/components/chat/ConversationHistory'
+import { readConversation } from '#/server/features/chat-conversations/read-conversation'
 import { upsertConversation } from '#/server/features/chat-conversations/upsert-conversation'
 import type { Conversation } from '#/types'
 
 interface ChatConversationRepository {
-  read(databaseUrl: string, email: string): Promise<ClientConversation[] | null>
+  read(databaseUrl: string, email: string): Promise<Conversation[] | null>
   upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void>
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
-  async read(_databaseUrl: string, _email: string): Promise<ClientConversation[] | null> {
-    return []
-    // return readConversation(databaseUrl, email)
+  async read(databaseUrl: string, email: string): Promise<Conversation[] | null> {
+    return readConversation(databaseUrl, email)
   },
   async upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void> {
     await upsertConversation(databaseUrl, email, conversation)

@@ -1,13 +1,20 @@
 import { z } from 'zod'
 
-const UserMetadata = z.object({
+const UserMetadataSchema = z.object({
   model: z.string(),
   stream: z.boolean().optional(),
   temperature: z.number().optional(),
   maxTokens: z.number().optional(),
 })
 
-const AssistantMetadata = z.object({
+const UserMessageSchema = z.object({
+  role: z.literal('user'),
+  content: z.string(),
+  reasoningContent: z.string(),
+  metadata: UserMetadataSchema,
+})
+
+const AssistantMetadataSchema = z.object({
   model: z.string(),
   finishReason: z.string().optional(),
   usage: z.object({
@@ -18,25 +25,24 @@ const AssistantMetadata = z.object({
   }),
 })
 
+const AssistantMessageSchema = z.object({
+  role: z.literal('assistant'),
+  content: z.string(),
+  reasoningContent: z.string(),
+  metadata: AssistantMetadataSchema,
+})
+
+const SystemMessageSchema = z.object({
+  role: z.literal('system'),
+  content: z.string(),
+  reasoningContent: z.string(),
+  metadata: z.object({}).optional(),
+})
+
 const MessageSchema = z.discriminatedUnion('role', [
-  z.object({
-    role: z.literal('user'),
-    content: z.string(),
-    reasoningContent: z.string(),
-    metadata: UserMetadata,
-  }),
-  z.object({
-    role: z.literal('assistant'),
-    content: z.string(),
-    reasoningContent: z.string(),
-    metadata: AssistantMetadata,
-  }),
-  z.object({
-    role: z.literal('system'),
-    content: z.string(),
-    reasoningContent: z.string(),
-    metadata: z.object({}).optional(),
-  }),
+  UserMessageSchema,
+  AssistantMessageSchema,
+  SystemMessageSchema
 ])
 
 export const ConversationSchema = z.object({
