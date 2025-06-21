@@ -223,6 +223,8 @@ export function ChatMain({
       setMessages([])
       setConversationId('')
     }
+    // メッセージの末尾にスクロール
+    messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
   }, [currentConversation, initTrigger])
 
   useEffect(() => {
