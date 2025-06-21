@@ -12,7 +12,7 @@ import React, {
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
-import { uuidv4 } from 'uuidv7'
+import { uuidv7 } from 'uuidv7'
 import { ChatInput } from '#/client/components/chat/ChatInput'
 import type { Conversation as ConversationClient } from '#/client/components/chat/ConversationHistory'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
@@ -373,7 +373,7 @@ export function ChatMain({
 
       // 親コンポーネントに更新されたメッセージを通知
       onConversationChange?.({
-        id: uuidv4(),
+        id: uuidv7(),
         title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
         messages: newConversationMessages,
       })

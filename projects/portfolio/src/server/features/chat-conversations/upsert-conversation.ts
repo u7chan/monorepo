@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv7 } from 'uuidv7'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
@@ -39,7 +39,7 @@ export async function upsertConversation(
 
     // メッセージの登録
     const messageValues = messages.map((message) => ({
-      id: uuidv4(),
+      id: uuidv7(),
       conversationId: id,
       role: message.role,
       content: message.content,
