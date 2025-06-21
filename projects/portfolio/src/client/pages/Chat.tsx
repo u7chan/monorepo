@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
