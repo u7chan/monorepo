@@ -5,10 +5,7 @@ import { useState } from 'react'
 import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
-import {
-  type Conversation as ConversationClient,
-  ConversationHistory,
-} from '#/client/components/chat/ConversationHistory'
+import { ConversationHistory } from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
 import type { AppType } from '#/server/app.d'
 import type { Conversation } from '#/types'
@@ -20,27 +17,27 @@ export function Chat() {
     showSettingsActions: boolean
     showSettingsPopup: boolean
     newChatTrigger: number
+    conversationId: string | null
+    conversations: Conversation[]
     settings: Settings
   }>({
     showSettingsActions: true,
     showSettingsPopup: false,
     newChatTrigger: Date.now(),
+    conversationId: null,
+    conversations: [],
     settings: readFromLocalStorage(),
   })
 
   const { isLoading } = useQuery({
-    queryKey: ['todos'],
+    queryKey: ['conversations'],
     queryFn: async () => {
       const res = await client.api.conversations.$get()
       const { data } = await res.json()
-      setConversations(data)
+      setViewModel((p) => ({ ...p, conversations: data }))
       return data
     },
   })
-
-  // 会話履歴の状態管理
-  const [conversations, setConversations] = useState<ConversationClient[]>([])
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
 
   const handleNewChat = () => {
     setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
@@ -64,28 +61,26 @@ export function Chat() {
 
   // 会話履歴の操作ハンドラー
   const handleSelectConversation = (conversationId: string) => {
-    setCurrentConversationId(conversationId)
-    // 選択した会話のメッセージを読み込む処理をここに追加
-    // newChatTriggerは新しい会話の時のみ使用するため、ここでは設定しない
+    setViewModel((p) => ({ ...p, conversationId }))
   }
 
-  const handleDeleteConversation = (conversationId: string) => {
-    setConversations((prev) => prev.filter((conv) => conv.id !== conversationId))
-    if (currentConversationId === conversationId) {
-      setCurrentConversationId(null)
-      setViewModel((p) => ({ ...p, newChatTrigger: Date.now() }))
-    }
+  const handleDeleteConversation = (_conversationId: string) => {
+    // TODO: delete conversation from server
+    // setConversations((prev) => prev.filter((conv) => conv.id !== conversationId))
+    // if (currentConversationId === conversationId) {
+    //   setCurrentConversationId(null)
+    //   setViewModel((p) => ({ ...p, newChatTrigger: Date.now() }))
+    // }
   }
 
   const handleNewConversation = () => {
-    setCurrentConversationId(null)
-    setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
+    setViewModel((p) => ({
+      ...p,
+      newChatTrigger: Date.now(),
+      showSettingsPopup: false,
+      conversationId: null,
+    }))
   }
-
-  // 現在選択されている会話データを取得
-  const currentConversation = currentConversationId
-    ? conversations.find((conv) => conv.id === currentConversationId) || null
-    : null
 
   // メッセージ更新のハンドラー
   const handleConversationChange = (conversation: Conversation) => {
@@ -108,10 +103,10 @@ export function Chat() {
       conversations={
         isLoading
           ? 'Loading...'
-          : conversations.length > 0 && (
+          : viewModel.conversations.length > 0 && (
               <ConversationHistory
-                conversations={conversations}
-                currentConversationId={currentConversationId}
+                conversations={viewModel.conversations}
+                currentConversationId={viewModel.conversationId}
                 disabled={!viewModel.showSettingsActions}
                 onSelectConversation={handleSelectConversation}
                 onDeleteConversation={handleDeleteConversation}
@@ -122,7 +117,7 @@ export function Chat() {
     >
       <ChatSettings
         showActions={viewModel.showSettingsActions}
-        showNewChat={conversations.length <= 0}
+        showNewChat={viewModel.conversations.length <= 0}
         showPopup={viewModel.showSettingsPopup}
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
@@ -133,7 +128,9 @@ export function Chat() {
         initTrigger={viewModel.newChatTrigger}
         settings={viewModel.settings}
         onSubmitting={handleChatSubmitting}
-        currentConversation={currentConversation}
+        currentConversation={
+          viewModel.conversations.find(({ id }) => id === viewModel.conversationId) || null
+        }
         onConversationChange={handleConversationChange}
       />
     </ChatLayout>

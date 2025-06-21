@@ -42,7 +42,7 @@ const SystemMessageSchema = z.object({
 const MessageSchema = z.discriminatedUnion('role', [
   UserMessageSchema,
   AssistantMessageSchema,
-  SystemMessageSchema
+  SystemMessageSchema,
 ])
 
 export const ConversationSchema = z.object({

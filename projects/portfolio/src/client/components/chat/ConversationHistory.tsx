@@ -1,18 +1,7 @@
 import { useState } from 'react'
 import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
-
-export interface Message {
-  role: string
-  content: string
-  reasoning_content?: string
-}
-
-export interface Conversation {
-  id: string
-  title: string
-  messages: Message[]
-}
+import type { Conversation } from '#/types'
 
 interface Props {
   conversations: Conversation[]

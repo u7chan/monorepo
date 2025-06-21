@@ -52,7 +52,7 @@ export async function readConversation(
         role: message.role as never,
         content: message.content,
         reasoningContent: message.reasoningContent,
-        metadata: message.metadata as never
+        metadata: message.metadata as never,
       })),
     })
   }

@@ -131,11 +131,36 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 data: {
                     id: string;
                     title: string;
-                    messages: {
-                        role: string;
+                    messages: ({
+                        role: "user";
                         content: string;
-                        reasoning_content?: string | undefined;
-                    }[];
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            temperature?: number | undefined;
+                            maxTokens?: number | undefined;
+                            stream?: boolean | undefined;
+                        };
+                    } | {
+                        role: "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            usage: {
+                                completionTokens?: number | undefined;
+                                promptTokens?: number | undefined;
+                                totalTokens?: number | undefined;
+                                reasoningTokens?: number | undefined;
+                            };
+                            finishReason?: string | undefined;
+                        };
+                    } | {
+                        role: "system";
+                        content: string;
+                        reasoningContent: string;
+                        metadata?: {} | undefined;
+                    })[];
                 }[];
             };
             outputFormat: "json";

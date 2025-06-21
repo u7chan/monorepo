@@ -14,7 +14,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
 import { uuidv7 } from 'uuidv7'
 import { ChatInput } from '#/client/components/chat/ChatInput'
-import type { Conversation as ConversationClient } from '#/client/components/chat/ConversationHistory'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
@@ -157,7 +156,7 @@ interface Props {
   initTrigger?: number
   settings: Settings
   onSubmitting?: (submitting: boolean) => void
-  currentConversation?: ConversationClient | null
+  currentConversation?: Conversation | null
   onConversationChange?: (conversation: Conversation) => void
 }
 
@@ -200,6 +199,7 @@ export function ChatMain({
 
   useEffect(() => {
     setMessages([])
+    setChatResults(null)
     setInput('')
     setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
@@ -207,23 +207,22 @@ export function ChatMain({
 
   // 選択された会話のメッセージを設定
   useEffect(() => {
-    if (currentConversation) {
-      // 会話が選択された時、そのメッセージを設定
-      const convertedMessages: Message[] = currentConversation.messages.map((msg) => ({
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content,
-        reasoning_content: msg.reasoning_content,
-      }))
-      setMessages(convertedMessages)
-      // setConversationId(currentConversation.id)
-    } else if (!initTrigger) {
-      // 新しい会話の場合はリセット（initTriggerが変更された場合は上のuseEffectで処理される）
-      setMessages([])
-      // setConversationId('')
+    if (!currentConversation) {
+      return
     }
+
+    // 会話が選択された時、そのメッセージを設定
+    const convertedMessages: Message[] = currentConversation.messages.map((msg) => ({
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content: msg.content,
+      reasoning_content: msg.reasoningContent,
+    }))
+    setMessages(convertedMessages)
+    setChatResults(null)
+
     // メッセージの末尾にスクロール
     messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
-  }, [currentConversation, initTrigger])
+  }, [currentConversation])
 
   useEffect(() => {
     const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {
@@ -373,7 +372,7 @@ export function ChatMain({
 
       // 親コンポーネントに更新されたメッセージを通知
       onConversationChange?.({
-        id: uuidv7(),
+        id: currentConversation ? currentConversation.id : uuidv7(),
         title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
         messages: newConversationMessages,
       })
