@@ -17,11 +17,7 @@ import type {
   StreamCompletionChunk,
 } from '#/server/features/chat/chat'
 import { chat, MessageSchema } from '#/server/features/chat/chat'
-import {
-  type ChatMessage,
-  chatConversationRepository,
-  type MutableChatMessage,
-} from '#/server/features/chat-conversations/chat-conversations'
+import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversations'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { cookie } from '#/server/features/cookie/cookie'
 
@@ -106,7 +102,7 @@ const app = new Hono<HonoEnv>()
       const baseURL = value['base-url']
       const fakeMode = apiKey === 'fakemode' && apiKey === 'fakemode'
       const mcpServerURLs = value['mcp-server-urls']
-      const conversationId = value['conversation-id']
+
       if (!apiKey) {
         return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
       }
@@ -122,7 +118,6 @@ const app = new Hono<HonoEnv>()
         'api-key': apiKey,
         'base-url': fakeMode ? fakeBaseURL : baseURL,
         'mcp-server-urls': mcpServerURLs,
-        'conversation-id': conversationId,
       }
     }),
     sValidator(
@@ -141,7 +136,7 @@ const app = new Hono<HonoEnv>()
       }),
     ),
     async (c) => {
-      const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+      const { COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
 
       const header = c.req.valid('header')
       const req = c.req.valid('json')
@@ -151,17 +146,17 @@ const app = new Hono<HonoEnv>()
         deleteCookie(c, COOKIE_NAME)
       }
 
-      const conversationId = header['conversation-id']
-      const lastContent = req.messages.at(-1)?.content
-      const userMessage: ChatMessage = {
-        content: typeof lastContent === 'string' ? lastContent : '',
-        metadata: {
-          model: req.model,
-          stream: req.stream,
-          temperature: req.temperature,
-          max_tokens: req.max_tokens,
-        },
-      }
+      // const conversationId = header['conversation-id']
+      // const lastContent = req.messages.at(-1)?.content
+      // const userMessage: ChatMessage = {
+      //   content: typeof lastContent === 'string' ? lastContent : '',
+      //   metadata: {
+      //     model: req.model,
+      //     stream: req.stream,
+      //     temperature: req.temperature,
+      //     max_tokens: req.max_tokens,
+      //   },
+      // }
 
       const completion = await chat.completions(
         {
@@ -195,71 +190,71 @@ const app = new Hono<HonoEnv>()
             if (!aborted) {
               await stream.writeSSE({ data: '[DONE]' })
             }
-            const assistantMessage = chunks.reduce(
-              (p, c) => {
-                if (c.choices[0].delta?.content) {
-                  p.content += c.choices[0].delta.content || ''
-                }
-                if (c.choices[0].delta?.reasoning_content) {
-                  p.reasoning_content += c.choices[0].delta.reasoning_content || ''
-                }
-                if (c.model) {
-                  p.metadata.model = c.model
-                }
-                if (c.choices[0].finish_reason) {
-                  p.metadata.finish_reason = c.choices[0].finish_reason || ''
-                }
-                if (c.usage?.completion_tokens) {
-                  p.metadata.completion_tokens = c.usage.completion_tokens
-                }
-                if (c.usage?.prompt_tokens) {
-                  p.metadata.prompt_tokens = c.usage.prompt_tokens
-                }
-                if (c.usage?.total_tokens) {
-                  p.metadata.total_tokens = c.usage.total_tokens
-                }
-                if (c.usage?.completion_tokens_details?.reasoning_tokens) {
-                  p.metadata.reasoning_tokens = c.usage.completion_tokens_details.reasoning_tokens
-                }
-                return p
-              },
-              {
-                content: '',
-                reasoning_content: '',
-                metadata: {
-                  model: '',
-                  finish_reason: '',
-                },
-              } as MutableChatMessage,
-            )
-            await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
-              user: userMessage,
-              assistant: assistantMessage,
-            })
+            // const assistantMessage = chunks.reduce(
+            //   (p, c) => {
+            //     if (c.choices[0].delta?.content) {
+            //       p.content += c.choices[0].delta.content || ''
+            //     }
+            //     if (c.choices[0].delta?.reasoning_content) {
+            //       p.reasoning_content += c.choices[0].delta.reasoning_content || ''
+            //     }
+            //     if (c.model) {
+            //       p.metadata.model = c.model
+            //     }
+            //     if (c.choices[0].finish_reason) {
+            //       p.metadata.finish_reason = c.choices[0].finish_reason || ''
+            //     }
+            //     if (c.usage?.completion_tokens) {
+            //       p.metadata.completion_tokens = c.usage.completion_tokens
+            //     }
+            //     if (c.usage?.prompt_tokens) {
+            //       p.metadata.prompt_tokens = c.usage.prompt_tokens
+            //     }
+            //     if (c.usage?.total_tokens) {
+            //       p.metadata.total_tokens = c.usage.total_tokens
+            //     }
+            //     if (c.usage?.completion_tokens_details?.reasoning_tokens) {
+            //       p.metadata.reasoning_tokens = c.usage.completion_tokens_details.reasoning_tokens
+            //     }
+            //     return p
+            //   },
+            //   {
+            //     content: '',
+            //     reasoning_content: '',
+            //     metadata: {
+            //       model: '',
+            //       finish_reason: '',
+            //     },
+            //   } as MutableChatMessage,
+            // )
+            // await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
+            //   user: userMessage,
+            //   assistant: assistantMessage,
+            // })
           })
         : await (async () => {
             const result = completion as CompletionChunk
-            const { model, usage } = result
-            const {
-              finish_reason,
-              message: { content, reasoning_content },
-            } = result.choices[0]
-            const assistantMessage: ChatMessage = {
-              content: content || '',
-              reasoning_content: reasoning_content || '',
-              metadata: {
-                model,
-                finish_reason,
-                completion_tokens: usage?.completion_tokens,
-                prompt_tokens: usage?.prompt_tokens,
-                total_tokens: usage?.total_tokens,
-                reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
-              },
-            }
-            await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
-              user: userMessage,
-              assistant: assistantMessage,
-            })
+            // const { model, usage } = result
+            // const {
+            //   finish_reason,
+            //   message: { content, reasoning_content },
+            // } = result.choices[0]
+            // const assistantMessage: ChatMessage = {
+            //   content: content || '',
+            //   reasoning_content: reasoning_content || '',
+            //   metadata: {
+            //     model,
+            //     finish_reason,
+            //     completion_tokens: usage?.completion_tokens,
+            //     prompt_tokens: usage?.prompt_tokens,
+            //     total_tokens: usage?.total_tokens,
+            //     reasoning_tokens: usage?.completion_tokens_details?.reasoning_tokens,
+            //   },
+            // }
+            // await chatConversationRepository.save(DATABASE_URL, email || '', conversationId, {
+            //   user: userMessage,
+            //   assistant: assistantMessage,
+            // })
             return c.json(result)
           })()
     },

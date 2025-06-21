@@ -12,7 +12,6 @@ import React, {
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
-import { v4 as uuidv4 } from 'uuid'
 
 import { ChatInput } from '#/client/components/chat/ChatInput'
 import type { Conversation } from '#/client/components/chat/ConversationHistory'
@@ -175,7 +174,6 @@ export function ChatMain({
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const [conversationId, setConversationId] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState<{
@@ -200,7 +198,6 @@ export function ChatMain({
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
-    setConversationId('')
     setMessages([])
     setInput('')
     setUploadImages([])
@@ -217,11 +214,11 @@ export function ChatMain({
         reasoning_content: msg.reasoning_content,
       }))
       setMessages(convertedMessages)
-      setConversationId(currentConversation.id)
+      // setConversationId(currentConversation.id)
     } else if (!initTrigger) {
       // 新しい会話の場合はリセット（initTriggerが変更された場合は上のuseEffectで処理される）
       setMessages([])
-      setConversationId('')
+      // setConversationId('')
     }
     // メッセージの末尾にスクロール
     messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
@@ -311,7 +308,6 @@ export function ChatMain({
       return
     }
 
-    // setShowMenu(false)
     setLoading(true)
     setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
     setInput('')
@@ -319,11 +315,6 @@ export function ChatMain({
     setUploadImages([])
     setTextAreaRows(MIN_TEXT_LINE_COUNT)
     setChatResults(null)
-
-    const currentConversationId = conversationId || uuidv4()
-    if (!conversationId) {
-      setConversationId(currentConversationId)
-    }
 
     abortControllerRef.current = new AbortController()
 
@@ -334,7 +325,6 @@ export function ChatMain({
         apiKey: form.apiKey,
         baseURL: form.baseURL,
         mcpServerURLs: form.mcpServerURLs,
-        conversationId: currentConversationId,
       },
       model: params.model,
       messages: params.messages,
@@ -359,7 +349,7 @@ export function ChatMain({
 
         // 親コンポーネントに更新されたメッセージを通知
         onConversationChange?.({
-          id: result.conversationId,
+          id: 'TODO', //result.conversationId,
           title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
           messages: newMessages.map(({ role, content }) => ({
             role: `${role}`,
@@ -844,7 +834,6 @@ const sendChatCompletion = async (req: {
     apiKey: string
     baseURL: string
     mcpServerURLs: string
-    conversationId: string
   }
   model: string
   messages: Message[]
@@ -853,7 +842,6 @@ const sendChatCompletion = async (req: {
   maxTokens?: number
   onStream?: (stream: { content: string; reasoning_content: string }) => void
 }): Promise<{
-  conversationId: string
   model: string
   finish_reason: string
   message: {
@@ -887,7 +875,6 @@ const sendChatCompletion = async (req: {
           'api-key': req.header.apiKey,
           'base-url': req.header.baseURL,
           'mcp-server-urls': req.header.mcpServerURLs,
-          'conversation-id': req.header.conversationId,
         },
         json: {
           messages: req.messages,
@@ -997,7 +984,6 @@ const sendChatCompletion = async (req: {
     return null
   }
   return {
-    conversationId: req.header.conversationId,
     model: responseModel,
     finish_reason,
     message: result,
