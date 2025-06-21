@@ -34,7 +34,7 @@ export async function readConversation(
     .leftJoin(messagesTable, eq(conversationsTable.id, messagesTable.conversationId))
     .where(eq(conversationsTable.userId, userId))
     .orderBy(
-      desc(conversationsTable.createdAt),
+      desc(conversationsTable.updatedAt),
       desc(messagesTable.createdAt),
       sql`CASE
         WHEN ${messagesTable.role} = 'system' THEN 1

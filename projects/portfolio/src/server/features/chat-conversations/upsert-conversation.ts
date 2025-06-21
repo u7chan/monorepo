@@ -27,14 +27,23 @@ export async function upsertConversation(
       .from(conversationsTable)
       .where(eq(conversationsTable.id, id))
 
+    const now = new Date()
+
     if (existingConversations.length === 0) {
       // 存在しなければ会話を登録
       await tx.insert(conversationsTable).values({
         id,
         userId,
         title,
-        createdAt: new Date(),
+        createdAt: now,
+        updatedAt: now,
       })
+    } else {
+      // 存在すれば会話のupdatedAtを更新
+      await tx
+        .update(conversationsTable)
+        .set({ updatedAt: now })
+        .where(eq(conversationsTable.id, id))
     }
 
     // メッセージの登録
@@ -45,7 +54,7 @@ export async function upsertConversation(
       content: message.content,
       reasoningContent: message.reasoningContent,
       metadata: message.metadata ? JSON.stringify(message.metadata) : null,
-      createdAt: new Date(),
+      createdAt: now,
     }))
 
     await tx.insert(messagesTable).values(messageValues)

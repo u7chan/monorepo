@@ -8,6 +8,13 @@
       "when": 1750084014415,
       "tag": "0000_familiar_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1750518377202,
+      "tag": "0001_many_crystal",
+      "breakpoints": true
     }
   ]
 }
