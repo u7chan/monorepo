@@ -12,9 +12,9 @@ import React, {
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
-
+import { uuidv4 } from 'uuidv7'
 import { ChatInput } from '#/client/components/chat/ChatInput'
-import type { Conversation } from '#/client/components/chat/ConversationHistory'
+import type { Conversation as ConversationClient } from '#/client/components/chat/ConversationHistory'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
@@ -27,6 +27,7 @@ import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
 import { StopIcon } from '#/client/components/svg/StopIcon'
 import { UploadIcon } from '#/client/components/svg/UploadIcon'
 import type { AppType } from '#/server/app.d'
+import type { Conversation } from '#/types'
 
 const client = hc<AppType>('/')
 
@@ -156,7 +157,7 @@ interface Props {
   initTrigger?: number
   settings: Settings
   onSubmitting?: (submitting: boolean) => void
-  currentConversation?: Conversation | null
+  currentConversation?: ConversationClient | null
   onConversationChange?: (conversation: Conversation) => void
 }
 
@@ -328,7 +329,7 @@ export function ChatMain({
       },
       model: params.model,
       messages: params.messages,
-      streamMode: settings.streamMode,
+      stream: settings.streamMode,
       temperature: form.temperature,
       maxTokens: form.maxTokens,
       onStream: (stream) => {
@@ -349,13 +350,46 @@ export function ChatMain({
 
         // 親コンポーネントに更新されたメッセージを通知
         onConversationChange?.({
-          id: 'TODO', //result.conversationId,
+          id: uuidv4(),
           title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
-          messages: newMessages.map(({ role, content }) => ({
-            role: `${role}`,
-            content: typeof content === 'string' ? content : '',
-            reasoning_content: result.message.reasoning_content,
-          })),
+          messages: newMessages.map(({ role, content }) => {
+            if (role === 'user') {
+              return {
+                role: 'user',
+                content: typeof content === 'string' ? content : '',
+                reasoningContent: '',
+                metadata: {
+                  model: params.model,
+                  stream: settings.streamMode,
+                  temperature: form.temperature,
+                  maxTokens: form.maxTokens,
+                },
+              }
+            }
+            if (role === 'assistant') {
+              return {
+                role: 'assistant',
+                content,
+                reasoningContent: result.message.reasoning_content,
+                metadata: {
+                  model: result.model,
+                  finishReason: result.finish_reason,
+                  usage: {
+                    promptTokens: result.usage?.promptTokens || 0,
+                    completionTokens: result.usage?.completionTokens || 0,
+                    totalTokens: result.usage?.totalTokens || 0,
+                    reasoningTokens: result.usage?.reasoningTokens,
+                  },
+                },
+              }
+            }
+            return {
+              role: 'system',
+              content,
+              reasoningContent: '',
+              metadata: {},
+            }
+          }),
         })
 
         setChatResults({
@@ -837,7 +871,7 @@ const sendChatCompletion = async (req: {
   }
   model: string
   messages: Message[]
-  streamMode: boolean
+  stream: boolean
   temperature?: number
   maxTokens?: number
   onStream?: (stream: { content: string; reasoning_content: string }) => void
@@ -852,6 +886,7 @@ const sendChatCompletion = async (req: {
     promptTokens: number
     completionTokens: number
     totalTokens: number
+    reasoningTokens?: number
   } | null
 } | null> => {
   const result = {
@@ -863,6 +898,9 @@ const sendChatCompletion = async (req: {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
+    completion_tokens_details?: {
+      reasoning_tokens?: number
+    }
   } | null = null
   let responseModel = 'N/A'
 
@@ -879,10 +917,10 @@ const sendChatCompletion = async (req: {
         json: {
           messages: req.messages,
           model: req.model,
-          stream: req.streamMode,
+          stream: req.stream,
           temperature: req.temperature,
           max_tokens: req.maxTokens,
-          stream_options: req.streamMode
+          stream_options: req.stream
             ? {
                 include_usage: true,
               }
@@ -904,6 +942,7 @@ const sendChatCompletion = async (req: {
             prompt_tokens: number
             completion_tokens: number
             total_tokens: number
+            reasoning_tokens: number
           }
         }
         result.reasoning_content = data.choices[0].message?.reasoning_content || ''
@@ -944,7 +983,14 @@ const sendChatCompletion = async (req: {
                   finish_reason: string
                 }[]
                 model?: string
-                usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+                usage?: {
+                  prompt_tokens: number
+                  completion_tokens: number
+                  total_tokens: number
+                  completion_tokens_details?: {
+                    reasoning_tokens?: number
+                  }
+                }
               }
               // Append chunk to result
               result.reasoning_content += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
@@ -992,6 +1038,7 @@ const sendChatCompletion = async (req: {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
           totalTokens: usage.total_tokens,
+          reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
         }
       : null,
   }

@@ -9,7 +9,7 @@ type UpsertConversationParams = {
   conversationId: string
   title?: string
   messages: {
-    role: 'user' | 'assistant'
+    role: 'user' | 'assistant' | 'system'
     content: string
     reasoningContent: string
     metadata?: Record<string, unknown>

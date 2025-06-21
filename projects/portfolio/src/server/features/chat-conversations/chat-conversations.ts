@@ -13,16 +13,15 @@ export const chatConversationRepository: ChatConversationRepository = {
     // return readConversation(databaseUrl, email)
   },
   async upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void> {
-    const userContent = conversation.messages.find((x) => x.role === 'user')?.content || ''
     await upsertConversation(databaseUrl, {
       email,
       conversationId: conversation.id,
-      title: userContent.slice(10),
+      title: conversation.title,
       messages: conversation.messages.map(({ role, content, reasoningContent, metadata }) => ({
         role,
         content,
         reasoningContent,
-        metadata,
+        metadata: metadata as never,
       })),
     })
   },

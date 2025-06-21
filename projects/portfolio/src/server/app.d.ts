@@ -149,21 +149,36 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 json: {
                     id: string;
                     title: string;
-                    messages: {
-                        role: "user" | "assistant";
+                    messages: ({
+                        role: "user";
                         content: string;
                         reasoningContent: string;
                         metadata: {
+                            model: string;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
                             stream?: boolean | undefined;
-                            finishReason?: string | undefined;
-                            completionTokens?: number | undefined;
-                            promptTokens?: number | undefined;
-                            totalTokens?: number | undefined;
-                            reasoningTokens?: number | undefined;
                         };
-                    }[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            usage: {
+                                completionTokens?: number | undefined;
+                                promptTokens?: number | undefined;
+                                totalTokens?: number | undefined;
+                                reasoningTokens?: number | undefined;
+                            };
+                            finishReason?: string | undefined;
+                        };
+                    } | {
+                        role: "system";
+                        content: string;
+                        reasoningContent: string;
+                        metadata?: {} | undefined;
+                    })[];
                 };
             };
             output: {
@@ -176,21 +191,36 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 json: {
                     id: string;
                     title: string;
-                    messages: {
-                        role: "user" | "assistant";
+                    messages: ({
+                        role: "user";
                         content: string;
                         reasoningContent: string;
                         metadata: {
+                            model: string;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
                             stream?: boolean | undefined;
-                            finishReason?: string | undefined;
-                            completionTokens?: number | undefined;
-                            promptTokens?: number | undefined;
-                            totalTokens?: number | undefined;
-                            reasoningTokens?: number | undefined;
                         };
-                    }[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                        reasoningContent: string;
+                        metadata: {
+                            model: string;
+                            usage: {
+                                completionTokens?: number | undefined;
+                                promptTokens?: number | undefined;
+                                totalTokens?: number | undefined;
+                                reasoningTokens?: number | undefined;
+                            };
+                            finishReason?: string | undefined;
+                        };
+                    } | {
+                        role: "system";
+                        content: string;
+                        reasoningContent: string;
+                        metadata?: {} | undefined;
+                    })[];
                 };
             };
             output: {

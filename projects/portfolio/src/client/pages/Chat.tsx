@@ -1,15 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
 import { useState } from 'react'
+
 import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import {
-  type Conversation,
+  type Conversation as ConversationClient,
   ConversationHistory,
 } from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
 import type { AppType } from '#/server/app.d'
+import type { Conversation } from '#/types'
 
 const client = hc<AppType>('/')
 
@@ -37,7 +39,7 @@ export function Chat() {
   })
 
   // 会話履歴の状態管理
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [conversations, setConversations] = useState<ConversationClient[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
 
   const handleNewChat = () => {
@@ -87,7 +89,18 @@ export function Chat() {
 
   // メッセージ更新のハンドラー
   const handleConversationChange = (conversation: Conversation) => {
-    setConversations((p) => [conversation, ...p])
+    client.api.conversations
+      .$post({
+        json: conversation,
+      })
+      .then((res) => {
+        if (res.status === 200) {
+          // TODO: 成功した場合、会話履歴を更新
+        }
+      })
+      .catch((error) => {
+        console.error('Error updating conversation:', error)
+      })
   }
 
   return (
