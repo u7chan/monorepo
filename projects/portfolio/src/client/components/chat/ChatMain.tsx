@@ -174,6 +174,7 @@ export function ChatMain({
   const messageEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState<{
@@ -217,6 +218,7 @@ export function ChatMain({
       content: msg.content,
       reasoning_content: msg.reasoningContent,
     }))
+    setConversationId(currentConversation.id)
     setMessages(convertedMessages)
     setChatResults(null)
     setTimeout(() => {
@@ -371,9 +373,18 @@ export function ChatMain({
           : []),
       ]
 
+      // 会話IDが指定されていない場合は会話IDを新規作成
+      const currentConversationId =
+        conversationId ||
+        (() => {
+          const newConversationId = uuidv7()
+          setConversationId(newConversationId)
+          return newConversationId
+        })()
+
       // 親コンポーネントに更新されたメッセージを通知
       onConversationChange?.({
-        id: currentConversation ? currentConversation.id : uuidv7(),
+        id: currentConversationId,
         title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
         messages: newConversationMessages,
       })
