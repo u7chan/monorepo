@@ -336,40 +336,25 @@ export function ChatMain({
         setStream(stream)
       },
     }).then((result) => {
-      if (result) {
-        const newMessages = [
-          ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
-          {
-            role: 'assistant' as const,
-            ...result.message,
+      const userInput = params.messages?.at(-1)?.content
+      const newConversationMessages = [
+        // TODO: append system message
+        {
+          role: 'user' as const,
+          content: typeof userInput === 'string' ? userInput : '',
+          reasoningContent: '',
+          metadata: {
+            model: params.model,
+            stream: settings.streamMode,
+            temperature: form.temperature,
+            maxTokens: form.maxTokens,
           },
-        ]
-        setMessages(newMessages)
-
-        const userInput = params.messages?.at(-1)?.content
-
-        // 親コンポーネントに更新されたメッセージを通知
-        onConversationChange?.({
-          id: uuidv4(),
-          title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
-          messages: newMessages.map(({ role, content }) => {
-            if (role === 'user') {
-              return {
-                role: 'user',
-                content: typeof content === 'string' ? content : '',
-                reasoningContent: '',
-                metadata: {
-                  model: params.model,
-                  stream: settings.streamMode,
-                  temperature: form.temperature,
-                  maxTokens: form.maxTokens,
-                },
-              }
-            }
-            if (role === 'assistant') {
-              return {
-                role: 'assistant',
-                content,
+        },
+        ...(result
+          ? [
+              {
+                role: 'assistant' as const,
+                content: result.message.content,
                 reasoningContent: result.message.reasoning_content,
                 metadata: {
                   model: result.model,
@@ -381,17 +366,27 @@ export function ChatMain({
                     reasoningTokens: result.usage?.reasoningTokens,
                   },
                 },
-              }
-            }
-            return {
-              role: 'system',
-              content,
-              reasoningContent: '',
-              metadata: {},
-            }
-          }),
-        })
+              },
+            ]
+          : []),
+      ]
 
+      // 親コンポーネントに更新されたメッセージを通知
+      onConversationChange?.({
+        id: uuidv4(),
+        title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
+        messages: newConversationMessages,
+      })
+
+      if (result) {
+        const newMessages = [
+          ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
+          {
+            role: 'assistant' as const,
+            ...result.message,
+          },
+        ]
+        setMessages(newMessages)
         setChatResults({
           model: result.model,
           finish_reason: result.finish_reason,
