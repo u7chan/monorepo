@@ -263,6 +263,24 @@ const app = new Hono<HonoEnv>()
     await chatConversationRepository.upsert(DATABASE_URL, email, req)
     return c.json({ conversationId: req.id })
   })
+  .delete(
+    '/api/conversations',
+    sValidator(
+      'query',
+      z.object({
+        ids: z
+          .union([z.string(), z.array(z.string())])
+          .optional()
+          .transform((value) => (Array.isArray(value) ? value : [value]))
+          .transform((value) => value.filter((x) => x)),
+      }),
+    ),
+    async (c) => {
+      const { ids } = c.req.valid('query')
+      console.log('#ids', { ids })
+      return c.json({})
+    },
+  )
   .get('*', async (c) => {
     const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'
