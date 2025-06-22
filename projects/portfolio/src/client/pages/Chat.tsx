@@ -72,6 +72,11 @@ export function Chat() {
         if (res.status === 200) {
           // 成功した場合は、会話履歴を再取得
           query.refetch()
+
+          // カレントの会話が削除された場合、新しい会話を開始
+          if (conversationId === viewModel.conversationId) {
+            handleNewConversation()
+          }
         }
       })
       .catch((error) => {
