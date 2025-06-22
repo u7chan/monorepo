@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
 import type { StreamChunk, StreamCompletionChunk } from '#/server/features/chat/chat'
 import { chat, MessageSchema } from '#/server/features/chat/chat'
-import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversations'
+import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversation-repository'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { cookie } from '#/server/features/cookie/cookie'
 import { ConversationSchema } from '#/types'
@@ -263,6 +263,28 @@ const app = new Hono<HonoEnv>()
     await chatConversationRepository.upsert(DATABASE_URL, email, req)
     return c.json({ conversationId: req.id })
   })
+  .delete(
+    '/api/conversations',
+    sValidator(
+      'query',
+      z.object({
+        ids: z
+          .union([z.string(), z.array(z.string())])
+          .transform((value) => (Array.isArray(value) ? value : [value])),
+      }),
+    ),
+    async (c) => {
+      const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+      const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+      if (!email) {
+        deleteCookie(c, COOKIE_NAME)
+        return c.json({ error: 'Authentication error' }, 401)
+      }
+      const { ids } = c.req.valid('query')
+      const result = await chatConversationRepository.delete(DATABASE_URL, email, ids)
+      return c.json(result)
+    },
+  )
   .get('*', async (c) => {
     const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'

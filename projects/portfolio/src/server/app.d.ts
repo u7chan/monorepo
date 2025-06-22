@@ -256,6 +256,34 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
         };
     };
 } & {
+    "/api/conversations": {
+        $delete: {
+            input: {
+                query: {
+                    ids: string | string[];
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 401;
+        } | {
+            input: {
+                query: {
+                    ids: string | string[];
+                };
+            };
+            output: {
+                success: boolean;
+                deletedIds: string[];
+                failedIds: string[];
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
     "*": {
         $get: {
             input: {};

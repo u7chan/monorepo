@@ -63,13 +63,20 @@ export function Chat() {
     setViewModel((p) => ({ ...p, conversationId }))
   }
 
-  const handleDeleteConversation = (_conversationId: string) => {
-    // TODO: delete conversation from server
-    // setConversations((prev) => prev.filter((conv) => conv.id !== conversationId))
-    // if (currentConversationId === conversationId) {
-    //   setCurrentConversationId(null)
-    //   setViewModel((p) => ({ ...p, newChatTrigger: Date.now() }))
-    // }
+  const handleDeleteConversation = (conversationId: string) => {
+    client.api.conversations
+      .$delete({
+        query: { ids: [conversationId] },
+      })
+      .then((res) => {
+        if (res.status === 200) {
+          // 成功した場合は、会話履歴を再取得
+          query.refetch()
+        }
+      })
+      .catch((error) => {
+        console.error('Error updating conversation:', error)
+      })
   }
 
   const handleNewConversation = () => {
