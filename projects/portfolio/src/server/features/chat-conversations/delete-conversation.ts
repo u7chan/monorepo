@@ -1,7 +1,18 @@
 import { and, eq, inArray } from 'drizzle-orm'
+import { UUID } from 'uuidv7'
 
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+
+// UUID検証用のヘルパー関数
+function isValidUUID(id: string): boolean {
+  try {
+    UUID.parse(id)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export async function deleteConversations(
   databaseUrl: string,
@@ -13,6 +24,27 @@ export async function deleteConversations(
   // 空の配列の場合は早期リターン
   if (conversationIds.length === 0) {
     return { success: true, deletedIds: [], failedIds: [] }
+  }
+
+  // UUID形式の検証
+  const validIds: string[] = []
+  const invalidIds: string[] = []
+
+  for (const id of conversationIds) {
+    if (isValidUUID(id)) {
+      validIds.push(id)
+    } else {
+      invalidIds.push(id)
+    }
+  }
+
+  if (invalidIds.length > 0) {
+    console.warn(`Warning: Invalid UUID format IDs detected: ${invalidIds.join(', ')}`)
+  }
+
+  // 有効なIDがない場合は早期リターン
+  if (validIds.length === 0) {
+    return { success: false, deletedIds: [], failedIds: conversationIds }
   }
 
   // ユーザーIDの取得
