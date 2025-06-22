@@ -41,7 +41,7 @@ export async function readConversation(
         WHEN ${messagesTable.role} = 'user' THEN 2
         WHEN ${messagesTable.role} = 'assistant' THEN 3
         ELSE 4
-      END`
+      END`,
     )
 
   // JOINの結果を会話ごとにグループ化
@@ -52,7 +52,7 @@ export async function readConversation(
       conversationMap.set(row.conversationId, {
         id: row.conversationId,
         title: row.conversationTitle || 'Untitled Conversation',
-        messages: []
+        messages: [],
       })
     }
 
