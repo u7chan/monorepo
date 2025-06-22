@@ -270,15 +270,19 @@ const app = new Hono<HonoEnv>()
       z.object({
         ids: z
           .union([z.string(), z.array(z.string())])
-          .optional()
-          .transform((value) => (Array.isArray(value) ? value : [value]))
-          .transform((value) => value.filter((x) => x)),
+          .transform((value) => (Array.isArray(value) ? value : [value])),
       }),
     ),
     async (c) => {
+      const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
+      const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
+      if (!email) {
+        deleteCookie(c, COOKIE_NAME)
+        return c.json({ error: 'Authentication error' }, 401)
+      }
       const { ids } = c.req.valid('query')
-      console.log('#ids', { ids })
-      return c.json({})
+      const result = await chatConversationRepository.delete(DATABASE_URL, email, ids)
+      return c.json(result)
     },
   )
   .get('*', async (c) => {
