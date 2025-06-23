@@ -529,23 +529,19 @@ export function ChatMain({
                   setCopiedId('')
                 }
                 const handleClickDelete = (i: number) => {
-                  // TODO: DBの会話履歴も消す必要がある
                   if (confirm('本当に削除しますか？')) {
                     setMessages((prevMessages) => {
                       const newMessages = [...prevMessages]
                       newMessages.splice(i, 1) // user
                       newMessages.splice(i, 1) // assistant
-                      // TODO: 親コンポーネントに更新されたメッセージを通知
-                      // if (conversationId && onMessagesChange) {
-                      //   onConversationChange(
-                      //     newMessages.map(({ role, content }) => ({
-                      //       role: `${role}`,
-                      //       content: typeof content === 'string' ? content : '',
-                      //     })),
-                      //   )
-                      // }
                       return newMessages
                     })
+                    // TODO: DBの会話履歴も消す必要がある
+                    const deleteMessageIds = [
+                      currentConversation?.messages?.at(i)?.id,
+                      currentConversation?.messages?.at(i + 1)?.id,
+                    ].filter((x): x is string => x !== undefined)
+                    alert(JSON.stringify(deleteMessageIds))
                   }
                 }
                 return (
