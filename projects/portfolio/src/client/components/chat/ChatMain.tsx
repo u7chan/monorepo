@@ -200,6 +200,7 @@ export function ChatMain({
 
   useEffect(() => {
     setMessages([])
+    setConversationId(null)
     setChatResults(null)
     setInput('')
     setUploadImages([])
