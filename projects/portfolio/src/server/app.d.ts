@@ -141,6 +141,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             maxTokens?: number | undefined;
                             stream?: boolean | undefined;
                         };
+                        id?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
@@ -155,10 +156,12 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             };
                             finishReason?: string | undefined;
                         };
+                        id?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
                         reasoningContent: string;
+                        id?: string | undefined;
                         metadata?: {} | undefined;
                     })[];
                 }[];
@@ -184,6 +187,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             maxTokens?: number | undefined;
                             stream?: boolean | undefined;
                         };
+                        id?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
@@ -198,10 +202,12 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             };
                             finishReason?: string | undefined;
                         };
+                        id?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
                         reasoningContent: string;
+                        id?: string | undefined;
                         metadata?: {} | undefined;
                     })[];
                 };
@@ -226,6 +232,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             maxTokens?: number | undefined;
                             stream?: boolean | undefined;
                         };
+                        id?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
@@ -240,10 +247,12 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             };
                             finishReason?: string | undefined;
                         };
+                        id?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
                         reasoningContent: string;
+                        id?: string | undefined;
                         metadata?: {} | undefined;
                     })[];
                 };
@@ -278,6 +287,35 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 success: boolean;
                 deletedIds: string[];
                 failedIds: string[];
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/conversations/messages": {
+        $delete: {
+            input: {
+                query: {
+                    ids: string | string[];
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 401;
+        } | {
+            input: {
+                query: {
+                    ids: string | string[];
+                };
+            };
+            output: {
+                success: boolean;
+                deletedMessageIds: string[];
+                failedMessageIds: string[];
+                deletedConversationIds: string[];
             };
             outputFormat: "json";
             status: import('hono/utils/http-status').ContentfulStatusCode;

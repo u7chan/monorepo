@@ -84,6 +84,27 @@ export function Chat() {
       })
   }
 
+  const handleDeleteConversationMessage = (messageIds: string[], isConversationEmpty: boolean) => {
+    client.api.conversations.messages
+      .$delete({
+        query: { ids: messageIds },
+      })
+      .then(async (res) => {
+        if (res.status === 200) {
+          // 成功した場合は、会話履歴を再取得
+          query.refetch()
+
+          // カレントの会話が削除された場合、新しい会話を開始
+          if (isConversationEmpty) {
+            handleNewConversation()
+          }
+        }
+      })
+      .catch((error) => {
+        console.error('Error updating conversation:', error)
+      })
+  }
+
   const handleNewConversation = () => {
     setViewModel((p) => ({
       ...p,
@@ -147,6 +168,7 @@ export function Chat() {
           viewModel.conversations.find(({ id }) => id === viewModel.conversationId) || null
         }
         onConversationChange={handleConversationChange}
+        onDeleteMessages={handleDeleteConversationMessage}
       />
     </ChatLayout>
   )
