@@ -155,17 +155,19 @@ type Message = MessageSystem | MessageAssistant | MessageUser
 interface Props {
   initTrigger?: number
   settings: Settings
-  onSubmitting?: (submitting: boolean) => void
   currentConversation?: Conversation | null
+  onSubmitting?: (submitting: boolean) => void
   onConversationChange?: (conversation: Conversation) => void
+  onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
 }
 
 export function ChatMain({
   initTrigger,
   settings,
-  onSubmitting,
   currentConversation,
+  onSubmitting,
   onConversationChange,
+  onDeleteMessages,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -530,18 +532,19 @@ export function ChatMain({
                 }
                 const handleClickDelete = (i: number) => {
                   if (confirm('本当に削除しますか？')) {
+                    let isConversationEmpty = false
                     setMessages((prevMessages) => {
                       const newMessages = [...prevMessages]
                       newMessages.splice(i, 1) // user
                       newMessages.splice(i, 1) // assistant
+                      isConversationEmpty = newMessages.length <= 0
                       return newMessages
                     })
-                    // TODO: DBの会話履歴も消す必要がある
                     const deleteMessageIds = [
                       currentConversation?.messages?.at(i)?.id,
                       currentConversation?.messages?.at(i + 1)?.id,
                     ].filter((x): x is string => x !== undefined)
-                    alert(JSON.stringify(deleteMessageIds))
+                    onDeleteMessages?.(deleteMessageIds, isConversationEmpty)
                   }
                 }
                 return (
