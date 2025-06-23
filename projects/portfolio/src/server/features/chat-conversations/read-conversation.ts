@@ -24,6 +24,7 @@ export async function readConversation(
       conversationId: conversationsTable.id,
       conversationTitle: conversationsTable.title,
       conversationCreatedAt: conversationsTable.createdAt,
+      messageId: messagesTable.id,
       messageRole: messagesTable.role,
       messageContent: messagesTable.content,
       messageReasoningContent: messagesTable.reasoningContent,
@@ -61,7 +62,8 @@ export async function readConversation(
       const conversation = conversationMap.get(row.conversationId)
       if (conversation) {
         conversation.messages.push({
-          role: row.messageRole as never,
+          id: row.messageId ?? '',
+          role: row.messageRole as "user" | "assistant" | "system",
           content: row.messageContent,
           reasoningContent: row.messageReasoningContent,
           metadata: row.messageMetadata as never,

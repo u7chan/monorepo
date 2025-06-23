@@ -8,6 +8,7 @@ const UserMetadataSchema = z.object({
 })
 
 const UserMessageSchema = z.object({
+  id: z.string().optional(),
   role: z.literal('user'),
   content: z.string(),
   reasoningContent: z.string(),
@@ -26,6 +27,7 @@ const AssistantMetadataSchema = z.object({
 })
 
 const AssistantMessageSchema = z.object({
+  id: z.string().optional(),
   role: z.literal('assistant'),
   content: z.string(),
   reasoningContent: z.string(),
@@ -33,6 +35,7 @@ const AssistantMessageSchema = z.object({
 })
 
 const SystemMessageSchema = z.object({
+  id: z.string().optional(),
   role: z.literal('system'),
   content: z.string(),
   reasoningContent: z.string(),
