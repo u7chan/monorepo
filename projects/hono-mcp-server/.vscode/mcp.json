@@ -1,8 +1,7 @@
 {
-  "servers": {
-    "localhost:3000": {
-      "type": "sse",
-      "url": "http://localhost:3000/sse"
-    }
-  }
+	"servers": {
+		"hono-mcp-server": {
+			"url": "http://localhost:3000/mcp"
+		}
+	}
 }
