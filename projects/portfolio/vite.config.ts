@@ -69,6 +69,12 @@ export default defineConfig(({ mode }) => {
               entryFileNames: 'client.js',
               assetFileNames: '[name].[ext]',
             },
+            onwarn(warning, warn) {
+              if (warning.code === "MODULE_LEVEL_DIRECTIVE") {
+                return;
+              }
+              warn(warning);
+            },
           },
         },
       }
