@@ -1,0 +1,74 @@
+@apiKey={{$dotenv OPENAI_API_KEY}}
+@model=gpt-4.1-nano
+@baseURL=https://api.openai.com/v1
+@litellmUrl={{$dotenv LITELLM_BASE_URL}}
+@litellmApiKey={{$dotenv LITELLM_API_KEY}}
+
+#### responses
+POST {{ baseURL }}/responses
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "input": "Capital of Japan",
+  "store": false
+}
+
+#### responses - stream
+POST {{ baseURL }}/responses
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "input": "Capital of Japan",
+  "store": false,
+  "stream": true
+}
+
+#### responses - MCP with litellm （動かない。MCPサーバーをインターネットに公開していないと呼べないみたい。）
+POST {{ baseURL }}/responses
+Content-Type: application/json
+Authorization: Bearer {{ apiKey }}
+
+{
+  "model": "{{ model }}",
+  "input": "Run available tools",
+  "store": false,
+  "tool_choice": "required",
+  "tools": [
+    {
+      "type": "mcp",
+      "server_label": "litellm",
+      "server_url": "{{ litellmUrl }}/mcp",
+      "require_approval": "never",
+      "headers": {
+        "x-litellm-api-key": "Bearer {{ litellmApiKey }}"
+      }
+    }
+  ]
+}
+
+#### responses - MCP with litellm proxy　（こちらも動かない。MCPサーバーをインターネットに公開していないと呼べないみたい。）
+POST {{ litellmUrl }}/v1/responses
+Content-Type: application/json
+Authorization: Bearer {{ litellmApiKey }}
+
+{
+  "model": "{{ model }}",
+  "input": "Run available tools",
+  "store": false,
+  "tool_choice": "required",
+  "tools": [
+    {
+      "type": "mcp",
+      "server_label": "litellm",
+      "server_url": "{{ litellmUrl }}/mcp",
+      "require_approval": "never",
+      "headers": {
+        "x-litellm-api-key": "Bearer {{ litellmApiKey }}"
+      }
+    }
+  ]
+}
