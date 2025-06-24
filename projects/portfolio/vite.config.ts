@@ -1,9 +1,9 @@
 import { resolve } from 'node:path'
-import { defineConfig } from 'vite'
 import devServer from '@hono/vite-dev-server'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
-import tsconfigPaths from 'vite-tsconfig-paths'
+import { defineConfig } from 'vite'
 import dts from 'vite-plugin-dts'
+import tsconfigPaths from 'vite-tsconfig-paths'
 
 export default defineConfig(({ mode }) => {
   switch (mode) {
@@ -70,10 +70,10 @@ export default defineConfig(({ mode }) => {
               assetFileNames: '[name].[ext]',
             },
             onwarn(warning, warn) {
-              if (warning.code === "MODULE_LEVEL_DIRECTIVE") {
-                return;
+              if (warning.code === 'MODULE_LEVEL_DIRECTIVE') {
+                return
               }
-              warn(warning);
+              warn(warning)
             },
           },
         },
