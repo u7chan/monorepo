@@ -1,16 +1,14 @@
+import { StreamableHTTPTransport } from "@hono/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Hono } from "hono";
 import { logger as honoLogger } from "hono/logger";
-import { streamSSE } from "hono/streaming";
 import log4js, { levels } from "log4js";
-
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPTransport } from "@hono/mcp";
 import { z } from "zod";
 
 import { currentTime } from "./features/currentTime";
+import { kotowaza } from "./features/kotowaza";
 import { omikuji } from "./features/omikuji";
 import { reverseString } from "./features/reverseString";
-import { kotowaza } from "./features/kotowaza";
 
 const logger = log4js.getLogger();
 logger.level = levels.INFO;
