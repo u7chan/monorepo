@@ -1,8 +1,20 @@
 FROM oven/bun:alpine AS base
 
-FROM base AS build
-
 WORKDIR /app
+
+FROM base AS dev
+
+RUN apk update && apk add --no-cache \
+  bash \
+  git \
+  openssh \
+  curl \
+  tzdata \
+  && cp /usr/share/zoneinfo/Asia/Tokyo /etc/localtime \
+  && echo "Asia/Tokyo" > /etc/timezone \
+  && adduser -D -s /bin/sh u7chan
+
+FROM base AS build
 
 # Install dependencies
 COPY package.json bun.lock ./
@@ -17,10 +29,9 @@ FROM base AS runner
 ENV TZ=Asia/Tokyo
 ENV NODE_ENV=production
 
-WORKDIR /app
-
 # Set the timezone to Asia/Tokyo
-RUN apk add --no-cache tzdata \
+RUN apk update && apk add --no-cache \
+  tzdata \
   && cp /usr/share/zoneinfo/Asia/Tokyo /etc/localtime \
   && echo "Asia/Tokyo" > /etc/timezone \
   && adduser -D -s /bin/sh u7chan

@@ -1,19 +1,14 @@
 {
   "name": "hono-mcp-server",
   "build": {
-    "dockerfile": "../Dockerfile"
-  },
-  "features": {
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-bash:0": {},
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-openssh:0": {},
-    "ghcr.io/cirolosapio/devcontainers-features/alpine-curl:0": {}
+    "dockerfile": "../Dockerfile",
+    "target": "dev"
   },
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
   "remoteUser": "u7chan",
-  "postCreateCommand": "bun i && cp .env.example .env",
+  "postCreateCommand": "bun i",
   "customizations": {
     "vscode": {
       "settings": {
