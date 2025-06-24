@@ -63,7 +63,7 @@ export async function readConversation(
       if (conversation) {
         conversation.messages.push({
           id: row.messageId ?? '',
-          role: row.messageRole as "user" | "assistant" | "system",
+          role: row.messageRole as 'user' | 'assistant' | 'system',
           content: row.messageContent,
           reasoningContent: row.messageReasoningContent,
           metadata: row.messageMetadata as never,
