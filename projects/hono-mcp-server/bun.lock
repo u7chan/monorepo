@@ -6,7 +6,6 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.13.1",
         "hono": "^4.8.2",
-        "hono-mcp-server-sse-transport": "^0.0.7",
         "log4js": "^6.9.1",
         "zod": "^3.25.67",
       },
@@ -127,8 +126,6 @@
     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
 
     "hono": ["hono@4.8.2", "", {}, "sha512-hM+1RIn9PK1I6SiTNS6/y7O1mvg88awYLFEuEtoiMtRyT3SD2iu9pSFgbBXT3b1Ua4IwzvSTLvwO0SEhDxCi4w=="],
-
-    "hono-mcp-server-sse-transport": ["hono-mcp-server-sse-transport@0.0.7", "", { "peerDependencies": { "@modelcontextprotocol/sdk": "*", "hono": "*" } }, "sha512-humMUuHiwOQNhP9iXRdEQa4TK4AMzsiI8wZep51ErIW154ovzCZGrXuRwyfREly8/0Supg+MEQwyQEFnxNejuA=="],
 
     "http-errors": ["http-errors@2.0.0", "", { "dependencies": { "depd": "2.0.0", "inherits": "2.0.4", "setprototypeof": "1.2.0", "statuses": "2.0.1", "toidentifier": "1.0.1" } }, "sha512-FtwrG/euBzaEjYeRqOgly7G0qviiXoJWnvEH2Z1plBdXgbyjv34pHTSb9zoeHMyDy33+DWy5Wt9Wo+TURtOYSQ=="],
 
