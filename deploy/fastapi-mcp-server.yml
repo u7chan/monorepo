@@ -1,0 +1,13 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  fastapi-mcp-server:
+    container_name: fastapi-mcp-server
+    image: ghcr.io/u7chan/monorepo/fastapi-mcp-server:latest
+    restart: always
+    ports:
+      - 8004:3000
+    env_file:
+      - .env.secret
