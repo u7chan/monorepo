@@ -61,4 +61,5 @@ COPY --from=builder --chown=$USERNAME:$USERNAME /app/src src
 USER $USERNAME
 
 EXPOSE 8000
-CMD ["fastapi", "run", "src/main.py", "--port", "8000"]
+# CMD ["fastapi", "run", "src/main.py", "--port", "8000"]
+CMD ["python", "src/main.py"]
