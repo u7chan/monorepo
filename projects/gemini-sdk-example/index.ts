@@ -6,7 +6,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: {
 
 async function main() {
   const response = await ai.models.generateContentStream({
-    model: "gemini-2.0-flash",
+    model: "gemini-2.0-flash-001",
     contents: "なぜ空は青いの?",
   });
   for await (const chunk of response) {
