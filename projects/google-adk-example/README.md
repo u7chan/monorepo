@@ -3,7 +3,7 @@
 ## 起動
 
 ```sh
-uv run adk web
+GEMINI_API_KEY=... uv run adk web
 ```
 
 ## API メモ
@@ -82,7 +82,7 @@ curl -X 'POST' \
     ],
     "role": "user"
   },
-  "streaming": false
+  "streaming": true
 }'
 ```
 
