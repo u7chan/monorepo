@@ -31,7 +31,9 @@ root_agent = Agent(
     tools=[],
     generate_content_config=types.GenerateContentConfig(
         safety_settings=[
-            types.SafetySetting(  # avoid false alarm about rolling dice.
+            #　この設定は、「危険なコンテンツ」に関する安全フィルターを一時的に無効化することで、AIがより柔軟に応答できるようにするためのものです。
+            #　ただし、これを使用すると、本来ブロックされるべき本当に危険なコンテンツが生成されてしまうリスクも伴うため、注意が必要です。
+            types.SafetySetting(
                 category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                 threshold=types.HarmBlockThreshold.OFF,
             ),
