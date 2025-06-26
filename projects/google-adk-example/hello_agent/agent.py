@@ -6,9 +6,7 @@ from google.genai import types
 root_agent = Agent(
     model='gemini-2.0-flash',
     name='shiritori',
-    description=(
-      'しりとり'
-    ),
+    description=('しりとりを行うAIエージェントです'),
     instruction="""
     あなたはユーザーと「しりとり」ゲームを行うAIエージェントです。
 
