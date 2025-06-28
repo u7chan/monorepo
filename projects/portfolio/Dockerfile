@@ -49,6 +49,7 @@ COPY . .
 
 RUN bun install --frozen-lockfile \
   && bun run lint \
+  && bun run typegen \
   && bun run build
 
 # -----------------------------------------------
