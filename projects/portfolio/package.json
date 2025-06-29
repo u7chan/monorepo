@@ -37,7 +37,7 @@
     "@hono/vite-dev-server": "^0.20.0",
     "@tailwindcss/postcss": "^4.1.11",
     "@tanstack/react-router-devtools": "^1.122.0",
-    "@tanstack/router-plugin": "^1.122.0",
+    "@tanstack/router-plugin": "^1.122.1",
     "@types/crypto-js": "^4.2.2",
     "@types/node": "^24.0.7",
     "@types/pg": "^8.15.4",
