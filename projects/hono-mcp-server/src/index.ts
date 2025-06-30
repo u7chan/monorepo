@@ -16,7 +16,7 @@ logger.level = levels.INFO
 
 const mcpServer = new McpServer({
   name: 'hono-mcp-server',
-  version: '1.0.1',
+  version: '1.0.2',
 })
 
 mcpServer.tool('current_time', '現在の時刻を取得します', {}, () => {
