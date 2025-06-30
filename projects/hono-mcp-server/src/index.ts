@@ -9,6 +9,7 @@ import { currentTime } from './features/currentTime'
 import { kotowaza } from './features/kotowaza'
 import { omikuji } from './features/omikuji'
 import { reverseString } from './features/reverseString'
+import { webSearch } from './features/webSearch'
 
 const logger = log4js.getLogger()
 logger.level = levels.INFO
@@ -78,6 +79,25 @@ mcpServer.tool('kotowaza', 'ランダムにことわざを返します', {}, () 
     ],
   }
 })
+
+mcpServer.tool(
+  'websearch',
+  'Web検索します',
+  { text: z.string() },
+  async (input) => {
+    logger.info('» [webSearch] input:', input.text)
+    const output = await webSearch(input.text)
+    logger.info('« [webSearch] output:', output)
+    return {
+      content: [
+        {
+          type: 'text',
+          text: output,
+        },
+      ],
+    }
+  },
+)
 
 const app = new Hono()
 const customLogger = (message: string) => {
