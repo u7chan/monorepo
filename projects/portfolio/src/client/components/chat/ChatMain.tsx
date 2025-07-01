@@ -554,7 +554,7 @@ export function ChatMain({
                         <div className='group'>
                           <div
                             className={
-                              'inline-block whitespace-pre-wrap rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
+                              'inline-block whitespace-pre-wrap break-all rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
                             }
                           >
                             {typeof message.content === 'string'
@@ -607,12 +607,12 @@ export function ChatMain({
                         </div>
                         <div className='message group ml-2 text-left'>
                           {message.reasoning_content && (
-                            <div className='whitespace-pre-line text-gray-400 text-xs'>
+                            <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs'>
                               {message.reasoning_content}
                             </div>
                           )}
                           {settings.markdownPreview ? (
-                            <div className='prose mt-1 max-w-screen-md'>
+                            <div className='prose mt-1 max-w-screen-md break-all'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
@@ -622,7 +622,7 @@ export function ChatMain({
                             </div>
                           ) : (
                             <div className='message text-left'>
-                              <p className='mt-1 inline-block whitespace-pre-wrap'>
+                              <p className='mt-1 inline-block whitespace-pre-wrap break-words break-all'>
                                 {message.content}
                               </p>
                             </div>
@@ -653,12 +653,12 @@ export function ChatMain({
                   {stream ? (
                     <div className='message ml-2 text-left'>
                       {stream.reasoning_content && (
-                        <div className='whitespace-pre-line text-gray-400 text-xs'>
+                        <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs'>
                           {stream.reasoning_content}
                         </div>
                       )}
                       {settings.markdownPreview ? (
-                        <div className='prose mt-1 max-w-screen-md'>
+                        <div className='prose mt-1 max-w-screen-md break-all'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
@@ -668,7 +668,9 @@ export function ChatMain({
                         </div>
                       ) : (
                         <div className='message text-left'>
-                          <p className='mt-1 inline-block whitespace-pre-wrap'>{stream.content}</p>
+                          <p className='mt-1 inline-block whitespace-pre-wrap break-words break-all'>
+                            {stream.content}
+                          </p>
                         </div>
                       )}
                     </div>
