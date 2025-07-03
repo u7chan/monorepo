@@ -16,7 +16,7 @@ async def upload_video(file: UploadFile = File(...)):
     """ビデオファイルをアップロードし、ユニークなファイル名を付けて保存する"""
     try:
         # 安全なファイル名を生成
-        extension = os.path.splitext(file.filename)[1]
+        extension = os.path.splitext(str(file.filename))[1]
         unique_filename = f"{uuid.uuid4()}{extension}"
         file_path = os.path.join("uploads", unique_filename)
 
