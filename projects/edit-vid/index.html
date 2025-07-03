@@ -24,6 +24,9 @@
         font-size: 24px;
         color: #333;
       }
+      h3 {
+        margin: 0;
+      }
       main {
         flex: 1;
         display: flex;
@@ -257,9 +260,26 @@
       }
       #timeline-table .preview-btn {
         background-color: #2196f3; /* Blue */
+        font-size: 12px;
+        padding: 5px 10px;
       }
       #timeline-table .preview-btn:hover {
-        background-color: #424242;
+        background-color: #1976d2;
+      }
+      #export-video-btn {
+        background-color: #2196f3;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+        margin-top: 15px;
+        margin-bottom: 10px; /* スペースを追加 */
+      }
+      #export-video-btn:hover {
+        background-color: #1976d2;
       }
     </style>
   </head>
@@ -309,7 +329,11 @@
               </div>
             </div>
             <hr />
-            <button id="clear-video-btn">ビデオをクリア</button>
+            <div>
+              <h3>ビデオ</h3>
+              <button id="export-video-btn">出力</button>
+              <button id="clear-video-btn">クリア</button>
+            </div>
           </div>
         </div>
         <div id="timeline-container">
@@ -384,6 +408,12 @@
 
       // --- 初期化処理 ---
       document.addEventListener("DOMContentLoaded", () => {
+        const exportVideoBtn = document.getElementById("export-video-btn");
+        if (exportVideoBtn) {
+          exportVideoBtn.addEventListener("click", () => {
+            alert("TODO");
+          });
+        }
         restoreVideoSession();
       });
 
@@ -487,6 +517,10 @@
         const text = e.target.value;
         const duration = Math.max(0.5, text.length / 4).toFixed(1);
         editSubtitleDurationInput.value = duration;
+      });
+
+      exportVideoBtn.addEventListener("click", () => {
+        alert("TODO");
       });
 
       // --- 関数 ---
