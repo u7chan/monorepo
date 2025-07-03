@@ -1,9 +1,122 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
     <title>EditVid</title>
-  </head>
-  <body>
-    <h1>Hello, EditVid!</h1>
-  </body>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        h1 {
+            color: #333;
+        }
+        #drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            width: 50vw;
+            max-width: 600px;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            margin: 20px auto;
+            cursor: pointer;
+            background-color: #fff;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        #drop-zone.dragover {
+            background-color: #e9e9e9;
+            border-color: #aaa;
+        }
+        #video-container {
+            margin-top: 20px;
+            width: 80vw;
+            max-width: 800px;
+        }
+        #video-player {
+            width: 100%;
+            display: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>EditVid</h1>
+
+    <div id="drop-zone">
+        <p>ビデオファイルをここにドロップするか、クリックして選択してください</p>
+        <input type="file" id="file-input" accept="video/*" style="display: none;">
+    </div>
+
+    <div id="video-container">
+        <video id="video-player" controls></video>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const videoPlayer = document.getElementById('video-player');
+        const dropZoneText = dropZone.querySelector('p');
+
+        // ファイル選択ダイアログを開く
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // ファイルが選択されたときの処理
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        });
+
+        // ドラッグオーバー
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('dragover');
+        });
+
+        // ドラッグリーブ
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('dragover');
+        });
+
+        // ドロップ
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('dragover');
+
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('video/')) {
+                handleFile(file);
+            } else {
+                alert('ビデオファイルを選択してください。');
+            }
+        });
+
+        // ファイルを処理してビデオを再生
+        function handleFile(file) {
+            const fileURL = URL.createObjectURL(file);
+            videoPlayer.src = fileURL;
+            videoPlayer.style.display = 'block';
+            dropZone.style.display = 'none'; // ドロップゾーンを隠す
+            videoPlayer.play();
+        }
+    </script>
+</body>
 </html>
