@@ -37,16 +37,58 @@
             background-color: #e9e9e9;
             border-color: #aaa;
         }
-        #video-container {
-            margin-top: 20px;
-            width: 80vw;
-            max-width: 800px;
+        #editor-container {
+            display: none;
+            width: 90vw;
+            max-width: 1200px;
+            height: 90vh;
+            flex-direction: column;
+        }
+        #main-content {
+            display: flex;
+            flex: 1;
+            gap: 20px;
+            height: 65%;
+        }
+        #video-preview-container {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
         }
         #video-player {
             width: 100%;
-            display: none;
+            height: 100%;
             border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: #000;
+        }
+        #actions-container {
+            flex: 1;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            background-color: #fff;
+        }
+        #timeline-container {
+            margin-top: 20px;
+            height: 30%;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            background-color: #fff;
+        }
+        #timeline-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        #timeline-table th, #timeline-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        #timeline-table th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
         }
     </style>
 </head>
@@ -58,15 +100,39 @@
         <input type="file" id="file-input" accept="video/*" style="display: none;">
     </div>
 
-    <div id="video-container">
-        <video id="video-player" controls></video>
+    <div id="editor-container">
+        <div id="main-content">
+            <div id="video-preview-container">
+                <video id="video-player" controls></video>
+            </div>
+            <div id="actions-container">
+                <h2>アクション</h2>
+                <!-- アクションボタンなどをここに追加 -->
+            </div>
+        </div>
+        <div id="timeline-container">
+            <table id="timeline-table">
+                <thead>
+                    <tr>
+                        <th>開始時間</th>
+                        <th>終了時間</th>
+                        <th>テロップ</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- タイムラインの行をここに追加 -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
+        const editorContainer = document.getElementById('editor-container');
         const videoPlayer = document.getElementById('video-player');
-        const dropZoneText = dropZone.querySelector('p');
+        const initialTitle = document.querySelector('h1');
 
         // ファイル選択ダイアログを開く
         dropZone.addEventListener('click', () => {
@@ -109,12 +175,16 @@
             }
         });
 
-        // ファイルを処理してビデオを再生
+        // ファイルを処理してエディタを表示
         function handleFile(file) {
             const fileURL = URL.createObjectURL(file);
             videoPlayer.src = fileURL;
-            videoPlayer.style.display = 'block';
-            dropZone.style.display = 'none'; // ドロップゾーンを隠す
+
+            // レイアウト切り替え
+            dropZone.style.display = 'none';
+            initialTitle.style.display = 'none';
+            editorContainer.style.display = 'flex';
+
             videoPlayer.play();
         }
     </script>
