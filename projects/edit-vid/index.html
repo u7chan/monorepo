@@ -233,7 +233,8 @@
       }
       /* Timeline Button Styles */
       #timeline-table .edit-btn,
-      #timeline-table .delete-btn {
+      #timeline-table .delete-btn,
+      #timeline-table .preview-btn {
         padding: 5px 10px;
         border-radius: 4px;
         border: none;
@@ -253,6 +254,12 @@
       }
       #timeline-table .delete-btn:hover {
         background-color: #d32f2f;
+      }
+      #timeline-table .preview-btn {
+        background-color: #616161; /* Dark Grey */
+      }
+      #timeline-table .preview-btn:hover {
+        background-color: #424242;
       }
     </style>
   </head>
@@ -460,6 +467,8 @@
           openEditDialog(subId);
         } else if (target.classList.contains("delete-btn")) {
           handleDeleteSubtitle(subId);
+        } else if (target.classList.contains("preview-btn")) {
+          alert("TODO");
         }
       });
 
@@ -614,6 +623,7 @@
                     <td>
                         <button class="edit-btn">編集</button>
                         <button class="delete-btn">削除</button>
+                        <button class="preview-btn">プレビュー</button>
                     </td>
                 `;
         });
