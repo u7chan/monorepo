@@ -231,11 +231,7 @@
 
         // --- 初期化処理 ---
         document.addEventListener('DOMContentLoaded', () => {
-            const lastVideoUrl = localStorage.getItem(storageKey);
-            if (lastVideoUrl) {
-                console.log('復元するビデオが見つかりました:', lastVideoUrl);
-                showEditor(lastVideoUrl);
-            }
+            restoreVideoSession();
         });
 
         // --- イベントリスナー ---
@@ -296,6 +292,29 @@
 
 
         // --- 関数 ---
+        async function restoreVideoSession() {
+            const lastVideoUrl = localStorage.getItem(storageKey);
+            if (!lastVideoUrl) return;
+
+            try {
+                // HEADリクエストでファイルの存在を確認。存在しなければダウンロードしない。
+                const response = await fetch(lastVideoUrl, { method: 'HEAD' });
+
+                if (response.ok) {
+                    console.log('復元するビデオが見つかりました:', lastVideoUrl);
+                    showEditor(lastVideoUrl);
+                } else if (response.status === 404) {
+                    // サーバーにファイルが存在しない場合
+                    console.warn('サーバーにビデオが見つからないため、ローカルの情報をクリアします。', lastVideoUrl);
+                    localStorage.removeItem(storageKey);
+                    resetToInitialView(); // 初期状態に戻す
+                }
+            } catch (error) {
+                console.error('ビデオの復元中にネットワークエラーが発生しました:', error);
+                // ネットワークエラーの場合は、オフラインの可能性もあるため、
+                // ローカルストレージはクリアせず、ユーザーがリロードできるようにしておく。
+            }
+        }
         function handleFileSelect(file) {
             if (file && file.type.startsWith('video/')) {
                 uploadFile(file);
@@ -359,8 +378,7 @@
             editorContainer.style.display = 'flex';
             mainElement.style.alignItems = 'stretch';
             mainElement.style.justifyContent = 'flex-start';
-            videoPlayer.load();
-            videoPlayer.play().catch(e => console.error("Video play failed:", e));
+            videoPlayer.load(); // ビデオをロードするだけで、自動再生はしない
         }
 
         function resetToInitialView() {
