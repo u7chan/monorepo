@@ -1,397 +1,477 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>EditVid</title>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
     <style>
-        body {
-            font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            margin: 0;
-            background-color: #f0f2f5;
-        }
-        header {
-            padding: 10px 20px;
-            background-color: #fff;
-            border-bottom: 1px solid #ccc;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            z-index: 10;
-        }
-        header h1 {
-            margin: 0;
-            font-size: 24px;
-            color: #333;
-        }
-        main {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-        #drop-zone {
-            border: 2px dashed #ccc;
-            border-radius: 10px;
-            width: 50vw;
-            max-width: 600px;
-            min-height: 200px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            padding: 20px;
-            cursor: pointer;
-            background-color: #fff;
-            transition: background-color 0.2s, border-color 0.2s;
-        }
-        #drop-zone.dragover {
-            background-color: #e9e9e9;
-            border-color: #aaa;
-        }
-        #editor-container {
-            display: none;
-            width: 100%;
-            height: 100%;
-            flex-direction: column;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-        #main-content {
-            display: flex;
-            flex: 1;
-            gap: 20px;
-            height: 65%;
-        }
-        #video-preview-container {
-            flex: 3;
-            display: flex;
-            flex-direction: column;
-        }
-        #video-player {
-            width: 100%;
-            height: 100%;
-            border-radius: 10px;
-            background-color: #000;
-        }
-        #actions-container {
-            flex: 1;
-            border: 1px solid #ccc;
-            border-radius: 10px;
-            padding: 20px;
-            background-color: #fff;
-            display: flex;
-            flex-direction: column;
-        }
-        #timeline-container {
-            margin-top: 20px;
-            height: calc(35% - 20px);
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            border-radius: 10px;
-            background-color: #fff;
-        }
-        #timeline-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        #timeline-table th, #timeline-table td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        #timeline-table th {
-            background-color: #f2f2f2;
-            position: sticky;
-            top: 0;
-        }
+      body {
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        margin: 0;
+        background-color: #f0f2f5;
+      }
+      header {
+        padding: 10px 20px;
+        background-color: #fff;
+        border-bottom: 1px solid #ccc;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        z-index: 10;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 24px;
+        color: #333;
+      }
+      main {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      #drop-zone {
+        border: 2px dashed #ccc;
+        border-radius: 10px;
+        width: 50vw;
+        max-width: 600px;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 20px;
+        cursor: pointer;
+        background-color: #fff;
+        transition: background-color 0.2s, border-color 0.2s;
+      }
+      #drop-zone.dragover {
+        background-color: #e9e9e9;
+        border-color: #aaa;
+      }
+      #editor-container {
+        display: none;
+        width: 100%;
+        height: 100%;
+        flex-direction: column;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      #main-content {
+        display: flex;
+        flex: 1;
+        gap: 20px;
+        height: 65%;
+      }
+      #video-preview-container {
+        flex: 3;
+        display: flex;
+        flex-direction: column;
+      }
+      #video-player {
+        width: 100%;
+        height: 100%;
+        border-radius: 10px;
+        background-color: #000;
+      }
+      #actions-container {
+        flex: 1;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+        padding: 20px;
+        background-color: #fff;
+        display: flex;
+        flex-direction: column;
+      }
+      #timeline-container {
+        margin-top: 20px;
+        height: calc(35% - 20px);
+        overflow-y: auto;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+        background-color: #fff;
+      }
+      #timeline-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      #timeline-table th,
+      #timeline-table td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      #timeline-table th {
+        background-color: #f2f2f2;
+        position: sticky;
+        top: 0;
+      }
 
-        /* Action Styles */
-        #add-subtitle-container {
-            margin-bottom: 20px;
-        }
-        #add-subtitle-container h3 {
-            margin-top: 0;
-            margin-bottom: 10px;
-            font-size: 18px;
-        }
-        #add-subtitle-container label {
-            display: block;
-            margin-top: 10px;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        #add-subtitle-container input {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-            border-radius: 4px;
-            border: 1px solid #ccc;
-        }
-        #add-subtitle-btn {
-            background-color: #4CAF50; /* Green */
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 100%;
-            font-size: 16px;
-            margin-top: 15px;
-        }
-        #add-subtitle-btn:hover {
-            background-color: #45a049;
-        }
-        #actions-container hr {
-            margin: 20px 0;
-            border: 0;
-            border-top: 1px solid #ccc;
-        }
-        #clear-video-btn {
-            background-color: #f44336;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 100%;
-            font-size: 16px;
-            margin-top: auto; /* ボタンをコンテナの下部に配置 */
-        }
-        #clear-video-btn:hover {
-            background-color: #d32f2f;
-        }
+      /* Action Styles */
+      #add-subtitle-container {
+        margin-bottom: 20px;
+      }
+      #add-subtitle-container h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 18px;
+      }
+      #add-subtitle-container label {
+        display: block;
+        margin-top: 10px;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      #add-subtitle-container input {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+      }
+      #add-subtitle-btn {
+        background-color: #4caf50; /* Green */
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+        margin-top: 15px;
+      }
+      #add-subtitle-btn:hover {
+        background-color: #45a049;
+      }
+      #actions-container hr {
+        margin: 20px 0;
+        border: 0;
+        border-top: 1px solid #ccc;
+      }
+      #clear-video-btn {
+        background-color: #f44336;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+        margin-top: auto; /* ボタンをコンテナの下部に配置 */
+      }
+      #clear-video-btn:hover {
+        background-color: #d32f2f;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <header>
-        <h1>EditVid</h1>
+      <h1>EditVid</h1>
     </header>
 
     <main>
-        <div id="drop-zone">
-            <p>ビデオファイルをここにドロップするか、クリックして選択してください</p>
-            <input type="file" id="file-input" accept="video/*" style="display: none;">
-        </div>
+      <div id="drop-zone">
+        <p>
+          ビデオファイルをここにドロップするか、クリックして選択してください
+        </p>
+        <input
+          type="file"
+          id="file-input"
+          accept="video/*"
+          style="display: none"
+        />
+      </div>
 
-        <div id="editor-container">
-            <div id="main-content">
-                <div id="video-preview-container">
-                    <video id="video-player" controls></video>
-                </div>
-                <div id="actions-container">
-                    <div>
-                        <h2>アクション</h2>
-                        <div id="add-subtitle-container">
-                            <h3>テロップ追加</h3>
-                            <label for="subtitle-text">テキスト:</label>
-                            <input type="text" id="subtitle-text" placeholder="表示するテキスト">
-                            <label for="subtitle-duration">表示時間 (秒):</label>
-                            <input type="number" id="subtitle-duration" min="0.1" step="0.1" placeholder="例: 2.5">
-                            <button id="add-subtitle-btn">追加</button>
-                        </div>
-                    </div>
-                    <hr>
-                    <button id="clear-video-btn">ビデオをクリア</button>
-                </div>
+      <div id="editor-container">
+        <div id="main-content">
+          <div id="video-preview-container">
+            <video id="video-player" controls></video>
+          </div>
+          <div id="actions-container">
+            <div>
+              <h2>アクション</h2>
+              <div id="add-subtitle-container">
+                <h3>テロップ追加</h3>
+                <label for="subtitle-text">テキスト:</label>
+                <input
+                  type="text"
+                  id="subtitle-text"
+                  placeholder="表示するテキスト"
+                />
+                <label for="subtitle-duration">表示時間 (秒):</label>
+                <input
+                  type="number"
+                  id="subtitle-duration"
+                  min="0.1"
+                  step="0.1"
+                  placeholder="例: 2.5"
+                />
+                <button id="add-subtitle-btn">追加</button>
+              </div>
             </div>
-            <div id="timeline-container">
-                <table id="timeline-table">
-                    <thead>
-                        <tr>
-                            <th>開始時間</th>
-                            <th>終了時間</th>
-                            <th>テロップ</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- タイムラインの行をここに追加 -->
-                    </tbody>
-                </table>
-            </div>
+            <hr />
+            <button id="clear-video-btn">ビデオをクリア</button>
+          </div>
         </div>
+        <div id="timeline-container">
+          <table id="timeline-table">
+            <thead>
+              <tr>
+                <th>開始時間</th>
+                <th>終了時間</th>
+                <th>テロップ</th>
+                <th>表示時間</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- タイムラインの行をここに追加 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </main>
 
     <script>
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const editorContainer = document.getElementById('editor-container');
-        const videoPlayer = document.getElementById('video-player');
-        const mainElement = document.querySelector('main');
-        const clearVideoButton = document.getElementById('clear-video-btn');
-        const storageKey = 'lastUploadedVideoUrl';
+      const dropZone = document.getElementById("drop-zone");
+      const fileInput = document.getElementById("file-input");
+      const editorContainer = document.getElementById("editor-container");
+      const videoPlayer = document.getElementById("video-player");
+      const mainElement = document.querySelector("main");
+      const clearVideoButton = document.getElementById("clear-video-btn");
+      const videoStorageKey = "lastUploadedVideoUrl";
+      const subtitlesStoragePrefix = "editvid_subtitles_";
 
-        // テロップ追加UI
-        const subtitleTextInput = document.getElementById('subtitle-text');
-        const subtitleDurationInput = document.getElementById('subtitle-duration');
-        const addSubtitleBtn = document.getElementById('add-subtitle-btn');
+      // テロップUI
+      const subtitleTextInput = document.getElementById("subtitle-text");
+      const subtitleDurationInput =
+        document.getElementById("subtitle-duration");
+      const addSubtitleBtn = document.getElementById("add-subtitle-btn");
+      const timelineTableBody = document.querySelector("#timeline-table tbody");
 
-        // --- 初期化処理 ---
-        document.addEventListener('DOMContentLoaded', () => {
-            restoreVideoSession();
-        });
+      // --- 初期化処理 ---
+      document.addEventListener("DOMContentLoaded", () => {
+        restoreVideoSession();
+      });
 
-        // --- イベントリスナー ---
-        dropZone.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.add('dragover');
-        });
-        dropZone.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.remove('dragover');
-        });
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.remove('dragover');
-            handleFileSelect(e.dataTransfer.files[0]);
-        });
+      // --- イベントリスナー ---
+      dropZone.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) =>
+        handleFileSelect(e.target.files[0])
+      );
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add("dragover");
+      });
+      dropZone.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove("dragover");
+      });
+      dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove("dragover");
+        handleFileSelect(e.dataTransfer.files[0]);
+      });
 
-        clearVideoButton.addEventListener('click', () => {
-            if (confirm('現在のビデオをサーバーから削除してもよろしいですか？')) {
-                clearVideo();
-            }
-        });
-
-        // テロップのテキスト入力に応じて表示時間を自動計算
-        subtitleTextInput.addEventListener('input', (e) => {
-            const text = e.target.value;
-            // 4文字/秒を基準とし、最低0.5秒とする。結果は小数点第一位まで。
-            const duration = Math.max(0.5, (text.length / 4)).toFixed(1);
-            subtitleDurationInput.value = duration;
-        });
-
-        // テロップ追加ボタンの処理
-        addSubtitleBtn.addEventListener('click', () => {
-            const text = subtitleTextInput.value.trim();
-            const duration = parseFloat(subtitleDurationInput.value);
-
-            if (!text) {
-                alert('テロップのテキストを入力してください。');
-                return;
-            }
-            if (isNaN(duration) || duration <= 0) {
-                alert('有効な表示時間を入力してください。');
-                return;
-            }
-
-            console.log('追加されたテロップ:', { text, duration });
-            // TODO: タイムラインにテロップを追加する処理を実装
-
-            // 入力値をクリア
-            subtitleTextInput.value = '';
-            subtitleDurationInput.value = '';
-        });
-
-
-        // --- 関数 ---
-        async function restoreVideoSession() {
-            const lastVideoUrl = localStorage.getItem(storageKey);
-            if (!lastVideoUrl) return;
-
-            try {
-                // HEADリクエストでファイルの存在を確認。存在しなければダウンロードしない。
-                const response = await fetch(lastVideoUrl, { method: 'HEAD' });
-
-                if (response.ok) {
-                    console.log('復元するビデオが見つかりました:', lastVideoUrl);
-                    showEditor(lastVideoUrl);
-                } else if (response.status === 404) {
-                    // サーバーにファイルが存在しない場合
-                    console.warn('サーバーにビデオが見つからないため、ローカルの情報をクリアします。', lastVideoUrl);
-                    localStorage.removeItem(storageKey);
-                    resetToInitialView(); // 初期状態に戻す
-                }
-            } catch (error) {
-                console.error('ビデオの復元中にネットワークエラーが発生しました:', error);
-                // ネットワークエラーの場合は、オフラインの可能性もあるため、
-                // ローカルストレージはクリアせず、ユーザーがリロードできるようにしておく。
-            }
+      clearVideoButton.addEventListener("click", () => {
+        if (confirm("現在のビデオをサーバーから削除してもよろしいですか？")) {
+          clearVideo();
         }
-        function handleFileSelect(file) {
-            if (file && file.type.startsWith('video/')) {
-                uploadFile(file);
-            } else {
-                alert('ビデオファイルを選択してください。');
-            }
+      });
+
+      subtitleTextInput.addEventListener("input", (e) => {
+        const text = e.target.value;
+        const duration = Math.max(0.5, text.length / 4).toFixed(1);
+        subtitleDurationInput.value = duration;
+      });
+
+      addSubtitleBtn.addEventListener("click", () => {
+        const text = subtitleTextInput.value.trim();
+        const duration = parseFloat(subtitleDurationInput.value);
+
+        if (!text) {
+          alert("テロップのテキストを入力してください。");
+          return;
+        }
+        if (isNaN(duration) || duration <= 0) {
+          alert("有効な表示時間を入力してください。");
+          return;
         }
 
-        async function uploadFile(file) {
-            const formData = new FormData();
-            formData.append('file', file);
+        const startTime = videoPlayer.currentTime;
+        const endTime = startTime + duration;
 
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
+        const newSubtitle = {
+          id: Date.now(), // ユニークID
+          text,
+          startTime,
+          endTime,
+          duration,
+        };
 
-                if (!response.ok) {
-                    throw new Error(`サーバーエラー: ${response.statusText}`);
-                }
+        const videoUrl = localStorage.getItem(videoStorageKey);
+        const filename = videoUrl.split("/").pop();
+        const subtitles = loadSubtitles(filename);
+        subtitles.push(newSubtitle);
+        saveSubtitles(filename, subtitles);
+        renderTimeline(subtitles);
 
-                const result = await response.json();
-                localStorage.setItem(storageKey, result.url);
-                showEditor(result.url);
+        subtitleTextInput.value = "";
+        subtitleDurationInput.value = "";
+      });
 
-            } catch (error) {
-                console.error('アップロードに失敗しました:', error);
-                alert('ファイルのアップロードに失敗しました。');
-            }
+      // --- 関数 ---
+      async function restoreVideoSession() {
+        const lastVideoUrl = localStorage.getItem(videoStorageKey);
+        if (!lastVideoUrl) return;
+
+        try {
+          const response = await fetch(lastVideoUrl, { method: "HEAD" });
+          if (response.ok) {
+            showEditor(lastVideoUrl);
+          } else if (response.status === 404) {
+            console.warn(
+              "サーバーにビデオが見つからないため、ローカルの情報をクリアします。",
+              lastVideoUrl
+            );
+            clearVideoData(lastVideoUrl); // 関連データをクリア
+            resetToInitialView();
+          }
+        } catch (error) {
+          console.error(
+            "ビデオの復元中にネットワークエラーが発生しました:",
+            error
+          );
         }
+      }
 
-        async function clearVideo() {
-            const videoUrl = localStorage.getItem(storageKey);
-            if (!videoUrl) return;
-
-            const filename = videoUrl.split('/').pop();
-
-            try {
-                const response = await fetch(`/videos/${filename}`, {
-                    method: 'DELETE'
-                });
-
-                if (!response.ok) {
-                    throw new Error(`サーバーエラー: ${response.statusText}`);
-                }
-
-                console.log('ビデオが削除されました:', filename);
-                localStorage.removeItem(storageKey);
-                resetToInitialView();
-
-            } catch (error) {
-                console.error('ビデオの削除に失敗しました:', error);
-                alert('ビデオの削除に失敗しました。');
-            }
+      function handleFileSelect(file) {
+        if (file && file.type.startsWith("video/")) {
+          uploadFile(file);
+        } else {
+          alert("ビデオファイルを選択してください。");
         }
+      }
 
-        function showEditor(videoUrl) {
-            videoPlayer.src = videoUrl;
-            dropZone.style.display = 'none';
-            editorContainer.style.display = 'flex';
-            mainElement.style.alignItems = 'stretch';
-            mainElement.style.justifyContent = 'flex-start';
-            videoPlayer.load(); // ビデオをロードするだけで、自動再生はしない
+      async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          const response = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok)
+            throw new Error(`サーバーエラー: ${response.statusText}`);
+          const result = await response.json();
+          localStorage.setItem(videoStorageKey, result.url);
+          showEditor(result.url);
+        } catch (error) {
+          console.error("アップロードに失敗しました:", error);
+          alert("ファイルのアップロードに失敗しました。");
         }
+      }
 
-        function resetToInitialView() {
-            videoPlayer.pause();
-            videoPlayer.removeAttribute('src');
-            fileInput.value = '';
+      async function clearVideo() {
+        const videoUrl = localStorage.getItem(videoStorageKey);
+        if (!videoUrl) return;
 
-            editorContainer.style.display = 'none';
-            dropZone.style.display = 'flex';
-            mainElement.style.alignItems = 'center';
-            mainElement.style.justifyContent = 'center';
+        const filename = videoUrl.split("/").pop();
+        try {
+          const response = await fetch(`/videos/${filename}`, {
+            method: "DELETE",
+          });
+          if (!response.ok)
+            throw new Error(`サーバーエラー: ${response.statusText}`);
+          console.log("ビデオが削除されました:", filename);
+          clearVideoData(videoUrl);
+          resetToInitialView();
+        } catch (error) {
+          console.error("ビデオの削除に失敗しました:", error);
+          alert("ビデオの削除に失敗しました。");
         }
+      }
 
+      function clearVideoData(videoUrl) {
+        const filename = videoUrl.split("/").pop();
+        const subtitlesKey = subtitlesStoragePrefix + filename;
+        localStorage.removeItem(subtitlesKey);
+        localStorage.removeItem(videoStorageKey);
+      }
+
+      function showEditor(videoUrl) {
+        videoPlayer.src = videoUrl;
+        dropZone.style.display = "none";
+        editorContainer.style.display = "flex";
+        mainElement.style.alignItems = "stretch";
+        mainElement.style.justifyContent = "flex-start";
+        videoPlayer.load();
+
+        // 関連するテロップを読み込んで表示
+        const filename = videoUrl.split("/").pop();
+        const subtitles = loadSubtitles(filename);
+        renderTimeline(subtitles);
+      }
+
+      function resetToInitialView() {
+        videoPlayer.pause();
+        videoPlayer.removeAttribute("src");
+        fileInput.value = "";
+        timelineTableBody.innerHTML = ""; // タイムラインをクリア
+
+        editorContainer.style.display = "none";
+        dropZone.style.display = "flex";
+        mainElement.style.alignItems = "center";
+        mainElement.style.justifyContent = "center";
+      }
+
+      // --- テロップ関連の関数 ---
+      function loadSubtitles(filename) {
+        const key = subtitlesStoragePrefix + filename;
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : [];
+      }
+
+      function saveSubtitles(filename, subtitles) {
+        const key = subtitlesStoragePrefix + filename;
+        // 開始時間でソートして保存
+        subtitles.sort((a, b) => a.startTime - b.startTime);
+        localStorage.setItem(key, JSON.stringify(subtitles));
+      }
+
+      function renderTimeline(subtitles) {
+        timelineTableBody.innerHTML = ""; // 既存の行をクリア
+        subtitles.forEach((sub) => {
+          const row = timelineTableBody.insertRow();
+          row.setAttribute("data-id", sub.id);
+          row.innerHTML = `
+                    <td>${sub.startTime.toFixed(2)}</td>
+                    <td>${sub.endTime.toFixed(2)}</td>
+                    <td>${escapeHTML(sub.text)}</td>
+                    <td>${sub.duration.toFixed(1)}</td>
+                    <td></td>
+                `;
+        });
+      }
+
+      function escapeHTML(str) {
+        return str.replace(new RegExp("[&<>'\"/]", "g"), function (match) {
+          return {
+            "&": "&",
+            "<": "<",
+            ">": ">",
+            '"': '"',
+            "'": "&#39;",
+            "/": "&#x2F;",
+          }[match];
+        });
+      }
     </script>
-</body>
+  </body>
 </html>
