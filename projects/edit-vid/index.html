@@ -8,14 +8,28 @@
             font-family: sans-serif;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
             height: 100vh;
             margin: 0;
             background-color: #f0f2f5;
         }
-        h1 {
+        header {
+            padding: 10px 20px;
+            background-color: #fff;
+            border-bottom: 1px solid #ccc;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 24px;
             color: #333;
+        }
+        main {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
         }
         #drop-zone {
             border: 2px dashed #ccc;
@@ -24,11 +38,11 @@
             max-width: 600px;
             min-height: 200px;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             text-align: center;
             padding: 20px;
-            margin: 20px auto;
             cursor: pointer;
             background-color: #fff;
             transition: background-color 0.2s, border-color 0.2s;
@@ -39,10 +53,11 @@
         }
         #editor-container {
             display: none;
-            width: 90vw;
-            max-width: 1200px;
-            height: 90vh;
+            width: 100%;
+            height: 100%;
             flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
         }
         #main-content {
             display: flex;
@@ -70,7 +85,7 @@
         }
         #timeline-container {
             margin-top: 20px;
-            height: 30%;
+            height: calc(35% - 20px);
             overflow-y: auto;
             border: 1px solid #ccc;
             border-radius: 10px;
@@ -93,46 +108,50 @@
     </style>
 </head>
 <body>
-    <h1>EditVid</h1>
+    <header>
+        <h1>EditVid</h1>
+    </header>
 
-    <div id="drop-zone">
-        <p>ビデオファイルをここにドロップするか、クリックして選択してください</p>
-        <input type="file" id="file-input" accept="video/*" style="display: none;">
-    </div>
+    <main>
+        <div id="drop-zone">
+            <p>ビデオファイルをここにドロップするか、クリックして選択してください</p>
+            <input type="file" id="file-input" accept="video/*" style="display: none;">
+        </div>
 
-    <div id="editor-container">
-        <div id="main-content">
-            <div id="video-preview-container">
-                <video id="video-player" controls></video>
+        <div id="editor-container">
+            <div id="main-content">
+                <div id="video-preview-container">
+                    <video id="video-player" controls></video>
+                </div>
+                <div id="actions-container">
+                    <h2>アクション</h2>
+                    <!-- アクションボタンなどをここに追加 -->
+                </div>
             </div>
-            <div id="actions-container">
-                <h2>アクション</h2>
-                <!-- アクションボタンなどをここに追加 -->
+            <div id="timeline-container">
+                <table id="timeline-table">
+                    <thead>
+                        <tr>
+                            <th>開始時間</th>
+                            <th>終了時間</th>
+                            <th>テロップ</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- タイムラインの行をここに追加 -->
+                    </tbody>
+                </table>
             </div>
         </div>
-        <div id="timeline-container">
-            <table id="timeline-table">
-                <thead>
-                    <tr>
-                        <th>開始時間</th>
-                        <th>終了時間</th>
-                        <th>テロップ</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- タイムラインの行をここに追加 -->
-                </tbody>
-            </table>
-        </div>
-    </div>
+    </main>
 
     <script>
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
         const editorContainer = document.getElementById('editor-container');
         const videoPlayer = document.getElementById('video-player');
-        const initialTitle = document.querySelector('h1');
+        const mainElement = document.querySelector('main');
 
         // ファイル選択ダイアログを開く
         dropZone.addEventListener('click', () => {
@@ -182,8 +201,10 @@
 
             // レイアウト切り替え
             dropZone.style.display = 'none';
-            initialTitle.style.display = 'none';
             editorContainer.style.display = 'flex';
+            mainElement.style.alignItems = 'stretch';
+            mainElement.style.justifyContent = 'flex-start';
+
 
             videoPlayer.play();
         }
