@@ -386,6 +386,7 @@
       const editorContainer = document.getElementById("editor-container");
       const videoPlayer = document.getElementById("video-player");
       const mainElement = document.querySelector("main");
+      const exportVideoBtn = document.getElementById("export-video-btn");
       const clearVideoButton = document.getElementById("clear-video-btn");
       const videoStorageKey = "lastUploadedVideoUrl";
       const subtitlesStoragePrefix = "editvid_subtitles_";
@@ -410,12 +411,6 @@
 
       // --- 初期化処理 ---
       document.addEventListener("DOMContentLoaded", () => {
-        const exportVideoBtn = document.getElementById("export-video-btn");
-        if (exportVideoBtn) {
-          exportVideoBtn.addEventListener("click", () => {
-            alert("TODO");
-          });
-        }
         restoreVideoSession();
       });
 
