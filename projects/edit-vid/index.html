@@ -166,78 +166,122 @@
         const videoPlayer = document.getElementById('video-player');
         const mainElement = document.querySelector('main');
         const clearVideoButton = document.getElementById('clear-video-btn');
+        const storageKey = 'lastUploadedVideoUrl';
 
-        // ファイル選択ダイアログを開く
-        dropZone.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-        // ファイルが選択されたときの処理
-        fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                handleFile(file);
+        // --- 初期化処理 ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const lastVideoUrl = localStorage.getItem(storageKey);
+            if (lastVideoUrl) {
+                console.log('復元するビデオが見つかりました:', lastVideoUrl);
+                showEditor(lastVideoUrl);
             }
         });
 
-        // ドラッグオーバー
+        // --- イベントリスナー ---
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
             dropZone.classList.add('dragover');
         });
-
-        // ドラッグリーブ
         dropZone.addEventListener('dragleave', (e) => {
             e.preventDefault();
             e.stopPropagation();
             dropZone.classList.remove('dragover');
         });
-
-        // ドロップ
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             e.stopPropagation();
             dropZone.classList.remove('dragover');
+            handleFileSelect(e.dataTransfer.files[0]);
+        });
 
-            const file = e.dataTransfer.files[0];
+        clearVideoButton.addEventListener('click', () => {
+            if (confirm('現在のビデオをサーバーから削除してもよろしいですか？')) {
+                clearVideo();
+            }
+        });
+
+        // --- 関数 ---
+        function handleFileSelect(file) {
             if (file && file.type.startsWith('video/')) {
-                handleFile(file);
+                uploadFile(file);
             } else {
                 alert('ビデオファイルを選択してください。');
             }
-        });
+        }
 
-        // ビデオをクリア
-        clearVideoButton.addEventListener('click', () => {
-            if (confirm('ビデオをクリアしてもよろしいですか？')) {
-                videoPlayer.pause();
-                URL.revokeObjectURL(videoPlayer.src);
-                videoPlayer.removeAttribute('src');
-                fileInput.value = ''; // 同じファイルを再度選択できるようにする
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
 
-                // レイアウトを初期状態に戻す
-                editorContainer.style.display = 'none';
-                dropZone.style.display = 'flex';
-                mainElement.style.alignItems = 'center';
-                mainElement.style.justifyContent = 'center';
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`サーバーエラー: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                localStorage.setItem(storageKey, result.url);
+                showEditor(result.url);
+
+            } catch (error) {
+                console.error('アップロードに失敗しました:', error);
+                alert('ファイルのアップロードに失敗しました。');
             }
-        });
+        }
 
-        // ファイルを処理してエディタを表示
-        function handleFile(file) {
-            const fileURL = URL.createObjectURL(file);
-            videoPlayer.src = fileURL;
+        async function clearVideo() {
+            const videoUrl = localStorage.getItem(storageKey);
+            if (!videoUrl) return;
 
-            // レイアウト切り替え
+            const filename = videoUrl.split('/').pop();
+
+            try {
+                const response = await fetch(`/videos/${filename}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`サーバーエラー: ${response.statusText}`);
+                }
+
+                console.log('ビデオが削除されました:', filename);
+                localStorage.removeItem(storageKey);
+                resetToInitialView();
+
+            } catch (error) {
+                console.error('ビデオの削除に失敗しました:', error);
+                alert('ビデオの削除に失敗しました。');
+            }
+        }
+
+        function showEditor(videoUrl) {
+            videoPlayer.src = videoUrl;
             dropZone.style.display = 'none';
             editorContainer.style.display = 'flex';
             mainElement.style.alignItems = 'stretch';
             mainElement.style.justifyContent = 'flex-start';
-
-            videoPlayer.load(); // ビデオをロード
+            videoPlayer.load();
             videoPlayer.play().catch(e => console.error("Video play failed:", e));
         }
+
+        function resetToInitialView() {
+            videoPlayer.pause();
+            videoPlayer.removeAttribute('src');
+            fileInput.value = '';
+
+            editorContainer.style.display = 'none';
+            dropZone.style.display = 'flex';
+            mainElement.style.alignItems = 'center';
+            mainElement.style.justifyContent = 'center';
+        }
+
     </script>
 </body>
 </html>
