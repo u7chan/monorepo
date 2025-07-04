@@ -26,7 +26,7 @@ ENV PYTHONUNBUFFERED=1
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN apt update && apt-get update \
-  && apt-get install --no-install-recommends -y curl git openssh-client \
+  && apt-get install --no-install-recommends -y curl git openssh-client ffmpeg fonts-ipafont \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && adduser --uid "${UID}" "${USERNAME}"
