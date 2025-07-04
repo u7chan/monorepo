@@ -27,6 +27,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN apt update && apt-get update \
   && apt-get install --no-install-recommends -y curl git openssh-client ffmpeg fonts-ipafont \
+  && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+  && apt-get install -y nodejs \
+  && npm install -g @google/gemini-cli \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && adduser --uid "${UID}" "${USERNAME}"

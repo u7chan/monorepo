@@ -17,8 +17,8 @@
         "editor.insertSpaces": true,
         "editor.formatOnSave": true,
         "python.defaultInterpreterPath": ".venv/bin/python",
+        "flake8.enabled": false,
         "[python]": {
-          "flake8.enabled": false,
           "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.codeActionsOnSave": {
             "source.fixAll": "explicit",
