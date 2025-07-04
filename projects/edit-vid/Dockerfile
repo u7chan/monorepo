@@ -25,7 +25,11 @@ ENV PYTHONUNBUFFERED=1
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-RUN adduser --uid "${UID}" "${USERNAME}"
+RUN apt update && apt-get update \
+  && apt-get install --no-install-recommends -y curl git openssh-client \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* \
+  && adduser --uid "${UID}" "${USERNAME}"
 
 # -----------------------------------------------
 # builder stage

@@ -1,0 +1,45 @@
+{
+  "name": "edit-vid",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "target": "dev",
+    "args": {
+      "USERNAME": "vscode"
+    }
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": false,
+  "postCreateCommand": "uv sync",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": true,
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[html]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+        },
+        "[markdown]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+        }
+      },
+      "extensions": [
+        "charliermarsh.ruff",
+        "astral-sh.ty",
+        "KevinRose.vsc-python-indent",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "oderwat.indent-rainbow",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}
