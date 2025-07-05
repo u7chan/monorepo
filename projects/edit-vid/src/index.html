@@ -13,6 +13,9 @@
         background-color: #f0f2f5;
       }
       header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         padding: 10px 20px;
         background-color: #fff;
         border-bottom: 1px solid #ccc;
@@ -23,6 +26,13 @@
         margin: 0;
         font-size: 24px;
         color: #333;
+      }
+      #header-actions {
+        display: flex;
+        gap: 10px;
+      }
+      #header-actions.hidden {
+        display: none;
       }
       h3 {
         margin: 0;
@@ -169,13 +179,6 @@
       #clear-video-btn {
         background-color: #f44336;
         color: white;
-        border: none;
-        padding: 10px 15px;
-        border-radius: 5px;
-        cursor: pointer;
-        width: 100%;
-        font-size: 16px;
-        margin-top: auto; /* ボタンをコンテナの下部に配置 */
       }
       #clear-video-btn:hover {
         background-color: #d32f2f;
@@ -278,8 +281,6 @@
       }
       #timeline-table .preview-btn {
         background-color: #2196f3; /* Blue */
-        font-size: 12px;
-        padding: 5px 10px;
       }
       #timeline-table .preview-btn:hover {
         background-color: #1976d2;
@@ -287,17 +288,16 @@
       #export-video-btn {
         background-color: #2196f3;
         color: white;
+      }
+      #export-video-btn:hover {
+        background-color: #1976d2;
+      }
+      #header-actions button {
         border: none;
         padding: 10px 15px;
         border-radius: 5px;
         cursor: pointer;
-        width: 100%;
-        font-size: 16px;
-        margin-top: 15px;
-        margin-bottom: 10px; /* スペースを追加 */
-      }
-      #export-video-btn:hover {
-        background-color: #1976d2;
+        font-size: 14px;
       }
       #preview-modal-content img {
         max-width: 100%;
@@ -318,6 +318,10 @@
   <body>
     <header>
       <h1>EditVid</h1>
+      <div id="header-actions" class="hidden">
+        <button id="export-video-btn">出力</button>
+        <button id="clear-video-btn">クリア</button>
+      </div>
     </header>
 
     <main>
@@ -382,12 +386,6 @@
                 />
               </div>
             </div>
-            <hr />
-            <div>
-              <h3>ビデオ</h3>
-              <button id="export-video-btn">出力</button>
-              <button id="clear-video-btn">クリア</button>
-            </div>
           </div>
         </div>
         <div id="timeline-container">
@@ -447,6 +445,7 @@
       const editorContainer = document.getElementById("editor-container");
       const videoPlayer = document.getElementById("video-player");
       const mainElement = document.querySelector("main");
+      const headerActions = document.getElementById("header-actions");
       const exportVideoBtn = document.getElementById("export-video-btn");
       const clearVideoButton = document.getElementById("clear-video-btn");
       const videoStorageKey = "lastUploadedVideoUrl";
@@ -775,6 +774,7 @@
         videoPlayer.src = videoUrl;
         dropZone.style.display = "none";
         editorContainer.style.display = "flex";
+        headerActions.classList.remove("hidden");
         mainElement.style.alignItems = "stretch";
         mainElement.style.justifyContent = "flex-start";
         videoPlayer.load();
@@ -790,6 +790,7 @@
         videoPlayer.removeAttribute("src");
         fileInput.value = "";
         timelineTableBody.innerHTML = ""; // タイムラインをクリア
+        headerActions.classList.add("hidden");
 
         editorContainer.style.display = "none";
         dropZone.style.display = "flex";
