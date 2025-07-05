@@ -13,6 +13,9 @@ class SubtitlePreview(BaseModel):
     text: str
     startTime: float
     duration: float
+    fontSize: int = 24
+    fontColor: str = "white"
+    boxColor: str = "black@0.5"
 
 
 # 'uploads' ディレクトリがなければ作成する
@@ -102,11 +105,11 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
         f"drawtext="
         f"fontfile=/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf:"
         f"text='{escaped_text}':"
-        f"fontsize=24:"
-        f"fontcolor=white:"
+        f"fontsize={item.fontSize}:"
+        f"fontcolor={item.fontColor}:"
         f"x=(w-text_w)/2:"
         f"y=h-th-10:"
-        f"box=1:boxcolor=black@0.5:boxborderw=5:"
+        f"box=1:boxcolor={item.boxColor}:boxborderw=5:"
         f"enable='between(t,{item.startTime},{item.startTime + item.duration})'"
     )
 
@@ -156,4 +159,3 @@ def read_root():
 
 # 静的ファイルの配信
 app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
-
