@@ -283,6 +283,20 @@
       #export-video-btn:hover {
         background-color: #1976d2;
       }
+      #preview-modal-content img {
+        max-width: 100%;
+        max-height: 70vh;
+        display: block;
+        margin: 0 auto;
+      }
+      #preview-loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 18px;
+        color: #555;
+      }
     </style>
   </head>
   <body>
@@ -380,6 +394,15 @@
       </div>
     </div>
 
+    <div id="preview-dialog" class="modal">
+      <div class="modal-content" id="preview-modal-content">
+        <span class="close-btn">&times;</span>
+        <h3>プレビュー</h3>
+        <div id="preview-loading">読み込み中...</div>
+        <img id="preview-image" src="" alt="Subtitle Preview" />
+      </div>
+    </div>
+
     <script>
       const dropZone = document.getElementById("drop-zone");
       const fileInput = document.getElementById("file-input");
@@ -408,6 +431,12 @@
       const editSubtitleDurationInput = document.getElementById(
         "edit-subtitle-duration"
       );
+
+      // プレビューダイアログUI
+      const previewDialog = document.getElementById("preview-dialog");
+      const previewCloseBtn = previewDialog.querySelector(".close-btn");
+      const previewImage = document.getElementById("preview-image");
+      const previewLoading = document.getElementById("preview-loading");
 
       // --- 初期化処理 ---
       document.addEventListener("DOMContentLoaded", () => {
@@ -495,7 +524,7 @@
         } else if (target.classList.contains("delete-btn")) {
           handleDeleteSubtitle(subId);
         } else if (target.classList.contains("preview-btn")) {
-          alert("TODO");
+          handlePreview(subId);
         }
       });
 
@@ -508,6 +537,13 @@
         if (e.target == editDialog) {
           editDialog.style.display = "none";
         }
+        if (e.target == previewDialog) {
+          previewDialog.style.display = "none";
+        }
+      });
+
+      previewCloseBtn.addEventListener("click", () => {
+        previewDialog.style.display = "none";
       });
 
       editSubtitleTextInput.addEventListener("input", (e) => {
@@ -519,6 +555,56 @@
       exportVideoBtn.addEventListener("click", () => {
         alert("TODO");
       });
+
+      async function handlePreview(id) {
+        const videoUrl = localStorage.getItem(videoStorageKey);
+        if (!videoUrl) return;
+        const filename = videoUrl.split("/").pop();
+        const subtitles = loadSubtitles(filename);
+        const subtitle = subtitles.find((sub) => String(sub.id) === String(id));
+
+        if (!subtitle) {
+          alert("プレビュー対象のテロップが見つかりませんでした。");
+          return;
+        }
+
+        previewImage.style.display = "none";
+        previewLoading.style.display = "block";
+        previewDialog.style.display = "block";
+
+        try {
+          const response = await fetch("/preview", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              filename: filename,
+              text: subtitle.text,
+              startTime: subtitle.startTime,
+              duration: subtitle.duration,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(
+              `プレビューの生成に失敗しました: ${errorData.detail}`
+            );
+          }
+
+          const imageBlob = await response.blob();
+          const imageUrl = URL.createObjectURL(imageBlob);
+          previewImage.src = imageUrl;
+          previewImage.style.display = "block";
+        } catch (error) {
+          console.error("プレビューエラー:", error);
+          alert(error.message);
+          previewDialog.style.display = "none";
+        } finally {
+          previewLoading.style.display = "none";
+        }
+      }
 
       // --- 関数 ---
       async function restoreVideoSession() {
