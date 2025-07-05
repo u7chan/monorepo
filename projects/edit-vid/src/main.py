@@ -100,7 +100,7 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
     # 字幕フィルタ
     subtitle_filter = (
         f"drawtext="
-        f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        f"fontfile=/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf:"
         f"text='{escaped_text}':"
         f"fontsize=24:"
         f"fontcolor=white:"
