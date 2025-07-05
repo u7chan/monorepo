@@ -2,7 +2,7 @@ import os
 import subprocess
 import uuid
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -20,6 +20,15 @@ os.makedirs("uploads", exist_ok=True)
 os.makedirs("previews", exist_ok=True)
 
 app = FastAPI()
+
+
+def remove_file(path: str):
+    """指定されたパスのファイルを削除する"""
+    try:
+        os.remove(path)
+        print(f"Removed preview file: {path}")
+    except OSError as e:
+        print(f"Error removing file {path}: {e}")
 
 
 @app.post("/upload")
@@ -66,7 +75,7 @@ async def delete_video(filename: str):
 
 
 @app.post("/preview")
-async def preview_subtitle(item: SubtitlePreview):
+async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTasks):
     """字幕のプレビュー画像を生成する"""
     uploads_dir = os.path.abspath("uploads")
     input_path = os.path.abspath(os.path.join(uploads_dir, item.filename))
@@ -83,7 +92,9 @@ async def preview_subtitle(item: SubtitlePreview):
     # FFmpegコマンドの構築
     # テキストをエスケープして、FFmpegのフィルタ内で安全に使えるようにする
     escaped_text = (
-        item.text.replace("\\", "\\\\").replace("'", "'\\''").replace(":", "\\:")
+        item.text.replace("\\", "\\\\")
+        .replace("'", "'\\\''")
+        .replace(":", "\\:")
     )
 
     # 字幕フィルタ
@@ -119,6 +130,8 @@ async def preview_subtitle(item: SubtitlePreview):
     try:
         # FFmpegコマンドを実行
         subprocess.run(command, check=True, capture_output=True, text=True)
+        # ファイル削除をバックグラウンドタスクとして追加
+        background_tasks.add_task(remove_file, output_path)
         return FileResponse(output_path, media_type="image/jpeg")
     except subprocess.CalledProcessError as e:
         # FFmpegの実行でエラーが発生した場合
@@ -143,4 +156,4 @@ def read_root():
 
 # 静的ファイルの配信
 app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
-app.mount("/", StaticFiles(directory="src"), name="static")
+
