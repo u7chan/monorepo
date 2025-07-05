@@ -111,6 +111,7 @@
       #timeline-table {
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed; /* テーブルのレイアウトを固定 */
       }
       #timeline-table th,
       #timeline-table td {
@@ -391,11 +392,11 @@
           <table id="timeline-table">
             <thead>
               <tr>
-                <th>開始時間</th>
-                <th>終了時間</th>
-                <th>テロップ</th>
-                <th>表示時間</th>
-                <th>操作</th>
+                <th style="width: 15%;">開始時間</th>
+                <th style="width: 15%;">終了時間</th>
+                <th style="width: 40%;">テロップ</th>
+                <th style="width: 15%;">表示時間</th>
+                <th style="width: 15%;">操作</th>
               </tr>
             </thead>
             <tbody>
