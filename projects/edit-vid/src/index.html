@@ -116,10 +116,11 @@
       #timeline-table th,
       #timeline-table td {
         border: 1px solid #ddd;
-        padding: 8px;
+        padding: 12px 8px; /* 上下のパディングを調整 */
         text-align: left;
-        white-space: pre-wrap; /* 改行を有効にする */
-        word-break: break-all; /* 長い単語を折り返す */
+        vertical-align: middle; /* 垂直方向の中央揃えを明示 */
+        white-space: normal; /* 標準の折り返し動作 */
+        overflow-wrap: break-word; /* 長い単語を折り返す */
       }
       #timeline-table th {
         background-color: #f2f2f2;
