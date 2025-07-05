@@ -129,7 +129,8 @@
         margin-bottom: 5px;
         font-weight: bold;
       }
-      #add-subtitle-container input {
+      #add-subtitle-container input,
+      #add-subtitle-container textarea {
         width: 100%;
         padding: 8px;
         box-sizing: border-box;
@@ -215,7 +216,8 @@
         margin-bottom: 5px;
         font-weight: bold;
       }
-      #edit-dialog input {
+      #edit-dialog input,
+      #edit-dialog textarea {
         width: 100%;
         padding: 8px;
         box-sizing: border-box;
@@ -328,11 +330,11 @@
               <div id="add-subtitle-container">
                 <h3>テロップ追加</h3>
                 <label for="subtitle-text">テキスト:</label>
-                <input
-                  type="text"
+                <textarea
                   id="subtitle-text"
+                  rows="3"
                   placeholder="表示するテキスト"
-                />
+                ></textarea>
                 <label for="subtitle-duration">表示時間 (秒):</label>
                 <input
                   type="number"
@@ -377,11 +379,11 @@
         <h3>テロップ編集</h3>
         <input type="hidden" id="edit-subtitle-id" />
         <label for="edit-subtitle-text">テキスト:</label>
-        <input
-          type="text"
+        <textarea
           id="edit-subtitle-text"
+          rows="3"
           placeholder="表示するテキスト"
-        />
+        ></textarea>
         <label for="edit-subtitle-duration">表示時間 (秒):</label>
         <input
           type="number"
@@ -732,10 +734,12 @@
         subtitles.forEach((sub) => {
           const row = timelineTableBody.insertRow();
           row.setAttribute("data-id", sub.id);
+          // テキストの改行を <br> に変換して表示
+          const displayText = escapeHTML(sub.text).replace(/\n/g, "<br>");
           row.innerHTML = `
                     <td>${sub.startTime.toFixed(2)}</td>
                     <td>${sub.endTime.toFixed(2)}</td>
-                    <td>${escapeHTML(sub.text)}</td>
+                    <td>${displayText}</td>
                     <td>${sub.duration.toFixed(1)}</td>
                     <td>
                         <button class="edit-btn">編集</button>
