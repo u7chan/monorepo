@@ -13,6 +13,9 @@
         background-color: #f0f2f5;
       }
       header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         padding: 10px 20px;
         background-color: #fff;
         border-bottom: 1px solid #ccc;
@@ -23,6 +26,13 @@
         margin: 0;
         font-size: 24px;
         color: #333;
+      }
+      #header-actions {
+        display: flex;
+        gap: 10px;
+      }
+      #header-actions.hidden {
+        display: none;
       }
       h3 {
         margin: 0;
@@ -101,12 +111,16 @@
       #timeline-table {
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed; /* テーブルのレイアウトを固定 */
       }
       #timeline-table th,
       #timeline-table td {
         border: 1px solid #ddd;
-        padding: 8px;
+        padding: 12px 8px; /* 上下のパディングを調整 */
         text-align: left;
+        vertical-align: middle; /* 垂直方向の中央揃えを明示 */
+        white-space: normal; /* 標準の折り返し動作 */
+        overflow-wrap: break-word; /* 長い単語を折り返す */
       }
       #timeline-table th {
         background-color: #f2f2f2;
@@ -115,26 +129,35 @@
       }
 
       /* Action Styles */
-      #add-subtitle-container {
+      #add-subtitle-container,
+      #subtitle-settings-container {
         margin-bottom: 20px;
       }
-      #add-subtitle-container h3 {
+      #add-subtitle-container h3,
+      #subtitle-settings-container h3 {
         margin-top: 0;
         margin-bottom: 10px;
         font-size: 18px;
       }
-      #add-subtitle-container label {
+      #add-subtitle-container label,
+      #subtitle-settings-container label {
         display: block;
         margin-top: 10px;
         margin-bottom: 5px;
         font-weight: bold;
       }
-      #add-subtitle-container input {
+      #add-subtitle-container input,
+      #add-subtitle-container textarea,
+      #subtitle-settings-container input {
         width: 100%;
         padding: 8px;
         box-sizing: border-box;
         border-radius: 4px;
         border: 1px solid #ccc;
+      }
+      #subtitle-settings-container input[type="color"] {
+        padding: 4px;
+        height: 40px;
       }
       #add-subtitle-btn {
         background-color: #4caf50; /* Green */
@@ -158,13 +181,6 @@
       #clear-video-btn {
         background-color: #f44336;
         color: white;
-        border: none;
-        padding: 10px 15px;
-        border-radius: 5px;
-        cursor: pointer;
-        width: 100%;
-        font-size: 16px;
-        margin-top: auto; /* ボタンをコンテナの下部に配置 */
       }
       #clear-video-btn:hover {
         background-color: #d32f2f;
@@ -186,11 +202,11 @@
       }
       .modal-content {
         background-color: #fefefe;
-        margin: 15% auto;
+        margin: 10% auto;
         padding: 20px;
         border: 1px solid #888;
         width: 80%;
-        max-width: 500px;
+        max-width: 800px;
         border-radius: 10px;
         position: relative;
       }
@@ -215,7 +231,8 @@
         margin-bottom: 5px;
         font-weight: bold;
       }
-      #edit-dialog input {
+      #edit-dialog input,
+      #edit-dialog textarea {
         width: 100%;
         padding: 8px;
         box-sizing: border-box;
@@ -237,6 +254,11 @@
         background-color: #45a049;
       }
       /* Timeline Button Styles */
+      #timeline-table .action-buttons-container {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
       #timeline-table .edit-btn,
       #timeline-table .delete-btn,
       #timeline-table .preview-btn {
@@ -246,7 +268,6 @@
         cursor: pointer;
         font-size: 12px;
         color: white;
-        margin: 0 2px;
       }
       #timeline-table .edit-btn {
         background-color: #4caf50; /* Green */
@@ -262,8 +283,6 @@
       }
       #timeline-table .preview-btn {
         background-color: #2196f3; /* Blue */
-        font-size: 12px;
-        padding: 5px 10px;
       }
       #timeline-table .preview-btn:hover {
         background-color: #1976d2;
@@ -271,23 +290,40 @@
       #export-video-btn {
         background-color: #2196f3;
         color: white;
+      }
+      #export-video-btn:hover {
+        background-color: #1976d2;
+      }
+      #header-actions button {
         border: none;
         padding: 10px 15px;
         border-radius: 5px;
         cursor: pointer;
-        width: 100%;
-        font-size: 16px;
-        margin-top: 15px;
-        margin-bottom: 10px; /* スペースを追加 */
+        font-size: 14px;
       }
-      #export-video-btn:hover {
-        background-color: #1976d2;
+      #preview-modal-content img {
+        max-width: 100%;
+        max-height: 70vh;
+        display: block;
+        margin: 0 auto;
+      }
+      #preview-loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 18px;
+        color: #555;
       }
     </style>
   </head>
   <body>
     <header>
       <h1>EditVid</h1>
+      <div id="header-actions" class="hidden">
+        <button id="export-video-btn">出力</button>
+        <button id="clear-video-btn">クリア</button>
+      </div>
     </header>
 
     <main>
@@ -310,15 +346,14 @@
           </div>
           <div id="actions-container">
             <div>
-              <h2>アクション</h2>
               <div id="add-subtitle-container">
                 <h3>テロップ追加</h3>
                 <label for="subtitle-text">テキスト:</label>
-                <input
-                  type="text"
+                <textarea
                   id="subtitle-text"
+                  rows="3"
                   placeholder="表示するテキスト"
-                />
+                ></textarea>
                 <label for="subtitle-duration">表示時間 (秒):</label>
                 <input
                   type="number"
@@ -329,12 +364,28 @@
                 />
                 <button id="add-subtitle-btn">追加</button>
               </div>
-            </div>
-            <hr />
-            <div>
-              <h3>ビデオ</h3>
-              <button id="export-video-btn">出力</button>
-              <button id="clear-video-btn">クリア</button>
+              <hr />
+              <div id="subtitle-settings-container">
+                <h3>テロップ設定</h3>
+                <label for="font-size-input">テキストサイズ:</label>
+                <input type="number" id="font-size-input" value="24" min="1" />
+
+                <label for="font-color-input">テキスト色:</label>
+                <input type="color" id="font-color-input" value="#FFFFFF" />
+
+                <label for="box-color-input">背景色:</label>
+                <input type="color" id="box-color-input" value="#000000" />
+
+                <label for="box-opacity-input">背景の不透明度:</label>
+                <input
+                  type="range"
+                  id="box-opacity-input"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value="0.5"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -342,11 +393,11 @@
           <table id="timeline-table">
             <thead>
               <tr>
-                <th>開始時間</th>
-                <th>終了時間</th>
-                <th>テロップ</th>
-                <th>表示時間</th>
-                <th>操作</th>
+                <th style="width: 15%;">開始時間</th>
+                <th style="width: 15%;">終了時間</th>
+                <th style="width: 40%;">テロップ</th>
+                <th style="width: 15%;">表示時間</th>
+                <th style="width: 15%;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -363,11 +414,11 @@
         <h3>テロップ編集</h3>
         <input type="hidden" id="edit-subtitle-id" />
         <label for="edit-subtitle-text">テキスト:</label>
-        <input
-          type="text"
+        <textarea
           id="edit-subtitle-text"
+          rows="3"
           placeholder="表示するテキスト"
-        />
+        ></textarea>
         <label for="edit-subtitle-duration">表示時間 (秒):</label>
         <input
           type="number"
@@ -380,16 +431,27 @@
       </div>
     </div>
 
+    <div id="preview-dialog" class="modal">
+      <div class="modal-content" id="preview-modal-content">
+        <span class="close-btn">&times;</span>
+        <h3>プレビュー</h3>
+        <div id="preview-loading">読み込み中...</div>
+        <img id="preview-image" src="" alt="Subtitle Preview" />
+      </div>
+    </div>
+
     <script>
       const dropZone = document.getElementById("drop-zone");
       const fileInput = document.getElementById("file-input");
       const editorContainer = document.getElementById("editor-container");
       const videoPlayer = document.getElementById("video-player");
       const mainElement = document.querySelector("main");
+      const headerActions = document.getElementById("header-actions");
       const exportVideoBtn = document.getElementById("export-video-btn");
       const clearVideoButton = document.getElementById("clear-video-btn");
       const videoStorageKey = "lastUploadedVideoUrl";
       const subtitlesStoragePrefix = "editvid_subtitles_";
+      const subtitleSettingsKey = "editvid_subtitle_settings";
 
       // テロップUI
       const subtitleTextInput = document.getElementById("subtitle-text");
@@ -397,6 +459,12 @@
         document.getElementById("subtitle-duration");
       const addSubtitleBtn = document.getElementById("add-subtitle-btn");
       const timelineTableBody = document.querySelector("#timeline-table tbody");
+
+      // テロップ設定UI
+      const fontSizeInput = document.getElementById("font-size-input");
+      const fontColorInput = document.getElementById("font-color-input");
+      const boxColorInput = document.getElementById("box-color-input");
+      const boxOpacityInput = document.getElementById("box-opacity-input");
 
       // 編集ダイアログUI
       const editDialog = document.getElementById("edit-dialog");
@@ -409,9 +477,16 @@
         "edit-subtitle-duration"
       );
 
+      // プレビューダイアログUI
+      const previewDialog = document.getElementById("preview-dialog");
+      const previewCloseBtn = previewDialog.querySelector(".close-btn");
+      const previewImage = document.getElementById("preview-image");
+      const previewLoading = document.getElementById("preview-loading");
+
       // --- 初期化処理 ---
       document.addEventListener("DOMContentLoaded", () => {
         restoreVideoSession();
+        loadSubtitleSettings();
       });
 
       // --- イベントリスナー ---
@@ -495,7 +570,7 @@
         } else if (target.classList.contains("delete-btn")) {
           handleDeleteSubtitle(subId);
         } else if (target.classList.contains("preview-btn")) {
-          alert("TODO");
+          handlePreview(subId);
         }
       });
 
@@ -508,6 +583,13 @@
         if (e.target == editDialog) {
           editDialog.style.display = "none";
         }
+        if (e.target == previewDialog) {
+          previewDialog.style.display = "none";
+        }
+      });
+
+      previewCloseBtn.addEventListener("click", () => {
+        previewDialog.style.display = "none";
       });
 
       editSubtitleTextInput.addEventListener("input", (e) => {
@@ -516,11 +598,97 @@
         editSubtitleDurationInput.value = duration;
       });
 
+      // テロップ設定のイベントリスナー
+      [fontSizeInput, fontColorInput, boxColorInput, boxOpacityInput].forEach(
+        (input) => {
+          input.addEventListener("change", saveSubtitleSettings);
+        }
+      );
+
       exportVideoBtn.addEventListener("click", () => {
         alert("TODO");
       });
 
       // --- 関数 ---
+
+      function saveSubtitleSettings() {
+        const settings = {
+          fontSize: fontSizeInput.value,
+          fontColor: fontColorInput.value,
+          boxColor: boxColorInput.value,
+          boxOpacity: boxOpacityInput.value,
+        };
+        localStorage.setItem(subtitleSettingsKey, JSON.stringify(settings));
+      }
+
+      function loadSubtitleSettings() {
+        const settings = JSON.parse(localStorage.getItem(subtitleSettingsKey));
+        if (settings) {
+          fontSizeInput.value = settings.fontSize || "24";
+          fontColorInput.value = settings.fontColor || "#FFFFFF";
+          boxColorInput.value = settings.boxColor || "#000000";
+          boxOpacityInput.value = settings.boxOpacity || "0.5";
+        }
+      }
+
+      async function handlePreview(id) {
+        const videoUrl = localStorage.getItem(videoStorageKey);
+        if (!videoUrl) return;
+        const filename = videoUrl.split("/").pop();
+        const subtitles = loadSubtitles(filename);
+        const subtitle = subtitles.find((sub) => String(sub.id) === String(id));
+
+        if (!subtitle) {
+          alert("プレビュー対象のテロップが見つかりませんでした。");
+          return;
+        }
+
+        previewImage.style.display = "none";
+        previewLoading.style.display = "block";
+        previewDialog.style.display = "block";
+
+        // 現在の設定値を取得
+        const settings = {
+          fontSize: parseInt(fontSizeInput.value, 10),
+          fontColor: fontColorInput.value,
+          boxColor: `${boxColorInput.value}@${boxOpacityInput.value}`,
+        };
+
+        try {
+          const response = await fetch("/preview", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              filename: filename,
+              text: subtitle.text,
+              startTime: subtitle.startTime,
+              duration: subtitle.duration,
+              ...settings,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(
+              `プレビューの生成に失敗しました: ${errorData.detail}`
+            );
+          }
+
+          const imageBlob = await response.blob();
+          const imageUrl = URL.createObjectURL(imageBlob);
+          previewImage.src = imageUrl;
+          previewImage.style.display = "block";
+        } catch (error) {
+          console.error("プレビューエラー:", error);
+          alert(error.message);
+          previewDialog.style.display = "none";
+        } finally {
+          previewLoading.style.display = "none";
+        }
+      }
+
       async function restoreVideoSession() {
         const lastVideoUrl = localStorage.getItem(videoStorageKey);
         if (!lastVideoUrl) return;
@@ -604,6 +772,7 @@
         videoPlayer.src = videoUrl;
         dropZone.style.display = "none";
         editorContainer.style.display = "flex";
+        headerActions.classList.remove("hidden");
         mainElement.style.alignItems = "stretch";
         mainElement.style.justifyContent = "flex-start";
         videoPlayer.load();
@@ -619,6 +788,7 @@
         videoPlayer.removeAttribute("src");
         fileInput.value = "";
         timelineTableBody.innerHTML = ""; // タイムラインをクリア
+        headerActions.classList.add("hidden");
 
         editorContainer.style.display = "none";
         dropZone.style.display = "flex";
@@ -646,15 +816,19 @@
         subtitles.forEach((sub) => {
           const row = timelineTableBody.insertRow();
           row.setAttribute("data-id", sub.id);
+          // テキストの改行を <br> に変換して表示
+          const displayText = escapeHTML(sub.text).replace(/\n/g, "<br>");
           row.innerHTML = `
                     <td>${sub.startTime.toFixed(2)}</td>
                     <td>${sub.endTime.toFixed(2)}</td>
-                    <td>${escapeHTML(sub.text)}</td>
+                    <td>${displayText}</td>
                     <td>${sub.duration.toFixed(1)}</td>
                     <td>
-                        <button class="edit-btn">編集</button>
-                        <button class="delete-btn">削除</button>
-                        <button class="preview-btn">プレビュー</button>
+                        <div class="action-buttons-container">
+                            <button class="edit-btn">編集</button>
+                            <button class="delete-btn">削除</button>
+                            <button class="preview-btn">プレビュー</button>
+                        </div>
                     </td>
                 `;
         });
@@ -729,7 +903,7 @@
       }
 
       function escapeHTML(str) {
-        return str.replace(new RegExp("[&<>'\"/]", "g"), function (match) {
+        return str.replace(new RegExp("[&<>'\"]", "g"), function (match) {
           return {
             "&": "&amp;",
             "<": "&lt;",
