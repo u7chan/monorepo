@@ -344,7 +344,6 @@
           </div>
           <div id="actions-container">
             <div>
-              <h2>アクション</h2>
               <div id="add-subtitle-container">
                 <h3>テロップ追加</h3>
                 <label for="subtitle-text">テキスト:</label>
@@ -598,14 +597,11 @@
       });
 
       // テロップ設定のイベントリスナー
-      [
-        fontSizeInput,
-        fontColorInput,
-        boxColorInput,
-        boxOpacityInput,
-      ].forEach((input) => {
-        input.addEventListener("change", saveSubtitleSettings);
-      });
+      [fontSizeInput, fontColorInput, boxColorInput, boxOpacityInput].forEach(
+        (input) => {
+          input.addEventListener("change", saveSubtitleSettings);
+        }
+      );
 
       exportVideoBtn.addEventListener("click", () => {
         alert("TODO");
@@ -910,7 +906,7 @@
             "&": "&amp;",
             "<": "&lt;",
             ">": "&gt;",
-            "\"": "&quot;",
+            '"': "&quot;",
             "'": "&#39;",
             "/": "&#x2F;",
           }[match];
