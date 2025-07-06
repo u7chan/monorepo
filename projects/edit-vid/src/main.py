@@ -1,11 +1,26 @@
 import os
 import subprocess
 import uuid
+from typing import List
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+
+class Subtitle(BaseModel):
+    text: str
+    startTime: float
+    endTime: float
+
+
+class ExportRequest(BaseModel):
+    filename: str
+    subtitles: List[Subtitle]
+    fontSize: int
+    fontColor: str
+    boxColor: str
 
 
 class SubtitlePreview(BaseModel):
@@ -18,9 +33,10 @@ class SubtitlePreview(BaseModel):
     boxColor: str = "black@0.5"
 
 
-# 'uploads' ディレクトリがなければ作成する
+# ディレクトリ作成
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("previews", exist_ok=True)
+os.makedirs("exports", exist_ok=True)
 
 app = FastAPI()
 
@@ -29,7 +45,7 @@ def remove_file(path: str):
     """指定されたパスのファイルを削除する"""
     try:
         os.remove(path)
-        print(f"Removed preview file: {path}")
+        print(f"Removed temp file: {path}")
     except OSError as e:
         print(f"Error removing file {path}: {e}")
 
@@ -38,16 +54,11 @@ def remove_file(path: str):
 async def upload_video(file: UploadFile = File(...)):
     """ビデオファイルをアップロードし、ユニークなファイル名を付けて保存する"""
     try:
-        # 安全なファイル名を生成
         extension = os.path.splitext(str(file.filename))[1]
         unique_filename = f"{uuid.uuid4()}{extension}"
         file_path = os.path.join("uploads", unique_filename)
-
-        # ファイルを保存
         with open(file_path, "wb") as buffer:
             buffer.write(await file.read())
-
-        # アクセス用のURLを返す
         return JSONResponse(content={"url": f"/videos/{unique_filename}"})
     except Exception as e:
         raise HTTPException(
@@ -59,13 +70,10 @@ async def upload_video(file: UploadFile = File(...)):
 async def delete_video(filename: str):
     """指定されたビデオファイルをサーバーから削除する"""
     try:
-        # セキュリティ: パストラバーサル攻撃を防ぐ
         uploads_dir = os.path.abspath("uploads")
         file_path = os.path.abspath(os.path.join(uploads_dir, filename))
-
         if not file_path.startswith(uploads_dir):
             raise HTTPException(status_code=400, detail="不正なファイルパスです。")
-
         if os.path.exists(file_path):
             os.remove(file_path)
             return JSONResponse(content={"status": "deleted", "filename": filename})
@@ -74,6 +82,82 @@ async def delete_video(filename: str):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"ファイルの削除中にエラーが発生しました: {e}"
+        )
+
+
+@app.post("/export")
+async def export_video(item: ExportRequest):
+    """すべての字幕を焼き付けたビデオを生成する"""
+    uploads_dir = os.path.abspath("uploads")
+    input_path = os.path.abspath(os.path.join(uploads_dir, item.filename))
+
+    if not input_path.startswith(uploads_dir):
+        raise HTTPException(status_code=400, detail="不正なファイルパスです。")
+    if not os.path.exists(input_path):
+        raise HTTPException(status_code=404, detail="ビデオファイルが見つかりません。")
+
+    exports_dir = os.path.abspath("exports")
+    base, ext = os.path.splitext(item.filename)
+    output_filename = f"{base}_export_{uuid.uuid4().hex[:8]}{ext}"
+    output_path = os.path.join(exports_dir, output_filename)
+
+    filters = []
+    for sub in item.subtitles:
+        escaped_text = (
+            sub.text.replace("\\", "\\\\")
+            .replace("'", "'\\\''")
+            .replace(":", "\\:")
+            .replace(",", "\\,")
+        )
+        filter_str = (
+            f"drawtext="
+            f"fontfile=/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf:"
+            f"text='{escaped_text}':"
+            f"fontsize={item.fontSize}:"
+            f"fontcolor={item.fontColor}:"
+            f"x=(w-text_w)/2:"
+            f"y=h-th-20:"
+            f"box=1:boxcolor={item.boxColor}:boxborderw=10:"
+            f"enable='between(t,{sub.startTime},{sub.endTime})'"
+        )
+        filters.append(filter_str)
+
+    video_filter = ",".join(filters)
+
+    command = [
+        "ffmpeg",
+        "-i",
+        input_path,
+        "-vf",
+        video_filter,
+        "-c:a",
+        "copy",
+        output_path,
+        "-y",
+    ]
+
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        return FileResponse(
+            output_path,
+            media_type="video/mp4",
+            filename=f"editvid_{item.filename}",
+        )
+    except subprocess.CalledProcessError as e:
+        error_message = e.stderr or e.stdout or "Unknown FFmpeg error"
+        # エラーレスポンスを返す前に、失敗した出力ファイルを削除する
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"ビデオのエクスポートに失敗しました: {error_message}",
+        )
+    except Exception as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"エクスポート中に予期せぬエラーが発生しました: {e}",
         )
 
 
@@ -92,15 +176,12 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
     output_filename = f"preview_{uuid.uuid4()}.jpg"
     output_path = os.path.join(previews_dir, output_filename)
 
-    # FFmpegコマンドの構築
-    # テキストをエスケープして、FFmpegのフィルタ内で安全に使えるようにする
     escaped_text = (
         item.text.replace("\\", "\\\\")
         .replace("'", "'\\\''")
         .replace(":", "\\:")
     )
 
-    # 字幕フィルタ
     subtitle_filter = (
         f"drawtext="
         f"fontfile=/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf:"
@@ -113,38 +194,33 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
         f"enable='between(t,{item.startTime},{item.startTime + item.duration})'"
     )
 
-    # FFmpegコマンド
     command = [
         "ffmpeg",
         "-i",
         input_path,
         "-ss",
-        str(item.startTime),  # 字幕が表示される瞬間にシーク
+        str(item.startTime),
         "-vf",
         subtitle_filter,
         "-frames:v",
-        "1",  # 1フレームだけをキャプチャ
+        "1",
         "-q:v",
-        "2",  # 高品質なJPEG
+        "2",
         output_path,
-        "-y",  # 既存のファイルを上書き
+        "-y",
     ]
 
     try:
-        # FFmpegコマンドを実行
         subprocess.run(command, check=True, capture_output=True, text=True)
-        # ファイル削除をバックグラウンドタスクとして追加
         background_tasks.add_task(remove_file, output_path)
         return FileResponse(output_path, media_type="image/jpeg")
     except subprocess.CalledProcessError as e:
-        # FFmpegの実行でエラーが発生した場合
         error_message = e.stderr or e.stdout or "Unknown FFmpeg error"
         raise HTTPException(
             status_code=500,
             detail=f"プレビューの生成に失敗しました: {error_message}",
         )
     except Exception as e:
-        # その他の予期せぬエラー
         raise HTTPException(
             status_code=500,
             detail=f"プレビューの生成中に予期せぬエラーが発生しました: {e}",
@@ -159,3 +235,4 @@ def read_root():
 
 # 静的ファイルの配信
 app.mount("/videos", StaticFiles(directory="uploads"), name="videos")
+app.mount("/exports", StaticFiles(directory="exports"), name="exports")

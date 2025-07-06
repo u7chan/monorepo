@@ -605,11 +605,93 @@
         }
       );
 
-      exportVideoBtn.addEventListener("click", () => {
-        alert("TODO");
-      });
+      exportVideoBtn.addEventListener("click", handleExportVideo);
 
       // --- 関数 ---
+
+      async function handleExportVideo() {
+        const videoUrl = localStorage.getItem(videoStorageKey);
+        if (!videoUrl) {
+          alert("エクスポートするビデオがありません。");
+          return;
+        }
+
+        const filename = videoUrl.split("/").pop();
+        const subtitles = loadSubtitles(filename);
+
+        if (subtitles.length === 0) {
+          if (
+            !confirm(
+              "テロップがありません。ビデオをそのままエクスポートしますか？"
+            )
+          ) {
+            return;
+          }
+        }
+
+        // 現在の設定値を取得
+        const settings = {
+          fontSize: parseInt(fontSizeInput.value, 10),
+          fontColor: fontColorInput.value,
+          boxColor: `${boxColorInput.value}@${boxOpacityInput.value}`,
+        };
+
+        // UIをローディング状態にする
+        exportVideoBtn.disabled = true;
+        exportVideoBtn.textContent = "エクスポート中...";
+
+        try {
+          const response = await fetch("/export", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              filename: filename,
+              subtitles: subtitles,
+              ...settings,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(
+              `エクスポートに失敗しました: ${errorData.detail || response.statusText}`
+            );
+          }
+
+          // ファイルをダウンロード
+          const blob = await response.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.style.display = "none";
+          a.href = downloadUrl;
+          // ヘッダーからファイル名を取得しようと試みる
+          const disposition = response.headers.get("content-disposition");
+          let downloadFilename = "exported_video.mp4";
+          if (disposition && disposition.indexOf("attachment") !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) {
+              downloadFilename = matches[1].replace(/['"]/g, "");
+            }
+          }
+          a.download = downloadFilename;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(downloadUrl);
+          a.remove();
+
+          alert("ビデオのエクスポートが完了し、ダウンロードが開始されました。");
+        } catch (error) {
+          console.error("エクスポートエラー:", error);
+          alert(error.message);
+        } finally {
+          // UIを元に戻す
+          exportVideoBtn.disabled = false;
+          exportVideoBtn.textContent = "出力";
+        }
+      }
 
       function saveSubtitleSettings() {
         const settings = {
