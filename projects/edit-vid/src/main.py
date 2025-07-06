@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import uuid
 from typing import List
@@ -156,9 +157,32 @@ async def export_video(item: ExportRequest):
         if os.path.exists(output_path):
             os.remove(output_path)
         raise HTTPException(
-            status_code=500,
-            detail=f"エクスポート中に予期せぬエラーが発生しました: {e}",
+            status_code=500, detail=f"エクスポート中に予期せぬエラーが発生しました: {e}",
         )
+
+
+import shutil
+
+@app.post("/clear-cache")
+async def clear_cache():
+    """uploads, exports, previewsディレクトリを再作成する"""
+    errors = []
+    for dir_name in ["uploads", "exports", "previews"]:
+        try:
+            target_dir = os.path.abspath(dir_name)
+            if os.path.isdir(target_dir):
+                shutil.rmtree(target_dir)
+            os.makedirs(target_dir, exist_ok=True)
+            # .gitkeepファイルを作成して、ディレクトリがgitに追跡されるようにする
+            with open(os.path.join(target_dir, ".gitkeep"), "w") as f:
+                pass
+        except Exception as e:
+            errors.append(f"Failed to clear directory {dir_name}: {e}")
+
+    if errors:
+        raise HTTPException(status_code=500, detail=", ".join(errors))
+
+    return JSONResponse(content={"status": "cache cleared"})
 
 
 @app.post("/preview")

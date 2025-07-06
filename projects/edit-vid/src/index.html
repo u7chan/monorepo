@@ -512,8 +512,12 @@
       });
 
       clearVideoButton.addEventListener("click", () => {
-        if (confirm("現在のビデオをサーバーから削除してもよろしいですか？")) {
-          clearVideo();
+        if (
+          confirm(
+            "編集中のビデオ情報と、サーバー上のすべてのキャッシュ（アップロードされたファイルや出力ファイル）を削除してもよろしいですか？この操作は元に戻せません。"
+          )
+        ) {
+          clearAllData();
         }
       });
 
@@ -823,31 +827,39 @@
         }
       }
 
-      async function clearVideo() {
-        const videoUrl = localStorage.getItem(videoStorageKey);
-        if (!videoUrl) return;
-
-        const filename = videoUrl.split("/").pop();
+      async function clearAllData() {
         try {
-          const response = await fetch(`/videos/${filename}`, {
-            method: "DELETE",
+          // サーバーサイドのキャッシュをクリア
+          const response = await fetch("/clear-cache", { method: "POST" });
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(
+              `サーバーキャッシュのクリアに失敗しました: ${
+                errorData.detail || response.statusText
+              }`
+            );
+          }
+          console.log("サーバーキャッシュが正常にクリアされました。");
+
+          // ローカルストレージの関連データをすべてクリア
+          Object.keys(localStorage).forEach((key) => {
+            if (
+              key === videoStorageKey ||
+              key.startsWith(subtitlesStoragePrefix) ||
+              key === subtitleSettingsKey
+            ) {
+              localStorage.removeItem(key);
+            }
           });
-          if (!response.ok)
-            throw new Error(`サーバーエラー: ${response.statusText}`);
-          console.log("ビデオが削除されました:", filename);
-          clearVideoData(videoUrl);
+
+          alert("すべてのデータが正常にクリアされました。");
+
+          // UIを初期状態にリセット
           resetToInitialView();
         } catch (error) {
-          console.error("ビデオの削除に失敗しました:", error);
-          alert("ビデオの削除に失敗しました。");
+          console.error("データクリア処理中にエラーが発生しました:", error);
+          alert(error.message);
         }
-      }
-
-      function clearVideoData(videoUrl) {
-        const filename = videoUrl.split("/").pop();
-        const subtitlesKey = subtitlesStoragePrefix + filename;
-        localStorage.removeItem(subtitlesKey);
-        localStorage.removeItem(videoStorageKey);
       }
 
       function showEditor(videoUrl) {
