@@ -60,7 +60,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:$PATH"
 ENV APP_VERSION="${COMMIT_HASH}"
 
-RUN adduser --uid "${UID}" "${USERNAME}" \
+RUN apt update && apt-get update \
+  && apt-get install --no-install-recommends -y ffmpeg fonts-ipafont \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* \
+  && adduser --uid "${UID}" "${USERNAME}" \
   && chown -R $USERNAME:$USERNAME /app
 
 COPY --from=builder --chown=$USERNAME:$USERNAME /app/.venv .venv
