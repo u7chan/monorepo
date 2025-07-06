@@ -315,6 +315,24 @@
         font-size: 18px;
         color: #555;
       }
+      .spinner {
+        border: 4px solid #f3f3f3; /* Light grey */
+        border-top: 4px solid #3498db; /* Blue */
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>
@@ -362,9 +380,25 @@
                   step="0.1"
                   placeholder="例: 2.5"
                 />
-                <div style="margin-top: 8px;">
-                  <input type="checkbox" id="fixed-duration-check" style="width: auto; vertical-align: middle; margin-right: 5px;">
-                  <label for="fixed-duration-check" style="display: inline; font-weight: normal; vertical-align: middle;">表示時間を固定</label>
+                <div style="margin-top: 8px">
+                  <input
+                    type="checkbox"
+                    id="fixed-duration-check"
+                    style="
+                      width: auto;
+                      vertical-align: middle;
+                      margin-right: 5px;
+                    "
+                  />
+                  <label
+                    for="fixed-duration-check"
+                    style="
+                      display: inline;
+                      font-weight: normal;
+                      vertical-align: middle;
+                    "
+                    >表示時間を固定</label
+                  >
                 </div>
                 <button id="add-subtitle-btn">追加</button>
               </div>
@@ -397,11 +431,11 @@
           <table id="timeline-table">
             <thead>
               <tr>
-                <th style="width: 15%;">開始時間</th>
-                <th style="width: 15%;">終了時間</th>
-                <th style="width: 40%;">テロップ</th>
-                <th style="width: 15%;">表示時間</th>
-                <th style="width: 15%;">操作</th>
+                <th style="width: 15%">開始時間</th>
+                <th style="width: 15%">終了時間</th>
+                <th style="width: 40%">テロップ</th>
+                <th style="width: 15%">表示時間</th>
+                <th style="width: 15%">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -444,6 +478,14 @@
       </div>
     </div>
 
+    <div id="export-loading-dialog" class="modal">
+      <div class="modal-content" style="text-align: center">
+        <h3>エクスポート中...</h3>
+        <div class="spinner"></div>
+        <p>処理が完了するまでお待ちください。</p>
+      </div>
+    </div>
+
     <script>
       const dropZone = document.getElementById("drop-zone");
       const fileInput = document.getElementById("file-input");
@@ -459,8 +501,11 @@
 
       // テロップUI
       const subtitleTextInput = document.getElementById("subtitle-text");
-      const subtitleDurationInput = document.getElementById("subtitle-duration");
-      const fixedDurationCheck = document.getElementById("fixed-duration-check");
+      const subtitleDurationInput =
+        document.getElementById("subtitle-duration");
+      const fixedDurationCheck = document.getElementById(
+        "fixed-duration-check"
+      );
       const addSubtitleBtn = document.getElementById("add-subtitle-btn");
       const timelineTableBody = document.querySelector("#timeline-table tbody");
 
@@ -486,6 +531,9 @@
       const previewCloseBtn = previewDialog.querySelector(".close-btn");
       const previewImage = document.getElementById("preview-image");
       const previewLoading = document.getElementById("preview-loading");
+      const exportLoadingDialog = document.getElementById(
+        "export-loading-dialog"
+      );
 
       // --- 初期化処理 ---
       document.addEventListener("DOMContentLoaded", () => {
@@ -657,7 +705,7 @@
         // UIをローディング状態にする
         exportVideoBtn.disabled = true;
         exportVideoBtn.textContent = "エクスポート中...";
-
+        exportLoadingDialog.style.display = "block";
         try {
           const response = await fetch("/export", {
             method: "POST",
@@ -674,7 +722,9 @@
           if (!response.ok) {
             const errorData = await response.json();
             throw new Error(
-              `エクスポートに失敗しました: ${errorData.detail || response.statusText}`
+              `エクスポートに失敗しました: ${
+                errorData.detail || response.statusText
+              }`
             );
           }
 
@@ -699,7 +749,6 @@
           a.click();
           window.URL.revokeObjectURL(downloadUrl);
           a.remove();
-
           alert("ビデオのエクスポートが完了し、ダウンロードが開始されました。");
         } catch (error) {
           console.error("エクスポートエラー:", error);
@@ -708,6 +757,7 @@
           // UIを元に戻す
           exportVideoBtn.disabled = false;
           exportVideoBtn.textContent = "出力";
+          exportLoadingDialog.style.display = "none";
         }
       }
 
