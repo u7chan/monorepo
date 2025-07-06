@@ -1,0 +1,11 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  edit-vid:
+    container_name: edit-vid
+    image: ghcr.io/u7chan/monorepo/edit-vid:latest
+    restart: always
+    ports:
+      - 8005:8000
