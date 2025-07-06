@@ -749,7 +749,13 @@
           a.click();
           window.URL.revokeObjectURL(downloadUrl);
           a.remove();
-          alert("ビデオのエクスポートが完了し、ダウンロードが開始されました。");
+          setTimeout(
+            () =>
+              alert(
+                "ビデオのエクスポートが完了し、ダウンロードが開始されました。"
+              ),
+            100
+          );
         } catch (error) {
           console.error("エクスポートエラー:", error);
           alert(error.message);
