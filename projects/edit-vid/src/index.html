@@ -294,6 +294,11 @@
       #export-video-btn:hover {
         background-color: #1976d2;
       }
+      #export-video-btn:disabled,
+      #export-video-btn:disabled:hover {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
       #header-actions button {
         border: none;
         padding: 10px 15px;
@@ -539,6 +544,7 @@
       document.addEventListener("DOMContentLoaded", () => {
         restoreVideoSession();
         loadSubtitleSettings();
+        updateExportButtonState();
       });
 
       // --- イベントリスナー ---
@@ -612,6 +618,7 @@
         subtitles.push(newSubtitle);
         saveSubtitles(filename, subtitles);
         renderTimeline(subtitles);
+        updateExportButtonState();
 
         subtitleTextInput.value = "";
         if (!fixedDurationCheck.checked) {
@@ -675,6 +682,17 @@
 
       // --- 関数 ---
 
+      function updateExportButtonState() {
+        const videoUrl = localStorage.getItem(videoStorageKey);
+        if (!videoUrl) {
+          exportVideoBtn.disabled = true;
+          return;
+        }
+        const filename = videoUrl.split("/").pop();
+        const subtitles = loadSubtitles(filename);
+        exportVideoBtn.disabled = subtitles.length === 0;
+      }
+
       async function handleExportVideo() {
         const videoUrl = localStorage.getItem(videoStorageKey);
         if (!videoUrl) {
@@ -684,16 +702,6 @@
 
         const filename = videoUrl.split("/").pop();
         const subtitles = loadSubtitles(filename);
-
-        if (subtitles.length === 0) {
-          if (
-            !confirm(
-              "テロップがありません。ビデオをそのままエクスポートしますか？"
-            )
-          ) {
-            return;
-          }
-        }
 
         // 現在の設定値を取得
         const settings = {
@@ -951,6 +959,7 @@
         const filename = videoUrl.split("/").pop();
         const subtitles = loadSubtitles(filename);
         renderTimeline(subtitles);
+        updateExportButtonState();
       }
 
       function resetToInitialView() {
@@ -1015,6 +1024,7 @@
           );
           saveSubtitles(filename, updatedSubtitles);
           renderTimeline(updatedSubtitles);
+          updateExportButtonState();
         }
       }
 
