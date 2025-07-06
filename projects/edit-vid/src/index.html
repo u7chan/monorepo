@@ -612,11 +612,16 @@
       });
 
       // テロップ設定のイベントリスナー
-      [fontSizeInput, fontColorInput, boxColorInput, boxOpacityInput].forEach(
-        (input) => {
-          input.addEventListener("change", saveSubtitleSettings);
-        }
-      );
+      [
+        fontSizeInput,
+        fontColorInput,
+        boxColorInput,
+        boxOpacityInput,
+        fixedDurationCheck,
+        subtitleDurationInput,
+      ].forEach((input) => {
+        input.addEventListener("change", saveSubtitleSettings);
+      });
 
       exportVideoBtn.addEventListener("click", handleExportVideo);
 
@@ -712,6 +717,8 @@
           fontColor: fontColorInput.value,
           boxColor: boxColorInput.value,
           boxOpacity: boxOpacityInput.value,
+          isDurationFixed: fixedDurationCheck.checked,
+          fixedDuration: subtitleDurationInput.value,
         };
         localStorage.setItem(subtitleSettingsKey, JSON.stringify(settings));
       }
@@ -723,6 +730,10 @@
           fontColorInput.value = settings.fontColor || "#FFFFFF";
           boxColorInput.value = settings.boxColor || "#000000";
           boxOpacityInput.value = settings.boxOpacity || "0.5";
+          fixedDurationCheck.checked = settings.isDurationFixed || false;
+          if (settings.isDurationFixed) {
+            subtitleDurationInput.value = settings.fixedDuration || "";
+          }
         }
       }
 
