@@ -1,11 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { Profile } from '#/client/pages/Profile'
+import { Llm } from '#/client/pages/Llm'
 
-export const Route = createFileRoute('/profile')({
+export const Route = createFileRoute('/llm')({
   component: RouteComponent,
 })
 
 function RouteComponent() {
-  return <Profile />
+  return <Llm />
 }
