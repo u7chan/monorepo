@@ -5,7 +5,7 @@ import { Layout } from '#/client/components/Layout'
 import { AboutIcon } from '#/client/components/svg/AboutIcon'
 import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
 import { DashboardIcon } from '#/client/components/svg/DashboardIcon'
-import { ProfileIcon } from '#/client/components/svg/ProfileIcon'
+import { LlmIcon } from '#/client/components/svg/LlmIcon'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production
@@ -28,7 +28,7 @@ function Root() {
         menuItems={[
           { label: 'Home', icon: <DashboardIcon size={24} />, to: '/' },
           { label: 'About', icon: <AboutIcon size={18} />, to: '/about' },
-          { label: 'Profile', icon: <ProfileIcon size={24} />, to: '/profile' },
+          { label: 'LLM', icon: <LlmIcon size={24} />, to: '/llm' },
           { label: 'Chat', icon: <ChatbotIcon size={26} />, to: '/chat' },
         ]}
       >

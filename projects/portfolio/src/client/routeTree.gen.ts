@@ -9,14 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as LlmRouteImport } from './routes/llm'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 
-const ProfileRoute = ProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
+const LlmRoute = LlmRouteImport.update({
+  id: '/llm',
+  path: '/llm',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -39,43 +39,43 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
-  '/profile': typeof ProfileRoute
+  '/llm': typeof LlmRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
-  '/profile': typeof ProfileRoute
+  '/llm': typeof LlmRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
-  '/profile': typeof ProfileRoute
+  '/llm': typeof LlmRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/chat' | '/profile'
+  fullPaths: '/' | '/about' | '/chat' | '/llm'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/chat' | '/profile'
-  id: '__root__' | '/' | '/about' | '/chat' | '/profile'
+  to: '/' | '/about' | '/chat' | '/llm'
+  id: '__root__' | '/' | '/about' | '/chat' | '/llm'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   ChatRoute: typeof ChatRoute
-  ProfileRoute: typeof ProfileRoute
+  LlmRoute: typeof LlmRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/profile': {
-      id: '/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof ProfileRouteImport
+    '/llm': {
+      id: '/llm'
+      path: '/llm'
+      fullPath: '/llm'
+      preLoaderRoute: typeof LlmRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chat': {
@@ -106,7 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   ChatRoute: ChatRoute,
-  ProfileRoute: ProfileRoute,
+  LlmRoute: LlmRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
