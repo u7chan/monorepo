@@ -68,31 +68,6 @@ const app = new Hono<HonoEnv>()
     },
   )
   .post(
-    '/api/profile',
-    sValidator(
-      'form',
-      z.object({
-        name: z.string().min(2, { message: 'nameは2文字以上でなければなりません' }),
-        email: z.string().email({ message: 'emailは正しい形式ではありません' }),
-      }),
-      (values, c) => {
-        const { success, error = [] } = values as {
-          success: boolean
-          error?: { message: string }[]
-        }
-        if (success) {
-          return
-        }
-        return c.json({ error: error.map((x) => x.message).join(',') || '' }, 400)
-      },
-    ),
-    (c) => {
-      const { name, email } = c.req.valid('form') // form-data; で受け取る場合
-      console.log('req', { name, email })
-      return c.json({ name, email, updated_at: new Date().toISOString() })
-    },
-  )
-  .post(
     '/api/chat',
     validator('header', (value, c) => {
       const apiKey = value['api-key']

@@ -24,24 +24,6 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
         };
     };
 } & {
-    "/api/profile": {
-        $post: {
-            input: {
-                form: {
-                    name: string;
-                    email: string;
-                };
-            };
-            output: {
-                name: string;
-                email: string;
-                updated_at: string;
-            };
-            outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
-        };
-    };
-} & {
     "/api/chat": {
         $post: {
             input: {
