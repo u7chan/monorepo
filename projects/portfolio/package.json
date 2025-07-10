@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.6",
+    "@google/gemini-cli": "^0.1.9",
     "@hono/vite-dev-server": "^0.20.0",
     "@tailwindcss/postcss": "^4.1.11",
     "@tanstack/react-router-devtools": "^1.125.4",
