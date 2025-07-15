@@ -4,9 +4,9 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 // import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import {
   APICallError,
-  type Tool,
   experimental_createMCPClient as createMCPClient,
   streamText,
+  type Tool,
 } from 'ai'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
