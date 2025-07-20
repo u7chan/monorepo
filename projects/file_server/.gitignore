@@ -1,0 +1,4 @@
+# deps
+node_modules/
+tmp/
+tmp-test/
