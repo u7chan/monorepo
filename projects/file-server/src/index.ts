@@ -14,7 +14,27 @@ const app = new Hono<{
 
 app.get("/", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp";
-  const files = await readdir(uploadDir);
+  let files: string[] = [];
+  try {
+    files = await readdir(uploadDir);
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "DirNotFound", message: "Directory does not exist" },
+        },
+        400,
+      );
+    } else {
+      throw err;
+    }
+  }
   return c.json({
     files,
   });
@@ -22,13 +42,40 @@ app.get("/", async (c) => {
 
 app.post(
   "/upload",
-  zValidator("form", z.object({ file: z.instanceof(File) })),
+  zValidator(
+    "form",
+    z.object({
+      file: z.instanceof(File),
+      path: z.string().optional(),
+    }),
+  ),
   async (c) => {
-    const { file } = c.req.valid("form");
+    const { file, path: filePathParam } = c.req.valid("form");
     const uploadDir = env(c).UPLOAD_DIR || "./tmp";
-    const filePath = path.join(uploadDir, file.name);
+    // パスが指定されていればそれを使う
+    const relativePath = filePathParam ? filePathParam : file.name;
+    // セキュリティ: '..'や絶対パスを禁止
+    if (
+      relativePath.includes("..") ||
+      path.isAbsolute(relativePath) ||
+      relativePath.startsWith("/")
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "PathError", message: "Invalid path" },
+        },
+        400,
+      );
+    }
+    const savePath = path.join(uploadDir, relativePath);
+    // ディレクトリ作成
+    const dir = path.dirname(savePath);
+    await import("node:fs/promises").then((fs) =>
+      fs.mkdir(dir, { recursive: true }),
+    );
     const buffer = await file.arrayBuffer();
-    await writeFile(filePath, Buffer.from(buffer));
+    await writeFile(savePath, Buffer.from(buffer));
     return c.json({});
   },
 );

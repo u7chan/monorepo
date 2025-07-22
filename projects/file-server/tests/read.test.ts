@@ -65,7 +65,11 @@ describe("read", () => {
     const res = await app.request(req);
 
     // レスポンスを検証（エラーが発生するはず）
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
+    const responseData = await res.json();
+    expect(responseData.success).toBe(false);
+    expect(responseData.error).toBeDefined();
+    expect(responseData.error.name).toBe("DirNotFound");
 
     // 環境変数を元に戻す
     process.env.UPLOAD_DIR = UPLOAD_DIR;
