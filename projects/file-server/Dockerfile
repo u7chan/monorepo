@@ -9,6 +9,20 @@ WORKDIR /app
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
 
 # -----------------------------------------------
+# test stage
+#   - example: `docker build -t ex --target=test --progress plain .`
+# -----------------------------------------------
+FROM base AS test
+
+ENV TZ=Asia/Tokyo
+
+COPY . ./
+
+RUN bun install --frozen-lockfile \
+    && bun run lint \
+    && bun run test
+
+# -----------------------------------------------
 # builder stage
 # -----------------------------------------------
 FROM base AS builder
