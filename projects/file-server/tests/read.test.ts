@@ -53,8 +53,8 @@ describe("read", () => {
     const responseData = await res.json()
     expect(responseData.files).toEqual(
       expect.arrayContaining([
-        { name: "test1.txt", type: "file" },
-        { name: "test2.txt", type: "file" },
+        { name: "test1.txt", type: "file", size: 13 },
+        { name: "test2.txt", type: "file", size: 12 },
       ]),
     )
     expect(responseData.files).toHaveLength(2)
@@ -77,8 +77,8 @@ describe("read", () => {
     const responseData = await res.json()
     expect(responseData.files).toEqual(
       expect.arrayContaining([
-        { name: "baz.txt", type: "file" },
-        { name: "qux.txt", type: "file" },
+        { name: "baz.txt", type: "file", size: 11 },
+        { name: "qux.txt", type: "file", size: 11 },
       ]),
     )
     expect(responseData.files).toHaveLength(2)

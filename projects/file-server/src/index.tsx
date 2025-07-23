@@ -4,15 +4,16 @@ import {
   mkdir,
   readdir,
   readFile,
+  rm,
   unlink,
   writeFile,
 } from "node:fs/promises"
+import * as path from "node:path"
 import { zValidator } from "@hono/zod-validator"
 import { Hono } from "hono"
 import { env } from "hono/adapter"
+import * as mime from "mime-types"
 import z from "zod"
-
-import path = require("node:path")
 
 const app = new Hono<{
   Bindings: {
@@ -23,6 +24,30 @@ const app = new Hono<{
 // パスのバリデーション
 function isInvalidPath(p: string): boolean {
   return p.includes("..") || path.isAbsolute(p) || p.startsWith("/")
+}
+
+// アップロードパス解決用関数
+async function resolveUploadPath(
+  baseDir: string,
+  filePathParam: string | undefined,
+  fileName: string,
+): Promise<string> {
+  if (!filePathParam || filePathParam === "") return fileName
+  const fullPath = path.join(baseDir, filePathParam)
+  try {
+    const stat = await fsStat(fullPath)
+    if (stat.isDirectory()) {
+      return path.join(filePathParam, fileName)
+    } else {
+      return filePathParam
+    }
+  } catch {
+    // 存在しない場合は、末尾が/ならディレクトリ扱い
+    if (filePathParam.endsWith("/")) {
+      return filePathParam + fileName
+    }
+    return filePathParam
+  }
 }
 
 // ファイル・ディレクトリ一覧取得
@@ -39,13 +64,20 @@ app.get("/api/*", async (c) => {
     )
   }
   const targetDir = path.join(uploadDir, subPath)
-  let files: { name: string; type: "file" | "dir" }[] = []
+  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
   try {
     const dirents = await readdir(targetDir, { withFileTypes: true })
-    files = dirents.map((ent) => ({
-      name: ent.name,
-      type: ent.isDirectory() ? "dir" : "file",
-    }))
+    files = await Promise.all(
+      dirents.map(async (ent) => {
+        if (ent.isDirectory()) {
+          return { name: ent.name, type: "dir" }
+        } else {
+          // ファイルサイズ取得
+          const stat = await fsStat(path.join(targetDir, ent.name))
+          return { name: ent.name, type: "file", size: stat.size }
+        }
+      }),
+    )
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -82,7 +114,11 @@ app.post(
   async (c) => {
     const { file, path: filePathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    const relativePath = filePathParam ? filePathParam : file.name
+    const relativePath = await resolveUploadPath(
+      uploadDir,
+      filePathParam,
+      file.name,
+    )
     if (isInvalidPath(relativePath)) {
       return c.json(
         {
@@ -101,16 +137,16 @@ app.post(
 )
 
 // ファイル削除
-app.delete(
+app.post(
   "/api/delete",
   zValidator(
-    "json",
+    "form",
     z.object({
       path: z.string(),
     }),
   ),
   async (c) => {
-    const { path: filePathParam } = c.req.valid("json")
+    const { path: filePathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
     if (isInvalidPath(filePathParam)) {
       return c.json(
@@ -123,7 +159,14 @@ app.delete(
     }
     const targetPath = path.join(uploadDir, filePathParam)
     try {
-      await unlink(targetPath)
+      const stat = await fsStat(targetPath)
+      if (stat.isDirectory()) {
+        // ディレクトリの場合
+        await rm(targetPath, { recursive: true, force: true })
+      } else {
+        // ファイルの場合
+        await unlink(targetPath)
+      }
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
@@ -134,7 +177,60 @@ app.delete(
         return c.json(
           {
             success: false,
-            error: { name: "FileNotFound", message: "File does not exist" },
+            error: {
+              name: "FileNotFound",
+              message: "File or directory does not exist",
+            },
+          },
+          400,
+        )
+      } else {
+        throw err
+      }
+    }
+    return c.json({})
+  },
+)
+
+// 空ディレクトリ作成API
+app.post(
+  "/api/mkdir",
+  zValidator(
+    "form",
+    z.object({
+      path: z.string(),
+      folder: z.string(),
+    }),
+  ),
+  async (c) => {
+    const { path: dirPathParam, folder } = c.req.valid("form")
+    const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+    if (isInvalidPath(dirPathParam)) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "PathError", message: "Invalid path" },
+        },
+        400,
+      )
+    }
+    const targetDir = path.join(uploadDir, dirPathParam)
+    try {
+      await mkdir(path.join(targetDir, folder), { recursive: false })
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code?: string }).code === "EEXIST"
+      ) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              name: "AlreadyExists",
+              message: "Directory already exists",
+            },
           },
           400,
         )
@@ -188,13 +284,19 @@ app.get("/", async (c) => {
     return c.redirect(`/file?path=${encodeURIComponent(requestPath)}`)
   }
   // ディレクトリの場合は一覧を返す
-  let files: { name: string; type: "file" | "dir" }[] = []
+  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
   try {
     const dirents = await readdir(resolvedDir, { withFileTypes: true })
-    files = dirents.map((ent) => ({
-      name: ent.name,
-      type: ent.isDirectory() ? "dir" : "file",
-    }))
+    files = await Promise.all(
+      dirents.map(async (ent) => {
+        if (ent.isDirectory()) {
+          return { name: ent.name, type: "dir" }
+        } else {
+          const stat = await fsStat(path.join(resolvedDir, ent.name))
+          return { name: ent.name, type: "file", size: stat.size }
+        }
+      }),
+    )
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -227,7 +329,7 @@ app.get("/", async (c) => {
             <span key="root">
               <a href="/">root</a>
               {parts.length > 0 ? " / " : ""}
-            </span>
+            </span>,
           )
           parts.forEach((part, idx) => {
             acc += (acc ? "/" : "") + part
@@ -236,24 +338,69 @@ app.get("/", async (c) => {
               <span key={acc}>
                 <a href={`/?path=${encodeURIComponent(acc)}`}>{part}</a>
                 {!isLast ? " / " : ""}
-              </span>
+              </span>,
             )
           })
           return crumbs
         })()}
       </nav>
+      <hr />
       <ul>
         {files.map((file) => (
-          <li key={file.name}>
+          <li
+            key={file.name}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
             <a
-              href={`/?path=${encodeURIComponent(path.join(requestPath, file.name))}`}
+              href={`/?path=${encodeURIComponent(
+                path.join(requestPath, file.name),
+              )}`}
             >
               {file.name}
               {file.type === "dir" ? "/" : ""}
             </a>
+            {/* ファイルサイズ表示（ファイルのみ） */}
+            {file.type === "file" && (
+              <span style={{ margin: "0 1em" }}>{file.size} bytes</span>
+            )}
+            <form method="post" action="/api/delete">
+              <input
+                type="hidden"
+                name="path"
+                value={path.join(requestPath, file.name)}
+              />
+              <button type="submit">Delete</button>
+            </form>
           </li>
         ))}
       </ul>
+      <form action="/api/mkdir" method="post" style={{ marginBottom: "1em" }}>
+        <input
+          type="hidden"
+          name="path"
+          value={
+            requestPath
+              ? requestPath + (requestPath.endsWith("/") ? "" : "/")
+              : ""
+          }
+        />
+        <input
+          type="text"
+          name="folder"
+          placeholder="New folder name"
+          required
+          style={{ marginRight: "0.5em" }}
+        />
+        <button type="submit">Create Folder</button>
+      </form>
+      <form action="/api/upload" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="path" value={requestPath} />
+        <input type="file" name="file" required />
+        <button type="submit">Upload</button>
+      </form>
     </div>,
   )
 })
@@ -301,8 +448,28 @@ app.get("/file", async (c) => {
       400,
     )
   }
-  const content = await readFile(resolvedFile, "utf-8")
-  return c.render(<pre>{content}</pre>)
+  // MIMEタイプ判定
+  const mimeType = mime.lookup(resolvedFile) || "application/octet-stream"
+  const isText =
+    /^text\//.test(mimeType) || /json$|javascript$|xml$/.test(mimeType)
+
+  if (isText) {
+    const content = await readFile(resolvedFile, "utf-8")
+    return c.render(<pre>{content}</pre>)
+  } else {
+    const content = await readFile(resolvedFile)
+    const isImageOrVideoOrPdf =
+      mimeType.startsWith("image/") ||
+      mimeType.startsWith("video/") ||
+      mimeType === "application/pdf"
+    const headers: Record<string, string> = { "Content-Type": mimeType }
+    if (!isImageOrVideoOrPdf) {
+      headers["Content-Disposition"] = `attachment; filename=\"${path.basename(
+        resolvedFile,
+      )}\"`
+    }
+    return new Response(content, { headers })
+  }
 })
 
 export default app

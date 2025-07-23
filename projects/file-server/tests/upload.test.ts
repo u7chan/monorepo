@@ -48,7 +48,7 @@ describe("upload", () => {
 
     const listData = await listRes.json()
     expect(listData.files).toEqual(
-      expect.arrayContaining([{ name: "test.txt", type: "file" }]),
+      expect.arrayContaining([{ name: "test.txt", type: "file", size: 13 }]),
     )
   })
 
@@ -73,6 +73,31 @@ describe("upload", () => {
 
     // 保存先のファイル内容を検証
     const savedFilePath = path.join(UPLOAD_DIR, nestedPath)
+    const savedContent = await readFile(savedFilePath, "utf-8")
+    expect(savedContent).toBe(testContent)
+  })
+
+  it("should upload a file to a directory path (with trailing slash)", async () => {
+    const testContent = "Dir Hello!"
+    const dirPath = "dir1/dir2/"
+    const testFile = new File([testContent], "uploaded.txt", {
+      type: "text/plain",
+    })
+    const formData = new FormData()
+    formData.append("file", testFile)
+    formData.append("path", dirPath)
+
+    const req = new Request("http://localhost/api/upload", {
+      method: "POST",
+      body: formData,
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const responseData = await res.json()
+    expect(responseData).toEqual({})
+
+    // 保存先のファイル内容を検証
+    const savedFilePath = path.join(UPLOAD_DIR, dirPath, "uploaded.txt")
     const savedContent = await readFile(savedFilePath, "utf-8")
     expect(savedContent).toBe(testContent)
   })
