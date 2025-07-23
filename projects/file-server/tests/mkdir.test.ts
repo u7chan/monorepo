@@ -12,8 +12,8 @@ beforeEach(async () => {
 })
 
 describe("POST /api/mkdir", () => {
-  it("空のディレクトリを作成できる", async () => {
-    const body = new URLSearchParams({ path: "newdir" })
+  it("should create an empty directory", async () => {
+    const body = new URLSearchParams({ path: "", folder: "newdir" })
     const req = new Request("http://localhost/api/mkdir", {
       method: "POST",
       body,
@@ -23,14 +23,14 @@ describe("POST /api/mkdir", () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json).toEqual({})
-    // 実際にディレクトリができているか
+    // Check if directory was actually created
     const st = await stat(join(UPLOAD_DIR, "newdir"))
     expect(st.isDirectory()).toBe(true)
   })
 
-  it("既存ディレクトリを作成しようとするとエラー", async () => {
+  it("should return error when trying to create existing directory", async () => {
     await mkdir(join(UPLOAD_DIR, "existdir"))
-    const body = new URLSearchParams({ path: "existdir" })
+    const body = new URLSearchParams({ path: "", folder: "existdir" })
     const req = new Request("http://localhost/api/mkdir", {
       method: "POST",
       body,
@@ -43,8 +43,8 @@ describe("POST /api/mkdir", () => {
     expect(json.error.name).toBe("AlreadyExists")
   })
 
-  it("不正なパスはエラー", async () => {
-    const body = new URLSearchParams({ path: "../bad" })
+  it("should return error for invalid path", async () => {
+    const body = new URLSearchParams({ path: "../bad", folder: "test" })
     const req = new Request("http://localhost/api/mkdir", {
       method: "POST",
       body,
@@ -55,5 +55,23 @@ describe("POST /api/mkdir", () => {
     const json = await res.json()
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("PathError")
+  })
+
+  it("should create directory in subdirectory", async () => {
+    // Create parent directory
+    await mkdir(join(UPLOAD_DIR, "parent"))
+    const body = new URLSearchParams({ path: "parent/", folder: "child" })
+    const req = new Request("http://localhost/api/mkdir", {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toEqual({})
+    // Check if directory was actually created
+    const st = await stat(join(UPLOAD_DIR, "parent", "child"))
+    expect(st.isDirectory()).toBe(true)
   })
 })

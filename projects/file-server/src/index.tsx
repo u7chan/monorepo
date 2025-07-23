@@ -8,15 +8,12 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises"
+import * as path from "node:path"
 import { zValidator } from "@hono/zod-validator"
 import { Hono } from "hono"
 import { env } from "hono/adapter"
-import z from "zod"
-
-import path = require("node:path")
-
-import * as fs from "node:fs"
 import * as mime from "mime-types"
+import z from "zod"
 
 const app = new Hono<{
   Bindings: {
@@ -202,10 +199,11 @@ app.post(
     "form",
     z.object({
       path: z.string(),
+      folder: z.string(),
     }),
   ),
   async (c) => {
-    const { path: dirPathParam } = c.req.valid("form")
+    const { path: dirPathParam, folder } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
     if (isInvalidPath(dirPathParam)) {
       return c.json(
@@ -216,9 +214,9 @@ app.post(
         400,
       )
     }
-    const targetPath = path.join(uploadDir, dirPathParam)
+    const targetDir = path.join(uploadDir, dirPathParam)
     try {
-      await mkdir(targetPath, { recursive: false })
+      await mkdir(path.join(targetDir, folder), { recursive: false })
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
@@ -381,8 +379,17 @@ app.get("/", async (c) => {
       </ul>
       <form action="/api/mkdir" method="post" style={{ marginBottom: "1em" }}>
         <input
-          type="text"
+          type="hidden"
           name="path"
+          value={
+            requestPath
+              ? requestPath + (requestPath.endsWith("/") ? "" : "/")
+              : ""
+          }
+        />
+        <input
+          type="text"
+          name="folder"
           placeholder="New folder name"
           required
           style={{ marginRight: "0.5em" }}
