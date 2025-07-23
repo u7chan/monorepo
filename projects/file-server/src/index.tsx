@@ -353,7 +353,7 @@ app.get("/", async (c) => {
                 name="path"
                 value={path.join(requestPath, file.name)}
               />
-              <button type="submit">削除</button>
+              <button type="submit">Delete</button>
             </form>
           </li>
         ))}
