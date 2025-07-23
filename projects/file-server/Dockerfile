@@ -48,4 +48,4 @@ RUN mkdir -p $UPLOAD_DIR && \
 
 USER node
 
-CMD ["bun", "run", "./src/index.ts"]
+CMD ["bun", "run", "./src/index.tsx"]
