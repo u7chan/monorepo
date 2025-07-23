@@ -30,7 +30,7 @@ describe("read", () => {
 
   it("should return empty files list when directory is empty", async () => {
     // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/")
+    const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
     // レスポンスを検証
@@ -45,7 +45,7 @@ describe("read", () => {
     await Bun.write(path.join(UPLOAD_DIR, "test2.txt"), "Test content")
 
     // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/")
+    const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
     // レスポンスを検証
@@ -56,12 +56,32 @@ describe("read", () => {
     expect(responseData.files).toHaveLength(2)
   })
 
+  it("should return files list in subdirectory when subpath is specified", async () => {
+    // サブディレクトリとファイルを作成
+    await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
+    await Bun.write(path.join(UPLOAD_DIR, "foo/bar", "baz.txt"), "baz content")
+    await Bun.write(path.join(UPLOAD_DIR, "foo/bar", "qux.txt"), "qux content")
+    // サブディレクトリ直下のファイルも作成
+    await Bun.write(path.join(UPLOAD_DIR, "foo", "root.txt"), "root content")
+
+    // サブパス指定でリクエスト
+    const req = new Request("http://localhost/api/foo/bar")
+    const res = await app.request(req)
+
+    // レスポンスを検証
+    expect(res.status).toBe(200)
+    const responseData = await res.json()
+    expect(responseData.files).toContain("baz.txt")
+    expect(responseData.files).toContain("qux.txt")
+    expect(responseData.files).toHaveLength(2)
+  })
+
   it("should handle non-existent directory gracefully", async () => {
     // 存在しないディレクトリを設定
     process.env.UPLOAD_DIR = "./non-existent-dir"
 
     // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/")
+    const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
     // レスポンスを検証（エラーが発生するはず）

@@ -43,7 +43,7 @@ describe("upload", () => {
     expect(savedContent).toBe(testContent)
 
     // ファイル一覧を取得して検証
-    const listReq = new Request("http://localhost/")
+    const listReq = new Request("http://localhost/api/")
     const listRes = await app.request(listReq)
 
     const listData = await listRes.json()
