@@ -25,6 +25,26 @@ function isInvalidPath(p: string): boolean {
   return p.includes("..") || path.isAbsolute(p) || p.startsWith("/")
 }
 
+// アップロードパス解決用関数
+async function resolveUploadPath(baseDir: string, filePathParam: string | undefined, fileName: string): Promise<string> {
+  if (!filePathParam || filePathParam === "") return fileName
+  const fullPath = path.join(baseDir, filePathParam)
+  try {
+    const stat = await fsStat(fullPath)
+    if (stat.isDirectory()) {
+      return path.join(filePathParam, fileName)
+    } else {
+      return filePathParam
+    }
+  } catch {
+    // 存在しない場合は、末尾が/ならディレクトリ扱い
+    if (filePathParam.endsWith("/")) {
+      return filePathParam + fileName
+    }
+    return filePathParam
+  }
+}
+
 // ファイル・ディレクトリ一覧取得
 app.get("/api/*", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
@@ -82,7 +102,7 @@ app.post(
   async (c) => {
     const { file, path: filePathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    const relativePath = filePathParam ? filePathParam : file.name
+    const relativePath = await resolveUploadPath(uploadDir, filePathParam, file.name)
     if (isInvalidPath(relativePath)) {
       return c.json(
         {
@@ -255,6 +275,7 @@ app.get("/", async (c) => {
           </li>
         ))}
       </ul>
+      <input type="hidden" name="path" value={requestPath} />
       <input type="file" name="file" required />
       <button type="submit">Upload</button>
     </form>,
