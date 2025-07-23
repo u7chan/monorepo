@@ -32,9 +32,13 @@ app.get("/api/*", async (c) => {
     )
   }
   const targetDir = path.join(uploadDir, subPath)
-  let files: string[] = []
+  let files: { name: string; type: "file" | "dir" }[] = []
   try {
-    files = await readdir(targetDir)
+    const dirents = await readdir(targetDir, { withFileTypes: true })
+    files = dirents.map((ent) => ({
+      name: ent.name,
+      type: ent.isDirectory() ? "dir" : "file",
+    }))
   } catch (err: unknown) {
     if (
       typeof err === "object" &&

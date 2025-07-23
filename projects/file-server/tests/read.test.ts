@@ -51,8 +51,12 @@ describe("read", () => {
     // レスポンスを検証
     expect(res.status).toBe(200)
     const responseData = await res.json()
-    expect(responseData.files).toContain("test1.txt")
-    expect(responseData.files).toContain("test2.txt")
+    expect(responseData.files).toEqual(
+      expect.arrayContaining([
+        { name: "test1.txt", type: "file" },
+        { name: "test2.txt", type: "file" },
+      ]),
+    )
     expect(responseData.files).toHaveLength(2)
   })
 
@@ -71,8 +75,12 @@ describe("read", () => {
     // レスポンスを検証
     expect(res.status).toBe(200)
     const responseData = await res.json()
-    expect(responseData.files).toContain("baz.txt")
-    expect(responseData.files).toContain("qux.txt")
+    expect(responseData.files).toEqual(
+      expect.arrayContaining([
+        { name: "baz.txt", type: "file" },
+        { name: "qux.txt", type: "file" },
+      ]),
+    )
     expect(responseData.files).toHaveLength(2)
   })
 

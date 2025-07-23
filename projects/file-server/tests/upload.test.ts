@@ -47,7 +47,9 @@ describe("upload", () => {
     const listRes = await app.request(listReq)
 
     const listData = await listRes.json()
-    expect(listData.files).toContain("test.txt")
+    expect(listData.files).toEqual(
+      expect.arrayContaining([{ name: "test.txt", type: "file" }]),
+    )
   })
 
   it("should upload a file to nested directory", async () => {
