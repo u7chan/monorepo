@@ -12,17 +12,16 @@ const app = new Hono<{
   }
 }>()
 
-// /api/ または /api/サブパス で、そのパス配下のファイル一覧を返す
+// パスのバリデーション
+function isInvalidPath(p: string): boolean {
+  return p.includes("..") || path.isAbsolute(p) || p.startsWith("/")
+}
+
+// ファイル・ディレクトリ一覧取得
 app.get("/api/*", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-  // サブパスを取得
   const subPath = c.req.path.replace(/^\/api\/?/, "")
-  // セキュリティ: '..'や絶対パスを禁止
-  if (
-    subPath.includes("..") ||
-    path.isAbsolute(subPath) ||
-    subPath.startsWith("/")
-  ) {
+  if (isInvalidPath(subPath)) {
     return c.json(
       {
         success: false,
@@ -62,6 +61,7 @@ app.get("/api/*", async (c) => {
   })
 })
 
+// ファイルアップロード
 app.post(
   "/api/upload",
   zValidator(
@@ -74,14 +74,8 @@ app.post(
   async (c) => {
     const { file, path: filePathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    // パスが指定されていればそれを使う
     const relativePath = filePathParam ? filePathParam : file.name
-    // セキュリティ: '..'や絶対パスを禁止
-    if (
-      relativePath.includes("..") ||
-      path.isAbsolute(relativePath) ||
-      relativePath.startsWith("/")
-    ) {
+    if (isInvalidPath(relativePath)) {
       return c.json(
         {
           success: false,
@@ -91,15 +85,14 @@ app.post(
       )
     }
     const savePath = path.join(uploadDir, relativePath)
-    // ディレクトリ作成
-    const dir = path.dirname(savePath)
-    await mkdir(dir, { recursive: true })
+    await mkdir(path.dirname(savePath), { recursive: true })
     const buffer = await file.arrayBuffer()
     await writeFile(savePath, Buffer.from(buffer))
     return c.json({})
   },
 )
 
+// ファイル削除
 app.delete(
   "/api/delete",
   zValidator(
@@ -111,12 +104,7 @@ app.delete(
   async (c) => {
     const { path: filePathParam } = c.req.valid("json")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    // セキュリティ: '..'や絶対パスを禁止
-    if (
-      filePathParam.includes("..") ||
-      path.isAbsolute(filePathParam) ||
-      filePathParam.startsWith("/")
-    ) {
+    if (isInvalidPath(filePathParam)) {
       return c.json(
         {
           success: false,
