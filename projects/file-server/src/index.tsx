@@ -192,10 +192,11 @@ app.post(
     "form",
     z.object({
       path: z.string(),
+      folder: z.string(),
     }),
   ),
   async (c) => {
-    const { path: dirPathParam } = c.req.valid("form")
+    const { path: dirPathParam, folder } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
     if (isInvalidPath(dirPathParam)) {
       return c.json(
@@ -208,7 +209,7 @@ app.post(
     }
     const targetDir = path.join(uploadDir, dirPathParam)
     try {
-      await mkdir(targetDir, { recursive: false })
+      await mkdir(path.join(targetDir, folder), { recursive: false })
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
@@ -357,6 +358,25 @@ app.get("/", async (c) => {
           </li>
         ))}
       </ul>
+      <form action="/api/mkdir" method="post" style={{ marginBottom: "1em" }}>
+        <input
+          type="hidden"
+          name="path"
+          value={
+            requestPath
+              ? requestPath + (requestPath.endsWith("/") ? "" : "/")
+              : ""
+          }
+        />
+        <input
+          type="text"
+          name="folder"
+          placeholder="New folder name"
+          required
+          style={{ marginRight: "0.5em" }}
+        />
+        <button type="submit">Create Folder</button>
+      </form>
       <form action="/api/upload" method="post" enctype="multipart/form-data">
         <input type="hidden" name="path" value={requestPath} />
         <input type="file" name="file" required />
