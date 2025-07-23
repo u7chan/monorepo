@@ -202,11 +202,10 @@ app.post(
     "form",
     z.object({
       path: z.string(),
-      folder: z.string(),
     }),
   ),
   async (c) => {
-    const { path: dirPathParam, folder } = c.req.valid("form")
+    const { path: dirPathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
     if (isInvalidPath(dirPathParam)) {
       return c.json(
@@ -217,9 +216,9 @@ app.post(
         400,
       )
     }
-    const targetDir = path.join(uploadDir, dirPathParam)
+    const targetPath = path.join(uploadDir, dirPathParam)
     try {
-      await mkdir(path.join(targetDir, folder), { recursive: false })
+      await mkdir(targetPath, { recursive: false })
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
@@ -358,7 +357,9 @@ app.get("/", async (c) => {
             }}
           >
             <a
-              href={`/?path=${encodeURIComponent(path.join(requestPath, file.name))}`}
+              href={`/?path=${encodeURIComponent(
+                path.join(requestPath, file.name),
+              )}`}
             >
               {file.name}
               {file.type === "dir" ? "/" : ""}
@@ -380,17 +381,8 @@ app.get("/", async (c) => {
       </ul>
       <form action="/api/mkdir" method="post" style={{ marginBottom: "1em" }}>
         <input
-          type="hidden"
-          name="path"
-          value={
-            requestPath
-              ? requestPath + (requestPath.endsWith("/") ? "" : "/")
-              : ""
-          }
-        />
-        <input
           type="text"
-          name="folder"
+          name="path"
           placeholder="New folder name"
           required
           style={{ marginRight: "0.5em" }}
@@ -465,8 +457,9 @@ app.get("/file", async (c) => {
       mimeType === "application/pdf"
     const headers: Record<string, string> = { "Content-Type": mimeType }
     if (!isImageOrVideoOrPdf) {
-      headers["Content-Disposition"] =
-        `attachment; filename=\"${path.basename(resolvedFile)}\"`
+      headers["Content-Disposition"] = `attachment; filename=\"${path.basename(
+        resolvedFile,
+      )}\"`
     }
     return new Response(content, { headers })
   }
