@@ -4,6 +4,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  rm,
   unlink,
   writeFile,
 } from "node:fs/promises"
@@ -151,7 +152,14 @@ app.post(
     }
     const targetPath = path.join(uploadDir, filePathParam)
     try {
-      await unlink(targetPath)
+      const stat = await fsStat(targetPath)
+      if (stat.isDirectory()) {
+        // ディレクトリの場合
+        await rm(targetPath, { recursive: true, force: true })
+      } else {
+        // ファイルの場合
+        await unlink(targetPath)
+      }
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
@@ -162,7 +170,10 @@ app.post(
         return c.json(
           {
             success: false,
-            error: { name: "FileNotFound", message: "File does not exist" },
+            error: {
+              name: "FileNotFound",
+              message: "File or directory does not exist",
+            },
           },
           400,
         )

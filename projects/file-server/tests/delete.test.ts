@@ -53,6 +53,46 @@ describe("delete", () => {
     ).rejects.toThrow()
   })
 
+  it("should delete a directory (empty)", async () => {
+    const dirPath = "empty-dir"
+    await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
+    const formData = new FormData()
+    formData.append("path", dirPath)
+    const req = new Request("http://localhost/api/delete", {
+      method: "POST",
+      body: formData,
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const responseData = await res.json()
+    expect(responseData).toEqual({})
+    // ディレクトリが消えていること
+    await expect(
+      Bun.file(path.join(UPLOAD_DIR, dirPath)).text(),
+    ).rejects.toThrow()
+  })
+
+  it("should delete a directory (with files)", async () => {
+    const dirPath = "dir-with-files"
+    const filePath = path.join(dirPath, "file.txt")
+    await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
+    await Bun.write(path.join(UPLOAD_DIR, filePath), "data")
+    const formData = new FormData()
+    formData.append("path", dirPath)
+    const req = new Request("http://localhost/api/delete", {
+      method: "POST",
+      body: formData,
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const responseData = await res.json()
+    expect(responseData).toEqual({})
+    // ディレクトリが消えていること
+    await expect(
+      Bun.file(path.join(UPLOAD_DIR, dirPath)).text(),
+    ).rejects.toThrow()
+  })
+
   it("should return error for invalid path", async () => {
     const formData = new FormData()
     formData.append("path", "../../evil.txt")
