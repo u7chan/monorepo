@@ -15,6 +15,9 @@ import z from "zod"
 
 import path = require("node:path")
 
+import * as fs from "node:fs"
+import * as mime from "mime-types"
+
 const app = new Hono<{
   Bindings: {
     UPLOAD_DIR: string
@@ -446,8 +449,23 @@ app.get("/file", async (c) => {
       400,
     )
   }
-  const content = await readFile(resolvedFile, "utf-8")
-  return c.render(<pre>{content}</pre>)
+  // MIMEタイプ判定
+  const mimeType = mime.lookup(resolvedFile) || "application/octet-stream"
+  const isText =
+    /^text\//.test(mimeType) || /json$|javascript$|xml$/.test(mimeType)
+
+  if (isText) {
+    const content = await readFile(resolvedFile, "utf-8")
+    return c.render(<pre>{content}</pre>)
+  } else {
+    const content = await readFile(resolvedFile)
+    return new Response(content, {
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Disposition": `attachment; filename=\"${path.basename(resolvedFile)}\"`,
+      },
+    })
+  }
 })
 
 export default app
