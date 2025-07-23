@@ -25,7 +25,7 @@ describe("upload", () => {
     formData.append("file", testFile)
 
     // アップロードリクエストを送信
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
@@ -43,11 +43,13 @@ describe("upload", () => {
     expect(savedContent).toBe(testContent)
 
     // ファイル一覧を取得して検証
-    const listReq = new Request("http://localhost/")
+    const listReq = new Request("http://localhost/api/")
     const listRes = await app.request(listReq)
 
     const listData = await listRes.json()
-    expect(listData.files).toContain("test.txt")
+    expect(listData.files).toEqual(
+      expect.arrayContaining([{ name: "test.txt", type: "file" }]),
+    )
   })
 
   it("should upload a file to nested directory", async () => {
@@ -60,7 +62,7 @@ describe("upload", () => {
     formData.append("file", testFile)
     formData.append("path", nestedPath)
 
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
@@ -80,7 +82,7 @@ describe("upload", () => {
     const formData = new FormData()
 
     // アップロードリクエストを送信
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
@@ -105,7 +107,7 @@ describe("upload", () => {
     formData.append("file", testFile)
     formData.append("path", "../../evil.txt")
 
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })

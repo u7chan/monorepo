@@ -30,7 +30,7 @@ describe("read", () => {
 
   it("should return empty files list when directory is empty", async () => {
     // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/")
+    const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
     // レスポンスを検証
@@ -45,14 +45,42 @@ describe("read", () => {
     await Bun.write(path.join(UPLOAD_DIR, "test2.txt"), "Test content")
 
     // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/")
+    const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
     // レスポンスを検証
     expect(res.status).toBe(200)
     const responseData = await res.json()
-    expect(responseData.files).toContain("test1.txt")
-    expect(responseData.files).toContain("test2.txt")
+    expect(responseData.files).toEqual(
+      expect.arrayContaining([
+        { name: "test1.txt", type: "file" },
+        { name: "test2.txt", type: "file" },
+      ]),
+    )
+    expect(responseData.files).toHaveLength(2)
+  })
+
+  it("should return files list in subdirectory when subpath is specified", async () => {
+    // サブディレクトリとファイルを作成
+    await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
+    await Bun.write(path.join(UPLOAD_DIR, "foo/bar", "baz.txt"), "baz content")
+    await Bun.write(path.join(UPLOAD_DIR, "foo/bar", "qux.txt"), "qux content")
+    // サブディレクトリ直下のファイルも作成
+    await Bun.write(path.join(UPLOAD_DIR, "foo", "root.txt"), "root content")
+
+    // サブパス指定でリクエスト
+    const req = new Request("http://localhost/api/foo/bar")
+    const res = await app.request(req)
+
+    // レスポンスを検証
+    expect(res.status).toBe(200)
+    const responseData = await res.json()
+    expect(responseData.files).toEqual(
+      expect.arrayContaining([
+        { name: "baz.txt", type: "file" },
+        { name: "qux.txt", type: "file" },
+      ]),
+    )
     expect(responseData.files).toHaveLength(2)
   })
 
@@ -61,7 +89,7 @@ describe("read", () => {
     process.env.UPLOAD_DIR = "./non-existent-dir"
 
     // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/")
+    const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
     // レスポンスを検証（エラーが発生するはず）

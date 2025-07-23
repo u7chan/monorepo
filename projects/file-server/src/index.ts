@@ -12,11 +12,33 @@ const app = new Hono<{
   }
 }>()
 
-app.get("/", async (c) => {
+// /api/ または /api/サブパス で、そのパス配下のファイル一覧を返す
+app.get("/api/*", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-  let files: string[] = []
+  // サブパスを取得
+  const subPath = c.req.path.replace(/^\/api\/?/, "")
+  // セキュリティ: '..'や絶対パスを禁止
+  if (
+    subPath.includes("..") ||
+    path.isAbsolute(subPath) ||
+    subPath.startsWith("/")
+  ) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "PathError", message: "Invalid path" },
+      },
+      400,
+    )
+  }
+  const targetDir = path.join(uploadDir, subPath)
+  let files: { name: string; type: "file" | "dir" }[] = []
   try {
-    files = await readdir(uploadDir)
+    const dirents = await readdir(targetDir, { withFileTypes: true })
+    files = dirents.map((ent) => ({
+      name: ent.name,
+      type: ent.isDirectory() ? "dir" : "file",
+    }))
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -41,7 +63,7 @@ app.get("/", async (c) => {
 })
 
 app.post(
-  "/upload",
+  "/api/upload",
   zValidator(
     "form",
     z.object({
@@ -79,7 +101,7 @@ app.post(
 )
 
 app.delete(
-  "/delete",
+  "/api/delete",
   zValidator(
     "json",
     z.object({

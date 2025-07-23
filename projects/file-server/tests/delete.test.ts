@@ -18,7 +18,7 @@ describe("delete", () => {
     await Bun.write(path.join(UPLOAD_DIR, filePath), content)
 
     // 削除リクエスト
-    const req = new Request("http://localhost/delete", {
+    const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
       body: JSON.stringify({ path: filePath }),
       headers: { "Content-Type": "application/json" },
@@ -37,7 +37,7 @@ describe("delete", () => {
     const filePath = "foo/bar/baz.txt"
     await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
     await Bun.write(path.join(UPLOAD_DIR, filePath), "nested")
-    const req = new Request("http://localhost/delete", {
+    const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
       body: JSON.stringify({ path: filePath }),
       headers: { "Content-Type": "application/json" },
@@ -52,7 +52,7 @@ describe("delete", () => {
   })
 
   it("should return error for invalid path", async () => {
-    const req = new Request("http://localhost/delete", {
+    const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
       body: JSON.stringify({ path: "../../evil.txt" }),
       headers: { "Content-Type": "application/json" },
@@ -66,7 +66,7 @@ describe("delete", () => {
   })
 
   it("should return error for non-existent file", async () => {
-    const req = new Request("http://localhost/delete", {
+    const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
       body: JSON.stringify({ path: "notfound.txt" }),
       headers: { "Content-Type": "application/json" },
