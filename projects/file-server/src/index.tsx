@@ -459,12 +459,16 @@ app.get("/file", async (c) => {
     return c.render(<pre>{content}</pre>)
   } else {
     const content = await readFile(resolvedFile)
-    return new Response(content, {
-      headers: {
-        "Content-Type": mimeType,
-        "Content-Disposition": `attachment; filename=\"${path.basename(resolvedFile)}\"`,
-      },
-    })
+    const isImageOrVideoOrPdf =
+      mimeType.startsWith("image/") ||
+      mimeType.startsWith("video/") ||
+      mimeType === "application/pdf"
+    const headers: Record<string, string> = { "Content-Type": mimeType }
+    if (!isImageOrVideoOrPdf) {
+      headers["Content-Disposition"] =
+        `attachment; filename=\"${path.basename(resolvedFile)}\"`
+    }
+    return new Response(content, { headers })
   }
 })
 
