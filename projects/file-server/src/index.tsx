@@ -185,6 +185,55 @@ app.post(
   },
 )
 
+// 空ディレクトリ作成API
+app.post(
+  "/api/mkdir",
+  zValidator(
+    "form",
+    z.object({
+      path: z.string(),
+    }),
+  ),
+  async (c) => {
+    const { path: dirPathParam } = c.req.valid("form")
+    const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+    if (isInvalidPath(dirPathParam)) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "PathError", message: "Invalid path" },
+        },
+        400,
+      )
+    }
+    const targetDir = path.join(uploadDir, dirPathParam)
+    try {
+      await mkdir(targetDir, { recursive: false })
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code?: string }).code === "EEXIST"
+      ) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              name: "AlreadyExists",
+              message: "Directory already exists",
+            },
+          },
+          400,
+        )
+      } else {
+        throw err
+      }
+    }
+    return c.json({})
+  },
+)
+
 app.get("/", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = c.req.query("path") || ""
