@@ -41,7 +41,7 @@ app.get("/", async (c) => {
 })
 
 app.post(
-  "/upload",
+  "/api/upload",
   zValidator(
     "form",
     z.object({
@@ -79,7 +79,7 @@ app.post(
 )
 
 app.delete(
-  "/delete",
+  "/api/delete",
   zValidator(
     "json",
     z.object({

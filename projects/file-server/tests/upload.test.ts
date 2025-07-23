@@ -25,7 +25,7 @@ describe("upload", () => {
     formData.append("file", testFile)
 
     // アップロードリクエストを送信
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
@@ -60,7 +60,7 @@ describe("upload", () => {
     formData.append("file", testFile)
     formData.append("path", nestedPath)
 
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
@@ -80,7 +80,7 @@ describe("upload", () => {
     const formData = new FormData()
 
     // アップロードリクエストを送信
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
@@ -105,7 +105,7 @@ describe("upload", () => {
     formData.append("file", testFile)
     formData.append("path", "../../evil.txt")
 
-    const req = new Request("http://localhost/upload", {
+    const req = new Request("http://localhost/api/upload", {
       method: "POST",
       body: formData,
     })
