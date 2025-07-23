@@ -18,10 +18,11 @@ describe("delete", () => {
     await Bun.write(path.join(UPLOAD_DIR, filePath), content)
 
     // 削除リクエスト
+    const formData = new FormData()
+    formData.append("path", filePath)
     const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
-      body: JSON.stringify({ path: filePath }),
-      headers: { "Content-Type": "application/json" },
+      body: formData,
     })
     const res = await app.request(req)
     expect(res.status).toBe(200)
@@ -37,10 +38,11 @@ describe("delete", () => {
     const filePath = "foo/bar/baz.txt"
     await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
     await Bun.write(path.join(UPLOAD_DIR, filePath), "nested")
+    const formData = new FormData()
+    formData.append("path", filePath)
     const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
-      body: JSON.stringify({ path: filePath }),
-      headers: { "Content-Type": "application/json" },
+      body: formData,
     })
     const res = await app.request(req)
     expect(res.status).toBe(200)
@@ -52,10 +54,11 @@ describe("delete", () => {
   })
 
   it("should return error for invalid path", async () => {
+    const formData = new FormData()
+    formData.append("path", "../../evil.txt")
     const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
-      body: JSON.stringify({ path: "../../evil.txt" }),
-      headers: { "Content-Type": "application/json" },
+      body: formData,
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
@@ -66,10 +69,11 @@ describe("delete", () => {
   })
 
   it("should return error for non-existent file", async () => {
+    const formData = new FormData()
+    formData.append("path", "notfound.txt")
     const req = new Request("http://localhost/api/delete", {
       method: "DELETE",
-      body: JSON.stringify({ path: "notfound.txt" }),
-      headers: { "Content-Type": "application/json" },
+      body: formData,
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)

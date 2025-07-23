@@ -124,13 +124,13 @@ app.post(
 app.delete(
   "/api/delete",
   zValidator(
-    "json",
+    "form",
     z.object({
       path: z.string(),
     }),
   ),
   async (c) => {
-    const { path: filePathParam } = c.req.valid("json")
+    const { path: filePathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
     if (isInvalidPath(filePathParam)) {
       return c.json(
