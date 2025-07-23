@@ -121,7 +121,7 @@ app.post(
 )
 
 // ファイル削除
-app.delete(
+app.post(
   "/api/delete",
   zValidator(
     "form",

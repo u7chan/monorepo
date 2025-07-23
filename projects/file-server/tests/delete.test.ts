@@ -21,7 +21,7 @@ describe("delete", () => {
     const formData = new FormData()
     formData.append("path", filePath)
     const req = new Request("http://localhost/api/delete", {
-      method: "DELETE",
+      method: "POST",
       body: formData,
     })
     const res = await app.request(req)
@@ -41,7 +41,7 @@ describe("delete", () => {
     const formData = new FormData()
     formData.append("path", filePath)
     const req = new Request("http://localhost/api/delete", {
-      method: "DELETE",
+      method: "POST",
       body: formData,
     })
     const res = await app.request(req)
@@ -57,7 +57,7 @@ describe("delete", () => {
     const formData = new FormData()
     formData.append("path", "../../evil.txt")
     const req = new Request("http://localhost/api/delete", {
-      method: "DELETE",
+      method: "POST",
       body: formData,
     })
     const res = await app.request(req)
@@ -72,7 +72,7 @@ describe("delete", () => {
     const formData = new FormData()
     formData.append("path", "notfound.txt")
     const req = new Request("http://localhost/api/delete", {
-      method: "DELETE",
+      method: "POST",
       body: formData,
     })
     const res = await app.request(req)
