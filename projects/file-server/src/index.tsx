@@ -64,13 +64,20 @@ app.get("/api/*", async (c) => {
     )
   }
   const targetDir = path.join(uploadDir, subPath)
-  let files: { name: string; type: "file" | "dir" }[] = []
+  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
   try {
     const dirents = await readdir(targetDir, { withFileTypes: true })
-    files = dirents.map((ent) => ({
-      name: ent.name,
-      type: ent.isDirectory() ? "dir" : "file",
-    }))
+    files = await Promise.all(
+      dirents.map(async (ent) => {
+        if (ent.isDirectory()) {
+          return { name: ent.name, type: "dir" }
+        } else {
+          // ファイルサイズ取得
+          const stat = await fsStat(path.join(targetDir, ent.name))
+          return { name: ent.name, type: "file", size: stat.size }
+        }
+      }),
+    )
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -277,13 +284,19 @@ app.get("/", async (c) => {
     return c.redirect(`/file?path=${encodeURIComponent(requestPath)}`)
   }
   // ディレクトリの場合は一覧を返す
-  let files: { name: string; type: "file" | "dir" }[] = []
+  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
   try {
     const dirents = await readdir(resolvedDir, { withFileTypes: true })
-    files = dirents.map((ent) => ({
-      name: ent.name,
-      type: ent.isDirectory() ? "dir" : "file",
-    }))
+    files = await Promise.all(
+      dirents.map(async (ent) => {
+        if (ent.isDirectory()) {
+          return { name: ent.name, type: "dir" }
+        } else {
+          const stat = await fsStat(path.join(resolvedDir, ent.name))
+          return { name: ent.name, type: "file", size: stat.size }
+        }
+      }),
+    )
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -347,6 +360,10 @@ app.get("/", async (c) => {
               {file.name}
               {file.type === "dir" ? "/" : ""}
             </a>
+            {/* ファイルサイズ表示（ファイルのみ） */}
+            {file.type === "file" && (
+              <span style={{ margin: "0 1em" }}>{file.size} bytes</span>
+            )}
             <form method="post" action="/api/delete">
               <input
                 type="hidden"
