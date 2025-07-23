@@ -48,7 +48,7 @@ describe("upload", () => {
 
     const listData = await listRes.json()
     expect(listData.files).toEqual(
-      expect.arrayContaining([{ name: "test.txt", type: "file" }]),
+      expect.arrayContaining([{ name: "test.txt", type: "file", size: 13 }]),
     )
   })
 
