@@ -214,7 +214,7 @@ app.get("/", async (c) => {
     }
   }
   return c.render(
-    <div>
+    <form action="/api/upload" method="post" enctype="multipart/form-data">
       {/* パンくずリストの追加 */}
       <nav style={{ marginBottom: "1em" }}>
         {(() => {
@@ -242,6 +242,7 @@ app.get("/", async (c) => {
           return crumbs
         })()}
       </nav>
+      <hr/>
       <ul>
         {files.map((file) => (
           <li key={file.name}>
@@ -254,7 +255,9 @@ app.get("/", async (c) => {
           </li>
         ))}
       </ul>
-    </div>,
+      <input type="file" name="file" required />
+      <button type="submit">Upload</button>
+    </form>,
   )
 })
 
