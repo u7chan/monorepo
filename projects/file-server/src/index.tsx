@@ -26,7 +26,11 @@ function isInvalidPath(p: string): boolean {
 }
 
 // アップロードパス解決用関数
-async function resolveUploadPath(baseDir: string, filePathParam: string | undefined, fileName: string): Promise<string> {
+async function resolveUploadPath(
+  baseDir: string,
+  filePathParam: string | undefined,
+  fileName: string,
+): Promise<string> {
   if (!filePathParam || filePathParam === "") return fileName
   const fullPath = path.join(baseDir, filePathParam)
   try {
@@ -102,7 +106,11 @@ app.post(
   async (c) => {
     const { file, path: filePathParam } = c.req.valid("form")
     const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    const relativePath = await resolveUploadPath(uploadDir, filePathParam, file.name)
+    const relativePath = await resolveUploadPath(
+      uploadDir,
+      filePathParam,
+      file.name,
+    )
     if (isInvalidPath(relativePath)) {
       return c.json(
         {
@@ -234,7 +242,7 @@ app.get("/", async (c) => {
     }
   }
   return c.render(
-    <form action="/api/upload" method="post" enctype="multipart/form-data">
+    <div>
       {/* パンくずリストの追加 */}
       <nav style={{ marginBottom: "1em" }}>
         {(() => {
@@ -247,7 +255,7 @@ app.get("/", async (c) => {
             <span key="root">
               <a href="/">root</a>
               {parts.length > 0 ? " / " : ""}
-            </span>
+            </span>,
           )
           parts.forEach((part, idx) => {
             acc += (acc ? "/" : "") + part
@@ -256,29 +264,45 @@ app.get("/", async (c) => {
               <span key={acc}>
                 <a href={`/?path=${encodeURIComponent(acc)}`}>{part}</a>
                 {!isLast ? " / " : ""}
-              </span>
+              </span>,
             )
           })
           return crumbs
         })()}
       </nav>
-      <hr/>
+      <hr />
       <ul>
         {files.map((file) => (
-          <li key={file.name}>
+          <li
+            key={file.name}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
             <a
               href={`/?path=${encodeURIComponent(path.join(requestPath, file.name))}`}
             >
               {file.name}
               {file.type === "dir" ? "/" : ""}
             </a>
+            <form method="post" action="/api/delete">
+              <input
+                type="hidden"
+                name="path"
+                value={path.join(requestPath, file.name)}
+              />
+              <button type="submit">削除</button>
+            </form>
           </li>
         ))}
       </ul>
-      <input type="hidden" name="path" value={requestPath} />
-      <input type="file" name="file" required />
-      <button type="submit">Upload</button>
-    </form>,
+      <form action="/api/upload" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="path" value={requestPath} />
+        <input type="file" name="file" required />
+        <button type="submit">Upload</button>
+      </form>
+    </div>,
   )
 })
 
