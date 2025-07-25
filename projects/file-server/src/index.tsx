@@ -294,7 +294,7 @@ app.get("/", async (c) => {
   }
   if (stat.isFile()) {
     // ファイルの場合は内容を返すエンドポイントへリダイレクト
-    return c.redirect(`/file?path=${encodeURIComponent(requestPath)}`)
+    return c.redirect(`/file?path=${requestPath}`)
   }
   // ディレクトリの場合は一覧を返す
   let files: { name: string; type: "file" | "dir"; size?: number }[] = []
