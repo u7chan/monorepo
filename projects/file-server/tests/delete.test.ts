@@ -25,13 +25,11 @@ describe("delete", () => {
       body: formData,
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
+    expect(res.status).toBe(301)
+    // ファイル削除後は親ディレクトリにリダイレクト
+    expect(res.headers.get("location")).toBe("/?path=")
     // ファイルが消えていること
-    await expect(
-      Bun.file(path.join(UPLOAD_DIR, filePath)).text(),
-    ).rejects.toThrow()
+    expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
   })
 
   it("should delete a nested file", async () => {
@@ -45,12 +43,10 @@ describe("delete", () => {
       body: formData,
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
-    await expect(
-      Bun.file(path.join(UPLOAD_DIR, filePath)).text(),
-    ).rejects.toThrow()
+    expect(res.status).toBe(301)
+    // ネストしたファイル削除後は親ディレクトリにリダイレクト
+    expect(res.headers.get("location")).toBe("/?path=foo/bar")
+    expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
   })
 
   it("should delete a directory (empty)", async () => {
@@ -63,13 +59,11 @@ describe("delete", () => {
       body: formData,
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
+    expect(res.status).toBe(301)
+    // ディレクトリ削除後は親ディレクトリにリダイレクト
+    expect(res.headers.get("location")).toBe("/?path=")
     // ディレクトリが消えていること
-    await expect(
-      Bun.file(path.join(UPLOAD_DIR, dirPath)).text(),
-    ).rejects.toThrow()
+    expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
   })
 
   it("should delete a directory (with files)", async () => {
@@ -84,13 +78,11 @@ describe("delete", () => {
       body: formData,
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
+    expect(res.status).toBe(301)
+    // ディレクトリ削除後は親ディレクトリにリダイレクト
+    expect(res.headers.get("location")).toBe("/?path=")
     // ディレクトリが消えていること
-    await expect(
-      Bun.file(path.join(UPLOAD_DIR, dirPath)).text(),
-    ).rejects.toThrow()
+    expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
   })
 
   it("should return error for invalid path", async () => {
