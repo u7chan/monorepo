@@ -32,10 +32,9 @@ describe("upload", () => {
 
     const res = await app.request(req)
 
-    // レスポンスを検証
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
+    // レスポンスを検証（リダイレクトを期待）
+    expect(res.status).toBe(301)
+    expect(res.headers.get("location")).toBe("/?path=undefined")
 
     // ファイルが実際に保存されたかを確認
     const savedFilePath = path.join(UPLOAD_DIR, "test.txt")
@@ -67,9 +66,8 @@ describe("upload", () => {
       body: formData,
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
+    expect(res.status).toBe(301)
+    expect(res.headers.get("location")).toBe("/?path=foo/bar/baz.txt")
 
     // 保存先のファイル内容を検証
     const savedFilePath = path.join(UPLOAD_DIR, nestedPath)
@@ -92,9 +90,8 @@ describe("upload", () => {
       body: formData,
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const responseData = await res.json()
-    expect(responseData).toEqual({})
+    expect(res.status).toBe(301)
+    expect(res.headers.get("location")).toBe("/?path=dir1/dir2/")
 
     // 保存先のファイル内容を検証
     const savedFilePath = path.join(UPLOAD_DIR, dirPath, "uploaded.txt")

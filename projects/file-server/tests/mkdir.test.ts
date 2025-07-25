@@ -20,9 +20,8 @@ describe("POST /api/mkdir", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const json = await res.json()
-    expect(json).toEqual({})
+    expect(res.status).toBe(301)
+    expect(res.headers.get("location")).toBe("/?path=")
     // Check if directory was actually created
     const st = await stat(join(UPLOAD_DIR, "newdir"))
     expect(st.isDirectory()).toBe(true)
@@ -67,9 +66,8 @@ describe("POST /api/mkdir", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const json = await res.json()
-    expect(json).toEqual({})
+    expect(res.status).toBe(301)
+    expect(res.headers.get("location")).toBe("/?path=parent/")
     // Check if directory was actually created
     const st = await stat(join(UPLOAD_DIR, "parent", "child"))
     expect(st.isDirectory()).toBe(true)

@@ -132,7 +132,7 @@ app.post(
     await mkdir(path.dirname(savePath), { recursive: true })
     const buffer = await file.arrayBuffer()
     await writeFile(savePath, Buffer.from(buffer))
-    return c.json({})
+    return c.redirect(`/?path=${filePathParam}`, 301)
   },
 )
 
@@ -158,13 +158,19 @@ app.post(
       )
     }
     const targetPath = path.join(uploadDir, filePathParam)
+    let redirectPath = "/"
+
     try {
       const stat = await fsStat(targetPath)
       if (stat.isDirectory()) {
-        // ディレクトリの場合
+        // ディレクトリの場合：親ディレクトリのパス
+        const parentOfDir = path.dirname(targetPath)            // 削除したディレクトリの親ディレクトリ
+        redirectPath = path.relative(uploadDir, parentOfDir)   // uploadDirからの相対パス
         await rm(targetPath, { recursive: true, force: true })
       } else {
-        // ファイルの場合
+        // ファイルの場合：ディレクトリパス
+        const dirOfFile = path.dirname(targetPath)
+        redirectPath = path.relative(uploadDir, dirOfFile)      // uploadDirからの相対パス
         await unlink(targetPath)
       }
     } catch (err: unknown) {
@@ -188,7 +194,14 @@ app.post(
         throw err
       }
     }
-    return c.json({})
+
+    if (redirectPath === "") {
+      redirectPath = ""
+    } else {
+      redirectPath = `${redirectPath.replace(/\\/g, "/")}`
+    }
+
+    return c.redirect(`/?path=${redirectPath}`, 301)
   },
 )
 
@@ -238,7 +251,7 @@ app.post(
         throw err
       }
     }
-    return c.json({})
+    return c.redirect(`/?path=${dirPathParam}`, 301)
   },
 )
 
