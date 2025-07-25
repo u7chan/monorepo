@@ -3,9 +3,14 @@ networks:
     name: home_network
 
 services:
-  edit-vid:
+  file-server:
     container_name: file-server
     image: ghcr.io/u7chan/monorepo/file-server:latest
     restart: always
     ports:
       - 8010:3000
+    volumes:
+      - file-server:/app/uploads
+
+volumes:
+  file-server:
