@@ -15,6 +15,15 @@ import { env } from "hono/adapter"
 import * as mime from "mime-types"
 import z from "zod"
 
+// ファイルサイズをフォーマットする関数
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 B"
+  const k = 1024
+  const sizes = ["Byte", "KB", "MB", "GB", "TB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
+}
+
 const app = new Hono<{
   Bindings: {
     UPLOAD_DIR: string
@@ -164,13 +173,13 @@ app.post(
       const stat = await fsStat(targetPath)
       if (stat.isDirectory()) {
         // ディレクトリの場合：親ディレクトリのパス
-        const parentOfDir = path.dirname(targetPath)            // 削除したディレクトリの親ディレクトリ
-        redirectPath = path.relative(uploadDir, parentOfDir)   // uploadDirからの相対パス
+        const parentOfDir = path.dirname(targetPath) // 削除したディレクトリの親ディレクトリ
+        redirectPath = path.relative(uploadDir, parentOfDir) // uploadDirからの相対パス
         await rm(targetPath, { recursive: true, force: true })
       } else {
         // ファイルの場合：ディレクトリパス
         const dirOfFile = path.dirname(targetPath)
-        redirectPath = path.relative(uploadDir, dirOfFile)      // uploadDirからの相対パス
+        redirectPath = path.relative(uploadDir, dirOfFile) // uploadDirからの相対パス
         await unlink(targetPath)
       }
     } catch (err: unknown) {
@@ -375,18 +384,32 @@ app.get("/", async (c) => {
               {file.name}
               {file.type === "dir" ? "/" : ""}
             </a>
-            {/* ファイルサイズ表示（ファイルのみ） */}
-            {file.type === "file" && (
-              <span style={{ margin: "0 1em" }}>{file.size} bytes</span>
-            )}
-            <form method="post" action="/api/delete">
-              <input
-                type="hidden"
-                name="path"
-                value={path.join(requestPath, file.name)}
-              />
-              <button type="submit">Delete</button>
-            </form>
+            <div style={{ display: "flex", gap: "1em" }}>
+              {/* ファイルサイズ表示（ファイルのみ） */}
+              {file.type === "file" && (
+                <div
+                  style={{
+                    width: "120px",
+                    textAlign: "right",
+                    margin: "0 1em",
+                  }}
+                >
+                  {formatFileSize(file.size || 0)}
+                </div>
+              )}
+              <div
+                style={{ width: "80px", display: "flex", alignItems: "center" }}
+              >
+                <form method="post" action="/api/delete">
+                  <input
+                    type="hidden"
+                    name="path"
+                    value={path.join(requestPath, file.name)}
+                  />
+                  <button type="submit">Delete</button>
+                </form>
+              </div>
+            </div>
           </li>
         ))}
       </ul>
