@@ -34,7 +34,7 @@ describe("upload", () => {
 
     // レスポンスを検証（リダイレクトを期待）
     expect(res.status).toBe(301)
-    expect(res.headers.get("location")).toBe("/?path=undefined")
+    expect(res.headers.get("location")).toBe("/?path=")
 
     // ファイルが実際に保存されたかを確認
     const savedFilePath = path.join(UPLOAD_DIR, "test.txt")
@@ -67,7 +67,7 @@ describe("upload", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(301)
-    expect(res.headers.get("location")).toBe("/?path=foo/bar/baz.txt")
+    expect(res.headers.get("location")).toBe("/?path=foo%2Fbar%2Fbaz.txt")
 
     // 保存先のファイル内容を検証
     const savedFilePath = path.join(UPLOAD_DIR, nestedPath)
@@ -91,7 +91,7 @@ describe("upload", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(301)
-    expect(res.headers.get("location")).toBe("/?path=dir1/dir2/")
+    expect(res.headers.get("location")).toBe("/?path=dir1%2Fdir2%2F")
 
     // 保存先のファイル内容を検証
     const savedFilePath = path.join(UPLOAD_DIR, dirPath, "uploaded.txt")

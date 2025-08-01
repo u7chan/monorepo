@@ -67,7 +67,7 @@ describe("POST /api/mkdir", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(301)
-    expect(res.headers.get("location")).toBe("/?path=parent/")
+    expect(res.headers.get("location")).toBe("/?path=parent%2F")
     // Check if directory was actually created
     const st = await stat(join(UPLOAD_DIR, "parent", "child"))
     expect(st.isDirectory()).toBe(true)
