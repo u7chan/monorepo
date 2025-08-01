@@ -50,6 +50,21 @@ async function resolveUploadPath(
   }
 }
 
+// ファイルとディレクトリをソートする関数
+function sortFiles<T extends { name: string; type: "file" | "dir" }>(files: T[]): T[] {
+  return [...files].sort((a, b) => {
+    // ディレクトリを先に
+    if (a.type === "dir" && b.type === "file") {
+      return -1
+    }
+    if (a.type === "file" && b.type === "dir") {
+      return 1
+    }
+    // 名前でソート
+    return a.name.localeCompare(b.name)
+  })
+}
+
 // ファイル・ディレクトリ一覧取得
 app.get("/api/*", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
@@ -96,8 +111,11 @@ app.get("/api/*", async (c) => {
       throw err
     }
   }
+
+  const sortedFiles = sortFiles(files)
+
   return c.json({
-    files,
+    files: sortedFiles,
   })
 })
 
@@ -360,6 +378,9 @@ app.get("/", async (c) => {
       throw err
     }
   }
+
+  const sortedFiles = sortFiles(files)
+
   return c.render(
     <div>
       {/* パンくずリストの追加 */}
@@ -391,7 +412,7 @@ app.get("/", async (c) => {
       </nav>
       <hr />
       <ul>
-        {files.map((file) => (
+        {sortedFiles.map((file) => (
           <li
             key={file.name}
             style={{
