@@ -15,15 +15,6 @@ import { env } from "hono/adapter"
 import * as mime from "mime-types"
 import z from "zod"
 
-// ファイルサイズをフォーマットする関数
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const k = 1024
-  const sizes = ["Byte", "KB", "MB", "GB", "TB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
-}
-
 const app = new Hono<{
   Bindings: {
     UPLOAD_DIR: string
@@ -265,6 +256,27 @@ app.post(
 )
 
 app.get("/", async (c) => {
+  // ファイルサイズをフォーマットする関数
+  function formatFileSize(bytes: number): string {
+    if (bytes === 0) return "0 B"
+    const k = 1024
+    const sizes = ["Byte", "KB", "MB", "GB", "TB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
+  }
+
+  // タイムスタンプをフォーマットする関数
+  function formatTimestamp(date: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, "0")
+    const y = date.getFullYear()
+    const mo = pad(date.getMonth() + 1)
+    const d = pad(date.getDate())
+    const h = pad(date.getHours())
+    const mi = pad(date.getMinutes())
+    const s = pad(date.getSeconds())
+    return `${y}-${mo}-${d} ${h}:${mi}:${s}`
+  }
+
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = decodeURIComponent(c.req.query("path") || "")
   if (isInvalidPath(requestPath)) {
@@ -306,16 +318,27 @@ app.get("/", async (c) => {
     return c.redirect(`/file?path=${requestPath}`)
   }
   // ディレクトリの場合は一覧を返す
-  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
+  let files: {
+    name: string
+    type: "file" | "dir"
+    size?: number
+    mtime?: Date
+  }[] = []
   try {
     const dirents = await readdir(resolvedDir, { withFileTypes: true })
     files = await Promise.all(
       dirents.map(async (ent) => {
         if (ent.isDirectory()) {
-          return { name: ent.name, type: "dir" }
+          const stat = await fsStat(path.join(resolvedDir, ent.name))
+          return { name: ent.name, type: "dir", mtime: stat.mtime }
         } else {
           const stat = await fsStat(path.join(resolvedDir, ent.name))
-          return { name: ent.name, type: "file", size: stat.size }
+          return {
+            name: ent.name,
+            type: "file",
+            size: stat.size,
+            mtime: stat.mtime,
+          }
         }
       }),
     )
@@ -397,6 +420,10 @@ app.get("/", async (c) => {
                   {formatFileSize(file.size || 0)}
                 </div>
               )}
+              {/* タイムスタンプ表示 */}
+              <div style={{ width: "180px", textAlign: "right" }}>
+                {file.mtime && formatTimestamp(new Date(file.mtime))}
+              </div>
               <div
                 style={{ width: "80px", display: "flex", alignItems: "center" }}
               >
