@@ -132,7 +132,7 @@ app.post(
     await mkdir(path.dirname(savePath), { recursive: true })
     const buffer = await file.arrayBuffer()
     await writeFile(savePath, Buffer.from(buffer))
-    return c.redirect(`/?path=${filePathParam}`, 301)
+    return c.redirect(`/?path=${encodeURIComponent(filePathParam || "")}`, 301)
   },
 )
 
@@ -251,13 +251,13 @@ app.post(
         throw err
       }
     }
-    return c.redirect(`/?path=${dirPathParam}`, 301)
+    return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
   },
 )
 
 app.get("/", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-  const requestPath = c.req.query("path") || ""
+  const requestPath = decodeURIComponent(c.req.query("path") || "")
   if (isInvalidPath(requestPath)) {
     return c.json(
       {
@@ -420,7 +420,7 @@ app.get("/", async (c) => {
 
 app.get("/file", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-  const requestPath = c.req.query("path") || ""
+  const requestPath = decodeURIComponent(c.req.query("path") || "")
   if (isInvalidPath(requestPath)) {
     return c.json(
       {
