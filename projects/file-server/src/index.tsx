@@ -50,6 +50,21 @@ async function resolveUploadPath(
   }
 }
 
+// ファイルとディレクトリをソートする関数
+function sortFiles<T extends { name: string; type: "file" | "dir" }>(files: T[]): T[] {
+  return [...files].sort((a, b) => {
+    // ディレクトリを先に
+    if (a.type === "dir" && b.type === "file") {
+      return -1
+    }
+    if (a.type === "file" && b.type === "dir") {
+      return 1
+    }
+    // 名前でソート
+    return a.name.localeCompare(b.name)
+  })
+}
+
 // ファイル・ディレクトリ一覧取得
 app.get("/api/*", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
@@ -96,8 +111,11 @@ app.get("/api/*", async (c) => {
       throw err
     }
   }
+
+  const sortedFiles = sortFiles(files)
+
   return c.json({
-    files,
+    files: sortedFiles,
   })
 })
 
@@ -164,13 +182,13 @@ app.post(
       const stat = await fsStat(targetPath)
       if (stat.isDirectory()) {
         // ディレクトリの場合：親ディレクトリのパス
-        const parentOfDir = path.dirname(targetPath)            // 削除したディレクトリの親ディレクトリ
-        redirectPath = path.relative(uploadDir, parentOfDir)   // uploadDirからの相対パス
+        const parentOfDir = path.dirname(targetPath) // 削除したディレクトリの親ディレクトリ
+        redirectPath = path.relative(uploadDir, parentOfDir) // uploadDirからの相対パス
         await rm(targetPath, { recursive: true, force: true })
       } else {
         // ファイルの場合：ディレクトリパス
         const dirOfFile = path.dirname(targetPath)
-        redirectPath = path.relative(uploadDir, dirOfFile)      // uploadDirからの相対パス
+        redirectPath = path.relative(uploadDir, dirOfFile) // uploadDirからの相対パス
         await unlink(targetPath)
       }
     } catch (err: unknown) {
@@ -256,6 +274,27 @@ app.post(
 )
 
 app.get("/", async (c) => {
+  // ファイルサイズをフォーマットする関数
+  function formatFileSize(bytes: number): string {
+    if (bytes === 0) return "0 B"
+    const k = 1024
+    const sizes = ["Byte", "KB", "MB", "GB", "TB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
+  }
+
+  // タイムスタンプをフォーマットする関数
+  function formatTimestamp(date: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, "0")
+    const y = date.getFullYear()
+    const mo = pad(date.getMonth() + 1)
+    const d = pad(date.getDate())
+    const h = pad(date.getHours())
+    const mi = pad(date.getMinutes())
+    const s = pad(date.getSeconds())
+    return `${y}-${mo}-${d} ${h}:${mi}:${s}`
+  }
+
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = decodeURIComponent(c.req.query("path") || "")
   if (isInvalidPath(requestPath)) {
@@ -297,16 +336,27 @@ app.get("/", async (c) => {
     return c.redirect(`/file?path=${requestPath}`)
   }
   // ディレクトリの場合は一覧を返す
-  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
+  let files: {
+    name: string
+    type: "file" | "dir"
+    size?: number
+    mtime?: Date
+  }[] = []
   try {
     const dirents = await readdir(resolvedDir, { withFileTypes: true })
     files = await Promise.all(
       dirents.map(async (ent) => {
         if (ent.isDirectory()) {
-          return { name: ent.name, type: "dir" }
+          const stat = await fsStat(path.join(resolvedDir, ent.name))
+          return { name: ent.name, type: "dir", mtime: stat.mtime }
         } else {
           const stat = await fsStat(path.join(resolvedDir, ent.name))
-          return { name: ent.name, type: "file", size: stat.size }
+          return {
+            name: ent.name,
+            type: "file",
+            size: stat.size,
+            mtime: stat.mtime,
+          }
         }
       }),
     )
@@ -328,6 +378,9 @@ app.get("/", async (c) => {
       throw err
     }
   }
+
+  const sortedFiles = sortFiles(files)
+
   return c.render(
     <div>
       {/* パンくずリストの追加 */}
@@ -359,7 +412,7 @@ app.get("/", async (c) => {
       </nav>
       <hr />
       <ul>
-        {files.map((file) => (
+        {sortedFiles.map((file) => (
           <li
             key={file.name}
             style={{
@@ -375,18 +428,36 @@ app.get("/", async (c) => {
               {file.name}
               {file.type === "dir" ? "/" : ""}
             </a>
-            {/* ファイルサイズ表示（ファイルのみ） */}
-            {file.type === "file" && (
-              <span style={{ margin: "0 1em" }}>{file.size} bytes</span>
-            )}
-            <form method="post" action="/api/delete">
-              <input
-                type="hidden"
-                name="path"
-                value={path.join(requestPath, file.name)}
-              />
-              <button type="submit">Delete</button>
-            </form>
+            <div style={{ display: "flex", gap: "1em" }}>
+              {/* ファイルサイズ表示（ファイルのみ） */}
+              {file.type === "file" && (
+                <div
+                  style={{
+                    width: "120px",
+                    textAlign: "right",
+                    margin: "0 1em",
+                  }}
+                >
+                  {formatFileSize(file.size || 0)}
+                </div>
+              )}
+              {/* タイムスタンプ表示 */}
+              <div style={{ width: "180px", textAlign: "right" }}>
+                {file.mtime && formatTimestamp(new Date(file.mtime))}
+              </div>
+              <div
+                style={{ width: "80px", display: "flex", alignItems: "center" }}
+              >
+                <form method="post" action="/api/delete">
+                  <input
+                    type="hidden"
+                    name="path"
+                    value={path.join(requestPath, file.name)}
+                  />
+                  <button type="submit">Delete</button>
+                </form>
+              </div>
+            </div>
           </li>
         ))}
       </ul>
