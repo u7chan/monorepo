@@ -35,6 +35,13 @@ if [[ -z "$PASSWORD" ]]; then
   exit 1
 fi
 
+# Dockerレジストリにログインする関数
+execute_docker_login() {
+  local registry="$1"
+  local username="$2"
+  local password="$3"
+  echo "$password" | docker login "$registry" -u "$username" --password-stdin
+}
 # レジストリにログイン
 echo "Logging in to $REGISTRY..."
 if execute_docker_login "$REGISTRY" "$USERNAME" "$PASSWORD"; then
