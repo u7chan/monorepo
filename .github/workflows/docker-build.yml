@@ -33,6 +33,12 @@ jobs:
         run: |
           docker images
 
+      - name: Remove Old Docker Images
+        if: env.BUILD_PROJECT != ''
+        uses: ./.github/actions/remove-old-docker-images
+        with:
+          keep_count: 3
+
       - name: Push Docker Images
         if: env.BUILD_PROJECT != ''
         uses: ./.github/actions/push-docker-images

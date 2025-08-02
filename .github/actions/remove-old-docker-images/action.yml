@@ -1,0 +1,17 @@
+name: Remove Old Docker Images
+description: Remove all but the latest 3 Docker images for specified projects
+
+inputs:
+  keep_count:
+    description: "Number of latest images to keep per project"
+    required: false
+    default: "3"
+
+runs:
+  using: composite
+  steps:
+    - name: Remove Old Docker Images
+      shell: bash
+      run: |
+        # 共通スクリプトを実行
+        ${{ github.action_path }}/remove-old-docker-images.sh "${{ inputs.keep_count }}"
