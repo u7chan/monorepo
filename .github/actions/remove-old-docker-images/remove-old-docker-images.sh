@@ -22,7 +22,7 @@ while IFS= read -r project || [[ -n "$project" ]]; do
         echo "Processing project: $project_name"
         
         # プロジェクト名を含むイメージを取得（タグ付きのもののみ）
-        images=$(docker images --format "table {{.Repository}}:{{.Tag}}	{{.CreatedAt}}" | \
+        images=$(docker images --format "{{.Repository}}:{{.Tag}}	{{.CreatedAt}}" | \
                 grep "$project_name" | \
                 grep -v "<none>" | \
                 sort -k2 -r | \
