@@ -14,9 +14,6 @@ USERNAME="$4"
 PASSWORD="$5"
 
 # 引数のチェック
-if [[ -z "$KEEP_COUNT" ]]; then
-  KEEP_COUNT=3
-fi
 
 if [[ -z "$TARGET" ]]; then
   echo "Error: Target parameter is required."
