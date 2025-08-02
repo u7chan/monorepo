@@ -21,13 +21,20 @@ while IFS= read -r project || [[ -n "$project" ]]; do
         project_name=$(basename "$project")
         echo "Processing project: $project_name"
         
-        # プロジェクト名を含むイメージを取得（タグ付きのもののみ）
-        images=$(docker images --format "{{.Repository}}:{{.Tag}}	{{.CreatedAt}}" | \
+        # プロジェクト名を含むイメージを取得（タグ付きのもののみ）、正確な作成日時でソート
+        images=$(docker images --format "{{.Repository}}:{{.Tag}}\t{{.ID}}" | \
                 grep "$project_name" | \
                 grep -v "<none>" | \
-                sort -k2 -r | \
+                while IFS=$'\t' read -r tag image_id; do
+                    # 画像の作成日時（UNIXタイムスタンプ）を取得
+                    created=$(docker inspect --format='{{.Created}}' "$image_id" 2>/dev/null | xargs -I{} date -d {} +%s)
+                    if [[ -n "$created" ]]; then
+                        echo -e "$created\t$tag\t$image_id"
+                    fi
+                done | \
+                sort -k1 -r | \
                 tail -n +$((KEEP_COUNT + 1)) | \
-                awk '{print $1}' || true)
+                awk -F'\t' '{print $2}' || true)
         
         if [[ -n "$images" ]]; then
             echo "Removing old images for $project_name:"
