@@ -5,74 +5,43 @@
 ## 概要
 
 - `build_projects.txt` ファイルから対象プロジェクトを読み取り
-- 各プロジェクトの古いDockerイメージを削除
+- 各プロジェクトのGHCR上の古いイメージを削除
 - 指定した数だけ最新のイメージを保持（デフォルト: 3個）
-- モックモードでのテスト実行をサポート
-- GitHub Container Registry (GHCR) に対応
+- GitHub Container Registry (GHCR) のイメージ削除に対応（`gh` CLIと`GITHUB_TOKEN`が必要）
 
 ## 入力パラメータ
 
 | パラメータ | 説明 | 必須 | デフォルト値 |
 |-----------|------|------|-------------|
-| `keep_count` | プロジェクトごとに保持する最新イメージ数 | No | `3` |
+| `keep_count` | プロジェクトごとに保持する最新イメージ数（コマンドライン引数1番目） | No | `3` |
+| `GHCR_OWNER` | GHCRのOrganizationまたはユーザー名（コマンドライン引数2番目または環境変数） | No | `YOUR_ORG_OR_USER` |
 
 ## 使用例
 
-### GitHub Actions ワークフロー内での使用
+### コマンドラインでの使用例
 
-```yaml
-- name: Remove Old Docker Images
-  uses: ./.github/actions/remove-old-docker-images
-  with:
-    keep_count: 3
-```
+```bash
+# デフォルト（3個残す）
+./remove-old-docker-images.sh
 
-### より多くのイメージを保持する場合
+# 5個残す
+./remove-old-docker-images.sh 5
 
-```yaml
-- name: Remove Old Docker Images
-  uses: ./.github/actions/remove-old-docker-images
-  with:
-    keep_count: 5
+# オーナー指定
+./remove-old-docker-images.sh 3 your-org-or-user
 ```
 
 ## 前提条件
 
 - カレントディレクトリに `build_projects.txt` ファイルが存在すること
-- Dockerがインストールされ、利用可能であること
-- イメージにタグが付けられていること（`<none>` 以外）
+- `gh` CLI, `jq` コマンド, `GITHUB_TOKEN` 環境変数, `GHCR_OWNER`（Organizationまたはユーザー名）が必要
+- GHCRの削除には `gh` CLI, `jq` コマンド, `GITHUB_TOKEN` 環境変数、`GHCR_OWNER`（Organizationまたはユーザー名）が必要
 
 ## 動作仕様
 
 1. `build_projects.txt` からプロジェクト名を読み込み
-2. 各プロジェクトについて、プロジェクト名を含むDockerイメージを一覧取得
-3. 作成日時でソート（新しい順）
-4. 保持数を超えるイメージを削除
-5. `MOCK_DOCKER_COMMANDS=true` 環境変数でモックモードをサポート
+2. 各プロジェクトについて、GHCR（GitHub Container Registry）のイメージバージョンを作成日時でソートし、`keep_count`を超える古いものを削除
 
-## 使用例（具体的なケース）
+## （補足）
 
-`my-app` というプロジェクトに以下のイメージがある場合：
-
-- `my-app:v1.0.0` (最古)
-- `my-app:v2.0.0`
-- `my-app:v3.0.0`
-- `my-app:latest` (最新)
-
-`keep_count: 3` の設定では、`my-app:v1.0.0` のみが削除されます。
-
-## モックモード
-
-実際にイメージを削除せず、削除対象をシミュレーションする場合：
-
-```bash
-export MOCK_DOCKER_COMMANDS=true
-./remove-old-docker-images.sh 3
-```
-
-## ローカルテスト
-
-```bash
-cd .github/actions/remove-old-docker-images
-./test-local.sh
-```
+このスクリプトはGHCR（GitHub Container Registry）上のイメージ削除専用です。ローカルのDockerイメージ削除やモックモード、test-local用スクリプトは不要になりました。
