@@ -6,6 +6,19 @@ inputs:
     description: "Number of latest images to keep per project"
     required: false
     default: "3"
+  target:
+    description: "Target project to clean up images for"
+    required: true
+  registry:
+    description: "Container registry URL"
+    required: false
+    default: "ghcr.io"
+  username:
+    description: "Registry username"
+    required: true
+  password:
+    description: "Registry password"
+    required: true
 
 runs:
   using: composite
@@ -14,4 +27,4 @@ runs:
       shell: bash
       run: |
         # 共通スクリプトを実行
-        ${{ github.action_path }}/remove-old-docker-images.sh "${{ inputs.keep_count }}"
+        ${{ github.action_path }}/remove-old-docker-images.sh "${{ inputs.keep_count }}" "${{ inputs.target }}" "${{ inputs.registry }}" "${{ inputs.username }}" "${{ inputs.password }}"

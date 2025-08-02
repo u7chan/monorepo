@@ -1,0 +1,27 @@
+name: Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "ターゲット"
+        required: true
+        default: "portfolio"
+
+jobs:
+  docker-build-if-changes-detected:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Cleanup Docker Images
+        uses: ./.github/actions/remove-old-docker-images
+        with:
+          keep_count: 3
+          target: ${{ github.event.inputs.target }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.PRIVATE_REPO_TOKEN }}
