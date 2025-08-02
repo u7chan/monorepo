@@ -33,14 +33,14 @@ if [[ "$MOCK_DOCKER_COMMANDS" == "true" ]]; then
   
   # モック用のDockerイメージリストを作成
   echo "Creating mock Docker images for testing..."
-  echo "REPOSITORY:TAG	CREATED"
-  echo "portfolio:v1.0.0	2024-01-01 10:00:00"
-  echo "portfolio:v2.0.0	2024-01-02 10:00:00"
-  echo "portfolio:v3.0.0	2024-01-03 10:00:00"
-  echo "portfolio:v4.0.0	2024-01-04 10:00:00"
-  echo "portfolio:latest	2024-01-05 10:00:00"
-  echo "hono-mcp-server:v1.0.0	2024-01-01 11:00:00"
-  echo "hono-mcp-server:latest	2024-01-02 11:00:00"
+  echo -e "REPOSITORY\tTAG\tCREATED AT"
+  echo -e "portfolio\tv1.0.0\t2024-01-01 10:00:00"
+  echo -e "portfolio\tv2.0.0\t2024-01-02 10:00:00"
+  echo -e "portfolio\tv3.0.0\t2024-01-03 10:00:00"
+  echo -e "portfolio\tv4.0.0\t2024-01-04 10:00:00"
+  echo -e "portfolio\tlatest\t2024-01-05 10:00:00"
+  echo -e "hono-mcp-server\tv1.0.0\t2024-01-01 11:00:00"
+  echo -e "hono-mcp-server\tlatest\t2024-01-02 11:00:00"
 else
   echo "Real Docker mode enabled - will execute actual Docker commands"
 fi
