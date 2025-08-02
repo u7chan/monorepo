@@ -1,47 +1,47 @@
 # Remove Old Docker Images Action
 
-このアクションは、古いDockerイメージを削除し、プロジェクトごとに最新のN個のイメージのみを保持します。
+GHCR (GitHub Container Registry) 上の Docker イメージを、最新 N 個だけ残してそれ以外を削除するスクリプトです。
 
 ## 概要
 
-- `build_projects.txt` ファイルから対象プロジェクトを読み取り
-- 各プロジェクトのGHCR上の古いイメージを削除
-- 指定した数だけ最新のイメージを保持（デフォルト: 3個）
-- GitHub Container Registry (GHCR) のイメージ削除に対応（`gh` CLIと`GITHUB_TOKEN`が必要）
+- 指定したリポジトリ/パッケージのイメージバージョンを作成日時でソートし、KEEP_COUNT で指定した数だけ最新を残して古いものを削除します
+- GHCR (ghcr.io) 専用です
+- APIベースで動作し、`curl`/`jq`/`GITHUB_TOKEN` が必要です
 
-## 入力パラメータ
-
-| パラメータ | 説明 | 必須 | デフォルト値 |
-|-----------|------|------|-------------|
-| `keep_count` | プロジェクトごとに保持する最新イメージ数（コマンドライン引数1番目） | No | `3` |
-| `GHCR_OWNER` | GHCRのOrganizationまたはユーザー名（コマンドライン引数2番目または環境変数） | No | `YOUR_ORG_OR_USER` |
-
-## 使用例
-
-### コマンドラインでの使用例
+## 使い方
 
 ```bash
-# デフォルト（3個残す）
-./remove-old-docker-images.sh
-
-# 5個残す
-./remove-old-docker-images.sh 5
-
-# オーナー指定
-./remove-old-docker-images.sh 3 your-org-or-user
+./remove-old-docker-images.sh [KEEP_COUNT] <TARGET> <REGISTRY> <USERNAME> <PASSWORD>
 ```
 
-## 前提条件
+- `KEEP_COUNT` : 残すイメージ数（省略時は3）
+- `TARGET` : `<owner>/<repo>/<package>` 形式（例: `myorg/myrepo/myimage`）
+- `REGISTRY` : `ghcr.io` のみ対応
+- `USERNAME`/`PASSWORD` : レジストリログイン用（GHCRの場合はGitHubユーザー名/Personal Access Token推奨）
 
-- カレントディレクトリに `build_projects.txt` ファイルが存在すること
-- `gh` CLI, `jq` コマンド, `GITHUB_TOKEN` 環境変数, `GHCR_OWNER`（Organizationまたはユーザー名）が必要
-- GHCRの削除には `gh` CLI, `jq` コマンド, `GITHUB_TOKEN` 環境変数、`GHCR_OWNER`（Organizationまたはユーザー名）が必要
+### 例
+
+```bash
+# 3個残す（デフォルト）
+./remove-old-docker-images.sh myorg/myrepo/myimage ghcr.io <username> <token>
+
+# 5個残す
+./remove-old-docker-images.sh 5 myorg/myrepo/myimage ghcr.io <username> <token>
+```
+
+## 必要なもの
+
+- `curl`, `jq` コマンド
+- `GITHUB_TOKEN` 環境変数（GHCR API削除用、repo:delete権限が必要）
+
+## 注意
+
+- GHCR (ghcr.io) 以外のレジストリには未対応です
+- `TARGET` は `<owner>/<repo>/<package>` 形式で指定してください
+- 削除APIは本番イメージを消すため、十分注意してご利用ください
 
 ## 動作仕様
 
-1. `build_projects.txt` からプロジェクト名を読み込み
-2. 各プロジェクトについて、GHCR（GitHub Container Registry）のイメージバージョンを作成日時でソートし、`keep_count`を超える古いものを削除
-
-## （補足）
-
-このスクリプトはGHCR（GitHub Container Registry）上のイメージ削除専用です。ローカルのDockerイメージ削除やモックモード、test-local用スクリプトは不要になりました。
+1. レジストリにログイン（docker login）
+2. GHCR APIでイメージバージョン一覧を取得
+3. 作成日時でソートし、KEEP_COUNT分だけ最新を残して古いものを削除
