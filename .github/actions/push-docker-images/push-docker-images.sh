@@ -133,6 +133,28 @@ fi
 
 echo "Push project count: ${#PROJECT_ARRAY[@]}"
 
+# PROJECT_ARRAYからproject_nameのみを抽出し、カンマ区切りの文字列を作成
+PROJECT_NAMES_CSV=""
+for project in "${PROJECT_ARRAY[@]}"; do
+  # 空行をスキップ
+  [[ -z "$project" ]] && continue
+
+  # プロジェクト名を取得（パスの最後の部分）
+  project_name=$(basename "$project")
+  if [[ -z "$PROJECT_NAMES_CSV" ]]; then
+    PROJECT_NAMES_CSV="$project_name"
+  else
+    PROJECT_NAMES_CSV+="\,$project_name"
+  fi
+done
+
+# GitHub ActionsのStep共通変数に格納（GITHUB_OUTPUTが設定されている場合のみ）
+if [[ -n "$GITHUB_OUTPUT" ]]; then
+  echo "project_names_csv=$PROJECT_NAMES_CSV" >> "$GITHUB_OUTPUT"
+  echo "[INFO] Set project_names_csv to GITHUB_OUTPUT: $PROJECT_NAMES_CSV"
+fi
+
+# Imageのpush処理
 for project in "${PROJECT_ARRAY[@]}"; do
   # 空行をスキップ
   [[ -z "$project" ]] && continue
