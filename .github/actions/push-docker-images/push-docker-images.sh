@@ -144,7 +144,7 @@ for project in "${PROJECT_ARRAY[@]}"; do
   if [[ -z "$PROJECT_NAMES_CSV" ]]; then
     PROJECT_NAMES_CSV="$project_name"
   else
-    PROJECT_NAMES_CSV+="\,$project_name"
+    PROJECT_NAMES_CSV+=",$project_name"
   fi
 done
 
