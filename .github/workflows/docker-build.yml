@@ -35,12 +35,11 @@ jobs:
 
       - name: Push Docker Images
         if: env.BUILD_PROJECT != ''
+        id: push_images
         uses: ./.github/actions/push-docker-images
         with:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
-        env:
-          GITHUB_OUTPUT: ${{ github.output }}
 
       - name: Show project_names_csv
         run: echo "project_names_csv = ${{ steps.push_images.outputs.project_names_csv }}"
