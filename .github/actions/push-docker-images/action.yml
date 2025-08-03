@@ -13,10 +13,15 @@ inputs:
     description: "Registry password"
     required: true
 
+outputs:
+  project_names_csv:
+    description: "Comma separated project names"
+    value: ${{ steps.push.outputs.project_names_csv }}
 runs:
   using: composite
   steps:
     - name: Push Docker Images
+      id: push
       shell: bash
       run: |
         # 共通スクリプトを実行
