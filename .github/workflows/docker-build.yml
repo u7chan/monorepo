@@ -39,6 +39,8 @@ jobs:
         with:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        env:
+          GITHUB_OUTPUT: ${{ github.output }}
 
       - name: Show project_names_csv
         run: echo "project_names_csv = ${{ steps.push_images.outputs.project_names_csv }}"
