@@ -9,6 +9,7 @@ interface MessageAreaScrollProps {
 
 export const MessageAreaScroll = forwardRef<HTMLDivElement, MessageAreaScrollProps>(
   function MessageAreaScroll({ children, scrollContainerRef, onScroll }, ref) {
+    const localRef = ref;
     return (
       <div
         ref={scrollContainerRef}
@@ -16,7 +17,7 @@ export const MessageAreaScroll = forwardRef<HTMLDivElement, MessageAreaScrollPro
         onScroll={onScroll}
       >
         {children}
-        <div ref={ref} />
+        <div ref={localRef} />
       </div>
     )
   },
