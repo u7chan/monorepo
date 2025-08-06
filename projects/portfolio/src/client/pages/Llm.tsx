@@ -266,7 +266,7 @@ export function Llm(): ReactElement {
         throw new Error('Failed to get reader from response body')
       }
 
-      const decoder = new TextDecoder('utf-8')
+      const decoder = new TextDecoder()
       let buffer = ''
       let running = true
       let fullContent = ''
