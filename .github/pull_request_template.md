@@ -1,4 +1,4 @@
-<!-- Pull Request Template -->
+<!-- I want to review in Japanese. -->
 
 ## Description
 
@@ -27,16 +27,15 @@ Fixes # (issue)
 
 ## Additional Notes
 
+<!-- for GitHub Copilot review rule -->
 <!--
-
-## Review in Japanese　for Github Copliot
-
-### About Review Labels
 When reviewing, please use the following prefixes:
-- [blocking] → 重大な指摘
-- [optional] → 任意対応
-- [discussion] → 議論・相談
-- [todo] → 今後対応予定
-- [comment] → 補足説明
-
+- [blocking] → 重大な指摘 / Critical issue
+- [optional] → 任意対応 / Optional
+- [discussion] → 議論・相談 / Discussion
+- [todo] → 今後対応予定 / To be addressed later
+- [comment] → 補足説明 / Additional explanation
 -->
+<!-- for GitHub Copilot review rule -->
+
+<!-- I want to review in Japanese. -->
