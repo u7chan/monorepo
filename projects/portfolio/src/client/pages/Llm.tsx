@@ -405,7 +405,7 @@ export function Llm(): ReactElement {
           )}
 
           {messages.map((message, idx) => (
-            <div key={message.id} style={idx === 0 ? { marginTop: '1rem' } : undefined}>
+            <div key={message.id} className={idx === 0 ? 'mt-4' : ''}>
               <MessageBubble message={message} />
             </div>
           ))}
