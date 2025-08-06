@@ -390,7 +390,7 @@ export function Llm(): ReactElement {
 
       {/* メッセージエリア */}
       <div className='flex-1 overflow-y-auto'>
-        <div className='mx-auto max-w-4xl p-4'>
+        <div className='mx-auto max-w-4xl'>
           {messages.length === 0 && !streamingMessage && (
             <div className='flex h-full items-center justify-center'>
               <div className='text-center'>
@@ -404,8 +404,10 @@ export function Llm(): ReactElement {
             </div>
           )}
 
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+          {messages.map((message, idx) => (
+            <div key={message.id} style={idx === 0 ? { marginTop: '1rem' } : undefined}>
+              <MessageBubble message={message} />
+            </div>
           ))}
 
           {streamingMessage && <MessageBubble message={streamingMessage} isLoading={isLoading} />}
