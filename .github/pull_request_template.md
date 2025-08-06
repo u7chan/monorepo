@@ -1,43 +1,41 @@
 <!-- I want to review in Japanese. -->
 
-## Description
+## 概要
 
-Please include a summary of the change and which issue is fixed. Also include relevant motivation and context.
+変更内容の概要と修正した課題（Issue）を記載してください。また、関連する動機や背景も含めてください。
 
-Fixes # (issue)
+修正した課題番号 #（issue）
 
-## Type of Change
+## カテゴリ
 
-- [ ] Package update
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
+- [ ] パッケージの更新
+- [ ] バグ修正
+- [ ] 新機能追加
+- [ ] 重大な変更（互換性を壊す変更）
+- [ ] ドキュメントの更新
 
-## Checklist
+## チェックリスト
 
-- [ ] My code follows the style guidelines of this project
-- [ ] I have performed a self-review of my code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
+- [ ] コードがこのプロジェクトのスタイルガイドに従っている
+- [ ] 自分自身でコードの見直しを行った
+- [ ] 特に理解しづらい部分にコメントを記述した
+- [ ] ドキュメントに対応する変更を行った
+- [ ] 変更により新たな警告が発生していない
+- [ ] 修正の有効性や機能の動作を確認するテストを追加した
+- [ ] 新旧の単体テストがローカル環境で全て成功している
 
-## Screenshots (if applicable)
+## スクリーンショット（該当する場合）
 
-## Additional Notes
+## 追加の注意事項
 
-<!-- for GitHub Copilot review rule -->
-<!--
-- レビューコメントは必ず日本語で行ってください
+## レビュールール
+
+- レビューコメントは必ず日本語で行ってください (Github Copilot向け)
 - レビューを行う際は、以下のプレフィックスを使用してください:
   - [blocking] → 重大な指摘
   - [optional] → 任意対応
   - [discussion] → 議論・相談
   - [todo] → 今後対応予定
   - [comment] → 補足説明
--->
-<!-- for GitHub Copilot review rule -->
 
 <!-- I want to review in Japanese. -->
