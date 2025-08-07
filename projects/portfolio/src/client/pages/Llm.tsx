@@ -3,6 +3,7 @@ import { type ReactElement, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AppType } from '#/server/app.d'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 const client = hc<AppType>('/')
 
@@ -173,12 +174,6 @@ export function Llm(): ReactElement {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null)
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return document.documentElement.classList.contains('dark')
-    }
-    return false
-  })
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -188,18 +183,6 @@ export function Llm(): ReactElement {
   useEffect(() => {
     scrollToBottom()
   }, [messages, streamingMessage])
-
-  const toggleDarkMode = () => {
-    setIsDark((prev) => {
-      const next = !prev
-      if (next) {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
-      return next
-    })
-  }
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
@@ -361,22 +344,7 @@ export function Llm(): ReactElement {
         <div className='mx-auto flex max-w-4xl items-center justify-between'>
           <h1 className='font-bold text-gray-900 text-xl dark:text-white'>LLM Chat</h1>
           <div className='flex gap-2'>
-            <button
-              type='button'
-              onClick={toggleDarkMode}
-              aria-label={isDark ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
-              className='flex items-center rounded-lg bg-gray-100 px-3 py-1 text-gray-700 text-sm transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-            >
-              {isDark ? (
-                <span role='img' aria-label='ライトモード'>
-                  ☀️
-                </span>
-              ) : (
-                <span role='img' aria-label='ダークモード'>
-                  🌙
-                </span>
-              )}
-            </button>
+            <ThemeToggle className='px-3 py-1' />
             <button
               type='button'
               onClick={clearChat}

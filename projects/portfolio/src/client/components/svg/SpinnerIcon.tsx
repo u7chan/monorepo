@@ -2,7 +2,7 @@ interface Props {
   className?: string
 }
 
-export function SpinnerIcon({ className = 'fill-[#4299e1]' }: Props) {
+export function SpinnerIcon({ className = 'fill-blue-500 dark:fill-blue-400' }: Props) {
   return (
     <svg
       viewBox='0 0 24 24'
