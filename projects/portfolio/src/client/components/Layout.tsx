@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import type { FC, ReactNode } from 'react'
+import { ThemeToggle } from './ThemeToggle'
 
 interface Props {
   version: string
@@ -37,6 +38,7 @@ export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
         </nav>
 
         <div className='flex flex-col items-center space-y-2'>
+          <ThemeToggle />
           {/* バージョン表示 */}
           <div className='flex justify-center'>
             <span className='text-[10px] text-gray-900 dark:text-white'>{version}</span>

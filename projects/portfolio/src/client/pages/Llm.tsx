@@ -3,7 +3,6 @@ import { type ReactElement, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AppType } from '#/server/app.d'
-import { ThemeToggle } from '../components/ThemeToggle'
 
 const client = hc<AppType>('/')
 
@@ -344,7 +343,6 @@ export function Llm(): ReactElement {
         <div className='mx-auto flex max-w-4xl items-center justify-between'>
           <h1 className='font-bold text-gray-900 text-xl dark:text-white'>LLM Chat</h1>
           <div className='flex gap-2'>
-            <ThemeToggle className='px-3 py-1' />
             <button
               type='button'
               onClick={clearChat}
