@@ -562,7 +562,7 @@ export function ChatMain({
                         <div className='group'>
                           <div
                             className={
-                              'inline-block whitespace-pre-wrap break-all rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left'
+                              'inline-block whitespace-pre-wrap break-all rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left dark:bg-gray-600 dark:text-white'
                             }
                           >
                             {typeof message.content === 'string'
