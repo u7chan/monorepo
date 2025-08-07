@@ -59,7 +59,11 @@ function MarkdownLink({ href, children }: MarkdownLinkProps) {
     }
   }
   return (
-    <a href={href} onClick={handleClick} className='text-primary-800 underline'>
+    <a
+      href={href}
+      onClick={handleClick}
+      className='text-primary-800 underline dark:text-primary-400'
+    >
       {children}
     </a>
   )
@@ -103,12 +107,12 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
           {copied ? (
             <>
               <CheckIcon size={18} className='stroke-white' />
-              <span className='text-xs'>コピーしました</span>
+              <span className='text-gray-600 text-xs dark:text-gray-400'>コピーしました</span>
             </>
           ) : (
             <>
               <CopyIcon size={18} className='stroke-white' />
-              <span className='text-xs'>コピーする</span>
+              <span className='text-gray-600 text-xs dark:text-gray-400'>コピーする</span>
             </>
           )}
         </button>
@@ -450,7 +454,11 @@ export function ChatMain({
         <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div className={'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl'}>
+              <div
+                className={
+                  'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl dark:text-gray-200'
+                }
+              >
                 お手伝いできることはありますか？
               </div>
               <PromptTemplate
@@ -481,13 +489,13 @@ export function ChatMain({
                           type='button'
                           onClick={onClick}
                           disabled={loading || !!stream}
-                          className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white'
+                          className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:hover:bg-gray-700'
                         >
                           <UploadIcon
                             size={20}
                             className='fill-gray-500 group-disabled:fill-gray-300'
                           />
-                          <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300'>
+                          <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
                             画像
                           </div>
                         </button>
@@ -607,7 +615,7 @@ export function ChatMain({
                         </div>
                         <div className='message group ml-2 text-left'>
                           {message.reasoning_content && (
-                            <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs'>
+                            <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-500'>
                               {message.reasoning_content}
                             </div>
                           )}
@@ -653,7 +661,7 @@ export function ChatMain({
                   {stream ? (
                     <div className='message ml-2 text-left'>
                       {stream.reasoning_content && (
-                        <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs'>
+                        <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-500'>
                           {stream.reasoning_content}
                         </div>
                       )}
@@ -683,17 +691,17 @@ export function ChatMain({
               )}
               {!loading && chatResults && (
                 <div className='mt-2 flex justify-end gap-1'>
-                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
                     <span className='mr-1'>model:</span>
                     <span>{chatResults.model}</span>
                   </div>
                   {chatResults.finish_reason && (
-                    <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                    <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
                       <span className='mr-1'>finish_reason:</span>
                       <span>{chatResults.finish_reason}</span>
                     </div>
                   )}
-                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs'>
+                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
                     <span className='mr-1'>usage:</span>
                     <span className='mr-0.5'>(input:</span>
                     <span>{chatResults.usage?.promptTokens || '--'}</span>

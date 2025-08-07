@@ -146,26 +146,28 @@ export function ChatSettings({
             <button
               type='button'
               onClick={handleClickNewChat}
-              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
             >
-              <NewChatIcon className='fill-[#5D5D5D]' />
+              <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
             </button>
           )}
           <button
             type='button'
             onClick={handleClickShowMenu}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400'
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
           >
-            <GearIcon className='fill-[#5D5D5D]' />
+            <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
           </button>
         </div>
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[300px] gap-2 rounded border bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[300px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
+          <span
+            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+          >
             Model
           </span>
           <input
@@ -174,11 +176,13 @@ export function ChatSettings({
             disabled={fakeMode}
             onChange={handleChangeModel}
             placeholder='model'
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
+            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <div className='flex items-center gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
+          <span
+            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+          >
             BaseURL
           </span>
           <input
@@ -186,11 +190,13 @@ export function ChatSettings({
             defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
             disabled={fakeMode}
             onChange={handleChangeBaseURL}
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
+            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <div className='flex items-center gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-sm ${fakeMode ? 'opacity-50' : ''}`}>
+          <span
+            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+          >
             API KEY
           </span>
           <input
@@ -199,11 +205,13 @@ export function ChatSettings({
             disabled={fakeMode}
             defaultValue={defaultSettings.apiKey}
             onChange={handleChangeApiKey}
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
+            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <div className='flex items-center gap-2'>
-          <span className={`ml-1 w-[154px] font-medium text-xs ${fakeMode ? 'opacity-50' : ''}`}>
+          <span
+            className={`ml-1 w-[154px] font-medium text-gray-900 text-xs dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+          >
             MCP Server URLs (,)
           </span>
           <input
@@ -211,13 +219,13 @@ export function ChatSettings({
             defaultValue={defaultSettings.mcpServerURLs || ''}
             disabled={fakeMode}
             onChange={handleChangeMcpServerURLs}
-            className={`w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
+            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
         <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-sm ${temperatureEnabled ? '' : 'opacity-50'}`}
+            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
           >
             Temperature
           </span>
@@ -231,14 +239,18 @@ export function ChatSettings({
               value={temperature}
               onChange={handleChangeTemperature}
               disabled={!temperatureEnabled}
-              className={`h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 ${temperatureEnabled ? '' : 'opacity-50'}`}
+              className={`h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 dark:bg-primary-600 dark:accent-primary-500 ${temperatureEnabled ? '' : 'opacity-50'}`}
             />
-            <div className='mr-1 text-sm'>{temperature.toFixed(2)}</div>
+            <div className='mr-1 text-gray-900 text-sm dark:text-gray-200'>
+              {temperature.toFixed(2)}
+            </div>
             <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
           </div>
         </div>
         <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-sm'>Max Tokens</span>
+          <span className='ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200'>
+            Max Tokens
+          </span>
           <input
             name='maxTokens'
             type='number'
@@ -246,7 +258,7 @@ export function ChatSettings({
             max={4096}
             defaultValue={defaultSettings.maxTokens}
             onChange={handleChangeMaxTokens}
-            className='w-full rounded-sm border border-gray-300 px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-gray-400'
+            className='w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500'
           />
         </div>
         <ToggleInput

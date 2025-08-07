@@ -50,7 +50,7 @@ export function ChatInput({
   }, [])
   return (
     <div
-      className={`mx-4 rounded-3xl border bg-white p-3 transition-colors ${focus ? 'border-primary-700' : 'border-gray-300'}`}
+      className={`mx-4 rounded-3xl border bg-white p-3 transition-colors dark:bg-gray-800 ${focus ? 'border-primary-700 dark:border-primary-500' : 'border-gray-300 dark:border-gray-600'}`}
     >
       <textarea
         ref={ref}
@@ -63,7 +63,7 @@ export function ChatInput({
         rows={textAreaRows}
         placeholder={placeholder}
         disabled={disabled}
-        className='w-full resize-none overflow-y-auto p-2 focus:outline-hidden disabled:opacity-40'
+        className='w-full resize-none overflow-y-auto bg-transparent p-2 text-gray-900 placeholder-gray-500 focus:outline-hidden disabled:opacity-40 dark:text-white dark:placeholder-gray-400'
       />
 
       <div className='mt-1 flex items-center justify-between'>

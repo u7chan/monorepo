@@ -6,11 +6,13 @@ interface Props {
 
 export function ChatLayout({ conversations, children }: PropsWithChildren<Props>) {
   return conversations ? (
-    <div className='flex'>
-      <div className='h-screen w-40 border-r'>{conversations}</div>
-      <div className='flex-1'>{children}</div>
+    <div className='flex bg-white dark:bg-gray-900'>
+      <div className='h-screen w-40 border-gray-200 border-r bg-white dark:border-gray-700 dark:bg-gray-800'>
+        {conversations}
+      </div>
+      <div className='flex-1 bg-white dark:bg-gray-900'>{children}</div>
     </div>
   ) : (
-    children
+    <div className='bg-white dark:bg-gray-900'>{children}</div>
   )
 }
