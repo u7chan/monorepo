@@ -3,7 +3,7 @@ interface Props {
   className?: string
 }
 
-export function ChatbotIcon({ size = 24, className = 'stroke-black' }: Props) {
+export function ChatbotIcon({ size = 24, className = 'stroke-black dark:stroke-white' }: Props) {
   return (
     <svg
       width={size}

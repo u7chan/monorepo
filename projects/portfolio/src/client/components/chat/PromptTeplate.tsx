@@ -119,28 +119,31 @@ export function PromptTemplate({ onSubmit }: Props) {
     <div className='hidden sm:block'>
       <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
         {promptTemplates.map((template) => (
-          <div key={template.title} className='rounded-xl border border-gray-200 bg-white p-4'>
+          <div
+            key={template.title}
+            className='rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-600 dark:bg-gray-800'
+          >
             <div className='mb-2 flex items-center justify-between'>
-              <div className='line-clamp-2 font-semibold text-gray-700 text-sm'>
+              <div className='line-clamp-2 font-semibold text-gray-700 text-sm dark:text-gray-200'>
                 {template.title}
               </div>
               <div className='flex items-center gap-2'>
-                <div className='text-gray-500 text-xs'>Model</div>
+                <div className='text-gray-500 text-xs dark:text-gray-400'>Model</div>
                 <input
                   type='text'
                   spellCheck='false'
-                  className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden'
+                  className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
                   onChange={(e) => handleChangeTemplateModel(e, template.id)}
                   defaultValue={defaultSettings?.templateModels?.[template.id]?.model || ''}
                 />
               </div>
             </div>
-            <p className='text-gray-600'>
+            <p className='text-gray-600 dark:text-gray-200'>
               {template.inputType === 'text' ? (
                 <input
                   type='text'
                   spellCheck='false'
-                  className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                  className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
                   placeholder={template.placeholder}
                   onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                   onCompositionStart={() => handleChangeComposition(true)}
@@ -148,7 +151,7 @@ export function PromptTemplate({ onSubmit }: Props) {
                 />
               ) : (
                 <textarea
-                  className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden'
+                  className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400'
                   placeholder={template.placeholder}
                   onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                   onCompositionStart={() => handleChangeComposition(true)}

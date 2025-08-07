@@ -45,8 +45,8 @@ Portfolio へようこそ！
 
 export function About() {
   return (
-    <div className={'h-screen overflow-y-auto p-4'}>
-      <div className='prose'>
+    <div className='h-screen overflow-y-auto bg-white p-4 dark:bg-gray-900'>
+      <div className='prose dark:prose-invert'>
         <Markdown remarkPlugins={[remarkGfm]}>{source}</Markdown>
       </div>
     </div>

@@ -4,7 +4,7 @@ interface Props {
   className?: string
 }
 
-export function HamburgerIcon({ size = 24, className = 'fill-black' }: Props) {
+export function HamburgerIcon({ size = 24, className = 'fill-black dark:fill-white' }: Props) {
   return (
     <svg
       width={size}
