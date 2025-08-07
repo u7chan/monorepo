@@ -610,8 +610,8 @@ export function ChatMain({
                     )}
                     {message.role === 'assistant' && (
                       <div className='flex'>
-                        <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center'>
-                          <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+                        <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
+                          <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
                         </div>
                         <div className='message group ml-2 text-left'>
                           {message.reasoning_content && (
@@ -655,8 +655,8 @@ export function ChatMain({
               })}
               {loading && (
                 <div className='flex align-item'>
-                  <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 align-center'>
-                    <ChatbotIcon size={32} className='stroke-[#5D5D5D]' />
+                  <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
+                    <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
                   </div>
                   {stream ? (
                     <div className='message ml-2 text-left'>
