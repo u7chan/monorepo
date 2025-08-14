@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. プロジェクト構造とデータモデルの実装
+- [x] 1. プロジェクト構造とデータモデルの実装
   - プロジェクトディレクトリ構造を作成し、FastAPIアプリケーションの基盤を構築
   - Pydanticを使用してExecutionRequest、ExecutionResult、ContainerConfig、ErrorResponseモデルを実装
   - _Requirements: 1.1, 4.1, 4.4_
