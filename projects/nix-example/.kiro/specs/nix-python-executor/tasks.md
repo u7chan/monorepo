@@ -5,7 +5,7 @@
   - Pydanticを使用してExecutionRequest、ExecutionResult、ContainerConfig、ErrorResponseモデルを実装
   - _Requirements: 1.1, 4.1, 4.4_
 
-- [ ] 2. FastAPI Manager の基本実装
+- [x] 2. FastAPI Manager の基本実装
   - FastAPIアプリケーションとルーターを作成
   - /runエンドポイントでファイルアップロード機能を実装
   - 基本的なエラーハンドリングとレスポンス形式を実装
