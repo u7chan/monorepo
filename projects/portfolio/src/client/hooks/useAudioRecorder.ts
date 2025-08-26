@@ -41,7 +41,9 @@ export const useAudioRecorder = () => {
         setAudioBlob(audioBlob)
         const audioUrl = URL.createObjectURL(audioBlob)
         setAudioURL(audioUrl)
-        stream.getTracks().forEach((track) => track.stop()) // Stop the microphone access
+        stream.getTracks().forEach((track) => {
+          track.stop() // Stop the microphone access
+        })
       }
 
       mediaRecorderRef.current.start()

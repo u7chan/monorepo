@@ -104,8 +104,9 @@ body {
 }
 
 /* コードブロック内のトークンスタイルを無効にする */
-.prose pre code span.token {
-  background: unset !important;
+.prose pre code span.token,
+.prose pre code span.token[style] {
+  background: transparent;
 }
 
 ::-webkit-scrollbar {
