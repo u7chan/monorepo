@@ -1,15 +1,27 @@
 
 FROM oven/bun:alpine AS bun
-FROM node:24-alpine AS builder
+FROM node:24-alpine AS base
+FROM base AS test
 
-COPY --from=bun /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
 WORKDIR /app
 
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
 COPY . .
+
+RUN bun install
+RUN bun run lint
+
+FROM base AS builder
+
+WORKDIR /app
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
+COPY . .
+
 RUN bun install
 RUN bun run build
 
-FROM node:24-alpine AS runner
+FROM base AS runner
 
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
