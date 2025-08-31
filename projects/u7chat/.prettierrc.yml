@@ -2,12 +2,5 @@ semi: false
 printWidth: 120
 singleQuote: true
 jsxSingleQuote: true
-overrides:
-  - files: "*.test.js"
-    options:
-      semi: true
-  - files:
-      - "*.html"
-      - "legacy/**/*.js"
-    options:
-      tabWidth: 4
+plugins:
+  - prettier-plugin-tailwindcss
