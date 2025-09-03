@@ -1,0 +1,23 @@
+{
+  "name": "long-running-mcp-server",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".",
+    "target": "dev"
+  },
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.tabSize": 2,
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "biomejs.biome",
+        "mhutchie.git-graph",
+        "eamodio.gitlens",
+        "oderwat.indent-rainbow"
+      ]
+    }
+  }
+}
