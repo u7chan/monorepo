@@ -1,7 +1,9 @@
 {
   "name": "long-running-mcp-server",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.ts",
+    "lint": "biome lint src",
+    "format": "biome format --write src"
   },
   "dependencies": {
     "hono": "^4.9.6"

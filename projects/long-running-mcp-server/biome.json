@@ -10,7 +10,7 @@
 	},
 	"formatter": {
 		"enabled": true,
-		"indentStyle": "tab"
+		"indentStyle": "space"
 	},
 	"linter": {
 		"enabled": true,
@@ -20,7 +20,12 @@
 	},
 	"javascript": {
 		"formatter": {
-			"quoteStyle": "double"
+			"indentStyle": "space",
+			"indentWidth": 2,
+			"lineEnding": "lf",
+			"semicolons": "asNeeded",
+			"quoteStyle": "single",
+			"jsxQuoteStyle": "single"
 		}
 	},
 	"assist": {
