@@ -6,6 +6,7 @@
     "target": "dev"
   },
   "remoteUser": "vscode",
+  "postCreateCommand": "bun i",
   "customizations": {
     "vscode": {
       "settings": {
