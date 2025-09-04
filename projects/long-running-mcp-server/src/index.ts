@@ -13,6 +13,7 @@ const mcpServer = new McpServer({
   name: 'long-running-mcp-server',
   version: '1.0.0',
 })
+
 mcpServer.tool(
   'add',
   'Add two numbers',
