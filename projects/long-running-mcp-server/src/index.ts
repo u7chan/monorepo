@@ -15,15 +15,72 @@ const mcpServer = new McpServer({
 })
 
 mcpServer.tool(
-  'add',
-  'Add two numbers',
-  {
-    a: z.number(),
-    b: z.number(),
+  'run_long_task',
+  'Runs a long task that takes a while to complete',
+  async () => {
+    const sessionId = crypto.randomUUID()
+    // TODO: run the long task asynchronously
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Started long task with session ID: ${sessionId}`,
+        },
+      ],
+    }
   },
-  async ({ a, b }) => ({
-    content: [{ type: 'text', text: String(a + b) }],
-  }),
+)
+
+mcpServer.tool(
+  'get_task_status',
+  'Gets the status of a long task',
+  { sessionId: z.string() },
+  async ({ sessionId }) => {
+    // TODO: fetch status
+    const status = 'in_progress'
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Status of task ${sessionId}: ${status}`,
+        },
+      ],
+    }
+  },
+)
+
+mcpServer.tool(
+  'approve_task',
+  'Approves a long task',
+  { sessionId: z.string() },
+  async ({ sessionId }) => {
+    // TODO: approve task
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Approved task ${sessionId}`,
+        },
+      ],
+    }
+  },
+)
+
+mcpServer.tool(
+  'register_task',
+  'Registers a long task',
+  { sessionId: z.string() },
+  async ({ sessionId }) => {
+    // TODO: register task
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Registered task ${sessionId}`,
+        },
+      ],
+    }
+  },
 )
 
 app.all('/mcp', async (c) => {
