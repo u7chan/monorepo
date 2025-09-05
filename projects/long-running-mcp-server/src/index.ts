@@ -67,16 +67,16 @@ mcpServer.tool(
 )
 
 mcpServer.tool(
-  'register_task',
-  'Registers a long task',
+  'reject_task',
+  'rejects a long task',
   { sessionId: z.string() },
   async ({ sessionId }) => {
-    // TODO: register task
+    // TODO: reject task
     return {
       content: [
         {
           type: 'text',
-          text: `Registered task ${sessionId}`,
+          text: `Rejected task ${sessionId}`,
         },
       ],
     }
