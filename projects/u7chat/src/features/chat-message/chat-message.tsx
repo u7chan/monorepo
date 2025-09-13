@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { generate } from './chat-actions'
+import { generate } from './chat-message-actions'
 import { readStreamableValue } from '@ai-sdk/rsc'
 import { Streamdown } from 'streamdown'
 
-export function Chat({ model }: { model: string }) {
+export function ChatMessage({ model }: { model: string }) {
   const [loading, setLoading] = useState(false)
   const [userInput, setUserInput] = useState('')
   const [generation, setGeneration] = useState('')
