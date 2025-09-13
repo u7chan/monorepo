@@ -9,11 +9,11 @@ interface ChatProps {
 }
 
 export function Chat({ model }: ChatProps) {
-  const { loading, inputText, streamText, handleSubmit } = useChat(model)
+  const { loading, inputText, streamText, scrollContainer, handleSubmit } = useChat(model)
 
   return (
     <>
-      <ChatMessage user={inputText} assistant={streamText} />
+      <ChatMessage user={inputText} assistant={streamText} scrollContainer={scrollContainer} />
       <ChatInput loading={loading} onSubmit={handleSubmit} />
     </>
   )

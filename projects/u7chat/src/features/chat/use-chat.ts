@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { generate } from './chat-actions'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
@@ -6,6 +6,13 @@ export function useChat(model: string) {
   const [loading, setLoading] = useState(false)
   const [inputText, setInputText] = useState('')
   const [streamText, setStreamText] = useState('')
+  const scrollContainer = useRef<HTMLDivElement>(null)
+
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      scrollContainer.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 1)
+  }
 
   const handleSubmit = async (input: string) => {
     setInputText(input)
@@ -16,6 +23,7 @@ export function useChat(model: string) {
 
     for await (const delta of readStreamableValue(output)) {
       setStreamText((prev) => `${prev}${delta}`)
+      scrollToBottom()
     }
     setStreamText((prev) => `${prev}\n`)
     setLoading(false)
@@ -25,6 +33,7 @@ export function useChat(model: string) {
     loading,
     inputText,
     streamText,
+    scrollContainer,
     handleSubmit,
   }
 }

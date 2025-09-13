@@ -8,9 +8,10 @@ import { Streamdown } from 'streamdown'
 interface ChatMessageProps {
   user: string
   assistant: string
+  scrollContainer?: React.RefObject<HTMLDivElement | null>
 }
 
-export function ChatMessage({ user, assistant }: ChatMessageProps) {
+export function ChatMessage({ user, assistant, scrollContainer }: ChatMessageProps) {
   return (
     <div className='flex flex-col gap-2'>
       <div className='flex max-h-[400px] flex-col gap-2 overflow-y-auto p-4'>
@@ -20,6 +21,7 @@ export function ChatMessage({ user, assistant }: ChatMessageProps) {
           </div>
         )}
         <Streamdown className='break-words whitespace-pre-wrap'>{assistant}</Streamdown>
+        <div ref={scrollContainer}></div>
       </div>
     </div>
   )
