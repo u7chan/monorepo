@@ -2,7 +2,12 @@
 
 import { changeModel } from './llm-model-actions'
 
-export function ModelSelect(props: { models: string[]; defaultModel?: string }) {
+interface ModelSelectProps {
+  models: string[]
+  defaultModel?: string
+}
+
+export function ModelSelect(props: ModelSelectProps) {
   return (
     <select
       className='mb-4 w-full rounded border border-gray-300 p-2'
