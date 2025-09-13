@@ -10,7 +10,9 @@ export function ModelSelect(props: { models: string[]; defaultModel?: string }) 
         changeModel(e.target.value)
       }}
       defaultValue={props.defaultModel}
+      required
     >
+      <option value=''></option>
       {props.models.map((model) => (
         <option key={model} value={model}>
           {model}

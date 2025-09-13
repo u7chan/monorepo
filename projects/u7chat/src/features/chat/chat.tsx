@@ -5,7 +5,7 @@ import { generate } from './chat-actions'
 import { readStreamableValue } from '@ai-sdk/rsc'
 import { Streamdown } from 'streamdown'
 
-export function Chat() {
+export function Chat({ model }: { model: string }) {
   const [loading, setLoading] = useState(false)
   const [userInput, setUserInput] = useState('')
   const [generation, setGeneration] = useState('')
@@ -32,7 +32,7 @@ export function Chat() {
             setGeneration('')
             setLoading(true)
 
-            const { output } = await generate('gemini/gemini-2.5-flash', prompt)
+            const { output } = await generate(model, prompt)
 
             for await (const delta of readStreamableValue(output)) {
               setGeneration((currentGeneration) => `${currentGeneration}${delta}`)
