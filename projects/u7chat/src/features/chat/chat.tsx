@@ -5,9 +5,6 @@ import { generate } from './chat-actions'
 import { readStreamableValue } from '@ai-sdk/rsc'
 import { Streamdown } from 'streamdown'
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30
-
 export function Chat() {
   const [loading, setLoading] = useState(false)
   const [userInput, setUserInput] = useState('')
@@ -15,7 +12,7 @@ export function Chat() {
 
   return (
     <>
-      <div className='flex w-full max-w-md flex-col gap-2'>
+      <div className='flex flex-col gap-2'>
         <div className='flex max-h-[400px] flex-col gap-2 overflow-y-auto p-4'>
           {userInput && (
             <div className='flex justify-end'>
@@ -32,6 +29,7 @@ export function Chat() {
             const prompt = `${new FormData(e.currentTarget).get('prompt')}`
             e.currentTarget.reset()
             setUserInput(prompt)
+            setGeneration('')
             setLoading(true)
 
             const { output } = await generate('gemini/gemini-2.5-flash', prompt)
