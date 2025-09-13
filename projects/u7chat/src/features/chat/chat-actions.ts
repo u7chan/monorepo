@@ -9,8 +9,8 @@ export async function generate(model: string, input: string) {
 
   ;(async () => {
     const openai = createOpenAI({
-      baseURL: process.env.OPENAI_API_BASE_URL!,
-      apiKey: process.env.OPENAI_API_KEY!,
+      baseURL: process.env.LITELLM_API_BASE_URL!,
+      apiKey: process.env.LITELLM_API_KEY!,
     })
     const { textStream } = streamText({
       model: openai(model),
