@@ -16,12 +16,14 @@ export default function Home() {
   return (
     <div className='flex min-h-screen flex-col items-center justify-center p-4'>
       <div className='flex w-full max-w-md flex-col gap-2'>
-        {userInput && (
-          <div className='flex justify-end'>
-            <div className='rounded bg-gray-100 p-2 break-words whitespace-pre-wrap'>{userInput}</div>
-          </div>
-        )}
-        <Streamdown className='break-words whitespace-pre-wrap'>{generation}</Streamdown>
+        <div className='flex max-h-[400px] flex-col gap-2 overflow-y-auto p-4'>
+          {userInput && (
+            <div className='flex justify-end'>
+              <div className='rounded bg-gray-100 p-2 break-words whitespace-pre-wrap'>{userInput}</div>
+            </div>
+          )}
+          <Streamdown className='break-words whitespace-pre-wrap'>{generation}</Streamdown>
+        </div>
         <form
           className='flex gap-2'
           onSubmit={async (e: React.FormEvent<HTMLFormElement>) => {
