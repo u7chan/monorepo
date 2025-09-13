@@ -1,6 +1,6 @@
 import { Chat } from '@/features/chat/chat'
-import { fetchModels } from '@/features/litellm/litellm-actions'
-import { ModelSelect } from '@/features/litellm/model-select'
+import { fetchModels } from '@/features/llm-models/llm-model-actions'
+import { ModelSelect } from '@/features/llm-models/model-select'
 
 export default async function Page(props: PageProps<'/'>) {
   const { model } = await props.searchParams
