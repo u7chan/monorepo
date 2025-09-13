@@ -19,7 +19,10 @@ export default function Home() {
         disabled={loading}
         onClick={async () => {
           setLoading(true)
-          const { output } = await generate('Show makrdown syntax highlighting example')
+          const { output } = await generate(
+            'gemini/gemini-2.5-flash',
+            'Who are you? Show simple markdown syntax example',
+          )
 
           for await (const delta of readStreamableValue(output)) {
             setGeneration((currentGeneration) => `${currentGeneration}${delta}`)
