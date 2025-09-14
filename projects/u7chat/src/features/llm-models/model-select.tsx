@@ -10,7 +10,7 @@ interface ModelSelectProps {
 export function ModelSelect(props: ModelSelectProps) {
   return (
     <select
-      className='mb-4 w-full rounded border border-gray-300 p-2'
+      className='mb-4 w-full cursor-pointer appearance-none rounded border border-gray-300 p-2'
       onChange={(e) => {
         changeModel(e.target.value)
       }}
