@@ -21,7 +21,7 @@ export async function generate(model: string, input: string) {
     if (error instanceof APICallError) {
       return { output: error.responseBody || error.message }
     }
-    return { output: error instanceof Error ? error.message : String(error)
+    return { output: error instanceof Error ? error.message : String(error) }
   }
 }
 
