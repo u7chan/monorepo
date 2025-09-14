@@ -7,7 +7,7 @@ export default async function Page(props: PageProps<'/'>) {
   const models = await fetchModels()
   const selectModel = typeof model === 'string' ? model : ''
   return (
-    <div className='flex min-h-screen flex-col items-center justify-center p-4'>
+    <div className='flex flex-col items-center justify-center p-4'>
       <div className='w-full max-w-lg rounded border border-gray-200 p-4'>
         <ModelSelect models={models} defaultModel={selectModel} />
         {selectModel && <Chat model={selectModel} />}
