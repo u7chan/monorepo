@@ -1,24 +1,24 @@
 'use client'
 
-import { changeModel } from './llm-model-actions'
+import { changeModel } from './actions'
 
 interface ModelSelectProps {
   models: string[]
-  defaultModel?: string
+  defaultValue?: string
 }
 
-export function ModelSelect(props: ModelSelectProps) {
+export function ModelSelect({ models, defaultValue }: ModelSelectProps) {
   return (
     <select
-      className='mb-4 w-full cursor-pointer appearance-none rounded border border-gray-300 p-2'
+      className='w-full cursor-pointer appearance-none rounded border border-gray-300 p-2'
       onChange={(e) => {
         changeModel(e.target.value)
       }}
-      defaultValue={props.defaultModel}
+      defaultValue={defaultValue}
       required
     >
       <option value=''></option>
-      {props.models.map((model) => (
+      {models.map((model) => (
         <option key={model} value={model}>
           {model}
         </option>

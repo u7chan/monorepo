@@ -1,8 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-import { generate } from './chat-actions'
-import { readStreamableValue } from '@ai-sdk/rsc'
 import { Streamdown } from 'streamdown'
 
 interface ChatMessageProps {
