@@ -12,7 +12,7 @@ export default async function Page(props: PageProps<'/'>) {
 
   return (
     <div className='flex flex-col items-center justify-center p-4'>
-      <div className='w-full max-w-lg rounded border border-gray-200 p-4'>
+      <div className='w-full max-w-2xl'>
         <div className='flex items-center gap-2'>
           <StreamToggle defaultValue={streamValue} />
           <ModelSelect models={models} defaultValue={selectModel} />
