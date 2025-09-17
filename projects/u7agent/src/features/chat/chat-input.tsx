@@ -8,7 +8,7 @@ interface ChatInputProps {
 export function ChatInput({ loading, onSubmit }: ChatInputProps) {
   return (
     <form
-      className='border-border relative flex rounded-2xl border pb-12'
+      className='border-border relative flex rounded-3xl border pb-12'
       onSubmit={async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
         onSubmit(`${new FormData(e.currentTarget).get('input')}`)
@@ -23,19 +23,21 @@ export function ChatInput({ loading, onSubmit }: ChatInputProps) {
       ></textarea>
       <button
         type='submit'
-        className='border-border absolute right-2 bottom-2 flex h-8 w-8 items-center justify-center rounded-4xl border enabled:cursor-pointer'
+        className='absolute right-2 bottom-2 flex h-12 w-12 items-center justify-center enabled:cursor-pointer'
         disabled={loading}
       >
-        <svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg' width='24' height='24'>
-          <path
-            d='M12 20V4m0 0l-6 6m6-6l6 6'
-            className='stroke-foreground'
-            stroke='currentColor'
-            strokeWidth='2'
-            strokeLinecap='round'
-            strokeLinejoin='round'
-          />
-        </svg>
+        <div className='border-border flex h-9 w-9 items-center justify-center rounded-4xl border'>
+          <svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg' width='24' height='24'>
+            <path
+              d='M12 20V4m0 0l-6 6m6-6l6 6'
+              className='stroke-foreground'
+              stroke='currentColor'
+              strokeWidth='2'
+              strokeLinecap='round'
+              strokeLinejoin='round'
+            />
+          </svg>
+        </div>
       </button>
     </form>
   )
