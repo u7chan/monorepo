@@ -23,7 +23,7 @@ export function ChatInput({ loading, onSubmit }: ChatInputProps) {
       ></textarea>
       <button
         type='submit'
-        className='absolute right-2 bottom-2 flex h-12 w-12 items-center justify-center enabled:cursor-pointer'
+        className='absolute right-0.5 bottom-0.5 flex h-12 w-12 items-center justify-center enabled:cursor-pointer'
         disabled={loading}
       >
         <div className='border-border flex h-9 w-9 items-center justify-center rounded-4xl border'>
