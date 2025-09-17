@@ -29,7 +29,6 @@ ENV HOSTNAME=0.0.0.0
 WORKDIR /app
 
 COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/static ./.next/static
 
 RUN adduser -D appuser && chown -R appuser:appuser /app

@@ -8,26 +8,36 @@ interface ChatInputProps {
 export function ChatInput({ loading, onSubmit }: ChatInputProps) {
   return (
     <form
-      className='flex gap-2'
+      className='border-border relative flex rounded-3xl border pb-12'
       onSubmit={async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
         onSubmit(`${new FormData(e.currentTarget).get('input')}`)
         e.currentTarget.reset()
       }}
     >
-      <input
+      <textarea
         name='input'
-        type='text'
-        className='flex-1 rounded border border-gray-300 p-2'
+        rows={2}
+        className='min-h-10 flex-1 p-4 ring-0 focus:ring-0 focus:outline-none'
         required
-        autoComplete='off'
-      />
+      ></textarea>
       <button
         type='submit'
-        className='rounded bg-blue-500 px-4 py-2 text-white enabled:cursor-pointer enabled:hover:opacity-80 disabled:opacity-50 dark:bg-blue-700'
+        className='absolute right-0.5 bottom-0.5 flex h-12 w-12 items-center justify-center enabled:cursor-pointer'
         disabled={loading}
       >
-        Ask
+        <div className='bg-secondary flex h-9 w-9 items-center justify-center rounded-4xl'>
+          <svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg' width='24' height='24'>
+            <path
+              d='M12 20V4m0 0l-6 6m6-6l6 6'
+              className='stroke-foreground'
+              stroke='currentColor'
+              strokeWidth='2'
+              strokeLinecap='round'
+              strokeLinejoin='round'
+            />
+          </svg>
+        </div>
       </button>
     </form>
   )

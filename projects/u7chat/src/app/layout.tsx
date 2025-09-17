@@ -1,20 +1,16 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { M_PLUS_Rounded_1c } from 'next/font/google'
 import './globals.css'
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
+const mplusRounded1c = M_PLUS_Rounded_1c({
+  weight: ['400', '700'], // Specify the weights you need
+  subsets: ['latin'], // Or 'japanese' if you need specific Japanese characters
+  display: 'swap', // Recommended for better performance
 })
 
 export const metadata: Metadata = {
-  title: 'Chat with AI',
-  description: 'Chat with AI',
+  title: 'Agent',
+  description: 'Agent',
 }
 
 export default function RootLayout({
@@ -24,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang='ja'>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
+      <body className={`${mplusRounded1c.className} antialiased`}>{children}</body>
     </html>
   )
 }
