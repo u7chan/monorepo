@@ -26,7 +26,7 @@ export function ChatInput({ loading, onSubmit }: ChatInputProps) {
         className='absolute right-0.5 bottom-0.5 flex h-12 w-12 items-center justify-center enabled:cursor-pointer'
         disabled={loading}
       >
-        <div className='border-border flex h-9 w-9 items-center justify-center rounded-4xl border'>
+        <div className='bg-secondary flex h-9 w-9 items-center justify-center rounded-4xl'>
           <svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg' width='24' height='24'>
             <path
               d='M12 20V4m0 0l-6 6m6-6l6 6'

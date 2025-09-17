@@ -5,7 +5,7 @@
   --background: #ffffff;
   --foreground: #171717;
   --border: #e5e7eb;
-  --chat-bubble: #f3f4f6;
+  --secondary: #f3f4f6;
   --scrollbar-thumb: #c0c0c0;
   --scrollbar-track: transparent;
 }
@@ -15,7 +15,7 @@
     --background: #0a0a0a;
     --foreground: #ededed;
     --border: #374151;
-    --chat-bubble: #1f2937;
+    --secondary: #1f2937;
     --scrollbar-thumb: #6b7280;
     --scrollbar-track: transparent;
   }
@@ -25,7 +25,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-border: var(--border);
-  --color-chat-bubble: var(--chat-bubble);
+  --color-secondary: var(--secondary);
   --color-scrollbar-thumb: var(--scrollbar-thumb);
   --color-scrollbar-track: var(--scrollbar-track);
   --font-sans: 'M PLUS Rounded 1c', system-ui, -apple-system, sans-serif;
