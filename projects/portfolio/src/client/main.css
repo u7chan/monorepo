@@ -84,6 +84,18 @@ body {
   content: none;
 }
 
+.prose * {
+  @apply dark:text-white;
+}
+
+.prose ::marker {
+  color: #1f2937; /* gray-800 for light mode */
+}
+
+.dark .prose ::marker {
+  color: #ffffff; /* white for dark mode */
+}
+
 /* インラインコードブロックのスタイル */
 .prose > p > code {
   @apply font-mono text-sm inline bg-gray-200 text-gray-800 rounded px-1 py-1 dark:bg-gray-700 dark:text-gray-200;
@@ -106,7 +118,7 @@ body {
 /* コードブロック内のトークンスタイルを無効にする */
 .prose pre code span.token,
 .prose pre code span.token[style] {
-  background: transparent;
+  background: transparent !important;
 }
 
 ::-webkit-scrollbar {

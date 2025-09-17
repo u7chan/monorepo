@@ -11,6 +11,7 @@ import React, {
 } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 import remarkGfm from 'remark-gfm'
 import { uuidv7 } from 'uuidv7'
 import { ChatInput } from '#/client/components/chat/ChatInput'
@@ -74,6 +75,7 @@ type MarkdownCodeBlockProps = React.HTMLAttributes<HTMLElement> & {
 }
 
 function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
+  const isDarkMode = document.documentElement.classList.contains('dark')
   const [copied, setCopied] = useState(false)
   const code =
     typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
@@ -107,17 +109,19 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
           {copied ? (
             <>
               <CheckIcon size={18} className='stroke-white' />
-              <span className='text-gray-600 text-xs dark:text-gray-400'>コピーしました</span>
+              <span className='text-white text-xs'>コピーしました</span>
             </>
           ) : (
             <>
               <CopyIcon size={18} className='stroke-white' />
-              <span className='text-gray-600 text-xs dark:text-gray-400'>コピーする</span>
+              <span className='text-white text-xs'>コピーする</span>
             </>
           )}
         </button>
       </div>
-      <SyntaxHighlighter language={language}>{code}</SyntaxHighlighter>
+      <SyntaxHighlighter style={isDarkMode ? atomDark : undefined} language={language}>
+        {code}
+      </SyntaxHighlighter>
     </>
   )
 }
@@ -230,7 +234,10 @@ export function ChatMain({
     setChatResults(null)
     setTimeout(() => {
       // メッセージの末尾にスクロール
-      messageEndRef?.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
+      messageEndRef?.current?.scrollIntoView({
+        behavior: 'instant',
+        block: 'end',
+      })
     }, 0)
   }, [currentConversation])
 
@@ -615,7 +622,7 @@ export function ChatMain({
                         </div>
                         <div className='message group ml-2 text-left'>
                           {message.reasoning_content && (
-                            <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-500'>
+                            <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-200'>
                               {message.reasoning_content}
                             </div>
                           )}
@@ -623,7 +630,10 @@ export function ChatMain({
                             <div className='prose mt-1 max-w-screen-md break-all'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
-                                components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
+                                components={{
+                                  a: MarkdownLink,
+                                  code: MarkdownCodeBlock,
+                                }}
                               >
                                 {message.content}
                               </ReactMarkdown>
@@ -661,15 +671,18 @@ export function ChatMain({
                   {stream ? (
                     <div className='message ml-2 text-left'>
                       {stream.reasoning_content && (
-                        <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-500'>
+                        <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-200'>
                           {stream.reasoning_content}
                         </div>
                       )}
                       {settings.markdownPreview ? (
-                        <div className='prose mt-1 max-w-screen-md break-all'>
+                        <div className='prose mt-1 max-w-screen-md break-all dark:text-white'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
-                            components={{ a: MarkdownLink, code: MarkdownCodeBlock }}
+                            components={{
+                              a: MarkdownLink,
+                              code: MarkdownCodeBlock,
+                            }}
                           >
                             {stream.content}
                           </ReactMarkdown>
@@ -796,7 +809,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
         <button
           type='button'
           onClick={handleClickStop}
-          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
+          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
         >
           <StopIcon className='fill-white' size={18} />
         </button>
@@ -804,7 +817,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
         <button
           type='submit'
           disabled={disabled}
-          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default`}
+          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
         >
           <ArrowUpIcon className='fill-white' size={22} />
         </button>
@@ -952,7 +965,9 @@ const sendChatCompletion = async (req: {
       const nonStream = res.headers.get('Content-Type') === 'application/json'
       if (nonStream) {
         const data = (await res.json()) as unknown as {
-          choices: { message: { content: string; reasoning_content?: string } }[]
+          choices: {
+            message: { content: string; reasoning_content?: string }
+          }[]
           model?: string
           usage?: {
             prompt_tokens: number
