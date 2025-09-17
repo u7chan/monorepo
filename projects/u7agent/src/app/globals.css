@@ -5,6 +5,7 @@
   --background: #ffffff;
   --foreground: #171717;
   --border: #e5e7eb;
+  --chat-bubble: #f3f4f6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -12,6 +13,7 @@
     --background: #0a0a0a;
     --foreground: #ededed;
     --border: #374151;
+    --chat-bubble: #1f2937;
   }
 }
 
@@ -19,6 +21,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-border: var(--border);
+  --color-chat-bubble: var(--chat-bubble);
   --font-sans: 'M PLUS Rounded 1c', system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
