@@ -4,7 +4,7 @@ export default function Page() {
   return (
     <div className='flex justify-center'>
       <div className='max-w-2xl flex-1 p-4'>
-        <Chat model='gpt-4.1-mini' />
+        <Chat model='gpt-4.1-nano' />
       </div>
     </div>
   )

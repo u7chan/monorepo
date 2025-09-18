@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
-import { generate, generateStream } from './actions'
+import { generateStream } from './actions'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-export function useChat({ model, stream }: { model: string; stream?: boolean }) {
+export function useChat({ model }: { model: string }) {
   const [loading, setLoading] = useState(false)
   const [inputText, setInputText] = useState('')
   const [outputText, setOutputText] = useState('')
@@ -19,19 +19,13 @@ export function useChat({ model, stream }: { model: string; stream?: boolean }) 
     setOutputText('')
     setLoading(true)
 
-    if (stream) {
-      const { output } = await generateStream(model, input)
-      for await (const delta of readStreamableValue(output)) {
-        setOutputText((prev) => `${prev}${delta}`)
-        scrollToBottom()
-      }
-      setOutputText((prev) => `${prev}\n`)
-    } else {
-      const { output } = await generate(model, input)
-      setOutputText((prev) => `${prev}${output}`)
+    const { output } = await generateStream(model, input)
+    for await (const delta of readStreamableValue(output)) {
+      setOutputText((prev) => `${prev}${delta}`)
       scrollToBottom()
     }
 
+    setOutputText((prev) => `${prev}\n`)
     setLoading(false)
   }
 

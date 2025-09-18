@@ -1,51 +1,82 @@
 'use server'
 
-import { streamText, generateText, APICallError } from 'ai'
+import { Experimental_Agent as Agent, stepCountIs, tool } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
-
-export async function generate(model: string, input: string) {
-  const openai = createOpenAI({
-    baseURL: process.env.LITELLM_API_BASE_URL!,
-    apiKey: process.env.LITELLM_API_KEY!,
-  })
-
-  try {
-    const response = await generateText({
-      model: openai(model),
-      prompt: input,
-    })
-    return { output: response.text }
-  } catch (error) {
-    console.error('Error generating text:', error)
-    if (error instanceof APICallError) {
-      return { output: error.responseBody || error.message }
-    }
-    return { output: error instanceof Error ? error.message : String(error) }
-  }
-}
+import z from 'zod'
 
 export async function generateStream(model: string, input: string) {
-  const stream = createStreamableValue('')
+  const output = createStreamableValue('')
 
   ;(async () => {
     const openai = createOpenAI({
       baseURL: process.env.LITELLM_API_BASE_URL!,
       apiKey: process.env.LITELLM_API_KEY!,
     })
-    const { textStream } = streamText({
+
+    const agent = new Agent({
       model: openai(model),
-      prompt: input,
-      onError: ({ error }) => {
-        stream.update(error instanceof Error ? error.message : String(error))
+      system: `あなたは優れたAIエージェントです。
+      ルール:
+        - 常に共感的かつ専門的に対応してください。
+        - もしわからないことがあれば、その旨を伝え、エスカレートを提案してください。
+        - 応答は簡潔で、実行可能な内容にしてください。
+      `,
+      tools: {
+        weather: tool({
+          description: '天気情報を取得します。',
+          inputSchema: z.object({ location: z.string().describe('天気を取得する都市') }),
+          execute: async ({ location }) => {
+            // Mock weather data for demonstration purposes
+            return {
+              text: `${location}の天気は晴れで、気温は25°Cです。`,
+              condition: '晴れ',
+              temperature: 25,
+            }
+          },
+        }),
+        discord: tool({
+          description: 'Discordチャンネルにメッセージを送信します。',
+          inputSchema: z.object({
+            channelId: z.string().describe('DiscordチャンネルのID'),
+            message: z.string().describe('送信するメッセージ内容'),
+          }),
+          execute: async ({ channelId, message }) => {
+            // Mock Discord message sending for demonstration purposes
+            console.log(`Message sent to channel ${channelId}: ${message}`)
+            return { success: true }
+          },
+        }),
+      },
+      stopWhen: [stepCountIs(3)],
+      prepareStep: ({ stepNumber, messages }) => {
+        console.log(`Preparing step (${stepNumber}):`, JSON.stringify(messages))
+        return undefined
+      },
+      onStepFinish: (step) => {
+        console.log(`Step finished:`, {
+          toolCalls: step.toolCalls.map(({ type, toolName, input }) => ({
+            type,
+            toolName,
+            input: JSON.stringify(input),
+          })),
+          toolResults: step.toolResults.map(({ type, toolName, input }) => ({
+            type,
+            toolName,
+            input: JSON.stringify(input),
+          })),
+        })
       },
     })
 
-    for await (const delta of textStream) {
-      stream.update(delta)
+    const stream = agent.stream({ prompt: input })
+
+    for await (const chunk of stream.textStream) {
+      output.update(chunk)
     }
-    stream.done()
+
+    output.done()
   })()
 
-  return { output: stream.value }
+  return { output: output.value }
 }
