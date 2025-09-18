@@ -1,25 +1,20 @@
-"use client";
+'use client'
 
-import { ChatInput } from "./chat-input";
-import { ChatMessage } from "./chat-message";
-import { useChat } from "./use-chat";
+import { ChatInput } from './chat-input'
+import { ChatMessage } from './chat-message'
+import { useChat } from './use-chat'
 
 interface ChatProps {
-  model: string;
+  model: string
 }
 
 export function Chat({ model }: ChatProps) {
-  const { loading, inputText, outputText, scrollContainer, handleSubmit } =
-    useChat({ model, stream: true });
+  const { loading, inputText, outputText, scrollContainer, handleSubmit } = useChat({ model })
 
   return (
     <>
-      <ChatMessage
-        user={inputText}
-        assistant={outputText}
-        scrollContainer={scrollContainer}
-      />
+      <ChatMessage user={inputText} assistant={outputText} scrollContainer={scrollContainer} />
       <ChatInput loading={loading} onSubmit={handleSubmit} />
     </>
-  );
+  )
 }
