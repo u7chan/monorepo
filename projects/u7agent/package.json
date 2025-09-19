@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.32",
-    "@ai-sdk/rsc": "^1.0.45",
+    "@ai-sdk/rsc": "^1.0.47",
     "next": "^15.5.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
