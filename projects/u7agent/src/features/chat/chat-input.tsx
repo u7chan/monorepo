@@ -20,6 +20,15 @@ export function ChatInput({ loading, onSubmit }: ChatInputProps) {
         rows={2}
         className='min-h-10 flex-1 p-4 ring-0 focus:ring-0 focus:outline-none'
         required
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            const form = e.currentTarget.form
+            if (form) {
+              form.requestSubmit()
+            }
+          }
+        }}
       ></textarea>
       <button
         type='submit'
