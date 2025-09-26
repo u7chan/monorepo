@@ -3,9 +3,10 @@
 import { generateText, Experimental_Agent as Agent, stepCountIs, tool } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
+import { AgentConfig } from './types'
 import z from 'zod'
 
-export async function generateStream(model: string, input: string) {
+export async function agentStream(input: string, agentConfig: AgentConfig) {
   const output = createStreamableValue<{ delta?: string; summarized?: string }>()
 
   ;(async () => {
@@ -15,13 +16,8 @@ export async function generateStream(model: string, input: string) {
     })
 
     const agent = new Agent({
-      model: openai(model),
-      system: `あなたは優れたAIエージェントです。
-      ルール:
-        - 常に共感的かつ専門的に対応してください。
-        - もしわからないことがあれば、その旨を伝え、エスカレートを提案してください。
-        - 応答は簡潔で、実行可能な内容にしてください。
-      `,
+      model: openai(agentConfig.model),
+      system: agentConfig.systemPrompt,
       tools: {
         weather: tool({
           description: '天気情報を取得します。',
@@ -48,7 +44,7 @@ export async function generateStream(model: string, input: string) {
           },
         }),
       },
-      stopWhen: [stepCountIs(3)],
+      stopWhen: [stepCountIs(agentConfig.maxSteps)],
       prepareStep: ({ stepNumber, messages }) => {
         console.log(`Preparing step (${stepNumber}):`, JSON.stringify(messages))
         return undefined
@@ -79,15 +75,13 @@ export async function generateStream(model: string, input: string) {
     }
 
     const { text: summarized } = await generateText({
-      model: openai('gpt-4.1-nano'),
+      model: openai(agentConfig.summarizeModel || agentConfig.model),
       prompt: `会話の内奥を要約してください。
       ユーザー: ${input}
       アシスタント: ${message}
       `,
     })
-
     output.update({ summarized })
-
     output.done()
   })()
 

@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
-import { generateStream } from './actions'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-export function useChat({ model }: { model: string }) {
+import { agentStream } from '@/features/agent/actions'
+import { AgentConfig } from '@/features/agent/types'
+
+export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const [loading, setLoading] = useState(false)
   const [inputText, setInputText] = useState('')
   const [outputText, setOutputText] = useState('')
@@ -19,9 +21,11 @@ export function useChat({ model }: { model: string }) {
     setOutputText('')
     setLoading(true)
 
-    const { output } = await generateStream(model, input)
+    const { output } = await agentStream(input, agentConfig)
     for await (const payload of readStreamableValue(output)) {
-      if (!payload) continue
+      if (!payload) {
+        continue
+      }
       if (payload.delta) {
         setOutputText((prev) => `${prev}${payload.delta}`)
         scrollToBottom()
