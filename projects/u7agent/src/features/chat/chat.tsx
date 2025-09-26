@@ -1,15 +1,16 @@
 'use client'
 
+import { AgentConfig } from '@/features/agent/types'
 import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
 import { useChat } from './use-chat'
 
 interface ChatProps {
-  model: string
+  agentConfig: AgentConfig
 }
 
-export function Chat({ model }: ChatProps) {
-  const { loading, inputText, outputText, scrollContainer, handleSubmit } = useChat({ model })
+export function Chat({ agentConfig }: ChatProps) {
+  const { loading, inputText, outputText, scrollContainer, handleSubmit } = useChat({ agentConfig })
 
   return (
     <>

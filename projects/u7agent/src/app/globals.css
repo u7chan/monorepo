@@ -29,7 +29,8 @@
   --color-scrollbar-thumb: var(--scrollbar-thumb);
   --color-scrollbar-track: var(--scrollbar-track);
   --font-sans: 'M PLUS Rounded 1c', system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
 body {
