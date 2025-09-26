@@ -1,10 +1,11 @@
 'use server'
 
-import { generateText, Experimental_Agent as Agent, stepCountIs, tool } from 'ai'
+import { Experimental_Agent as Agent, generateText, stepCountIs, tool } from 'ai'
+import z from 'zod'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
+
 import { AgentConfig } from './types'
-import z from 'zod'
 
 export async function agentStream(input: string, agentConfig: AgentConfig) {
   const output = createStreamableValue<{ delta?: string; summarized?: string }>()
