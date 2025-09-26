@@ -20,9 +20,15 @@ export function useChat({ model }: { model: string }) {
     setLoading(true)
 
     const { output } = await generateStream(model, input)
-    for await (const delta of readStreamableValue(output)) {
-      setOutputText((prev) => `${prev}${delta}`)
-      scrollToBottom()
+    for await (const payload of readStreamableValue(output)) {
+      if (!payload) continue
+      if (payload.delta) {
+        setOutputText((prev) => `${prev}${payload.delta}`)
+        scrollToBottom()
+      }
+      if (payload.summarized) {
+        console.log('Summarized:', payload.summarized)
+      }
     }
 
     setOutputText((prev) => `${prev}\n`)

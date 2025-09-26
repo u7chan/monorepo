@@ -1,12 +1,12 @@
 'use server'
 
-import { Experimental_Agent as Agent, stepCountIs, tool } from 'ai'
+import { generateText, Experimental_Agent as Agent, stepCountIs, tool } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 import z from 'zod'
 
 export async function generateStream(model: string, input: string) {
-  const output = createStreamableValue('')
+  const output = createStreamableValue<{ delta?: string; summarized?: string }>()
 
   ;(async () => {
     const openai = createOpenAI({
@@ -71,9 +71,22 @@ export async function generateStream(model: string, input: string) {
 
     const stream = agent.stream({ prompt: input })
 
+    let message = ''
+
     for await (const chunk of stream.textStream) {
-      output.update(chunk)
+      message += chunk
+      output.update({ delta: chunk })
     }
+
+    const { text: summarized } = await generateText({
+      model: openai('gpt-4.1-nano'),
+      prompt: `会話の内奥を要約してください。
+      ユーザー: ${input}
+      アシスタント: ${message}
+      `,
+    })
+
+    output.update({ summarized })
 
     output.done()
   })()
