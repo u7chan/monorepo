@@ -18,7 +18,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
 
     const agent = new Agent({
       model: openai(agentConfig.model),
-      system: agentConfig.systemPrompt,
+      system: agentConfig.instruction,
       tools: {
         weather: tool({
           description: '天気情報を取得します。',

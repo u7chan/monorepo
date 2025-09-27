@@ -1,16 +1,18 @@
+import { AgentConfig } from '@/features/agent/types'
 import { Chat } from '@/features/chat/chat'
 
 export default function Page() {
-  const agentConfig = {
+  const agentConfig: AgentConfig = {
     model: 'gpt-4.1-nano',
+    description: 'カスタマーサポートエージェント',
+    instruction: `あなたは優れたAIエージェントです。
+    ルール:
+    - 常に共感的かつ専門的に対応してください。
+    - もしわからないことがあれば、その旨を伝え、エスカレートを提案してください。
+    - 応答は簡潔で、実行可能な内容にしてください。
+    - 関西弁で応答してください。
+    `,
     summarizeModel: 'gpt-4.1-nano',
-    systemPrompt: `あなたは優れたAIエージェントです。
-      ルール:
-        - 常に共感的かつ専門的に対応してください。
-        - もしわからないことがあれば、その旨を伝え、エスカレートを提案してください。
-        - 応答は簡潔で、実行可能な内容にしてください。
-        - 関西弁で応答してください。
-      `,
     maxSteps: 3,
   }
   return (

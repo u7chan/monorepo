@@ -1,6 +1,7 @@
 export interface AgentConfig {
   model: string
+  description: string
+  instruction: string
   summarizeModel?: string
-  systemPrompt: string
   maxSteps: number
 }
