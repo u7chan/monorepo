@@ -1,0 +1,13 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  u7agent:
+    container_name: u7agent
+    image: ghcr.io/u7chan/monorepo/u7agent:latest
+    restart: always
+    ports:
+      - 8012:3000
+    env_file:
+      - .env.secret
