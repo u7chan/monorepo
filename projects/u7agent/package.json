@@ -10,8 +10,8 @@
     "format": "prettier --write src"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.35",
-    "@ai-sdk/rsc": "^1.0.52",
+    "@ai-sdk/openai": "^2.0.38",
+    "@ai-sdk/rsc": "^1.0.56",
     "@keyv/sqlite": "^4.0.5",
     "keyv": "^5.5.3",
     "next": "^15.5.4",
@@ -25,7 +25,7 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^24.5.2",
-    "@types/react": "^19.1.13",
+    "@types/react": "^19.1.14",
     "@types/react-dom": "^19.1.9",
     "eslint": "^9.36.0",
     "eslint-config-next": "^15.5.4",
