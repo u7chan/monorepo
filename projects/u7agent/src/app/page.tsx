@@ -1,7 +1,9 @@
 import { AgentConfig } from '@/features/agent/types'
 import { Chat } from '@/features/chat/chat'
+import { clearShortTermMemory } from '@/features/memory/short-term-memory'
 
-export default function Page() {
+export default async function Page() {
+  await clearShortTermMemory()
   const agentConfig: AgentConfig = {
     model: 'gpt-4.1-mini',
     description: 'カスタマーサポートエージェント',

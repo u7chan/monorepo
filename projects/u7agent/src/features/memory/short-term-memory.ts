@@ -10,3 +10,7 @@ export async function saveShortTermMemory(context: string) {
 export async function getShortTermMemory(): Promise<string> {
   return (await keyv.get('shortTerm')) || ''
 }
+
+export async function clearShortTermMemory() {
+  await keyv.delete('shortTerm')
+}
