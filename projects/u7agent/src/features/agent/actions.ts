@@ -5,7 +5,7 @@ import z from 'zod'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
-import { getShortTermMemory, saveShortTermMemory } from '@/features/memory/memory'
+import { getShortTermMemory, saveShortTermMemory } from '@/features/memory/short-term-memory'
 import { AgentConfig } from './types'
 
 export async function agentStream(input: string, agentConfig: AgentConfig) {
