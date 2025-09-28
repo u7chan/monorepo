@@ -3,7 +3,7 @@ import { Chat } from '@/features/chat/chat'
 
 export default function Page() {
   const agentConfig: AgentConfig = {
-    model: 'gpt-4.1-nano',
+    model: 'gpt-4.1-mini',
     description: 'カスタマーサポートエージェント',
     instruction: `あなたは優れたAIエージェントです。
     ルール:

@@ -23,15 +23,9 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
 
     const { output } = await agentStream(input, agentConfig)
     for await (const payload of readStreamableValue(output)) {
-      if (!payload) {
-        continue
-      }
-      if (payload.delta) {
+      if (payload?.delta) {
         setOutputText((prev) => `${prev}${payload.delta}`)
         scrollToBottom()
-      }
-      if (payload.summarized) {
-        console.log('Summarized:', payload.summarized)
       }
     }
 
