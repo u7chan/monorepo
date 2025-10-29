@@ -7,6 +7,7 @@ import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
 import { ConversationHistory } from '#/client/components/chat/ConversationHistory'
 import { readFromLocalStorage, type Settings } from '#/client/components/chat/remoteStorageSettings'
+import { useMetaProps } from '#/client/pages/Home'
 import type { AppType } from '#/server/app.d'
 import type { Conversation } from '#/types'
 
@@ -28,6 +29,8 @@ export function Chat() {
     conversations: [],
     settings: readFromLocalStorage(),
   })
+
+  const { email } = useMetaProps()
 
   const query = useQuery({
     queryKey: ['conversations'],
@@ -64,6 +67,10 @@ export function Chat() {
   }
 
   const handleDeleteConversation = (conversationId: string) => {
+    if (!email) {
+      return
+    }
+
     client.api.conversations
       .$delete({
         query: { ids: [conversationId] },
@@ -85,6 +92,10 @@ export function Chat() {
   }
 
   const handleDeleteConversationMessage = (messageIds: string[], isConversationEmpty: boolean) => {
+    if (!email) {
+      return
+    }
+
     client.api.conversations.messages
       .$delete({
         query: { ids: messageIds },
@@ -117,6 +128,10 @@ export function Chat() {
   const handleConversationChange = (conversation: Conversation) => {
     // カレントの会話IDを更新
     setViewModel((p) => ({ ...p, conversationId: conversation.id }))
+
+    if (!email) {
+      return
+    }
 
     // サーバーに会話履歴を更新
     client.api.conversations

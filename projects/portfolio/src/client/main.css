@@ -2,7 +2,7 @@
 /* @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP&display=swap'); */
 @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c&display=swap");
 
-@config '../../tailwind.config.ts';
+@config "../../tailwind.config.ts";
 
 /*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
