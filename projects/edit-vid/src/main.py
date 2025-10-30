@@ -106,7 +106,7 @@ async def export_video(item: ExportRequest):
     for sub in item.subtitles:
         escaped_text = (
             sub.text.replace("\\", "\\\\")
-            .replace("'", "'\\\''")
+            .replace("'", "'\\''")
             .replace(":", "\\:")
             .replace(",", "\\,")
         )
@@ -157,11 +157,10 @@ async def export_video(item: ExportRequest):
         if os.path.exists(output_path):
             os.remove(output_path)
         raise HTTPException(
-            status_code=500, detail=f"エクスポート中に予期せぬエラーが発生しました: {e}",
+            status_code=500,
+            detail=f"エクスポート中に予期せぬエラーが発生しました: {e}",
         )
 
-
-import shutil
 
 @app.post("/clear-cache")
 async def clear_cache():
@@ -201,9 +200,7 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
     output_path = os.path.join(previews_dir, output_filename)
 
     escaped_text = (
-        item.text.replace("\\", "\\\\")
-        .replace("'", "'\\\''")
-        .replace(":", "\\:")
+        item.text.replace("\\", "\\\\").replace("'", "'\\''").replace(":", "\\:")
     )
 
     subtitle_filter = (
