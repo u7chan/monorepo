@@ -10,6 +10,9 @@
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
   "postCreateCommand": "uv sync",
+    "mounts": [
+    "type=volume,source=edit-vid-venv,target=/workspaces/edit-vid/.venv"
+  ],
   "customizations": {
     "vscode": {
       "settings": {
