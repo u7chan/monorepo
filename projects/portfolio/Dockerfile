@@ -34,7 +34,12 @@ RUN groupadd --gid $USER_GID $USERNAME \
 RUN apt-get update \
   && apt-get install --no-install-recommends -y curl git openssh-client \
   && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && npm i -g @aikidosec/safe-chain
+
+USER $USERNAME
+
+RUN safe-chain setup
 
 # -----------------------------------------------
 # test stage (--target=testを付けてビルド)

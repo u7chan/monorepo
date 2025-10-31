@@ -4,15 +4,13 @@
     "dockerfile": "../Dockerfile",
     "target": "dev"
   },
-  "appPort": [
-    "3000:3000"
-  ],
+  "appPort": ["3000:3000"],
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
-  "postCreateCommand": "bun i && [ -e .env ] || cp .env.example .env",
+  "postCreateCommand": "safe-chain --version && bun i && [ -e .env ] || cp .env.example .env",
   "customizations": {
     "vscode": {
       "settings": {
