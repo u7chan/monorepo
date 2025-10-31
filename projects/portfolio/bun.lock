@@ -4,14 +4,14 @@
     "": {
       "name": "portfolio",
       "dependencies": {
-        "@hono/node-server": "^1.19.5",
+        "@hono/node-server": "^1.19.6",
         "@hono/standard-validator": "^0.1.5",
         "@tailwindcss/typography": "^0.5.19",
         "@tanstack/react-query": "^5.90.5",
         "@tanstack/react-router": "^1.133.36",
         "crypto-js": "^4.2.0",
         "drizzle-orm": "^0.44.7",
-        "hono": "^4.10.3",
+        "hono": "^4.10.4",
         "openai": "^6.7.0",
         "pg": "^8.16.3",
         "react": "^19.2.0",
@@ -25,7 +25,7 @@
       },
       "devDependencies": {
         "@biomejs/biome": "^2.3.2",
-        "@google/gemini-cli": "^0.11.0",
+        "@google/gemini-cli": "^0.11.2",
         "@hono/vite-dev-server": "^0.23.0",
         "@tailwindcss/postcss": "^4.1.16",
         "@tanstack/react-router-devtools": "^1.133.36",
@@ -202,9 +202,9 @@
 
     "@google-cloud/promisify": ["@google-cloud/promisify@4.0.0", "", {}, "sha512-Orxzlfb9c67A15cq2JQEyVc7wEsmFBmHjZWZYQMUyJ1qivXyMwdyNOs9odi79hze+2zqdTtu1E19IM/FtqZ10g=="],
 
-    "@google/gemini-cli": ["@google/gemini-cli@0.11.0", "", { "dependencies": { "@google/gemini-cli-core": "0.11.0", "@google/genai": "1.16.0", "@iarna/toml": "^2.2.5", "@modelcontextprotocol/sdk": "^1.15.1", "@types/update-notifier": "^6.0.8", "ansi-regex": "^6.2.2", "command-exists": "^1.2.9", "comment-json": "^4.2.5", "diff": "^7.0.0", "dotenv": "^17.1.0", "extract-zip": "^2.0.1", "fzf": "^0.5.2", "glob": "^10.4.5", "highlight.js": "^11.11.1", "ink": "^6.2.3", "ink-gradient": "^3.0.0", "ink-spinner": "^5.0.0", "lowlight": "^3.3.0", "mnemonist": "^0.40.3", "open": "^10.1.2", "react": "^19.1.0", "read-package-up": "^11.0.0", "shell-quote": "^1.8.3", "simple-git": "^3.28.0", "string-width": "^7.1.0", "strip-ansi": "^7.1.0", "strip-json-comments": "^3.1.1", "tar": "^7.5.1", "undici": "^7.10.0", "update-notifier": "^7.3.1", "wrap-ansi": "9.0.2", "yargs": "^17.7.2", "zod": "^3.23.8" }, "bin": { "gemini": "dist/index.js" } }, "sha512-VC2HyT5ozmDLHnR1Bsnq5n9K0nm19thusjJR5DF8p6pmnezmz682bXqC/LZs34rsEYYSDDcj2SH/AohgB4NkBg=="],
+    "@google/gemini-cli": ["@google/gemini-cli@0.11.2", "", { "dependencies": { "@google/gemini-cli-core": "0.11.2", "@google/genai": "1.16.0", "@iarna/toml": "^2.2.5", "@modelcontextprotocol/sdk": "^1.15.1", "@types/update-notifier": "^6.0.8", "ansi-regex": "^6.2.2", "command-exists": "^1.2.9", "comment-json": "^4.2.5", "diff": "^7.0.0", "dotenv": "^17.1.0", "extract-zip": "^2.0.1", "fzf": "^0.5.2", "glob": "^10.4.5", "highlight.js": "^11.11.1", "ink": "^6.2.3", "ink-gradient": "^3.0.0", "ink-spinner": "^5.0.0", "lowlight": "^3.3.0", "mnemonist": "^0.40.3", "open": "^10.1.2", "react": "^19.1.0", "read-package-up": "^11.0.0", "shell-quote": "^1.8.3", "simple-git": "^3.28.0", "string-width": "^7.1.0", "strip-ansi": "^7.1.0", "strip-json-comments": "^3.1.1", "tar": "^7.5.1", "undici": "^7.10.0", "update-notifier": "^7.3.1", "wrap-ansi": "9.0.2", "yargs": "^17.7.2", "zod": "^3.23.8" }, "bin": { "gemini": "dist/index.js" } }, "sha512-jzF3clhv6VTQHwLZAHGmXo/9olHpRy4UKFS6kRqqMfVU1fxWvsIoQxrZce6uvSHHNIARdRQktb8IBvWxih9lqg=="],
 
-    "@google/gemini-cli-core": ["@google/gemini-cli-core@0.11.0", "", { "dependencies": { "@google-cloud/logging": "^11.2.1", "@google-cloud/opentelemetry-cloud-monitoring-exporter": "^0.21.0", "@google-cloud/opentelemetry-cloud-trace-exporter": "^3.0.0", "@google/genai": "1.16.0", "@joshua.litt/get-ripgrep": "^0.0.2", "@modelcontextprotocol/sdk": "^1.11.0", "@opentelemetry/api": "^1.9.0", "@opentelemetry/exporter-logs-otlp-grpc": "^0.203.0", "@opentelemetry/exporter-logs-otlp-http": "^0.203.0", "@opentelemetry/exporter-metrics-otlp-grpc": "^0.203.0", "@opentelemetry/exporter-metrics-otlp-http": "^0.203.0", "@opentelemetry/exporter-trace-otlp-grpc": "^0.203.0", "@opentelemetry/exporter-trace-otlp-http": "^0.203.0", "@opentelemetry/instrumentation-http": "^0.203.0", "@opentelemetry/resource-detector-gcp": "^0.40.0", "@opentelemetry/sdk-node": "^0.203.0", "@types/glob": "^8.1.0", "@types/html-to-text": "^9.0.4", "@xterm/headless": "5.5.0", "ajv": "^8.17.1", "ajv-formats": "^3.0.0", "chardet": "^2.1.0", "diff": "^7.0.0", "dotenv": "^17.1.0", "fast-levenshtein": "^2.0.6", "fast-uri": "^3.0.6", "fdir": "^6.4.6", "fzf": "^0.5.2", "glob": "^10.4.5", "google-auth-library": "^9.11.0", "html-to-text": "^9.0.5", "https-proxy-agent": "^7.0.6", "ignore": "^7.0.0", "marked": "^15.0.12", "mime": "4.0.7", "mnemonist": "^0.40.3", "open": "^10.1.2", "picomatch": "^4.0.1", "shell-quote": "^1.8.3", "simple-git": "^3.28.0", "strip-ansi": "^7.1.0", "tree-sitter-bash": "^0.25.0", "undici": "^7.10.0", "web-tree-sitter": "^0.25.10", "ws": "^8.18.0" }, "optionalDependencies": { "@lydell/node-pty": "1.1.0", "@lydell/node-pty-darwin-arm64": "1.1.0", "@lydell/node-pty-darwin-x64": "1.1.0", "@lydell/node-pty-linux-x64": "1.1.0", "@lydell/node-pty-win32-arm64": "1.1.0", "@lydell/node-pty-win32-x64": "1.1.0", "node-pty": "^1.0.0" } }, "sha512-yBSFuJp134TYcpoMB2aYfTwM66zFnYhRzlTRTSbV1WihE68q5zdgraUTJ5JUNb/wEUR3mx8plRLlDOSvppX58A=="],
+    "@google/gemini-cli-core": ["@google/gemini-cli-core@0.11.2", "", { "dependencies": { "@google-cloud/logging": "^11.2.1", "@google-cloud/opentelemetry-cloud-monitoring-exporter": "^0.21.0", "@google-cloud/opentelemetry-cloud-trace-exporter": "^3.0.0", "@google/genai": "1.16.0", "@joshua.litt/get-ripgrep": "^0.0.2", "@modelcontextprotocol/sdk": "^1.11.0", "@opentelemetry/api": "^1.9.0", "@opentelemetry/exporter-logs-otlp-grpc": "^0.203.0", "@opentelemetry/exporter-logs-otlp-http": "^0.203.0", "@opentelemetry/exporter-metrics-otlp-grpc": "^0.203.0", "@opentelemetry/exporter-metrics-otlp-http": "^0.203.0", "@opentelemetry/exporter-trace-otlp-grpc": "^0.203.0", "@opentelemetry/exporter-trace-otlp-http": "^0.203.0", "@opentelemetry/instrumentation-http": "^0.203.0", "@opentelemetry/resource-detector-gcp": "^0.40.0", "@opentelemetry/sdk-node": "^0.203.0", "@types/glob": "^8.1.0", "@types/html-to-text": "^9.0.4", "@xterm/headless": "5.5.0", "ajv": "^8.17.1", "ajv-formats": "^3.0.0", "chardet": "^2.1.0", "diff": "^7.0.0", "dotenv": "^17.1.0", "fast-levenshtein": "^2.0.6", "fast-uri": "^3.0.6", "fdir": "^6.4.6", "fzf": "^0.5.2", "glob": "^10.4.5", "google-auth-library": "^9.11.0", "html-to-text": "^9.0.5", "https-proxy-agent": "^7.0.6", "ignore": "^7.0.0", "marked": "^15.0.12", "mime": "4.0.7", "mnemonist": "^0.40.3", "open": "^10.1.2", "picomatch": "^4.0.1", "shell-quote": "^1.8.3", "simple-git": "^3.28.0", "strip-ansi": "^7.1.0", "tree-sitter-bash": "^0.25.0", "undici": "^7.10.0", "web-tree-sitter": "^0.25.10", "ws": "^8.18.0" }, "optionalDependencies": { "@lydell/node-pty": "1.1.0", "@lydell/node-pty-darwin-arm64": "1.1.0", "@lydell/node-pty-darwin-x64": "1.1.0", "@lydell/node-pty-linux-x64": "1.1.0", "@lydell/node-pty-win32-arm64": "1.1.0", "@lydell/node-pty-win32-x64": "1.1.0", "node-pty": "^1.0.0" } }, "sha512-iT5Lgp4ybUD4N4iOkeDBWQBU+3QzW3/7jF4XuQv8OvvI/R1hWXTRJp7/jtx/qMt9Efu1T/ZVpCSj7fBJXFfDrA=="],
 
     "@google/genai": ["@google/genai@1.16.0", "", { "dependencies": { "google-auth-library": "^9.14.2", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.11.4" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-hdTYu39QgDFxv+FB6BK2zi4UIJGWhx2iPc0pHQ0C5Q/RCi+m+4gsryIzTGO+riqWcUA8/WGYp6hpqckdOBNysw=="],
 
@@ -212,7 +212,7 @@
 
     "@grpc/proto-loader": ["@grpc/proto-loader@0.8.0", "", { "dependencies": { "lodash.camelcase": "^4.3.0", "long": "^5.0.0", "protobufjs": "^7.5.3", "yargs": "^17.7.2" }, "bin": { "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js" } }, "sha512-rc1hOQtjIWGxcxpb9aHAfLpIctjEnsDehj0DAiVfBlmT84uvR0uUtN2hEi/ecvWVjXUGf5qPF4qEgiLOx1YIMQ=="],
 
-    "@hono/node-server": ["@hono/node-server@1.19.5", "", { "peerDependencies": { "hono": "^4" } }, "sha512-iBuhh+uaaggeAuf+TftcjZyWh2GEgZcVGXkNtskLVoWaXhnJtC5HLHrU8W1KHDoucqO1MswwglmkWLFyiDn4WQ=="],
+    "@hono/node-server": ["@hono/node-server@1.19.6", "", { "peerDependencies": { "hono": "^4" } }, "sha512-Shz/KjlIeAhfiuE93NDKVdZ7HdBVLQAfdbaXEaoAVO3ic9ibRSLGIQGkcBbFyuLr+7/1D5ZCINM8B+6IvXeMtw=="],
 
     "@hono/standard-validator": ["@hono/standard-validator@0.1.5", "", { "peerDependencies": { "@standard-schema/spec": "1.0.0", "hono": ">=3.9.0" } }, "sha512-EIyZPPwkyLn6XKwFj5NBEWHXhXbgmnVh2ceIFo5GO7gKI9WmzTjPDKnppQB0KrqKeAkq3kpoW4SIbu5X1dgx3w=="],
 
@@ -972,7 +972,7 @@
 
     "highlightjs-vue": ["highlightjs-vue@1.0.0", "", {}, "sha512-PDEfEF102G23vHmPhLyPboFCD+BkMGu+GuJe2d9/eH4FsCwvgBpnc9n0pGE+ffKdph38s6foEZiEjdgHdzp+IA=="],
 
-    "hono": ["hono@4.10.3", "", {}, "sha512-2LOYWUbnhdxdL8MNbNg9XZig6k+cZXm5IjHn2Aviv7honhBMOHb+jxrKIeJRZJRmn+htUCKhaicxwXuUDlchRA=="],
+    "hono": ["hono@4.10.4", "", {}, "sha512-YG/fo7zlU3KwrBL5vDpWKisLYiM+nVstBQqfr7gCPbSYURnNEP9BDxEMz8KfsDR9JX0lJWDRNc6nXX31v7ZEyg=="],
 
     "hosted-git-info": ["hosted-git-info@7.0.2", "", { "dependencies": { "lru-cache": "^10.0.1" } }, "sha512-puUZAUKT5m8Zzvs72XWy3HtvVbTWljRE66cP60bxJzAqf2DgICo7lYTY2IHUmLnNpjYvw5bvmoHvPc0QO2a62w=="],
 
@@ -1773,6 +1773,8 @@
     "@google/gemini-cli/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@grpc/grpc-js/@grpc/proto-loader": ["@grpc/proto-loader@0.7.15", "", { "dependencies": { "lodash.camelcase": "^4.3.0", "long": "^5.0.0", "protobufjs": "^7.2.5", "yargs": "^17.7.2" }, "bin": { "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js" } }, "sha512-tMXdRCfYVixjuFK+Hk0Q1s38gV9zDiDJfWL3h1rv4Qc39oILCu1TRTDt7+fGUI8K4G1Fj125Hx/ru3azECWTyQ=="],
+
+    "@hono/vite-dev-server/@hono/node-server": ["@hono/node-server@1.19.5", "", { "peerDependencies": { "hono": "^4" } }, "sha512-iBuhh+uaaggeAuf+TftcjZyWh2GEgZcVGXkNtskLVoWaXhnJtC5HLHrU8W1KHDoucqO1MswwglmkWLFyiDn4WQ=="],
 
     "@isaacs/cliui/string-width": ["string-width@5.1.2", "", { "dependencies": { "eastasianwidth": "^0.2.0", "emoji-regex": "^9.2.2", "strip-ansi": "^7.0.1" } }, "sha512-HnLOCR3vjcY8beoNLtcjZ5/nxn2afmME6lhrDrebokqMap+XbeW8n9TXpPDOqdGK5qcI3oT0GKTW6wC7EMiVqA=="],
 
