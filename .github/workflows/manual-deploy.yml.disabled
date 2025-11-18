@@ -12,7 +12,7 @@ on:
 
 jobs:
   trigger-deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Send repository_dispatch To Private Repository
         run: |
