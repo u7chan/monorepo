@@ -459,7 +459,7 @@ export function ChatMain({
     <form ref={formRef} onSubmit={handleSubmit}>
       {emptyMessage && (
         <div className='flex h-full items-center justify-center'>
-          <div className='container mx-auto flex max-w-screen-lg flex-1 items-center justify-center'>
+          <div className='container mx-auto flex max-w-(--breakpoint-lg) flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
               <div
                 className={
@@ -531,7 +531,7 @@ export function ChatMain({
         }
       >
         {!emptyMessage && (
-          <div className='container mx-auto mt-4 max-w-screen-lg px-4'>
+          <div className='container mx-auto mt-4 max-w-(--breakpoint-lg) px-4'>
             <div className='message-list'>
               {messages.map((message, index) => {
                 const copied = copiedId === `chat_${index}`
@@ -617,17 +617,17 @@ export function ChatMain({
                     )}
                     {message.role === 'assistant' && (
                       <div className='flex'>
-                        <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
+                        <div className='flex h-[32px] w-[32px] justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
                           <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
                         </div>
                         <div className='message group ml-2 text-left'>
                           {message.reasoning_content && (
-                            <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-200'>
+                            <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
                               {message.reasoning_content}
                             </div>
                           )}
                           {settings.markdownPreview ? (
-                            <div className='prose mt-1 max-w-screen-md break-all'>
+                            <div className='prose mt-1 max-w-(--breakpoint-md) break-all'>
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
@@ -640,7 +640,7 @@ export function ChatMain({
                             </div>
                           ) : (
                             <div className='message text-left'>
-                              <p className='mt-1 inline-block whitespace-pre-wrap break-words break-all'>
+                              <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all'>
                                 {message.content}
                               </p>
                             </div>
@@ -665,18 +665,18 @@ export function ChatMain({
               })}
               {loading && (
                 <div className='flex align-item'>
-                  <div className='flex h-[32px] w-[32px] justify-center rounded-full border-1 border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
+                  <div className='flex h-[32px] w-[32px] justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
                     <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
                   </div>
                   {stream ? (
                     <div className='message ml-2 text-left'>
                       {stream.reasoning_content && (
-                        <div className='whitespace-pre-line break-words break-all text-gray-400 text-xs dark:text-gray-200'>
+                        <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
                           {stream.reasoning_content}
                         </div>
                       )}
                       {settings.markdownPreview ? (
-                        <div className='prose mt-1 max-w-screen-md break-all dark:text-white'>
+                        <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
@@ -689,7 +689,7 @@ export function ChatMain({
                         </div>
                       ) : (
                         <div className='message text-left'>
-                          <p className='mt-1 inline-block whitespace-pre-wrap break-words break-all'>
+                          <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all'>
                             {stream.content}
                           </p>
                         </div>
@@ -731,7 +731,7 @@ export function ChatMain({
         )}
       </div>
 
-      <div ref={bottomChatInputContainerRef} className='container mx-auto max-w-screen-lg'>
+      <div ref={bottomChatInputContainerRef} className='container mx-auto max-w-(--breakpoint-lg)'>
         {!emptyMessage && (
           <>
             <ChatInput
