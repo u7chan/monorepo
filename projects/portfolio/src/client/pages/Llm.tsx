@@ -103,7 +103,7 @@ function MessageBubble({ message, isLoading }: MessageBubbleProps) {
       >
         {/* アバター */}
         <div
-          className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
             isUser
               ? 'bg-blue-600 text-white dark:bg-blue-500'
               : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
@@ -143,7 +143,7 @@ function MessageBubble({ message, isLoading }: MessageBubbleProps) {
           }`}
         >
           {isUser ? (
-            <p className='whitespace-pre-wrap break-words'>{message.content}</p>
+            <p className='wrap-break-word whitespace-pre-wrap'>{message.content}</p>
           ) : (
             <div className='prose prose-sm dark:prose-invert max-w-none'>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
