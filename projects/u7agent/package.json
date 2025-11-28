@@ -6,32 +6,32 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "tsc && eslint",
     "format": "prettier --write src"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.38",
-    "@ai-sdk/rsc": "^1.0.56",
-    "@keyv/sqlite": "^4.0.5",
-    "keyv": "^5.5.3",
-    "next": "^15.5.4",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "streamdown": "^1.3.0",
-    "zod": "^4.1.11"
+    "@ai-sdk/openai": "^2.0.74",
+    "@ai-sdk/rsc": "^1.0.105",
+    "@keyv/sqlite": "^4.0.6",
+    "keyv": "^5.5.4",
+    "next": "^16.0.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "streamdown": "^1.6.8",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
-    "@tailwindcss/postcss": "^4.1.13",
-    "@types/node": "^24.5.2",
-    "@types/react": "^19.1.14",
-    "@types/react-dom": "^19.1.9",
-    "eslint": "^9.36.0",
-    "eslint-config-next": "^15.5.4",
-    "prettier": "^3.6.2",
-    "prettier-plugin-tailwindcss": "^0.6.14",
-    "tailwindcss": "^4.1.13",
-    "typescript": "^5.9.2"
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "^16.0.5",
+    "prettier": "^3.7.1",
+    "prettier-plugin-tailwindcss": "^0.7.1",
+    "tailwindcss": "^4.1.17",
+    "typescript": "^5.9.3"
   }
 }
