@@ -17,7 +17,7 @@ services:
       - litellm-db
 
   litellm-db:
-    container_name: itellm-db
+    container_name: litellm-db
     image: postgres:17-alpine
     restart: always
     ports:
