@@ -18,12 +18,14 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "streamdown": "^1.6.8",
-    "zod": "^4.1.13"
+    "zod": "^4.1.13",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@tailwindcss/postcss": "^4.1.17",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

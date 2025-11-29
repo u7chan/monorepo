@@ -1,21 +1,14 @@
+import { loadAgentById } from '@/features/agent/loadAgents'
 import { AgentConfig } from '@/features/agent/types'
 import { Chat } from '@/features/chat/chat'
 import { clearShortTermMemory } from '@/features/memory/short-term-memory'
 
 export default async function Page() {
   await clearShortTermMemory()
-  const agentConfig: AgentConfig = {
-    model: 'gpt-4.1-mini',
-    description: 'カスタマーサポートエージェント',
-    instruction: `あなたは優れたAIエージェントです。
-    ルール:
-    - 常に共感的かつ専門的に対応してください。
-    - もしわからないことがあれば、その旨を伝え、エスカレートを提案してください。
-    - 応答は簡潔で、実行可能な内容にしてください。
-    - 関西弁で応答してください。
-    `,
-    summarizeModel: 'gpt-4.1-nano',
-    maxSteps: 3,
+  const agentConfig = (await loadAgentById('001')) as AgentConfig | null
+
+  if (!agentConfig) {
+    throw new Error('No agent configuration found — make sure agents/*.yaml contains at least one enabled agent')
   }
   return (
     <div className='flex justify-center'>
