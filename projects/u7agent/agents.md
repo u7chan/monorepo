@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Agent Response
+
+日本語で回答してください。
+
 ## Tech stack
 
 - Bun
