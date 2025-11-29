@@ -88,6 +88,7 @@ function buildAgentConfig(s: RawAgentSpec): AgentConfig {
     description: s.description,
     instruction: s.instruction,
     summarizeModel: s.summarizeModel,
+    tools: s.tools,
     maxSteps: s.maxSteps,
   }
 }
