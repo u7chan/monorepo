@@ -1,5 +1,5 @@
-import { AgentConfig } from '@/features/agent/types'
 import { loadAgentById } from '@/features/agent/loadAgents'
+import { AgentConfig } from '@/features/agent/types'
 import { Chat } from '@/features/chat/chat'
 import { clearShortTermMemory } from '@/features/memory/short-term-memory'
 

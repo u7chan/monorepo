@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import yaml from 'js-yaml'
 import { z } from 'zod'
+
 import { AgentConfig } from './types'
 
 const AGENTS_DIR = path.join(process.cwd(), 'agents')
@@ -17,12 +18,8 @@ const agentSchema = z.object({
   summarizeModel: z.string().optional(),
   maxSteps: z.number(),
   tags: z.array(z.string()).optional(),
-  owner: z
-    .object({ name: z.string().optional(), contact: z.string().optional() })
-    .optional(),
-  tools: z
-    .array(z.object({ name: z.string(), description: z.string().optional() }))
-    .optional(),
+  owner: z.object({ name: z.string().optional(), contact: z.string().optional() }).optional(),
+  tools: z.array(z.object({ name: z.string(), description: z.string().optional() })).optional(),
   notes: z.string().optional(),
 })
 
