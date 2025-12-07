@@ -10,14 +10,14 @@
     "format": "prettier --write src"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.74",
-    "@ai-sdk/rsc": "^1.0.105",
+    "@ai-sdk/openai": "^2.0.77",
+    "@ai-sdk/rsc": "^1.0.109",
     "@keyv/sqlite": "^4.0.6",
-    "keyv": "^5.5.4",
-    "next": "^16.0.5",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "streamdown": "^1.6.9",
+    "keyv": "^5.5.5",
+    "next": "^16.0.7",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "streamdown": "^1.6.10",
     "zod": "^4.1.13",
     "js-yaml": "^4.1.1"
   },
@@ -30,9 +30,9 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.1",
-    "eslint-config-next": "^16.0.5",
-    "prettier": "^3.7.2",
-    "prettier-plugin-tailwindcss": "^0.7.1",
+    "eslint-config-next": "^16.0.7",
+    "prettier": "^3.7.4",
+    "prettier-plugin-tailwindcss": "^0.7.2",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3"
   }
