@@ -26,7 +26,9 @@ app.get('/', (c) => {
             現在時刻を取得
           </button>
         </div>
-        <div id="result" class="mt-4 text-lg"></div>
+        <div id="result" class="mt-4 text-lg">
+          現在時刻: {new Date().toLocaleTimeString()}
+        </div>
       </body>
     </html>
   )
