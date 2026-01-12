@@ -13,6 +13,7 @@ export interface Settings {
   temperatureEnabled: boolean
   maxTokens?: number
   fakeMode: boolean
+  autoModel: boolean
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
@@ -23,7 +24,7 @@ export interface Settings {
   }
 }
 
-const defaultSettings: Settings = {
+const defaultSettings: Partial<Settings> = {
   schemaVersion: SCHEMA_VERSION,
   model: 'gpt-4.1-mini',
   baseURL: '',
@@ -33,6 +34,7 @@ const defaultSettings: Settings = {
   temperatureEnabled: false,
   maxTokens: undefined,
   fakeMode: false,
+  autoModel: false,
   markdownPreview: true,
   streamMode: true,
   interactiveMode: true,

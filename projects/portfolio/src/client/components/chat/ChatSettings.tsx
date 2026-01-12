@@ -39,6 +39,7 @@ export function ChatSettings({
   const [temperatureEnabled, setTemperatureEnabled] = useState(
     defaultSettings?.temperatureEnabled ?? false,
   )
+  const [autoModel, setAutoModel] = useState(defaultSettings?.autoModel ?? false)
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
@@ -90,6 +91,13 @@ export function ChatSettings({
     const newTemperatureEnabled = !temperatureEnabled
     setTemperatureEnabled(newTemperatureEnabled)
     const settings = saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
+    onChange?.(settings)
+  }
+
+  const handleClickAutoModel = () => {
+    const newAutoModel = !autoModel
+    setAutoModel(newAutoModel)
+    const settings = saveToLocalStorage({ autoModel: newAutoModel })
     onChange?.(settings)
   }
 
@@ -162,26 +170,29 @@ export function ChatSettings({
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[300px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[420px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[90px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             Model
           </span>
-          <input
-            name='model'
-            defaultValue={model}
-            disabled={fakeMode}
-            onChange={handleChangeModel}
-            placeholder='model'
-            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
+          <div className='flex flex-1 items-center gap-2'>
+            <input
+              name='model'
+              defaultValue={model}
+              disabled={fakeMode || autoModel}
+              onChange={handleChangeModel}
+              placeholder='model'
+              className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode || autoModel ? 'cursor-not-allowed opacity-50' : ''}`}
+            />
+            <ToggleInput value={autoModel} onClick={handleClickAutoModel} />
+          </div>
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[90px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             BaseURL
           </span>
@@ -195,7 +206,7 @@ export function ChatSettings({
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[90px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             API KEY
           </span>
@@ -210,7 +221,7 @@ export function ChatSettings({
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-xs dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-xs dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             MCP Server URLs (,)
           </span>
@@ -225,7 +236,7 @@ export function ChatSettings({
         <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
           >
             Temperature
           </span>
@@ -248,7 +259,7 @@ export function ChatSettings({
           </div>
         </div>
         <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200'>
+          <span className='ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200'>
             Max Tokens
           </span>
           <input
