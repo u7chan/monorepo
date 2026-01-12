@@ -40,10 +40,39 @@ export function ChatSettings({
     defaultSettings?.temperatureEnabled ?? false,
   )
   const [autoModel, setAutoModel] = useState(defaultSettings?.autoModel ?? false)
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
+
+  const fetchModels = async (baseURL: string, apiKey: string) => {
+    try {
+      const response = await fetch(`${baseURL}/models`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const models: string[] = data.data?.map((item: { id: string }) => item.id) || []
+        return models.toSorted()
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error)
+    }
+    return []
+  }
+
+  useEffect(() => {
+    if (autoModel) {
+      const { baseURL, apiKey } = readFromLocalStorage()
+      fetchModels(baseURL, apiKey).then((models) => {
+        setFetchedModels(models)
+      })
+    }
+  }, [autoModel])
 
   const handleClickNewChat = () => {
     onNewChat?.()
@@ -51,6 +80,12 @@ export function ChatSettings({
 
   const handleClickShowMenu = () => {
     onShowMenu?.()
+  }
+
+  const handleChangeAutoModel = (event: ChangeEvent<HTMLSelectElement>) => {
+    setModel(event.target.value)
+    const settings = saveToLocalStorage({ model: event.target.value })
+    onChange?.(settings)
   }
 
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
@@ -179,14 +214,35 @@ export function ChatSettings({
             Model
           </span>
           <div className='flex flex-1 items-center gap-2'>
-            <input
-              name='model'
-              defaultValue={model}
-              disabled={fakeMode || autoModel}
-              onChange={handleChangeModel}
-              placeholder='model'
-              className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode || autoModel ? 'cursor-not-allowed opacity-50' : ''}`}
-            />
+            {autoModel ? (
+              <div className='flex-1'>
+                <select
+                  name='model'
+                  className='w-[240px]'
+                  onChange={handleChangeAutoModel}
+                  disabled={fakeMode}
+                >
+                  {fetchedModels.length === 0 ? (
+                    <option>Loading...</option>
+                  ) : (
+                    fetchedModels.map((modelName) => (
+                      <option key={modelName} value={modelName} selected={modelName === model}>
+                        {modelName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : (
+              <input
+                name='model'
+                defaultValue={model}
+                disabled={fakeMode || autoModel}
+                onChange={handleChangeModel}
+                placeholder='model'
+                className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode || autoModel ? 'cursor-not-allowed opacity-50' : ''}`}
+              />
+            )}
             <ToggleInput value={autoModel} onClick={handleClickAutoModel} />
           </div>
         </div>
