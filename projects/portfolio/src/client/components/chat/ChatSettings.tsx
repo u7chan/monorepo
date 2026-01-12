@@ -174,7 +174,7 @@ export function ChatSettings({
       >
         <div className='flex items-center justify-between gap-2'>
           <span
-            className={`ml-1 w-[90px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[83px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             Model
           </span>
@@ -192,7 +192,7 @@ export function ChatSettings({
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[90px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             BaseURL
           </span>
@@ -206,7 +206,7 @@ export function ChatSettings({
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[90px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             API KEY
           </span>
