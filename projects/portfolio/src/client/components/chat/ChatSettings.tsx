@@ -39,10 +39,40 @@ export function ChatSettings({
   const [temperatureEnabled, setTemperatureEnabled] = useState(
     defaultSettings?.temperatureEnabled ?? false,
   )
+  const [autoModel, setAutoModel] = useState(defaultSettings?.autoModel ?? false)
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
+
+  const fetchModels = async (baseURL: string, apiKey: string) => {
+    try {
+      const response = await fetch(`${baseURL}/models`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const models: string[] = data.data?.map((item: { id: string }) => item.id) || []
+        return models.toSorted()
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error)
+    }
+    return []
+  }
+
+  useEffect(() => {
+    if (autoModel) {
+      const { baseURL, apiKey } = readFromLocalStorage()
+      fetchModels(baseURL, apiKey).then((models) => {
+        setFetchedModels(models)
+      })
+    }
+  }, [autoModel])
 
   const handleClickNewChat = () => {
     onNewChat?.()
@@ -50,6 +80,12 @@ export function ChatSettings({
 
   const handleClickShowMenu = () => {
     onShowMenu?.()
+  }
+
+  const handleChangeAutoModel = (event: ChangeEvent<HTMLSelectElement>) => {
+    setModel(event.target.value)
+    const settings = saveToLocalStorage({ model: event.target.value })
+    onChange?.(settings)
   }
 
   const handleChangeModel = (event: ChangeEvent<HTMLInputElement>) => {
@@ -90,6 +126,13 @@ export function ChatSettings({
     const newTemperatureEnabled = !temperatureEnabled
     setTemperatureEnabled(newTemperatureEnabled)
     const settings = saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
+    onChange?.(settings)
+  }
+
+  const handleClickAutoModel = () => {
+    const newAutoModel = !autoModel
+    setAutoModel(newAutoModel)
+    const settings = saveToLocalStorage({ autoModel: newAutoModel })
     onChange?.(settings)
   }
 
@@ -162,26 +205,54 @@ export function ChatSettings({
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[300px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-100 grid w-[420px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[83px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             Model
           </span>
-          <input
-            name='model'
-            defaultValue={model}
-            disabled={fakeMode}
-            onChange={handleChangeModel}
-            placeholder='model'
-            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
+          <div className='flex flex-1 items-center gap-2'>
+            {autoModel ? (
+              <div className='flex-1'>
+                <select
+                  name='model'
+                  className={`w-[243px] ${
+                    fakeMode
+                      ? 'cursor-not-allowed border-gray-300 text-gray-500'
+                      : 'cursor-pointer border-gray-300 bg-white text-gray-900 hover:border-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                  } rounded-sm border px-1 py-1 outline-none transition-all duration-200`}
+                  onChange={handleChangeAutoModel}
+                  disabled={fakeMode}
+                >
+                  {fetchedModels.length === 0 ? (
+                    <option>Loading...</option>
+                  ) : (
+                    fetchedModels.map((modelName) => (
+                      <option key={modelName} value={modelName} selected={modelName === model}>
+                        {modelName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : (
+              <input
+                name='model'
+                defaultValue={model}
+                disabled={fakeMode || autoModel}
+                onChange={handleChangeModel}
+                placeholder='model'
+                className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode || autoModel ? 'cursor-not-allowed opacity-50' : ''}`}
+              />
+            )}
+            <ToggleInput value={autoModel} onClick={handleClickAutoModel} />
+          </div>
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             BaseURL
           </span>
@@ -195,7 +266,7 @@ export function ChatSettings({
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             API KEY
           </span>
@@ -210,7 +281,7 @@ export function ChatSettings({
         </div>
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-xs dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-xs dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             MCP Server URLs (,)
           </span>
@@ -225,7 +296,7 @@ export function ChatSettings({
         <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
         <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
+            className={`ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
           >
             Temperature
           </span>
@@ -248,7 +319,7 @@ export function ChatSettings({
           </div>
         </div>
         <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 w-[154px] font-medium text-gray-900 text-sm dark:text-gray-200'>
+          <span className='ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200'>
             Max Tokens
           </span>
           <input
