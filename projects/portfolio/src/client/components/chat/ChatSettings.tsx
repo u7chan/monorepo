@@ -218,7 +218,11 @@ export function ChatSettings({
               <div className='flex-1'>
                 <select
                   name='model'
-                  className='w-[240px]'
+                  className={`w-[243px] ${
+                    fakeMode
+                      ? 'cursor-not-allowed border-gray-300 text-gray-500'
+                      : 'cursor-pointer border-gray-300 bg-white text-gray-900 hover:border-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+                  } rounded-sm border px-1 py-1 outline-none transition-all duration-200`}
                   onChange={handleChangeAutoModel}
                   disabled={fakeMode}
                 >
