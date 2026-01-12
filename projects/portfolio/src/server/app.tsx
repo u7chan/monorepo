@@ -282,6 +282,43 @@ const app = new Hono<HonoEnv>()
       return c.json(result)
     },
   )
+  .get(
+    '/api/fetch-models',
+    validator('header', (value, c) => {
+      const apiKey = value['api-key']
+      const baseURL = value['base-url']
+      if (!apiKey) {
+        return c.json({ message: `Validation Error: Missing required header 'api-key'` }, 400)
+      }
+      if (!baseURL) {
+        return c.json({ message: `Validation Error: Missing required header 'base-url'` }, 400)
+      }
+      return {
+        'api-key': apiKey,
+        'base-url': baseURL,
+      }
+    }),
+    async (c) => {
+      const { 'api-key': apiKey, 'base-url': baseURL } = c.req.valid('header')
+      console.log(`Fetching models from ${baseURL}...`, apiKey)
+      try {
+        const response = await fetch(`${baseURL}/models`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        })
+        if (response.ok) {
+          const data = await response.json()
+          const models: string[] = data.data?.map((item: { id: string }) => item.id) || []
+          return c.json(models.toSorted())
+        }
+      } catch (error) {
+        console.error('Failed to fetch models:', error)
+      }
+      return c.json([])
+    },
+  )
   .get('*', async (c) => {
     const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
     const prod = NODE_ENV === 'production'
