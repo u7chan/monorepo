@@ -1,5 +1,5 @@
+import { hc } from 'hono/client'
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
-
 import {
   readFromLocalStorage,
   type Settings,
@@ -8,6 +8,9 @@ import {
 import { ToggleInput } from '#/client/components/input/ToggleInput'
 import { GearIcon } from '#/client/components/svg/GearIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
+import type { AppType } from '#/server/app'
+
+const client = hc<AppType>('/')
 
 interface Props {
   showActions?: boolean
@@ -48,16 +51,14 @@ export function ChatSettings({
 
   const fetchModels = async (baseURL: string, apiKey: string) => {
     try {
-      const response = await fetch(`${baseURL}/models`, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+      const response = await client.api['fetch-models'].$get({
+        header: {
+          'api-key': apiKey,
+          'base-url': baseURL,
         },
       })
       if (response.ok) {
-        const data = await response.json()
-        const models: string[] = data.data?.map((item: { id: string }) => item.id) || []
-        return models.toSorted()
+        return await response.json()
       }
     } catch (error) {
       console.error('Failed to fetch models:', error)
