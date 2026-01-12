@@ -205,7 +205,7 @@ export function ChatSettings({
       )}
       {/* ポップアップメニュー */}
       <div
-        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-10 grid w-[420px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
+        className={`absolute top-15 ${showNewChat ? 'left-25' : 'left-15'} z-100 grid w-[420px] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
         <div className='flex items-center justify-between gap-2'>
           <span
