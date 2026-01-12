@@ -1,0 +1,12 @@
+{
+  "name": "hiit-timer",
+  "scripts": {
+    "dev": "bun build src/client.tsx --outdir static --target browser --minify --watch & bun --hot src/index.tsx"
+  },
+  "dependencies": {
+    "hono": "^4.11.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
