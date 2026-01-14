@@ -52,27 +52,74 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
           })),
         })
       },
+      onFinish: ({ text, finishReason }) => {
+        console.log('Agent finished:', { text, finishReason })
+      },
     })
 
     const stream = await agent.stream({ prompt: input })
+    console.log('Agent stream started')
 
     let message = ''
 
-    for await (const chunk of stream.textStream) {
-      message += chunk
-      output.update({ delta: chunk })
+    for await (const chunk of stream.fullStream) {
+      switch (chunk.type) {
+        case 'text-delta':
+          message += chunk.text
+          output.update({ delta: chunk.text })
+          break
+        case 'error':
+          if (typeof chunk.error === 'string') {
+            console.warn('[WARN] Agent stream chunk error (string)', chunk.error)
+            // output.update({ delta: `Error: ${chunk.error}` })
+            break
+          }
+          console.error('[ERROR] Agent stream chunk error (object)', chunk.error)
+
+          // 安全にerrorMessage抽出（パターン対応）
+          let errorMessage = 'Unknown error'
+
+          if (chunk.error) {
+            // パターン1: { error: { message: string } }
+            if (typeof chunk.error === 'object' && chunk.error !== null && 'error' in chunk.error) {
+              errorMessage = (chunk.error as any).error?.message ?? errorMessage
+            }
+
+            // パターン2: ErrorインスタンスのresponseBodyから抽出
+            if ('responseBody' in (chunk.error as any) && typeof (chunk.error as any).responseBody === 'string') {
+              try {
+                const body = JSON.parse((chunk.error as any).responseBody)
+                errorMessage = body.error?.message ?? errorMessage
+              } catch {
+                // parse失敗時はresponseBodyそのまま
+                errorMessage = (chunk.error as any).responseBody
+              }
+            }
+          }
+
+          output.update({ delta: `Error: ${errorMessage}` })
+          break
+      }
     }
 
-    const { text: summarized } = await generateText({
-      model: openai(agentConfig.summarizeModel || agentConfig.model),
-      prompt: `会話の内奥を要約してください。
-      直近の会話: ${shortTermMemory}
-      ユーザー: ${input}
-      アシスタント: ${message}
-      `,
-    })
+    console.log('Agent stream finished: ', { message })
 
-    await saveShortTermMemory(summarized)
+    if (message.length > 0) {
+      console.log('Updating short-term memory with latest conversation')
+      const { text: summarized } = await generateText({
+        model: openai(agentConfig.summarizeModel || agentConfig.model),
+        prompt: `会話の内奥を要約してください。
+          直近の会話: ${shortTermMemory}
+          ユーザー: ${input}
+          アシスタント: ${message}
+          `,
+      })
+
+      console.log('Saving summarized short-term memory:', { summarized })
+      await saveShortTermMemory(summarized)
+
+      console.log('Short-term memory updated')
+    }
 
     output.done()
   })()
