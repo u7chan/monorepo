@@ -62,9 +62,19 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
 
     let message = ''
 
-    for await (const chunk of stream.textStream) {
-      message += chunk
-      output.update({ delta: chunk })
+    for await (const chunk of stream.fullStream) {
+      switch (chunk.type) {
+        case 'text-delta':
+          message += chunk.text
+          output.update({ delta: chunk.text })
+          break
+        case 'error':
+          console.error('### Agent stream error', chunk.error)
+          const {
+            error: { message: errorMessage },
+          } = chunk.error as { error: { message: string } }
+          output.update({ delta: `Error: ${errorMessage}` })
+      }
     }
 
     console.log('Agent stream finished')
