@@ -1,6 +1,6 @@
 
 FROM oven/bun:alpine AS bun
-FROM node:24-alpine AS base
+FROM node:25-alpine AS base
 FROM base AS test
 
 WORKDIR /app
