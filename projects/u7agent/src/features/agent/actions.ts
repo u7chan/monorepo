@@ -52,9 +52,13 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
           })),
         })
       },
+      onFinish: ({ text, finishReason }) => {
+        console.log('Agent finished:', { text, finishReason })
+      },
     })
 
     const stream = await agent.stream({ prompt: input })
+    console.log('Agent stream started')
 
     let message = ''
 
@@ -63,19 +67,32 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
       output.update({ delta: chunk })
     }
 
-    const { text: summarized } = await generateText({
-      model: openai(agentConfig.summarizeModel || agentConfig.model),
-      prompt: `会話の内奥を要約してください。
-      直近の会話: ${shortTermMemory}
-      ユーザー: ${input}
-      アシスタント: ${message}
-      `,
-    })
+    console.log('Agent stream finished')
 
-    await saveShortTermMemory(summarized)
+    if (message.length > 0) {
+      console.log('Final message from agent:', message)
+      const { text: summarized } = await generateText({
+        model: openai(agentConfig.summarizeModel || agentConfig.model),
+        prompt: `会話の内奥を要約してください。
+          直近の会話: ${shortTermMemory}
+          ユーザー: ${input}
+          アシスタント: ${message}
+          `,
+      })
+
+      console.log('Saving summarized short-term memory:', summarized)
+      await saveShortTermMemory(summarized)
+
+      console.log('Short-term memory updated')
+    }
 
     output.done()
   })()
+    .then()
+    .catch((error) => {
+      console.error('### Error in agentStream:', error)
+      output.error(error)
+    })
 
   return { output: output.value }
 }
