@@ -69,18 +69,43 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
           output.update({ delta: chunk.text })
           break
         case 'error':
-          console.error('### Agent stream error', chunk.error)
-          const {
-            error: { message: errorMessage },
-          } = chunk.error as { error: { message: string } }
+          if (typeof chunk.error === 'string') {
+            console.warn('[WARN] Agent stream chunk error (string)', chunk.error)
+            // output.update({ delta: `Error: ${chunk.error}` })
+            break
+          }
+          console.error('[ERROR] Agent stream chunk error (object)', chunk.error)
+
+          // 安全にerrorMessage抽出（パターン対応）
+          let errorMessage = 'Unknown error'
+
+          if (chunk.error) {
+            // パターン1: { error: { message: string } }
+            if (typeof chunk.error === 'object' && chunk.error !== null && 'error' in chunk.error) {
+              errorMessage = (chunk.error as any).error?.message ?? errorMessage
+            }
+
+            // パターン2: ErrorインスタンスのresponseBodyから抽出
+            if ('responseBody' in (chunk.error as any) && typeof (chunk.error as any).responseBody === 'string') {
+              try {
+                const body = JSON.parse((chunk.error as any).responseBody)
+                errorMessage = body.error?.message ?? errorMessage
+              } catch {
+                // parse失敗時はresponseBodyそのまま
+                errorMessage = (chunk.error as any).responseBody
+              }
+            }
+          }
+
           output.update({ delta: `Error: ${errorMessage}` })
+          break
       }
     }
 
-    console.log('Agent stream finished')
+    console.log('Agent stream finished: ', { message })
 
     if (message.length > 0) {
-      console.log('Final message from agent:', message)
+      console.log('Updating short-term memory with latest conversation')
       const { text: summarized } = await generateText({
         model: openai(agentConfig.summarizeModel || agentConfig.model),
         prompt: `会話の内奥を要約してください。
@@ -90,7 +115,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
           `,
       })
 
-      console.log('Saving summarized short-term memory:', summarized)
+      console.log('Saving summarized short-term memory:', { summarized })
       await saveShortTermMemory(summarized)
 
       console.log('Short-term memory updated')
@@ -98,11 +123,6 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
 
     output.done()
   })()
-    .then()
-    .catch((error) => {
-      console.error('### Error in agentStream:', error)
-      output.error(error)
-    })
 
   return { output: output.value }
 }
