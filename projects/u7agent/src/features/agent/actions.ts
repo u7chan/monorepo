@@ -5,8 +5,8 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
 import { getShortTermMemory, saveShortTermMemory } from '@/features/memory/short-term-memory'
+import { pickTools } from './tools'
 import { AgentConfig } from './types'
-import {  pickTools } from './tools'
 
 export async function agentStream(input: string, agentConfig: AgentConfig) {
   const output = createStreamableValue<{ delta?: string }>()
@@ -18,11 +18,11 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
     })
 
     const shortTermMemory = (await getShortTermMemory()) || 'なし'
-    const systemPrompt = `${agentConfig.instruction}
+    const instructions = `${agentConfig.instruction}
       記憶:
       - 直近の会話履歴: ${shortTermMemory}
       `
-    console.log('System Prompt:', systemPrompt)
+    console.log('Instructions:', instructions)
 
     // If the agent config does not specify tools (or lists an empty array),
     // do not expose any tools to the agent. This prevents agents without an
@@ -31,7 +31,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
 
     const agent = new Agent({
       model: openai(agentConfig.model),
-      system: systemPrompt,
+      instructions,
       tools,
       stopWhen: [stepCountIs(agentConfig.maxSteps)],
       prepareStep: ({ stepNumber, messages }) => {
@@ -54,7 +54,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
       },
     })
 
-    const stream = agent.stream({ prompt: input })
+    const stream = await agent.stream({ prompt: input })
 
     let message = ''
 
