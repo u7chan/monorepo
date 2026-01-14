@@ -10,30 +10,30 @@
     "format": "prettier --write src"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.77",
-    "@ai-sdk/rsc": "^1.0.109",
+    "@ai-sdk/openai": "^2.0.89",
+    "@ai-sdk/rsc": "^1.0.123",
     "@keyv/sqlite": "^4.0.6",
     "keyv": "^5.5.5",
-    "next": "^16.0.7",
-    "react": "^19.2.1",
-    "react-dom": "^19.2.1",
-    "streamdown": "^1.6.10",
-    "zod": "^4.1.13",
+    "next": "^16.1.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "streamdown": "^1.6.11",
+    "zod": "^4.3.5",
     "js-yaml": "^4.1.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
-    "@tailwindcss/postcss": "^4.1.17",
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.7",
+    "@types/node": "^24.10.8",
+    "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.1",
-    "eslint-config-next": "^16.0.7",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.1",
     "prettier": "^3.7.4",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "tailwindcss": "^4.1.17",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"
   }
 }
