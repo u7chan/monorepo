@@ -104,10 +104,10 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
 
     console.log('Agent stream finished: ', { message })
 
-    if (message.length > 0) {
+    if (message.length > 0 && agentConfig.summarizeModel) {
       console.log('Updating short-term memory with latest conversation')
       const { text: summarized } = await generateText({
-        model: openai(agentConfig.summarizeModel || agentConfig.model),
+        model: openai(agentConfig.summarizeModel),
         prompt: `会話の内奥を要約してください。
           直近の会話: ${shortTermMemory}
           ユーザー: ${input}
@@ -119,6 +119,8 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
       await saveShortTermMemory(summarized)
 
       console.log('Short-term memory updated')
+    } else if (message.length > 0) {
+      console.log('summarizeModel is not configured, skipping short-term memory update')
     }
 
     output.done()
