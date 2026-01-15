@@ -1,4 +1,4 @@
-ARG NODE_VERSION=24
+ARG NODE_VERSION=25
 ARG USERNAME=vscode
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
@@ -35,7 +35,8 @@ RUN apt-get update \
   && apt-get install --no-install-recommends -y curl git openssh-client \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
-  && npm i -g @aikidosec/safe-chain
+  && npm i -g @aikidosec/safe-chain \
+  && npm i -g opencode-ai
 
 USER $USERNAME
 
