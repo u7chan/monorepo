@@ -9,8 +9,8 @@ const mplusRounded1c = M_PLUS_Rounded_1c({
 })
 
 export const metadata: Metadata = {
-  title: 'Agent',
-  description: 'Agent',
+  title: 'ChatBot',
+  description: 'ChatBot Application',
 }
 
 export default function RootLayout({
