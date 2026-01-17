@@ -10,12 +10,14 @@ interface ChatMessageProps {
   }[]
   streamMessage: string
   scrollContainer?: React.RefObject<HTMLDivElement | null>
+  scrollWrapper?: React.RefObject<HTMLDivElement | null>
+  onScroll?: () => void
 }
 
-export function ChatMessage({ messages, streamMessage, scrollContainer }: ChatMessageProps) {
+export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWrapper, onScroll }: ChatMessageProps) {
   return (
     <div className='h-full min-h-0 flex-1'>
-      <div className='flex h-full flex-col gap-2 overflow-y-auto p-4'>
+      <div ref={scrollWrapper} onScroll={onScroll} className='flex h-full flex-col gap-2 overflow-y-auto p-4'>
         {messages.map((message, i) => (
           <React.Fragment key={i}>
             {message.role === 'user' && (
