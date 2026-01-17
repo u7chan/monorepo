@@ -1,7 +1,7 @@
 @litellm_url = {{$dotenv LITELLM_URL}}
 @litellm_api_key = {{$dotenv LITELLM_API_KEY}}
 
-### image generation
+### gpt-image-1
 POST {{ litellm_url }}/v1/images/generations
 Content-Type: application/json
 Authorization: Bearer {{ litellm_api_key }}
@@ -11,4 +11,28 @@ Authorization: Bearer {{ litellm_api_key }}
   "prompt": "A cute baby sea otter",
   "n": 1,
   "size": "1024x1024"
+}
+
+### dall-e-3
+POST {{ litellm_url }}/v1/images/generations
+Content-Type: application/json
+Authorization: Bearer {{ litellm_api_key }}
+
+{
+  "model": "dall-e-3",
+  "prompt": "A cute baby sea otter",
+  "n": 1,
+  "size": "1024x1024"
+}
+
+### dall-e-2
+POST {{ litellm_url }}/v1/images/generations
+Content-Type: application/json
+Authorization: Bearer {{ litellm_api_key }}
+
+{
+  "model": "dall-e-2",
+  "prompt": "A cute baby sea otter",
+  "n": 1,
+  "size": "256x256"
 }
