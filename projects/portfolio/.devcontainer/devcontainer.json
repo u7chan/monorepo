@@ -16,11 +16,8 @@
       "settings": {
         "editor.tabSize": 2,
         "editor.formatOnSave": true,
-        "biome.lsp.bin": "./node_modules/.bin/biome",
-        "typescript.preferences.importModuleSpecifier": "non-relative",
-        "[typescriptreact]": {
-          "editor.defaultFormatter": "biomejs.biome"
-        },
+        "oxc.fmt.experimental": true,
+        "editor.defaultFormatter": "oxc.oxc-vscode",
         // for Tailwind CSS --
         "files.associations": {
           "*.css": "tailwindcss"
@@ -36,7 +33,7 @@
         // -- for Tailwind CSS
       },
       "extensions": [
-        "biomejs.biome",
+        "oxc.oxc-vscode",
         "formulahendry.auto-close-tag",
         "formulahendry.auto-rename-tag",
         "mhutchie.git-graph",
