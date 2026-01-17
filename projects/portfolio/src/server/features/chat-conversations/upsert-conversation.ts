@@ -1,15 +1,10 @@
-import { eq } from 'drizzle-orm'
-import { uuidv7 } from 'uuidv7'
-
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import type { Conversation } from '#/types'
+import { eq } from 'drizzle-orm'
+import { uuidv7 } from 'uuidv7'
 
-export async function upsertConversation(
-  databaseUrl: string,
-  email: string,
-  { id, title, messages }: Conversation,
-) {
+export async function upsertConversation(databaseUrl: string, email: string, { id, title, messages }: Conversation) {
   const db = getDatabase(databaseUrl)
 
   // ユーザーIDの取得
@@ -22,10 +17,7 @@ export async function upsertConversation(
 
   return await db.transaction(async (tx) => {
     // 会話がすでに存在するかチェック
-    const existingConversations = await tx
-      .select()
-      .from(conversationsTable)
-      .where(eq(conversationsTable.id, id))
+    const existingConversations = await tx.select().from(conversationsTable).where(eq(conversationsTable.id, id))
 
     const now = new Date()
 
@@ -40,10 +32,7 @@ export async function upsertConversation(
       })
     } else {
       // 存在すれば会話のupdatedAtを更新
-      await tx
-        .update(conversationsTable)
-        .set({ updatedAt: now })
-        .where(eq(conversationsTable.id, id))
+      await tx.update(conversationsTable).set({ updatedAt: now }).where(eq(conversationsTable.id, id))
     }
 
     // メッセージの登録

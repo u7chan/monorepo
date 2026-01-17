@@ -1,6 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
-
 import { Llm } from '#/client/pages/Llm'
+import { createFileRoute } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/llm')({
   component: RouteComponent,

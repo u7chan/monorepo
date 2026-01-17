@@ -1,3 +1,17 @@
+import { ChatInput } from '#/client/components/chat/ChatInput'
+import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
+import type { Settings } from '#/client/components/chat/remoteStorageSettings'
+import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
+import { ArrowUpIcon } from '#/client/components/svg/ArrowUpIcon'
+import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
+import { CheckIcon } from '#/client/components/svg/CheckIcon'
+import { CopyIcon } from '#/client/components/svg/CopyIcon'
+import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
+import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
+import { StopIcon } from '#/client/components/svg/StopIcon'
+import { UploadIcon } from '#/client/components/svg/UploadIcon'
+import type { AppType } from '#/server/app.d'
+import type { Conversation } from '#/types'
 import { hc } from 'hono/client'
 import React, {
   type ChangeEvent,
@@ -14,20 +28,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 import remarkGfm from 'remark-gfm'
 import { uuidv7 } from 'uuidv7'
-import { ChatInput } from '#/client/components/chat/ChatInput'
-import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
-import type { Settings } from '#/client/components/chat/remoteStorageSettings'
-import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
-import { ArrowUpIcon } from '#/client/components/svg/ArrowUpIcon'
-import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
-import { CheckIcon } from '#/client/components/svg/CheckIcon'
-import { CopyIcon } from '#/client/components/svg/CopyIcon'
-import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
-import { SpinnerIcon } from '#/client/components/svg/SpinnerIcon'
-import { StopIcon } from '#/client/components/svg/StopIcon'
-import { UploadIcon } from '#/client/components/svg/UploadIcon'
-import type { AppType } from '#/server/app.d'
-import type { Conversation } from '#/types'
 
 const client = hc<AppType>('/')
 
@@ -60,11 +60,7 @@ function MarkdownLink({ href, children }: MarkdownLinkProps) {
     }
   }
   return (
-    <a
-      href={href}
-      onClick={handleClick}
-      className='text-primary-800 underline dark:text-primary-400'
-    >
+    <a href={href} onClick={handleClick} className='text-primary-800 underline dark:text-primary-400'>
       {children}
     </a>
   )
@@ -77,8 +73,7 @@ type MarkdownCodeBlockProps = React.HTMLAttributes<HTMLElement> & {
 function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
   const isDarkMode = document.documentElement.classList.contains('dark')
   const [copied, setCopied] = useState(false)
-  const code =
-    typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
+  const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
 
   const language = className?.split('-')[1]
 
@@ -461,11 +456,7 @@ export function ChatMain({
         <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-(--breakpoint-lg) flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div
-                className={
-                  'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl dark:text-gray-200'
-                }
-              >
+              <div className={'mb-2 text-center font-bold text-2xl text-gray-700 sm:text-3xl dark:text-gray-200'}>
                 お手伝いできることはありますか？
               </div>
               <PromptTemplate
@@ -498,10 +489,7 @@ export function ChatMain({
                           disabled={loading || !!stream}
                           className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:hover:bg-gray-700'
                         >
-                          <UploadIcon
-                            size={20}
-                            className='fill-gray-500 group-disabled:fill-gray-300'
-                          />
+                          <UploadIcon size={20} className='fill-gray-500 group-disabled:fill-gray-300' />
                           <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
                             画像アップロード
                           </div>
@@ -596,9 +584,7 @@ export function ChatMain({
                               type='button'
                               className='cursor-pointer p-1'
                               onClick={() =>
-                                handleClickCopy(
-                                  typeof message.content === 'string' ? message.content : '',
-                                )
+                                handleClickCopy(typeof message.content === 'string' ? message.content : '')
                               }
                               disabled={copied}
                             >
@@ -758,10 +744,7 @@ export function ChatMain({
                         disabled={loading || !!stream}
                         className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white'
                       >
-                        <UploadIcon
-                          size={20}
-                          className='fill-gray-500 group-disabled:fill-gray-300'
-                        />
+                        <UploadIcon size={20} className='fill-gray-500 group-disabled:fill-gray-300' />
                         <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300'>
                           画像アップロード
                         </div>
@@ -829,11 +812,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
 const createMessage = (
   inputText: string,
   model: string,
-  {
-    interactiveMode,
-    messages,
-    uploadImages,
-  }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] },
+  { interactiveMode, messages, uploadImages }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] }
 ): {
   model: string
   messages: Message[]
@@ -868,7 +847,7 @@ const createMessage = (
 
 const createTemplateMessage = (
   templateInput: TemplateInput,
-  { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] },
+  { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
 ): {
   model: string
   messages: Message[]
@@ -882,9 +861,7 @@ const createTemplateMessage = (
     content: templateInput.prompt,
   }
   const newMessages: Message[] =
-    messages.length === 0 && templateInput
-      ? [systemMessage, userMessage]
-      : [...messages, userMessage]
+    messages.length === 0 && templateInput ? [systemMessage, userMessage] : [...messages, userMessage]
   return {
     model: templateInput.model,
     messages: interactiveMode ? newMessages : [systemMessage, userMessage],
@@ -956,7 +933,7 @@ const sendChatCompletion = async (req: {
             : undefined,
         },
       },
-      { init: { signal: req.abortController.signal } },
+      { init: { signal: req.abortController.signal } }
     )
     if (!res.ok) {
       const error = (await res.json()) as unknown as { message?: string }

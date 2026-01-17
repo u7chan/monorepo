@@ -75,7 +75,7 @@ interface Chat {
       maxTokens?: number
       stream: boolean
       includeUsage?: boolean
-    },
+    }
   ): Promise<Completions>
 }
 
@@ -104,7 +104,7 @@ export const chat: Chat = {
       maxTokens?: number
       stream: boolean
       includeUsage?: boolean
-    },
+    }
   ): Promise<Completions> {
     const openai = new OpenAI({
       apiKey,
@@ -129,8 +129,8 @@ export const chat: Chat = {
           // plain objectの場合は安全にフィルタリングしてコピー
           existingHeaders = Object.fromEntries(
             Object.entries(options.headers).filter(
-              ([key, value]) => typeof key === 'string' && typeof value === 'string',
-            ),
+              ([key, value]) => typeof key === 'string' && typeof value === 'string'
+            )
           )
         }
         // マージして新しいヘッダーをセット

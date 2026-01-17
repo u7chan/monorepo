@@ -1,7 +1,6 @@
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
-
 import app from './app'
 
 const port = process.env.SERVER_PORT ? Number(process.env.SERVER_PORT) : 3000

@@ -5,13 +5,7 @@ interface Props {
 
 export function GearIcon({ size = 24, className = 'fill-black dark:fill-white' }: Props) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox='0 0 24 24'
-      className={className}
-      xmlns='http://www.w3.org/2000/svg'
-    >
+    <svg width={size} height={size} viewBox='0 0 24 24' className={className} xmlns='http://www.w3.org/2000/svg'>
       <title>gear-icon</title>
       <path d='M12 8.00002C9.79085 8.00002 7.99999 9.79088 7.99999 12C7.99999 14.2092 9.79085 16 12 16C14.2091 16 16 14.2092 16 12C16 9.79088 14.2091 8.00002 12 8.00002ZM9.99999 12C9.99999 10.8955 10.8954 10 12 10C13.1046 10 14 10.8955 14 12C14 13.1046 13.1046 14 12 14C10.8954 14 9.99999 13.1046 9.99999 12Z' />
       <path d='M12 8.00002C9.79085 8.00002 7.99999 9.79088 7.99999 12C7.99999 14.2092 9.79085 16 12 16C14.2091 16 16 14.2092 16 12C16 9.79088 14.2091 8.00002 12 8.00002ZM9.99999 12C9.99999 10.8955 10.8954 10 12 10C13.1046 10 14 10.8955 14 12C14 13.1046 13.1046 14 12 14C10.8954 14 9.99999 13.1046 9.99999 12Z' />

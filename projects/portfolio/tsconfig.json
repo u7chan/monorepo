@@ -9,13 +9,9 @@
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "paths": {
-      "#/*": [
-        "./src/*"
-      ]
+      "#/*": ["./src/*"]
     }
   },
   // コンパイル対象外
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }

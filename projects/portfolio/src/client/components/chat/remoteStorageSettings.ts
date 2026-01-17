@@ -70,7 +70,7 @@ export function saveToLocalStorage(settings: Partial<Settings>): Settings {
     JSON.stringify({
       ...newSettings,
       apiKey: crypto.AES.encrypt(newSettings.apiKey, AES_KEY).toString(),
-    }),
+    })
   )
   return readFromLocalStorage()
 }

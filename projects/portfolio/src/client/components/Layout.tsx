@@ -27,9 +27,7 @@ export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
                 className='peer block w-12 rounded py-0.5 text-gray-400 transition duration-200 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 [&.active]:bg-gray-200 [&.active]:text-blue-600 [&.active]:underline dark:[&.active]:bg-gray-700 dark:[&.active]:text-blue-400'
               >
                 {/* アイコン */}
-                <div className='my-0.5 flex max-h-[20px] items-center justify-center'>
-                  {menuItem.icon}
-                </div>
+                <div className='my-0.5 flex max-h-[20px] items-center justify-center'>{menuItem.icon}</div>
                 {/* ラベル */}
                 <div className='flex justify-center text-[10px]'>{menuItem.label}</div>
               </Link>
@@ -46,9 +44,7 @@ export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
         </div>
       </div>
       {/* メインコンテンツ */}
-      <main className='flex-1 overflow-y-hidden bg-white sm:overflow-y-auto dark:bg-gray-900'>
-        {children}
-      </main>
+      <main className='flex-1 overflow-y-hidden bg-white sm:overflow-y-auto dark:bg-gray-900'>{children}</main>
     </div>
   )
 }

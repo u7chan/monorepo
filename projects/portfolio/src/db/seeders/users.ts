@@ -1,5 +1,4 @@
 import { uuidv7 } from 'uuidv7'
-
 import { getDatabase } from '../'
 import { usersTable } from '../schema'
 

@@ -1,11 +1,4 @@
-import {
-  type ChangeEvent,
-  type KeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { type ChangeEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 
 interface Props {
   name?: string

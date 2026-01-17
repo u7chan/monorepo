@@ -1,6 +1,5 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
-
 import { CloseIcon } from '#/client/components/svg/CloseIcon'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 interface Props {
   fileInputButton?: (onClick: () => void) => ReactNode
@@ -28,13 +27,7 @@ export function FileImageInput({ fileInputButton, onImageChange }: Props) {
 
   return (
     <div>
-      <input
-        ref={fileInputRef}
-        type='file'
-        accept='image/*'
-        className='hidden'
-        onChange={handleFileChange}
-      />
+      <input ref={fileInputRef} type='file' accept='image/*' className='hidden' onChange={handleFileChange} />
       {fileInputButton?.(handleClick)}
     </div>
   )
@@ -47,12 +40,7 @@ interface FileImagePreviewProps {
   onImageChange?: (src: string, index?: number) => void
 }
 
-export function FileImagePreview({
-  maxImages = 3,
-  src,
-  children,
-  onImageChange,
-}: FileImagePreviewProps) {
+export function FileImagePreview({ maxImages = 3, src, children, onImageChange }: FileImagePreviewProps) {
   const [showImageIndex, setShowImageIndex] = useState<number | null>(null)
 
   useEffect(() => {
@@ -90,11 +78,7 @@ export function FileImagePreview({
       {showChildren && children}
       {src &&
         (typeof src === 'string' ? (
-          <ImagePreview
-            src={src}
-            onImageClick={() => handleShowImage(0)}
-            onCloseClick={() => handleRemoveImage(0)}
-          />
+          <ImagePreview src={src} onImageClick={() => handleShowImage(0)} onCloseClick={() => handleRemoveImage(0)} />
         ) : (
           src.map((x, i) => (
             <ImagePreview

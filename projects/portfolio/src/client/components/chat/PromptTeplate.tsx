@@ -1,10 +1,6 @@
+import { readFromLocalStorage, saveToLocalStorage } from '#/client/components/chat/remoteStorageSettings'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { useMemo, useState } from 'react'
-
-import {
-  readFromLocalStorage,
-  saveToLocalStorage,
-} from '#/client/components/chat/remoteStorageSettings'
 
 interface PromptTemplate {
   id: string
@@ -97,12 +93,14 @@ export function PromptTemplate({ onSubmit }: Props) {
 
   const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement>, id: string) => {
     const pre = readFromLocalStorage().templateModels || {}
-    saveToLocalStorage({ templateModels: { ...pre, [id]: { model: event.target.value } } })
+    saveToLocalStorage({
+      templateModels: { ...pre, [id]: { model: event.target.value } },
+    })
   }
 
   const handleKeyDownTemplate = (
     event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-    { id, prompt }: PromptTemplate,
+    { id, prompt }: PromptTemplate
   ) => {
     const content = event.currentTarget.value.trim()
     if (event.key === 'Enter' && !event.shiftKey && content && !composing) {

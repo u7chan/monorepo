@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 import type { Conversation } from '#/types'
+import { useState } from 'react'
 
 interface Props {
   conversations: Conversation[]
@@ -45,9 +45,7 @@ export function ConversationHistory({
       {/* Conversation List */}
       <div className='flex-1 overflow-y-auto'>
         {conversations.length === 0 ? (
-          <div className='p-4 text-center text-gray-500 text-sm dark:text-gray-400'>
-            会話履歴がありません
-          </div>
+          <div className='p-4 text-center text-gray-500 text-sm dark:text-gray-400'>会話履歴がありません</div>
         ) : (
           <div className='p-2'>
             {conversations.map((conversation) => (
