@@ -15,7 +15,7 @@ interface ChatMessageProps {
 export function ChatMessage({ messages, streamMessage, scrollContainer }: ChatMessageProps) {
   return (
     <div className='flex flex-col gap-2'>
-      <div className='flex  flex-col gap-2 overflow-y-auto p-4'>
+      <div className='flex flex-col gap-2 overflow-y-auto p-4'>
         {messages.map((message,i ) => (
           <React.Fragment key={i}>
             {message.role === 'user' && (
