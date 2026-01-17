@@ -15,7 +15,7 @@
 | Language            | [TypeScript](https://www.typescriptlang.org/)                                              |
 | Runtime             | [Node](https://nodejs.org/)                                                                |
 | Package Manager     | [Bun](https://bun.sh/)                                                                     |
-| Linter & Formatter  | [Biome](https://biomejs.dev/)                                                              |
+| Linter & Formatter  | [Oxlint / Oxfmt](https://oxc.rs/docs/guide/introduction.html)                              |
 | CSS Styling         | [Tailwind CSS](https://tailwindcss.com/)                                                   |
 | Build & Bundler     | [Vite](https://ja.vite.dev/)                                                               |
 | Frontend            | [React](https://react.dev/) (Single Page Application)                                      |
