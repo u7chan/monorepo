@@ -59,7 +59,7 @@ const app = new Hono<HonoEnv>()
     validator('header', (value, c) => {
       const apiKey = value['api-key']
       const baseURL = value['base-url']
-      const fakeMode = apiKey === 'fakemode' && apiKey === 'fakemode'
+      const fakeMode = apiKey === 'fakemode'
       const mcpServerURLs = value['mcp-server-urls']
 
       if (!apiKey) {
