@@ -33,6 +33,8 @@
         // -- for Tailwind CSS
       },
       "extensions": [
+        "saoudrizwan.claude-dev",
+        "sst-dev.opencode",
         "oxc.oxc-vscode",
         "formulahendry.auto-close-tag",
         "formulahendry.auto-rename-tag",
@@ -41,7 +43,6 @@
         "oderwat.indent-rainbow",
         "wix.vscode-import-cost",
         "github.vscode-pull-request-github",
-        "saoudrizwan.claude-dev",
         "cweijan.vscode-mysql-client2",
         "wayou.vscode-todo-highlight",
         // for Tailwind CSS --
