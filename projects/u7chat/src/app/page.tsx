@@ -11,13 +11,15 @@ export default async function Page(props: PageProps<'/'>) {
   const models = await fetchModels()
 
   return (
-    <div className='flex flex-col items-center justify-center p-4'>
-      <div className='w-full max-w-2xl'>
-        <div className='flex items-center gap-2'>
+    <div className='flex h-dvh justify-center overflow-hidden p-4'>
+      <div className='flex min-h-0 w-full max-w-2xl flex-1 flex-col gap-3'>
+        <div className='flex shrink-0 items-center gap-2'>
           <StreamToggle defaultValue={streamValue} />
           <ModelSelect models={models} defaultValue={selectModel} />
         </div>
-        {selectModel && <Chat model={selectModel} stream={streamValue} />}
+        <div className='flex min-h-0 flex-1 flex-col'>
+          {selectModel && <Chat model={selectModel} stream={streamValue} />}
+        </div>
       </div>
     </div>
   )
