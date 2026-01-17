@@ -1,0 +1,14 @@
+@litellm_url = {{$dotenv LITELLM_URL}}
+@litellm_api_key = {{$dotenv LITELLM_API_KEY}}
+
+### image generation
+POST {{ litellm_url }}/v1/images/generations
+Content-Type: application/json
+Authorization: Bearer {{ litellm_api_key }}
+
+{
+  "model": "gpt-image-1",
+  "prompt": "A cute baby sea otter",
+  "n": 1,
+  "size": "1024x1024"
+}
