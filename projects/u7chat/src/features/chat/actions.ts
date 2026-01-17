@@ -25,7 +25,13 @@ export async function generate(model: string, input: string) {
   }
 }
 
-export async function generateStream(model: string, input: string) {
+export async function generateStream(
+  model: string,
+  messages: {
+    role: 'user' | 'assistant' | 'system'
+    content: string
+  }[],
+) {
   const stream = createStreamableValue('')
 
   ;(async () => {
@@ -35,7 +41,7 @@ export async function generateStream(model: string, input: string) {
     })
     const { textStream } = streamText({
       model: openai(model),
-      prompt: input,
+      prompt: messages,
       onError: ({ error }) => {
         console.error('Error generating text stream:', error)
         stream.update(extractErrorMessage(error))
