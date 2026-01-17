@@ -200,6 +200,7 @@ export function ChatSettings({
           >
             <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
           </button>
+          <span className='text-xs font-medium text-gray-900 dark:text-gray-200'>{model}</span>
         </div>
       )}
       {/* ポップアップメニュー */}
