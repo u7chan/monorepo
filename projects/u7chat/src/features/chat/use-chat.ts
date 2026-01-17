@@ -4,8 +4,13 @@ import { readStreamableValue } from '@ai-sdk/rsc'
 
 export function useChat({ model, stream }: { model: string; stream?: boolean }) {
   const [loading, setLoading] = useState(false)
-  const [inputText, setInputText] = useState('')
-  const [outputText, setOutputText] = useState('')
+  const [streamMessage, setStreamMessage] = useState('')
+  const [messages, setMessages] = useState<
+    {
+      role: 'user' | 'assistant' | 'system'
+      content: string
+    }[]
+  >([])
   const scrollContainer = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -15,20 +20,27 @@ export function useChat({ model, stream }: { model: string; stream?: boolean }) 
   }
 
   const handleSubmit = async (input: string) => {
-    setInputText(input)
-    setOutputText('')
+    const newMessages: {
+      role: 'user' | 'assistant' | 'system'
+      content: string
+    }[] =
+      streamMessage !== ''
+        ? [...messages, { role: 'assistant', content: streamMessage }, { role: 'user', content: input }]
+        : [...messages, { role: 'user', content: input }]
+    setMessages(newMessages)
+    setStreamMessage('')
     setLoading(true)
 
     if (stream) {
-      const { output } = await generateStream(model, input)
+      const { output } = await generateStream(model, newMessages)
       for await (const delta of readStreamableValue(output)) {
-        setOutputText((prev) => `${prev}${delta}`)
+        setStreamMessage((prev) => `${prev}${delta}`)
         scrollToBottom()
       }
-      setOutputText((prev) => `${prev}\n`)
+      setStreamMessage((prev) => `${prev}\n`)
     } else {
       const { output } = await generate(model, input)
-      setOutputText((prev) => `${prev}${output}`)
+      setStreamMessage((prev) => `${prev}${output}`)
       scrollToBottom()
     }
 
@@ -37,8 +49,8 @@ export function useChat({ model, stream }: { model: string; stream?: boolean }) 
 
   return {
     loading,
-    inputText,
-    outputText,
+    messages,
+    streamMessage,
     scrollContainer,
     handleSubmit,
   }
