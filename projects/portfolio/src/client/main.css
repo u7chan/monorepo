@@ -1,6 +1,6 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 /* @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP&display=swap'); */
-@import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c&display=swap');
 
 @config "../../tailwind.config.ts";
 
@@ -44,7 +44,7 @@
 
 body {
   /* font-family: "Noto Sans JP", sans-serif; */
-  font-family: "M PLUS Rounded 1c", sans-serif;
+  font-family: 'M PLUS Rounded 1c', sans-serif;
 }
 
 .line-clamp-2 {
@@ -71,16 +71,12 @@ body {
 }
 
 /* ブロッククォートの before スタイルを無効にする */
-:where(.prose > blockquote > p):not(
-    :where([class~="not-prose"], [class~="not-prose"] *)
-  )::before {
+:where(.prose > blockquote > p):not(:where([class~='not-prose'], [class~='not-prose'] *))::before {
   content: none;
 }
 
 /* ブロッククォートの after スタイルを無効にする */
-:where(.prose > blockquote > p):not(
-    :where([class~="not-prose"], [class~="not-prose"] *)
-  )::after {
+:where(.prose > blockquote > p):not(:where([class~='not-prose'], [class~='not-prose'] *))::after {
   content: none;
 }
 
@@ -102,16 +98,12 @@ body {
 }
 
 /* インラインコードブロックの before スタイルを無効にする */
-:where(.prose > p > code):not(
-    :where([class~="not-prose"], [class~="not-prose"] *)
-  )::before {
+:where(.prose > p > code):not(:where([class~='not-prose'], [class~='not-prose'] *))::before {
   content: none;
 }
 
 /* インラインコードブロックの after スタイルを無効にする */
-:where(.prose > p > code):not(
-    :where([class~="not-prose"], [class~="not-prose"] *)
-  )::after {
+:where(.prose > p > code):not(:where([class~='not-prose'], [class~='not-prose'] *))::after {
   content: none;
 }
 

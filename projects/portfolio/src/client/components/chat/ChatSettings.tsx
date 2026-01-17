@@ -1,14 +1,10 @@
-import { hc } from 'hono/client'
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  readFromLocalStorage,
-  type Settings,
-  saveToLocalStorage,
-} from '#/client/components/chat/remoteStorageSettings'
+import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/components/chat/remoteStorageSettings'
 import { ToggleInput } from '#/client/components/input/ToggleInput'
 import { GearIcon } from '#/client/components/svg/GearIcon'
 import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
 import type { AppType } from '#/server/app'
+import { hc } from 'hono/client'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 const client = hc<AppType>('/')
 
@@ -39,9 +35,7 @@ export function ChatSettings({
 
   const [model, setModel] = useState(defaultSettings.model)
   const [temperature, setTemperature] = useState<number>(defaultSettings.temperature)
-  const [temperatureEnabled, setTemperatureEnabled] = useState(
-    defaultSettings?.temperatureEnabled ?? false,
-  )
+  const [temperatureEnabled, setTemperatureEnabled] = useState(defaultSettings?.temperatureEnabled ?? false)
   const [autoModel, setAutoModel] = useState(defaultSettings?.autoModel ?? false)
   const [fetchedModels, setFetchedModels] = useState<string[]>([])
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
@@ -112,7 +106,9 @@ export function ChatSettings({
 
   const handleChangeTemperature = (event: ChangeEvent<HTMLInputElement>) => {
     setTemperature(Number.parseFloat(event.target.value))
-    const settings = saveToLocalStorage({ temperature: Number.parseFloat(event.target.value) })
+    const settings = saveToLocalStorage({
+      temperature: Number.parseFloat(event.target.value),
+    })
     onChange?.(settings)
   }
 
@@ -126,7 +122,9 @@ export function ChatSettings({
   const handleClickTemperatureEnabled = () => {
     const newTemperatureEnabled = !temperatureEnabled
     setTemperatureEnabled(newTemperatureEnabled)
-    const settings = saveToLocalStorage({ temperatureEnabled: newTemperatureEnabled })
+    const settings = saveToLocalStorage({
+      temperatureEnabled: newTemperatureEnabled,
+    })
     onChange?.(settings)
   }
 
@@ -313,16 +311,12 @@ export function ChatSettings({
               disabled={!temperatureEnabled}
               className={`h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 dark:bg-primary-600 dark:accent-primary-500 ${temperatureEnabled ? '' : 'opacity-50'}`}
             />
-            <div className='mr-1 text-gray-900 text-sm dark:text-gray-200'>
-              {temperature.toFixed(2)}
-            </div>
+            <div className='mr-1 text-gray-900 text-sm dark:text-gray-200'>{temperature.toFixed(2)}</div>
             <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
           </div>
         </div>
         <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200'>
-            Max Tokens
-          </span>
+          <span className='ml-1 w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200'>Max Tokens</span>
           <input
             name='maxTokens'
             type='number'
@@ -333,17 +327,9 @@ export function ChatSettings({
             className='w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500'
           />
         </div>
-        <ToggleInput
-          label='Markdown Preview'
-          value={markdownPreview}
-          onClick={handleClickShowMarkdownPreview}
-        />
+        <ToggleInput label='Markdown Preview' value={markdownPreview} onClick={handleClickShowMarkdownPreview} />
         <ToggleInput label='Stream Mode' value={streamMode} onClick={handleClickStreamMode} />
-        <ToggleInput
-          label='Interactive Mode'
-          value={interactiveMode}
-          onClick={handleClickInteractiveMode}
-        />
+        <ToggleInput label='Interactive Mode' value={interactiveMode} onClick={handleClickInteractiveMode} />
       </div>
     </div>
   )

@@ -5,13 +5,7 @@ interface Props {
 
 export function ChatbotIcon({ size = 24, className = 'stroke-black dark:stroke-white' }: Props) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox='0 0 400 400'
-      fill='none'
-      xmlns='http://www.w3.org/2000/svg'
-    >
+    <svg width={size} height={size} viewBox='0 0 400 400' fill='none' xmlns='http://www.w3.org/2000/svg'>
       <title>chatbot-icon</title>
       <path
         d='M97.8357 54.6682C177.199 59.5311 213.038 52.9891 238.043 52.9891C261.298 52.9891 272.24 129.465 262.683 152.048C253.672 173.341 100.331 174.196 93.1919 165.763C84.9363 156.008 89.7095 115.275 89.7095 101.301'

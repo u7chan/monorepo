@@ -1,7 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
-import { hc } from 'hono/client'
-import { useState } from 'react'
-
 import { ChatLayout } from '#/client/components/chat/ChatLayout'
 import { ChatMain } from '#/client/components/chat/ChatMain'
 import { ChatSettings } from '#/client/components/chat/ChatSettings'
@@ -10,6 +6,9 @@ import { readFromLocalStorage, type Settings } from '#/client/components/chat/re
 import { useMetaProps } from '#/client/pages/Home'
 import type { AppType } from '#/server/app.d'
 import type { Conversation } from '#/types'
+import { useQuery } from '@tanstack/react-query'
+import { hc } from 'hono/client'
+import { useState } from 'react'
 
 const client = hc<AppType>('/')
 
@@ -43,7 +42,11 @@ export function Chat() {
   })
 
   const handleNewChat = () => {
-    setViewModel((p) => ({ ...p, newChatTrigger: Date.now(), showSettingsPopup: false }))
+    setViewModel((p) => ({
+      ...p,
+      newChatTrigger: Date.now(),
+      showSettingsPopup: false,
+    }))
   }
 
   const handleShowMenu = () => {
@@ -179,9 +182,7 @@ export function Chat() {
         initTrigger={viewModel.newChatTrigger}
         settings={viewModel.settings}
         onSubmitting={handleChatSubmitting}
-        currentConversation={
-          viewModel.conversations.find(({ id }) => id === viewModel.conversationId) || null
-        }
+        currentConversation={viewModel.conversations.find(({ id }) => id === viewModel.conversationId) || null}
         onConversationChange={handleConversationChange}
         onDeleteMessages={handleDeleteConversationMessage}
       />

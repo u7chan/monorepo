@@ -42,11 +42,7 @@ const SystemMessageSchema = z.object({
   metadata: z.object({}).optional(),
 })
 
-const MessageSchema = z.discriminatedUnion('role', [
-  UserMessageSchema,
-  AssistantMessageSchema,
-  SystemMessageSchema,
-])
+const MessageSchema = z.discriminatedUnion('role', [UserMessageSchema, AssistantMessageSchema, SystemMessageSchema])
 
 export const ConversationSchema = z.object({
   id: z.string(),

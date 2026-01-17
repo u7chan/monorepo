@@ -1,7 +1,6 @@
+import type { AppType } from '#/server/app.d'
 import { hc } from 'hono/client'
 import { type FormEvent, useMemo, useState } from 'react'
-
-import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
 
@@ -46,10 +45,7 @@ export function Home() {
               </div>
             )}
             <div>
-              <label
-                htmlFor='email'
-                className='mb-1 block font-semibold text-gray-700 text-sm dark:text-gray-300'
-              >
+              <label htmlFor='email' className='mb-1 block font-semibold text-gray-700 text-sm dark:text-gray-300'>
                 Email
               </label>
               <input
@@ -62,10 +58,7 @@ export function Home() {
             </div>
 
             <div>
-              <label
-                htmlFor='password'
-                className='mb-1 block font-semibold text-gray-700 text-sm dark:text-gray-300'
-              >
+              <label htmlFor='password' className='mb-1 block font-semibold text-gray-700 text-sm dark:text-gray-300'>
                 Password
               </label>
               <input

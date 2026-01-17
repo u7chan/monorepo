@@ -1,8 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm'
-import { UUID } from 'uuidv7'
-
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import { and, eq, inArray } from 'drizzle-orm'
+import { UUID } from 'uuidv7'
 
 // UUID検証用のヘルパー関数
 function isValidUUID(id: string): boolean {
@@ -17,7 +16,7 @@ function isValidUUID(id: string): boolean {
 export async function deleteMessagesByIds(
   databaseUrl: string,
   email: string,
-  messageIds: string[],
+  messageIds: string[]
 ): Promise<{
   success: boolean
   deletedMessageIds: string[]
@@ -90,7 +89,7 @@ export async function deleteMessagesByIds(
 
   if (unauthorizedIds.length > 0) {
     console.warn(
-      `Warning: Some messages not found or access denied. Unauthorized IDs: ${unauthorizedIds.join(', ')}, Email: ${email}`,
+      `Warning: Some messages not found or access denied. Unauthorized IDs: ${unauthorizedIds.join(', ')}, Email: ${email}`
     )
   }
 
@@ -134,9 +133,7 @@ export async function deleteMessagesByIds(
 
     console.log(`Successfully deleted messages: ${ownedMessageIds.join(', ')}`)
     if (deletedConversationIds.length > 0) {
-      console.log(
-        `Successfully deleted orphaned conversations: ${deletedConversationIds.join(', ')}`,
-      )
+      console.log(`Successfully deleted orphaned conversations: ${deletedConversationIds.join(', ')}`)
     }
 
     return {
@@ -159,7 +156,7 @@ export async function deleteMessagesByIds(
 export async function deleteConversations(
   databaseUrl: string,
   email: string,
-  conversationIds: string[],
+  conversationIds: string[]
 ): Promise<{ success: boolean; deletedIds: string[]; failedIds: string[] }> {
   const db = getDatabase(databaseUrl)
 
@@ -201,16 +198,14 @@ export async function deleteConversations(
   const ownedConversations = await db
     .select({ id: conversationsTable.id })
     .from(conversationsTable)
-    .where(
-      and(inArray(conversationsTable.id, conversationIds), eq(conversationsTable.userId, userId)),
-    )
+    .where(and(inArray(conversationsTable.id, conversationIds), eq(conversationsTable.userId, userId)))
 
   const ownedConversationIds = ownedConversations.map((conv) => conv.id)
   const unauthorizedIds = conversationIds.filter((id) => !ownedConversationIds.includes(id))
 
   if (unauthorizedIds.length > 0) {
     console.warn(
-      `Warning: Some conversations not found or access denied. Unauthorized IDs: ${unauthorizedIds.join(', ')}, Email: ${email}`,
+      `Warning: Some conversations not found or access denied. Unauthorized IDs: ${unauthorizedIds.join(', ')}, Email: ${email}`
     )
   }
 
@@ -223,14 +218,10 @@ export async function deleteConversations(
   try {
     await db.transaction(async (tx) => {
       // 関連するメッセージを削除
-      await tx
-        .delete(messagesTable)
-        .where(inArray(messagesTable.conversationId, ownedConversationIds))
+      await tx.delete(messagesTable).where(inArray(messagesTable.conversationId, ownedConversationIds))
 
       // 会話を削除
-      await tx
-        .delete(conversationsTable)
-        .where(inArray(conversationsTable.id, ownedConversationIds))
+      await tx.delete(conversationsTable).where(inArray(conversationsTable.id, ownedConversationIds))
     })
 
     console.log(`Successfully deleted conversations: ${ownedConversationIds.join(', ')}`)

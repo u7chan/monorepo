@@ -1,11 +1,10 @@
-import { createRootRoute, Outlet } from '@tanstack/react-router'
-import React from 'react'
-
 import { Layout } from '#/client/components/Layout'
 import { AboutIcon } from '#/client/components/svg/AboutIcon'
 import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
 import { DashboardIcon } from '#/client/components/svg/DashboardIcon'
 import { LlmIcon } from '#/client/components/svg/LlmIcon'
+import { createRootRoute, Outlet } from '@tanstack/react-router'
+import React from 'react'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production
@@ -13,7 +12,7 @@ const TanStackRouterDevtoolsPanel = import.meta.env.PROD
       // Lazy load in development
       import('@tanstack/react-router-devtools').then((res) => ({
         default: res.TanStackRouterDevtools,
-      })),
+      }))
     )
 
 export const Route = createRootRoute({

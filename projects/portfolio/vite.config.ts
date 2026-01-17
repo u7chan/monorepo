@@ -61,10 +61,7 @@ export default defineConfig(({ mode }) => {
           minify: true,
           outDir: resolve(__dirname, 'dist/static'),
           rollupOptions: {
-            input: [
-              resolve(__dirname, 'src/client/main.tsx'),
-              resolve(__dirname, 'src/client/main.css'),
-            ],
+            input: [resolve(__dirname, 'src/client/main.tsx'), resolve(__dirname, 'src/client/main.css')],
             output: {
               entryFileNames: 'client.js',
               assetFileNames: '[name].[ext]',

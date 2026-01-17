@@ -1,13 +1,9 @@
-import { asc, desc, eq, sql } from 'drizzle-orm'
-
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import type { Conversation } from '#/types'
+import { asc, desc, eq, sql } from 'drizzle-orm'
 
-export async function readConversation(
-  databaseUrl: string,
-  email: string,
-): Promise<Conversation[] | null> {
+export async function readConversation(databaseUrl: string, email: string): Promise<Conversation[] | null> {
   const db = getDatabase(databaseUrl)
 
   // ユーザーIDの取得
@@ -42,7 +38,7 @@ export async function readConversation(
         WHEN ${messagesTable.role} = 'user' THEN 2
         WHEN ${messagesTable.role} = 'assistant' THEN 3
         ELSE 4
-      END`,
+      END`
     )
 
   // JOINの結果を会話ごとにグループ化

@@ -1,8 +1,8 @@
+import type { AppType } from '#/server/app.d'
 import { hc } from 'hono/client'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
 
@@ -67,13 +67,7 @@ function ChatInput({ value, onChange, onSubmit, disabled }: ChatInputProps) {
             aria-label='送信'
           >
             <title>送信</title>
-            <path
-              d='M22 2L11 13'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-              strokeLinejoin='round'
-            />
+            <path d='M22 2L11 13' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' />
             <path
               d='M22 2L15 22L11 13L2 9L22 2Z'
               stroke='currentColor'
@@ -98,9 +92,7 @@ function MessageBubble({ message, isLoading }: MessageBubbleProps) {
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div
-        className={`flex max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start gap-3`}
-      >
+      <div className={`flex max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start gap-3`}>
         {/* アバター */}
         <div
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
@@ -110,24 +102,12 @@ function MessageBubble({ message, isLoading }: MessageBubbleProps) {
           }`}
         >
           {isUser ? (
-            <svg
-              width='16'
-              height='16'
-              viewBox='0 0 24 24'
-              fill='currentColor'
-              aria-label='ユーザー'
-            >
+            <svg width='16' height='16' viewBox='0 0 24 24' fill='currentColor' aria-label='ユーザー'>
               <title>ユーザー</title>
               <path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' />
             </svg>
           ) : (
-            <svg
-              width='16'
-              height='16'
-              viewBox='0 0 24 24'
-              fill='currentColor'
-              aria-label='アシスタント'
-            >
+            <svg width='16' height='16' viewBox='0 0 24 24' fill='currentColor' aria-label='アシスタント'>
               <title>アシスタント</title>
               <path d='M20,2H4A2,2 0 0,0 2,4V22L6,18H20A2,2 0 0,0 22,16V4C22,2.89 21.1,2 20,2Z' />
             </svg>
@@ -152,14 +132,8 @@ function MessageBubble({ message, isLoading }: MessageBubbleProps) {
           {isLoading && !isUser && (
             <div className='mt-2 flex items-center gap-1'>
               <div className='h-2 w-2 animate-pulse rounded-full bg-gray-400' />
-              <div
-                className='h-2 w-2 animate-pulse rounded-full bg-gray-400'
-                style={{ animationDelay: '0.2s' }}
-              />
-              <div
-                className='h-2 w-2 animate-pulse rounded-full bg-gray-400'
-                style={{ animationDelay: '0.4s' }}
-              />
+              <div className='h-2 w-2 animate-pulse rounded-full bg-gray-400' style={{ animationDelay: '0.2s' }} />
+              <div className='h-2 w-2 animate-pulse rounded-full bg-gray-400' style={{ animationDelay: '0.4s' }} />
             </div>
           )}
         </div>
@@ -291,7 +265,7 @@ export function Llm(): ReactElement {
                       ...prev,
                       content: fullContent,
                     }
-                  : null,
+                  : null
               )
             }
 
@@ -363,9 +337,7 @@ export function Llm(): ReactElement {
                 <div className='mb-4 font-bold text-2xl text-gray-900 dark:text-white'>
                   AIアシスタントにお気軽にお聞きください
                 </div>
-                <p className='text-gray-600 dark:text-gray-400'>
-                  何でもお聞きください。お手伝いいたします。
-                </p>
+                <p className='text-gray-600 dark:text-gray-400'>何でもお聞きください。お手伝いいたします。</p>
               </div>
             </div>
           )}

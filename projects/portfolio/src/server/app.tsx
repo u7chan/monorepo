@@ -1,6 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
-
+import { AuthenticationError, auth } from '#/server/features/auth/auth'
+import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversation-repository'
+import { chatStub } from '#/server/features/chat-stub/chat-stub'
+import type { StreamChunk, StreamCompletionChunk } from '#/server/features/chat/chat'
+import { chat, MessageSchema } from '#/server/features/chat/chat'
+import { cookie } from '#/server/features/cookie/cookie'
+import { ConversationSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
@@ -9,14 +15,6 @@ import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import { renderToString } from 'react-dom/server'
 import { z } from 'zod'
-
-import { AuthenticationError, auth } from '#/server/features/auth/auth'
-import type { StreamChunk, StreamCompletionChunk } from '#/server/features/chat/chat'
-import { chat, MessageSchema } from '#/server/features/chat/chat'
-import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversation-repository'
-import { chatStub } from '#/server/features/chat-stub/chat-stub'
-import { cookie } from '#/server/features/cookie/cookie'
-import { ConversationSchema } from '#/types'
 
 type Env = Partial<{
   NODE_ENV: string
@@ -46,26 +44,15 @@ const app = new Hono<HonoEnv>()
       z.object({
         email: z.string().email(),
         password: z.string().min(1),
-      }),
+      })
     ),
     async (c) => {
       const { email, password } = c.req.valid('json')
-      const {
-        DATABASE_URL = '',
-        COOKIE_SECRET = '',
-        COOKIE_NAME = '',
-        COOKIE_EXPIRES = '1d',
-      } = env<Env>(c)
+      const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = env<Env>(c)
       await auth.login(DATABASE_URL, email, password)
-      await setSignedCookie(
-        c,
-        COOKIE_NAME,
-        email,
-        COOKIE_SECRET,
-        cookie.createOptions(COOKIE_EXPIRES),
-      )
+      await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, cookie.createOptions(COOKIE_EXPIRES))
       return c.json({})
-    },
+    }
   )
   .post(
     '/api/chat',
@@ -105,7 +92,7 @@ const app = new Hono<HonoEnv>()
             include_usage: z.boolean().optional(),
           })
           .optional(),
-      }),
+      })
     ),
     async (c) => {
       const { COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
@@ -131,7 +118,7 @@ const app = new Hono<HonoEnv>()
           maxTokens: req.max_tokens,
           stream: req.stream,
           includeUsage: req.stream_options?.include_usage,
-        },
+        }
       )
       return req.stream
         ? streamSSE(c, async (stream) => {
@@ -152,7 +139,7 @@ const app = new Hono<HonoEnv>()
             }
           })
         : c.json(completion)
-    },
+    }
   )
   .post(
     '/api/chat/completions',
@@ -169,7 +156,7 @@ const app = new Hono<HonoEnv>()
             include_usage: z.boolean().optional(),
           })
           .optional(),
-      }),
+      })
     ),
     async (c) => {
       const req = c.req.valid('json')
@@ -180,12 +167,9 @@ const app = new Hono<HonoEnv>()
 
       const reasoningContent = fs.readFileSync(
         path.join(process.cwd(), 'src/server/data/chat-stub-reasoning-content.md'),
-        'utf8',
+        'utf8'
       )
-      const content = fs.readFileSync(
-        path.join(process.cwd(), 'src/server/data/chat-stub-content.md'),
-        'utf8',
-      )
+      const content = fs.readFileSync(path.join(process.cwd(), 'src/server/data/chat-stub-content.md'), 'utf8')
 
       console.log('<--[Request]')
       return req.stream
@@ -212,7 +196,7 @@ const app = new Hono<HonoEnv>()
             }
           })
         : c.json(await chatStub.completions(req.model, content))
-    },
+    }
   )
   .get('/api/conversations', async (c) => {
     const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
@@ -243,10 +227,8 @@ const app = new Hono<HonoEnv>()
     sValidator(
       'query',
       z.object({
-        ids: z
-          .union([z.string(), z.array(z.string())])
-          .transform((value) => (Array.isArray(value) ? value : [value])),
-      }),
+        ids: z.union([z.string(), z.array(z.string())]).transform((value) => (Array.isArray(value) ? value : [value])),
+      })
     ),
     async (c) => {
       const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
@@ -258,17 +240,15 @@ const app = new Hono<HonoEnv>()
       const { ids } = c.req.valid('query')
       const result = await chatConversationRepository.delete(DATABASE_URL, email, ids)
       return c.json(result)
-    },
+    }
   )
   .delete(
     '/api/conversations/messages',
     sValidator(
       'query',
       z.object({
-        ids: z
-          .union([z.string(), z.array(z.string())])
-          .transform((value) => (Array.isArray(value) ? value : [value])),
-      }),
+        ids: z.union([z.string(), z.array(z.string())]).transform((value) => (Array.isArray(value) ? value : [value])),
+      })
     ),
     async (c) => {
       const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
@@ -280,7 +260,7 @@ const app = new Hono<HonoEnv>()
       const { ids } = c.req.valid('query')
       const result = await chatConversationRepository.deleteMessages(DATABASE_URL, email, ids)
       return c.json(result)
-    },
+    }
   )
   .get(
     '/api/fetch-models',
@@ -316,7 +296,7 @@ const app = new Hono<HonoEnv>()
         console.error('Failed to fetch models:', error)
       }
       return c.json([])
-    },
+    }
   )
   .get('*', async (c) => {
     const { NODE_ENV, COOKIE_SECRET = '', COOKIE_NAME = '' } = env<Env>(c)
@@ -340,8 +320,8 @@ const app = new Hono<HonoEnv>()
           <body>
             <div id='root' />
           </body>
-        </html>,
-      ),
+        </html>
+      )
     )
   })
 

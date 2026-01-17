@@ -22,7 +22,7 @@ export const useAudioRecorder = () => {
   const startRecording = async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       alert(
-        'マイク機能がこのブラウザではサポートされていないか、安全でない接続(HTTP)でアクセスしている可能性があります。',
+        'マイク機能がこのブラウザではサポートされていないか、安全でない接続(HTTP)でアクセスしている可能性があります。'
       )
       console.error('MediaDevices API not supported.')
       return
@@ -37,7 +37,9 @@ export const useAudioRecorder = () => {
       }
 
       mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: 'audio/webm',
+        })
         setAudioBlob(audioBlob)
         const audioUrl = URL.createObjectURL(audioBlob)
         setAudioURL(audioUrl)

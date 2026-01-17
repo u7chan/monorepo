@@ -3,9 +3,13 @@
 ---
 
 # 見出し1
+
 ## 見出し2
+
 ### 見出し3
+
 #### 見出し4
+
 ##### 見出し5
 
 これは通常のテキストです。
@@ -20,20 +24,20 @@
 
 **太字テキスト**
 
-*斜体テキスト*
+_斜体テキスト_
 
 ~~取り消し線テキスト~~
 
 - リスト項目1
 - リスト項目2
-    - ネストされたリスト項目1
-    - ネストされたリスト項目2
+  - ネストされたリスト項目1
+  - ネストされたリスト項目2
 - リスト項目3
 
 1. 番号付きリスト項目1
 2. 番号付きリスト項目2
-    1. ネストされた番号付きリスト項目1
-    2. ネストされた番号付きリスト項目2
+   1. ネストされた番号付きリスト項目1
+   2. ネストされた番号付きリスト項目2
 3. 番号付きリスト項目3
 
 > これは引用です。
@@ -65,39 +69,39 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 1. 通常リンク
 
-    [example](https://example.com)
+   [example](https://example.com)
 
 1. アンカーリンク
 
-    [見出し1へ](#見出し1)
+   [見出し1へ](#見出し1)
 
 1. 自動リンク
 
-    https://www.google.com
+   https://www.google.com
 
 1. メールリンク
 
-    <mailto:example@example.com>
+   <mailto:example@example.com>
 
 #### 画像です。
 
 1. マークダウン形式
 
-    ![画像の代替テキスト](https://picsum.photos/200)
+   ![画像の代替テキスト](https://picsum.photos/200)
 
 1. imgタグ形式
 
-    <img src="https://picsum.photos/200" width="50%" />
+<img src="https://picsum.photos/200" width="50%" />
 
 ---
 
 #### テーブルの例です。
 
-| 名前       | 説明                              | 備考                   |
-|------------|---------------------------------|------------------------|
-| 商品A      | 価格は1000円<br>送料無料         | 使用方法は `簡単`          |
-| 商品B      | 在庫あり<br>発送まで2日          | 注意事項は `要確認`          |
-| 商品C      | レビュー多数<br>人気商品          | 評価は `高評価`            |
+| 名前  | 説明                     | 備考                |
+| ----- | ------------------------ | ------------------- |
+| 商品A | 価格は1000円<br>送料無料 | 使用方法は `簡単`   |
+| 商品B | 在庫あり<br>発送まで2日  | 注意事項は `要確認` |
+| 商品C | レビュー多数<br>人気商品 | 評価は `高評価`     |
 
 #### mermaid形式です。
 
@@ -168,8 +172,8 @@ if __name__ == "__main__":
 
 ```ts
 interface Person {
-  name: string;
-  age: number;
-  isStudent: boolean;
+  name: string
+  age: number
+  isStudent: boolean
 }
 ```
