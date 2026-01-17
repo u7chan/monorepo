@@ -26,11 +26,7 @@ export function ChatMessage({ messages, streamMessage, scrollContainer }: ChatMe
               </div>
             )}
             {message.role === 'assistant' && (
-              <div className='flex justify-start'>
-                <div className='bg-secondary rounded-3xl rounded-tl-sm px-4 py-3 break-words whitespace-pre-wrap'>
-                  {message.content}
-                </div>
-              </div>
+              <Streamdown className='break-words whitespace-pre-wrap'>{message.content}</Streamdown>
             )}
           </React.Fragment>
         ))}
