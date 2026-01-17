@@ -300,7 +300,6 @@ const app = new Hono<HonoEnv>()
     }),
     async (c) => {
       const { 'api-key': apiKey, 'base-url': baseURL } = c.req.valid('header')
-      console.log(`Fetching models from ${baseURL}...`, apiKey)
       try {
         const response = await fetch(`${baseURL}/models`, {
           headers: {
