@@ -1,6 +1,8 @@
+# Example Responses
+
 `gpt-image-1`:
 
-```
+```sh
 HTTP/1.1 200 OK
 date: Sat, 17 Jan 2026 07:19:15 GMT
 server: uvicorn
@@ -40,7 +42,7 @@ Connection: close
 
 `dall-e-3`:
 
-```
+```sh
 HTTP/1.1 200 OK
 date: Sat, 17 Jan 2026 07:29:32 GMT
 server: uvicorn
