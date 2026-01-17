@@ -503,7 +503,7 @@ export function ChatMain({
                             className='fill-gray-500 group-disabled:fill-gray-300'
                           />
                           <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
-                            画像
+                            画像アップロード
                           </div>
                         </button>
                       )}
@@ -763,7 +763,7 @@ export function ChatMain({
                           className='fill-gray-500 group-disabled:fill-gray-300'
                         />
                         <div className='mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300'>
-                          画像
+                          画像アップロード
                         </div>
                       </button>
                     )}
