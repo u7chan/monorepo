@@ -13,9 +13,13 @@ export function Chat({ model, stream }: ChatProps) {
   const { loading, messages, streamMessage, scrollContainer, handleSubmit } = useChat({ model, stream })
 
   return (
-    <>
-      <ChatMessage messages={messages} streamMessage={streamMessage} scrollContainer={scrollContainer} />
-      <ChatInput loading={loading} onSubmit={handleSubmit} />
-    </>
+    <div className='flex min-h-0 flex-1 flex-col'>
+      <div className='min-h-0 flex-1'>
+        <ChatMessage messages={messages} streamMessage={streamMessage} scrollContainer={scrollContainer} />
+      </div>
+      <div className='shrink-0'>
+        <ChatInput loading={loading} onSubmit={handleSubmit} />
+      </div>
+    </div>
   )
 }
