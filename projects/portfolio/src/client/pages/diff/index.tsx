@@ -26,7 +26,7 @@ line 3`)
       <div className='mb-4'>
         <button
           onClick={() => setMode(mode === 'view' ? 'edit' : 'view')}
-          className='px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-700 dark:hover:bg-blue-800'
+          className='w-24 cursor-pointer rounded-sm bg-primary-800 p-2 text-white hover:bg-primary-700 dark:bg-primary-600 dark:hover:bg-primary-500'
         >
           {mode === 'view' ? 'Edit' : 'View Diff'}
         </button>
@@ -53,7 +53,14 @@ line 3`)
           </div>
         </div>
       ) : (
-        <ReactDiffViewer oldValue={oldCode} newValue={newCode} splitView={true} useDarkTheme={isDarkTheme} />
+        <ReactDiffViewer
+          oldValue={oldCode}
+          newValue={newCode}
+          splitView={true}
+          useDarkTheme={isDarkTheme}
+          styles={{ contentText: { fontSize: '14px' },
+        lineNumber: {fontSize: '14px'} }}
+        />
       )}
     </div>
   )
