@@ -3,13 +3,12 @@ interface Props {
   className?: string
 }
 
-export function AboutIcon({ size = 24, className }: Props) {
+export function AboutIcon({ size = 24, className= 'fill-black dark:fill-white'  }: Props) {
   return (
     <svg
       width={size}
       height={size}
       viewBox='0 0 128 128'
-      fill='currentColor'
       className={className}
       xmlns='http://www.w3.org/2000/svg'
       aria-label='About'
