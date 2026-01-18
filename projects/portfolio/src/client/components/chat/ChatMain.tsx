@@ -314,7 +314,7 @@ export function ChatMain({
 
     const inputText = form.userInput.trim()
     const params = templateInput
-      ? createTemplateMessage(templateInput, options)
+      ? createTemplateMessage(templateInput, form.model, options)
       : createMessage(inputText, form.model, options)
     if (!params) {
       return
@@ -460,6 +460,7 @@ export function ChatMain({
                 お手伝いできることはありますか？
               </div>
               <PromptTemplate
+                placeholder={settings.model}
                 onSubmit={(templateInput) => {
                   setTemplateInput(templateInput)
                   formRef?.current?.requestSubmit()
@@ -603,7 +604,7 @@ export function ChatMain({
                     )}
                     {message.role === 'assistant' && (
                       <div className='flex'>
-                        <div className='flex h-[32px] w-[32px] justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
+                        <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
                           <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
                         </div>
                         <div className='message group ml-2 text-left'>
@@ -651,7 +652,7 @@ export function ChatMain({
               })}
               {loading && (
                 <div className='flex align-item'>
-                  <div className='flex h-[32px] w-[32px] justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
+                  <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
                     <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
                   </div>
                   {stream ? (
@@ -792,7 +793,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
         <button
           type='button'
           onClick={handleClickStop}
-          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
+          className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
         >
           <StopIcon className='fill-white' size={18} />
         </button>
@@ -800,7 +801,7 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
         <button
           type='submit'
           disabled={disabled}
-          className={`flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
+          className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
         >
           <ArrowUpIcon className='fill-white' size={22} />
         </button>
@@ -847,6 +848,7 @@ const createMessage = (
 
 const createTemplateMessage = (
   templateInput: TemplateInput,
+  model: string,
   { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
 ): {
   model: string
@@ -863,7 +865,7 @@ const createTemplateMessage = (
   const newMessages: Message[] =
     messages.length === 0 && templateInput ? [systemMessage, userMessage] : [...messages, userMessage]
   return {
-    model: templateInput.model,
+    model: templateInput.model || model,
     messages: interactiveMode ? newMessages : [systemMessage, userMessage],
   }
 }
