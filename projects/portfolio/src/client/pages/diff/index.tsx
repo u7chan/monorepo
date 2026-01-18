@@ -1,17 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer'
+import { loadDiffState, saveDiffState } from '../../storage/diff-state'
+
+const defaultBefore = `line 1
+line 2
+line 3`
+const defaultAfter = `line 1
+modified line 2
+line 3`
 
 export function Diff() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
-  const [beforeCode, setBeforeCode] = useState(`line 1
-line 2
-line 3`)
-  const [afterCode, setAfterCode] = useState(`line 1
-modified line 2
-line 3`)
+  const [beforeCode, setBeforeCode] = useState(defaultBefore)
+  const [afterCode, setAfterCode] = useState(defaultAfter)
+  const [isHydrated, setIsHydrated] = useState(false)
   const [isDarkTheme, setIsDarkTheme] = useState(
     typeof window !== 'undefined' ? document.documentElement.classList.contains('dark') : false
   )
+
+  const hasChanges = useMemo(() => {
+    return beforeCode !== defaultBefore || afterCode !== defaultAfter
+  }, [beforeCode, afterCode])
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -20,6 +29,49 @@ line 3`)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const hydrate = async () => {
+      try {
+        const saved = await loadDiffState()
+        if (!isMounted) {
+          return
+        }
+        if (saved) {
+          setBeforeCode(saved.beforeCode)
+          setAfterCode(saved.afterCode)
+        }
+      } catch {
+        if (!isMounted) {
+          return
+        }
+      } finally {
+        if (isMounted) {
+          setIsHydrated(true)
+        }
+      }
+    }
+
+    hydrate()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return
+    }
+
+    const persist = async () => {
+      await saveDiffState({ beforeCode, afterCode })
+    }
+
+    persist()
+  }, [beforeCode, afterCode, isHydrated])
 
   return (
     <div className='h-screen overflow-y-auto bg-white p-4 dark:bg-gray-900'>
@@ -70,6 +122,11 @@ line 3`)
           useDarkTheme={isDarkTheme}
           styles={{ contentText: { fontSize: '14px' }, lineNumber: { fontSize: '14px' } }}
         />
+      )}
+      {hasChanges ? null : (
+        <p className='mt-4 text-sm text-gray-500 dark:text-gray-400'>
+          Enter some text to keep your diff persisted locally.
+        </p>
       )}
     </div>
   )
