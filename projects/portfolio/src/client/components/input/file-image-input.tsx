@@ -1,4 +1,4 @@
-import { CloseIcon } from '#/client/components/svg/CloseIcon'
+import { CloseIcon } from '#/client/components/svg/close-icon'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 interface Props {

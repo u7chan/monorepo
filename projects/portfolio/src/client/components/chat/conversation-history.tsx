@@ -1,5 +1,5 @@
-import { DeleteIcon } from '#/client/components/svg/DeleteIcon'
-import { NewChatIcon } from '#/client/components/svg/NewChatIcon'
+import { DeleteIcon } from '#/client/components/svg/delete-icon'
+import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
 import type { Conversation } from '#/types'
 import { useState } from 'react'
 
