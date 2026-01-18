@@ -32,11 +32,13 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME
 
 RUN apt-get update \
-  && apt-get install --no-install-recommends -y curl git openssh-client \
+  && apt-get install --no-install-recommends -y sudo curl git openssh-client \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && npm i -g @aikidosec/safe-chain \
-  && npm i -g opencode-ai
+  && npm i -g opencode-ai \
+  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+  && chmod 0440 /etc/sudoers.d/${USERNAME}
 
 USER $USERNAME
 
