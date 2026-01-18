@@ -77,10 +77,11 @@ export interface TemplateInput {
 }
 
 interface Props {
+  placeholder?: string
   onSubmit?: (templateInput: TemplateInput) => void
 }
 
-export function PromptTemplate({ onSubmit }: Props) {
+export function PromptTemplate({ placeholder, onSubmit }: Props) {
   const [composing, setComposition] = useState(false)
 
   const defaultSettings = useMemo(() => {
@@ -133,6 +134,7 @@ export function PromptTemplate({ onSubmit }: Props) {
                   className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
                   onChange={(e) => handleChangeTemplateModel(e, template.id)}
                   defaultValue={defaultSettings?.templateModels?.[template.id]?.model || ''}
+                  placeholder={placeholder}
                 />
               </div>
             </div>

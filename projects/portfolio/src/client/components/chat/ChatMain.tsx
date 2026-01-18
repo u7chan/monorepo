@@ -460,6 +460,7 @@ export function ChatMain({
                 お手伝いできることはありますか？
               </div>
               <PromptTemplate
+                placeholder={settings.model}
                 onSubmit={(templateInput) => {
                   setTemplateInput(templateInput)
                   formRef?.current?.requestSubmit()
