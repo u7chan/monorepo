@@ -1,5 +1,5 @@
 import { ChatInput } from '#/client/components/chat/ChatInput'
-import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTeplate'
+import { PromptTemplate, type TemplateInput } from '#/client/components/chat/PromptTemplate'
 import type { Settings } from '#/client/components/chat/remoteStorageSettings'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/FileImageInput'
 import { ArrowUpIcon } from '#/client/components/svg/ArrowUpIcon'
