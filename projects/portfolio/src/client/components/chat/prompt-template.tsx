@@ -1,4 +1,4 @@
-import { readFromLocalStorage, saveToLocalStorage } from '#/client/components/chat/remoteStorageSettings'
+import { readFromLocalStorage, saveToLocalStorage } from '#/client/lib/remoteStorageSettings'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { useMemo, useState } from 'react'
 

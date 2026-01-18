@@ -1,4 +1,4 @@
-import { Layout } from '#/client/components/Layout'
+import { AppLayout } from '#/client/components/app-layout'
 import { AboutIcon } from '#/client/components/svg/AboutIcon'
 import { ChatbotIcon } from '#/client/components/svg/ChatbotIcon'
 import { DashboardIcon } from '#/client/components/svg/DashboardIcon'
@@ -22,7 +22,7 @@ export const Route = createRootRoute({
 function Root() {
   return (
     <>
-      <Layout
+      <AppLayout
         version={import.meta.env.VITE_APP_VERSION || ''}
         menuItems={[
           { label: 'Home', icon: <DashboardIcon size={24} />, to: '/' },
@@ -32,7 +32,7 @@ function Root() {
         ]}
       >
         <Outlet />
-      </Layout>
+      </AppLayout>
       <TanStackRouterDevtoolsPanel position='bottom-right' />
     </>
   )
