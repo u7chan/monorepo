@@ -1,7 +1,7 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
 import { GearIcon } from '#/client/components/svg/gear-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
-import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/lib/remoteStorageSettings'
+import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
 import { hc } from 'hono/client'
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'

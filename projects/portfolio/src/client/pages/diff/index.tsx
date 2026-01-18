@@ -1,25 +1,105 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer'
+import { loadDiffState, saveDiffState } from '../../storage/diff-state'
+
+const defaultBefore = `line 1
+line 2
+line 3`
+const defaultAfter = `line 1
+modified line 2
+line 3`
 
 export function Diff() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
-  const [beforeCode, setBeforeCode] = useState(`line 1
-line 2
-line 3`)
-  const [afterCode, setAfterCode] = useState(`line 1
-modified line 2
-line 3`)
-  const [isDarkTheme, setIsDarkTheme] = useState(
-    typeof window !== 'undefined' ? document.documentElement.classList.contains('dark') : false
-  )
+  const [beforeCode, setBeforeCode] = useState(defaultBefore)
+  const [afterCode, setAfterCode] = useState(defaultAfter)
+  const [isHydrated, setIsHydrated] = useState(false)
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+    const saved = localStorage.getItem('theme')
+    if (saved === 'dark') {
+      return true
+    }
+    if (saved === 'light') {
+      return false
+    }
+    return document.documentElement.classList.contains('dark')
+  })
+
+  const hasChanges = useMemo(() => {
+    return beforeCode !== defaultBefore || afterCode !== defaultAfter
+  }, [beforeCode, afterCode])
 
   useEffect(() => {
-    const observer = new MutationObserver(() => {
+    const syncTheme = () => {
+      const saved = localStorage.getItem('theme')
+      if (saved === 'dark') {
+        setIsDarkTheme(true)
+        return
+      }
+      if (saved === 'light') {
+        setIsDarkTheme(false)
+        return
+      }
       setIsDarkTheme(document.documentElement.classList.contains('dark'))
-    })
+    }
+
+    syncTheme()
+
+    const observer = new MutationObserver(syncTheme)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => observer.disconnect()
+    window.addEventListener('storage', syncTheme)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('storage', syncTheme)
+    }
   }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const hydrate = async () => {
+      try {
+        const saved = await loadDiffState()
+        if (!isMounted) {
+          return
+        }
+        if (saved) {
+          setBeforeCode(saved.beforeCode)
+          setAfterCode(saved.afterCode)
+        }
+      } catch {
+        if (!isMounted) {
+          return
+        }
+      } finally {
+        if (isMounted) {
+          setIsHydrated(true)
+        }
+      }
+    }
+
+    hydrate()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return
+    }
+
+    const persist = async () => {
+      await saveDiffState({ beforeCode, afterCode })
+    }
+
+    persist()
+  }, [beforeCode, afterCode, isHydrated])
 
   return (
     <div className='h-screen overflow-y-auto bg-white p-4 dark:bg-gray-900'>
@@ -64,6 +144,7 @@ line 3`)
         </div>
       ) : (
         <ReactDiffViewer
+          key={isDarkTheme ? 'diff-dark' : 'diff-light'}
           oldValue={beforeCode}
           newValue={afterCode}
           splitView={true}
