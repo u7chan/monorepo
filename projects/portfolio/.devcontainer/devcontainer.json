@@ -4,13 +4,17 @@
     "dockerfile": "../Dockerfile",
     "target": "dev"
   },
+  "mounts": [
+    "source=${localEnv:HOME}/.local/share/opencode/auth.json,target=/home/vscode/.local/share/opencode/auth.json,type=bind,consistency=cached"
+  ],
+  "runArgs": ["--memory=8g"],
   "appPort": ["3000:3000"],
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
-  "postCreateCommand": "safe-chain --version && bun i && [ -e .env ] || cp .env.example .env",
+  "postCreateCommand": "sudo chown -R vscode:vscode ~/.local && sudo rm -f /etc/sudoers.d/vscode && safe-chain --version && bun i && [ -e .env ] || cp .env.example .env",
   "customizations": {
     "vscode": {
       "settings": {
@@ -33,7 +37,7 @@
         // -- for Tailwind CSS
       },
       "extensions": [
-        "saoudrizwan.claude-dev",
+        // "saoudrizwan.claude-dev",
         "sst-dev.opencode",
         "oxc.oxc-vscode",
         "formulahendry.auto-close-tag",
