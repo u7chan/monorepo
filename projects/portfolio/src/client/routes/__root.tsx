@@ -27,7 +27,7 @@ function Root() {
         menuItems={[
           { label: 'Home', icon: <DashboardIcon size={24} />, to: '/' },
           { label: 'About', icon: <AboutIcon size={18} />, to: '/about' },
-          { label: 'LLM', icon: <LlmIcon size={24} />, to: '/llm' },
+          { label: 'Diff', icon: <LlmIcon size={24} />, to: '/diff' },
           { label: 'Chat', icon: <ChatbotIcon size={26} />, to: '/chat' },
         ]}
       >
