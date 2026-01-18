@@ -1,4 +1,4 @@
-import { Chat } from '#/client/pages/Chat'
+import { Chat } from '#/client/pages/chat'
 import { createFileRoute } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/chat')({

@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import type { FC, ReactNode } from 'react'
-import { ThemeToggle } from './ThemeToggle'
+import { ThemeToggle } from './theme-toggle'
 
 interface Props {
   version: string
@@ -12,7 +12,7 @@ interface Props {
   children: ReactNode
 }
 
-export const Layout: FC<Props> = ({ version, menuItems, children }: Props) => {
+export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) => {
   return (
     <div className={'flex'}>
       {/* サイドバー */}
