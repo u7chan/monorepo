@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer'
 import { loadDiffState, saveDiffState } from '../../storage/diff-state'
 
@@ -27,10 +27,6 @@ export function Diff() {
     }
     return document.documentElement.classList.contains('dark')
   })
-
-  const hasChanges = useMemo(() => {
-    return beforeCode !== defaultBefore || afterCode !== defaultAfter
-  }, [beforeCode, afterCode])
 
   useEffect(() => {
     const syncTheme = () => {
