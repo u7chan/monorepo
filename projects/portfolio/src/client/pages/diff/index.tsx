@@ -14,20 +14,48 @@ export function Diff() {
   const [beforeCode, setBeforeCode] = useState(defaultBefore)
   const [afterCode, setAfterCode] = useState(defaultAfter)
   const [isHydrated, setIsHydrated] = useState(false)
-  const [isDarkTheme, setIsDarkTheme] = useState(
-    typeof window !== 'undefined' ? document.documentElement.classList.contains('dark') : false
-  )
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+    const saved = localStorage.getItem('theme')
+    if (saved === 'dark') {
+      return true
+    }
+    if (saved === 'light') {
+      return false
+    }
+    return document.documentElement.classList.contains('dark')
+  })
 
   const hasChanges = useMemo(() => {
     return beforeCode !== defaultBefore || afterCode !== defaultAfter
   }, [beforeCode, afterCode])
 
   useEffect(() => {
-    const observer = new MutationObserver(() => {
+    const syncTheme = () => {
+      const saved = localStorage.getItem('theme')
+      if (saved === 'dark') {
+        setIsDarkTheme(true)
+        return
+      }
+      if (saved === 'light') {
+        setIsDarkTheme(false)
+        return
+      }
       setIsDarkTheme(document.documentElement.classList.contains('dark'))
-    })
+    }
+
+    syncTheme()
+
+    const observer = new MutationObserver(syncTheme)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => observer.disconnect()
+    window.addEventListener('storage', syncTheme)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('storage', syncTheme)
+    }
   }, [])
 
   useEffect(() => {
@@ -116,6 +144,7 @@ export function Diff() {
         </div>
       ) : (
         <ReactDiffViewer
+          key={isDarkTheme ? 'diff-dark' : 'diff-light'}
           oldValue={beforeCode}
           newValue={afterCode}
           splitView={true}
