@@ -314,7 +314,7 @@ export function ChatMain({
 
     const inputText = form.userInput.trim()
     const params = templateInput
-      ? createTemplateMessage(templateInput, options)
+      ? createTemplateMessage(templateInput, form.model, options)
       : createMessage(inputText, form.model, options)
     if (!params) {
       return
@@ -847,6 +847,7 @@ const createMessage = (
 
 const createTemplateMessage = (
   templateInput: TemplateInput,
+  model: string,
   { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
 ): {
   model: string
@@ -863,7 +864,7 @@ const createTemplateMessage = (
   const newMessages: Message[] =
     messages.length === 0 && templateInput ? [systemMessage, userMessage] : [...messages, userMessage]
   return {
-    model: templateInput.model,
+    model: templateInput.model || model,
     messages: interactiveMode ? newMessages : [systemMessage, userMessage],
   }
 }
