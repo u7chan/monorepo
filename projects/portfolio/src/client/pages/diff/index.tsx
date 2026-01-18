@@ -3,10 +3,10 @@ import ReactDiffViewer from 'react-diff-viewer'
 
 export function Diff() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
-  const [oldCode, setOldCode] = useState(`line 1
+  const [beforeCode, setBeforeCode] = useState(`line 1
 line 2
 line 3`)
-  const [newCode, setNewCode] = useState(`line 1
+  const [afterCode, setAfterCode] = useState(`line 1
 modified line 2
 line 3`)
   const [isDarkTheme, setIsDarkTheme] = useState(
@@ -44,28 +44,28 @@ line 3`)
       {mode === 'edit' ? (
         <div className='grid grid-cols-2 gap-4'>
           <div>
-            <h3 className='text-lg font-semibold mb-2 dark:text-white'>Old Code</h3>
+            <h3 className='text-lg font-semibold mb-2 dark:text-white'>Before</h3>
             <textarea
-              value={oldCode}
-              onChange={(e) => setOldCode(e.target.value)}
+              value={beforeCode}
+              onChange={(e) => setBeforeCode(e.target.value)}
               className='w-full h-64 p-2 border border-gray-300 rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white'
-              placeholder='Enter old code...'
+              placeholder='Enter before code...'
             />
           </div>
           <div>
-            <h3 className='text-lg font-semibold mb-2 dark:text-white'>New Code</h3>
+            <h3 className='text-lg font-semibold mb-2 dark:text-white'>After</h3>
             <textarea
-              value={newCode}
-              onChange={(e) => setNewCode(e.target.value)}
+              value={afterCode}
+              onChange={(e) => setAfterCode(e.target.value)}
               className='w-full h-64 p-2 border border-gray-300 rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white'
-              placeholder='Enter new code...'
+              placeholder='Enter after code...'
             />
           </div>
         </div>
       ) : (
         <ReactDiffViewer
-          oldValue={oldCode}
-          newValue={newCode}
+          oldValue={beforeCode}
+          newValue={afterCode}
           splitView={true}
           useDarkTheme={isDarkTheme}
           styles={{ contentText: { fontSize: '14px' }, lineNumber: { fontSize: '14px' } }}
