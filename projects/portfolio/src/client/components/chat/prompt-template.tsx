@@ -1,4 +1,4 @@
-import { readFromLocalStorage, saveToLocalStorage } from '#/client/lib/remoteStorageSettings'
+import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { useMemo, useState } from 'react'
 
