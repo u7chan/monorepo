@@ -2,7 +2,7 @@ import { AppLayout } from '#/client/components/app-layout'
 import { AboutIcon } from '#/client/components/svg/about-icon'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { DashboardIcon } from '#/client/components/svg/dashboard-icon'
-import { LlmIcon } from '#/client/components/svg/llm-icon'
+import { DiffIcon } from '#/client/components/svg/diff-icon'
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import React from 'react'
 
@@ -27,7 +27,7 @@ function Root() {
         menuItems={[
           { label: 'Home', icon: <DashboardIcon size={24} />, to: '/' },
           { label: 'About', icon: <AboutIcon size={18} />, to: '/about' },
-          { label: 'Diff', icon: <LlmIcon size={24} />, to: '/diff' },
+          { label: 'Diff', icon: <DiffIcon size={20} />, to: '/diff' },
           { label: 'Chat', icon: <ChatbotIcon size={26} />, to: '/chat' },
         ]}
       >

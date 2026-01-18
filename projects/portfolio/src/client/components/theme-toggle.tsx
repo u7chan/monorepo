@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useTheme } from '../hooks/use-theme'
 
 interface ThemeToggleProps {
   className?: string
@@ -6,31 +6,7 @@ interface ThemeToggleProps {
 }
 
 export function ThemeToggle({ className = '', size = 'md' }: ThemeToggleProps) {
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('theme')
-      if (saved === 'dark') return true
-      if (saved === 'light') return false
-      return document.documentElement.classList.contains('dark')
-    }
-    return false
-  })
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (isDark) {
-        document.documentElement.classList.add('dark')
-        localStorage.setItem('theme', 'dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-        localStorage.setItem('theme', 'light')
-      }
-    }
-  }, [isDark])
-
-  const toggleDarkMode = () => {
-    setIsDark((prev) => !prev)
-  }
+  const { isDark, toggleDarkMode } = useTheme()
 
   const sizeClasses = {
     sm: 'h-6 w-6 text-xs',
