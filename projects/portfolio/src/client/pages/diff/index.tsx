@@ -152,11 +152,6 @@ export function Diff() {
           styles={{ contentText: { fontSize: '14px' }, lineNumber: { fontSize: '14px' } }}
         />
       )}
-      {hasChanges ? null : (
-        <p className='mt-4 text-sm text-gray-500 dark:text-gray-400'>
-          Enter some text to keep your diff persisted locally.
-        </p>
-      )}
     </div>
   )
 }
