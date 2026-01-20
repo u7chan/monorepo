@@ -1,10 +1,9 @@
 import { loadAgentById } from '@/features/agent/loadAgents'
 import { AgentConfig } from '@/features/agent/types'
 import { Chat } from '@/features/chat/chat'
-import { clearShortTermMemory } from '@/features/memory/short-term-memory'
+
 
 export default async function Page() {
-  await clearShortTermMemory()
   const agentConfig = (await loadAgentById('001')) as AgentConfig | null
 
   if (!agentConfig) {

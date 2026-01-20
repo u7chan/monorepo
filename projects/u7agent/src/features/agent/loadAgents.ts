@@ -15,7 +15,6 @@ const agentSchema = z.object({
   model: z.string(),
   description: z.string(),
   instruction: z.string(),
-  summarizeModel: z.string().optional(),
   maxSteps: z.number(),
   tags: z.array(z.string()).optional(),
   owner: z.object({ name: z.string().optional(), contact: z.string().optional() }).optional(),
@@ -87,7 +86,6 @@ function buildAgentConfig(s: RawAgentSpec): AgentConfig {
     model: s.model,
     description: s.description,
     instruction: s.instruction,
-    summarizeModel: s.summarizeModel,
     tools: s.tools,
     maxSteps: s.maxSteps,
   }

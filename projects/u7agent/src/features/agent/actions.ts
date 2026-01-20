@@ -4,7 +4,6 @@ import { Experimental_Agent as Agent, generateText, stepCountIs } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
-import { getShortTermMemory, saveShortTermMemory } from '@/features/memory/short-term-memory'
 import { pickTools } from './tools'
 import { AgentConfig } from './types'
 
@@ -23,13 +22,6 @@ export async function agentStream(
       apiKey: process.env.LITELLM_API_KEY!,
     })
 
-    const shortTermMemory = (await getShortTermMemory()) || 'なし'
-    const instructions = `${agentConfig.instruction}
-      記憶:
-      - 直近の会話: ${shortTermMemory}
-      `
-    console.log('Instructions:', instructions)
-
     // If the agent config does not specify tools (or lists an empty array),
     // do not expose any tools to the agent. This prevents agents without an
     // explicit tool allowlist from accessing system tools by default.
@@ -37,7 +29,7 @@ export async function agentStream(
 
     const agent = new Agent({
       model: openai(agentConfig.model),
-      instructions: [{ role: 'system', content: instructions }],
+      instructions: [{ role: 'system', content: agentConfig.instruction }],
       tools,
       stopWhen: [stepCountIs(agentConfig.maxSteps)],
       prepareStep: ({ stepNumber, messages }) => {
@@ -109,26 +101,6 @@ export async function agentStream(
     }
 
     console.log('Agent stream finished: ', { message })
-
-    if (message.length > 0 && agentConfig.summarizeModel) {
-      console.log('Updating short-term memory with latest conversation')
-      const { text: summarized } = await generateText({
-        model: openai(agentConfig.summarizeModel),
-        prompt: `会話の内奥を要約してください。
-          直近の会話: ${shortTermMemory}
-          ユーザー: ${messages[messages.length - 1].content}
-          アシスタント: ${message}
-          `,
-      })
-
-      console.log('Saving summarized short-term memory:', { summarized })
-      await saveShortTermMemory(summarized)
-
-      console.log('Short-term memory updated')
-    } else if (message.length > 0) {
-      console.log('summarizeModel is not configured, skipping short-term memory update')
-    }
-
     output.done()
   })()
 
