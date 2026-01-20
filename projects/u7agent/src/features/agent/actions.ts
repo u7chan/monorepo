@@ -13,6 +13,9 @@ export async function agentStream(
     content: string
   }[],
   agentConfig: AgentConfig,
+  callbacks?: {
+    onToolCalled?: (tools: { name: string; inputJSON: string; outputJSON: string }[]) => void
+  },
 ) {
   const output = createStreamableValue<{ delta?: string }>()
 
@@ -32,23 +35,24 @@ export async function agentStream(
       instructions: [{ role: 'system', content: agentConfig.instruction }],
       tools,
       stopWhen: [stepCountIs(agentConfig.maxSteps)],
-      prepareStep: ({ stepNumber, messages }) => {
-        console.log(`Preparing step (${stepNumber}):`, JSON.stringify(messages))
+      prepareStep: ({ stepNumber }) => {
+        // See: https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling#preparestep-callback
+        console.log(`Preparing step (${stepNumber})`)
+        // if (stepNumber === 1) {
+        //   return {
+        //     activeTools: [],　// 1ステップ目はツールを無効化する例(stepNumberは0始まり)
+        //   }
+        // }
         return undefined
       },
-      onStepFinish: (step) => {
-        console.log(`Step finished:`, {
-          toolCalls: step.toolCalls.map(({ type, toolName, input }) => ({
-            type,
-            toolName,
-            input: JSON.stringify(input),
-          })),
-          toolResults: step.toolResults.map(({ type, toolName, input }) => ({
-            type,
-            toolName,
-            input: JSON.stringify(input),
-          })),
-        })
+      onStepFinish: ({ toolResults }) => {
+        const toolCalls = toolResults.map(({ toolName: name, input, output }) => ({
+          name,
+          inputJSON: JSON.stringify(input),
+          outputJSON: JSON.stringify(output),
+        }))
+        console.log('Step finished. Tool results:', toolCalls)
+        callbacks?.onToolCalled?.(toolCalls)
       },
       onFinish: ({ text, finishReason }) => {
         console.log('Agent finished:', { text, finishReason })
@@ -100,7 +104,7 @@ export async function agentStream(
       }
     }
 
-    console.log('Agent stream finished: ', { message })
+    console.log('Agent stream finished')
     output.done()
   })()
 
