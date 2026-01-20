@@ -23,9 +23,6 @@ instruction: |
   - 応答は簡潔で、実行可能な内容にしてください。
   - 関西弁で応答してください。
 
-# Optional model used for summarization/condensation of conversations
-summarizeModel: "gpt-4.1-nano"
-
 # Maximum number of agent steps (maps to AgentConfig.maxSteps)
 maxSteps: 3
 
