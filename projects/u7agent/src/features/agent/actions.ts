@@ -7,17 +7,24 @@ import { createStreamableValue } from '@ai-sdk/rsc'
 import { pickTools } from './tools'
 import { AgentConfig } from './types'
 
-export async function agentStream(
-  messages: {
-    role: 'user' | 'assistant' | 'system'
-    content: string
-  }[],
-  agentConfig: AgentConfig,
-  callbacks?: {
-    onToolCalled?: (tools: { name: string; inputJSON: string; outputJSON: string }[]) => void
-  },
-) {
-  const output = createStreamableValue<{ delta?: string }>()
+interface Message {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+interface ToolMessage {
+  role: 'tools'
+  content: {
+    name: string
+    inputJSON: string
+    outputJSON: string
+  }
+}
+
+export type AgentMessage = Message | ToolMessage
+
+export async function agentStream(messages: AgentMessage[], agentConfig: AgentConfig) {
+  const output = createStreamableValue<{ delta?: string; tools?: ToolMessage[] }>()
 
   ;(async () => {
     const openai = createOpenAI({
@@ -52,14 +59,14 @@ export async function agentStream(
           outputJSON: JSON.stringify(output),
         }))
         console.log('Step finished. Tool results:', toolCalls)
-        callbacks?.onToolCalled?.(toolCalls)
+        output.update({ tools: toolCalls.map((t) => ({ role: 'tools', content: t })) })
       },
       onFinish: ({ text, finishReason }) => {
         console.log('Agent finished:', { text, finishReason })
       },
     })
 
-    const stream = await agent.stream({ prompt: messages })
+    const stream = await agent.stream({ prompt: messages.filter((m) => m.role !== 'tools') as Message[] })
     console.log('Agent stream started')
 
     let message = ''

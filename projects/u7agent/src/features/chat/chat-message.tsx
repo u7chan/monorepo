@@ -2,12 +2,10 @@
 
 import React from 'react'
 import { Streamdown } from 'streamdown'
+import { AgentMessage } from '@/features/agent/actions'
 
 interface ChatMessageProps {
-  messages: {
-    role: 'user' | 'assistant' | 'system'
-    content: string
-  }[]
+  messages: AgentMessage[]
   streamMessage: string
   scrollContainer?: React.RefObject<HTMLDivElement | null>
   scrollWrapper?: React.RefObject<HTMLDivElement | null>
@@ -28,6 +26,15 @@ export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWr
               </div>
             )}
             {message.role === 'assistant' && <Streamdown mode='static'>{message.content}</Streamdown>}
+            {message.role === 'tools' && (
+              <div className='bg-secondary rounded-3xl rounded-tr-sm px-4 py-3 break-words whitespace-pre-wrap'>
+                {message.content.name}
+                <br />
+                Input: {message.content.inputJSON}
+                <br />
+                Output: {message.content.outputJSON}
+              </div>
+            )}
           </React.Fragment>
         ))}
 

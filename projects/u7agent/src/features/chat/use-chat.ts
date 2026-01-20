@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-import { agentStream } from '@/features/agent/actions'
+import { AgentMessage, agentStream } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
 
 export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const [loading, setLoading] = useState(false)
   const [streamMessage, setStreamMessage] = useState('')
-  const [messages, setMessages] = useState<
-    {
-      role: 'user' | 'assistant' | 'system'
-      content: string
-    }[]
-  >([])
+  const [messages, setMessages] = useState<AgentMessage[]>([])
   const scrollContainer = useRef<HTMLDivElement>(null)
   const scrollWrapper = useRef<HTMLDivElement>(null)
   const [isNearBottom, setIsNearBottom] = useState(true)
@@ -56,10 +51,7 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
 
   const handleSubmit = async (input: string) => {
     autoScrollEnabled.current = true
-    const newMessages: {
-      role: 'user' | 'assistant' | 'system'
-      content: string
-    }[] =
+    const newMessages: AgentMessage[] =
       streamMessage !== ''
         ? [...messages, { role: 'assistant', content: streamMessage }, { role: 'user', content: input }]
         : [...messages, { role: 'user', content: input }]
@@ -69,8 +61,13 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
 
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
-      const { delta } = stream || { delta: '' }
-      setStreamMessage((prev) => `${prev}${delta}`)
+      const { delta, tools } = stream || { delta: '', tools: [] }
+      if (delta) {
+        setStreamMessage((prev) => `${prev}${delta}`)
+      }
+      if (tools && tools.length > 0) {
+        setMessages((prev) => [...prev, ...tools])
+      }
       if (autoScrollEnabled.current) {
         requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
       }
