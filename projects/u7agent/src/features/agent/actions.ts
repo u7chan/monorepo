@@ -8,7 +8,13 @@ import { getShortTermMemory, saveShortTermMemory } from '@/features/memory/short
 import { pickTools } from './tools'
 import { AgentConfig } from './types'
 
-export async function agentStream(input: string, agentConfig: AgentConfig) {
+export async function agentStream(
+  messages: {
+    role: 'user' | 'assistant' | 'system'
+    content: string
+  }[],
+  agentConfig: AgentConfig,
+) {
   const output = createStreamableValue<{ delta?: string }>()
 
   ;(async () => {
@@ -20,7 +26,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
     const shortTermMemory = (await getShortTermMemory()) || 'なし'
     const instructions = `${agentConfig.instruction}
       記憶:
-      - 直近の会話履歴: ${shortTermMemory}
+      - 直近の会話: ${shortTermMemory}
       `
     console.log('Instructions:', instructions)
 
@@ -31,7 +37,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
 
     const agent = new Agent({
       model: openai(agentConfig.model),
-      instructions,
+      instructions: [{ role: 'system', content: instructions }],
       tools,
       stopWhen: [stepCountIs(agentConfig.maxSteps)],
       prepareStep: ({ stepNumber, messages }) => {
@@ -57,7 +63,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
       },
     })
 
-    const stream = await agent.stream({ prompt: input })
+    const stream = await agent.stream({ prompt: messages })
     console.log('Agent stream started')
 
     let message = ''
@@ -110,7 +116,7 @@ export async function agentStream(input: string, agentConfig: AgentConfig) {
         model: openai(agentConfig.summarizeModel),
         prompt: `会話の内奥を要約してください。
           直近の会話: ${shortTermMemory}
-          ユーザー: ${input}
+          ユーザー: ${messages[messages.length - 1].content}
           アシスタント: ${message}
           `,
       })

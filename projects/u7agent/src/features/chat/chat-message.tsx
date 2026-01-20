@@ -1,25 +1,37 @@
 'use client'
 
+import React from 'react'
 import { Streamdown } from 'streamdown'
 
 interface ChatMessageProps {
-  user: string
-  assistant: string
+  messages: {
+    role: 'user' | 'assistant' | 'system'
+    content: string
+  }[]
+  streamMessage: string
   scrollContainer?: React.RefObject<HTMLDivElement | null>
+  scrollWrapper?: React.RefObject<HTMLDivElement | null>
+  onScroll?: () => void
 }
 
-export function ChatMessage({ user, assistant, scrollContainer }: ChatMessageProps) {
+export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWrapper, onScroll }: ChatMessageProps) {
   return (
-    <div className='flex flex-col gap-2'>
-      <div className='flex max-h-[400px] flex-col gap-2 overflow-y-auto p-4'>
-        {user && (
-          <div className='flex justify-end'>
-            <div className='bg-secondary rounded-3xl rounded-tr-sm px-4 py-3 break-words whitespace-pre-wrap'>
-              {user}
-            </div>
-          </div>
-        )}
-        <Streamdown className='break-words whitespace-pre-wrap'>{assistant}</Streamdown>
+    <div className='h-full min-h-0 flex-1'>
+      <div ref={scrollWrapper} onScroll={onScroll} className='flex h-full flex-col gap-2 overflow-y-auto p-4'>
+        {messages.map((message, i) => (
+          <React.Fragment key={i}>
+            {message.role === 'user' && (
+              <div className='flex justify-end'>
+                <div className='bg-secondary rounded-3xl rounded-tr-sm px-4 py-3 break-words whitespace-pre-wrap'>
+                  {message.content}
+                </div>
+              </div>
+            )}
+            {message.role === 'assistant' && <Streamdown mode='static'>{message.content}</Streamdown>}
+          </React.Fragment>
+        ))}
+
+        <Streamdown mode='streaming'>{streamMessage}</Streamdown>
         <div ref={scrollContainer}></div>
       </div>
     </div>
