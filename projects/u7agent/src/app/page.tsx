@@ -2,7 +2,6 @@ import { loadAgentById } from '@/features/agent/loadAgents'
 import { AgentConfig } from '@/features/agent/types'
 import { Chat } from '@/features/chat/chat'
 
-
 export default async function Page() {
   const agentConfig = (await loadAgentById('001')) as AgentConfig | null
 

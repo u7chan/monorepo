@@ -57,9 +57,7 @@ export function TokenUsageSummary({ tokenUsage, finishReason }: TokenUsageSummar
             )}
           </div>
         </div>
-        <div className='text-[11px] text-slate-500'>
-          Finish reason {finishReason ?? '—'}
-        </div>
+        <div className='text-[11px] text-slate-500'>Finish reason {finishReason ?? '—'}</div>
       </div>
     </div>
   )
