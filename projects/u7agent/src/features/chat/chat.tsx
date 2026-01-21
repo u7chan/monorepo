@@ -26,27 +26,6 @@ export function Chat({ agentConfig }: ChatProps) {
     handleSubmit,
   } = useChat({ agentConfig })
 
-  const hasTokenUsage = Boolean(tokenUsage)
-  const totalInputTokens = hasTokenUsage
-    ? (tokenUsage?.input.noCache ?? 0) + (tokenUsage?.input.cacheRead ?? 0) + (tokenUsage?.input.cacheWrite ?? 0)
-    : undefined
-  const totalOutputTokens = hasTokenUsage
-    ? (tokenUsage?.output.text ?? 0) + (tokenUsage?.output.reasoning ?? 0)
-    : undefined
-  const inputBreakdown = hasTokenUsage
-    ? [
-        ['No cache', tokenUsage?.input.noCache],
-        ['Cache read', tokenUsage?.input.cacheRead],
-        ['Cache write', tokenUsage?.input.cacheWrite],
-      ]
-    : []
-  const outputBreakdown = hasTokenUsage
-    ? [
-        ['Text', tokenUsage?.output.text],
-        ['Reasoning', tokenUsage?.output.reasoning],
-      ]
-    : []
-
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
       <div className='relative min-h-0 flex-1'>
