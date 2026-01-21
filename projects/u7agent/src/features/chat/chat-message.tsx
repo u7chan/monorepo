@@ -44,8 +44,8 @@ export function ChatMessage({
                   </React.Fragment>
                 ) : null,
               )}
-            {message.role === 'tools' && <ToolMessage content={message.content} />}
-            {message.role === 'tool-approval-request' && (
+            {message.role === 'custom-tool-message' && <ToolMessage content={message.content} />}
+            {message.role === 'custom-tool-approval-request' && (
               <ToolApprovalMessage
                 content={message.content}
                 approvalId={message.approvalId}

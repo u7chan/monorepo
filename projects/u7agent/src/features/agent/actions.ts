@@ -8,7 +8,6 @@ import {
   type ToolApprovalResponse,
   type ToolCallPart,
 } from 'ai'
-export type { TextPart } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
@@ -35,12 +34,12 @@ export interface ToolCallPayload {
 }
 
 interface ToolMessage {
-  role: 'tools'
+  role: 'custom-tool-message'
   content: ToolCallPayload
 }
 
 interface ToolApprovalRequestMessage {
-  role: 'tool-approval-request'
+  role: 'custom-tool-approval-request'
   approvalId: string
   content: ToolCallPayload
 }
@@ -108,16 +107,14 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           outputJSON: JSON.stringify(output),
         }))
         console.log('Step finished. Tool results:', toolCalls)
-        output.update({ tools: toolCalls.map((t) => ({ role: 'tools', content: t })) })
+        output.update({ tools: toolCalls.map((t) => ({ role: 'custom-tool-message', content: t })) })
       },
       onFinish: ({ text }) => {
         agentMessage = text
       },
     })
 
-    const promptMessages = messages.filter((m) => m.role !== 'tools' && m.role !== 'tool-approval-request') as Array<
-      Message | ToolApprovalMessage
-    >
+    const promptMessages = messages as Array<Message | ToolApprovalMessage>
     console.log('Starting agent stream with messages:', JSON.stringify(promptMessages))
     const stream = await agent.stream({ prompt: promptMessages })
     console.log('Agent stream started')
@@ -153,7 +150,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
             toolCallId: chunk.toolCall.toolCallId,
           } as ToolApprovalRequest)
           output.update({
-            tools: [{ role: 'tool-approval-request', approvalId: chunk.approvalId, content: payload }],
+            tools: [{ role: 'custom-tool-approval-request', approvalId: chunk.approvalId, content: payload }],
             assistantContent,
           })
           break
