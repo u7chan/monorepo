@@ -151,7 +151,10 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
             approvalId: chunk.approvalId,
             toolCallId: chunk.toolCall.toolCallId,
           } as ToolApprovalRequest)
-          output.update({ tools: [{ role: 'tool-approval-request', approvalId: chunk.approvalId, content: payload }] })
+          output.update({
+            tools: [{ role: 'tool-approval-request', approvalId: chunk.approvalId, content: payload }],
+            assistantContent,
+          })
           break
         }
 
@@ -180,9 +183,9 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     }
 
     if (agentMessage) {
-      assistantContent.push({ type: 'text', text: agentMessage } as any)
+      assistantContent.push({ type: 'text', text: agentMessage } as TextPart)
+      output.update({ assistantContent })
     }
-    output.update({ assistantContent })
 
     console.log('Agent stream finished')
     output.update({ processingTimeMs: Date.now() - startTimeMs })
