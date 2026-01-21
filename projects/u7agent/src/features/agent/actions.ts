@@ -100,15 +100,6 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
         // }
         return undefined
       },
-      onStepFinish: ({ toolResults }) => {
-        const toolCalls = toolResults.map(({ toolName: name, input, output }) => ({
-          name,
-          inputJSON: JSON.stringify(input),
-          outputJSON: JSON.stringify(output),
-        }))
-        console.log('Step finished. Tool results:', toolCalls)
-        output.update({ tools: toolCalls.map((t) => ({ role: 'custom-tool-message', content: t })) })
-      },
       onFinish: ({ text }) => {
         agentMessage = text
       },
@@ -123,6 +114,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     let assistantContent: AssistantContent[] = []
 
     for await (const chunk of stream.fullStream) {
+      console.log('Agent stream chunk received:', JSON.stringify(chunk))
       switch (chunk.type) {
         case 'text-delta':
           message += chunk.text
@@ -155,6 +147,21 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           })
           break
         }
+
+        case 'tool-result':
+          output.update({
+            tools: [
+              {
+                role: 'custom-tool-message',
+                content: {
+                  name: chunk.toolName,
+                  inputJSON: JSON.stringify(chunk.input),
+                  outputJSON: JSON.stringify({ result: chunk.output }),
+                },
+              },
+            ],
+          })
+          break
 
         case 'finish':
           output.update({
