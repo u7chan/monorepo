@@ -45,7 +45,7 @@ export function ChatMessage({
                 ) : null,
               )}
             {message.role === 'custom-tool-message' && <ToolMessage content={message.content} />}
-            {message.role === 'custom-tool-approval-request' && (
+            {message.role === 'custom-tool-approval-request' && i === messages.length - 1 && (
               <ToolApprovalMessage
                 content={message.content}
                 approvalId={message.approvalId}
