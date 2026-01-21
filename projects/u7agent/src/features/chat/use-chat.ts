@@ -10,6 +10,7 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | undefined>()
   const [finishReason, setFinishReason] = useState<string | undefined>()
+  const [processingTimeMs, setProcessingTimeMs] = useState<number | undefined>()
   const scrollContainer = useRef<HTMLDivElement>(null)
   const scrollWrapper = useRef<HTMLDivElement>(null)
   const [isNearBottom, setIsNearBottom] = useState(true)
@@ -60,13 +61,15 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
 
     let streamMessage = ''
 
+    setProcessingTimeMs(undefined)
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
-      const { delta, tools, usage, finishReason } = stream || {
+      const { delta, tools, usage, finishReason, processingTimeMs: streamProcessingTimeMs } = stream || {
         delta: '',
         tools: [],
         usage: undefined,
         finishReason: undefined,
+        processingTimeMs: undefined,
       }
       if (delta) {
         streamMessage += delta
@@ -80,6 +83,9 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       }
       if (finishReason) {
         setFinishReason(finishReason)
+      }
+      if (streamProcessingTimeMs !== undefined) {
+        setProcessingTimeMs(streamProcessingTimeMs)
       }
       updateScrollState()
       if (autoScrollEnabled.current) {
@@ -99,6 +105,7 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     messages,
     tokenUsage,
     finishReason,
+    processingTimeMs,
     streamMessage,
     scrollContainer,
     scrollWrapper,
