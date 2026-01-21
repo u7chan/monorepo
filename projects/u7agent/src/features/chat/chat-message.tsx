@@ -4,6 +4,7 @@ import React from 'react'
 import { Streamdown } from 'streamdown'
 
 import { AgentMessage } from '@/features/agent/actions'
+import { ToolApprovalMessage } from '@/features/chat/tool-approval-message'
 import { ToolMessage } from '@/features/chat/tool-message'
 
 interface ChatMessageProps {
@@ -29,6 +30,7 @@ export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWr
             )}
             {message.role === 'assistant' && <Streamdown mode='static'>{message.content}</Streamdown>}
             {message.role === 'tools' && <ToolMessage content={message.content} />}
+            {message.role === 'tool-approval-request' && <ToolApprovalMessage content={message.content} />}
           </React.Fragment>
         ))}
 

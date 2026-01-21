@@ -2,14 +2,10 @@
 
 import { useState } from 'react'
 
-interface ToolMessageContent {
-  name: string
-  inputJSON: string
-  outputJSON: string
-}
+import type { ToolCallPayload } from '@/features/agent/actions'
 
 interface ToolMessageProps {
-  content: ToolMessageContent
+  content: ToolCallPayload
 }
 
 export function ToolMessage({ content }: ToolMessageProps) {

@@ -25,6 +25,7 @@ export const availableTools = {
       channelId: z.string().describe('DiscordチャンネルのID'),
       message: z.string().describe('送信するメッセージ内容'),
     }),
+    needsApproval: true,
     execute: async ({ channelId, message }: { channelId: string; message: string }) => {
       // Mock Discord message sending for demonstration purposes
       const delayMs = 3000 + Math.floor(Math.random() * 3000)

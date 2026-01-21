@@ -13,16 +13,23 @@ interface Message {
   content: string
 }
 
-interface ToolMessage {
-  role: 'tools'
-  content: {
-    name: string
-    inputJSON: string
-    outputJSON: string
-  }
+export interface ToolCallPayload {
+  name: string
+  inputJSON: string
+  outputJSON: string
 }
 
-export type AgentMessage = Message | ToolMessage
+interface ToolMessage {
+  role: 'tools'
+  content: ToolCallPayload
+}
+
+interface ToolApprovalMessage {
+  role: 'tool-approval-request'
+  content: ToolCallPayload
+}
+
+export type AgentMessage = Message | ToolMessage | ToolApprovalMessage
 
 export interface TokenUsage {
   input: {
@@ -39,7 +46,7 @@ export interface TokenUsage {
 export async function agentStream(messages: AgentMessage[], agentConfig: AgentConfig) {
   const output = createStreamableValue<{
     delta?: string
-    tools?: ToolMessage[]
+    tools?: (ToolMessage | ToolApprovalMessage)[]
     finishReason?: string
     usage?: TokenUsage
     processingTimeMs?: number
@@ -86,7 +93,8 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
       },
     })
 
-    const stream = await agent.stream({ prompt: messages.filter((m) => m.role !== 'tools') as Message[] })
+    const promptMessages = messages.filter((m) => m.role !== 'tools' && m.role !== 'tool-approval-request') as Message[]
+    const stream = await agent.stream({ prompt: promptMessages })
     console.log('Agent stream started')
 
     let message = ''
@@ -97,6 +105,16 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           message += chunk.text
           output.update({ delta: chunk.text })
           break
+
+        case 'tool-approval-request': {
+          const payload: ToolCallPayload = {
+            name: chunk.toolCall.toolName,
+            inputJSON: JSON.stringify(chunk.toolCall.input),
+            outputJSON: '{}',
+          }
+          output.update({ tools: [{ role: 'tool-approval-request', content: payload }] })
+          break
+        }
 
         case 'finish':
           output.update({
