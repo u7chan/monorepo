@@ -82,7 +82,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     setStreamMessage('')
     setLoading(true)
     setProcessingTimeMs(undefined)
-    console.log('#filterMessagesForAgent', JSON.stringify(newMessages))
     const { output } = await agentStream(filterMessagesForAgent(newMessages), agentConfig)
     for await (const stream of readStreamableValue(output)) {
       const {
