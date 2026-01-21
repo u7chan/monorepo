@@ -67,7 +67,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
   const output = createStreamableValue<{
     delta?: string
     assistantContent?: AssistantContent[]
-    tools?: (ToolMessage | ToolApprovalRequestMessage)[]
+    tools?: (ToolMessage | ToolApprovalRequestMessage)[] // TODO: もう配列じゃなくていいはず。単一要素に直すべき
     finishReason?: string
     usage?: TokenUsage
     processingTimeMs?: number
