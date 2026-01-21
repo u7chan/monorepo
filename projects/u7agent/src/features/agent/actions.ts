@@ -4,6 +4,7 @@ import { Experimental_Agent as Agent, generateText, stepCountIs } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
+import { handleAgentStreamError } from './errorHandler'
 import { pickTools } from './tools'
 import { AgentConfig } from './types'
 
@@ -78,34 +79,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           output.update({ delta: chunk.text })
           break
         case 'error':
-          if (typeof chunk.error === 'string') {
-            console.warn('[WARN] Agent stream chunk error (string)', chunk.error)
-            // output.update({ delta: `Error: ${chunk.error}` })
-            break
-          }
-          console.error('[ERROR] Agent stream chunk error (object)', chunk.error)
-
-          // 安全にerrorMessage抽出（パターン対応）
-          let errorMessage = 'Unknown error'
-
-          if (chunk.error) {
-            // パターン1: { error: { message: string } }
-            if (typeof chunk.error === 'object' && chunk.error !== null && 'error' in chunk.error) {
-              errorMessage = (chunk.error as any).error?.message ?? errorMessage
-            }
-
-            // パターン2: ErrorインスタンスのresponseBodyから抽出
-            if ('responseBody' in (chunk.error as any) && typeof (chunk.error as any).responseBody === 'string') {
-              try {
-                const body = JSON.parse((chunk.error as any).responseBody)
-                errorMessage = body.error?.message ?? errorMessage
-              } catch {
-                // parse失敗時はresponseBodyそのまま
-                errorMessage = (chunk.error as any).responseBody
-              }
-            }
-          }
-
+          const errorMessage = handleAgentStreamError(chunk.error)
           output.update({ delta: `Error: ${errorMessage}` })
           break
       }
