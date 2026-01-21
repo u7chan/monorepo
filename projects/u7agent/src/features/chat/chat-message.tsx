@@ -4,6 +4,7 @@ import React from 'react'
 import { Streamdown } from 'streamdown'
 
 import { AgentMessage } from '@/features/agent/actions'
+import { ToolApprovalMessage } from '@/features/chat/tool-approval-message'
 import { ToolMessage } from '@/features/chat/tool-message'
 
 interface ChatMessageProps {
@@ -12,9 +13,17 @@ interface ChatMessageProps {
   scrollContainer?: React.RefObject<HTMLDivElement | null>
   scrollWrapper?: React.RefObject<HTMLDivElement | null>
   onScroll?: () => void
+  onToolApproval?: (approvalId: string, approved: boolean) => void
 }
 
-export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWrapper, onScroll }: ChatMessageProps) {
+export function ChatMessage({
+  messages,
+  streamMessage,
+  scrollContainer,
+  scrollWrapper,
+  onScroll,
+  onToolApproval,
+}: ChatMessageProps) {
   return (
     <div className='h-full min-h-0 flex-1'>
       <div ref={scrollWrapper} onScroll={onScroll} className='flex h-full flex-col gap-2 overflow-y-auto p-4'>
@@ -27,12 +36,28 @@ export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWr
                 </div>
               </div>
             )}
-            {message.role === 'assistant' && <Streamdown mode='static'>{message.content}</Streamdown>}
-            {message.role === 'tools' && <ToolMessage content={message.content} />}
+            {message.role === 'assistant' &&
+              message.content.map((content, i) =>
+                content.type === 'text' ? (
+                  <React.Fragment key={i}>
+                    <Streamdown mode='static'>{content.text}</Streamdown>
+                  </React.Fragment>
+                ) : null,
+              )}
+            {message.role === 'custom-tool-message' && <ToolMessage content={message.content} />}
+            {message.role === 'custom-tool-approval-request' && i === messages.length - 1 && (
+              <ToolApprovalMessage
+                content={message.content}
+                approvalId={message.approvalId}
+                onApprove={(approvalId) => onToolApproval?.(approvalId, true)}
+                onReject={(approvalId) => onToolApproval?.(approvalId, false)}
+              />
+            )}
           </React.Fragment>
         ))}
-
-        <Streamdown mode='streaming'>{streamMessage}</Streamdown>
+        {streamMessage && (
+          <Streamdown mode='streaming'>{streamMessage}</Streamdown>
+        )}
         <div ref={scrollContainer}></div>
       </div>
     </div>

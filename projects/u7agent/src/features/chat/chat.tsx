@@ -25,6 +25,7 @@ export function Chat({ agentConfig }: ChatProps) {
     scrollToBottom,
     updateScrollState,
     handleSubmit,
+    handleToolApproval,
   } = useChat({ agentConfig })
 
   return (
@@ -36,6 +37,7 @@ export function Chat({ agentConfig }: ChatProps) {
           scrollContainer={scrollContainer}
           scrollWrapper={scrollWrapper}
           onScroll={updateScrollState}
+          onToolApproval={handleToolApproval}
         />
         {showJumpButton && !isNearBottom && (
           <button

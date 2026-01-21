@@ -1,6 +1,13 @@
 'use server'
 
-import { Experimental_Agent as Agent, generateText, stepCountIs } from 'ai'
+import {
+  stepCountIs,
+  ToolLoopAgent,
+  type TextPart,
+  type ToolApprovalRequest,
+  type ToolApprovalResponse,
+  type ToolCallPart,
+} from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
@@ -9,20 +16,40 @@ import { pickTools } from './tools'
 import { AgentConfig } from './types'
 
 interface Message {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'system'
   content: string
 }
 
-interface ToolMessage {
-  role: 'tools'
-  content: {
-    name: string
-    inputJSON: string
-    outputJSON: string
-  }
+type AssistantContent = TextPart | ToolCallPart | ToolApprovalRequest
+
+export interface AssistantMessage {
+  role: 'assistant'
+  content: AssistantContent[]
 }
 
-export type AgentMessage = Message | ToolMessage
+export interface ToolCallPayload {
+  name: string
+  inputJSON: string
+  outputJSON: string
+}
+
+interface ToolMessage {
+  role: 'custom-tool-message'
+  content: ToolCallPayload
+}
+
+interface ToolApprovalRequestMessage {
+  role: 'custom-tool-approval-request'
+  approvalId: string
+  content: ToolCallPayload
+}
+
+export interface ToolApprovalMessage {
+  role: 'tool'
+  content: ToolApprovalResponse[]
+}
+
+export type AgentMessage = Message | AssistantMessage | ToolMessage | ToolApprovalRequestMessage | ToolApprovalMessage
 
 export interface TokenUsage {
   input: {
@@ -39,7 +66,8 @@ export interface TokenUsage {
 export async function agentStream(messages: AgentMessage[], agentConfig: AgentConfig) {
   const output = createStreamableValue<{
     delta?: string
-    tools?: ToolMessage[]
+    assistantContent?: AssistantContent[]
+    tools?: (ToolMessage | ToolApprovalRequestMessage)[] // TODO: もう配列じゃなくていいはず。単一要素に直すべき
     finishReason?: string
     usage?: TokenUsage
     processingTimeMs?: number
@@ -56,8 +84,8 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     // do not expose any tools to the agent. This prevents agents without an
     // explicit tool allowlist from accessing system tools by default.
     const tools = agentConfig.tools && agentConfig.tools.length > 0 ? pickTools(agentConfig.tools) : undefined
-
-    const agent = new Agent({
+    let agentMessage = ''
+    const agent = new ToolLoopAgent({
       model: openai(agentConfig.model),
       instructions: [{ role: 'system', content: agentConfig.instruction }],
       tools,
@@ -72,30 +100,67 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
         // }
         return undefined
       },
-      onStepFinish: ({ toolResults }) => {
-        const toolCalls = toolResults.map(({ toolName: name, input, output }) => ({
-          name,
-          inputJSON: JSON.stringify(input),
-          outputJSON: JSON.stringify(output),
-        }))
-        console.log('Step finished. Tool results:', toolCalls)
-        output.update({ tools: toolCalls.map((t) => ({ role: 'tools', content: t })) })
-      },
-      onFinish: ({ text, finishReason }) => {
-        console.log('Agent finished:', { text, finishReason })
+      onFinish: ({ text }) => {
+        agentMessage = text
       },
     })
 
-    const stream = await agent.stream({ prompt: messages.filter((m) => m.role !== 'tools') as Message[] })
+    const promptMessages = messages as Array<Message | ToolApprovalMessage>
+    console.log('Starting agent stream with messages:', JSON.stringify(promptMessages))
+    const stream = await agent.stream({ prompt: promptMessages })
     console.log('Agent stream started')
 
     let message = ''
+    let assistantContent: AssistantContent[] = []
 
     for await (const chunk of stream.fullStream) {
+      // console.log('Agent stream chunk received:', JSON.stringify(chunk))
       switch (chunk.type) {
         case 'text-delta':
           message += chunk.text
           output.update({ delta: chunk.text })
+          break
+
+        case 'tool-call':
+          assistantContent.push({
+            type: 'tool-call',
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            input: chunk.input,
+          } as ToolCallPart)
+          break
+
+        case 'tool-approval-request': {
+          const payload: ToolCallPayload = {
+            name: chunk.toolCall.toolName,
+            inputJSON: JSON.stringify(chunk.toolCall.input),
+            outputJSON: '{}',
+          }
+          assistantContent.push({
+            type: 'tool-approval-request',
+            approvalId: chunk.approvalId,
+            toolCallId: chunk.toolCall.toolCallId,
+          } as ToolApprovalRequest)
+          output.update({
+            tools: [{ role: 'custom-tool-approval-request', approvalId: chunk.approvalId, content: payload }],
+            assistantContent,
+          })
+          break
+        }
+
+        case 'tool-result':
+          output.update({
+            tools: [
+              {
+                role: 'custom-tool-message',
+                content: {
+                  name: chunk.toolName,
+                  inputJSON: JSON.stringify(chunk.input),
+                  outputJSON: JSON.stringify({ result: chunk.output }),
+                },
+              },
+            ],
+          })
           break
 
         case 'finish':
@@ -120,6 +185,11 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           output.update({ delta: `Error: ${errorMessage}` })
           break
       }
+    }
+
+    if (agentMessage) {
+      assistantContent.push({ type: 'text', text: agentMessage } as TextPart)
+      output.update({ assistantContent })
     }
 
     console.log('Agent stream finished')

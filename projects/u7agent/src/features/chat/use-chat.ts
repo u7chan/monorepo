@@ -1,8 +1,35 @@
+import type { TextPart, ToolApprovalResponse } from 'ai'
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-import { AgentMessage, agentStream, TokenUsage } from '@/features/agent/actions'
+import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
+
+const TOOL_TYPES_TO_REMOVE = new Set(['tool-call', 'tool-approval-response'])
+
+// TODO: まだ挙動があやしい。連続してApprovalツールを呼び出した時に期待通り動かない。
+const filterMessagesForAgent = (messages: AgentMessage[]) => {
+  // assistant の text が存在するか確認
+  const hasAssistantText = messages.some(
+    (m) => m.role === 'assistant' && m.content?.some((c) => c.type === 'text' && c.text?.trim()),
+  )
+
+  return (
+    messages
+      // 既存条件
+      .filter((m) => m.role !== 'custom-tool-message' && m.role !== 'custom-tool-approval-request')
+      // assistant の content を調整
+      .map((m) => {
+        if (hasAssistantText && m.role === 'assistant' && Array.isArray(m.content)) {
+          return {
+            ...m,
+            content: m.content.filter((c) => !TOOL_TYPES_TO_REMOVE.has(c.type)),
+          }
+        }
+        return m
+      })
+  )
+}
 
 export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const [loading, setLoading] = useState(false)
@@ -52,28 +79,32 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     updateScrollState()
   }, [])
 
-  const handleSubmit = async (input: string) => {
-    autoScrollEnabled.current = true
-    const newMessages: AgentMessage[] = [...messages, { role: 'user', content: input }]
-    setMessages(newMessages)
+  const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
     setLoading(true)
-
-    let streamMessage = ''
-
     setProcessingTimeMs(undefined)
-    const { output } = await agentStream(newMessages, agentConfig)
+    const { output } = await agentStream(filterMessagesForAgent(newMessages), agentConfig)
     for await (const stream of readStreamableValue(output)) {
-      const { delta, tools, usage, finishReason, processingTimeMs: streamProcessingTimeMs } = stream || {
+      const {
+        delta,
+        assistantContent,
+        tools,
+        usage,
+        finishReason,
+        processingTimeMs: streamProcessingTimeMs,
+      } = stream || {
         delta: '',
+        assistantContent: [],
         tools: [],
         usage: undefined,
         finishReason: undefined,
         processingTimeMs: undefined,
       }
       if (delta) {
-        streamMessage += delta
-        setStreamMessage(streamMessage)
+        setStreamMessage((prev) => prev + delta)
+      }
+      if (assistantContent && assistantContent.length > 0) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent } as AssistantMessage])
       }
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])
@@ -93,11 +124,30 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       }
     }
     setStreamMessage('')
-    setMessages((prev) => [...prev, { role: 'assistant', content: streamMessage }])
-
     requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
     updateScrollState()
     setLoading(false)
+  }
+
+  const handleSubmit = async (input: string) => {
+    autoScrollEnabled.current = true
+    const newMessages: AgentMessage[] = [...messages, { role: 'user', content: input }]
+    setMessages(newMessages)
+    await runAgentStream(newMessages)
+  }
+
+  const handleToolApproval = async (approvalId: string, approved: boolean) => {
+    autoScrollEnabled.current = true
+    const approvals: ToolApprovalResponse[] = [
+      {
+        type: 'tool-approval-response',
+        approvalId,
+        approved,
+      },
+    ]
+    const newMessages: AgentMessage[] = [...messages, { role: 'tool', content: approvals }]
+    setMessages(newMessages)
+    await runAgentStream(newMessages)
   }
 
   return {
@@ -114,5 +164,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     scrollToBottom,
     updateScrollState,
     handleSubmit,
+    handleToolApproval,
   }
 }
