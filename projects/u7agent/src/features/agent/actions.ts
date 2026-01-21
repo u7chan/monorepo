@@ -1,6 +1,6 @@
 'use server'
 
-import { Experimental_Agent as Agent, generateText, stepCountIs } from 'ai'
+import { Experimental_Agent as Agent, stepCountIs, UIMessage } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
@@ -26,6 +26,7 @@ interface ToolMessage {
 
 interface ToolApprovalMessage {
   role: 'tool-approval-request'
+  approvalId: string
   content: ToolCallPayload
 }
 
@@ -112,7 +113,8 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
             inputJSON: JSON.stringify(chunk.toolCall.input),
             outputJSON: '{}',
           }
-          output.update({ tools: [{ role: 'tool-approval-request', content: payload }] })
+          console.log('approval id:', chunk.approvalId)
+          output.update({ tools: [{ role: 'tool-approval-request', approvalId: chunk.approvalId, content: payload }] })
           break
         }
 
