@@ -51,19 +51,19 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
 
   const handleSubmit = async (input: string) => {
     autoScrollEnabled.current = true
-    const newMessages: AgentMessage[] =
-      streamMessage !== ''
-        ? [...messages, { role: 'assistant', content: streamMessage }, { role: 'user', content: input }]
-        : [...messages, { role: 'user', content: input }]
+    const newMessages: AgentMessage[] = [...messages, { role: 'user', content: input }]
     setMessages(newMessages)
     setStreamMessage('')
     setLoading(true)
+
+    let streamMessage = ''
 
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
       const { delta, tools } = stream || { delta: '', tools: [] }
       if (delta) {
-        setStreamMessage((prev) => `${prev}${delta}`)
+        streamMessage += delta
+        setStreamMessage(streamMessage)
       }
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])
@@ -72,7 +72,8 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
         requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
       }
     }
-    setStreamMessage((prev) => `${prev}\n`)
+    setStreamMessage('')
+    setMessages((prev) => [...prev, { role: 'assistant', content: streamMessage }])
 
     requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
     updateScrollState()
