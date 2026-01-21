@@ -5,9 +5,14 @@ import { TokenUsage } from '@/features/agent/actions'
 interface TokenUsageSummaryProps {
   tokenUsage?: TokenUsage
   finishReason?: string
+  processingTimeMs?: number
 }
 
-export function TokenUsageSummary({ tokenUsage, finishReason }: TokenUsageSummaryProps) {
+export function TokenUsageSummary({
+  tokenUsage,
+  finishReason,
+  processingTimeMs,
+}: TokenUsageSummaryProps) {
   const hasTokenUsage = Boolean(tokenUsage)
   const totalInputTokens = hasTokenUsage
     ? (tokenUsage?.input.noCache ?? 0) + (tokenUsage?.input.cacheRead ?? 0) + (tokenUsage?.input.cacheWrite ?? 0)
@@ -57,7 +62,13 @@ export function TokenUsageSummary({ tokenUsage, finishReason }: TokenUsageSummar
             )}
           </div>
         </div>
-        <div className='text-[11px] text-slate-500'>Finish reason {finishReason ?? '—'}</div>
+        <div className='flex flex-wrap gap-4 text-[11px] text-slate-500'>
+          <span>Finish reason {finishReason ?? '—'}</span>
+          <span>
+            Processing time{' '}
+            {processingTimeMs !== undefined ? `${(processingTimeMs / 1000).toFixed(2)} s` : '—'}
+          </span>
+        </div>
       </div>
     </div>
   )

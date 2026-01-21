@@ -42,9 +42,11 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     tools?: ToolMessage[]
     finishReason?: string
     usage?: TokenUsage
+    processingTimeMs?: number
   }>()
 
   ;(async () => {
+    const startTimeMs = Date.now()
     const openai = createOpenAI({
       baseURL: process.env.LITELLM_API_BASE_URL!,
       apiKey: process.env.LITELLM_API_KEY!,
@@ -121,6 +123,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     }
 
     console.log('Agent stream finished')
+    output.update({ processingTimeMs: Date.now() - startTimeMs })
     output.done()
   })()
 

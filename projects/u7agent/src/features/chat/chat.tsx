@@ -16,6 +16,7 @@ export function Chat({ agentConfig }: ChatProps) {
     messages,
     tokenUsage,
     finishReason,
+    processingTimeMs,
     streamMessage,
     scrollContainer,
     scrollWrapper,
@@ -47,7 +48,7 @@ export function Chat({ agentConfig }: ChatProps) {
         )}
       </div>
       <div className='shrink-0'>
-        <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} />
+        <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} processingTimeMs={processingTimeMs} />
         <ChatInput loading={loading} onSubmit={handleSubmit} />
       </div>
     </div>

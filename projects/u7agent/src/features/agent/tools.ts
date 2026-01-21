@@ -7,6 +7,8 @@ export const availableTools = {
     inputSchema: z.object({ location: z.string().describe('天気を取得する都市') }),
     execute: async ({ location }: { location: string }) => {
       // Mock weather data for demonstration purposes
+      const delayMs = 800 + Math.floor(Math.random() * 800)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
       return {
         text: `${location}の天気は晴れで、気温は25°Cです。`,
         condition: '晴れ',
@@ -22,6 +24,8 @@ export const availableTools = {
     }),
     execute: async ({ channelId, message }: { channelId: string; message: string }) => {
       // Mock Discord message sending for demonstration purposes
+      const delayMs = 3000 + Math.floor(Math.random() * 3000)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
       console.log(`Message sent to channel ${channelId}: ${message}`)
       return { success: true }
     },
