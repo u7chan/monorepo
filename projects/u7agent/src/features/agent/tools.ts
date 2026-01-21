@@ -9,10 +9,13 @@ export const availableTools = {
       // Mock weather data for demonstration purposes
       const delayMs = 800 + Math.floor(Math.random() * 800)
       await new Promise((resolve) => setTimeout(resolve, delayMs))
+      const conditionOptions = ['晴れ', '曇り', '雨']
+      const condition = conditionOptions[Math.floor(Math.random() * conditionOptions.length)]
+      const temperature = 20 + Math.floor(Math.random() * 15)
       return {
-        text: `${location}の天気は晴れで、気温は25°Cです。`,
-        condition: '晴れ',
-        temperature: 25,
+        text: `${location}の天気は${condition}で、気温は${temperature}°Cです。`,
+        condition: condition,
+        temperature: temperature,
       }
     },
   }),
