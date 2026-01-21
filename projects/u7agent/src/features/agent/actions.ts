@@ -24,18 +24,18 @@ interface ToolMessage {
   content: ToolCallPayload
 }
 
-interface ToolApprovalMessage {
+interface ToolApprovalRequestMessage {
   role: 'tool-approval-request'
   approvalId: string
   content: ToolCallPayload
 }
 
-export interface ToolApprovalResponseMessage {
+export interface ToolApprovalMessage {
   role: 'tool'
   content: ToolApprovalResponse[]
 }
 
-export type AgentMessage = Message | ToolMessage | ToolApprovalMessage | ToolApprovalResponseMessage
+export type AgentMessage = Message | ToolMessage | ToolApprovalRequestMessage | ToolApprovalMessage
 
 export interface TokenUsage {
   input: {
@@ -52,7 +52,7 @@ export interface TokenUsage {
 export async function agentStream(messages: AgentMessage[], agentConfig: AgentConfig) {
   const output = createStreamableValue<{
     delta?: string
-    tools?: (ToolMessage | ToolApprovalMessage)[]
+    tools?: (ToolMessage | ToolApprovalRequestMessage)[]
     finishReason?: string
     usage?: TokenUsage
     processingTimeMs?: number
@@ -100,7 +100,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     })
 
     const promptMessages = messages.filter((m) => m.role !== 'tools' && m.role !== 'tool-approval-request') as Array<
-      Message | ToolApprovalResponseMessage
+      Message | ToolApprovalMessage
     >
     const stream = await agent.stream({ prompt: promptMessages })
     console.log('Agent stream started')
