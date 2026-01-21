@@ -36,7 +36,7 @@ export function ToolMessage({ content }: ToolMessageProps) {
               <span className='text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300'>
                 Input
               </span>
-              <pre className='rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 text-[11px] font-mono text-slate-800 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-200'>
+              <pre className='rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 text-[11px] font-mono text-slate-800 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-200 overflow-x-auto'>
                 {JSON.stringify(JSON.parse(content.inputJSON), null, 2)}
               </pre>
             </div>
@@ -44,7 +44,7 @@ export function ToolMessage({ content }: ToolMessageProps) {
               <span className='text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300'>
                 Output
               </span>
-              <pre className='rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 text-[11px] font-mono text-slate-800 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-200'>
+              <pre className='rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 text-[11px] font-mono text-slate-800 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-200 overflow-x-auto'>
                 {JSON.stringify(JSON.parse(content.outputJSON), null, 2)}
               </pre>
             </div>
