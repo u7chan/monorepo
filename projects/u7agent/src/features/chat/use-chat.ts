@@ -7,7 +7,8 @@ import { AgentConfig } from '@/features/agent/types'
 
 const TOOL_TYPES_TO_REMOVE = new Set(['tool-call', 'tool-approval-response'])
 
-export const filterMessagesForAgent = (messages: AgentMessage[]) => {
+// TODO: まだ挙動があやしい。連続してApprovalツールを呼び出した時に期待通り動かない。
+const filterMessagesForAgent = (messages: AgentMessage[]) => {
   // assistant の text が存在するか確認
   const hasAssistantText = messages.some(
     (m) => m.role === 'assistant' && m.content?.some((c) => c.type === 'text' && c.text?.trim()),
