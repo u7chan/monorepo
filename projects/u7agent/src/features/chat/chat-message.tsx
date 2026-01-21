@@ -36,7 +36,14 @@ export function ChatMessage({
                 </div>
               </div>
             )}
-            {message.role === 'assistant' && <Streamdown mode='static'>{message.content}</Streamdown>}
+            {message.role === 'assistant' &&
+              message.content.map((content, i) =>
+                content.type === 'text' ? (
+                  <React.Fragment key={i}>
+                    <Streamdown mode='static'>{content.text}</Streamdown>
+                  </React.Fragment>
+                ) : null,
+              )}
             {message.role === 'tools' && <ToolMessage content={message.content} />}
             {message.role === 'tool-approval-request' && (
               <ToolApprovalMessage
@@ -48,8 +55,9 @@ export function ChatMessage({
             )}
           </React.Fragment>
         ))}
-
-        <Streamdown mode='streaming'>{streamMessage}</Streamdown>
+        {streamMessage && (
+          <Streamdown mode='streaming'>{streamMessage}</Streamdown>
+        )}
         <div ref={scrollContainer}></div>
       </div>
     </div>

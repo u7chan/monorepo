@@ -1,6 +1,13 @@
 'use server'
 
-import { stepCountIs, ToolLoopAgent, type AssistantContent, type ToolApprovalResponse } from 'ai'
+import {
+  stepCountIs,
+  ToolLoopAgent,
+  type TextPart,
+  type ToolApprovalRequest,
+  type ToolApprovalResponse,
+  type ToolCallPart,
+} from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
@@ -13,10 +20,13 @@ interface Message {
   content: string
 }
 
-interface AssistantMessage {
+type AssistantContent = TextPart | ToolCallPart | ToolApprovalRequest
+
+export interface AssistantMessage {
   role: 'assistant'
-  content: string | AssistantContent[]
+  content: AssistantContent[]
 }
+
 export interface ToolCallPayload {
   name: string
   inputJSON: string
@@ -74,7 +84,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     // do not expose any tools to the agent. This prevents agents without an
     // explicit tool allowlist from accessing system tools by default.
     const tools = agentConfig.tools && agentConfig.tools.length > 0 ? pickTools(agentConfig.tools) : undefined
-
+    let agentMessage = ''
     const agent = new ToolLoopAgent({
       model: openai(agentConfig.model),
       instructions: [{ role: 'system', content: agentConfig.instruction }],
@@ -99,8 +109,8 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
         console.log('Step finished. Tool results:', toolCalls)
         output.update({ tools: toolCalls.map((t) => ({ role: 'tools', content: t })) })
       },
-      onFinish: ({ text, finishReason }) => {
-        console.log('Agent finished:', { text, finishReason })
+      onFinish: ({ text }) => {
+        agentMessage = text
       },
     })
 
@@ -127,7 +137,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
             input: chunk.input,
-          } as any)
+          } as ToolCallPart)
           break
 
         case 'tool-approval-request': {
@@ -140,7 +150,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
             type: 'tool-approval-request',
             approvalId: chunk.approvalId,
             toolCallId: chunk.toolCall.toolCallId,
-          } as any)
+          } as ToolApprovalRequest)
           output.update({ tools: [{ role: 'tool-approval-request', approvalId: chunk.approvalId, content: payload }] })
           break
         }
@@ -168,7 +178,10 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           break
       }
     }
-    console.log('assistantContent:', assistantContent)
+
+    if (agentMessage) {
+      assistantContent.push({ type: 'text', text: agentMessage } as any)
+    }
     output.update({ assistantContent })
 
     console.log('Agent stream finished')

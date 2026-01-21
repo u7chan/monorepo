@@ -2,7 +2,7 @@ import type { ToolApprovalResponse } from 'ai'
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-import { AgentMessage, agentStream, TokenUsage } from '@/features/agent/actions'
+import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
 
 export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
@@ -56,9 +56,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
     setLoading(true)
-
-    let streamMessage = ''
-
     setProcessingTimeMs(undefined)
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
@@ -78,11 +75,10 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
         processingTimeMs: undefined,
       }
       if (delta) {
-        streamMessage += delta
-        setStreamMessage(streamMessage)
+        setStreamMessage((prev) => prev + delta)
       }
       if (assistantContent && assistantContent.length > 0) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent }])
+        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent } as AssistantMessage])
       }
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])
@@ -102,9 +98,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       }
     }
     setStreamMessage('')
-    if (streamMessage) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: streamMessage }])
-    }
     requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
     updateScrollState()
     setLoading(false)
