@@ -1,6 +1,6 @@
 'use server'
 
-import { Experimental_Agent as Agent, stepCountIs, UIMessage } from 'ai'
+import { Experimental_Agent as Agent, stepCountIs, ToolApprovalResponse } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
@@ -30,7 +30,12 @@ interface ToolApprovalMessage {
   content: ToolCallPayload
 }
 
-export type AgentMessage = Message | ToolMessage | ToolApprovalMessage
+export interface ToolApprovalResponseMessage {
+  role: 'tool'
+  content: ToolApprovalResponse[]
+}
+
+export type AgentMessage = Message | ToolMessage | ToolApprovalMessage | ToolApprovalResponseMessage
 
 export interface TokenUsage {
   input: {
@@ -94,7 +99,9 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
       },
     })
 
-    const promptMessages = messages.filter((m) => m.role !== 'tools' && m.role !== 'tool-approval-request') as Message[]
+    const promptMessages = messages.filter((m) => m.role !== 'tools' && m.role !== 'tool-approval-request') as Array<
+      Message | ToolApprovalResponseMessage
+    >
     const stream = await agent.stream({ prompt: promptMessages })
     console.log('Agent stream started')
 

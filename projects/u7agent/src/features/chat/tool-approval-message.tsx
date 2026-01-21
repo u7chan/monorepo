@@ -4,6 +4,9 @@ import type { ToolCallPayload } from '@/features/agent/actions'
 
 interface ToolApprovalMessageProps {
   content: ToolCallPayload
+  approvalId: string
+  onApprove?: (approvalId: string) => void
+  onReject?: (approvalId: string) => void
 }
 
 const formatPayload = (payload: string) => {
@@ -14,7 +17,7 @@ const formatPayload = (payload: string) => {
   }
 }
 
-export function ToolApprovalMessage({ content }: ToolApprovalMessageProps) {
+export function ToolApprovalMessage({ content, approvalId, onApprove, onReject }: ToolApprovalMessageProps) {
   const preview = formatPayload(content.inputJSON)
 
   return (
@@ -33,12 +36,14 @@ export function ToolApprovalMessage({ content }: ToolApprovalMessageProps) {
           <button
             type='button'
             className='flex-1 rounded-2xl border border-amber-500/70 bg-amber-500/80 px-4 py-2 font-semibold text-amber-950 transition hover:bg-amber-600 focus-visible:outline-none'
+            onClick={() => onApprove?.(approvalId)}
           >
             Approve
           </button>
           <button
             type='button'
             className='flex-1 rounded-2xl border border-slate-200/80 bg-white px-4 py-2 font-semibold text-slate-600 transition hover:border-slate-300 focus-visible:outline-none dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-200'
+            onClick={() => onReject?.(approvalId)}
           >
             Reject
           </button>

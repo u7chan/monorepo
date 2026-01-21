@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
+import type { ToolApprovalResponse } from 'ai'
 
 import { AgentMessage, agentStream, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
@@ -52,10 +53,7 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     updateScrollState()
   }, [])
 
-  const handleSubmit = async (input: string) => {
-    autoScrollEnabled.current = true
-    const newMessages: AgentMessage[] = [...messages, { role: 'user', content: input }]
-    setMessages(newMessages)
+  const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
     setLoading(true)
 
@@ -100,6 +98,28 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     setLoading(false)
   }
 
+  const handleSubmit = async (input: string) => {
+    autoScrollEnabled.current = true
+    const newMessages: AgentMessage[] = [...messages, { role: 'user', content: input }]
+    setMessages(newMessages)
+    await runAgentStream(newMessages)
+  }
+
+  const handleToolApproval = async (approvalId: string, approved: boolean) => {
+    autoScrollEnabled.current = true
+    const approvals: ToolApprovalResponse[] = [
+      {
+        type: 'tool-approval-response',
+        approvalId,
+        approved,
+        reason: approved ? 'User approved the tool call' : 'User rejected the tool call',
+      },
+    ]
+    const newMessages: AgentMessage[] = [...messages, { role: 'tool', content: approvals }]
+    setMessages(newMessages)
+    await runAgentStream(newMessages)
+  }
+
   return {
     loading,
     messages,
@@ -114,5 +134,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     scrollToBottom,
     updateScrollState,
     handleSubmit,
+    handleToolApproval,
   }
 }

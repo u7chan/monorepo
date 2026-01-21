@@ -13,9 +13,17 @@ interface ChatMessageProps {
   scrollContainer?: React.RefObject<HTMLDivElement | null>
   scrollWrapper?: React.RefObject<HTMLDivElement | null>
   onScroll?: () => void
+  onToolApproval?: (approvalId: string, approved: boolean) => void
 }
 
-export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWrapper, onScroll }: ChatMessageProps) {
+export function ChatMessage({
+  messages,
+  streamMessage,
+  scrollContainer,
+  scrollWrapper,
+  onScroll,
+  onToolApproval,
+}: ChatMessageProps) {
   return (
     <div className='h-full min-h-0 flex-1'>
       <div ref={scrollWrapper} onScroll={onScroll} className='flex h-full flex-col gap-2 overflow-y-auto p-4'>
@@ -30,7 +38,14 @@ export function ChatMessage({ messages, streamMessage, scrollContainer, scrollWr
             )}
             {message.role === 'assistant' && <Streamdown mode='static'>{message.content}</Streamdown>}
             {message.role === 'tools' && <ToolMessage content={message.content} />}
-            {message.role === 'tool-approval-request' && <ToolApprovalMessage content={message.content} />}
+            {message.role === 'tool-approval-request' && (
+              <ToolApprovalMessage
+                content={message.content}
+                approvalId={message.approvalId}
+                onApprove={(approvalId) => onToolApproval?.(approvalId, true)}
+                onReject={(approvalId) => onToolApproval?.(approvalId, false)}
+              />
+            )}
           </React.Fragment>
         ))}
 
