@@ -1,6 +1,6 @@
+import type { ToolApprovalResponse } from 'ai'
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
-import type { ToolApprovalResponse } from 'ai'
 
 import { AgentMessage, agentStream, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
@@ -62,8 +62,16 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     setProcessingTimeMs(undefined)
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
-      const { delta, tools, usage, finishReason, processingTimeMs: streamProcessingTimeMs } = stream || {
+      const {
+        delta,
+        assistantContent,
+        tools,
+        usage,
+        finishReason,
+        processingTimeMs: streamProcessingTimeMs,
+      } = stream || {
         delta: '',
+        assistantContent: [],
         tools: [],
         usage: undefined,
         finishReason: undefined,
@@ -72,6 +80,9 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       if (delta) {
         streamMessage += delta
         setStreamMessage(streamMessage)
+      }
+      if (assistantContent && assistantContent.length > 0) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent }])
       }
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])
@@ -91,8 +102,9 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       }
     }
     setStreamMessage('')
-    setMessages((prev) => [...prev, { role: 'assistant', content: streamMessage }])
-
+    if (streamMessage) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: streamMessage }])
+    }
     requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
     updateScrollState()
     setLoading(false)
@@ -112,7 +124,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
         type: 'tool-approval-response',
         approvalId,
         approved,
-        reason: approved ? 'User approved the tool call' : 'User rejected the tool call',
       },
     ]
     const newMessages: AgentMessage[] = [...messages, { role: 'tool', content: approvals }]

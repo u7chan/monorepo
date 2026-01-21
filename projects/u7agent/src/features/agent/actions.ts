@@ -1,6 +1,6 @@
 'use server'
 
-import { Experimental_Agent as Agent, stepCountIs, ToolApprovalResponse } from 'ai'
+import { stepCountIs, ToolLoopAgent, type AssistantContent, type ToolApprovalResponse } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
@@ -9,10 +9,14 @@ import { pickTools } from './tools'
 import { AgentConfig } from './types'
 
 interface Message {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'system'
   content: string
 }
 
+interface AssistantMessage {
+  role: 'assistant'
+  content: string | AssistantContent[]
+}
 export interface ToolCallPayload {
   name: string
   inputJSON: string
@@ -35,7 +39,7 @@ export interface ToolApprovalMessage {
   content: ToolApprovalResponse[]
 }
 
-export type AgentMessage = Message | ToolMessage | ToolApprovalRequestMessage | ToolApprovalMessage
+export type AgentMessage = Message | AssistantMessage | ToolMessage | ToolApprovalRequestMessage | ToolApprovalMessage
 
 export interface TokenUsage {
   input: {
@@ -52,6 +56,7 @@ export interface TokenUsage {
 export async function agentStream(messages: AgentMessage[], agentConfig: AgentConfig) {
   const output = createStreamableValue<{
     delta?: string
+    assistantContent?: AssistantContent[]
     tools?: (ToolMessage | ToolApprovalRequestMessage)[]
     finishReason?: string
     usage?: TokenUsage
@@ -70,7 +75,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     // explicit tool allowlist from accessing system tools by default.
     const tools = agentConfig.tools && agentConfig.tools.length > 0 ? pickTools(agentConfig.tools) : undefined
 
-    const agent = new Agent({
+    const agent = new ToolLoopAgent({
       model: openai(agentConfig.model),
       instructions: [{ role: 'system', content: agentConfig.instruction }],
       tools,
@@ -102,10 +107,12 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     const promptMessages = messages.filter((m) => m.role !== 'tools' && m.role !== 'tool-approval-request') as Array<
       Message | ToolApprovalMessage
     >
+    console.log('Starting agent stream with messages:', JSON.stringify(promptMessages))
     const stream = await agent.stream({ prompt: promptMessages })
     console.log('Agent stream started')
 
     let message = ''
+    let assistantContent: AssistantContent[] = []
 
     for await (const chunk of stream.fullStream) {
       switch (chunk.type) {
@@ -114,13 +121,26 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           output.update({ delta: chunk.text })
           break
 
+        case 'tool-call':
+          assistantContent.push({
+            type: 'tool-call',
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            input: chunk.input,
+          } as any)
+          break
+
         case 'tool-approval-request': {
           const payload: ToolCallPayload = {
             name: chunk.toolCall.toolName,
             inputJSON: JSON.stringify(chunk.toolCall.input),
             outputJSON: '{}',
           }
-          console.log('approval id:', chunk.approvalId)
+          assistantContent.push({
+            type: 'tool-approval-request',
+            approvalId: chunk.approvalId,
+            toolCallId: chunk.toolCall.toolCallId,
+          } as any)
           output.update({ tools: [{ role: 'tool-approval-request', approvalId: chunk.approvalId, content: payload }] })
           break
         }
@@ -148,6 +168,8 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           break
       }
     }
+    console.log('assistantContent:', assistantContent)
+    output.update({ assistantContent })
 
     console.log('Agent stream finished')
     output.update({ processingTimeMs: Date.now() - startTimeMs })
