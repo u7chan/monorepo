@@ -5,6 +5,31 @@ import { readStreamableValue } from '@ai-sdk/rsc'
 import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
 
+const TOOL_TYPES_TO_REMOVE = new Set(['tool-call', 'tool-approval-response'])
+
+export const filterMessagesForAgent = (messages: AgentMessage[]) => {
+  // assistant の text が存在するか確認
+  const hasAssistantText = messages.some(
+    (m) => m.role === 'assistant' && m.content?.some((c) => c.type === 'text' && c.text?.trim()),
+  )
+
+  return (
+    messages
+      // 既存条件
+      .filter((m) => m.role !== 'custom-tool-message' && m.role !== 'custom-tool-approval-request')
+      // assistant の content を調整
+      .map((m) => {
+        if (hasAssistantText && m.role === 'assistant' && Array.isArray(m.content)) {
+          return {
+            ...m,
+            content: m.content.filter((c) => !TOOL_TYPES_TO_REMOVE.has(c.type)),
+          }
+        }
+        return m
+      })
+  )
+}
+
 export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const [loading, setLoading] = useState(false)
   const [streamMessage, setStreamMessage] = useState('')
@@ -52,9 +77,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   useEffect(() => {
     updateScrollState()
   }, [])
-
-  const filterMessagesForAgent = (messages: AgentMessage[]) =>
-    messages.filter((m) => m.role !== 'custom-tool-message' && m.role !== 'custom-tool-approval-request')
 
   const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
