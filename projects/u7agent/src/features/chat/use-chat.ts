@@ -2,7 +2,7 @@ import type { ToolApprovalResponse } from 'ai'
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent/actions'
+import { AgentMessage, agentStream, AssistantMessage, TextPart, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
 
 export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
@@ -53,11 +53,30 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     updateScrollState()
   }, [])
 
+  const filterMessagesForAgent = (messages: AgentMessage[]) => {
+    return messages.reduce<AgentMessage[]>((acc, message) => {
+      if (message.role === 'assistant') {
+        const assistantTextContent = message.content.filter(
+          (content): content is TextPart => content.type === 'text',
+        )
+        if (assistantTextContent.length > 0) {
+          acc.push({ role: 'assistant', content: assistantTextContent } as AssistantMessage)
+        }
+        return acc
+      }
+      if (message.role === 'tool-approval-request') {
+        return acc
+      }
+      acc.push(message)
+      return acc
+    }, [])
+  }
+
   const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
     setLoading(true)
     setProcessingTimeMs(undefined)
-    const { output } = await agentStream(newMessages, agentConfig)
+    const { output } = await agentStream(filterMessagesForAgent(newMessages), agentConfig)
     for await (const stream of readStreamableValue(output)) {
       const {
         delta,
@@ -78,13 +97,7 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
         setStreamMessage((prev) => prev + delta)
       }
       if (assistantContent && assistantContent.length > 0) {
-        const assistantTextContent = assistantContent.filter(
-          (content): content is Extract<AssistantMessage['content'][number], { type: 'text' }> =>
-            content.type === 'text',
-        )
-        if (assistantTextContent.length > 0) {
-          setMessages((prev) => [...prev, { role: 'assistant', content: assistantTextContent } as AssistantMessage])
-        }
+        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent } as AssistantMessage])
       }
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])

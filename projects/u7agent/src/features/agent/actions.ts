@@ -8,6 +8,7 @@ import {
   type ToolApprovalResponse,
   type ToolCallPart,
 } from 'ai'
+export type { TextPart } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
