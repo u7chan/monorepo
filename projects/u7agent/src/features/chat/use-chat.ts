@@ -78,7 +78,13 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
         setStreamMessage((prev) => prev + delta)
       }
       if (assistantContent && assistantContent.length > 0) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent } as AssistantMessage])
+        const assistantTextContent = assistantContent.filter(
+          (content): content is Extract<AssistantMessage['content'][number], { type: 'text' }> =>
+            content.type === 'text',
+        )
+        if (assistantTextContent.length > 0) {
+          setMessages((prev) => [...prev, { role: 'assistant', content: assistantTextContent } as AssistantMessage])
+        }
       }
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])
