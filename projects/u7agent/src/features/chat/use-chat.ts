@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-import { AgentMessage, agentStream } from '@/features/agent/actions'
+import { AgentMessage, agentStream, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
 
 export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   const [loading, setLoading] = useState(false)
   const [streamMessage, setStreamMessage] = useState('')
   const [messages, setMessages] = useState<AgentMessage[]>([])
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage | undefined>()
+  const [finishReason, setFinishReason] = useState<string | undefined>()
   const scrollContainer = useRef<HTMLDivElement>(null)
   const scrollWrapper = useRef<HTMLDivElement>(null)
   const [isNearBottom, setIsNearBottom] = useState(true)
@@ -60,7 +62,12 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
 
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
-      const { delta, tools } = stream || { delta: '', tools: [] }
+      const { delta, tools, usage, finishReason } = stream || {
+        delta: '',
+        tools: [],
+        usage: undefined,
+        finishReason: undefined,
+      }
       if (delta) {
         streamMessage += delta
         setStreamMessage(streamMessage)
@@ -68,6 +75,13 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       if (tools && tools.length > 0) {
         setMessages((prev) => [...prev, ...tools])
       }
+      if (usage) {
+        setTokenUsage(usage)
+      }
+      if (finishReason) {
+        setFinishReason(finishReason)
+      }
+      updateScrollState()
       if (autoScrollEnabled.current) {
         requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
       }
@@ -83,6 +97,8 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
   return {
     loading,
     messages,
+    tokenUsage,
+    finishReason,
     streamMessage,
     scrollContainer,
     scrollWrapper,

@@ -3,6 +3,7 @@
 import { AgentConfig } from '@/features/agent/types'
 import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
+import { TokenUsageSummary } from './token-usage-summary'
 import { useChat } from './use-chat'
 
 interface ChatProps {
@@ -13,6 +14,8 @@ export function Chat({ agentConfig }: ChatProps) {
   const {
     loading,
     messages,
+    tokenUsage,
+    finishReason,
     streamMessage,
     scrollContainer,
     scrollWrapper,
@@ -22,6 +25,27 @@ export function Chat({ agentConfig }: ChatProps) {
     updateScrollState,
     handleSubmit,
   } = useChat({ agentConfig })
+
+  const hasTokenUsage = Boolean(tokenUsage)
+  const totalInputTokens = hasTokenUsage
+    ? (tokenUsage?.input.noCache ?? 0) + (tokenUsage?.input.cacheRead ?? 0) + (tokenUsage?.input.cacheWrite ?? 0)
+    : undefined
+  const totalOutputTokens = hasTokenUsage
+    ? (tokenUsage?.output.text ?? 0) + (tokenUsage?.output.reasoning ?? 0)
+    : undefined
+  const inputBreakdown = hasTokenUsage
+    ? [
+        ['No cache', tokenUsage?.input.noCache],
+        ['Cache read', tokenUsage?.input.cacheRead],
+        ['Cache write', tokenUsage?.input.cacheWrite],
+      ]
+    : []
+  const outputBreakdown = hasTokenUsage
+    ? [
+        ['Text', tokenUsage?.output.text],
+        ['Reasoning', tokenUsage?.output.reasoning],
+      ]
+    : []
 
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
@@ -44,6 +68,7 @@ export function Chat({ agentConfig }: ChatProps) {
         )}
       </div>
       <div className='shrink-0'>
+        <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} />
         <ChatInput loading={loading} onSubmit={handleSubmit} />
       </div>
     </div>

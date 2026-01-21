@@ -24,8 +24,25 @@ interface ToolMessage {
 
 export type AgentMessage = Message | ToolMessage
 
+export interface TokenUsage {
+  input: {
+    noCache?: number
+    cacheRead?: number
+    cacheWrite?: number
+  }
+  output: {
+    text?: number
+    reasoning?: number
+  }
+}
+
 export async function agentStream(messages: AgentMessage[], agentConfig: AgentConfig) {
-  const output = createStreamableValue<{ delta?: string; tools?: ToolMessage[] }>()
+  const output = createStreamableValue<{
+    delta?: string
+    tools?: ToolMessage[]
+    finishReason?: string
+    usage?: TokenUsage
+  }>()
 
   ;(async () => {
     const openai = createOpenAI({
@@ -78,6 +95,24 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           message += chunk.text
           output.update({ delta: chunk.text })
           break
+
+        case 'finish':
+          output.update({
+            finishReason: chunk.finishReason,
+            usage: {
+              input: {
+                noCache: chunk.totalUsage.inputTokenDetails.noCacheTokens,
+                cacheRead: chunk.totalUsage.inputTokenDetails.cacheReadTokens,
+                cacheWrite: chunk.totalUsage.inputTokenDetails.cacheWriteTokens,
+              },
+              output: {
+                text: chunk.totalUsage.outputTokenDetails.textTokens,
+                reasoning: chunk.totalUsage.outputTokenDetails.reasoningTokens,
+              },
+            },
+          })
+          break
+
         case 'error':
           const errorMessage = handleAgentStreamError(chunk.error)
           output.update({ delta: `Error: ${errorMessage}` })
