@@ -1,9 +1,10 @@
 import type { TextPart, ToolApprovalResponse } from 'ai'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
 import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent/actions'
 import { AgentConfig } from '@/features/agent/types'
+import type { NotifyNewContentOptions } from './use-chat-scroll'
 
 const TOOL_TYPES_TO_REMOVE = new Set(['tool-call', 'tool-approval-response'])
 
@@ -31,53 +32,19 @@ const filterMessagesForAgent = (messages: AgentMessage[]) => {
   )
 }
 
-export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
+interface UseChatOptions {
+  agentConfig: AgentConfig
+  onScrollRequest?: (options?: NotifyNewContentOptions) => void
+  onResetAutoScroll?: () => void
+}
+
+export function useChat({ agentConfig, onScrollRequest, onResetAutoScroll }: UseChatOptions) {
   const [loading, setLoading] = useState(false)
   const [streamMessage, setStreamMessage] = useState('')
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | undefined>()
   const [finishReason, setFinishReason] = useState<string | undefined>()
   const [processingTimeMs, setProcessingTimeMs] = useState<number | undefined>()
-  const scrollContainer = useRef<HTMLDivElement>(null)
-  const scrollWrapper = useRef<HTMLDivElement>(null)
-  const [isNearBottom, setIsNearBottom] = useState(true)
-  const [showJumpButton, setShowJumpButton] = useState(false)
-  const autoScrollEnabled = useRef(true)
-
-  const scrollToBottom = (force = false) => {
-    if (force) {
-      autoScrollEnabled.current = true
-      setIsNearBottom(true)
-      setShowJumpButton(false)
-    }
-    if (!autoScrollEnabled.current && !force) return
-    const wrapper = scrollWrapper.current
-    const runScroll = () => {
-      if (!autoScrollEnabled.current && !force) return
-      if (wrapper) {
-        wrapper.scrollTo({ top: wrapper.scrollHeight, behavior: 'smooth' })
-        return
-      }
-      scrollContainer.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
-    requestAnimationFrame(() => requestAnimationFrame(runScroll))
-  }
-
-  const updateScrollState = () => {
-    const wrapper = scrollWrapper.current
-    if (!wrapper) return
-    const autoScrollThreshold = 180
-    const jumpButtonThreshold = 260
-    const distanceFromBottom = wrapper.scrollHeight - wrapper.scrollTop - wrapper.clientHeight
-    const nearBottom = distanceFromBottom <= autoScrollThreshold
-    setIsNearBottom(nearBottom)
-    autoScrollEnabled.current = nearBottom
-    setShowJumpButton(distanceFromBottom > jumpButtonThreshold)
-  }
-
-  useEffect(() => {
-    updateScrollState()
-  }, [])
 
   const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
@@ -118,26 +85,21 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
       if (streamProcessingTimeMs !== undefined) {
         setProcessingTimeMs(streamProcessingTimeMs)
       }
-      updateScrollState()
-      if (autoScrollEnabled.current) {
-        requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
-      }
+      onScrollRequest?.()
     }
     setStreamMessage('')
-    requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom()))
-    updateScrollState()
+    onScrollRequest?.({ force: true })
     setLoading(false)
   }
 
   const handleSubmit = async (input: string) => {
-    autoScrollEnabled.current = true
     const newMessages: AgentMessage[] = [...messages, { role: 'user', content: input }]
     setMessages(newMessages)
+    onResetAutoScroll?.()
     await runAgentStream(newMessages)
   }
 
   const handleToolApproval = async (approvalId: string, approved: boolean) => {
-    autoScrollEnabled.current = true
     const approvals: ToolApprovalResponse[] = [
       {
         type: 'tool-approval-response',
@@ -147,6 +109,7 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     ]
     const newMessages: AgentMessage[] = [...messages, { role: 'tool', content: approvals }]
     setMessages(newMessages)
+    onResetAutoScroll?.()
     await runAgentStream(newMessages)
   }
 
@@ -157,12 +120,6 @@ export function useChat({ agentConfig }: { agentConfig: AgentConfig }) {
     finishReason,
     processingTimeMs,
     streamMessage,
-    scrollContainer,
-    scrollWrapper,
-    isNearBottom,
-    showJumpButton,
-    scrollToBottom,
-    updateScrollState,
     handleSubmit,
     handleToolApproval,
   }
