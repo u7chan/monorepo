@@ -1,6 +1,6 @@
 'use client'
 
-import { TokenUsage } from '@/features/agent/actions'
+import { TokenUsage } from '@/features/agent-service/agent-stream-service'
 
 interface TokenUsageSummaryProps {
   tokenUsage?: TokenUsage

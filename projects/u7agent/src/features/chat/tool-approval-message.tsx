@@ -1,6 +1,6 @@
 'use client'
 
-import type { ToolCallPayload } from '@/features/agent/actions'
+import type { ToolCallPayload } from '@/features/agent-service/agent-stream-service'
 
 interface ToolApprovalMessageProps {
   content: ToolCallPayload

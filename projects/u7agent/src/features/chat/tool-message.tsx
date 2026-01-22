@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import type { ToolCallPayload } from '@/features/agent/actions'
+import type { ToolCallPayload } from '@/features/agent-service/agent-stream-service'
 
 interface ToolMessageProps {
   content: ToolCallPayload

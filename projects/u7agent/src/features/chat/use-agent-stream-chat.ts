@@ -2,8 +2,8 @@ import type { TextPart, ToolApprovalResponse } from 'ai'
 import { useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
-import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent/actions'
-import { AgentConfig } from '@/features/agent/types'
+import { AgentConfig } from '@/features/agent-service/agent-config'
+import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent-service/agent-stream-service'
 import type { NotifyNewContentOptions } from './use-chat-scroll'
 
 const TOOL_TYPES_TO_REMOVE = new Set(['tool-call', 'tool-approval-response'])
@@ -32,13 +32,13 @@ const filterMessagesForAgent = (messages: AgentMessage[]) => {
   )
 }
 
-interface UseChatOptions {
+interface UseAgentStreamChatOptions {
   agentConfig: AgentConfig
   onScrollRequest?: (options?: NotifyNewContentOptions) => void
   onResetAutoScroll?: () => void
 }
 
-export function useChat({ agentConfig, onScrollRequest, onResetAutoScroll }: UseChatOptions) {
+export function useAgentStreamChat({ agentConfig, onScrollRequest, onResetAutoScroll }: UseAgentStreamChatOptions) {
   const [loading, setLoading] = useState(false)
   const [streamMessage, setStreamMessage] = useState('')
   const [messages, setMessages] = useState<AgentMessage[]>([])

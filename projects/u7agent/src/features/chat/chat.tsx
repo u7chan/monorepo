@@ -1,10 +1,10 @@
 'use client'
 
-import { AgentConfig } from '@/features/agent/types'
+import { AgentConfig } from '@/features/agent-service/agent-config'
 import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
 import { TokenUsageSummary } from './token-usage-summary'
-import { useChat } from './use-chat'
+import { useAgentStreamChat } from './use-agent-stream-chat'
 import { useChatScroll } from './use-chat-scroll'
 
 interface ChatProps {
@@ -22,7 +22,7 @@ export function Chat({ agentConfig }: ChatProps) {
     streamMessage,
     handleSubmit,
     handleToolApproval,
-  } = useChat({
+  } = useAgentStreamChat({
     agentConfig,
     onScrollRequest: scroll.notifyNewContent,
     onResetAutoScroll: scroll.resetAutoScroll,

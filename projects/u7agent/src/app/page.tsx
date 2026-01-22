@@ -1,5 +1,5 @@
-import { loadAgentById } from '@/features/agent/loadAgents'
-import { AgentConfig } from '@/features/agent/types'
+import { AgentConfig } from '@/features/agent-service/agent-config'
+import { loadAgentById } from '@/features/agent-service/agent-loader'
 import { Chat } from '@/features/chat/chat'
 
 export default async function Page() {

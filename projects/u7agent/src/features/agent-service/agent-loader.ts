@@ -3,7 +3,7 @@ import path from 'path'
 import yaml from 'js-yaml'
 import { z } from 'zod'
 
-import { AgentConfig } from './types'
+import { AgentConfig } from '@/features/agent-service/agent-config'
 
 const AGENTS_DIR = path.join(process.cwd(), 'agents')
 

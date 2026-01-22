@@ -3,7 +3,7 @@
 import React from 'react'
 import { Streamdown } from 'streamdown'
 
-import { AgentMessage } from '@/features/agent/actions'
+import { AgentMessage } from '@/features/agent-service/agent-stream-service'
 import { ToolApprovalMessage } from '@/features/chat/tool-approval-message'
 import { ToolMessage } from '@/features/chat/tool-message'
 
