@@ -10,7 +10,7 @@ version: "1.0.0"
 enabled: true
 
 # Primary model used to run the agent (maps to AgentConfig.model)
-model: "gpt-4.1-mini"
+model: "gpt-4.1-nano"
 
 description: "カスタマーサポートエージェント — 共感的で実行可能なサポートを提供します。"
 
