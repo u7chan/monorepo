@@ -55,9 +55,7 @@ export function ChatMessage({
             )}
           </React.Fragment>
         ))}
-        {streamMessage && (
-          <Streamdown mode='streaming'>{streamMessage}</Streamdown>
-        )}
+        {streamMessage && <Streamdown mode='streaming'>{streamMessage}</Streamdown>}
         <div ref={scrollContainer}></div>
       </div>
     </div>
