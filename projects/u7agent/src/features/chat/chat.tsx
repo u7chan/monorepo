@@ -5,12 +5,14 @@ import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
 import { TokenUsageSummary } from './token-usage-summary'
 import { useChat } from './use-chat'
+import { useChatScroll } from './use-chat-scroll'
 
 interface ChatProps {
   agentConfig: AgentConfig
 }
 
 export function Chat({ agentConfig }: ChatProps) {
+  const scroll = useChatScroll()
   const {
     loading,
     messages,
@@ -18,15 +20,15 @@ export function Chat({ agentConfig }: ChatProps) {
     finishReason,
     processingTimeMs,
     streamMessage,
-    scrollContainer,
-    scrollWrapper,
-    isNearBottom,
-    showJumpButton,
-    scrollToBottom,
-    updateScrollState,
     handleSubmit,
     handleToolApproval,
-  } = useChat({ agentConfig })
+  } = useChat({
+    agentConfig,
+    onScrollRequest: scroll.notifyNewContent,
+    onResetAutoScroll: scroll.resetAutoScroll,
+  })
+
+  const { scrollContainer, scrollWrapper, isNearBottom, showJumpButton, scrollToBottom, updateScrollState } = scroll
 
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
