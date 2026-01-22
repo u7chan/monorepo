@@ -3,6 +3,7 @@
 import { AgentConfig } from '@/features/agent-service/agent-config'
 import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
+import { JumpToLatestButton } from './jump-to-latest-button'
 import { TokenUsageSummary } from './token-usage-summary'
 import { useAgentStreamChat } from './use-agent-stream-chat'
 import { useChatScroll } from './use-chat-scroll'
@@ -41,15 +42,11 @@ export function Chat({ agentConfig }: ChatProps) {
           onScroll={updateScrollState}
           onToolApproval={handleToolApproval}
         />
-        {showJumpButton && !isNearBottom && (
-          <button
-            type='button'
-            onClick={() => scrollToBottom(true)}
-            className='bg-secondary absolute right-4 bottom-4 rounded-full px-3 py-2 text-xs font-medium shadow-md transition hover:opacity-90'
-          >
-            Jump to latest
-          </button>
-        )}
+        <JumpToLatestButton
+          showJumpButton={showJumpButton}
+          isNearBottom={isNearBottom}
+          onClick={() => scrollToBottom(true)}
+        />
       </div>
       <div className='shrink-0'>
         <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} processingTimeMs={processingTimeMs} />
