@@ -6,32 +6,6 @@ import { AgentConfig } from '@/features/agent-service/agent-config'
 import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent-service/agent-stream-service'
 import type { NotifyNewContentOptions } from './use-chat-scroll'
 
-const TOOL_TYPES_TO_REMOVE = new Set(['tool-call', 'tool-approval-response'])
-
-// TODO: まだ挙動があやしい。連続してApprovalツールを呼び出した時に期待通り動かない。
-const filterMessagesForAgent = (messages: AgentMessage[]) => {
-  // assistant の text が存在するか確認
-  const hasAssistantText = messages.some(
-    (m) => m.role === 'assistant' && m.content?.some((c) => c.type === 'text' && c.text?.trim()),
-  )
-
-  return (
-    messages
-      // 既存条件
-      .filter((m) => m.role !== 'custom-tool-message' && m.role !== 'custom-tool-approval-request')
-      // assistant の content を調整
-      .map((m) => {
-        if (hasAssistantText && m.role === 'assistant' && Array.isArray(m.content)) {
-          return {
-            ...m,
-            content: m.content.filter((c) => !TOOL_TYPES_TO_REMOVE.has(c.type)),
-          }
-        }
-        return m
-      })
-  )
-}
-
 interface UseAgentStreamChatOptions {
   agentConfig: AgentConfig
   onScrollRequest?: (options?: NotifyNewContentOptions) => void
@@ -50,7 +24,7 @@ export function useAgentStreamChat({ agentConfig, onScrollRequest, onResetAutoSc
     setStreamMessage('')
     setLoading(true)
     setProcessingTimeMs(undefined)
-    const { output } = await agentStream(filterMessagesForAgent(newMessages), agentConfig)
+    const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
       const {
         delta,
