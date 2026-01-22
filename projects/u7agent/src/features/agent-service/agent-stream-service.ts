@@ -11,9 +11,9 @@ import {
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
-import { handleAgentStreamError } from './errorHandler'
-import { pickTools } from './tools'
-import { AgentConfig } from './types'
+import { AgentConfig } from '@/features/agent-service/agent-config'
+import { pickTools } from '@/features/agent-service/agent-tools'
+import { handleAgentStreamError } from './agent-error'
 
 interface Message {
   role: 'user' | 'system'
