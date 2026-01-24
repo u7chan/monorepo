@@ -1,4 +1,4 @@
-import type { TextPart, ToolApprovalResponse } from 'ai'
+import type { ToolApprovalResponse } from 'ai'
 import { useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
@@ -12,18 +12,27 @@ interface UseAgentStreamChatOptions {
   onResetAutoScroll?: () => void
 }
 
+interface StreamStateMeta {
+  tokenUsage?: TokenUsage
+  finishReason?: string
+  processingTimeMs?: number
+}
+
 export function useAgentStreamChat({ agentConfig, onScrollRequest, onResetAutoScroll }: UseAgentStreamChatOptions) {
   const [loading, setLoading] = useState(false)
   const [streamMessage, setStreamMessage] = useState('')
   const [messages, setMessages] = useState<AgentMessage[]>([])
-  const [tokenUsage, setTokenUsage] = useState<TokenUsage | undefined>()
-  const [finishReason, setFinishReason] = useState<string | undefined>()
-  const [processingTimeMs, setProcessingTimeMs] = useState<number | undefined>()
+  const [streamMeta, setStreamMeta] = useState<StreamStateMeta>({
+    tokenUsage: undefined,
+    finishReason: undefined,
+    processingTimeMs: undefined,
+  })
+  const { tokenUsage, finishReason, processingTimeMs } = streamMeta
 
   const runAgentStream = async (newMessages: AgentMessage[]) => {
     setStreamMessage('')
     setLoading(true)
-    setProcessingTimeMs(undefined)
+    setStreamMeta((prev) => ({ ...prev, processingTimeMs: undefined }))
     const { output } = await agentStream(newMessages, agentConfig)
     for await (const stream of readStreamableValue(output)) {
       const {
@@ -44,20 +53,28 @@ export function useAgentStreamChat({ agentConfig, onScrollRequest, onResetAutoSc
       if (delta) {
         setStreamMessage((prev) => prev + delta)
       }
+      const messageUpdates: AgentMessage[] = []
       if (assistantContent && assistantContent.length > 0) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent } as AssistantMessage])
+        messageUpdates.push({ role: 'assistant', content: assistantContent } as AssistantMessage)
       }
       if (tools && tools.length > 0) {
-        setMessages((prev) => [...prev, ...tools])
+        messageUpdates.push(...tools)
       }
+      if (messageUpdates.length > 0) {
+        setMessages((prev) => [...prev, ...messageUpdates])
+      }
+      const metaUpdates: Partial<StreamStateMeta> = {}
       if (usage) {
-        setTokenUsage(usage)
+        metaUpdates.tokenUsage = usage
       }
       if (finishReason) {
-        setFinishReason(finishReason)
+        metaUpdates.finishReason = finishReason
       }
       if (streamProcessingTimeMs !== undefined) {
-        setProcessingTimeMs(streamProcessingTimeMs)
+        metaUpdates.processingTimeMs = streamProcessingTimeMs
+      }
+      if (Object.keys(metaUpdates).length > 0) {
+        setStreamMeta((prev) => ({ ...prev, ...metaUpdates }))
       }
       onScrollRequest?.()
     }
