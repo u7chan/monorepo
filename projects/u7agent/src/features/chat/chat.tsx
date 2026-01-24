@@ -1,11 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
-
 import { AgentConfig } from '@/features/agent-service/agent-config'
 import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
-import { DebugMessagesOverlay } from './debug-messages-overlay'
 import { JumpToLatestButton } from './jump-to-latest-button'
 import { TokenUsageSummary } from './token-usage-summary'
 import { useAgentStreamChat } from './use-agent-stream-chat'
@@ -33,40 +30,28 @@ export function Chat({ agentConfig }: ChatProps) {
   })
 
   const { scrollContainer, scrollWrapper, isNearBottom, showJumpButton, scrollToBottom, updateScrollState } = scroll
-  const isDebug = process.env.NEXT_PUBLIC_DEBUG?.toLowerCase() === 'true'
-
-  const debugMessages = useMemo(() => {
-    if (!isDebug) {
-      return ''
-    }
-    return JSON.stringify(messages, null, 2)
-  }, [isDebug, messages])
-  const messageCount = messages.length
 
   return (
-    <>
-      <div className='flex min-h-0 flex-1 flex-col'>
-        <div className='relative min-h-0 flex-1'>
-          <ChatMessage
-            messages={messages}
-            streamMessage={streamMessage}
-            scrollContainer={scrollContainer}
-            scrollWrapper={scrollWrapper}
-            onScroll={updateScrollState}
-            onToolApproval={handleToolApproval}
-          />
-          <JumpToLatestButton
-            showJumpButton={showJumpButton}
-            isNearBottom={isNearBottom}
-            onClick={() => scrollToBottom(true)}
-          />
-        </div>
-        <div className='shrink-0'>
-          <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} processingTimeMs={processingTimeMs} />
-          <ChatInput loading={loading} onSubmit={handleSubmit} />
-        </div>
+    <div className='flex min-h-0 flex-1 flex-col'>
+      <div className='relative min-h-0 flex-1'>
+        <ChatMessage
+          messages={messages}
+          streamMessage={streamMessage}
+          scrollContainer={scrollContainer}
+          scrollWrapper={scrollWrapper}
+          onScroll={updateScrollState}
+          onToolApproval={handleToolApproval}
+        />
+        <JumpToLatestButton
+          showJumpButton={showJumpButton}
+          isNearBottom={isNearBottom}
+          onClick={() => scrollToBottom(true)}
+        />
       </div>
-      {isDebug && <DebugMessagesOverlay messagesJson={debugMessages} messageCount={messageCount} />}
-    </>
+      <div className='shrink-0'>
+        <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} processingTimeMs={processingTimeMs} />
+        <ChatInput loading={loading} onSubmit={handleSubmit} />
+      </div>
+    </div>
   )
 }
