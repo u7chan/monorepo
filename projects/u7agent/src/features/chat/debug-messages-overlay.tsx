@@ -8,10 +8,6 @@ interface DebugMessagesOverlayProps {
 }
 
 export function DebugMessagesOverlay({ messagesJson, messageCount }: DebugMessagesOverlayProps) {
-  if (!messagesJson) {
-    return null
-  }
-
   const [position, setPosition] = useState({ x: 32, y: 72 })
   const [dragging, setDragging] = useState(false)
   const originRef = useRef(position)
@@ -44,6 +40,10 @@ export function DebugMessagesOverlay({ messagesJson, messageCount }: DebugMessag
     startRef.current = { x: event.clientX, y: event.clientY }
     originRef.current = position
     setDragging(true)
+  }
+
+  if (!messagesJson) {
+    return null
   }
 
   return (
