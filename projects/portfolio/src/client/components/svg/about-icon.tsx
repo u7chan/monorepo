@@ -3,7 +3,7 @@ interface Props {
   className?: string
 }
 
-export function AboutIcon({ size = 24, className= 'fill-black dark:fill-white'  }: Props) {
+export function AboutIcon({ size = 24, className = 'fill-black dark:fill-white' }: Props) {
   return (
     <svg
       width={size}
