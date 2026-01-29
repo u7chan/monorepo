@@ -1,3 +1,4 @@
+import Editor from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer'
 import { loadDiffState, saveDiffState } from '../../storage/diff-state'
@@ -98,8 +99,8 @@ export function Diff() {
   }, [beforeCode, afterCode, isHydrated])
 
   return (
-    <div className='h-screen overflow-y-auto bg-white p-4 dark:bg-gray-900'>
-      <div className='mb-4'>
+    <div className='h-screen flex flex-col overflow-y-auto bg-white p-4 dark:bg-gray-900'>
+      <div className='mb-4 flex-none'>
         <button
           onClick={() => setMode(mode === 'view' ? 'edit' : 'view')}
           className='w-10 h-10 cursor-pointer rounded-sm bg-primary-800 p-2 text-white hover:bg-primary-700 dark:bg-primary-600 dark:hover:bg-primary-500 flex items-center justify-center'
@@ -117,37 +118,40 @@ export function Diff() {
           )}
         </button>
       </div>
-      {mode === 'edit' ? (
-        <div className='grid grid-cols-2 gap-4'>
-          <div>
-            <h3 className='text-lg font-semibold mb-2 dark:text-white'>Before</h3>
-            <textarea
-              value={beforeCode}
-              onChange={(e) => setBeforeCode(e.target.value)}
-              className='w-full h-64 p-2 border border-gray-300 rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white'
-              placeholder='Enter before code...'
+      <div className='flex-1 min-h-0'>
+        {mode === 'edit' ? (
+          <div className='grid grid-cols-2 gap-4 h-full min-h-0 border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
+            <div className='flex flex-col h-full min-h-0 border-r border-gray-200 dark:border-gray-700'>
+              <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>Before</h3>
+              <div className='flex-1 min-h-0 px-4 pb-4'>
+                <Editor
+                  value={beforeCode}
+                  onChange={(value) => setBeforeCode(value || '')}
+                  theme={isDarkTheme ? 'vs-dark' : 'light'}
+                  height='100%'
+                />
+              </div>
+            </div>
+            <div className='flex flex-col h-full min-h-0'>
+              <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>After</h3>
+              <div className='flex-1 min-h-0 px-4 pb-4'>
+                <Editor value={afterCode} onChange={(value) => setAfterCode(value || '')} height='100%' />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className='h-full border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
+            <ReactDiffViewer
+              key={isDarkTheme ? 'diff-dark' : 'diff-light'}
+              oldValue={beforeCode}
+              newValue={afterCode}
+              splitView={true}
+              useDarkTheme={isDarkTheme}
+              styles={{ contentText: { fontSize: '12px' }, lineNumber: { fontSize: '12px' } }}
             />
           </div>
-          <div>
-            <h3 className='text-lg font-semibold mb-2 dark:text-white'>After</h3>
-            <textarea
-              value={afterCode}
-              onChange={(e) => setAfterCode(e.target.value)}
-              className='w-full h-64 p-2 border border-gray-300 rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white'
-              placeholder='Enter after code...'
-            />
-          </div>
-        </div>
-      ) : (
-        <ReactDiffViewer
-          key={isDarkTheme ? 'diff-dark' : 'diff-light'}
-          oldValue={beforeCode}
-          newValue={afterCode}
-          splitView={true}
-          useDarkTheme={isDarkTheme}
-          styles={{ contentText: { fontSize: '14px' }, lineNumber: { fontSize: '14px' } }}
-        />
-      )}
+        )}
+      </div>
     </div>
   )
 }
