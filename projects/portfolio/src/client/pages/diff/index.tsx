@@ -3,6 +3,43 @@ import { useEffect, useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer'
 import { loadDiffState, saveDiffState } from '../../storage/diff-state'
 
+const LANGUAGE_OPTIONS: string[] = [
+  // Web / フロントエンド
+  'html',
+  'css',
+  'javascript',
+  'typescript',
+
+  // バックエンド / 汎用
+  'python',
+  'java',
+  'go',
+  'php',
+  'ruby',
+  'rust',
+  'cpp',
+  'csharp',
+
+  // モバイル
+  'swift',
+  'kotlin',
+
+  // データベース / クエリ
+  'sql',
+  'mysql',
+  'pgsql',
+
+  // インフラ / DevOps
+  'shell',
+  'powershell',
+  'dockerfile',
+  'yaml',
+
+  // その他よく使われるもの
+  'graphql',
+  'markdown'
+]
+
 const defaultBefore = `line 1
 line 2
 line 3`
@@ -14,6 +51,7 @@ export function Diff() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [beforeCode, setBeforeCode] = useState(defaultBefore)
   const [afterCode, setAfterCode] = useState(defaultAfter)
+  const [language, setLanguage] = useState('')
   const [isHydrated, setIsHydrated] = useState(false)
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
     if (typeof window === 'undefined') {
@@ -100,14 +138,14 @@ export function Diff() {
 
   return (
     <div className='h-screen flex flex-col overflow-y-auto bg-white p-4 dark:bg-gray-900'>
-      <div className='mb-4 flex-none'>
+      <div className='mb-4 flex-none flex items-center gap-2'>
         <button
           onClick={() => setMode(mode === 'view' ? 'edit' : 'view')}
           className='w-10 h-10 cursor-pointer rounded-sm bg-primary-800 p-2 text-white hover:bg-primary-700 dark:bg-primary-600 dark:hover:bg-primary-500 flex items-center justify-center'
         >
           {mode === 'view' ? (
             <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path stroke-width='2.5' d='M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'></path>
+              <path stroke-width='2.5' d='M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 2-2v-7'></path>
               <path stroke-width='2.5' d='m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z'></path>
             </svg>
           ) : (
@@ -117,6 +155,18 @@ export function Diff() {
             </svg>
           )}
         </button>
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          className='px-3 py-2 rounded-sm bg-white border border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white'
+        >
+          <option value=''>text</option>
+          {LANGUAGE_OPTIONS.map((lang) => (
+            <option key={lang} value={lang}>
+              {lang}
+            </option>
+          ))}
+        </select>
       </div>
       <div className='flex-1 min-h-0'>
         {mode === 'edit' ? (
@@ -129,13 +179,20 @@ export function Diff() {
                   onChange={(value) => setBeforeCode(value || '')}
                   theme={isDarkTheme ? 'vs-dark' : 'light'}
                   height='100%'
+                  language={language}
                 />
               </div>
             </div>
             <div className='flex flex-col h-full min-h-0'>
               <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>After</h3>
               <div className='flex-1 min-h-0 px-4 pb-4'>
-                <Editor value={afterCode} onChange={(value) => setAfterCode(value || '')} height='100%' />
+                <Editor
+                  value={afterCode}
+                  onChange={(value) => setAfterCode(value || '')}
+                  theme={isDarkTheme ? 'vs-dark' : 'light'}
+                  height='100%'
+                  language={language}
+                />
               </div>
             </div>
           </div>
