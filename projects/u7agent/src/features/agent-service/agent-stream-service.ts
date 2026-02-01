@@ -11,6 +11,7 @@ import {
 import { createOpenAI } from '@ai-sdk/openai'
 import { createStreamableValue } from '@ai-sdk/rsc'
 
+import { env } from '@/env'
 import { AgentConfig } from '@/features/agent-service/agent-config'
 import { pickTools } from '@/features/agent-service/agent-tools'
 import { handleAgentStreamError } from './agent-error'
@@ -76,8 +77,8 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
   ;(async () => {
     const startTimeMs = Date.now()
     const openai = createOpenAI({
-      baseURL: process.env.LITELLM_API_BASE_URL!,
-      apiKey: process.env.LITELLM_API_KEY!,
+      baseURL: env.LITELLM_API_BASE_URL,
+      apiKey: env.LITELLM_API_KEY,
     })
 
     // If the agent config does not specify tools (or lists an empty array),
