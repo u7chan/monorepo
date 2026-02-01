@@ -61,8 +61,14 @@ export async function listFilesHandler(c: Context) {
   return c.json({ files: sortedFiles })
 }
 
-export async function uploadFileHandler(c: Context) {
-  const { file, path: filePathParam } = c.req.valid("form")
+export async function uploadFileHandler(
+  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
+) {
+  const validatedData = c.req.valid("form" as never) as {
+    file: File
+    path?: string
+  }
+  const { file, path: filePathParam } = validatedData
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const relativePath = await resolveUploadPath(
     uploadDir,
@@ -85,8 +91,13 @@ export async function uploadFileHandler(c: Context) {
   return c.redirect(`/?path=${encodeURIComponent(filePathParam || "")}`, 301)
 }
 
-export async function deleteFileHandler(c: Context) {
-  const { path: filePathParam } = c.req.valid("form")
+export async function deleteFileHandler(
+  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
+) {
+  const validatedData = c.req.valid("form" as never) as {
+    path: string
+  }
+  const { path: filePathParam } = validatedData
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   if (isInvalidPath(filePathParam)) {
     return c.json(
@@ -140,8 +151,14 @@ export async function deleteFileHandler(c: Context) {
   return c.redirect(`/?path=${redirectPath}`, 301)
 }
 
-export async function mkdirHandler(c: Context) {
-  const { path: dirPathParam, folder } = c.req.valid("form")
+export async function mkdirHandler(
+  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
+) {
+  const validatedData = c.req.valid("form" as never) as {
+    path: string
+    folder: string
+  }
+  const { path: dirPathParam, folder } = validatedData
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   if (isInvalidPath(dirPathParam)) {
     return c.json(

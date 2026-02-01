@@ -45,7 +45,9 @@ describe("upload", () => {
     const listReq = new Request("http://localhost/api/")
     const listRes = await app.request(listReq)
 
-    const listData = await listRes.json()
+    const listData = (await listRes.json()) as {
+      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
+    }
     expect(listData.files).toEqual(
       expect.arrayContaining([{ name: "test.txt", type: "file", size: 13 }]),
     )
@@ -113,7 +115,10 @@ describe("upload", () => {
 
     // レスポンスを検証（Zodバリデーションエラー）
     expect(res.status).toBe(400)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(responseData.success).toBe(false)
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("ZodError")
@@ -137,7 +142,10 @@ describe("upload", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(responseData.success).toBe(false)
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("PathError")
