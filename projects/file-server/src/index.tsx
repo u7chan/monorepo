@@ -1,19 +1,19 @@
 import type { Stats } from "node:fs"
-import {
-  stat as fsStat,
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-  unlink,
-  writeFile,
-} from "node:fs/promises"
+import { stat as fsStat, readdir, readFile } from "node:fs/promises"
 import * as path from "node:path"
 import { zValidator } from "@hono/zod-validator"
 import { Hono } from "hono"
 import { env } from "hono/adapter"
 import * as mime from "mime-types"
 import z from "zod"
+import {
+  deleteFileHandler,
+  listFilesHandler,
+  mkdirHandler,
+  uploadFileHandler,
+} from "./api/handlers"
+import { isInvalidPath, sortFiles } from "./utils/fileUtils"
+import { formatFileSize, formatTimestamp } from "./utils/formatters"
 
 const app = new Hono<{
   Bindings: {
@@ -21,105 +21,8 @@ const app = new Hono<{
   }
 }>()
 
-// パスのバリデーション
-function isInvalidPath(p: string): boolean {
-  return p.includes("..") || path.isAbsolute(p) || p.startsWith("/")
-}
-
-// アップロードパス解決用関数
-async function resolveUploadPath(
-  baseDir: string,
-  filePathParam: string | undefined,
-  fileName: string,
-): Promise<string> {
-  if (!filePathParam || filePathParam === "") return fileName
-  const fullPath = path.join(baseDir, filePathParam)
-  try {
-    const stat = await fsStat(fullPath)
-    if (stat.isDirectory()) {
-      return path.join(filePathParam, fileName)
-    } else {
-      return filePathParam
-    }
-  } catch {
-    // 存在しない場合は、末尾が/ならディレクトリ扱い
-    if (filePathParam.endsWith("/")) {
-      return filePathParam + fileName
-    }
-    return filePathParam
-  }
-}
-
-// ファイルとディレクトリをソートする関数
-function sortFiles<T extends { name: string; type: "file" | "dir" }>(
-  files: T[],
-): T[] {
-  return [...files].sort((a, b) => {
-    // ディレクトリを先に
-    if (a.type === "dir" && b.type === "file") {
-      return -1
-    }
-    if (a.type === "file" && b.type === "dir") {
-      return 1
-    }
-    // 名前でソート
-    return a.name.localeCompare(b.name)
-  })
-}
-
 // ファイル・ディレクトリ一覧取得
-app.get("/api/*", async (c) => {
-  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-  const subPath = c.req.path.replace(/^\/api\/?/, "")
-  if (isInvalidPath(subPath)) {
-    return c.json(
-      {
-        success: false,
-        error: { name: "PathError", message: "Invalid path" },
-      },
-      400,
-    )
-  }
-  const targetDir = path.join(uploadDir, subPath)
-  let files: { name: string; type: "file" | "dir"; size?: number }[] = []
-  try {
-    const dirents = await readdir(targetDir, { withFileTypes: true })
-    files = await Promise.all(
-      dirents.map(async (ent) => {
-        if (ent.isDirectory()) {
-          return { name: ent.name, type: "dir" }
-        } else {
-          // ファイルサイズ取得
-          const stat = await fsStat(path.join(targetDir, ent.name))
-          return { name: ent.name, type: "file", size: stat.size }
-        }
-      }),
-    )
-  } catch (err: unknown) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
-    ) {
-      return c.json(
-        {
-          success: false,
-          error: { name: "DirNotFound", message: "Directory does not exist" },
-        },
-        400,
-      )
-    } else {
-      throw err
-    }
-  }
-
-  const sortedFiles = sortFiles(files)
-
-  return c.json({
-    files: sortedFiles,
-  })
-})
+app.get("/api/*", listFilesHandler)
 
 // ファイルアップロード
 app.post(
@@ -131,29 +34,7 @@ app.post(
       path: z.string().optional(),
     }),
   ),
-  async (c) => {
-    const { file, path: filePathParam } = c.req.valid("form")
-    const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    const relativePath = await resolveUploadPath(
-      uploadDir,
-      filePathParam,
-      file.name,
-    )
-    if (isInvalidPath(relativePath)) {
-      return c.json(
-        {
-          success: false,
-          error: { name: "PathError", message: "Invalid path" },
-        },
-        400,
-      )
-    }
-    const savePath = path.join(uploadDir, relativePath)
-    await mkdir(path.dirname(savePath), { recursive: true })
-    const buffer = await file.arrayBuffer()
-    await writeFile(savePath, Buffer.from(buffer))
-    return c.redirect(`/?path=${encodeURIComponent(filePathParam || "")}`, 301)
-  },
+  uploadFileHandler,
 )
 
 // ファイル削除
@@ -165,64 +46,7 @@ app.post(
       path: z.string(),
     }),
   ),
-  async (c) => {
-    const { path: filePathParam } = c.req.valid("form")
-    const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    if (isInvalidPath(filePathParam)) {
-      return c.json(
-        {
-          success: false,
-          error: { name: "PathError", message: "Invalid path" },
-        },
-        400,
-      )
-    }
-    const targetPath = path.join(uploadDir, filePathParam)
-    let redirectPath = "/"
-
-    try {
-      const stat = await fsStat(targetPath)
-      if (stat.isDirectory()) {
-        // ディレクトリの場合：親ディレクトリのパス
-        const parentOfDir = path.dirname(targetPath) // 削除したディレクトリの親ディレクトリ
-        redirectPath = path.relative(uploadDir, parentOfDir) // uploadDirからの相対パス
-        await rm(targetPath, { recursive: true, force: true })
-      } else {
-        // ファイルの場合：ディレクトリパス
-        const dirOfFile = path.dirname(targetPath)
-        redirectPath = path.relative(uploadDir, dirOfFile) // uploadDirからの相対パス
-        await unlink(targetPath)
-      }
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        (err as { code?: string }).code === "ENOENT"
-      ) {
-        return c.json(
-          {
-            success: false,
-            error: {
-              name: "FileNotFound",
-              message: "File or directory does not exist",
-            },
-          },
-          400,
-        )
-      } else {
-        throw err
-      }
-    }
-
-    if (redirectPath === "") {
-      redirectPath = ""
-    } else {
-      redirectPath = `${redirectPath.replace(/\\/g, "/")}`
-    }
-
-    return c.redirect(`/?path=${redirectPath}`, 301)
-  },
+  deleteFileHandler,
 )
 
 // 空ディレクトリ作成API
@@ -235,68 +59,10 @@ app.post(
       folder: z.string(),
     }),
   ),
-  async (c) => {
-    const { path: dirPathParam, folder } = c.req.valid("form")
-    const uploadDir = env(c).UPLOAD_DIR || "./tmp"
-    if (isInvalidPath(dirPathParam)) {
-      return c.json(
-        {
-          success: false,
-          error: { name: "PathError", message: "Invalid path" },
-        },
-        400,
-      )
-    }
-    const targetDir = path.join(uploadDir, dirPathParam)
-    try {
-      await mkdir(path.join(targetDir, folder), { recursive: false })
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        (err as { code?: string }).code === "EEXIST"
-      ) {
-        return c.json(
-          {
-            success: false,
-            error: {
-              name: "AlreadyExists",
-              message: "Directory already exists",
-            },
-          },
-          400,
-        )
-      } else {
-        throw err
-      }
-    }
-    return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
-  },
+  mkdirHandler,
 )
 
 app.get("/", async (c) => {
-  // ファイルサイズをフォーマットする関数
-  function formatFileSize(bytes: number): string {
-    if (bytes === 0) return "0 B"
-    const k = 1024
-    const sizes = ["Byte", "KB", "MB", "GB", "TB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
-  }
-
-  // タイムスタンプをフォーマットする関数
-  function formatTimestamp(date: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, "0")
-    const y = date.getFullYear()
-    const mo = pad(date.getMonth() + 1)
-    const d = pad(date.getDate())
-    const h = pad(date.getHours())
-    const mi = pad(date.getMinutes())
-    const s = pad(date.getSeconds())
-    return `${y}-${mo}-${d} ${h}:${mi}:${s}`
-  }
-
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = decodeURIComponent(c.req.query("path") || "")
   if (isInvalidPath(requestPath)) {
