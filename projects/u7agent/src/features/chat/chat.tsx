@@ -10,6 +10,7 @@ import { JumpToLatestButton } from './jump-to-latest-button'
 import { TokenUsageSummary } from './token-usage-summary'
 import { useAgentStreamChat } from './use-agent-stream-chat'
 import { useChatScroll } from './use-chat-scroll'
+import { env } from '@/env'
 
 interface ChatProps {
   agentConfig: AgentConfig
@@ -33,7 +34,7 @@ export function Chat({ agentConfig }: ChatProps) {
   })
 
   const { scrollContainer, scrollWrapper, isNearBottom, showJumpButton, scrollToBottom, updateScrollState } = scroll
-  const isDebug = process.env.NEXT_PUBLIC_DEBUG?.toLowerCase() === 'true'
+  const isDebug = env.NEXT_PUBLIC_DEBUG?.toLowerCase() === 'true'
 
   const debugMessages = useMemo(() => {
     if (!isDebug) {
