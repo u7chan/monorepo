@@ -316,9 +316,8 @@ app.get("/file", async (c) => {
       mimeType === "application/pdf"
     const headers: Record<string, string> = { "Content-Type": mimeType }
     if (!isImageOrVideoOrPdf) {
-      headers["Content-Disposition"] = `attachment; filename="${path.basename(
-        resolvedFile,
-      )}"`
+      headers["Content-Disposition"] =
+        `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolvedFile))}`
     }
     const content = contentBuffer.buffer.slice(
       contentBuffer.byteOffset,
