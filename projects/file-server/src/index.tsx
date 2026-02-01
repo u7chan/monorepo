@@ -13,6 +13,7 @@ import {
   uploadFileHandler,
 } from "./api/handlers"
 import { isInvalidPath, sortFiles } from "./utils/fileUtils"
+import { formatFileSize, formatTimestamp } from "./utils/formatters"
 
 const app = new Hono<{
   Bindings: {
@@ -62,27 +63,6 @@ app.post(
 )
 
 app.get("/", async (c) => {
-  // ファイルサイズをフォーマットする関数
-  function formatFileSize(bytes: number): string {
-    if (bytes === 0) return "0 B"
-    const k = 1024
-    const sizes = ["Byte", "KB", "MB", "GB", "TB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
-  }
-
-  // タイムスタンプをフォーマットする関数
-  function formatTimestamp(date: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, "0")
-    const y = date.getFullYear()
-    const mo = pad(date.getMonth() + 1)
-    const d = pad(date.getDate())
-    const h = pad(date.getHours())
-    const mi = pad(date.getMinutes())
-    const s = pad(date.getSeconds())
-    return `${y}-${mo}-${d} ${h}:${mi}:${s}`
-  }
-
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = decodeURIComponent(c.req.query("path") || "")
   if (isInvalidPath(requestPath)) {
