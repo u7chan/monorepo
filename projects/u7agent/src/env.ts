@@ -29,8 +29,8 @@ export const env = createEnv({
    *    `runtimeEnv` に含めないと、型エラーが発生します。
    */
   runtimeEnv: {
-    LITELLM_API_BASE_URL: process.env.LITELLM_API_BASE_URL,
-    LITELLM_API_KEY: process.env.LITELLM_API_KEY,
+    LITELLM_API_BASE_URL: process.env.LITELLM_API_BASE_URL || '',
+    LITELLM_API_KEY: process.env.LITELLM_API_KEY || '',
     NEXT_PUBLIC_DEBUG: process.env.NEXT_PUBLIC_DEBUG,
   },
 })
