@@ -51,7 +51,9 @@ async function resolveUploadPath(
 }
 
 // ファイルとディレクトリをソートする関数
-function sortFiles<T extends { name: string; type: "file" | "dir" }>(files: T[]): T[] {
+function sortFiles<T extends { name: string; type: "file" | "dir" }>(
+  files: T[],
+): T[] {
   return [...files].sort((a, b) => {
     // ディレクトリを先に
     if (a.type === "dir" && b.type === "file") {
@@ -541,17 +543,21 @@ app.get("/file", async (c) => {
     const content = await readFile(resolvedFile, "utf-8")
     return c.render(<pre>{content}</pre>)
   } else {
-    const content = await readFile(resolvedFile)
+    const contentBuffer = await readFile(resolvedFile)
     const isImageOrVideoOrPdf =
       mimeType.startsWith("image/") ||
       mimeType.startsWith("video/") ||
       mimeType === "application/pdf"
     const headers: Record<string, string> = { "Content-Type": mimeType }
     if (!isImageOrVideoOrPdf) {
-      headers["Content-Disposition"] = `attachment; filename=\"${path.basename(
+      headers["Content-Disposition"] = `attachment; filename="${path.basename(
         resolvedFile,
-      )}\"`
+      )}"`
     }
+    const content = contentBuffer.buffer.slice(
+      contentBuffer.byteOffset,
+      contentBuffer.byteOffset + contentBuffer.byteLength,
+    ) as ArrayBuffer
     return new Response(content, { headers })
   }
 })

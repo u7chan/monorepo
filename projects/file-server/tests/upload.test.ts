@@ -117,7 +117,9 @@ describe("upload", () => {
     expect(responseData.success).toBe(false)
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("ZodError")
-    expect(responseData.error.message).toContain("Input not instance of File")
+    expect(responseData.error.message).toContain(
+      "Invalid input: expected File, received undefined",
+    )
   })
 
   it("should reject upload to parent directory path", async () => {
