@@ -94,7 +94,10 @@ describe("delete", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(responseData.success).toBe(false)
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("PathError")
@@ -109,7 +112,10 @@ describe("delete", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(responseData.success).toBe(false)
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("FileNotFound")

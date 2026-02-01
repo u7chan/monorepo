@@ -37,7 +37,10 @@ describe("POST /api/mkdir", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const json = await res.json()
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("AlreadyExists")
   })
@@ -51,7 +54,10 @@ describe("POST /api/mkdir", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const json = await res.json()
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("PathError")
   })

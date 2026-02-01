@@ -35,7 +35,9 @@ describe("read", () => {
 
     // レスポンスを検証
     expect(res.status).toBe(200)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
+    }
     expect(responseData.files).toEqual([])
   })
 
@@ -50,7 +52,9 @@ describe("read", () => {
 
     // レスポンスを検証
     expect(res.status).toBe(200)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
+    }
     expect(responseData.files).toEqual(
       expect.arrayContaining([
         { name: "test1.txt", type: "file", size: 13 },
@@ -74,7 +78,9 @@ describe("read", () => {
 
     // レスポンスを検証
     expect(res.status).toBe(200)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
+    }
     expect(responseData.files).toEqual(
       expect.arrayContaining([
         { name: "baz.txt", type: "file", size: 11 },
@@ -94,7 +100,10 @@ describe("read", () => {
 
     // レスポンスを検証（エラーが発生するはず）
     expect(res.status).toBe(400)
-    const responseData = await res.json()
+    const responseData = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(responseData.success).toBe(false)
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("DirNotFound")
@@ -194,7 +203,10 @@ describe("file endpoint /file", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const data = await res.json()
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(data.success).toBe(false)
     expect(data.error).toBeDefined()
     expect(data.error.name).toBe("NotFound")
@@ -207,7 +219,10 @@ describe("file endpoint /file", () => {
     })
     const res = await app.request(req)
     expect(res.status).toBe(400)
-    const data = await res.json()
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
     expect(data.success).toBe(false)
     expect(data.error).toBeDefined()
     expect(data.error.name).toBe("NotAFile")

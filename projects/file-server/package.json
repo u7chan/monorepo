@@ -2,7 +2,7 @@
   "name": "file-server",
   "scripts": {
     "dev": "bun run --hot src/index.tsx",
-    "lint": "biome lint --write",
+    "lint": "tsc --noEmit && biome lint --write",
     "format": "biome format --write",
     "test": "bun test"
   },
@@ -15,6 +15,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.3.13",
     "@types/bun": "latest",
-    "@types/mime-types": "^3.0.1"
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^18",
+    "typescript": "^5.9.3"
   }
 }
