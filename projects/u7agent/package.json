@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "build": "SKIP_ENV_VALIDATIONS='true' next build --turbopack",
     "start": "next start",
     "lint": "tsc && eslint",
     "format": "prettier --write src"
