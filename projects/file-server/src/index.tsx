@@ -543,7 +543,7 @@ app.get("/file", async (c) => {
     const content = await readFile(resolvedFile, "utf-8")
     return c.render(<pre>{content}</pre>)
   } else {
-    const content = await readFile(resolvedFile)
+    const contentBuffer = await readFile(resolvedFile)
     const isImageOrVideoOrPdf =
       mimeType.startsWith("image/") ||
       mimeType.startsWith("video/") ||
@@ -554,6 +554,10 @@ app.get("/file", async (c) => {
         resolvedFile,
       )}"`
     }
+    const content = contentBuffer.buffer.slice(
+      contentBuffer.byteOffset,
+      contentBuffer.byteOffset + contentBuffer.byteLength,
+    ) as ArrayBuffer
     return new Response(content, { headers })
   }
 })
