@@ -37,7 +37,7 @@ const LANGUAGE_OPTIONS: string[] = [
 
   // その他よく使われるもの
   'graphql',
-  'markdown'
+  'markdown',
 ]
 
 const defaultBefore = `line 1
@@ -197,7 +197,7 @@ export function Diff() {
             </div>
           </div>
         ) : (
-          <div className='h-full border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
+          <div className='h-full border rounded-xl border-gray-200 dark:border-gray-700 overflow-y-auto'>
             <ReactDiffViewer
               key={isDarkTheme ? 'diff-dark' : 'diff-light'}
               oldValue={beforeCode}
