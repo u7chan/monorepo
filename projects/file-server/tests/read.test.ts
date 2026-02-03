@@ -245,7 +245,7 @@ describe("file endpoint /file", () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain("# Hello")
-    expect(text).toContain("<pre>")
+    expect(text).toMatch(/<pre[^>]*>/)
     expect(text).toContain('id="file-viewer-container"')
     expect(text).toContain("<html") // 通常リクエストはフルHTML
     expect(text).toContain("Back to root")
@@ -261,7 +261,7 @@ describe("file endpoint /file", () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain("htmx file content")
-    expect(text).toContain("<pre>")
+    expect(text).toMatch(/<pre[^>]*>/)
     expect(text).toContain('id="file-viewer-container"')
     expect(text).not.toContain("<html") // htmxリクエストは部分HTML
     expect(text).not.toContain("<head>")

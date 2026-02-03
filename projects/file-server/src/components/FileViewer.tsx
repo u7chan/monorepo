@@ -18,8 +18,8 @@ export const FileViewer: FC<FileViewerProps> = ({
   // テキストファイルの場合
   if (content !== undefined) {
     return (
-      <div id="file-viewer-container" class="viewer-container">
-        <div style={{ marginBottom: "1em" }}>
+      <div id="file-viewer-container" class="mt-4">
+        <div class="mb-4">
           <a
             href="/"
             hx-get="/browse?path="
@@ -30,7 +30,9 @@ export const FileViewer: FC<FileViewerProps> = ({
           </a>
         </div>
         <h2>{fileName}</h2>
-        <pre>{content}</pre>
+        <pre class="bg-gray-100 p-4 rounded overflow-x-auto whitespace-pre-wrap break-words">
+          {content}
+        </pre>
       </div>
     )
   }
@@ -42,8 +44,8 @@ export const FileViewer: FC<FileViewerProps> = ({
     // 画像ファイル
     if (mimeType.startsWith("image/")) {
       return (
-        <div id="file-viewer-container" class="viewer-container">
-          <div style={{ marginBottom: "1em" }}>
+        <div id="file-viewer-container" class="mt-4">
+          <div class="mb-4">
             <a
               href="/"
               hx-get="/browse?path="
@@ -54,7 +56,7 @@ export const FileViewer: FC<FileViewerProps> = ({
             </a>
           </div>
           <h2>{fileName}</h2>
-          <img src={fileUrl} alt={fileName} style={{ maxWidth: "100%" }} />
+          <img src={fileUrl} alt={fileName} class="max-w-full rounded" />
         </div>
       )
     }
@@ -62,8 +64,8 @@ export const FileViewer: FC<FileViewerProps> = ({
     // 動画ファイル
     if (mimeType.startsWith("video/")) {
       return (
-        <div id="file-viewer-container" class="viewer-container">
-          <div style={{ marginBottom: "1em" }}>
+        <div id="file-viewer-container" class="mt-4">
+          <div class="mb-4">
             <a
               href="/"
               hx-get="/browse?path="
@@ -74,7 +76,7 @@ export const FileViewer: FC<FileViewerProps> = ({
             </a>
           </div>
           <h2>{fileName}</h2>
-          <video controls style={{ maxWidth: "100%" }}>
+          <video controls class="max-w-full rounded">
             <source src={fileUrl} type={mimeType} />
             <track kind="captions" src="" label="No captions" />
             Your browser does not support the video tag.
@@ -86,8 +88,8 @@ export const FileViewer: FC<FileViewerProps> = ({
     // PDFファイル
     if (mimeType === "application/pdf") {
       return (
-        <div id="file-viewer-container" class="viewer-container">
-          <div style={{ marginBottom: "1em" }}>
+        <div id="file-viewer-container" class="mt-4">
+          <div class="mb-4">
             <a
               href="/"
               hx-get="/browse?path="
@@ -100,7 +102,7 @@ export const FileViewer: FC<FileViewerProps> = ({
           <h2>{fileName}</h2>
           <iframe
             src={fileUrl}
-            style={{ width: "100%", height: "80vh", border: "none" }}
+            class="w-full h-[80vh] border-none"
             title={fileName || "PDF Viewer"}
           />
         </div>
@@ -110,8 +112,8 @@ export const FileViewer: FC<FileViewerProps> = ({
 
   // デフォルト表示
   return (
-    <div id="file-viewer-container" class="viewer-container">
-      <div style={{ marginBottom: "1em" }}>
+    <div id="file-viewer-container" class="mt-4">
+      <div class="mb-4">
         <a
           href="/"
           hx-get="/browse?path="
