@@ -9,9 +9,41 @@ import {
 import * as path from "node:path"
 import type { Context } from "hono"
 import { env } from "hono/adapter"
+import type { FileItem } from "../components/FileList"
+import { FileListContent } from "../components/FileList"
 import { isInvalidPath, resolveUploadPath, sortFiles } from "../utils/fileUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
+
+// Helper function to get file list for a directory
+async function getFileList(
+  uploadDir: string,
+  requestPath: string,
+): Promise<FileItem[]> {
+  const resolvedDir = path.join(uploadDir, requestPath)
+  const dirents = await readdir(resolvedDir, { withFileTypes: true })
+  return await Promise.all(
+    dirents.map(async (ent) => {
+      if (ent.isDirectory()) {
+        const stat = await fsStat(path.join(resolvedDir, ent.name))
+        return { name: ent.name, type: "dir" as const, mtime: stat.mtime }
+      } else {
+        const stat = await fsStat(path.join(resolvedDir, ent.name))
+        return {
+          name: ent.name,
+          type: "file" as const,
+          size: stat.size,
+          mtime: stat.mtime,
+        }
+      }
+    }),
+  )
+}
+
+// Helper function to check if request is from htmx
+function isHtmxRequest(c: Context): boolean {
+  return c.req.header("HX-Request") === "true"
+}
 
 export async function listFilesHandler(c: Context) {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
@@ -88,6 +120,14 @@ export async function uploadFileHandler(
   await mkdir(path.dirname(savePath), { recursive: true })
   const buffer = await file.arrayBuffer()
   await writeFile(savePath, Buffer.from(buffer))
+
+  // For htmx requests, return the updated file list
+  if (isHtmxRequest(c)) {
+    const parentPath = filePathParam || ""
+    const files = await getFileList(uploadDir, parentPath)
+    return c.html(<FileListContent files={files} requestPath={parentPath} />)
+  }
+
   return c.redirect(`/?path=${encodeURIComponent(filePathParam || "")}`, 301)
 }
 
@@ -148,6 +188,12 @@ export async function deleteFileHandler(
     redirectPath = `${redirectPath.replace(/\\/g, "/")}`
   }
 
+  // For htmx requests, return the updated file list
+  if (isHtmxRequest(c)) {
+    const files = await getFileList(uploadDir, redirectPath)
+    return c.html(<FileListContent files={files} requestPath={redirectPath} />)
+  }
+
   return c.redirect(`/?path=${redirectPath}`, 301)
 }
 
@@ -192,5 +238,14 @@ export async function mkdirHandler(
     }
     throw err
   }
+
+  // For htmx requests, return the updated file list
+  if (isHtmxRequest(c)) {
+    const files = await getFileList(uploadDir, dirPathParam || "")
+    return c.html(
+      <FileListContent files={files} requestPath={dirPathParam || ""} />,
+    )
+  }
+
   return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
 }

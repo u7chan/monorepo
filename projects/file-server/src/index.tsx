@@ -12,8 +12,9 @@ import {
   mkdirHandler,
   uploadFileHandler,
 } from "./api/handlers"
-import { FileList } from "./components/FileList"
+import { FileListContent } from "./components/FileList"
 import { FileViewer } from "./components/FileViewer"
+import { PageShell } from "./components/PageShell"
 import { isInvalidPath } from "./utils/fileUtils"
 
 const app = new Hono<{
@@ -22,7 +23,7 @@ const app = new Hono<{
   }
 }>()
 
-// ファイル・ディレクトリ一覧取得
+// ファイル・ディレクトリ一覧取得（JSON API）
 app.get("/api/*", listFilesHandler)
 
 // ファイルアップロード
@@ -63,9 +64,33 @@ app.post(
   mkdirHandler,
 )
 
+// ディレクトリ内のファイル一覧を取得する共通関数
+async function getFileList(uploadDir: string, requestPath: string) {
+  const resolvedDir = path.join(uploadDir, requestPath)
+  const dirents = await readdir(resolvedDir, { withFileTypes: true })
+  return await Promise.all(
+    dirents.map(async (ent) => {
+      if (ent.isDirectory()) {
+        const stat = await fsStat(path.join(resolvedDir, ent.name))
+        return { name: ent.name, type: "dir" as const, mtime: stat.mtime }
+      } else {
+        const stat = await fsStat(path.join(resolvedDir, ent.name))
+        return {
+          name: ent.name,
+          type: "file" as const,
+          size: stat.size,
+          mtime: stat.mtime,
+        }
+      }
+    }),
+  )
+}
+
+// ルート: フルHTMLシェルまたは部分HTMLを返す
 app.get("/", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = decodeURIComponent(c.req.query("path") || "")
+
   if (isInvalidPath(requestPath)) {
     return c.json(
       {
@@ -75,6 +100,7 @@ app.get("/", async (c) => {
       400,
     )
   }
+
   const resolvedDir = path.join(uploadDir, requestPath)
   let stat: Stats
   try {
@@ -100,35 +126,48 @@ app.get("/", async (c) => {
       throw err
     }
   }
+
   if (stat.isFile()) {
-    // ファイルの場合は内容を返すエンドポイントへリダイレクト
-    return c.redirect(`/file?path=${requestPath}`)
+    // ファイルの場合はファイル閲覧エンドポイントへリダイレクト
+    return c.redirect(`/file?path=${encodeURIComponent(requestPath)}`)
   }
+
   // ディレクトリの場合は一覧を返す
-  let files: {
-    name: string
-    type: "file" | "dir"
-    size?: number
-    mtime?: Date
-  }[] = []
-  try {
-    const dirents = await readdir(resolvedDir, { withFileTypes: true })
-    files = await Promise.all(
-      dirents.map(async (ent) => {
-        if (ent.isDirectory()) {
-          const stat = await fsStat(path.join(resolvedDir, ent.name))
-          return { name: ent.name, type: "dir", mtime: stat.mtime }
-        } else {
-          const stat = await fsStat(path.join(resolvedDir, ent.name))
-          return {
-            name: ent.name,
-            type: "file",
-            size: stat.size,
-            mtime: stat.mtime,
-          }
-        }
-      }),
+  const files = await getFileList(uploadDir, requestPath)
+  const isHtmxRequest = c.req.header("HX-Request") === "true"
+
+  if (isHtmxRequest) {
+    // htmxリクエスト: 部分HTMLを返す
+    return c.html(<FileListContent files={files} requestPath={requestPath} />)
+  } else {
+    // 通常リクエスト: フルHTMLシェルを返す
+    return c.html(
+      <PageShell>
+        <FileListContent files={files} requestPath={requestPath} />
+      </PageShell>,
     )
+  }
+})
+
+// /browse: 一覧部分HTML（htmx用）
+app.get("/browse", async (c) => {
+  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+  const requestPath = decodeURIComponent(c.req.query("path") || "")
+
+  if (isInvalidPath(requestPath)) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "PathError", message: "Invalid path" },
+      },
+      400,
+    )
+  }
+
+  const resolvedDir = path.join(uploadDir, requestPath)
+  let stat: Stats
+  try {
+    stat = await fsStat(resolvedDir)
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -139,7 +178,10 @@ app.get("/", async (c) => {
       return c.json(
         {
           success: false,
-          error: { name: "DirNotFound", message: "Directory does not exist" },
+          error: {
+            name: "NotFound",
+            message: "Directory does not exist",
+          },
         },
         400,
       )
@@ -148,12 +190,25 @@ app.get("/", async (c) => {
     }
   }
 
-  return c.html(<FileList files={files} requestPath={requestPath} />)
+  if (!stat.isDirectory()) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "NotADirectory", message: "Not a directory" },
+      },
+      400,
+    )
+  }
+
+  const files = await getFileList(uploadDir, requestPath)
+  return c.html(<FileListContent files={files} requestPath={requestPath} />)
 })
 
+// /file: ファイル閲覧部分HTML（htmx用）
 app.get("/file", async (c) => {
   const uploadDir = env(c).UPLOAD_DIR || "./tmp"
   const requestPath = decodeURIComponent(c.req.query("path") || "")
+
   if (isInvalidPath(requestPath)) {
     return c.json(
       {
@@ -163,6 +218,7 @@ app.get("/file", async (c) => {
       400,
     )
   }
+
   const resolvedFile = path.join(uploadDir, requestPath)
   let stat: Stats
   try {
@@ -185,6 +241,7 @@ app.get("/file", async (c) => {
       throw err
     }
   }
+
   if (!stat.isFile()) {
     return c.json(
       {
@@ -194,31 +251,134 @@ app.get("/file", async (c) => {
       400,
     )
   }
-  // MIMEタイプ判定
+
   const mimeType = mime.lookup(resolvedFile) || "application/octet-stream"
   const isText =
     /^text\//.test(mimeType) || /json$|javascript$|xml$/.test(mimeType)
+  const isHtmxRequest = c.req.header("HX-Request") === "true"
 
+  // バイナリファイルの生データ用エンドポイントへのリダイレクトを避けるため、直接URLを構築
   if (isText) {
     const content = await readFile(resolvedFile, "utf-8")
-    return c.html(<FileViewer content={content} />)
+    if (isHtmxRequest) {
+      return c.html(
+        <FileViewer
+          content={content}
+          fileName={path.basename(resolvedFile)}
+          path={requestPath}
+        />,
+      )
+    } else {
+      return c.html(
+        <PageShell>
+          <FileViewer
+            content={content}
+            fileName={path.basename(resolvedFile)}
+            path={requestPath}
+          />
+        </PageShell>,
+      )
+    }
   } else {
-    const contentBuffer = await readFile(resolvedFile)
+    // バイナリファイル（画像/動画/PDF）
     const isImageOrVideoOrPdf =
       mimeType.startsWith("image/") ||
       mimeType.startsWith("video/") ||
       mimeType === "application/pdf"
-    const headers: Record<string, string> = { "Content-Type": mimeType }
-    if (!isImageOrVideoOrPdf) {
-      headers["Content-Disposition"] =
-        `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolvedFile))}`
+
+    if (isImageOrVideoOrPdf) {
+      if (isHtmxRequest) {
+        return c.html(
+          <FileViewer
+            mimeType={mimeType}
+            fileName={path.basename(resolvedFile)}
+            path={requestPath}
+          />,
+        )
+      } else {
+        return c.html(
+          <PageShell>
+            <FileViewer
+              mimeType={mimeType}
+              fileName={path.basename(resolvedFile)}
+              path={requestPath}
+            />
+          </PageShell>,
+        )
+      }
+    } else {
+      // その他のバイナリファイルはダウンロード
+      const contentBuffer = await readFile(resolvedFile)
+      const headers: Record<string, string> = {
+        "Content-Type": mimeType,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolvedFile))}`,
+      }
+      const content = contentBuffer.buffer.slice(
+        contentBuffer.byteOffset,
+        contentBuffer.byteOffset + contentBuffer.byteLength,
+      ) as ArrayBuffer
+      return new Response(content, { headers })
     }
-    const content = contentBuffer.buffer.slice(
-      contentBuffer.byteOffset,
-      contentBuffer.byteOffset + contentBuffer.byteLength,
-    ) as ArrayBuffer
-    return new Response(content, { headers })
   }
+})
+
+// /file/raw: バイナリファイルの生データ（画像/動画/PDF用）
+app.get("/file/raw", async (c) => {
+  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+  const requestPath = decodeURIComponent(c.req.query("path") || "")
+
+  if (isInvalidPath(requestPath)) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "PathError", message: "Invalid path" },
+      },
+      400,
+    )
+  }
+
+  const resolvedFile = path.join(uploadDir, requestPath)
+  let stat: Stats
+  try {
+    stat = await fsStat(resolvedFile)
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "NotFound", message: "File does not exist" },
+        },
+        400,
+      )
+    } else {
+      throw err
+    }
+  }
+
+  if (!stat.isFile()) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "NotAFile", message: "Not a file" },
+      },
+      400,
+    )
+  }
+
+  const mimeType = mime.lookup(resolvedFile) || "application/octet-stream"
+  const contentBuffer = await readFile(resolvedFile)
+  const headers: Record<string, string> = { "Content-Type": mimeType }
+
+  const content = contentBuffer.buffer.slice(
+    contentBuffer.byteOffset,
+    contentBuffer.byteOffset + contentBuffer.byteLength,
+  ) as ArrayBuffer
+  return new Response(content, { headers })
 })
 
 export default app

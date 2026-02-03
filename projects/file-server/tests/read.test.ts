@@ -138,6 +138,13 @@ describe("browse endpoint /", () => {
     expect(text).toContain("foo.txt")
     expect(text).toContain("bar.txt")
     expect(text).toContain("<a href")
+    // htmx属性があることを確認
+    expect(text).toContain("hx-get")
+    expect(text).toContain("hx-target")
+    expect(text).toContain("hx-push-url")
+    expect(text).toContain('id="file-list-container"')
+    // ファイルリンクはfile-viewer-containerをターゲットにする
+    expect(text).toContain('hx-target="#file-viewer-container"')
   })
 
   it("should render breadcrumb navigation in directory listing as HTML", async () => {
@@ -150,11 +157,21 @@ describe("browse endpoint /", () => {
     const res = await app.request(req)
     expect(res.status).toBe(200)
     const text = await res.text()
-    // パンくずリストの各階層リンクが含まれること
-    expect(text).toContain('<a href="/">root</a>')
-    expect(text).toContain('<a href="/?path=foo">foo</a>')
-    expect(text).toContain('<a href="/?path=foo%2Fbar">bar</a>')
-    expect(text).toContain('<a href="/?path=foo%2Fbar%2Fbaz">baz</a>')
+    // パンくずリストの各階層リンクが含まれること（htmx属性付き）
+    expect(text).toContain('href="/"')
+    expect(text).toContain('href="/?path=foo"')
+    expect(text).toContain('href="/?path=foo%2Fbar"')
+    expect(text).toContain('href="/?path=foo%2Fbar%2Fbaz"')
+    // パンくずリストにテキストとしてroot/foo/bar/bazがある
+    expect(text).toContain(">root</a>")
+    expect(text).toContain(">foo</a>")
+    expect(text).toContain(">bar</a>")
+    expect(text).toContain(">baz</a>")
+    // htmx属性があることを確認
+    expect(text).toContain('hx-get="/browse?path="')
+    expect(text).toContain('hx-get="/browse?path=foo"')
+    expect(text).toContain('hx-target="#file-list-container"')
+    expect(text).toContain("hx-push-url")
   })
 
   it("should redirect to /file when file is selected", async () => {
@@ -167,6 +184,40 @@ describe("browse endpoint /", () => {
     // 302リダイレクト
     expect(res.status).toBe(302)
     expect(res.headers.get("Location")).toBe("/file?path=hello.txt")
+  })
+
+  it("should return partial HTML for htmx request to /", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "htmx-test.txt"), "htmx content")
+    const req = new Request("http://localhost/?path=", {
+      method: "GET",
+      headers: { "HX-Request": "true" },
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    // 部分HTML（フルページシェルではない）
+    expect(text).toContain("htmx-test.txt")
+    expect(text).toContain('id="file-list-container"')
+    expect(text).not.toContain("<html")
+    expect(text).not.toContain("<head>")
+    expect(text).not.toContain("<title>File Server</title>")
+    expect(text).not.toContain("htmx.min.js")
+  })
+
+  it("should return partial HTML for htmx request to nested directory", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "htmx/nested"), { recursive: true })
+    await Bun.write(path.join(UPLOAD_DIR, "htmx/nested", "file.txt"), "nested")
+    const req = new Request("http://localhost/?path=htmx%2Fnested", {
+      method: "GET",
+      headers: { "HX-Request": "true" },
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("file.txt")
+    expect(text).toContain('id="file-list-container"')
+    expect(text).toContain("htmx") // パンくずリストにhtmxが含まれる
+    expect(text).not.toContain("<html")
   })
 })
 
@@ -195,6 +246,30 @@ describe("file endpoint /file", () => {
     const text = await res.text()
     expect(text).toContain("# Hello")
     expect(text).toContain("<pre>")
+    expect(text).toContain('id="file-viewer-container"')
+    expect(text).toContain("<html") // 通常リクエストはフルHTML
+    expect(text).toContain("Back to root")
+  })
+
+  it("should render file content as partial HTML for htmx request", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "htmx-file.txt"), "htmx file content")
+    const req = new Request("http://localhost/file?path=htmx-file.txt", {
+      method: "GET",
+      headers: { "HX-Request": "true" },
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("htmx file content")
+    expect(text).toContain("<pre>")
+    expect(text).toContain('id="file-viewer-container"')
+    expect(text).not.toContain("<html") // htmxリクエストは部分HTML
+    expect(text).not.toContain("<head>")
+    expect(text).toContain("Back to root")
+    // htmx属性があることを確認
+    expect(text).toContain('hx-get="/browse?path="')
+    expect(text).toContain('hx-target="#file-list-container"')
+    expect(text).toContain('hx-push-url="/"')
   })
 
   it("should return error for non-existent file", async () => {
@@ -226,5 +301,85 @@ describe("file endpoint /file", () => {
     expect(data.success).toBe(false)
     expect(data.error).toBeDefined()
     expect(data.error.name).toBe("NotAFile")
+  })
+})
+
+describe("browse endpoint /browse (htmx)", () => {
+  const UPLOAD_DIR = "./tmp-test"
+  beforeEach(async () => {
+    try {
+      await rm(UPLOAD_DIR, { recursive: true, force: true })
+    } catch (_error) {}
+    await mkdir(UPLOAD_DIR, { recursive: true })
+    process.env.UPLOAD_DIR = UPLOAD_DIR
+  })
+  afterEach(async () => {
+    try {
+      await rm(UPLOAD_DIR, { recursive: true, force: true })
+    } catch (_error) {}
+  })
+
+  it("should return directory listing as partial HTML", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "browse-test.txt"), "test")
+    const req = new Request("http://localhost/browse?path=", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("browse-test.txt")
+    expect(text).toContain('id="file-list-container"')
+    expect(text).not.toContain("<html") // /browseは常に部分HTML
+    expect(text).not.toContain("<head>")
+    expect(text).toContain('hx-get="/file?path=browse-test.txt"')
+    expect(text).toContain('hx-target="#file-viewer-container"')
+    expect(text).toContain('hx-push-url="/file?path=browse-test.txt"')
+  })
+
+  it("should return nested directory listing", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "browse/nested"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "browse/nested", "nested.txt"),
+      "nested content",
+    )
+    const req = new Request("http://localhost/browse?path=browse%2Fnested", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("nested.txt")
+    expect(text).toContain("browse") // パンくずリストにbrowseが含まれる
+    expect(text).toContain("nested") // パンくずリストにnestedが含まれる
+    expect(text).toContain('hx-get="/browse?path=browse%2Fnested"')
+  })
+
+  it("should return error for non-existent directory", async () => {
+    const req = new Request("http://localhost/browse?path=nonexistent", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+    expect(data.success).toBe(false)
+    expect(data.error.name).toBe("NotFound")
+  })
+
+  it("should return error for file path", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "file-only.txt"), "content")
+    const req = new Request("http://localhost/browse?path=file-only.txt", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+    expect(data.success).toBe(false)
+    expect(data.error.name).toBe("NotADirectory")
   })
 })
