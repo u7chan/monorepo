@@ -16,15 +16,13 @@ export const FileViewer: FC<FileViewerProps> = ({
   const encodedPath = path ? encodeURIComponent(path) : ""
 
   const closeButton = (
-    <a
-      href="/"
-      hx-get="/browse?path="
-      hx-target="#file-list-container"
-      hx-push-url="/"
+    <button
+      type="button"
+      onclick="document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = 'auto'; history.pushState(null, '', '/');"
       class="px-6 py-3 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold border-none rounded-xl cursor-pointer hover:from-rose-600 hover:to-pink-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md"
     >
-      Back to root
-    </a>
+      ✕ Close
+    </button>
   )
 
   // テキストファイルの場合
