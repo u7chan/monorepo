@@ -150,4 +150,71 @@ describe("upload", () => {
     expect(responseData.error).toBeDefined()
     expect(responseData.error.name).toBe("PathError")
   })
+
+  it("should upload a file via htmx and return HTML with file list", async () => {
+    // テストファイルを作成
+    const testContent = "Hello htmx!"
+    const testFile = new File([testContent], "htmx-test.txt", {
+      type: "text/plain",
+    })
+
+    // FormDataを作成
+    const formData = new FormData()
+    formData.append("file", testFile)
+
+    // htmxリクエストを送信
+    const req = new Request("http://localhost/api/upload", {
+      method: "POST",
+      body: formData,
+      headers: { "HX-Request": "true" },
+    })
+
+    const res = await app.request(req)
+
+    // レスポンスを検証（HTMLレスポンスを期待）
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("htmx-test.txt")
+    expect(text).toContain('id="file-list-container"')
+    // HTML部分（フルページシェルではない）
+    expect(text).not.toContain("<html")
+    expect(text).not.toContain("<head>")
+
+    // ファイルが実際に保存されたかを確認
+    const savedFilePath = path.join(UPLOAD_DIR, "htmx-test.txt")
+    const savedContent = await readFile(savedFilePath, "utf-8")
+    expect(savedContent).toBe(testContent)
+  })
+
+  it("should upload a file to nested directory via htmx", async () => {
+    // ネストしたディレクトリを事前に作成
+    await mkdir(path.join(UPLOAD_DIR, "htmx/foo"), { recursive: true })
+
+    const testContent = "Nested htmx!"
+    // ディレクトリパスを指定（末尾に/）
+    const dirPath = "htmx/foo/"
+    const testFile = new File([testContent], "bar.txt", {
+      type: "text/plain",
+    })
+    const formData = new FormData()
+    formData.append("file", testFile)
+    formData.append("path", dirPath)
+
+    const req = new Request("http://localhost/api/upload", {
+      method: "POST",
+      body: formData,
+      headers: { "HX-Request": "true" },
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("bar.txt")
+    expect(text).toContain('id="file-list-container"')
+    expect(text).not.toContain("<html")
+
+    // 保存先のファイル内容を検証
+    const savedFilePath = path.join(UPLOAD_DIR, "htmx/foo/bar.txt")
+    const savedContent = await readFile(savedFilePath, "utf-8")
+    expect(savedContent).toBe(testContent)
+  })
 })
