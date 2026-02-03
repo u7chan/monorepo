@@ -19,7 +19,7 @@ export const FileViewer: FC<FileViewerProps> = ({
     <button
       type="button"
       onclick="document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = 'auto'; history.pushState(null, '', '/');"
-      class="px-4 py-2 bg-gray-600 text-white border-none rounded cursor-pointer hover:bg-gray-700"
+      class="px-6 py-2 bg-gradient-to-r from-gray-700 to-gray-800 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-gray-800 hover:to-gray-900 transition-all transform hover:scale-105"
     >
       Close
     </button>
@@ -36,14 +36,14 @@ export const FileViewer: FC<FileViewerProps> = ({
         />
         <div
           id="file-viewer-container"
-          class="fixed inset-0  flex items-center justify-center z-50"
+          class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
         >
-          <div class="bg-white p-5 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto border border-gray-300 shadow-lg">
+          <div class="bg-white p-6 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-auto border-4 border-indigo-300 animate-[slideIn_0.2s_ease-out]">
             <div class="flex justify-between items-center mb-4">
-              <h2 class="text-xl font-bold">{fileName}</h2>
+              <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{fileName}</h2>
               {closeButton}
             </div>
-            <pre class="bg-gray-100 p-4 rounded overflow-x-auto whitespace-pre-wrap break-words">
+            <pre class="bg-gradient-to-br from-indigo-50 to-purple-50 p-4 rounded-xl overflow-x-auto whitespace-pre-wrap break-words border-2 border-indigo-200">
               {content}
             </pre>
           </div>
@@ -67,14 +67,14 @@ export const FileViewer: FC<FileViewerProps> = ({
           />
           <div
             id="file-viewer-container"
-            class="fixed inset-0  flex items-center justify-center z-50"
+            class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
           >
-            <div class="bg-white p-5 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto border border-gray-300 shadow-lg">
+            <div class="bg-white p-6 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-auto border-4 border-purple-300 animate-[slideIn_0.2s_ease-out]">
               <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold">{fileName}</h2>
+                <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{fileName}</h2>
                 {closeButton}
               </div>
-              <img src={fileUrl} alt={fileName} class="max-w-full rounded" />
+              <img src={fileUrl} alt={fileName} class="max-w-full rounded-xl border-2 border-indigo-200" />
             </div>
           </div>
         </>
@@ -92,14 +92,14 @@ export const FileViewer: FC<FileViewerProps> = ({
           />
           <div
             id="file-viewer-container"
-            class="fixed inset-0  flex items-center justify-center z-50"
+            class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
           >
-            <div class="bg-white p-5 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto border border-gray-300 shadow-lg">
+            <div class="bg-white p-6 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-auto border-4 border-pink-300 animate-[slideIn_0.2s_ease-out]">
               <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold">{fileName}</h2>
+                <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{fileName}</h2>
                 {closeButton}
               </div>
-              <video controls class="max-w-full rounded">
+              <video controls class="max-w-full rounded-xl border-2 border-pink-200">
                 <source src={fileUrl} type={mimeType} />
                 <track kind="captions" src="" label="No captions" />
                 Your browser does not support the video tag.
@@ -121,16 +121,16 @@ export const FileViewer: FC<FileViewerProps> = ({
           />
           <div
             id="file-viewer-container"
-            class="fixed inset-0  flex items-center justify-center z-50"
+            class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
           >
-            <div class="bg-white p-5 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto border border-gray-300 shadow-lg">
+            <div class="bg-white p-6 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-auto border-4 border-indigo-300 animate-[slideIn_0.2s_ease-out]">
               <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold">{fileName}</h2>
+                <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{fileName}</h2>
                 {closeButton}
               </div>
               <iframe
                 src={fileUrl}
-                class="w-full h-[70vh] border-none"
+                class="w-full h-[70vh] border-2 border-indigo-200 rounded-xl"
                 title={fileName || "PDF Viewer"}
               ></iframe>
             </div>
@@ -150,18 +150,18 @@ export const FileViewer: FC<FileViewerProps> = ({
       />
       <div
         id="file-viewer-container"
-        class="fixed inset-0  flex items-center justify-center z-50"
+        class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
       >
-        <div class="bg-white p-5 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto">
+        <div class="bg-white p-6 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-auto border-4 border-purple-300 animate-[slideIn_0.2s_ease-out]">
           <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-bold">{fileName}</h2>
+            <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{fileName}</h2>
             {closeButton}
           </div>
-          <p>This file type cannot be displayed in the browser.</p>
+          <p class="mb-4">This file type cannot be displayed in the browser.</p>
           <a
             href={`/file/raw?path=${encodedPath}`}
             download={fileName}
-            class="px-4 py-2 bg-blue-600 text-white border-none rounded cursor-pointer hover:bg-blue-700 inline-block mt-2"
+            class="px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-105 inline-block mt-2"
           >
             Download File
           </a>
