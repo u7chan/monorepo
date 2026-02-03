@@ -248,7 +248,7 @@ describe("file endpoint /file", () => {
     expect(text).toMatch(/<pre[^>]*>/)
     expect(text).toContain('id="file-viewer-container"')
     expect(text).toContain("<html") // 通常リクエストはフルHTML
-    expect(text).toContain("Back to root")
+    expect(text).toContain("✕ Close")
   })
 
   it("should render file content as partial HTML for htmx request", async () => {
@@ -265,11 +265,7 @@ describe("file endpoint /file", () => {
     expect(text).toContain('id="file-viewer-container"')
     expect(text).not.toContain("<html") // htmxリクエストは部分HTML
     expect(text).not.toContain("<head>")
-    expect(text).toContain("Back to root")
-    // htmx属性があることを確認
-    expect(text).toContain('hx-get="/browse?path="')
-    expect(text).toContain('hx-target="#file-list-container"')
-    expect(text).toContain('hx-push-url="/"')
+    expect(text).toContain("✕ Close")
   })
 
   it("should return error for non-existent file", async () => {

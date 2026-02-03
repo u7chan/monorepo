@@ -27,7 +27,7 @@ function generateBreadcrumbs(requestPath: string) {
         hx-get="/browse?path="
         hx-target="#file-list-container"
         hx-push-url="/?path="
-        class="text-blue-600 no-underline hover:underline mx-1"
+        class="text-indigo-600 font-semibold no-underline hover:text-purple-600 transition-colors mx-1"
       >
         root
       </a>
@@ -46,7 +46,7 @@ function generateBreadcrumbs(requestPath: string) {
           hx-get={`/browse?path=${encodedAcc}`}
           hx-target="#file-list-container"
           hx-push-url={`/?path=${encodedAcc}`}
-          class="text-blue-600 no-underline hover:underline mx-1"
+          class="text-indigo-600 font-semibold no-underline hover:text-purple-600 transition-colors mx-1"
         >
           {part}
         </a>
@@ -72,8 +72,7 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
   return (
     <div id="file-list-container">
       {/* パンくずリスト */}
-      <nav class="mb-4">{crumbs}</nav>
-      <hr />
+      <nav class="mb-6 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">{crumbs}</nav>
       <ul class="list-none p-0">
         {sortedFiles.map((file) => {
           const filePath = path.join(requestPath, file.name)
@@ -82,7 +81,7 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
           return (
             <li
               key={file.name}
-              class="flex justify-between items-center py-2 border-b border-gray-200 hover:bg-gray-50 cursor-pointer"
+              class="flex justify-between items-center py-3 px-4 mb-2 rounded-xl border-2 border-transparent hover:border-indigo-300 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-purple-50 cursor-pointer transition-all duration-200"
               hx-get={
                 file.type === "dir"
                   ? `/browse?path=${encodedPath}`
@@ -100,8 +99,8 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
               }
             >
               {/* ファイル/ディレクトリ名リンク */}
-              <span class="text-blue-600 hover:underline">
-                {file.type === "dir" ? `${file.name}/` : file.name}
+              <span class="text-indigo-700 font-medium hover:text-purple-600 transition-colors">
+                {file.type === "dir" ? `📁 ${file.name}/` : `📄 ${file.name}`}
               </span>
 
               <div class="flex gap-4 items-center">
@@ -126,7 +125,7 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
                     <input type="hidden" name="path" value={filePath} />
                     <button
                       type="submit"
-                      class="px-4 py-2 bg-red-600 text-white border-none rounded cursor-pointer hover:bg-red-700"
+                      class="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
                     >
                       Delete
                     </button>
@@ -143,7 +142,7 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
         hx-post="/api/mkdir"
         hx-target="#file-list-container"
         hx-swap="innerHTML"
-        class="mb-4 mt-4"
+        class="mb-4 mt-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200"
       >
         <input
           type="hidden"
@@ -159,11 +158,11 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
           name="folder"
           placeholder="New folder name"
           required
-          class="px-2 py-1 border border-gray-300 rounded mr-2"
+          class="px-4 py-2 border-2 border-indigo-300 rounded-lg mr-2 focus:outline-none focus:border-purple-500 transition-colors"
         />
         <button
           type="submit"
-          class="px-4 py-2 bg-blue-600 text-white border-none rounded cursor-pointer hover:bg-blue-700"
+          class="px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-105"
         >
           Create Folder
         </button>
@@ -175,18 +174,18 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
         hx-target="#file-list-container"
         hx-swap="innerHTML"
         hx-encoding="multipart/form-data"
-        class="my-4"
+        class="my-4 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200"
       >
         <input type="hidden" name="path" value={requestPath} />
         <input
           type="file"
           name="file"
           required
-          class="px-2 py-1 border border-gray-300 rounded mr-2"
+          class="px-4 py-2 border-2 border-purple-300 rounded-lg mr-2 focus:outline-none focus:border-pink-500 transition-colors"
         />
         <button
           type="submit"
-          class="px-4 py-2 bg-blue-600 text-white border-none rounded cursor-pointer hover:bg-blue-700"
+          class="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-purple-600 hover:to-pink-600 transition-all transform hover:scale-105"
         >
           Upload
         </button>
