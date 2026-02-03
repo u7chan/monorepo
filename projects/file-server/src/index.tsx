@@ -148,7 +148,7 @@ app.get("/", async (c) => {
     }
   }
 
-  return c.render(<FileList files={files} requestPath={requestPath} />)
+  return c.html(<FileList files={files} requestPath={requestPath} />)
 })
 
 app.get("/file", async (c) => {
@@ -201,7 +201,7 @@ app.get("/file", async (c) => {
 
   if (isText) {
     const content = await readFile(resolvedFile, "utf-8")
-    return c.render(<FileViewer content={content} />)
+    return c.html(<FileViewer content={content} />)
   } else {
     const contentBuffer = await readFile(resolvedFile)
     const isImageOrVideoOrPdf =
