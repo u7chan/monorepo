@@ -21,7 +21,10 @@ export const PageShell: FC<PageShellProps> = ({ children }) => {
             id="notification-area"
             class="fixed top-5 right-5 max-w-md z-50"
           ></div>
-          <div id="main-content">{children}</div>
+          <div id="main-content">
+            <div id="file-list-container">{children}</div>
+            <div id="file-viewer-container"></div>
+          </div>
         </div>
       </body>
     </html>

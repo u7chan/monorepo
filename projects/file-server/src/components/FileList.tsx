@@ -82,28 +82,27 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
           return (
             <li
               key={file.name}
-              class="flex justify-between items-center py-2 border-b border-gray-200 hover:bg-gray-50"
+              class="flex justify-between items-center py-2 border-b border-gray-200 hover:bg-gray-50 cursor-pointer"
+              hx-get={
+                file.type === "dir"
+                  ? `/browse?path=${encodedPath}`
+                  : `/file?path=${encodedPath}`
+              }
+              hx-target={
+                file.type === "dir"
+                  ? "#file-list-container"
+                  : "#file-viewer-container"
+              }
+              hx-push-url={
+                file.type === "dir"
+                  ? `/?path=${encodedPath}`
+                  : `/file?path=${encodedPath}`
+              }
             >
               {/* ファイル/ディレクトリ名リンク */}
-              {file.type === "dir" ? (
-                <a
-                  href={`/?path=${encodedPath}`}
-                  hx-get={`/browse?path=${encodedPath}`}
-                  hx-target="#file-list-container"
-                  hx-push-url={`/?path=${encodedPath}`}
-                >
-                  {file.name}/
-                </a>
-              ) : (
-                <a
-                  href={`/file?path=${encodedPath}`}
-                  hx-get={`/file?path=${encodedPath}`}
-                  hx-target="#file-viewer-container"
-                  hx-push-url={`/file?path=${encodedPath}`}
-                >
-                  {file.name}
-                </a>
-              )}
+              <span class="text-blue-600 hover:underline">
+                {file.type === "dir" ? `${file.name}/` : file.name}
+              </span>
 
               <div class="flex gap-4 items-center">
                 {/* ファイルサイズ表示（ファイルのみ） */}

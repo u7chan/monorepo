@@ -307,17 +307,26 @@ app.get("/file", async (c) => {
         )
       }
     } else {
-      // その他のバイナリファイルはダウンロード
-      const contentBuffer = await readFile(resolvedFile)
-      const headers: Record<string, string> = {
-        "Content-Type": mimeType,
-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolvedFile))}`,
+      // その他のバイナリファイルはHTMX時はダウンロードリンクを表示、通常時はダウンロード
+      if (isHtmxRequest) {
+        return c.html(
+          <FileViewer
+            fileName={path.basename(resolvedFile)}
+            path={requestPath}
+          />,
+        )
+      } else {
+        const contentBuffer = await readFile(resolvedFile)
+        const headers: Record<string, string> = {
+          "Content-Type": mimeType,
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolvedFile))}`,
+        }
+        const content = contentBuffer.buffer.slice(
+          contentBuffer.byteOffset,
+          contentBuffer.byteOffset + contentBuffer.byteLength,
+        ) as ArrayBuffer
+        return new Response(content, { headers })
       }
-      const content = contentBuffer.buffer.slice(
-        contentBuffer.byteOffset,
-        contentBuffer.byteOffset + contentBuffer.byteLength,
-      ) as ArrayBuffer
-      return new Response(content, { headers })
     }
   }
 })
