@@ -108,16 +108,16 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
               <div class="flex gap-4 items-center">
                 {/* ファイルサイズ表示（ファイルのみ） */}
                 {file.type === "file" && (
-                  <div class="w-30 text-right">
+                  <div class="hidden sm:block sm:w-30 text-right">
                     {formatFileSize(file.size || 0)}
                   </div>
                 )}
                 {/* タイムスタンプ表示 */}
-                <div class="w-45 text-right text-gray-600 text-sm">
+                <div class="hidden sm:block sm:w-45 text-right text-gray-600 text-sm">
                   {file.mtime && formatTimestamp(new Date(file.mtime))}
                 </div>
                 {/* 削除ボタン */}
-                <div class="w-20">
+                <div class="flex justify-end">
                   <form
                     hx-post="/api/delete"
                     hx-target="#file-list-container"
@@ -127,9 +127,22 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                     <input type="hidden" name="path" value={filePath} />
                     <button
                       type="submit"
-                      class="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
+                      title="Delete"
+                      aria-label="Delete"
+                      class="w-8 h-8 flex items-center justify-center bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
                     >
-                      Delete
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                      >
+                        <title>Delete</title>
+                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
                     </button>
                   </form>
                 </div>
