@@ -17,7 +17,9 @@ export const PageShell: FC<PageShellProps> = ({ children }) => {
       <body class="box-border font-sans bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 min-h-screen">
         <div class="max-w-7xl mx-auto p-5">
           <div class="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border-2 border-indigo-200">
-            <h1 class="text-3xl font-bold mb-4 bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">File Server</h1>
+            <h1 class="text-3xl font-bold mb-4 bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              File Server
+            </h1>
             <div
               id="notification-area"
               class="fixed top-5 right-5 max-w-md z-50"
