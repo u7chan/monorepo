@@ -12,7 +12,7 @@ import {
   mkdirHandler,
   uploadFileHandler,
 } from "./api/handlers"
-import { FileListContent } from "./components/FileList"
+import { FileList } from "./components/FileList"
 import { FileViewer } from "./components/FileViewer"
 import { PageShell } from "./components/PageShell"
 import { isInvalidPath } from "./utils/fileUtils"
@@ -138,12 +138,12 @@ app.get("/", async (c) => {
 
   if (isHtmxRequest) {
     // htmxリクエスト: 部分HTMLを返す
-    return c.html(<FileListContent files={files} requestPath={requestPath} />)
+    return c.html(<FileList files={files} requestPath={requestPath} />)
   } else {
     // 通常リクエスト: フルHTMLシェルを返す
     return c.html(
       <PageShell>
-        <FileListContent files={files} requestPath={requestPath} />
+        <FileList files={files} requestPath={requestPath} />
       </PageShell>,
     )
   }
@@ -201,7 +201,7 @@ app.get("/browse", async (c) => {
   }
 
   const files = await getFileList(uploadDir, requestPath)
-  return c.html(<FileListContent files={files} requestPath={requestPath} />)
+  return c.html(<FileList files={files} requestPath={requestPath} />)
 })
 
 // /file: ファイル閲覧部分HTML（htmx用）

@@ -10,7 +10,7 @@ import * as path from "node:path"
 import type { Context } from "hono"
 import { env } from "hono/adapter"
 import type { FileItem } from "../components/FileList"
-import { FileListContent } from "../components/FileList"
+import { FileList } from "../components/FileList"
 import { isInvalidPath, resolveUploadPath, sortFiles } from "../utils/fileUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
@@ -125,7 +125,7 @@ export async function uploadFileHandler(
   if (isHtmxRequest(c)) {
     const parentPath = filePathParam || ""
     const files = await getFileList(uploadDir, parentPath)
-    return c.html(<FileListContent files={files} requestPath={parentPath} />)
+    return c.html(<FileList files={files} requestPath={parentPath} />)
   }
 
   return c.redirect(`/?path=${encodeURIComponent(filePathParam || "")}`, 301)
@@ -191,7 +191,7 @@ export async function deleteFileHandler(
   // For htmx requests, return the updated file list
   if (isHtmxRequest(c)) {
     const files = await getFileList(uploadDir, redirectPath)
-    return c.html(<FileListContent files={files} requestPath={redirectPath} />)
+    return c.html(<FileList files={files} requestPath={redirectPath} />)
   }
 
   return c.redirect(`/?path=${redirectPath}`, 301)
@@ -242,9 +242,7 @@ export async function mkdirHandler(
   // For htmx requests, return the updated file list
   if (isHtmxRequest(c)) {
     const files = await getFileList(uploadDir, dirPathParam || "")
-    return c.html(
-      <FileListContent files={files} requestPath={dirPathParam || ""} />,
-    )
+    return c.html(<FileList files={files} requestPath={dirPathParam || ""} />)
   }
 
   return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
