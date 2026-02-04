@@ -59,7 +59,7 @@ function generateBreadcrumbs(requestPath: string) {
 }
 
 // ファイルリストの内容部分（htmx用部分テンプレート）
-export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
+export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
   const sortedFiles = [...files].sort((a, b) => {
     if (a.type === b.type) {
       return a.name.localeCompare(b.name)
@@ -72,7 +72,9 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
   return (
     <div id="file-list-container">
       {/* パンくずリスト */}
-      <nav class="mb-6 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">{crumbs}</nav>
+      <nav class="mb-6 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">
+        {crumbs}
+      </nav>
       <ul class="list-none p-0">
         {sortedFiles.map((file) => {
           const filePath = path.join(requestPath, file.name)
@@ -192,9 +194,4 @@ export const FileListContent: FC<FileListProps> = ({ files, requestPath }) => {
       </form>
     </div>
   )
-}
-
-// 完全なFileListコンポーネント（後方互換性のため）
-export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
-  return <FileListContent files={files} requestPath={requestPath} />
 }
