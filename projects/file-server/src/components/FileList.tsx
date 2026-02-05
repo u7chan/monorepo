@@ -1,6 +1,7 @@
 import * as path from "node:path"
 import type { FC } from "hono/jsx"
 import { formatFileSize, formatTimestamp } from "../utils/formatters"
+import { DeleteIcon } from "./icons/DeleteIcon"
 
 export interface FileItem {
   name: string
@@ -131,18 +132,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       aria-label="Delete"
                       className="w-8 h-8 flex items-center justify-center bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
                     >
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                      >
-                        <title>Delete</title>
-                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                      </svg>
+                      <DeleteIcon />
                     </button>
                   </form>
                 </div>
