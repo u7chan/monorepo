@@ -1,6 +1,6 @@
 import type { FC } from "hono/jsx"
 
-export const DownloadIcon: FC = () => (
+export const CloseIcon: FC = () => (
   <svg
     width="20"
     height="20"
@@ -10,7 +10,7 @@ export const DownloadIcon: FC = () => (
     stroke-width="2"
     aria-hidden="true"
   >
-    <title>Download</title>
-    <path d="M12 5v14M5 12l7 7 7-7" />
+    <title>Close</title>
+    <path d="M18 6L6 18M6 6l12 12" />
   </svg>
 )

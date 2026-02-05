@@ -1,4 +1,5 @@
 import type { FC } from "hono/jsx"
+import { CloseIcon } from "../icons/CloseIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 
 interface FileViewerModalProps {
@@ -22,7 +23,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     <a
       href={`/file/raw?path=${encodedPath}`}
       download={fileName || true}
-      className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-block"
+      className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-block"
     >
       <DownloadIcon />
     </a>
@@ -32,9 +33,9 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     <button
       type="button"
       onclick="document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = 'auto'; history.pushState(null, '', '/');"
-      className="px-6 py-3 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-rose-600 hover:to-pink-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md"
+      className="px-4 py-2 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-rose-600 hover:to-pink-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md"
     >
-      ✕
+      <CloseIcon />
     </button>
   )
 
