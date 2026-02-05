@@ -1,4 +1,4 @@
-import type { FC } from "hono/jsx"
+import type { Child, FC } from "hono/jsx"
 import { CloseIcon } from "../icons/CloseIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 
@@ -7,7 +7,7 @@ interface FileViewerModalProps {
   path?: string
   borderColor?: string
   animation?: string
-  children: React.ReactNode
+  children: Child
 }
 
 export const FileViewerModal: FC<FileViewerModalProps> = ({
