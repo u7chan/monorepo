@@ -1,4 +1,5 @@
 import type { FC } from "hono/jsx"
+import { DownloadIcon } from "../icons/DownloadIcon"
 
 interface FileViewerModalProps {
   fileName?: string
@@ -23,7 +24,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
       download={fileName || true}
       className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-block"
     >
-      ⬇
+      <DownloadIcon />
     </a>
   ) : null
 
