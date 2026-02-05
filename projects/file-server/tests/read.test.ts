@@ -248,7 +248,7 @@ describe("file endpoint /file", () => {
     expect(text).toMatch(/<pre[^>]*>/)
     expect(text).toContain('id="file-viewer-container"')
     expect(text).toContain("<html") // 通常リクエストはフルHTML
-    expect(text).toContain("✕")
+    expect(text).toContain("<svg") // クローズボタンのSVGアイコンが存在
   })
 
   it("should render file content as partial HTML for htmx request", async () => {
@@ -265,7 +265,7 @@ describe("file endpoint /file", () => {
     expect(text).toContain('id="file-viewer-container"')
     expect(text).not.toContain("<html") // htmxリクエストは部分HTML
     expect(text).not.toContain("<head>")
-    expect(text).toContain("✕")
+    expect(text).toContain("<svg") // クローズボタンのSVGアイコンが存在
   })
 
   it("should return error for non-existent file", async () => {
