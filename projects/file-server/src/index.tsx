@@ -13,7 +13,7 @@ import {
   uploadFileHandler,
 } from "./api/handlers"
 import { FileList } from "./components/FileList"
-import { FileViewer } from "./components/FileViewer"
+import { FileViewer } from "./components/file-viewer"
 import { PageShell } from "./components/PageShell"
 import { isInvalidPath } from "./utils/fileUtils"
 
