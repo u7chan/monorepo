@@ -1,52 +1,15 @@
-import {
-  stat as fsStat,
-  mkdir,
-  readdir,
-  rm,
-  unlink,
-  writeFile,
-} from "node:fs/promises"
+import { stat as fsStat, mkdir, readdir, rm, unlink, writeFile } from "node:fs/promises"
 import * as path from "node:path"
 import type { Context } from "hono"
-import { env } from "hono/adapter"
-import type { FileItem } from "../components/FileList"
 import { FileList } from "../components/FileList"
 import { isInvalidPath, resolveUploadPath, sortFiles } from "../utils/fileUtils"
+import { getFileList } from "../utils/fileListing"
+import { getUploadDir, isHtmxRequest } from "../utils/requestUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
 
-// Helper function to get file list for a directory
-async function getFileList(
-  uploadDir: string,
-  requestPath: string,
-): Promise<FileItem[]> {
-  const resolvedDir = path.join(uploadDir, requestPath)
-  const dirents = await readdir(resolvedDir, { withFileTypes: true })
-  return await Promise.all(
-    dirents.map(async (ent) => {
-      if (ent.isDirectory()) {
-        const stat = await fsStat(path.join(resolvedDir, ent.name))
-        return { name: ent.name, type: "dir" as const, mtime: stat.mtime }
-      } else {
-        const stat = await fsStat(path.join(resolvedDir, ent.name))
-        return {
-          name: ent.name,
-          type: "file" as const,
-          size: stat.size,
-          mtime: stat.mtime,
-        }
-      }
-    }),
-  )
-}
-
-// Helper function to check if request is from htmx
-function isHtmxRequest(c: Context): boolean {
-  return c.req.header("HX-Request") === "true"
-}
-
 export async function listFilesHandler(c: Context) {
-  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+  const uploadDir = getUploadDir(c)
   const subPath = c.req.path.replace(BASE_PATH_REGEX, "")
   if (isInvalidPath(subPath)) {
     return c.json(
@@ -101,7 +64,7 @@ export async function uploadFileHandler(
     path?: string
   }
   const { file, path: filePathParam } = validatedData
-  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+  const uploadDir = getUploadDir(c)
   const relativePath = await resolveUploadPath(
     uploadDir,
     filePathParam,
@@ -138,7 +101,7 @@ export async function deleteFileHandler(
     path: string
   }
   const { path: filePathParam } = validatedData
-  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+  const uploadDir = getUploadDir(c)
   if (isInvalidPath(filePathParam)) {
     return c.json(
       {
@@ -205,7 +168,7 @@ export async function mkdirHandler(
     folder: string
   }
   const { path: dirPathParam, folder } = validatedData
-  const uploadDir = env(c).UPLOAD_DIR || "./tmp"
+  const uploadDir = getUploadDir(c)
   if (isInvalidPath(dirPathParam)) {
     return c.json(
       {
