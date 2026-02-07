@@ -2,7 +2,8 @@ import type { Stats } from "node:fs"
 import { stat as fsStat } from "node:fs/promises"
 import type { Context } from "hono"
 import { env } from "hono/adapter"
-import type { JSX } from "hono/jsx"
+import type { ContentfulStatusCode } from "hono/utils/http-status"
+import type { HtmlEscapedString } from "hono/utils/html"
 import { PageShell } from "../components/PageShell"
 import { isInvalidPath } from "./fileUtils"
 
@@ -22,7 +23,7 @@ export function errorResponse(
   c: Context,
   name: string,
   message: string,
-  status = 400,
+  status: ContentfulStatusCode = 400,
 ) {
   return c.json(
     {
@@ -68,7 +69,10 @@ export async function statOrNotFound(
   }
 }
 
-export function renderWithShell(c: Context, body: JSX.Element) {
+export function renderWithShell(
+  c: Context,
+  body: HtmlEscapedString | Promise<HtmlEscapedString>,
+) {
   if (isHtmxRequest(c)) {
     return c.html(body)
   }
