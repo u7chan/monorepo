@@ -16,11 +16,11 @@ TARGET_DIRS=("projects", "packages")
 #   2つのリファレンス間の差分で、リネーム（移動）されたファイルの
 #   移動後のパスと、それ以外の変更ファイルを区別して出力します。
 diff_with_renames() {
-  # リネームされたファイルの移動後のパスを取得
-  git diff --diff-filter=R --name-status $1 $2 | awk '$1 ~ /^R/ {print $2}'
-  # その他の差分
-  git diff --name-only $1 $2 | grep -vFf <(git diff --name-only --diff-filter=R $1 $2)
-}
+   # リネームされたファイルの移動後のパスを取得
+   git diff --diff-filter=R --name-status $1 $2 || true | awk '$1 ~ /^R/ {print $2}'
+   # その他の差分
+   git diff --name-only $1 $2 || true | grep -vFf <(git diff --name-only --diff-filter=R $1 $2 || true)
+ }
 
 # GitHub Actions環境での比較対象を決定
 if [ -n "$GITHUB_BASE_REF" ]; then
