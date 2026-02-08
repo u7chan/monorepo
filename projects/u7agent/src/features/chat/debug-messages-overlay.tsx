@@ -52,7 +52,7 @@ export function DebugMessagesOverlay({ messagesJson, messageCount }: DebugMessag
       style={{ top: position.y, left: position.x, width: 320, maxHeight: '50vh' }}
     >
       <div
-        className='mb-1 flex cursor-grab items-center gap-2 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-300'
+        className='mb-1 flex cursor-grab items-center gap-2 rounded px-2 py-1 text-[10px] font-semibold tracking-[0.2em] text-slate-300 uppercase'
         onPointerDown={startDrag}
       >
         <svg width='10' height='10' viewBox='0 0 10 10' aria-hidden='true'>

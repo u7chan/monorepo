@@ -10,7 +10,7 @@
 - TypeScript
 - Next.js (React)
 - Tailwind CSS
-- ESLint
+- oxc (oxlint + oxfmt)
 
 ## Code style
 

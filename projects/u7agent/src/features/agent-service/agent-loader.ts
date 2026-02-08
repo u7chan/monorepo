@@ -28,7 +28,7 @@ async function listYamlFiles(dir = AGENTS_DIR) {
   try {
     const entries = await fs.readdir(dir)
     return entries.filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
-  } catch (err) {
+  } catch (_err) {
     return []
   }
 }
@@ -49,9 +49,9 @@ export async function loadAllAgents(): Promise<Array<{ file: string; spec: RawAg
       const { parsed } = await readYamlFile(file)
       const spec = agentSchema.parse(parsed)
       agents.push({ file, spec })
-    } catch (err) {
+    } catch (_err) {
       // skip invalid files — callers may wish to log or surface
-      console.warn('Failed to load agent file', file, err)
+      console.warn('Failed to load agent file', file, _err)
     }
   }
 
