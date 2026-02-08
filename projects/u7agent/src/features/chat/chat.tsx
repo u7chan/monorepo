@@ -7,7 +7,7 @@ import { ChatInput } from './chat-input'
 import { ChatMessage } from './chat-message'
 import { DebugMessagesOverlay } from './debug-messages-overlay'
 import { JumpToLatestButton } from './jump-to-latest-button'
-import { TokenUsageSummary } from './token-usage-summary'
+import { ModelRunSummary } from './model-run-summary'
 import { useAgentStreamChat } from './use-agent-stream-chat'
 import { useChatScroll } from './use-chat-scroll'
 import { env } from '@/env'
@@ -63,7 +63,7 @@ export function Chat({ agentConfig }: ChatProps) {
           />
         </div>
         <div className='shrink-0'>
-          <TokenUsageSummary tokenUsage={tokenUsage} finishReason={finishReason} processingTimeMs={processingTimeMs} />
+          <ModelRunSummary usage={tokenUsage} finishReason={finishReason} processingTimeMs={processingTimeMs} />
           <ChatInput loading={loading} onSubmit={handleSubmit} />
         </div>
       </div>

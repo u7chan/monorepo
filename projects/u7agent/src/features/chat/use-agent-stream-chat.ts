@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { readStreamableValue } from '@ai-sdk/rsc'
 
 import { AgentConfig } from '@/features/agent-service/agent-config'
-import { AgentMessage, agentStream, AssistantMessage, TokenUsage } from '@/features/agent-service/agent-stream-service'
+import { AgentMessage, agentStream, AssistantMessage, ModelUsage } from '@/features/agent-service/agent-stream-service'
 import type { NotifyNewContentOptions } from './use-chat-scroll'
 
 interface UseAgentStreamChatOptions {
@@ -13,7 +13,7 @@ interface UseAgentStreamChatOptions {
 }
 
 interface StreamStateMeta {
-  tokenUsage?: TokenUsage
+  tokenUsage?: ModelUsage
   finishReason?: string
   processingTimeMs?: number
 }

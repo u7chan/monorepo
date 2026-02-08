@@ -52,7 +52,8 @@ export interface ToolApprovalMessage {
 
 export type AgentMessage = Message | AssistantMessage | ToolMessage | ToolApprovalRequestMessage | ToolApprovalMessage
 
-export interface TokenUsage {
+export interface ModelUsage {
+  model?: string
   input: {
     noCache?: number
     cacheRead?: number
@@ -70,7 +71,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     assistantContent?: AssistantContent[]
     tools?: (ToolMessage | ToolApprovalRequestMessage)[] // TODO: もう配列じゃなくていいはず。単一要素に直すべき
     finishReason?: string
-    usage?: TokenUsage
+    usage?: ModelUsage
     processingTimeMs?: number
   }>()
 
@@ -168,6 +169,7 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
           output.update({
             finishReason: chunk.finishReason,
             usage: {
+              model: agentConfig.model,
               input: {
                 noCache: chunk.totalUsage.inputTokenDetails.noCacheTokens,
                 cacheRead: chunk.totalUsage.inputTokenDetails.cacheReadTokens,
