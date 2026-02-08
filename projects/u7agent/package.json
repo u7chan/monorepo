@@ -10,8 +10,8 @@
     "format": "prettier --write src"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.25",
-    "@ai-sdk/rsc": "^2.0.67",
+    "@ai-sdk/openai": "^3.0.26",
+    "@ai-sdk/rsc": "^2.0.77",
     "@keyv/sqlite": "^4.0.8",
     "@t3-oss/env-nextjs": "^0.13.10",
     "js-yaml": "^4.1.1",
@@ -24,11 +24,11 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
-    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^25.1.0",
-    "@types/react": "^19.2.10",
+    "@types/node": "^25.2.2",
+    "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.6",
