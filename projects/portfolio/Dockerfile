@@ -36,6 +36,7 @@ RUN apt-get update \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && npm i -g @aikidosec/safe-chain \
+  && npm i -g @openai/codex \
   && npm i -g opencode-ai \
   && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
   && chmod 0440 /etc/sudoers.d/${USERNAME}
