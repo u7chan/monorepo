@@ -6,8 +6,10 @@
     "dev": "next dev --turbopack",
     "build": "SKIP_ENV_VALIDATIONS='true' next build --turbopack",
     "start": "next start",
-    "lint": "tsc && eslint",
-    "format": "prettier --write src"
+    "lint": "tsc && oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.26",
@@ -23,17 +25,13 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.3",
-    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.2.2",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.2",
-    "eslint-config-next": "^16.1.6",
-    "prettier": "^3.8.1",
-    "prettier-plugin-tailwindcss": "^0.7.2",
+    "oxfmt": "^0.28.0",
+    "oxlint": "^1.43.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"
   }

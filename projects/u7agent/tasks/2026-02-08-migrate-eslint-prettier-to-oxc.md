@@ -27,56 +27,56 @@ oxc は Rust 製で、ESLint より 50-100 倍、Prettier より約 30 倍高速
 
 ### 1. 調査・準備
 
-- [ ] oxfmt の alpha 版の現状確認
-  - [ ] Next.js プロジェクトでの既知の問題がないか確認
-  - [ ] Tailwind CSS class sorting の動作確認
-  - [ ] import sorting のカスタマイズ対応状況確認
-- [ ] `eslint-config-next` のルールを oxlint でカバーできるか確認
-  - [ ] Next.js 特有のルールの代替策検討
+- [x] oxfmt の alpha 版の現状確認
+  - [x] Next.js プロジェクトでの既知の問題がないか確認
+  - [x] Tailwind CSS class sorting の動作確認
+  - [x] import sorting のカスタマイズ対応状況確認
+- [x] `eslint-config-next` のルールを oxlint でカバーできるか確認
+  - [x] Next.js 特有のルールの代替策検討
 
 ### 2. oxlint の導入
 
-- [ ] `oxlint` を devDependencies に追加
+- [x] `oxlint` を devDependencies に追加
   ```bash
   bun add -D oxlint
   ```
-- [ ] ESLint 設定の移行
-  - [ ] `@oxlint/migrate` を使用して `eslint.config.mjs` を変換
+- [x] ESLint 設定の移行
+  - [x] `@oxlint/migrate` を使用して `eslint.config.mjs` を変換
     ```bash
     npx @oxlint/migrate
     ```
-  - [ ] 変換後の設定を確認・調整
+  - [x] 変換後の設定を確認・調整
     - `node_modules/**`, `.next/**`, `out/**`, `build/**`, `next-env.d.ts` の無視設定
     - `eslint-config-next` の代替ルールの検討
-- [ ] `.oxlintrc.json`（または `oxlint.config.js`）を作成
-- [ ] 並行実行テスト
-  - [ ] `bun run lint`（従来）と `oxlint` の結果を比較
-  - [ ] 差分の確認と対応
+- [x] `.oxlintrc.json`（または `oxlint.config.js`）を作成
+- [x] 並行実行テスト
+  - [x] `bun run lint`（従来）と `oxlint` の結果を比較
+  - [x] 差分の確認と対応
 
 ### 3. oxfmt の導入
 
-- [ ] `oxfmt` を devDependencies に追加
+- [x] `oxfmt` を devDependencies に追加
   ```bash
   bun add -D oxfmt
   ```
-- [ ] Prettier 設定の移行
-  - [ ] `.prettierrc.yml` の設定を oxfmt 設定に変換
+- [x] Prettier 設定の移行
+  - [x] `.prettierrc.yml` の設定を oxfmt 設定に変換
     - `semi: false` → oxfmt 対応確認
     - `printWidth: 120` → oxfmt 対応確認
     - `singleQuote: true` → oxfmt 対応確認
     - `jsxSingleQuote: true` → oxfmt 対応確認
-  - [ ] Import sorting の設定
+  - [x] Import sorting の設定
     - oxfmt の組み込み機能を使用（設定可能か確認）
-  - [ ] Tailwind CSS class sorting の設定
+  - [x] Tailwind CSS class sorting の設定
     - oxfmt の組み込み機能を使用
-- [ ] `oxfmt.config.js`（または `.oxfmtrc`）を作成
-- [ ] フォーマット結果の比較テスト
-  - [ ] `prettier --write src` と `oxfmt` の結果を比較
-  - [ ] 差分の確認と対応
+- [x] `oxfmt.config.js`（または `.oxfmtrc`）を作成
+- [x] フォーマット結果の比較テスト
+  - [x] `prettier --write src` と `oxfmt` の結果を比較
+  - [x] 差分の確認と対応
 
 ### 4. package.json の更新
 
-- [ ] `scripts` の更新
+- [x] `scripts` の更新
   ```json
   {
     "lint": "tsc && oxlint",
@@ -85,7 +85,7 @@ oxc は Rust 製で、ESLint より 50-100 倍、Prettier より約 30 倍高速
     "format:check": "oxfmt --check"
   }
   ```
-- [ ] `devDependencies` から ESLint/Prettier 関連を削除
+- [x] `devDependencies` から ESLint/Prettier 関連を削除
   - `eslint`
   - `eslint-config-next`
   - `@eslint/eslintrc`
@@ -95,15 +95,15 @@ oxc は Rust 製で、ESLint より 50-100 倍、Prettier より約 30 倍高速
 
 ### 5. 設定ファイルの整理
 
-- [ ] 古い設定ファイルの削除
-  - [ ] `eslint.config.mjs`
-  - [ ] `.eslintrc*`（存在する場合）
-  - [ ] `.prettierrc.yml`
-  - [ ] `.prettierignore`（存在する場合）
-- [ ] 新しい設定ファイルの追加
-  - [ ] `.oxlintrc.json`（または `oxlint.config.js`）
-  - [ ] `oxfmt.config.js`（または `.oxfmtrc`）
-  - [ ] `.oxlintignore`（必要に応じて）
+- [x] 古い設定ファイルの削除
+  - [x] `eslint.config.mjs`
+  - [x] `.eslintrc*`（存在する場合）
+  - [x] `.prettierrc.yml`
+  - [x] `.prettierignore`（存在する場合）
+- [x] 新しい設定ファイルの追加
+  - [x] `.oxlintrc.json`（または `oxlint.config.js`）
+  - [x] `oxfmt.config.js`（または `.oxfmtrc`）
+  - [x] `.oxlintignore`（必要に応じて）
 
 ### 6. CI/CD の更新
 
@@ -120,19 +120,19 @@ oxc は Rust 製で、ESLint より 50-100 倍、Prettier より約 30 倍高速
 
 ### 8. 検証・テスト
 
-- [ ] 全ファイルの lint チェック
+- [x] 全ファイルの lint チェック
   ```bash
   bun run lint
   ```
-- [ ] 全ファイルのフォーマットチェック
+- [x] 全ファイルのフォーマットチェック
   ```bash
   bun run format:check
   ```
-- [ ] ビルドテスト
+- [x] ビルドテスト
   ```bash
   bun run build
   ```
-- [ ] 開発サーバーの起動確認
+- [x] 開発サーバーの起動確認
   ```bash
   bun run dev
   ```
@@ -142,7 +142,7 @@ oxc は Rust 製で、ESLint より 50-100 倍、Prettier より約 30 倍高速
 - [ ] `README.md` の更新
   - [ ] 使用ツールの記載変更（ESLint/Prettier → oxc）
   - [ ] スクリプトの説明更新
-- [ ] `AGENTS.md` の更新（必要に応じて）
+- [x] `AGENTS.md` の更新（必要に応じて）
 
 ## 注意事項
 

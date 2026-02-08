@@ -33,24 +33,24 @@ export function TokenUsageSummary({ tokenUsage, finishReason, processingTimeMs }
   return (
     <div className='border-t border-slate-200/60 px-4 py-2 text-[11px] text-slate-500'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
-        <div className='flex-1 min-w-0'>
+        <div className='min-w-0 flex-1'>
           <div className='group relative inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600'>
             <span>Input {totalInputTokens ?? '—'}</span>
             <span className='text-slate-400'>/</span>
             <span>Output {totalOutputTokens ?? '—'}</span>
             {hasTokenUsage && (
-              <div className='pointer-events-none absolute left-0 bottom-full z-10 mb-2 hidden min-w-[200px] flex-col gap-1 rounded border border-slate-200 bg-white p-3 text-[10px] text-slate-500 shadow-md group-hover:flex dark:border-slate-700 dark:bg-slate-900'>
+              <div className='pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden min-w-[200px] flex-col gap-1 rounded border border-slate-200 bg-white p-3 text-[10px] text-slate-500 shadow-md group-hover:flex dark:border-slate-700 dark:bg-slate-900'>
                 <div className='text-[11px] font-semibold text-slate-700 dark:text-slate-200'>Input</div>
                 {inputBreakdown.map(([label, value]) => (
                   <div key={label} className='flex items-center justify-between text-[10px]'>
-                    <span className='capitalize text-slate-500'>{label}</span>
+                    <span className='text-slate-500 capitalize'>{label}</span>
                     <span className='font-mono text-slate-700 dark:text-slate-200'>{value ?? 0}</span>
                   </div>
                 ))}
                 <div className='mt-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200'>Output</div>
                 {outputBreakdown.map(([label, value]) => (
                   <div key={label} className='flex items-center justify-between text-[10px]'>
-                    <span className='capitalize text-slate-500'>{label}</span>
+                    <span className='text-slate-500 capitalize'>{label}</span>
                     <span className='font-mono text-slate-700 dark:text-slate-200'>{value ?? 0}</span>
                   </div>
                 ))}

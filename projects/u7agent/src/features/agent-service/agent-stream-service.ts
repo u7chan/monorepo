@@ -111,14 +111,14 @@ export async function agentStream(messages: AgentMessage[], agentConfig: AgentCo
     const stream = await agent.stream({ prompt: filteredMessages })
     console.log('Agent stream started')
 
-    let message = ''
+    let _message = ''
     let assistantContent: AssistantContent[] = []
 
     for await (const chunk of stream.fullStream) {
       // console.log('Agent stream chunk received:', JSON.stringify(chunk))
       switch (chunk.type) {
         case 'text-delta':
-          message += chunk.text
+          _message += chunk.text
           output.update({ delta: chunk.text })
           break
 
