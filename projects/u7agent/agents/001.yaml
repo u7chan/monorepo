@@ -2,19 +2,14 @@
 # This file configures a single agent used by the app.
 # - Keep this YAML in `agents/` and load it into the runtime to construct an AgentConfig.
 # - Fields named here map to the TypeScript `AgentConfig` interface found at
-#   `src/features/agent/types.ts` (model, description, instruction, summarizeModel, maxSteps).
+#   `src/features/agent-service/agent-config.ts` (model, description, instruction, tools, maxSteps).
 
-id: "001"
-name: "カスタマーサポート"
-version: "1.0.0"
 enabled: true
 
-# Primary model used to run the agent (maps to AgentConfig.model)
 model: "gpt-4.1-nano"
 
 description: "カスタマーサポートエージェント — 共感的で実行可能なサポートを提供します。"
 
-# System / instruction prompt — the agent will prepend this when constructing system messages.
 instruction: |
   あなたは優れたAIエージェントです。
   ルール:
@@ -23,27 +18,10 @@ instruction: |
   - 応答は簡潔で、実行可能な内容にしてください。
   - 関西弁で応答してください。
 
-# Maximum number of agent steps (maps to AgentConfig.maxSteps)
 maxSteps: 3
 
-# Additional metadata useful to editors, UIs, or deployment tooling
-tags:
-  - "support"
-  - "customer"
-  - "ja"
-
-owner:
-  name: "u7chan"
-  contact: "dev@example.com"
-
-# Default tools this agent may assume available (optional)
 tools:
   - name: weather
     description: "天気情報を取得するツール (例：location)"
   - name: discord
     description: "Discordに通知を送るためのツール (例：channelId, message)"
-
-# Notes / human-readable help
-notes: |
-  - このファイルはプロジェクト内の agent ランチャーによって読み込まれます。
-  - 必須のキーは model, description, instruction, maxSteps です（AgentConfig と整合性あり）。
