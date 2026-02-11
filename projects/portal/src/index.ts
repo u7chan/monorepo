@@ -2,6 +2,12 @@ import { serve } from "bun";
 import index from "./index.html";
 import { fetchContainers, filterContainers } from "./services/docker";
 
+// モックモード表示
+const isMockMode = process.env.USE_MOCK_DATA === "true";
+if (isMockMode) {
+  console.log("🎭 MOCK MODE ENABLED - Using mock container data");
+}
+
 const server = serve({
   routes: {
     // Serve index.html for all unmatched routes.
