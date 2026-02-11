@@ -1,0 +1,70 @@
+# Docker Container Portal - Docker Compose
+# Docker SocketをマウントしてホストのDockerを管理
+
+version: "3.8"
+
+services:
+  portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docker-container-portal:latest
+    container_name: docker-portal
+    
+    # ポートマッピング
+    ports:
+      - "3000:3000"
+    
+    # 環境変数
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    
+    # Docker Socketをマウント（読み取り専用）
+    # これによりコンテナ内からホストのDockerデーモンにアクセス可能
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    
+    # 再起動ポリシー
+    restart: unless-stopped
+    
+    # リソース制限
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    
+    # ヘルスチェック
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/api/hello').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # ログ設定
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # セキュリティ設定
+    security_opt:
+      - no-new-privileges:true
+    
+    # 読み取り専用ファイルシステム（Docker Socket除く）
+    read_only: true
+    
+    # 一時ファイル用のtmpfs
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+# ネットワーク設定（必要に応じて）
+networks:
+  default:
+    driver: bridge
