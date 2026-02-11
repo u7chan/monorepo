@@ -10,6 +10,7 @@ Bun + React + TypeScriptで構築された、Dockerコンテナを可視化・�
 - **フィルタリング**: 全て/実行中/停止中でフィルタ可能
 - **自動更新**: 30秒ごとに自動リフレッシュ
 - **サイバーパンクUI**: ダークテーマ + グロー効果 + ホバーアニメーション
+- **モックデータモード**: Docker不要でUI開発・レイアウト確認が可能
 
 ## 技術スタック
 
@@ -28,6 +29,27 @@ bun dev
 ```
 
 http://localhost:3000 でアクセス
+
+### モックデータモード（Docker不要）
+
+Dockerがインストールされていない環境や、レイアウト確認用にモックデータを使用する場合：
+
+```bash
+# モックモードで開発
+bun run dev:mock
+
+# または環境変数を直接指定
+USE_MOCK_DATA=true bun dev
+
+# モックモードで本番確認
+bun run start:mock
+```
+
+モックデータには以下のテスト用コンテナが含まれています：
+- 各種状態（running, exited, paused, restarting）
+- 長い名前のコンテナ
+- 複数ポートを持つコンテナ
+- ポートなしのコンテナ
 
 ### 本番実行
 
@@ -72,6 +94,7 @@ docker-compose -f ../../deploy/portal.yml up -d
 │   │   └── container.ts      # 型定義
 │   ├── services/
 │   │   ├── docker.ts         # Docker CLIサービス
+│   │   ├── mockData.ts       # モックデータ（Docker不要モード用）
 │   │   └── docker.test.ts    # ユニットテスト
 │   └── components/
 │       ├── ContainerCard.tsx # コンテナカード
@@ -100,4 +123,4 @@ bun test --watch      # ウォッチモード
 ## 要件
 
 - Bun 1.3.8+
-- Docker（ホストマシンまたはDocker Socketマウント）
+- Docker（ホストマシンまたはDocker Socketマウント）※ モックモード使用時は不要

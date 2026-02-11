@@ -5,6 +5,7 @@ import type {
   PortMapping,
   DockerContainerRaw,
 } from "../types/container";
+import { mockContainers, generateManyContainers, isMockMode } from "./mockData";
 
 /**
  * ポート文字列をパースする
@@ -76,6 +77,14 @@ export function parseContainer(raw: DockerContainerRaw): Container {
 export async function fetchContainers(
   all: boolean = false,
 ): Promise<Container[]> {
+  // モックモード時はモックデータを返す
+  if (isMockMode()) {
+    console.log("[MOCK MODE] Returning mock container data");
+    // 大量データテストが必要な場合はこちら
+    // return generateManyContainers(20);
+    return mockContainers;
+  }
+
   try {
     // Bun.$ を使って docker ps コマンドを実行
     const cmd = all

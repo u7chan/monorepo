@@ -1,6 +1,6 @@
 // Docker Container Portal - メインアプリケーション
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./index.css";
 import { ContainerList } from "./components/ContainerList";
 import type { ContainerFilter } from "./types/container";
@@ -68,6 +68,14 @@ function DockerIcon({ className }: { className?: string }) {
  */
 export function App() {
   const [filter, setFilter] = useState<ContainerFilter>("all");
+  const [isMockMode, setIsMockMode] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => setIsMockMode(data.isMockMode))
+      .catch(() => setIsMockMode(false));
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
@@ -86,11 +94,18 @@ export function App() {
                 <DockerIcon className="w-8 h-8 text-cyan-400" />
                 <div className="absolute inset-0 bg-cyan-400/20 blur-xl rounded-full" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  Docker Portal
-                </h1>
-                <p className="text-xs text-slate-500">Container Management</p>
+              <div className="flex items-center gap-3">
+                <div>
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    Docker Portal
+                  </h1>
+                  <p className="text-xs text-slate-500">Container Management</p>
+                </div>
+                {isMockMode && (
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                    MOCK MODE
+                  </span>
+                )}
               </div>
             </div>
 
