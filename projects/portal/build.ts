@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import plugin from "bun-plugin-tailwind";
 import { existsSync } from "fs";
-import { rm } from "fs/promises";
+import { mkdir, readdir, rename, rm } from "fs/promises";
 import path from "path";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -127,34 +127,101 @@ if (existsSync(outdir)) {
 }
 
 const start = performance.now();
+const allOutputs: { File: string; Type: string; Size: string }[] = [];
 
-const entrypoints = [...new Bun.Glob("**.html").scanSync("src")]
-  .map(a => path.resolve("src", a))
-  .filter(dir => !dir.includes("node_modules"));
-console.log(`📄 Found ${entrypoints.length} HTML ${entrypoints.length === 1 ? "file" : "files"} to process\n`);
+// Create directories
+const staticOutdir = path.join(outdir, "static");
+await mkdir(staticOutdir, { recursive: true });
 
-const result = await Bun.build({
-  entrypoints,
+// Build server first (with HTML as external to avoid conflicts)
+console.log("🔧 Building server...");
+const serverResult = await Bun.build({
+  entrypoints: [path.resolve("src/index.ts")],
   outdir,
-  plugins: [plugin],
+  naming: "[name]-[hash].js",
   minify: true,
-  target: "browser",
+  target: "bun",
   sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
-  ...cliConfig,
+  external: ["bun"],
 });
+
+for (const output of serverResult.outputs) {
+  allOutputs.push({
+    File: path.relative(process.cwd(), output.path),
+    Type: output.kind === "entry-point" ? "server" : output.kind,
+    Size: formatFileSize(output.size),
+  });
+}
+
+// Rename server entry point to index.js (remove hash)
+// Find the largest index-*.js file (the server, not the HTML bundle)
+const files = await readdir(outdir);
+const indexFiles = files
+  .filter(f => f.match(/^index-[a-z0-9]+\.js$/) && !f.endsWith(".map"))
+  .map(f => ({ name: f, stats: Bun.file(path.join(outdir, f)) }));
+
+let largestFile = null;
+let largestSize = 0;
+for (const f of indexFiles) {
+  const size = await f.stats.size;
+  if (size > largestSize) {
+    largestSize = size;
+    largestFile = f.name;
+  }
+}
+
+if (largestFile) {
+  await rename(
+    path.join(outdir, largestFile),
+    path.join(outdir, "index.js")
+  );
+  // Also rename sourcemap if it exists
+  const mapFile = largestFile + ".map";
+  if (files.includes(mapFile)) {
+    await rename(
+      path.join(outdir, mapFile),
+      path.join(outdir, "index.js.map")
+    );
+  }
+}
+
+
+
+// Build frontend (HTML files) to static subdirectory
+const htmlEntrypoints = [...new Bun.Glob("**.html").scanSync("src")]
+  .map(a => path.resolve("src", a))
+  .filter(dir => !dir.includes("node_modules"));
+console.log(`📄 Found ${htmlEntrypoints.length} HTML ${htmlEntrypoints.length === 1 ? "file" : "files"} to process\n`);
+
+if (htmlEntrypoints.length > 0) {
+  const frontendResult = await Bun.build({
+    entrypoints: htmlEntrypoints,
+    outdir: staticOutdir,
+    plugins: [plugin],
+    minify: true,
+    target: "browser",
+    sourcemap: "linked",
+    publicPath: "/static/",
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+    },
+  });
+
+  for (const output of frontendResult.outputs) {
+    allOutputs.push({
+      File: path.relative(process.cwd(), output.path),
+      Type: output.kind,
+      Size: formatFileSize(output.size),
+    });
+  }
+}
 
 const end = performance.now();
 
-const outputTable = result.outputs.map(output => ({
-  File: path.relative(process.cwd(), output.path),
-  Type: output.kind,
-  Size: formatFileSize(output.size),
-}));
-
-console.table(outputTable);
+console.table(allOutputs);
 const buildTime = (end - start).toFixed(2);
 
 console.log(`\n✅ Build completed in ${buildTime}ms\n`);

@@ -54,5 +54,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD bun -e "fetch('http://localhost:3000/api/hello').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
-# アプリケーション起動
-CMD ["bun", "dist/index.js"]
+# アプリケーション起動 (distディレクトリから実行する必要がある)
+WORKDIR /app/dist
+CMD ["bun", "index.js"]
