@@ -32,8 +32,8 @@ FROM oven/bun:1-slim AS production
 WORKDIR /app
 
 # 非rootユーザーで実行（dockerグループも追加）
-RUN groupadd -r appuser && groupadd -r docker && \
-    useradd -r -g appuser -G docker appuser
+RUN groupadd -r appuser && \
+    useradd -r -g appuser appuser
 
 # Docker CLI のインストール
 RUN apt-get update && apt-get install -y --no-install-recommends \
