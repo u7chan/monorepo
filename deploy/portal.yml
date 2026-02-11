@@ -6,11 +6,11 @@ services:
   portal:
     container_name: portal
     image: ghcr.io/u7chan/monorepo/portal:latest
-    restart: always
+    restart: unless-stopped # 手動停止時は再起動しない
     ports:
       - 3000:3000
     environment:
       - NODE_ENV=production
       - PORT=3000
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro # 読み取り専用
