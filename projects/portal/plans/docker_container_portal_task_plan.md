@@ -1,4 +1,4 @@
-# Docker Container Portal - Phase 1 タスクプラン
+# Docker Container Portal タスクプラン
 
 ## 概要
 Bun.serve() + React + TypeScriptでDocker Container Portalを構築する最初のタスクプラン。
@@ -7,24 +7,13 @@ Bun.serve() + React + TypeScriptでDocker Container Portalを構築する最初�
 - 現在のプロジェクト構成: `bun init`生成のBun + React構成
 - バックエンド: Bun.serve()（Expressは使用しない）
 - フロントエンド: React + TypeScript + Tailwind CSS
-- Docker連携: dockerodeパッケージ
+- Docker連携: Bunの `$` テンプレートリテラル（`docker ps` コマンド実行）
 
 ---
 
 ## Phase 1: 環境構築と依存関係
 
-### タスク1.1: dockerodeパッケージの追加
-**目的**: Docker APIにアクセスするためのライブラリを追加
-```bash
-bun add dockerode
-bun add -d @types/dockerode
-```
-
-**成果物**:
-- package.json更新
-- bun.lock更新
-
-### タスク1.2: 型定義の準備
+### タスク1.1: 型定義の準備
 **目的**: Dockerコンテナ情報の型を定義
 - Container型の定義（Ports, Names, Image, Stateなど）
 - APIレスポンス型の定義
@@ -36,17 +25,17 @@ bun add -d @types/dockerode
 
 ## Phase 2: バックエンド実装
 
-### タスク2.1: Docker APIサービスの作成
-**目的**: Dockerodeを使ってコンテナ情報を取得するサービス層
+### タスク2.1: Docker CLIサービスの作成
+**目的**: Bunの `$` を使って `docker ps` コマンドを実行しコンテナ情報を取得
 
 **実装内容**:
-- Dockerodeクライアントの初期化
-- listContainers()のラッパー関数
-- ポート情報のパース処理
+- Bun.$ を使って `docker ps --format json` を実行
+- JSON出力をパースして型付け
+- ポート情報のパース処理（`0.0.0.0:4000->4000/tcp` 形式）
 - エラーハンドリング
 
 **成果物**:
-- `src/services/docker.ts` - Docker APIサービス
+- `src/services/docker.ts` - Docker CLIラッパーサービス
 
 ### タスク2.2: APIエンドポイントの追加
 **目的**: /api/containersエンドポイントを実装
@@ -147,49 +136,83 @@ bun add -d @types/dockerode
 
 ---
 
-## Phase 6: テストと検証
+## Phase 6: バックエンドロジックテスト（`bun test`）
 
-### タスク6.1: APIの手動テスト
-**目的**: /api/containersが正しく動作することを確認
-
-**手順**:
-1. `bun dev`で開発サーバー起動
-2. curlまたはブラウザで/api/containersにアクセス
-3. コンテナ情報がJSONで返却されることを確認
-
-### タスク6.2: UIの検証
-**目的**: フロントエンドが正しく表示されることを確認
-
-**手順**:
-1. ブラウザで http://localhost:3000 にアクセス
-2. コンテナカードが表示されることを確認
-3. ポートリンクがクリック可能であることを確認
-4. フィルタリング機能が動作することを確認
+Bun組み込みの`bun:test`を使用し、Docker CLI出力のパース処理など純粋なロジックのみを単体テストします。APIエンドポイントのHTTPテストやCI設定は含めません。
 
 ---
 
-## 実装順序の推奨
+### タスク6.1: Dockerサービスのユニットテスト
 
-1. **タスク1.1** → **タスク1.2** - 環境構築
-2. **タスク2.1** → **タスク2.2** - バックエンド実装
-3. **タスク3.1** → **タスク3.2** → **タスク3.3** - フロントエンド実装
-4. **タスク4.1** - スタイリング
-5. **タスク5.1** → **タスク5.2** - Docker設定
-6. **タスク6.1** → **タスク6.2** - テスト
+**目的**: `Bun.$`をモック化し、コンテナ情報のパース・変換ロジックのみを検証
+
+**テスト対象**: `src/services/docker.test.ts`
+- `docker ps --format json` のJSONパース処理
+- ポート文字列（`0.0.0.0:4000->4000/tcp`）の正規表現による分解
+- コンテナ名の正規化（先頭の`/`除去）
+- 状態に応じたフィルタリングロジック（実行中/停止中の分類）
+
+**実装方針**:
+```typescript
+import { test, expect, mock } from "bun:test";
+import { parseContainers, fetchContainers } from "./docker";
+
+// Bun.$ のモック（シェルコマンドを実際に実行しない）
+mock.module("bun", () => ({
+  $: mock(async () => ({
+    json: async () => [
+      {
+        Names: "/my-app",
+        State: "running",
+        Status: "Up 2 hours",
+        Image: "nginx:latest",
+        Ports: "0.0.0.0:3000->80/tcp, 0.0.0.0:4000->443/tcp",
+        Id: "abc123"
+      },
+      {
+        Names: "/stopped-app",
+        State: "exited",
+        Status: "Exited (0) 3 hours ago",
+        Image: "redis:latest",
+        Ports: "",
+        Id: "def456"
+      }
+    ]
+  }))
+}));
+
+test("ポート文字列を正しくパースする", () => {
+  const raw = "0.0.0.0:3000->80/tcp, 0.0.0.0:4000->443/tcp";
+  const result = parsePorts(raw);
+  
+  expect(result).toEqual([
+    { host: "0.0.0.0", publicPort: 3000, privatePort: 80, protocol: "tcp" },
+    { host: "0.0.0.0", publicPort: 4000, privatePort: 443, protocol: "tcp" }
+  ]);
+});
+
+test("コンテナ名から先頭のスラッシュを除去する", async () => {
+  const containers = await fetchContainers();
+  expect(containers[0].name).toBe("my-app"); // "/my-app" -> "my-app"
+});
+
+test("ポートが空文字の場合は空配列を返す", () => {
+  const result = parsePorts("");
+  expect(result).toEqual([]);
+});
+```
+
+**成果物**:
+- `src/services/docker.test.ts`（`docker.ts`と同じディレクトリに配置）
 
 ---
 
-## 注意事項
+## 実行コマンド
 
-### セキュリティ
-- Docker socketは読み取り専用（:ro）でマウント
-- 本番環境では認証レイヤーの検討が必要
+```bash
+# テスト実行
+bun test
 
-### 開発時のヒント
-- `bun dev`で開発サーバー起動（HMR有効）
-- DockerデスクトップなどでDockerが動作している必要がある
-- ホストのDocker socketにアクセス可能である必要がある
-
-### 既存コードとの関係
-- `src/APITester.tsx`は不要になる可能性あり（削除 or 置き換え）
-- `src/index.ts`の既存の/api/helloは残しても良い（テスト用）
+# ウォッチモード（ファイル保存時に自動実行）
+bun test --watch
+```
