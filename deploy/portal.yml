@@ -12,5 +12,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+    group_add:
+      - "987" # ホストのdockerグループID (stat -c '%g' /var/run/docker.sock で確認)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # 読み取り専用
