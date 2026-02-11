@@ -1,6 +1,6 @@
 // Docker Container Portal - メインアプリケーション
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./index.css";
 import { ContainerList } from "./components/ContainerList";
 import type { ContainerFilter } from "./types/container";
@@ -68,7 +68,14 @@ function DockerIcon({ className }: { className?: string }) {
  */
 export function App() {
   const [filter, setFilter] = useState<ContainerFilter>("all");
-  const isMockMode = process.env.USE_MOCK_DATA === "true";
+  const [isMockMode, setIsMockMode] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => setIsMockMode(data.isMockMode))
+      .catch(() => setIsMockMode(false));
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">

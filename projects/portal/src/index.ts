@@ -56,6 +56,14 @@ const server = serve({
       },
     },
 
+    "/api/config": {
+      GET(req) {
+        return Response.json({
+          isMockMode: process.env.USE_MOCK_DATA === "true",
+        });
+      },
+    },
+
     "/api/hello/:name": async (req) => {
       const name = req.params.name;
       return Response.json({
