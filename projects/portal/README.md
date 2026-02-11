@@ -35,10 +35,18 @@ http://localhost:3000 でアクセス
 bun start
 ```
 
-### Docker実行
+### Dockerビルド
 
 ```bash
-docker-compose up -d
+docker build -t portal .
+```
+
+### 本番デプロイ
+
+本番環境では `../../deploy/portal.yml` を使用：
+
+```bash
+docker-compose -f ../../deploy/portal.yml up -d
 ```
 
 ## APIエンドポイント
@@ -68,7 +76,7 @@ docker-compose up -d
 │   └── components/
 │       ├── ContainerCard.tsx # コンテナカード
 │       └── ContainerList.tsx # コンテナリスト
-├── docker-compose.yml        # Docker Compose設定
+├── Dockerfile                # Dockerイメージ定義
 ├── build.ts                  # ビルドスクリプト
 └── package.json
 ```
@@ -80,12 +88,14 @@ bun test              # テスト実行
 bun test --watch      # ウォッチモード
 ```
 
-## Docker Compose設定
+## 本番Docker Compose設定
+
+本番環境の設定は `../../deploy/portal.yml` を参照：
 
 - **ポート**: 3000:3000
-- **Docker Socket**: /var/run/docker.sock:ro（読み取り専用）
-- **再起動**: unless-stopped
-- **リソース制限**: CPU 1.0 / Memory 512M
+- **Docker Socket**: /var/run/docker.sock
+- **再起動**: always
+- **ネットワーク**: home_network
 
 ## 要件
 

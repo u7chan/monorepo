@@ -31,18 +31,29 @@ FROM oven/bun:1-slim AS production
 
 WORKDIR /app
 
-# 非rootユーザーで実行
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# 非rootユーザーで実行（dockerグループも追加）
+RUN groupadd -r appuser && groupadd -r docker && \
+    useradd -r -g appuser -G docker appuser
+
+# Docker CLI のインストール
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+    "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
 
 # 必要なファイルのみをコピー
 COPY --from=builder --chown=appuser:appuser /app/dist ./dist
 COPY --from=builder --chown=appuser:appuser /app/package.json ./
 COPY --from=builder --chown=appuser:appuser /app/node_modules ./node_modules
-
-# セキュリティ: 不要なパッケージを削除
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # 非rootユーザーに切り替え
 USER appuser
