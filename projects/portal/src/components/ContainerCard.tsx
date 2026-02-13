@@ -1,6 +1,7 @@
 // ContainerCard Component - 個別のコンテナ情報を表示するカード
 
 import type { Container } from "../types/container";
+import { useConfig } from "../hooks/useConfig";
 
 interface ContainerCardProps {
   container: Container;
@@ -50,12 +51,10 @@ function getStatusDotClass(state: Container["state"]): string {
 /**
  * ポートリンクをレンダリング
  */
-function PortLinks({ ports }: { ports: Container["ports"] }) {
+function PortLinks({ ports, host }: { ports: Container["ports"]; host: string }) {
   if (ports.length === 0) {
     return <span className="text-xs text-slate-500 italic">No exposed ports</span>;
   }
-
-  const host = process.env.PORTAL_HOST || "localhost";
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -97,6 +96,8 @@ function PortLinks({ ports }: { ports: Container["ports"] }) {
  * コンテナカードコンポーネント
  */
 export function ContainerCard({ container }: ContainerCardProps) {
+  const { config } = useConfig();
+  const host = config?.host || "localhost";
   const shortId = container.id.slice(0, 12);
 
   return (
@@ -147,7 +148,7 @@ export function ContainerCard({ container }: ContainerCardProps) {
         {/* ポート情報 */}
         <div className="border-t border-slate-700/50 pt-4">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Ports</p>
-          <PortLinks ports={container.ports} />
+          <PortLinks ports={container.ports} host={host} />
         </div>
       </div>
     </div>
