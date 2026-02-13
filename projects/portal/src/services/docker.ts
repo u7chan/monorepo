@@ -94,7 +94,7 @@ export async function fetchContainers(all: boolean = false): Promise<Container[]
     const cmd = all ? "docker ps --all --format json" : "docker ps --format json";
 
     const result = await Bun.$`${cmd.split(" ")}`;
-    const output = await result.text();
+    const output = result.text();
 
     // JSON Lines形式で複数行のJSONが返ってくる場合がある
     const lines = output
