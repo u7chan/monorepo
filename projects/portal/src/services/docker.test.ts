@@ -124,8 +124,8 @@ describe("parsePorts", () => {
     const result = parsePorts(raw);
 
     expect(result).toHaveLength(2);
-    expect(result[0].publicPort).toBe(3000);
-    expect(result[1].publicPort).toBe(4000);
+    expect(result[0]!.publicPort).toBe(3000);
+    expect(result[1]!.publicPort).toBe(4000);
   });
 });
 
@@ -266,7 +266,7 @@ describe("filterContainers", () => {
   test("runningフィルターは実行中のコンテナのみ", () => {
     const result = filterContainers(containers, "running");
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("running-app");
+    expect(result[0]!.name).toBe("running-app");
   });
 
   test("stoppedフィルターは停止中のコンテナ（exited, dead）", () => {

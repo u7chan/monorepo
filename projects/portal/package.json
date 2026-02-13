@@ -8,7 +8,7 @@
     "dev:mock": "USE_MOCK_DATA=true bun --hot src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
     "start:mock": "USE_MOCK_DATA=true NODE_ENV=production bun src/index.ts",
-    "lint": "oxlint .",
+    "lint": "tsc --noEmit && oxlint .",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt .",
     "format:check": "oxfmt . --check"
@@ -24,6 +24,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "oxfmt": "^0.32.0",
-    "oxlint": "^1.47.0"
+    "oxlint": "^1.47.0",
+    "typescript": "^5.9.3"
   }
 }

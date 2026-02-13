@@ -22,6 +22,9 @@ export function parsePorts(portsStr: string): PortMapping[] {
 
     if (match) {
       const [, host, publicPort, privatePort, protocol] = match;
+      if (!publicPort || !privatePort || !protocol) {
+        continue;
+      }
       const key = `${publicPort}->${privatePort}/${protocol}`;
 
       // 同じpublicPort->privatePort/protocolの組み合わせが既に存在する場合はスキップ（IPv4/IPv6重複排除）
