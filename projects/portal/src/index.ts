@@ -17,9 +17,7 @@ const server = serve({
       async GET(req) {
         try {
           const url = new URL(req.url);
-          const filter =
-            (url.searchParams.get("filter") as "all" | "running" | "stopped") ||
-            "all";
+          const filter = (url.searchParams.get("filter") as "all" | "running" | "stopped") || "all";
           const all = filter === "all" || filter === "stopped";
 
           const containers = await fetchContainers(all);
@@ -44,13 +42,13 @@ const server = serve({
     },
 
     "/api/hello": {
-      async GET(req) {
+      async GET(_req) {
         return Response.json({
           message: "Hello, world!",
           method: "GET",
         });
       },
-      async PUT(req) {
+      async PUT(_req) {
         return Response.json({
           message: "Hello, world!",
           method: "PUT",
@@ -59,7 +57,7 @@ const server = serve({
     },
 
     "/api/config": {
-      GET(req) {
+      GET(_req) {
         return Response.json({
           isMockMode: process.env.USE_MOCK_DATA === "true",
         });

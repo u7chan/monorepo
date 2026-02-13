@@ -46,6 +46,7 @@ bun run start:mock
 ```
 
 モックデータには以下のテスト用コンテナが含まれています：
+
 - 各種状態（running, exited, paused, restarting）
 - 長い名前のコンテナ
 - 複数ポートを持つコンテナ
@@ -73,11 +74,11 @@ docker-compose -f ../../deploy/portal.yml up -d
 
 ## APIエンドポイント
 
-| エンドポイント | メソッド | 説明 |
-|--------------|---------|------|
-| `/api/containers` | GET | コンテナ一覧取得（`?filter=all\|running\|stopped`） |
-| `/api/hello` | GET/PUT | ヘルスチェック用 |
-| `/api/hello/:name` | GET | パスパラメータ例 |
+| エンドポイント     | メソッド | 説明                                                |
+| ------------------ | -------- | --------------------------------------------------- |
+| `/api/containers`  | GET      | コンテナ一覧取得（`?filter=all\|running\|stopped`） |
+| `/api/hello`       | GET/PUT  | ヘルスチェック用                                    |
+| `/api/hello/:name` | GET      | パスパラメータ例                                    |
 
 ## プロジェクト構造
 

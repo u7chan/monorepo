@@ -7,11 +7,13 @@
 ## 現状分析
 
 ### 問題点
+
 1. **Docker依存**: `src/services/docker.ts` で `docker ps` コマンドを直接実行
 2. **ローカル開発不可**: dockerコマンドが通らない環境で開発・テスト不可
 3. **レイアウトバグ確認困難**: 本番のみで発生するUI問題のデバッグが困難
 
 ### コード構成
+
 - `src/index.ts`: Bun.serve() でAPIエンドポイント `/api/containers` を提供
 - `src/services/docker.ts`: Docker CLIラッパー
 - `src/components/ContainerList.tsx`: コンテナ一覧表示（APIからデータ取得）
@@ -46,9 +48,7 @@ export const mockContainers = [
     image: "postgres:15",
     state: "running",
     status: "Up 5 hours",
-    ports: [
-      { host: "0.0.0.0", publicPort: 5432, privatePort: 5432, protocol: "tcp" },
-    ],
+    ports: [{ host: "0.0.0.0", publicPort: 5432, privatePort: 5432, protocol: "tcp" }],
     created: "2024-01-20T14:00:00Z",
   },
   // exited状態
@@ -68,9 +68,7 @@ export const mockContainers = [
     image: "elasticsearch:8",
     state: "paused",
     status: "Paused",
-    ports: [
-      { host: "0.0.0.0", publicPort: 9200, privatePort: 9200, protocol: "tcp" },
-    ],
+    ports: [{ host: "0.0.0.0", publicPort: 9200, privatePort: 9200, protocol: "tcp" }],
     created: "2024-01-18T16:30:00Z",
   },
   // 長い名前
@@ -109,9 +107,7 @@ export const mockContainers = [
     image: "crash-loop:latest",
     state: "restarting",
     status: "Restarting (1) 5 seconds ago",
-    ports: [
-      { host: "0.0.0.0", publicPort: 9000, privatePort: 9000, protocol: "tcp" },
-    ],
+    ports: [{ host: "0.0.0.0", publicPort: 9000, privatePort: 9000, protocol: "tcp" }],
     created: "2024-01-21T09:00:00Z",
   },
   // ポートなし
@@ -134,7 +130,10 @@ export function generateManyContainers(count: number) {
     image: `image${i}:latest`,
     state: i % 3 === 0 ? "running" : i % 3 === 1 ? "exited" : "paused",
     status: i % 3 === 0 ? "Up 1 hour" : i % 3 === 1 ? "Exited (0)" : "Paused",
-    ports: i % 2 === 0 ? [{ host: "0.0.0.0", publicPort: 8000 + i, privatePort: 80, protocol: "tcp" }] : [],
+    ports:
+      i % 2 === 0
+        ? [{ host: "0.0.0.0", publicPort: 8000 + i, privatePort: 80, protocol: "tcp" }]
+        : [],
     created: new Date(Date.now() - i * 3600000).toISOString(),
   }));
 }
@@ -154,9 +153,7 @@ function isMockMode(): boolean {
 }
 
 // fetchContainers関数を修正
-export async function fetchContainers(
-  all: boolean = false,
-): Promise<Container[]> {
+export async function fetchContainers(all: boolean = false): Promise<Container[]> {
   // モックモード時はモックデータを返す
   if (isMockMode()) {
     console.log("[MOCK MODE] Returning mock container data");
@@ -167,9 +164,7 @@ export async function fetchContainers(
 
   // 既存の実装（変更なし）
   try {
-    const cmd = all
-      ? "docker ps --all --format json"
-      : "docker ps --format json";
+    const cmd = all ? "docker ps --all --format json" : "docker ps --format json";
     // ... 残りの実装
   } catch (error) {
     // ... エラーハンドリング
@@ -259,13 +254,13 @@ bun run start:mock
 
 ## ファイル変更一覧
 
-| ファイル | 変更内容 |
-|---------|---------|
-| `src/services/mockData.ts` | 新規作成 - モックデータ定義 |
-| `src/services/docker.ts` | 修正 - モックモード判定追加 |
-| `src/index.ts` | 修正 - モックモードログ追加 |
-| `src/App.tsx` | 修正 - モックモードバッジ追加（オプション） |
-| `package.json` | 修正 - スクリプト追加 |
+| ファイル                   | 変更内容                                    |
+| -------------------------- | ------------------------------------------- |
+| `src/services/mockData.ts` | 新規作成 - モックデータ定義                 |
+| `src/services/docker.ts`   | 修正 - モックモード判定追加                 |
+| `src/index.ts`             | 修正 - モックモードログ追加                 |
+| `src/App.tsx`              | 修正 - モックモードバッジ追加（オプション） |
+| `package.json`             | 修正 - スクリプト追加                       |
 
 ## レイアウトバグ調査のヒント
 

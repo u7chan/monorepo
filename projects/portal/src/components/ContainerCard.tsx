@@ -52,9 +52,7 @@ function getStatusDotClass(state: Container["state"]): string {
  */
 function PortLinks({ ports }: { ports: Container["ports"] }) {
   if (ports.length === 0) {
-    return (
-      <span className="text-xs text-slate-500 italic">No exposed ports</span>
-    );
+    return <span className="text-xs text-slate-500 italic">No exposed ports</span>;
   }
 
   return (
@@ -73,9 +71,7 @@ function PortLinks({ ports }: { ports: Container["ports"] }) {
           <span className="mr-1 opacity-70">{port.publicPort}</span>
           <span className="text-slate-500">→</span>
           <span className="ml-1 opacity-70">{port.privatePort}</span>
-          <span className="ml-1 text-[10px] uppercase opacity-50">
-            {port.protocol}
-          </span>
+          <span className="ml-1 text-[10px] uppercase opacity-50">{port.protocol}</span>
           <svg
             className="ml-1 w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"
             fill="none"
@@ -110,7 +106,7 @@ export function ContainerCard({ container }: ContainerCardProps) {
     >
       {/* グロー効果 */}
       <div
-        className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 via-purple-500/5 to-pink-500/5
+        className="absolute inset-0 bg-linear-to-br from-cyan-500/5 via-purple-500/5 to-pink-500/5
                    opacity-0 group-hover:opacity-100 transition-opacity duration-500"
       />
 
@@ -131,9 +127,7 @@ export function ContainerCard({ container }: ContainerCardProps) {
             <span className={getStatusDotClass(container.state)}>
               <span className="block w-2 h-2 rounded-full" />
             </span>
-            <span className={getStatusBadgeClass(container.state)}>
-              {container.state}
-            </span>
+            <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
           </div>
         </div>
 
@@ -144,16 +138,13 @@ export function ContainerCard({ container }: ContainerCardProps) {
             <span className="font-mono text-slate-300">{container.image}</span>
           </p>
           <p className="text-sm text-slate-400 mt-1">
-            <span className="text-slate-500">Status:</span>{" "}
-            <span>{container.status}</span>
+            <span className="text-slate-500">Status:</span> <span>{container.status}</span>
           </p>
         </div>
 
         {/* ポート情報 */}
         <div className="border-t border-slate-700/50 pt-4">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-            Ports
-          </p>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Ports</p>
           <PortLinks ports={container.ports} />
         </div>
       </div>

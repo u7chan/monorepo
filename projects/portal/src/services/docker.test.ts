@@ -1,19 +1,14 @@
 // Dockerサービスのユニットテスト
 
 import { test, expect, mock, describe } from "bun:test";
-import {
-  parsePorts,
-  normalizeName,
-  parseContainer,
-  filterContainers,
-} from "./docker";
+import { parsePorts, normalizeName, parseContainer, filterContainers } from "./docker";
 import type { Container, DockerContainerRaw } from "../types/container";
 
 // Bun.$ のモック
 mock.module("bun", () => ({
   $: mock(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const cmd = strings.reduce((acc, str, i) => acc + str + (values[i] || ""), "");
-    
+
     // docker ps コマンドのモック
     if (cmd.includes("docker ps")) {
       return {
@@ -55,7 +50,7 @@ mock.module("bun", () => ({
         ],
       };
     }
-    
+
     throw new Error(`Unexpected command: ${cmd}`);
   }),
 }));
@@ -84,18 +79,14 @@ describe("parsePorts", () => {
     const raw = "0.0.0.0:53->53/udp";
     const result = parsePorts(raw);
 
-    expect(result).toEqual([
-      { host: "0.0.0.0", publicPort: 53, privatePort: 53, protocol: "udp" },
-    ]);
+    expect(result).toEqual([{ host: "0.0.0.0", publicPort: 53, privatePort: 53, protocol: "udp" }]);
   });
 
   test(":::形式のホストを正しくパースする", () => {
     const raw = ":::3000->80/tcp";
     const result = parsePorts(raw);
 
-    expect(result).toEqual([
-      { host: "::", publicPort: 3000, privatePort: 80, protocol: "tcp" },
-    ]);
+    expect(result).toEqual([{ host: "::", publicPort: 3000, privatePort: 80, protocol: "tcp" }]);
   });
 
   test("ポートが空文字の場合は空配列を返す", () => {
@@ -128,12 +119,13 @@ describe("parsePorts", () => {
   });
 
   test("複数ポートでIPv4/IPv6重複があっても正しくまとめる", () => {
-    const raw = "0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp, 0.0.0.0:4000->4000/tcp, [::]:4000->4000/tcp";
+    const raw =
+      "0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp, 0.0.0.0:4000->4000/tcp, [::]:4000->4000/tcp";
     const result = parsePorts(raw);
 
     expect(result).toHaveLength(2);
-    expect(result[0].publicPort).toBe(3000);
-    expect(result[1].publicPort).toBe(4000);
+    expect(result[0]!.publicPort).toBe(3000);
+    expect(result[1]!.publicPort).toBe(4000);
   });
 });
 
@@ -274,7 +266,7 @@ describe("filterContainers", () => {
   test("runningフィルターは実行中のコンテナのみ", () => {
     const result = filterContainers(containers, "running");
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("running-app");
+    expect(result[0]!.name).toBe("running-app");
   });
 
   test("stoppedフィルターは停止中のコンテナ（exited, dead）", () => {
