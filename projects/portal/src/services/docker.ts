@@ -17,16 +17,25 @@ export function parsePorts(portsStr: string): PortMapping[] {
   }
 
   const ports: PortMapping[] = [];
+  const seen = new Set<string>(); // 重複チェック用
   const portEntries = portsStr.split(", ");
 
   for (const entry of portEntries) {
-    // 形式: 0.0.0.0:3000->80/tcp または :::3000->80/tcp
+    // 形式: 0.0.0.0:3000->80/tcp または :::3000->80/tcp または [::]:3000->80/tcp
     const match = entry.match(
       /^(.*?):(\d+)->(\d+)\/(tcp|udp|sctp)$/,
     );
 
     if (match) {
       const [, host, publicPort, privatePort, protocol] = match;
+      const key = `${publicPort}->${privatePort}/${protocol}`;
+
+      // 同じpublicPort->privatePort/protocolの組み合わせが既に存在する場合はスキップ（IPv4/IPv6重複排除）
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
       ports.push({
         host: host || "0.0.0.0",
         publicPort: parseInt(publicPort, 10),

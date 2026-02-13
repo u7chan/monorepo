@@ -113,6 +113,28 @@ describe("parsePorts", () => {
     const result = parsePorts(raw);
     expect(result).toEqual([]);
   });
+
+  test("IPv4とIPv6の重複ポートを1つにまとめる", () => {
+    const raw = "0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp";
+    const result = parsePorts(raw);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      host: "0.0.0.0",
+      publicPort: 3000,
+      privatePort: 3000,
+      protocol: "tcp",
+    });
+  });
+
+  test("複数ポートでIPv4/IPv6重複があっても正しくまとめる", () => {
+    const raw = "0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp, 0.0.0.0:4000->4000/tcp, [::]:4000->4000/tcp";
+    const result = parsePorts(raw);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].publicPort).toBe(3000);
+    expect(result[1].publicPort).toBe(4000);
+  });
 });
 
 describe("normalizeName", () => {
