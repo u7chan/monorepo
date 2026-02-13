@@ -55,12 +55,14 @@ function PortLinks({ ports }: { ports: Container["ports"] }) {
     return <span className="text-xs text-slate-500 italic">No exposed ports</span>;
   }
 
+  const host = process.env.PORTAL_HOST || "localhost";
+
   return (
     <div className="flex flex-wrap gap-2">
       {ports.map((port, index) => (
         <a
           key={`${port.publicPort}-${index}`}
-          href={`http://localhost:${port.publicPort}`}
+          href={`http://${host}:${port.publicPort}`}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center px-2 py-1 rounded text-xs font-mono

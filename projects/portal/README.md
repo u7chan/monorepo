@@ -30,6 +30,24 @@ bun dev
 
 http://localhost:3000 でアクセス
 
+### 環境変数
+
+`.env` ファイルを作成するか、`.env.example` をコピーして使用してください。
+
+| 変数名 | 説明 | デフォルト |
+|--------|------|------------|
+| `PORTAL_HOST` | ポートリンクのホスト名 | `localhost` |
+| `USE_MOCK_DATA` | モックデータモードを有効化 | `false` |
+| `NODE_ENV` | 実行環境 | `development` |
+
+```bash
+# リモートホストのコンテナにアクセスする場合
+PORTAL_HOST=192.168.1.100 bun run dev
+
+# 本番モードでモックデータを使用
+USE_MOCK_DATA=true NODE_ENV=production bun run start
+```
+
 ### モックデータモード（Docker不要）
 
 Dockerがインストールされていない環境や、レイアウト確認用にモックデータを使用する場合：
@@ -103,6 +121,15 @@ docker-compose -f ../../deploy/portal.yml up -d
 ├── Dockerfile                # Dockerイメージ定義
 ├── build.ts                  # ビルドスクリプト
 └── package.json
+```
+
+## リント・フォーマット
+
+```bash
+bun lint              # 型チェック + lint
+bun lint:fix          # 自動修正
+bun format            # コード整形
+bun format:check      # 整形チェックのみ
 ```
 
 ## テスト
