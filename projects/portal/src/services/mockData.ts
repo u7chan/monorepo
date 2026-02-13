@@ -22,9 +22,7 @@ export const mockContainers: Container[] = [
     image: "postgres:15",
     state: "running",
     status: "Up 5 hours",
-    ports: [
-      { host: "0.0.0.0", publicPort: 5432, privatePort: 5432, protocol: "tcp" },
-    ],
+    ports: [{ host: "0.0.0.0", publicPort: 5432, privatePort: 5432, protocol: "tcp" }],
     created: "2024-01-20T14:00:00Z",
   },
   // exited状態
@@ -44,9 +42,7 @@ export const mockContainers: Container[] = [
     image: "elasticsearch:8",
     state: "paused",
     status: "Paused",
-    ports: [
-      { host: "0.0.0.0", publicPort: 9200, privatePort: 9200, protocol: "tcp" },
-    ],
+    ports: [{ host: "0.0.0.0", publicPort: 9200, privatePort: 9200, protocol: "tcp" }],
     created: "2024-01-18T16:30:00Z",
   },
   // 長い名前
@@ -85,9 +81,7 @@ export const mockContainers: Container[] = [
     image: "crash-loop:latest",
     state: "restarting",
     status: "Restarting (1) 5 seconds ago",
-    ports: [
-      { host: "0.0.0.0", publicPort: 9000, privatePort: 9000, protocol: "tcp" },
-    ],
+    ports: [{ host: "0.0.0.0", publicPort: 9000, privatePort: 9000, protocol: "tcp" }],
     created: "2024-01-21T09:00:00Z",
   },
   // ポートなし
@@ -110,7 +104,10 @@ export function generateManyContainers(count: number): Container[] {
     image: `image${i}:latest`,
     state: i % 3 === 0 ? "running" : i % 3 === 1 ? "exited" : "paused",
     status: i % 3 === 0 ? "Up 1 hour" : i % 3 === 1 ? "Exited (0)" : "Paused",
-    ports: i % 2 === 0 ? [{ host: "0.0.0.0", publicPort: 8000 + i, privatePort: 80, protocol: "tcp" }] : [],
+    ports:
+      i % 2 === 0
+        ? [{ host: "0.0.0.0", publicPort: 8000 + i, privatePort: 80, protocol: "tcp" }]
+        : [],
     created: new Date(Date.now() - i * 3600000).toISOString(),
   }));
 }

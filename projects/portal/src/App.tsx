@@ -130,11 +130,7 @@ export function App() {
         {/* フィルターセクション */}
         <div className="mb-8">
           <div className="flex flex-wrap items-center gap-3">
-            <FilterButton
-              active={filter === "all"}
-              label="All"
-              onClick={() => setFilter("all")}
-            />
+            <FilterButton active={filter === "all"} label="All" onClick={() => setFilter("all")} />
             <FilterButton
               active={filter === "running"}
               label="Running"
@@ -157,14 +153,11 @@ export function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-500">
-              Built with{" "}
-              <span className="text-cyan-400">Bun</span> +{" "}
+              Built with <span className="text-cyan-400">Bun</span> +{" "}
               <span className="text-blue-400">React</span> +{" "}
               <span className="text-cyan-300">Tailwind</span>
             </p>
-            <p className="text-xs text-slate-600">
-              Auto-refresh every 30 seconds
-            </p>
+            <p className="text-xs text-slate-600">Auto-refresh every 30 seconds</p>
           </div>
         </div>
       </footer>

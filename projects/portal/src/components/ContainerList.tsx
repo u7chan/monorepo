@@ -19,10 +19,7 @@ interface FetchState {
 /**
  * コンテナ一覧コンポーネント
  */
-export function ContainerList({
-  filter = "all",
-  refreshInterval = 30000,
-}: ContainerListProps) {
+export function ContainerList({ filter = "all", refreshInterval = 30000 }: ContainerListProps) {
   const [state, setState] = useState<FetchState>({
     containers: [],
     loading: true,
@@ -53,8 +50,7 @@ export function ContainerList({
       setState((prev) => ({
         ...prev,
         loading: false,
-        error:
-          error instanceof Error ? error.message : "Failed to fetch containers",
+        error: error instanceof Error ? error.message : "Failed to fetch containers",
       }));
     }
   };
@@ -81,9 +77,7 @@ export function ContainerList({
             style={{ animationDuration: "1.5s" }}
           />
         </div>
-        <p className="mt-4 text-slate-400 animate-pulse">
-          Loading containers...
-        </p>
+        <p className="mt-4 text-slate-400 animate-pulse">Loading containers...</p>
       </div>
     );
   }
@@ -110,12 +104,8 @@ export function ContainerList({
             />
           </svg>
         </div>
-        <h3 className="text-lg font-semibold text-slate-200 mb-2">
-          Failed to load containers
-        </h3>
-        <p className="text-slate-400 text-center max-w-md mb-4">
-          {state.error}
-        </p>
+        <h3 className="text-lg font-semibold text-slate-200 mb-2">Failed to load containers</h3>
+        <p className="text-slate-400 text-center max-w-md mb-4">{state.error}</p>
         <button
           onClick={fetchContainers}
           className="px-4 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30
@@ -149,9 +139,7 @@ export function ContainerList({
             />
           </svg>
         </div>
-        <h3 className="text-lg font-semibold text-slate-300 mb-2">
-          No containers found
-        </h3>
+        <h3 className="text-lg font-semibold text-slate-300 mb-2">No containers found</h3>
         <p className="text-slate-500 text-center">
           {filter === "all"
             ? "No Docker containers are running or stopped."
@@ -168,13 +156,9 @@ export function ContainerList({
       {/* ヘッダー: カウントと最終更新 */}
       <div className="flex items-center justify-between px-1">
         <p className="text-sm text-slate-400">
-          <span className="font-semibold text-slate-200">
-            {state.containers.length}
-          </span>{" "}
+          <span className="font-semibold text-slate-200">{state.containers.length}</span>{" "}
           {state.containers.length === 1 ? "container" : "containers"}
-          {filter !== "all" && (
-            <span className="text-slate-500"> ({filter})</span>
-          )}
+          {filter !== "all" && <span className="text-slate-500"> ({filter})</span>}
         </p>
         {state.lastUpdated && (
           <p className="text-xs text-slate-500">

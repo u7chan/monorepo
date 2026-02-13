@@ -1,11 +1,7 @@
 // Docker CLIサービス - Bun.$ を使用してdockerコマンドを実行
 
-import type {
-  Container,
-  PortMapping,
-  DockerContainerRaw,
-} from "../types/container";
-import { mockContainers, generateManyContainers, isMockMode } from "./mockData";
+import type { Container, PortMapping, DockerContainerRaw } from "../types/container";
+import { mockContainers, isMockMode } from "./mockData";
 
 /**
  * ポート文字列をパースする
@@ -22,9 +18,7 @@ export function parsePorts(portsStr: string): PortMapping[] {
 
   for (const entry of portEntries) {
     // 形式: 0.0.0.0:3000->80/tcp または :::3000->80/tcp または [::]:3000->80/tcp
-    const match = entry.match(
-      /^(.*?):(\d+)->(\d+)\/(tcp|udp|sctp)$/,
-    );
+    const match = entry.match(/^(.*?):(\d+)->(\d+)\/(tcp|udp|sctp)$/);
 
     if (match) {
       const [, host, publicPort, privatePort, protocol] = match;
@@ -83,9 +77,7 @@ export function parseContainer(raw: DockerContainerRaw): Container {
 /**
  * Dockerコンテナ一覧を取得
  */
-export async function fetchContainers(
-  all: boolean = false,
-): Promise<Container[]> {
+export async function fetchContainers(all: boolean = false): Promise<Container[]> {
   // モックモード時はモックデータを返す
   if (isMockMode()) {
     console.log("[MOCK MODE] Returning mock container data");
@@ -96,15 +88,16 @@ export async function fetchContainers(
 
   try {
     // Bun.$ を使って docker ps コマンドを実行
-    const cmd = all
-      ? "docker ps --all --format json"
-      : "docker ps --format json";
+    const cmd = all ? "docker ps --all --format json" : "docker ps --format json";
 
     const result = await Bun.$`${cmd.split(" ")}`;
     const output = await result.text();
 
     // JSON Lines形式で複数行のJSONが返ってくる場合がある
-    const lines = output.trim().split("\n").filter((line) => line.length > 0);
+    const lines = output
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0);
 
     if (lines.length === 0) {
       return [];
@@ -141,9 +134,7 @@ export function filterContainers(
     case "running":
       return containers.filter((c) => c.state === "running");
     case "stopped":
-      return containers.filter(
-        (c) => c.state === "exited" || c.state === "dead",
-      );
+      return containers.filter((c) => c.state === "exited" || c.state === "dead");
     case "all":
     default:
       return containers;
