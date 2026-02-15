@@ -19,12 +19,7 @@ export function ChatLayout({ conversations, isSidebarOpen, onToggleSidebar, chil
       </div>
 
       {/* オーバーレイ背景 - モバイルのみ */}
-      {isSidebarOpen && (
-        <div
-          className='fixed inset-0 bg-black/50 z-40 md:hidden'
-          onClick={onToggleSidebar}
-        />
-      )}
+      {isSidebarOpen && <div className='fixed inset-0 bg-black/50 z-40 md:hidden' onClick={onToggleSidebar} />}
 
       <div className='flex-1 bg-white dark:bg-gray-900'>{children}</div>
     </div>

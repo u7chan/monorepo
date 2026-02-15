@@ -33,10 +33,12 @@ status: ready
 **新規ファイル**: `src/types/chat.ts`
 
 現在の問題：
+
 - `src/types/index.ts` に Zod スキーマがある
 - `chat-main.tsx` に重複する TypeScript インターフェースがある（lines 127-156）
 
 統合案：
+
 ```typescript
 // src/types/chat.ts
 import { z } from 'zod'
@@ -72,29 +74,20 @@ export type ChatMessage = ChatMessageUser | ChatMessageAssistant | ChatMessageSy
 **新規ファイル**: `src/client/lib/chat-utils.ts`
 
 純粋関数として分離：
+
 ```typescript
 // クリップボード操作
 export async function copyToClipboard(text: string): Promise<void>
 
 // メッセージ作成ヘルパー
-export function createUserMessage(
-  text: string,
-  uploadImages: string[]
-): ChatMessageUser
+export function createUserMessage(text: string, uploadImages: string[]): ChatMessageUser
 
 export function createSystemMessage(content: string): ChatMessageSystem
 
-export function createAssistantMessage(
-  content: string,
-  reasoningContent?: string
-): ChatMessageAssistant
+export function createAssistantMessage(content: string, reasoningContent?: string): ChatMessageAssistant
 
 // テキストエリア行数計算
-export function calculateTextRows(
-  text: string,
-  minRows: number,
-  maxRows: number
-): number
+export function calculateTextRows(text: string, minRows: number, maxRows: number): number
 ```
 
 ### Phase 3: APIクライアントの抽象化
@@ -102,10 +95,12 @@ export function calculateTextRows(
 **新規ファイル**: `src/client/lib/chat-api.ts`
 
 現在の問題：
+
 - `chat-main.tsx` lines 873-1055 に埋め込まれた `sendChatCompletion` 関数（183行）
 - ストリーミング処理と非ストリーミング処理が混在
 
 分離案：
+
 ```typescript
 // src/client/lib/chat-api.ts
 export interface ChatStreamCallbacks {
@@ -149,15 +144,10 @@ export class ChatAPIClient {
   constructor()
 
   // 非ストリーミング送信
-  async sendMessage(
-    params: ChatCompletionParams
-  ): Promise<ChatCompletionResult | null>
+  async sendMessage(params: ChatCompletionParams): Promise<ChatCompletionResult | null>
 
   // ストリーミング送信
-  async sendMessageStream(
-    params: ChatCompletionParams,
-    callbacks: ChatStreamCallbacks
-  ): Promise<void>
+  async sendMessageStream(params: ChatCompletionParams, callbacks: ChatStreamCallbacks): Promise<void>
 
   // レスポンス処理の内部メソッド
   private parseNonStreamingResponse(response: Response): Promise<ChatCompletionResult>
@@ -230,6 +220,7 @@ export function useConversations(): UseConversationsReturn
 **新規ファイル**: `src/client/contexts/SettingsContext.tsx`
 
 Prop Drilling を解消：
+
 ```typescript
 // SettingsContext で一元管理
 interface SettingsContextType {
@@ -289,38 +280,41 @@ Step 8: 既存コードの整理と削除
 ## 変更予定ファイル一覧
 
 ### 新規作成（10ファイル）
-| ファイル | 目的 |
-|---------|------|
-| `src/types/chat.ts` | 統合型定義 |
-| `src/client/lib/chat-api.ts` | APIクライアント |
-| `src/client/lib/chat-utils.ts` | ユーティリティ関数 |
-| `src/client/hooks/useChat.ts` | チャット状態フック |
-| `src/client/hooks/useConversations.ts` | 会話管理フック |
-| `src/client/contexts/SettingsContext.tsx` | 設定コンテキスト |
-| `src/client/components/chat/chat-message-list.tsx` | メッセージリスト |
-| `src/client/components/chat/chat-message.tsx` | 個別メッセージ |
-| `src/client/components/chat/chat-input-area.tsx` | 入力エリア |
-| `src/client/components/chat/chat-empty-state.tsx` | 空状態表示 |
+
+| ファイル                                           | 目的               |
+| -------------------------------------------------- | ------------------ |
+| `src/types/chat.ts`                                | 統合型定義         |
+| `src/client/lib/chat-api.ts`                       | APIクライアント    |
+| `src/client/lib/chat-utils.ts`                     | ユーティリティ関数 |
+| `src/client/hooks/useChat.ts`                      | チャット状態フック |
+| `src/client/hooks/useConversations.ts`             | 会話管理フック     |
+| `src/client/contexts/SettingsContext.tsx`          | 設定コンテキスト   |
+| `src/client/components/chat/chat-message-list.tsx` | メッセージリスト   |
+| `src/client/components/chat/chat-message.tsx`      | 個別メッセージ     |
+| `src/client/components/chat/chat-input-area.tsx`   | 入力エリア         |
+| `src/client/components/chat/chat-empty-state.tsx`  | 空状態表示         |
 
 ### 修正（4ファイル）
-| ファイル | 変更内容 |
-|---------|---------|
-| `src/client/components/chat/chat-main.tsx` | 1,056行 → 200行程度に簡略化 |
-| `src/client/pages/chat/index.tsx` | フック使用に変更 |
-| `src/client/components/chat/chat-settings.tsx` | Context使用に変更 |
-| `src/types/index.ts` | 型定義を chat.ts に移動 |
+
+| ファイル                                       | 変更内容                    |
+| ---------------------------------------------- | --------------------------- |
+| `src/client/components/chat/chat-main.tsx`     | 1,056行 → 200行程度に簡略化 |
+| `src/client/pages/chat/index.tsx`              | フック使用に変更            |
+| `src/client/components/chat/chat-settings.tsx` | Context使用に変更           |
+| `src/types/index.ts`                           | 型定義を chat.ts に移動     |
 
 ## 期待される効果
 
-| 項目 | 現在 | リファクタ後 |
-|-----|------|-----------|
-| chat-main.tsx | 1,056行 | ~200行 |
-| sendChatCompletion | 183行（複雑） | APIClient内に分離 |
-| 状態管理 | 分散 | フック/Contextで一元化 |
-| 型定義 | 重複あり | 一元化 |
-| Prop Drilling | 多い | 解消 |
+| 項目               | 現在          | リファクタ後           |
+| ------------------ | ------------- | ---------------------- |
+| chat-main.tsx      | 1,056行       | ~200行                 |
+| sendChatCompletion | 183行（複雑） | APIClient内に分離      |
+| 状態管理           | 分散          | フック/Contextで一元化 |
+| 型定義             | 重複あり      | 一元化                 |
+| Prop Drilling      | 多い          | 解消                   |
 
 ### 品質向上
+
 1. **保守性**: 責任が明確に分離される
 2. **テスト容易性**: 純粋関数とフックが分離され、ユニットテストが書きやすくなる
 3. **再利用性**: フックとユーティリティが他の場所でも使える
@@ -329,15 +323,16 @@ Step 8: 既存コードの整理と削除
 
 ## リスクと対策
 
-| リスク | 対策 |
-|-------|------|
+| リスク               | 対策                                         |
+| -------------------- | -------------------------------------------- |
 | 機能のリグレッション | 各Phase後に手動テスト、最終的にE2Eテスト追加 |
-| 型エラー | Step 1で型定義を完全に統合してから実装 |
-| API動作の変更 | ChatAPIClientの単体テストを追加 |
+| 型エラー             | Step 1で型定義を完全に統合してから実装       |
+| API動作の変更        | ChatAPIClientの単体テストを追加              |
 
 ## 検証方法
 
 ### 1. 既存機能の動作確認
+
 - [ ] メッセージ送信（ストリーミング）
 - [ ] メッセージ送信（非ストリーミング）
 - [ ] 画像アップロード機能
@@ -350,6 +345,7 @@ Step 8: 既存コードの整理と削除
 - [ ] ストリーミングキャンセル
 
 ### 2. ビルド確認
+
 ```bash
 cd /workspaces/monorepo/projects/portfolio
 npm run typecheck
@@ -357,6 +353,7 @@ npm run build
 ```
 
 ### 3. コード品質確認
+
 - [ ] ESLint エラーなし
 - [ ] 型エラーなし
 - [ ] 循環参照なし
