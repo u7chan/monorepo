@@ -13,6 +13,7 @@ interface Props {
   showActions?: boolean
   showNewChat?: boolean
   showPopup?: boolean
+  showSidebarToggle?: boolean
   onNewChat?: () => void
   onShowMenu?: () => void
   onToggleSidebar?: () => void
@@ -24,6 +25,7 @@ export function ChatSettings({
   showActions,
   showNewChat = true,
   showPopup,
+  showSidebarToggle = true,
   onNewChat,
   onShowMenu,
   onToggleSidebar,
@@ -191,14 +193,16 @@ export function ChatSettings({
       {/* ボタン群 */}
       {showActions && (
         <div className='flex flex-col items-center gap-2 sm:flex-row'>
-          {/* サイドバートグル - モバイルのみ表示 */}
-          <button
-            type='button'
-            onClick={handleClickToggleSidebar}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
-          >
-            <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
-          </button>
+          {/* サイドバートグル - モバイルのみ表示（ログイン時のみ） */}
+          {showSidebarToggle && (
+            <button
+              type='button'
+              onClick={handleClickToggleSidebar}
+              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
+            >
+              <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+            </button>
+          )}
           {showNewChat && (
             <button
               type='button'
