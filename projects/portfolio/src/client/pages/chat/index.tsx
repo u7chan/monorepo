@@ -138,10 +138,19 @@ export function Chat() {
       return
     }
 
-    // サーバーに会話履歴を更新
+    // サーバーに会話履歴を更新（DB保存用にcontentを文字列化）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload: any = {
+      id: conversation.id,
+      title: conversation.title,
+      messages: conversation.messages.map((msg) => ({
+        ...msg,
+        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+      })),
+    }
     client.api.conversations
       .$post({
-        json: conversation,
+        json: payload,
       })
       .then((res) => {
         if (res.status === 200) {
