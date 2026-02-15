@@ -1,5 +1,6 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
 import { GearIcon } from '#/client/components/svg/gear-icon'
+import { HamburgerIcon } from '#/client/components/svg/hamburger-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
 import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
@@ -14,6 +15,7 @@ interface Props {
   showPopup?: boolean
   onNewChat?: () => void
   onShowMenu?: () => void
+  onToggleSidebar?: () => void
   onChange?: (settings: Settings) => void
   onHidePopup?: () => void
 }
@@ -24,6 +26,7 @@ export function ChatSettings({
   showPopup,
   onNewChat,
   onShowMenu,
+  onToggleSidebar,
   onChange,
   onHidePopup,
 }: Props) {
@@ -75,6 +78,10 @@ export function ChatSettings({
 
   const handleClickShowMenu = () => {
     onShowMenu?.()
+  }
+
+  const handleClickToggleSidebar = () => {
+    onToggleSidebar?.()
   }
 
   const handleChangeAutoModel = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -184,6 +191,14 @@ export function ChatSettings({
       {/* ボタン群 */}
       {showActions && (
         <div className='flex items-center gap-2'>
+          {/* サイドバートグル - モバイルのみ表示 */}
+          <button
+            type='button'
+            onClick={handleClickToggleSidebar}
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
+          >
+            <HamburgerIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+          </button>
           {showNewChat && (
             <button
               type='button'
