@@ -674,7 +674,7 @@ export function ChatMain({
                 </div>
               )}
               {!loading && chatResults && (
-                <div className='mt-2 flex justify-end gap-1'>
+                <div className='mt-2 flex flex-wrap justify-end gap-1'>
                   <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
                     <span className='mr-1'>model:</span>
                     <span>{chatResults.model}</span>
