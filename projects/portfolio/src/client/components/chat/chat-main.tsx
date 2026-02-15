@@ -1,4 +1,5 @@
 import { ChatInput } from '#/client/components/chat/chat-input'
+import { ChatResults } from '#/client/components/chat/chat-results'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowUpIcon } from '#/client/components/svg/arrow-upIcon'
@@ -674,27 +675,11 @@ export function ChatMain({
                 </div>
               )}
               {!loading && chatResults && (
-                <div className='mt-2 flex flex-wrap justify-end gap-1'>
-                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
-                    <span className='mr-1'>model:</span>
-                    <span>{chatResults.model}</span>
-                  </div>
-                  {chatResults.finish_reason && (
-                    <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
-                      <span className='mr-1'>finish_reason:</span>
-                      <span>{chatResults.finish_reason}</span>
-                    </div>
-                  )}
-                  <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
-                    <span className='mr-1'>usage:</span>
-                    <span className='mr-0.5'>(input:</span>
-                    <span>{chatResults.usage?.promptTokens || '--'}</span>
-                    <span className='mr-0.5'>/</span>
-                    <span className='mr-0.5'>output:</span>
-                    <span>{chatResults.usage?.completionTokens || '--'}</span>
-                    <span>)</span>
-                  </div>
-                </div>
+                <ChatResults
+                  model={chatResults.model}
+                  finishReason={chatResults.finish_reason}
+                  usage={chatResults.usage}
+                />
               )}
               <div ref={messageEndRef} className='h-4' />
             </div>
