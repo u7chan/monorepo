@@ -53,6 +53,7 @@ export function Diff() {
   const [afterCode, setAfterCode] = useState(defaultAfter)
   const [language, setLanguage] = useState('')
   const [isHydrated, setIsHydrated] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
     if (typeof window === 'undefined') {
       return false
@@ -91,6 +92,13 @@ export function Diff() {
       observer.disconnect()
       window.removeEventListener('storage', syncTheme)
     }
+  }, [])
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
   useEffect(() => {
@@ -137,7 +145,7 @@ export function Diff() {
   }, [beforeCode, afterCode, isHydrated])
 
   return (
-    <div className='h-screen flex flex-col overflow-y-auto bg-white p-4 dark:bg-gray-900'>
+    <div className='min-h-screen flex flex-col overflow-y-auto bg-white p-4 dark:bg-gray-900'>
       <div className='mb-4 flex-none flex items-center gap-2'>
         <button
           onClick={() => setMode(mode === 'view' ? 'edit' : 'view')}
@@ -170,7 +178,7 @@ export function Diff() {
       </div>
       <div className='flex-1 min-h-0'>
         {mode === 'edit' ? (
-          <div className='grid grid-cols-2 gap-4 h-full min-h-0 border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
+          <div className='grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0 border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
             <div className='flex flex-col h-full min-h-0 border-r border-gray-200 dark:border-gray-700'>
               <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>Before</h3>
               <div className='flex-1 min-h-0 px-4 pb-4'>
@@ -202,7 +210,7 @@ export function Diff() {
               key={isDarkTheme ? 'diff-dark' : 'diff-light'}
               oldValue={beforeCode}
               newValue={afterCode}
-              splitView={true}
+              splitView={!isMobile}
               useDarkTheme={isDarkTheme}
               styles={{ contentText: { fontSize: '12px' }, lineNumber: { fontSize: '12px' } }}
             />

@@ -13,6 +13,8 @@ import { useState } from 'react'
 const client = hc<AppType>('/')
 
 export function Chat() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
   const [viewModel, setViewModel] = useState<{
     showSettingsActions: boolean
     showSettingsPopup: boolean
@@ -154,6 +156,8 @@ export function Chat() {
 
   return (
     <ChatLayout
+      isSidebarOpen={isSidebarOpen}
+      onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
       conversations={
         query.isLoading
           ? 'Loading...'
