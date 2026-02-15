@@ -49,20 +49,28 @@ export function ConversationHistory({
         ) : (
           <div className='p-2'>
             {conversations.map((conversation) => (
-              <button
-                type='button'
+              <div
                 key={conversation.id}
-                className={`group relative mb-1 w-full rounded-md p-3 text-left transition-colors enabled:cursor-pointer ${
+                className={`group relative mb-1 w-full rounded-md p-3 text-left transition-colors ${
                   currentConversationId === conversation.id
                     ? 'border border-primary-200 bg-primary-100 dark:border-primary-600 dark:bg-primary-900/30'
-                    : 'hover:enabled:bg-gray-100 dark:hover:enabled:bg-gray-700'
-                }`}
-                disabled={disabled}
-                onClick={() => onSelectConversation(conversation.id)}
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                 onMouseEnter={() => setHoveredId(conversation.id)}
                 onMouseLeave={() => setHoveredId(null)}
               >
-                <div className='flex items-start justify-between'>
+                <div
+                  role='button'
+                  tabIndex={disabled ? -1 : 0}
+                  className='flex items-start justify-between'
+                  onClick={() => !disabled && onSelectConversation(conversation.id)}
+                  onKeyDown={(e) => {
+                    if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault()
+                      onSelectConversation(conversation.id)
+                    }
+                  }}
+                >
                   <div className='min-w-0 flex-1'>
                     <h3 className='truncate font-medium text-gray-900 text-sm dark:text-gray-100'>
                       {conversation.title}
@@ -71,18 +79,18 @@ export function ConversationHistory({
                       {conversation.messages.length} メッセージ
                     </p>
                   </div>
-                  {(hoveredId === conversation.id || currentConversationId === conversation.id) && (
-                    <button
-                      type='button'
-                      onClick={(e) => handleDeleteClick(e, conversation.id)}
-                      className='ml-2 p-1 text-gray-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 dark:text-gray-500 dark:hover:text-red-400'
-                      title='会話を削除'
-                    >
-                      <DeleteIcon size={14} />
-                    </button>
-                  )}
                 </div>
-              </button>
+                {(hoveredId === conversation.id || currentConversationId === conversation.id) && !disabled && (
+                  <button
+                    type='button'
+                    onClick={(e) => handleDeleteClick(e, conversation.id)}
+                    className='absolute right-3 top-3 ml-2 p-1 text-gray-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 dark:text-gray-500 dark:hover:text-red-400'
+                    title='会話を削除'
+                  >
+                    <DeleteIcon size={14} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}

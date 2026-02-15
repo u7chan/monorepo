@@ -1,4 +1,3 @@
-// 未使用
 interface Props {
   size?: number
   className?: string

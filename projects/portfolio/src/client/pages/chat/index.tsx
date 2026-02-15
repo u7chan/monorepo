@@ -188,6 +188,7 @@ export function Chat() {
         showPopup={viewModel.showSettingsPopup}
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         onChange={handleChangeSettings}
         onHidePopup={handleChatClickOutside}
       />

@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
+import { HamburgerIcon } from './svg/hamburger-icon'
 import { ThemeToggle } from './theme-toggle'
 
 interface Props {
@@ -54,14 +55,7 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
           className='p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700'
         >
           {/* ハンバーガーアイコン */}
-          <svg
-            className='w-6 h-6 text-gray-600 dark:text-gray-300'
-            fill='none'
-            stroke='currentColor'
-            viewBox='0 0 24 24'
-          >
-            <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 6h16M4 12h16M4 18h16' />
-          </svg>
+          <HamburgerIcon />
         </button>
         <span className='text-lg font-semibold text-gray-900 dark:text-white'>Portfolio</span>
         <ThemeToggle size='sm' />

@@ -1,6 +1,7 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
 import { GearIcon } from '#/client/components/svg/gear-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
+import { SidebarIcon } from '#/client/components/svg/sidebar-icon'
 import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
 import { hc } from 'hono/client'
@@ -14,6 +15,7 @@ interface Props {
   showPopup?: boolean
   onNewChat?: () => void
   onShowMenu?: () => void
+  onToggleSidebar?: () => void
   onChange?: (settings: Settings) => void
   onHidePopup?: () => void
 }
@@ -24,6 +26,7 @@ export function ChatSettings({
   showPopup,
   onNewChat,
   onShowMenu,
+  onToggleSidebar,
   onChange,
   onHidePopup,
 }: Props) {
@@ -75,6 +78,10 @@ export function ChatSettings({
 
   const handleClickShowMenu = () => {
     onShowMenu?.()
+  }
+
+  const handleClickToggleSidebar = () => {
+    onToggleSidebar?.()
   }
 
   const handleChangeAutoModel = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -183,7 +190,15 @@ export function ChatSettings({
     <div className='fixed inline-block p-4' ref={wrapperRef}>
       {/* ボタン群 */}
       {showActions && (
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-col items-center gap-2 sm:flex-row'>
+          {/* サイドバートグル - モバイルのみ表示 */}
+          <button
+            type='button'
+            onClick={handleClickToggleSidebar}
+            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
+          >
+            <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+          </button>
           {showNewChat && (
             <button
               type='button'
@@ -200,7 +215,7 @@ export function ChatSettings({
           >
             <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
           </button>
-          <span className='text-xs font-medium text-gray-900 dark:text-gray-200'>{fakeMode ? 'Fake Mode' : model}</span>
+          <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>{fakeMode ? 'Fake Mode' : model}</span>
         </div>
       )}
       {/* ポップアップメニュー */}
@@ -225,12 +240,13 @@ export function ChatSettings({
                   } rounded-sm border px-1 py-1 outline-none transition-all duration-200`}
                   onChange={handleChangeAutoModel}
                   disabled={fakeMode}
+                  value={model}
                 >
                   {fetchedModels.length === 0 ? (
                     <option>Loading...</option>
                   ) : (
                     fetchedModels.map((modelName) => (
-                      <option key={modelName} value={modelName} selected={modelName === model}>
+                      <option key={modelName} value={modelName}>
                         {modelName}
                       </option>
                     ))
