@@ -1,7 +1,7 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
 import { GearIcon } from '#/client/components/svg/gear-icon'
-import { SidebarIcon } from '#/client/components/svg/sidebar-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
+import { SidebarIcon } from '#/client/components/svg/sidebar-icon'
 import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
 import { hc } from 'hono/client'

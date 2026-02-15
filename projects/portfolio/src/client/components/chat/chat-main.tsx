@@ -434,7 +434,11 @@ export function ChatMain({
         <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-(--breakpoint-lg) flex-1 items-center justify-center'>
             <div className='grid flex-1 gap-3'>
-              <div className={'mb-2 text-center font-bold text-2xl text-gray-700 hidden md:block sm:text-3xl dark:text-gray-200'}>
+              <div
+                className={
+                  'mb-2 text-center font-bold text-2xl text-gray-700 hidden md:block sm:text-3xl dark:text-gray-200'
+                }
+              >
                 お手伝いできることはありますか？
               </div>
               <div className='hidden md:block'>
