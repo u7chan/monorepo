@@ -115,8 +115,8 @@ export function PromptTemplate({ placeholder, onSubmit }: Props) {
     }
   }
   return (
-    <div className='hidden sm:block'>
-      <div className='grid grid-cols-1 gap-3 p-4 sm:grid-cols-2'>
+    <div>
+      <div className='grid grid-cols-1 gap-3 p-4 md:grid-cols-2'>
         {promptTemplates.map((template) => (
           <div
             key={template.title}
