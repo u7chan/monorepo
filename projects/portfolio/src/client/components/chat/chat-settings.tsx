@@ -317,7 +317,9 @@ export function ChatSettings({
           </div>
         </div>
         <div className='flex items-center justify-between gap-2'>
-          <span className='ml-1 min-w-[80px] md:min-w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200'>Max Tokens</span>
+          <span className='ml-1 min-w-[80px] md:min-w-[110px] font-medium text-gray-900 text-sm dark:text-gray-200'>
+            Max Tokens
+          </span>
           <input
             name='maxTokens'
             type='number'

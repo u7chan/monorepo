@@ -54,7 +54,12 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
           className='p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700'
         >
           {/* ハンバーガーアイコン */}
-          <svg className='w-6 h-6 text-gray-600 dark:text-gray-300' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+          <svg
+            className='w-6 h-6 text-gray-600 dark:text-gray-300'
+            fill='none'
+            stroke='currentColor'
+            viewBox='0 0 24 24'
+          >
             <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 6h16M4 12h16M4 18h16' />
           </svg>
         </button>
@@ -65,10 +70,7 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
       {/* モバイルドロワーメニュー */}
       {isMobileMenuOpen && (
         <>
-          <div
-            className='md:hidden fixed inset-0 bg-black/50 z-50'
-            onClick={() => setIsMobileMenuOpen(false)}
-          />
+          <div className='md:hidden fixed inset-0 bg-black/50 z-50' onClick={() => setIsMobileMenuOpen(false)} />
           <div className='md:hidden fixed top-14 left-0 right-0 bg-gray-100 dark:bg-gray-800 border-b dark:border-gray-700 z-50 p-4'>
             <nav className='grid grid-cols-4 gap-2'>
               {menuItems.map((menuItem) => (
@@ -88,7 +90,9 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
       )}
 
       {/* メインコンテンツ */}
-      <main className='flex-1 overflow-y-hidden bg-white md:overflow-y-auto dark:bg-gray-900 pt-14 md:pt-0'>{children}</main>
+      <main className='flex-1 overflow-y-hidden bg-white md:overflow-y-auto dark:bg-gray-900 pt-14 md:pt-0'>
+        {children}
+      </main>
     </div>
   )
 }

@@ -40,8 +40,8 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
       id: uuidv7(),
       conversationId: id,
       role: message.role,
-      content: message.content,
-      reasoningContent: message.reasoningContent,
+      content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
+      reasoningContent: message.reasoningContent ?? '',
       metadata: message.metadata ? JSON.stringify(message.metadata) : null,
       createdAt: now,
     }))

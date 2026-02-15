@@ -11,7 +11,7 @@ import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app.d'
-import type { Conversation } from '#/types'
+import type { ChatMessage, ChatMessageSystem, ChatMessageUser, ChatCompletionResult, Conversation } from '#/types'
 import { hc } from 'hono/client'
 import React, {
   type ChangeEvent,
@@ -124,37 +124,6 @@ function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
 const MIN_TEXT_LINE_COUNT = 2
 const MAX_TEXT_LINE_COUNT = 5
 
-type MessageAssistant = {
-  role: 'assistant'
-  content: string
-  reasoning_content?: string
-}
-
-type MessageSystem = {
-  role: 'system'
-  content: string
-}
-
-type MessageUser = {
-  role: 'user'
-  content:
-    | string
-    | Array<
-        | {
-            type: 'text'
-            text: string
-          }
-        | {
-            type: 'image_url'
-            image_url: {
-              url: string
-            }
-          }
-      >
-}
-
-type Message = MessageSystem | MessageAssistant | MessageUser
-
 interface Props {
   initTrigger?: number
   settings: Settings
@@ -180,7 +149,7 @@ export function ChatMain({
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [stream, setStream] = useState<{
     content: string
@@ -219,11 +188,19 @@ export function ChatMain({
     }
 
     // 会話が選択された時、そのメッセージを設定
-    const convertedMessages: Message[] = currentConversation.messages.map((msg) => ({
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content: msg.content,
-      reasoning_content: msg.reasoningContent,
-    }))
+    const convertedMessages: ChatMessage[] = currentConversation.messages.map((msg) => {
+      const base = {
+        role: msg.role as 'user' | 'assistant' | 'system',
+        content: msg.content,
+      }
+      if (msg.role === 'assistant') {
+        return {
+          ...base,
+          reasoning_content: msg.reasoningContent,
+        } as ChatMessage
+      }
+      return base as ChatMessage
+    })
     setConversationId(currentConversation.id)
     setMessages(convertedMessages)
     setChatResults(null)
@@ -366,10 +343,10 @@ export function ChatMain({
               {
                 role: 'assistant' as const,
                 content: result.message.content,
-                reasoningContent: result.message.reasoning_content,
+                reasoningContent: result.message.reasoningContent,
                 metadata: {
                   model: result.model,
-                  finishReason: result.finish_reason,
+                  finishReason: result.finishReason,
                   usage: {
                     promptTokens: result.usage?.promptTokens || 0,
                     completionTokens: result.usage?.completionTokens || 0,
@@ -403,13 +380,14 @@ export function ChatMain({
           ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
           {
             role: 'assistant' as const,
-            ...result.message,
+            content: result.message.content,
+            reasoning_content: result.message.reasoningContent,
           },
         ]
         setMessages(newMessages)
         setChatResults({
           model: result.model,
-          finish_reason: result.finish_reason,
+          finish_reason: result.finishReason,
           usage: result.usage,
         })
       }
@@ -813,15 +791,19 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
 const createMessage = (
   inputText: string,
   model: string,
-  { interactiveMode, messages, uploadImages }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] }
+  {
+    interactiveMode,
+    messages,
+    uploadImages,
+  }: { interactiveMode: boolean; messages: ChatMessage[]; uploadImages: string[] }
 ): {
   model: string
-  messages: Message[]
+  messages: ChatMessage[]
 } | null => {
   if (!inputText) {
     return null
   }
-  const userMessage: MessageUser = {
+  const userMessage: ChatMessageUser = {
     role: 'user',
     content:
       uploadImages.length > 0
@@ -839,7 +821,7 @@ const createMessage = (
           ]
         : inputText,
   }
-  const newMessages: Message[] = [...messages, userMessage]
+  const newMessages: ChatMessage[] = [...messages, userMessage]
   return {
     model,
     messages: interactiveMode ? newMessages : [userMessage],
@@ -849,20 +831,20 @@ const createMessage = (
 const createTemplateMessage = (
   templateInput: TemplateInput,
   model: string,
-  { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
+  { interactiveMode, messages }: { interactiveMode: boolean; messages: ChatMessage[] }
 ): {
   model: string
-  messages: Message[]
+  messages: ChatMessage[]
 } => {
-  const userMessage: MessageUser = {
+  const userMessage: ChatMessageUser = {
     role: 'user',
     content: templateInput.content,
   }
-  const systemMessage: Message = {
+  const systemMessage: ChatMessageSystem = {
     role: 'system',
     content: templateInput.prompt,
   }
-  const newMessages: Message[] =
+  const newMessages: ChatMessage[] =
     messages.length === 0 && templateInput ? [systemMessage, userMessage] : [...messages, userMessage]
   return {
     model: templateInput.model || model,
@@ -878,25 +860,12 @@ const sendChatCompletion = async (req: {
     mcpServerURLs: string
   }
   model: string
-  messages: Message[]
+  messages: ChatMessage[]
   stream: boolean
   temperature?: number
   maxTokens?: number
   onStream?: (stream: { content: string; reasoning_content: string }) => void
-}): Promise<{
-  model: string
-  finish_reason: string
-  message: {
-    content: string
-    reasoning_content: string
-  }
-  usage: {
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    reasoningTokens?: number
-  } | null
-} | null> => {
+}): Promise<ChatCompletionResult | null> => {
   const result = {
     content: '',
     reasoning_content: '',
@@ -1041,8 +1010,11 @@ const sendChatCompletion = async (req: {
   }
   return {
     model: responseModel,
-    finish_reason,
-    message: result,
+    finishReason: finish_reason,
+    message: {
+      content: result.content,
+      reasoningContent: result.reasoning_content,
+    },
     usage: usage
       ? {
           promptTokens: usage.prompt_tokens,

@@ -1,53 +1,33 @@
-import { z } from 'zod'
-
-const UserMetadataSchema = z.object({
-  model: z.string(),
-  stream: z.boolean().optional(),
-  temperature: z.number().optional(),
-  maxTokens: z.number().optional(),
-})
-
-const UserMessageSchema = z.object({
-  id: z.string().optional(),
-  role: z.literal('user'),
-  content: z.string(),
-  reasoningContent: z.string(),
-  metadata: UserMetadataSchema,
-})
-
-const AssistantMetadataSchema = z.object({
-  model: z.string(),
-  finishReason: z.string().optional(),
-  usage: z.object({
-    completionTokens: z.number().optional(),
-    promptTokens: z.number().optional(),
-    totalTokens: z.number().optional(),
-    reasoningTokens: z.number().optional(),
-  }),
-})
-
-const AssistantMessageSchema = z.object({
-  id: z.string().optional(),
-  role: z.literal('assistant'),
-  content: z.string(),
-  reasoningContent: z.string(),
-  metadata: AssistantMetadataSchema,
-})
-
-const SystemMessageSchema = z.object({
-  id: z.string().optional(),
-  role: z.literal('system'),
-  content: z.string(),
-  reasoningContent: z.string(),
-  metadata: z.object({}).optional(),
-})
-
-const MessageSchema = z.discriminatedUnion('role', [UserMessageSchema, AssistantMessageSchema, SystemMessageSchema])
-
-export const ConversationSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  messages: z.array(MessageSchema),
-})
-
-export type Conversation = z.infer<typeof ConversationSchema>
+export {
+  // Schemas
+  ConversationSchema,
+  MessageSchema,
+  UserMessageSchema,
+  AssistantMessageSchema,
+  SystemMessageSchema,
+  UserMetadataSchema,
+  AssistantMetadataSchema,
+  ImageContentSchema,
+  TextContentSchema,
+  // Types
+  type Conversation,
+  type Message,
+  type UserMessage,
+  type AssistantMessage,
+  type SystemMessage,
+  type UserMetadata,
+  type AssistantMetadata,
+  type ImageContent,
+  type TextContent,
+  // API Types
+  type ChatMessage,
+  type ChatMessageUser,
+  type ChatMessageAssistant,
+  type ChatMessageSystem,
+  type ChatCompletionResult,
+  // Guards
+  isUserMessage,
+  isAssistantMessage,
+  isSystemMessage,
+  isImageContentArray,
+} from './chat.js'
