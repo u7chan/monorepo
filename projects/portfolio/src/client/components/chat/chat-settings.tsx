@@ -190,7 +190,7 @@ export function ChatSettings({
     <div className='fixed inline-block p-4' ref={wrapperRef}>
       {/* ボタン群 */}
       {showActions && (
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-col items-center gap-2 sm:flex-row'>
           {/* サイドバートグル - モバイルのみ表示 */}
           <button
             type='button'
@@ -215,7 +215,7 @@ export function ChatSettings({
           >
             <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
           </button>
-          <span className='text-xs font-medium text-gray-900 dark:text-gray-200'>{fakeMode ? 'Fake Mode' : model}</span>
+          <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>{fakeMode ? 'Fake Mode' : model}</span>
         </div>
       )}
       {/* ポップアップメニュー */}
