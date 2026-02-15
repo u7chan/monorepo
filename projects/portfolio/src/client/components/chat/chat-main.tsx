@@ -429,11 +429,11 @@ export function ChatMain({
   const emptyMessage = messages.length === 0
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit}>
+    <form ref={formRef} onSubmit={handleSubmit} className='h-full'>
       {emptyMessage && (
         <div className='flex h-full items-center justify-center'>
           <div className='container mx-auto flex max-w-(--breakpoint-lg) flex-1 items-center justify-center'>
-            <div className='grid flex-1 gap-3'>
+            <div className='flex w-full flex-col justify-center gap-3'>
               <div
                 className={
                   'mb-2 text-center font-bold text-2xl text-gray-700 hidden md:block sm:text-3xl dark:text-gray-200'
