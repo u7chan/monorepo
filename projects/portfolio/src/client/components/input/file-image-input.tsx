@@ -133,7 +133,7 @@ function ImagePreview({ src, onImageClick, onCloseClick }: ImagePreviewProps) {
       <button
         type='button'
         onClick={onCloseClick}
-        className='absolute -top-[8px] left-[38px] flex cursor-pointer items-center justify-center rounded-full border bg-primary-800 hover:bg-primary-700'
+        className='absolute -top-2 left-9.5 flex cursor-pointer items-center justify-center rounded-full border bg-primary-800 hover:bg-primary-700'
       >
         <CloseIcon size={16} className='fill-white' />
       </button>
