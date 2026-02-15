@@ -10,7 +10,7 @@
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
-  "postCreateCommand": "sudo chown -R vscode:vscode ~/.local && sudo rm -f /etc/sudoers.d/vscode && safe-chain --version && bun i && [ -e .env ] || cp .env.example .env",
+  "postCreateCommand": "sudo rm -f /etc/sudoers.d/vscode && safe-chain --version && bun i && [ -e .env ] || cp .env.example .env",
   "customizations": {
     "vscode": {
       "settings": {
