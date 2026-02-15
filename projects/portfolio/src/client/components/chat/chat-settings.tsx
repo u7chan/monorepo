@@ -1,6 +1,6 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
 import { GearIcon } from '#/client/components/svg/gear-icon'
-import { HamburgerIcon } from '#/client/components/svg/hamburger-icon'
+import { SidebarIcon } from '#/client/components/svg/sidebar-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
 import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
@@ -197,7 +197,7 @@ export function ChatSettings({
             onClick={handleClickToggleSidebar}
             className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
           >
-            <HamburgerIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+            <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
           </button>
           {showNewChat && (
             <button
