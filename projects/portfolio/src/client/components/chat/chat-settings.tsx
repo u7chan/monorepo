@@ -240,12 +240,13 @@ export function ChatSettings({
                   } rounded-sm border px-1 py-1 outline-none transition-all duration-200`}
                   onChange={handleChangeAutoModel}
                   disabled={fakeMode}
+                  value={model}
                 >
                   {fetchedModels.length === 0 ? (
                     <option>Loading...</option>
                   ) : (
                     fetchedModels.map((modelName) => (
-                      <option key={modelName} value={modelName} selected={modelName === model}>
+                      <option key={modelName} value={modelName}>
                         {modelName}
                       </option>
                     ))
