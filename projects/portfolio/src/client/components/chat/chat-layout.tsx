@@ -8,7 +8,7 @@ interface Props {
 
 export function ChatLayout({ conversations, isSidebarOpen, onToggleSidebar, children }: PropsWithChildren<Props>) {
   return conversations ? (
-    <div className='flex bg-white dark:bg-gray-900'>
+    <div className='flex h-screen overflow-hidden bg-white dark:bg-gray-900'>
       {/* サイドバー - モバイルではドロワー、デスクトップでは常時表示 */}
       <div
         className={`fixed inset-y-0 left-0 z-50 w-64 min-h-screen border-gray-200 border-r bg-white dark:border-gray-700 dark:bg-gray-800 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:w-40 md:z-auto ${
