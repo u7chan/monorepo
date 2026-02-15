@@ -186,6 +186,7 @@ export function Chat() {
         showActions={viewModel.showSettingsActions}
         showNewChat={viewModel.conversations.length <= 0}
         showPopup={viewModel.showSettingsPopup}
+        showSidebarToggle={!!email}
         onNewChat={handleNewChat}
         onShowMenu={handleShowMenu}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
