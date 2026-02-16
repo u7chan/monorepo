@@ -61,7 +61,7 @@ export function ChatSettings({
   return (
     <>
       {/* Button Group - Fixed position (top-left, accounting for sidebar on desktop) */}
-      <div className='fixed top-0 left-0 z-30 p-4 md:left-40'>
+      <div className='fixed top-0 left-0 z-30 p-4 md:left-16'>
         {showActions && (
           <div className='flex flex-col items-center gap-2 sm:flex-row'>
             {/* Sidebar Toggle - Mobile only (shown only when logged in) */}
