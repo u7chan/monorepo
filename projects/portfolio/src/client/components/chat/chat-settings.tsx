@@ -47,6 +47,10 @@ export function ChatSettings({
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
+  const [reasoningEffort, setReasoningEffort] = useState<'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'>(
+    defaultSettings?.reasoningEffort ?? 'medium'
+  )
+  const [reasoningEffortEnabled, setReasoningEffortEnabled] = useState(defaultSettings?.reasoningEffortEnabled ?? false)
 
   const fetchModels = async (baseURL: string, apiKey: string) => {
     try {
@@ -172,6 +176,22 @@ export function ChatSettings({
     onChange?.(settings)
   }
 
+  const handleClickReasoningEffortEnabled = () => {
+    const newReasoningEffortEnabled = !reasoningEffortEnabled
+    setReasoningEffortEnabled(newReasoningEffortEnabled)
+    const settings = saveToLocalStorage({
+      reasoningEffortEnabled: newReasoningEffortEnabled,
+    })
+    onChange?.(settings)
+  }
+
+  const handleChangeReasoningEffort = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value as 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+    setReasoningEffort(value)
+    const settings = saveToLocalStorage({ reasoningEffort: value })
+    onChange?.(settings)
+  }
+
   // 領域外クリックでメニューを閉じる
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -219,7 +239,9 @@ export function ChatSettings({
           >
             <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
           </button>
-          <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>{fakeMode ? 'Fake Mode' : model}</span>
+          <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>
+            {fakeMode ? 'Fake Mode' : model}
+          </span>
         </div>
       )}
       {/* ポップアップメニュー */}
@@ -349,6 +371,30 @@ export function ChatSettings({
             onChange={handleChangeMaxTokens}
             className='w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500'
           />
+        </div>
+        <div className='flex items-center gap-2'>
+          <span
+            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${reasoningEffortEnabled ? '' : 'opacity-50'}`}
+          >
+            Reasoning Effort
+          </span>
+          <div className='flex w-full items-center gap-2'>
+            <select
+              name='reasoningEffort'
+              value={reasoningEffort}
+              onChange={handleChangeReasoningEffort}
+              disabled={!reasoningEffortEnabled}
+              className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${reasoningEffortEnabled ? '' : 'opacity-50'}`}
+            >
+              <option value='none'>none</option>
+              <option value='minimal'>minimal</option>
+              <option value='low'>low</option>
+              <option value='medium'>medium</option>
+              <option value='high'>high</option>
+              <option value='xhigh'>xhigh</option>
+            </select>
+            <ToggleInput value={reasoningEffortEnabled} onClick={handleClickReasoningEffortEnabled} />
+          </div>
         </div>
         <ToggleInput label='Markdown Preview' value={markdownPreview} onClick={handleClickShowMarkdownPreview} />
         <ToggleInput label='Stream Mode' value={streamMode} onClick={handleClickStreamMode} />

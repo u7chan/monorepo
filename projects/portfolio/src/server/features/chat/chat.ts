@@ -73,6 +73,7 @@ interface Chat {
       messages: z.infer<typeof MessageSchema>[]
       temperature?: number
       maxTokens?: number
+      reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
       stream: boolean
       includeUsage?: boolean
     }
@@ -95,6 +96,7 @@ export const chat: Chat = {
       messages,
       temperature,
       maxTokens,
+      reasoningEffort,
       stream,
       includeUsage,
     }: {
@@ -102,6 +104,7 @@ export const chat: Chat = {
       messages: z.infer<typeof MessageSchema>[]
       temperature?: number
       maxTokens?: number
+      reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
       stream: boolean
       includeUsage?: boolean
     }
@@ -146,6 +149,7 @@ export const chat: Chat = {
       messages,
       temperature,
       max_tokens: maxTokens,
+      reasoning_effort: reasoningEffort,
       stream,
       stream_options: includeUsage
         ? {

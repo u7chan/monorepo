@@ -321,6 +321,7 @@ export function ChatMain({
       stream: settings.streamMode,
       temperature: form.temperature,
       maxTokens: form.maxTokens,
+      reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
       onStream: (stream) => {
         setStream(stream)
       },
@@ -855,6 +856,7 @@ const sendChatCompletion = async (req: {
   stream: boolean
   temperature?: number
   maxTokens?: number
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
   onStream?: (stream: { content: string; reasoning_content: string }) => void
 }): Promise<ChatCompletionResult | null> => {
   const result = {
@@ -888,6 +890,7 @@ const sendChatCompletion = async (req: {
           stream: req.stream,
           temperature: req.temperature,
           max_tokens: req.maxTokens,
+          reasoning_effort: req.reasoningEffort,
           stream_options: req.stream
             ? {
                 include_usage: true,

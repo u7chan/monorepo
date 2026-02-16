@@ -12,6 +12,8 @@ export interface Settings {
   temperature: number
   temperatureEnabled: boolean
   maxTokens?: number
+  reasoningEffort: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+  reasoningEffortEnabled: boolean
   fakeMode: boolean
   autoModel: boolean
   markdownPreview: boolean
@@ -33,6 +35,8 @@ const defaultSettings: Partial<Settings> = {
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,
+  reasoningEffort: 'medium',
+  reasoningEffortEnabled: false,
   fakeMode: false,
   autoModel: false,
   markdownPreview: true,
