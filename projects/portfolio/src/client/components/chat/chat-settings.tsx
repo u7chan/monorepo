@@ -423,7 +423,9 @@ export function ChatSettings({
                 {/* Temperature */}
                 <div className='space-y-2'>
                   <div className='flex items-center justify-between'>
-                    <label className={`block text-sm font-medium ${temperatureEnabled ? '' : 'text-gray-400'}`}>
+                    <label
+                      className={`block text-sm font-medium ${temperatureEnabled ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}
+                    >
                       Temperature
                     </label>
                     <span
@@ -467,7 +469,9 @@ export function ChatSettings({
 
                 {/* Reasoning Effort */}
                 <div className='space-y-2'>
-                  <label className={`block text-sm font-medium ${reasoningEffortEnabled ? '' : 'text-gray-400'}`}>
+                  <label
+                    className={`block text-sm font-medium ${reasoningEffortEnabled ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}
+                  >
                     Reasoning Effort
                   </label>
                   <div className='flex items-center gap-3'>
