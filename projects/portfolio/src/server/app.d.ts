@@ -71,6 +71,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
+                    reasoning_effort?: "low" | "high" | "none" | "minimal" | "medium" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -115,6 +116,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
+                    reasoning_effort?: "low" | "high" | "none" | "minimal" | "medium" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -155,6 +157,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
+                    reasoning_effort?: "low" | "high" | "none" | "minimal" | "medium" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -253,7 +256,15 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     title: string;
                     messages: ({
                         role: "user";
-                        content: string;
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                         reasoningContent: string;
                         metadata: {
                             model: string;
@@ -265,7 +276,6 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     } | {
                         role: "assistant";
                         content: string;
-                        reasoningContent: string;
                         metadata: {
                             model: string;
                             usage: {
@@ -277,6 +287,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             finishReason?: string | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
@@ -299,8 +310,15 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     title: string;
                     messages: ({
                         role: "user";
-                        content: string;
-                        reasoningContent: string;
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                         metadata: {
                             model: string;
                             stream?: boolean | undefined;
@@ -308,10 +326,10 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             maxTokens?: number | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
-                        reasoningContent: string;
                         metadata: {
                             model: string;
                             usage: {
@@ -323,11 +341,12 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             finishReason?: string | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
-                        reasoningContent: string;
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                         metadata?: Record<string, never> | undefined;
                     })[];
                 };
@@ -346,8 +365,15 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     title: string;
                     messages: ({
                         role: "user";
-                        content: string;
-                        reasoningContent: string;
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                         metadata: {
                             model: string;
                             stream?: boolean | undefined;
@@ -355,10 +381,10 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             maxTokens?: number | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
-                        reasoningContent: string;
                         metadata: {
                             model: string;
                             usage: {
@@ -370,11 +396,12 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             finishReason?: string | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
-                        reasoningContent: string;
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                         metadata?: Record<string, never> | undefined;
                     })[];
                 };
@@ -391,8 +418,15 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     title: string;
                     messages: ({
                         role: "user";
-                        content: string;
-                        reasoningContent: string;
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                         metadata: {
                             model: string;
                             stream?: boolean | undefined;
@@ -400,10 +434,10 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             maxTokens?: number | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
-                        reasoningContent: string;
                         metadata: {
                             model: string;
                             usage: {
@@ -415,11 +449,12 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                             finishReason?: string | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
-                        reasoningContent: string;
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                         metadata?: Record<string, never> | undefined;
                     })[];
                 };
@@ -535,7 +570,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     'base-url': string;
                 };
             };
-            output: never[];
+            output: string[];
             outputFormat: "json";
             status: import('hono/utils/http-status').ContentfulStatusCode;
         };

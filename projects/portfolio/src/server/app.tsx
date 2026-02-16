@@ -87,6 +87,7 @@ const app = new Hono<HonoEnv>()
         stream: z.boolean().default(false),
         temperature: z.number().min(0).max(1).optional(),
         max_tokens: z.number().min(1).optional(),
+        reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         stream_options: z
           .object({
             include_usage: z.boolean().optional(),
@@ -116,6 +117,7 @@ const app = new Hono<HonoEnv>()
           messages: req.messages,
           temperature: req.temperature,
           maxTokens: req.max_tokens,
+          reasoningEffort: req.reasoning_effort,
           stream: req.stream,
           includeUsage: req.stream_options?.include_usage,
         }
