@@ -5,8 +5,8 @@ import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/clien
 import type { AppType } from '#/server/app'
 import { hc } from 'hono/client'
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react'
-import { ChatSettingsForm } from './chat-settings/chat-settings-form'
-import { ChatSettingsPanel } from './chat-settings/chat-settings-panel'
+import { ChatSettingsForm } from './chat-settings-form'
+import { ChatSettingsPanel } from './chat-settings-panel'
 
 const client = hc<AppType>('/')
 
