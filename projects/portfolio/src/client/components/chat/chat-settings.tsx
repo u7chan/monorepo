@@ -5,7 +5,7 @@ import { SidebarIcon } from '#/client/components/svg/sidebar-icon'
 import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
 import { hc } from 'hono/client'
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useState } from 'react'
 
 const client = hc<AppType>('/')
 
@@ -32,8 +32,6 @@ export function ChatSettings({
   onChange,
   onHidePopup,
 }: Props) {
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
@@ -192,234 +190,352 @@ export function ChatSettings({
     onChange?.(settings)
   }
 
-  // 領域外クリックでメニューを閉じる
+  // Prevent body scroll when panel is open
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        onHidePopup?.()
-      }
-    }
-    // メニューが開いているときだけリスナをつける
     if (showPopup) {
-      document.addEventListener('mousedown', handleClickOutside)
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
     }
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.body.style.overflow = ''
     }
   }, [showPopup])
 
   return (
-    <div className='fixed inline-block p-4' ref={wrapperRef}>
-      {/* ボタン群 */}
-      {showActions && (
-        <div className='flex flex-col items-center gap-2 sm:flex-row'>
-          {/* サイドバートグル - モバイルのみ表示（ログイン時のみ） */}
-          {showSidebarToggle && (
+    <>
+      {/* Button Group - Fixed position (top-left, accounting for sidebar on desktop) */}
+      <div className='fixed top-0 left-0 z-30 p-4 md:left-40'>
+        {showActions && (
+          <div className='flex flex-col items-center gap-2 sm:flex-row'>
+            {/* Sidebar Toggle - Mobile only (shown only when logged in) */}
+            {showSidebarToggle && (
+              <button
+                type='button'
+                onClick={handleClickToggleSidebar}
+                className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
+              >
+                <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+              </button>
+            )}
+            {showNewChat && (
+              <button
+                type='button'
+                onClick={handleClickNewChat}
+                className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
+              >
+                <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+              </button>
+            )}
             <button
               type='button'
-              onClick={handleClickToggleSidebar}
-              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
-            >
-              <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
-            </button>
-          )}
-          {showNewChat && (
-            <button
-              type='button'
-              onClick={handleClickNewChat}
+              onClick={handleClickShowMenu}
               className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
             >
-              <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+              <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
             </button>
-          )}
+            <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>
+              {fakeMode ? 'Fake Mode' : model}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Overlay Background */}
+      {showPopup && (
+        <div
+          className='fixed inset-0 z-40 bg-black/50 transition-opacity duration-300'
+          onClick={onHidePopup}
+          aria-hidden='true'
+        />
+      )}
+
+      {/* Slide-in Panel */}
+      <div
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] lg:w-[450px] transform bg-white shadow-2xl transition-transform duration-300 ease-in-out dark:bg-gray-800 ${
+          showPopup ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        role='dialog'
+        aria-modal='true'
+        aria-labelledby='chat-settings-title'
+      >
+        {/* Header */}
+        <div className='flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700'>
+          <h2 id='chat-settings-title' className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+            Chat Settings
+          </h2>
+          {/* Close button - visible on mobile */}
           <button
             type='button'
-            onClick={handleClickShowMenu}
-            className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:focus:ring-gray-500 dark:hover:bg-gray-700'
+            onClick={onHidePopup}
+            className='rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 sm:hidden dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+            aria-label='Close settings'
           >
-            <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+            <svg className='h-6 w-6' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
+            </svg>
           </button>
-          <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>
-            {fakeMode ? 'Fake Mode' : model}
-          </span>
         </div>
-      )}
-      {/* ポップアップメニュー */}
-      <div
-        className={`absolute top-15 ${showNewChat ? 'left-4 md:left-25' : 'left-4 md:left-15'} z-100 grid w-auto md:w-105 max-w-[calc(100vw-2rem)] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
-      >
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
-          >
-            Model
-          </span>
-          <div className='flex flex-1 items-center gap-2'>
-            {autoModel ? (
-              <div className='flex-1'>
-                <select
-                  name='model'
-                  className={`w-full ${
-                    fakeMode
-                      ? 'cursor-not-allowed border-gray-300 text-gray-500'
-                      : 'cursor-pointer border-gray-300 bg-white text-gray-900 hover:border-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
-                  } rounded-sm border px-1 py-1 outline-none transition-all duration-200`}
-                  onChange={handleChangeAutoModel}
-                  disabled={fakeMode}
-                  value={model}
-                >
-                  {fetchedModels.length === 0 ? (
-                    <option>Loading...</option>
-                  ) : (
-                    fetchedModels.map((modelName) => (
-                      <option key={modelName} value={modelName}>
-                        {modelName}
-                      </option>
-                    ))
-                  )}
-                </select>
+
+        {/* Settings Content - Scrollable */}
+        <div
+          className='h-[calc(100%-4rem)] overflow-y-auto p-4 pb-[env(safe-area-inset-bottom,0px)]'
+          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+        >
+          <div className='flex flex-col gap-5'>
+            {/* Model Section */}
+            <section className='space-y-3'>
+              <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Model</h3>
+              <div className='space-y-3'>
+                {/* Model Selection */}
+                <div className='space-y-2'>
+                  <label
+                    className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
+                    Model
+                  </label>
+                  <div className='flex items-center gap-2'>
+                    {autoModel ? (
+                      <div className='flex-1'>
+                        <select
+                          name='model'
+                          className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition-all duration-200 ${
+                            fakeMode
+                              ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                              : 'border-gray-300 bg-white text-gray-900 hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                          }`}
+                          onChange={handleChangeAutoModel}
+                          disabled={fakeMode}
+                          value={model}
+                        >
+                          {fetchedModels.length === 0 ? (
+                            <option>Loading...</option>
+                          ) : (
+                            fetchedModels.map((modelName) => (
+                              <option key={modelName} value={modelName}>
+                                {modelName}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                    ) : (
+                      <input
+                        name='model'
+                        defaultValue={model}
+                        disabled={fakeMode}
+                        onChange={handleChangeModel}
+                        placeholder='Enter model name'
+                        className={`flex-1 rounded-md border px-3 py-2 text-sm outline-none transition-all ${
+                          fakeMode
+                            ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                            : 'border-gray-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                        }`}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Auto Model Toggle */}
+                <ToggleInput
+                  label='Auto Fetch Models'
+                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                  value={autoModel}
+                  onClick={handleClickAutoModel}
+                />
               </div>
-            ) : (
-              <input
-                name='model'
-                defaultValue={model}
-                disabled={fakeMode || autoModel}
-                onChange={handleChangeModel}
-                placeholder='model'
-                className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode || autoModel ? 'cursor-not-allowed opacity-50' : ''}`}
+            </section>
+
+            {/* API Configuration */}
+            <section className='space-y-3'>
+              <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>API Configuration</h3>
+              <div className='space-y-3'>
+                {/* Base URL */}
+                <div className='space-y-2'>
+                  <label
+                    className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
+                    Base URL
+                  </label>
+                  <input
+                    name='baseURL'
+                    defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
+                    disabled={fakeMode}
+                    onChange={handleChangeBaseURL}
+                    placeholder='https://api.openai.com/v1'
+                    className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition-all ${
+                      fakeMode
+                        ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                        : 'border-gray-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                    }`}
+                  />
+                </div>
+
+                {/* API Key */}
+                <div className='space-y-2'>
+                  <label
+                    className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
+                    API Key
+                  </label>
+                  <input
+                    name='apiKey'
+                    type='password'
+                    disabled={fakeMode}
+                    defaultValue={defaultSettings.apiKey}
+                    onChange={handleChangeApiKey}
+                    placeholder='Enter your API key'
+                    className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition-all ${
+                      fakeMode
+                        ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                        : 'border-gray-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                    }`}
+                  />
+                </div>
+
+                {/* MCP Server URLs */}
+                <div className='space-y-2'>
+                  <label
+                    className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
+                    MCP Server URLs <span className='text-xs text-gray-500'>(comma separated)</span>
+                  </label>
+                  <input
+                    name='mcpServerURLs'
+                    defaultValue={defaultSettings.mcpServerURLs || ''}
+                    disabled={fakeMode}
+                    onChange={handleChangeMcpServerURLs}
+                    placeholder='http://localhost:3001, http://localhost:3002'
+                    className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition-all ${
+                      fakeMode
+                        ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                        : 'border-gray-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                    }`}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Parameters */}
+            <section className='space-y-3'>
+              <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Parameters</h3>
+              <div className='space-y-4'>
+                {/* Temperature */}
+                <div className='space-y-2'>
+                  <div className='flex items-center justify-between'>
+                    <label className={`block text-sm font-medium ${temperatureEnabled ? '' : 'text-gray-400'}`}>
+                      Temperature
+                    </label>
+                    <span
+                      className={`text-sm ${temperatureEnabled ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400'}`}
+                    >
+                      {temperature.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className='flex items-center gap-3'>
+                    <input
+                      name='temperature'
+                      type='range'
+                      min='0'
+                      max='1'
+                      step='0.01'
+                      value={temperature}
+                      onChange={handleChangeTemperature}
+                      disabled={!temperatureEnabled}
+                      className={`h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 dark:bg-primary-600 dark:accent-primary-500 ${
+                        temperatureEnabled ? '' : 'cursor-not-allowed opacity-50'
+                      }`}
+                    />
+                    <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
+                  </div>
+                </div>
+
+                {/* Max Tokens */}
+                <div className='space-y-2'>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>Max Tokens</label>
+                  <input
+                    name='maxTokens'
+                    type='number'
+                    min={1}
+                    max={4096}
+                    defaultValue={defaultSettings.maxTokens}
+                    onChange={handleChangeMaxTokens}
+                    placeholder='Max tokens'
+                    className='w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                  />
+                </div>
+
+                {/* Reasoning Effort */}
+                <div className='space-y-2'>
+                  <label className={`block text-sm font-medium ${reasoningEffortEnabled ? '' : 'text-gray-400'}`}>
+                    Reasoning Effort
+                  </label>
+                  <div className='flex items-center gap-3'>
+                    <select
+                      name='reasoningEffort'
+                      value={reasoningEffort}
+                      onChange={handleChangeReasoningEffort}
+                      disabled={!reasoningEffortEnabled}
+                      className={`flex-1 rounded-md border px-3 py-2 text-sm outline-none ${
+                        reasoningEffortEnabled
+                          ? 'border-gray-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                          : 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                      }`}
+                    >
+                      <option value='none'>none</option>
+                      <option value='minimal'>minimal</option>
+                      <option value='low'>low</option>
+                      <option value='medium'>medium</option>
+                      <option value='high'>high</option>
+                      <option value='xhigh'>xhigh</option>
+                    </select>
+                    <ToggleInput value={reasoningEffortEnabled} onClick={handleClickReasoningEffortEnabled} />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Display Options */}
+            <section className='space-y-3'>
+              <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Display Options</h3>
+              <div className='space-y-3'>
+                <ToggleInput
+                  label='Markdown Preview'
+                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                  value={markdownPreview}
+                  onClick={handleClickShowMarkdownPreview}
+                />
+                <ToggleInput
+                  label='Stream Mode'
+                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                  value={streamMode}
+                  onClick={handleClickStreamMode}
+                />
+                <ToggleInput
+                  label='Interactive Mode'
+                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                  value={interactiveMode}
+                  onClick={handleClickInteractiveMode}
+                />
+              </div>
+            </section>
+
+            {/* Debug Options */}
+            <section className='space-y-3'>
+              <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Debug Options</h3>
+              <ToggleInput
+                label='Fake Mode'
+                labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                value={fakeMode}
+                onClick={handleClickFakeMode}
               />
-            )}
-            <ToggleInput value={autoModel} onClick={handleClickAutoModel} />
+            </section>
           </div>
+
+          {/* Bottom spacing for safe area */}
+          <div className='h-6' />
         </div>
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
-          >
-            BaseURL
-          </span>
-          <input
-            name='baseURL'
-            defaultValue={defaultSettings.baseURL || 'https://api.openai.com/v1'}
-            disabled={fakeMode}
-            onChange={handleChangeBaseURL}
-            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
-          >
-            API KEY
-          </span>
-          <input
-            name='apiKey'
-            type='password'
-            disabled={fakeMode}
-            defaultValue={defaultSettings.apiKey}
-            onChange={handleChangeApiKey}
-            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-xs dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
-          >
-            MCP Server URLs (,)
-          </span>
-          <input
-            name='mcpServerURLs'
-            defaultValue={defaultSettings.mcpServerURLs || ''}
-            disabled={fakeMode}
-            onChange={handleChangeMcpServerURLs}
-            className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
-          />
-        </div>
-        <ToggleInput
-          label='Fake Mode'
-          labelClassName='min-w-20 md:min-w-27.5'
-          value={fakeMode}
-          onClick={handleClickFakeMode}
-        />
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
-          >
-            Temperature
-          </span>
-          <div className='flex w-full items-center gap-2'>
-            <input
-              name='temperature'
-              type='range'
-              min='0'
-              max='1'
-              step='0.01'
-              value={temperature}
-              onChange={handleChangeTemperature}
-              disabled={!temperatureEnabled}
-              className={`h-2 w-full cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 dark:bg-primary-600 dark:accent-primary-500 ${temperatureEnabled ? '' : 'opacity-50'}`}
-            />
-            <div className='mr-1 text-gray-900 text-sm dark:text-gray-200'>{temperature.toFixed(2)}</div>
-            <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
-          </div>
-        </div>
-        <div className='flex items-center gap-2'>
-          <span className='ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200'>
-            Max Tokens
-          </span>
-          <input
-            name='maxTokens'
-            type='number'
-            min={1}
-            max={4096}
-            defaultValue={defaultSettings.maxTokens}
-            onChange={handleChangeMaxTokens}
-            className='w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500'
-          />
-        </div>
-        <div className='flex items-center gap-2'>
-          <span
-            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${reasoningEffortEnabled ? '' : 'opacity-50'}`}
-          >
-            Reasoning Effort
-          </span>
-          <div className='flex w-full items-center gap-2'>
-            <select
-              name='reasoningEffort'
-              value={reasoningEffort}
-              onChange={handleChangeReasoningEffort}
-              disabled={!reasoningEffortEnabled}
-              className={`flex-1 rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${reasoningEffortEnabled ? '' : 'opacity-50'}`}
-            >
-              <option value='none'>none</option>
-              <option value='minimal'>minimal</option>
-              <option value='low'>low</option>
-              <option value='medium'>medium</option>
-              <option value='high'>high</option>
-              <option value='xhigh'>xhigh</option>
-            </select>
-            <ToggleInput value={reasoningEffortEnabled} onClick={handleClickReasoningEffortEnabled} />
-          </div>
-        </div>
-        <ToggleInput
-          label='Markdown'
-          labelClassName='min-w-20 md:min-w-27.5'
-          value={markdownPreview}
-          onClick={handleClickShowMarkdownPreview}
-        />
-        <ToggleInput
-          label='Stream Mode'
-          labelClassName='min-w-20 md:min-w-27.5'
-          value={streamMode}
-          onClick={handleClickStreamMode}
-        />
-        <ToggleInput
-          label='Interactive Mode'
-          labelClassName='min-w-20 md:min-w-27.5'
-          value={interactiveMode}
-          onClick={handleClickInteractiveMode}
-        />
       </div>
-    </div>
+    </>
   )
 }
