@@ -248,9 +248,9 @@ export function ChatSettings({
       <div
         className={`absolute top-15 ${showNewChat ? 'left-4 md:left-25' : 'left-4 md:left-15'} z-100 grid w-auto md:w-105 max-w-[calc(100vw-2rem)] gap-2 rounded border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-100 ease-in dark:border-gray-600 dark:bg-gray-800 ${showPopup ? 'opacity-100' : 'pointer-events-none'}`}
       >
-        <div className='flex items-center justify-between gap-2'>
+        <div className='flex items-center gap-2'>
           <span
-            className={`ml-1 min-w-15 md:min-w-20.75 font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
+            className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${fakeMode ? 'opacity-50' : ''}`}
           >
             Model
           </span>
@@ -259,7 +259,7 @@ export function ChatSettings({
               <div className='flex-1'>
                 <select
                   name='model'
-                  className={`w-full md:w-60.75 ${
+                  className={`w-full ${
                     fakeMode
                       ? 'cursor-not-allowed border-gray-300 text-gray-500'
                       : 'cursor-pointer border-gray-300 bg-white text-gray-900 hover:border-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
@@ -335,7 +335,12 @@ export function ChatSettings({
             className={`w-full rounded-sm border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 ${fakeMode ? 'cursor-not-allowed opacity-50' : ''}`}
           />
         </div>
-        <ToggleInput label='Fake Mode' value={fakeMode} onClick={handleClickFakeMode} />
+        <ToggleInput
+          label='Fake Mode'
+          labelClassName='min-w-20 md:min-w-27.5'
+          value={fakeMode}
+          onClick={handleClickFakeMode}
+        />
         <div className='flex items-center gap-2'>
           <span
             className={`ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200 ${temperatureEnabled ? '' : 'opacity-50'}`}
@@ -358,7 +363,7 @@ export function ChatSettings({
             <ToggleInput value={temperatureEnabled} onClick={handleClickTemperatureEnabled} />
           </div>
         </div>
-        <div className='flex items-center justify-between gap-2'>
+        <div className='flex items-center gap-2'>
           <span className='ml-1 min-w-20 md:min-w-27.5 font-medium text-gray-900 text-sm dark:text-gray-200'>
             Max Tokens
           </span>
@@ -396,9 +401,24 @@ export function ChatSettings({
             <ToggleInput value={reasoningEffortEnabled} onClick={handleClickReasoningEffortEnabled} />
           </div>
         </div>
-        <ToggleInput label='Markdown Preview' value={markdownPreview} onClick={handleClickShowMarkdownPreview} />
-        <ToggleInput label='Stream Mode' value={streamMode} onClick={handleClickStreamMode} />
-        <ToggleInput label='Interactive Mode' value={interactiveMode} onClick={handleClickInteractiveMode} />
+        <ToggleInput
+          label='Markdown'
+          labelClassName='min-w-20 md:min-w-27.5'
+          value={markdownPreview}
+          onClick={handleClickShowMarkdownPreview}
+        />
+        <ToggleInput
+          label='Stream Mode'
+          labelClassName='min-w-20 md:min-w-27.5'
+          value={streamMode}
+          onClick={handleClickStreamMode}
+        />
+        <ToggleInput
+          label='Interactive Mode'
+          labelClassName='min-w-20 md:min-w-27.5'
+          value={interactiveMode}
+          onClick={handleClickInteractiveMode}
+        />
       </div>
     </div>
   )

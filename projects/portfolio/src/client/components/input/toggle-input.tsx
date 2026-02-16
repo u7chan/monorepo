@@ -1,14 +1,19 @@
 interface Props {
   label?: string
+  labelClassName?: string
   value?: boolean
   disabled?: boolean
   onClick?: () => void
 }
 
-export function ToggleInput({ label, value, disabled, onClick }: Props) {
+export function ToggleInput({ label, labelClassName, value, disabled, onClick }: Props) {
   return (
     <div className='flex items-center justify-between gap-2'>
-      {label && <span className='ml-1 font-medium text-gray-900 text-sm dark:text-gray-200'>{label}</span>}
+      {label && (
+        <span className={`ml-1 shrink-0 font-medium text-gray-900 text-sm dark:text-gray-200 ${labelClassName || ''}`}>
+          {label}
+        </span>
+      )}
       <button
         type='button'
         disabled={disabled}
