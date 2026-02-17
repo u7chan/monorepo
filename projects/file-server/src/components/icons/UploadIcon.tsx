@@ -2,8 +2,9 @@ import type { FC } from "hono/jsx"
 
 export const UploadIcon: FC = () => (
   <svg
-    width="16"
-    height="16"
+    class="inline-block mx-auto"
+    width="48"
+    height="48"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
