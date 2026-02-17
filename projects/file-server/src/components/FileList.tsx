@@ -212,14 +212,16 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                   }
                 >
                   {/* ファイル/ディレクトリ名リンク */}
-                  <span className="flex items-center gap-2 text-indigo-700 font-medium hover:text-purple-600 transition-colors">
+                  <span className="flex items-center gap-2 text-indigo-700 font-medium hover:text-purple-600 transition-colors overflow-hidden min-w-0">
                     {file.type === "dir" ? (
                       <>
-                        <FolderIcon /> {file.name}/
+                        <span className="flex-shrink-0"><FolderIcon /></span>
+                        <span className="break-all min-w-0">{file.name}/</span>
                       </>
                     ) : (
                       <>
-                        <FileIcon /> {file.name}
+                        <span className="flex-shrink-0"><FileIcon /></span>
+                        <span className="break-all min-w-0">{file.name}</span>
                       </>
                     )}
                   </span>
