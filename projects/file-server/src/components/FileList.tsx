@@ -181,7 +181,10 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         `}
       >
         {sortedFiles.length === 0 ? (
-          <div className="py-12 px-4 text-center text-gray-500">
+          <div
+            className="py-12 px-4 text-center text-gray-500 cursor-pointer hover:text-indigo-600 transition-colors"
+            hx-on:click="document.getElementById('drop-upload-input').click()"
+          >
             <UploadIcon />
             <p className="mt-2">Drop files here to upload</p>
           </div>
@@ -263,7 +266,10 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
           </ul>
         )}
         {/* ドロップゾーンのヒント */}
-        <div className="py-4 text-center text-gray-400 text-sm opacity-0 hover:opacity-100 transition-opacity">
+        <div
+          className="py-4 text-center text-gray-400 text-sm opacity-0 hover:opacity-100 transition-opacity cursor-pointer hover:text-indigo-600"
+          hx-on:click="document.getElementById('drop-upload-input').click()"
+        >
           <p>Drag and drop files here to upload</p>
         </div>
       </div>
