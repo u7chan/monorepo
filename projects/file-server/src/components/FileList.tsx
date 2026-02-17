@@ -241,7 +241,10 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       {file.mtime && formatTimestamp(new Date(file.mtime))}
                     </div>
                     {/* 削除ボタン */}
-                    <div className="flex justify-end">
+                    <div
+                      className="flex justify-end"
+                      hx-on:click="event.stopPropagation()"
+                    >
                       <form
                         hx-post="/api/delete"
                         hx-target="#file-list-container"
