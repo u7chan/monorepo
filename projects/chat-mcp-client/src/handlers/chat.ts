@@ -1,6 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { APICallError, streamText } from 'ai'
 import type { Context } from 'hono'
+import { env } from 'hono/adapter'
 import { streamSSE } from 'hono/streaming'
 import type { ChatRequest } from '../schemas/chat'
 import { fetchMcpToolsFromServers } from '../services/mcp'
@@ -12,7 +13,7 @@ interface Env {
 }
 
 export async function handleChatCompletions(req: ChatRequest, c: Context<{ Bindings: Env }>) {
-  const envs = c.env
+  const envs = env(c)
 
   console.log('Received chat request:', req)
 
