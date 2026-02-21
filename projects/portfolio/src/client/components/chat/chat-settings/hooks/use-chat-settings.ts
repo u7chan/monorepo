@@ -90,44 +90,68 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSe
     }
   }, [autoModel])
 
-  const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
-    const settings = saveToLocalStorage({ [key]: value })
-    onChange?.(settings)
-    return settings
-  }, [onChange])
+  const updateSetting = useCallback(
+    <K extends keyof Settings>(key: K, value: Settings[K]) => {
+      const settings = saveToLocalStorage({ [key]: value })
+      onChange?.(settings)
+      return settings
+    },
+    [onChange]
+  )
 
-  const handleChangeAutoModel = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    setModel(event.target.value)
-    updateSetting('model', event.target.value)
-  }, [updateSetting])
+  const handleChangeAutoModel = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      setModel(event.target.value)
+      updateSetting('model', event.target.value)
+    },
+    [updateSetting]
+  )
 
-  const handleChangeManualModel = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setModel(event.target.value)
-    updateSetting('model', event.target.value)
-  }, [updateSetting])
+  const handleChangeManualModel = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setModel(event.target.value)
+      updateSetting('model', event.target.value)
+    },
+    [updateSetting]
+  )
 
-  const handleChangeBaseURL = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    updateSetting('baseURL', event.target.value)
-  }, [updateSetting])
+  const handleChangeBaseURL = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      updateSetting('baseURL', event.target.value)
+    },
+    [updateSetting]
+  )
 
-  const handleChangeApiKey = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    updateSetting('apiKey', event.target.value)
-  }, [updateSetting])
+  const handleChangeApiKey = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      updateSetting('apiKey', event.target.value)
+    },
+    [updateSetting]
+  )
 
-  const handleChangeMcpServerURLs = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    updateSetting('mcpServerURLs', event.target.value)
-  }, [updateSetting])
+  const handleChangeMcpServerURLs = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      updateSetting('mcpServerURLs', event.target.value)
+    },
+    [updateSetting]
+  )
 
-  const handleChangeTemperature = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseFloat(event.target.value)
-    setTemperature(value)
-    updateSetting('temperature', value)
-  }, [updateSetting])
+  const handleChangeTemperature = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = Number.parseFloat(event.target.value)
+      setTemperature(value)
+      updateSetting('temperature', value)
+    },
+    [updateSetting]
+  )
 
-  const handleChangeMaxTokens = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value ? Number.parseFloat(event.target.value) : undefined
-    updateSetting('maxTokens', value)
-  }, [updateSetting])
+  const handleChangeMaxTokens = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value ? Number.parseFloat(event.target.value) : undefined
+      updateSetting('maxTokens', value)
+    },
+    [updateSetting]
+  )
 
   const handleToggleTemperature = useCallback(() => {
     const newValue = !temperatureEnabled
@@ -171,17 +195,17 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSe
     updateSetting('reasoningEffortEnabled', newValue)
   }, [reasoningEffortEnabled, updateSetting])
 
-  const handleChangeReasoningEffort = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value as 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-    setReasoningEffort(value)
-    updateSetting('reasoningEffort', value)
-  }, [updateSetting])
+  const handleChangeReasoningEffort = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const value = event.target.value as 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+      setReasoningEffort(value)
+      updateSetting('reasoningEffort', value)
+    },
+    [updateSetting]
+  )
 
   // Merge default settings with current state
-  const settings = useMemo(
-    () => ({ ...defaultSettings, model }),
-    [defaultSettings, model]
-  )
+  const settings = useMemo(() => ({ ...defaultSettings, model }), [defaultSettings, model])
 
   return {
     settings,
