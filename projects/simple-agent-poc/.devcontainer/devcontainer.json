@@ -1,0 +1,30 @@
+{
+  "name": "simple-agent-poc",
+  "image": "python:3.14-slim",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode",
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers-extra/features/curl-apt-get:1": {},
+    "ghcr.io/devcontainers-extra/features/uv:1": {},
+    "ghcr.io/stu-bell/devcontainer-features/claude-code:0": {}
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "anthropic.claude-code",
+        "charliermarsh.ruff",
+        "astral-sh.ty",
+        "kevinrose.vsc-python-indent",
+        "oderwat.indent-rainbow",
+        "usernamehw.errorlens"
+      ]
+    }
+  }
+}
