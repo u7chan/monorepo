@@ -2,31 +2,28 @@
   "name": "portfolio",
   "build": {
     "dockerfile": "../Dockerfile",
-    "target": "dev",
+    "target": "dev"
   },
   "workspaceFolder": "/workspaces/monorepo/projects/portfolio",
   "workspaceMount": "source=${localWorkspaceFolder}/../..,target=/workspaces/monorepo,type=bind,consistency=cached",
   "appPort": ["3000:3000"],
   "containerEnv": {
-    "SHELL": "/bin/bash",
+    "SHELL": "/bin/bash"
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": false,
-  "mounts": [
-    "source=portfolio-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume",
-  ],
+  "mounts": ["source=portfolio-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume"],
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
       "settings": {
         "editor.tabSize": 2,
         "editor.formatOnSave": true,
-        "oxc.fmt.experimental": true,
         "editor.defaultFormatter": "oxc.oxc-vscode",
         // for Tailwind CSS --
         "files.associations": {
-          "*.css": "tailwindcss",
-        },
+          "*.css": "tailwindcss"
+        }
         // "emeraldwalk.runonsave": {
         //   "commands": [
         //     {
@@ -54,9 +51,9 @@
         "shardulm94.trailing-spaces",
         // "emeraldwalk.RunOnSave",
         "bradlc.vscode-tailwindcss",
-        "stivo.tailwind-fold",
+        "stivo.tailwind-fold"
         // -- for Tailwind CSS
-      ],
-    },
-  },
+      ]
+    }
+  }
 }
