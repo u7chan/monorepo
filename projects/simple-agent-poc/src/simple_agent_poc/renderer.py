@@ -1,8 +1,4 @@
-"""UI rendering functions for CLI output.
-
-This module handles all screen output (user-facing display).
-For internal logging, use the logging module.
-"""
+"""UI rendering functions for CLI output."""
 
 from simple_agent_poc.types import LLMResponse
 

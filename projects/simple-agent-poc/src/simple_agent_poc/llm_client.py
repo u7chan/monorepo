@@ -1,3 +1,5 @@
+"""LLM client implementation."""
+
 from litellm import completion
 
 from simple_agent_poc.interfaces import LLMClient

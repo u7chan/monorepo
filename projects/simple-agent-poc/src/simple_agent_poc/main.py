@@ -1,3 +1,5 @@
+"""Entry point for the CLI."""
+
 from dotenv import load_dotenv
 
 from simple_agent_poc.agent import Agent

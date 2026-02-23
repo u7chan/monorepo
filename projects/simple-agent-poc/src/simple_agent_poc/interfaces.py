@@ -1,3 +1,5 @@
+"""Protocol interfaces."""
+
 from typing import Protocol
 
 from simple_agent_poc.types import LLMResponse, Message
