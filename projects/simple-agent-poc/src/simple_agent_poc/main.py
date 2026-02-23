@@ -3,12 +3,17 @@ def get_agent_response(user_input: str) -> str:
 
 
 def main():
-    print("Hello from simple-agent-poc!")
-    print("Chatbot started. Press Ctrl+C to exit.\n")
+    print("═" * 40)
+    print("  ✨  Welcome to Simple Agent POC  ✨")
+    print("     (Press Ctrl+C to exit)")
+    print("═" * 40)
+    print()
 
     while True:
         try:
             user_input = input("> ")
+            if not user_input.strip():
+                continue
             response = get_agent_response(user_input)
             print(f"Agent: {response}")
         except KeyboardInterrupt:
