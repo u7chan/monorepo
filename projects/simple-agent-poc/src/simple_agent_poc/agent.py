@@ -2,20 +2,37 @@
 
 from simple_agent_poc.interfaces import LLMClient
 from simple_agent_poc.llm_client import LiteLLMClient
-from simple_agent_poc.types import LLMResponse, Message
+from simple_agent_poc.types import LLMResponse, Message, ValidationError
 
 
 class Agent:
     """Simple Agent that manages conversation with LLM."""
 
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
-        """Initialize the Agent with an optional LLM client.
+    def __init__(
+        self,
+        *,
+        system_prompt: str,
+        model: str,
+        llm_client: LLMClient | None = None,
+    ) -> None:
+        """Initialize the Agent with required configuration.
 
         Args:
+            system_prompt: System prompt for the agent (required). Should be pre-formatted.
+            model: Model name to use (required).
             llm_client: Optional LLM client. If not provided, uses default LiteLLMClient.
+
+        Raises:
+            ValidationError: If system_prompt or model is not provided.
         """
-        self._client: LLMClient = llm_client or LiteLLMClient(model="gpt-4.1-nano")
-        self._messages: list[Message] = []
+        if not system_prompt:
+            raise ValidationError("system_prompt is required")
+        if not model:
+            raise ValidationError("model is required")
+
+        self._client: LLMClient = llm_client or LiteLLMClient(model=model)
+        self._messages: list[Message] = [{"role": "system", "content": system_prompt}]
+        self._system_prompt = system_prompt
 
     def process_user_input(self, user_input: str) -> LLMResponse:
         """Process user input and return the agent's response.
