@@ -25,7 +25,7 @@ uv run ruff check .
 
 Type check:
 ```bash
-uvx ty check
+uv run ty check .
 ```
 
 ### Testing
