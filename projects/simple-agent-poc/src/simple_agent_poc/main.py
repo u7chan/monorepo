@@ -4,10 +4,10 @@ from litellm import completion
 load_dotenv()
 
 
-def get_agent_response(user_input: str) -> str:
+def get_agent_response(messages: list[dict]) -> str:
     response = completion(
         model="gpt-4.1-nano",
-        messages=[{"content": user_input, "role": "user"}],
+        messages=messages,
         stream=False,
     )
     return response.choices[0].message.content
@@ -20,12 +20,16 @@ def main():
     print("═" * 40)
     print()
 
+    messages: list[dict] = []
+
     while True:
         try:
             user_input = input("> ")
             if not user_input.strip():
                 continue
-            response = get_agent_response(user_input)
+            messages.append({"content": user_input, "role": "user"})
+            response = get_agent_response(messages)
+            messages.append({"content": response, "role": "assistant"})
             print(f"Agent: {response}")
         except KeyboardInterrupt:
             print("\nExiting...")
