@@ -48,3 +48,35 @@ LLMResponse: {content: str, usage: {prompt_tokens, completion_tokens, total_toke
 uv run ruff format .
 uv run ruff check .
 ```
+
+## Testing
+
+Run all tests:
+```bash
+uv run pytest
+```
+
+Run with coverage report:
+```bash
+uv run pytest --cov=simple_agent_poc --cov-report=term-missing
+```
+
+Generate HTML coverage report:
+```bash
+uv run pytest --cov=simple_agent_poc --cov-report=html
+```
+
+### Test Structure
+
+- `tests/test_types.py` - Exception classes and TypedDict definitions
+- `tests/test_llm_client.py` - LLM client with mocked LiteLLM
+- `tests/test_agent.py` - Agent business logic with mocked client
+- `tests/test_renderer.py` - UI rendering functions
+- `tests/test_interfaces.py` - Protocol definitions
+
+### Testing Guidelines
+
+- **Mock external dependencies**: LiteLLM client is always mocked
+- **Capture mutable arguments**: Lists passed to mocks are copied at call time
+- **Test error paths**: All custom exceptions have dedicated test cases
+- **UI tests use print mocking**: `builtins.print` is patched to verify output

@@ -30,3 +30,19 @@ Check code:
 ```bash
 uv run ruff check .
 ```
+
+Run tests:
+```bash
+uv run pytest
+```
+
+Run tests with coverage:
+```bash
+uv run pytest --cov=simple_agent_poc --cov-report=term-missing
+```
+
+Generate HTML coverage report:
+```bash
+uv run pytest --cov=simple_agent_poc --cov-report=html
+# Open htmlcov/index.html to view the report
+```
