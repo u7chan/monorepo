@@ -41,7 +41,11 @@ class LiteLLMClient(LLMClient):
             ) from e
         except Exception as e:
             error_msg = str(e).lower()
-            if "authentication" in error_msg or "api key" in error_msg or "401" in error_msg:
+            if (
+                "authentication" in error_msg
+                or "api key" in error_msg
+                or "401" in error_msg
+            ):
                 raise AuthenticationError(
                     message=str(e),
                     display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",

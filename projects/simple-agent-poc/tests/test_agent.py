@@ -2,10 +2,8 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from simple_agent_poc.agent import Agent
-from simple_agent_poc.types import LLMResponse, Message
+from simple_agent_poc.types import LLMResponse
 
 
 class TestAgent:

@@ -3,7 +3,7 @@
 from typing import get_type_hints
 
 from simple_agent_poc.interfaces import LLMClient
-from simple_agent_poc.types import LLMResponse, Message
+from simple_agent_poc.types import LLMResponse
 
 
 class TestLLMClient:

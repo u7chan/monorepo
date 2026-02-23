@@ -1,7 +1,5 @@
 """Tests for types module."""
 
-import pytest
-
 from simple_agent_poc.types import (
     AgentError,
     AuthenticationError,

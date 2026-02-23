@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from simple_agent_poc.renderer import (
     get_user_input,
     show_agent_response,
@@ -59,7 +57,9 @@ class TestShowWelcome:
         show_welcome()
 
         assert mock_print.call_count == 5
-        calls = [call.args[0] if call.args else "" for call in mock_print.call_args_list]
+        calls = [
+            call.args[0] if call.args else "" for call in mock_print.call_args_list
+        ]
         # Filter out empty prints (just newlines)
         non_empty_calls = [c for c in calls if c]
         assert "═" * 40 in non_empty_calls[0]
