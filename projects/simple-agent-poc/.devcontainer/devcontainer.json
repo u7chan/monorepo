@@ -12,6 +12,9 @@
   },
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
+  "containerEnv": {
+    "TZ": "Asia/Tokyo"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
