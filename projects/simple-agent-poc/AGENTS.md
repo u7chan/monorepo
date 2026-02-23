@@ -1,5 +1,23 @@
 # Simple Agent POC - Specification
 
+## Tech Stack
+
+### Core Technologies
+- **Python**: 3.14-slim (Lightweight Docker image)
+- **Package Manager**: uv (Fast Python package manager)
+- **Code Quality**: ruff (Linter and formatter)
+- **Testing**: pytest (Testing framework)
+
+### Development Tools
+- **uv**: Dependency management and virtual environments
+- **ruff**: Code formatting and linting
+- **pytest**: Unit and integration testing
+
+### Runtime Dependencies
+- **LiteLLM**: LLM provider integration
+- **python-dotenv**: Environment variable management
+- **Standard Library**: Minimal external dependencies
+
 ## Architecture
 
 Layered architecture with clear separation of concerns:
