@@ -22,7 +22,26 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "ruff>=0.15.2",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/simple_agent_poc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/simple_agent_poc"]
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+]
