@@ -1,26 +1,28 @@
 from dotenv import load_dotenv
-from litellm import completion
+
+from simple_agent_poc.interfaces import LLMClient
+from simple_agent_poc.llm_client import LiteLLMClient
+from simple_agent_poc.types import Message
 
 load_dotenv()
 
 
-def get_agent_response(messages: list[dict]) -> str:
-    response = completion(
-        model="gpt-4.1-nano",
-        messages=messages,
-        stream=False,
-    )
-    return response.choices[0].message.content
+def get_agent_response(client: LLMClient, messages: list[Message]) -> str:
+    """Get agent response using the LLM client"""
+    return client.complete(messages)
 
 
-def main():
+def main() -> None:
     print("═" * 40)
     print("  ✨  Welcome to Simple Agent POC  ✨")
     print("     (Press Ctrl+C to exit)")
     print("═" * 40)
     print()
 
-    messages: list[dict] = []
+    # Dependency injection
+    llm_client: LLMClient = LiteLLMClient(model="gpt-4.1-nano")
+
+    messages: list[Message] = []
 
     while True:
         try:
@@ -28,7 +30,7 @@ def main():
             if not user_input.strip():
                 continue
             messages.append({"content": user_input, "role": "user"})
-            response = get_agent_response(messages)
+            response = get_agent_response(llm_client, messages)
             messages.append({"content": response, "role": "assistant"})
             print(f"Agent: {response}")
         except KeyboardInterrupt:
