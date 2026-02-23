@@ -1,14 +1,21 @@
 """Entry point for the CLI."""
 
+import logging
+
 from dotenv import load_dotenv
 
 from simple_agent_poc.agent import Agent
 from simple_agent_poc.renderer import (
     get_user_input,
     show_agent_response,
+    show_error,
     show_exit_message,
     show_welcome,
 )
+
+# Suppress LiteLLM logging to stderr
+logging.getLogger("litellm").setLevel(logging.CRITICAL)
+logging.getLogger("litellm").addHandler(logging.NullHandler())
 
 load_dotenv()
 
@@ -37,6 +44,9 @@ def main() -> None:
         except KeyboardInterrupt:
             show_exit_message()
             break
+        except Exception as e:
+            # UI layer: display user-friendly error message
+            show_error(e)
 
 
 if __name__ == "__main__":

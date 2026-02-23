@@ -2,6 +2,33 @@
 
 from typing import Literal, TypedDict
 
+
+class AgentError(Exception):
+    """Base exception for agent errors."""
+
+    def __init__(self, message: str, display_message: str | None = None) -> None:
+        super().__init__(message)
+        self.display_message = display_message or message
+
+
+class AuthenticationError(AgentError):
+    """Raised when API authentication fails."""
+
+    pass
+
+
+class RateLimitError(AgentError):
+    """Raised when rate limit is exceeded."""
+
+    pass
+
+
+class LLMError(AgentError):
+    """Raised for general LLM errors."""
+
+    pass
+
+
 type MessageRole = Literal["user", "assistant"]
 
 
