@@ -18,3 +18,15 @@ OPENAI_BASE_URL="your-base-url"
 ```bash
 uv run dev
 ```
+
+## Development
+
+Format code:
+```bash
+uv run ruff format .
+```
+
+Check code:
+```bash
+uv run ruff check .
+```
