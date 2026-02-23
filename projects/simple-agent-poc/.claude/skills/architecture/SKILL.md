@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: Architecture guidance: Enforces 5-layer pattern for Python CLI apps.
+description: Enforces 5-layer pattern for Python CLI apps.
 ---
 
 ## Architecture
