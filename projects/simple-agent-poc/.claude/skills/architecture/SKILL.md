@@ -28,15 +28,17 @@ Layered architecture with clear separation of concerns:
 ## Types
 
 ```python
-Message: {role: "user" | "assistant", content: str}
+Message: {role: "system" | "user" | "assistant", content: str}
 LLMResponse: {content: str, usage: {prompt_tokens, completion_tokens, total_tokens}}
 ```
 
 ## Agent
 
 - Maintains conversation history (`list[Message]`)
-- Default model: `gpt-4.1-nano`
-- Injectable LLMClient for testing
+- Required constructor parameters:
+  - `system_prompt`: System prompt for the agent
+  - `model`: Model name to use
+- Optional `llm_client` for dependency injection (testing)
 
 ## Error Handling
 
