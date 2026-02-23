@@ -1,3 +1,5 @@
+"""Type definitions for the agent."""
+
 from typing import Literal, TypedDict
 
 type MessageRole = Literal["user", "assistant"]

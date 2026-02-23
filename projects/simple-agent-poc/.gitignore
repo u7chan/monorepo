@@ -84,3 +84,5 @@ Thumbs.db
 *.bak
 *.tmp
 .cache/
+.ruff_cache/
+.claude/

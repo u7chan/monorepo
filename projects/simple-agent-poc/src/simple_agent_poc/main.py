@@ -1,41 +1,41 @@
+"""Entry point for the CLI."""
+
 from dotenv import load_dotenv
 
-from simple_agent_poc.interfaces import LLMClient
-from simple_agent_poc.llm_client import LiteLLMClient
-from simple_agent_poc.types import LLMResponse, Message
+from simple_agent_poc.agent import Agent
+from simple_agent_poc.renderer import (
+    get_user_input,
+    show_agent_response,
+    show_exit_message,
+    show_welcome,
+)
 
 load_dotenv()
 
 
-def get_agent_response(client: LLMClient, messages: list[Message]) -> LLMResponse:
-    """Get agent response using the LLM client"""
-    return client.complete(messages)
-
-
 def main() -> None:
-    print("═" * 40)
-    print("  ✨  Welcome to Simple Agent POC  ✨")
-    print("     (Press Ctrl+C to exit)")
-    print("═" * 40)
-    print()
+    # UI layer: screen rendering
+    show_welcome()
 
-    # Dependency injection
-    llm_client: LLMClient = LiteLLMClient(model="gpt-4.1-nano")
+    # Business logic layer: initialize Agent
+    agent = Agent()
 
-    messages: list[Message] = []
-
+    # CLI loop
     while True:
         try:
-            user_input = input("> ")
+            # UI layer: user input
+            user_input = get_user_input()
             if not user_input.strip():
                 continue
-            messages.append({"content": user_input, "role": "user"})
-            response = get_agent_response(llm_client, messages)
-            messages.append({"content": response["content"], "role": "assistant"})
-            print(f"Agent: {response['content']}")
-            print(f"[Usage: Input={response['usage']['prompt_tokens']}, Output={response['usage']['completion_tokens']}, Total={response['usage']['total_tokens']} tokens]")
+
+            # Business logic layer: process request
+            response = agent.process_user_input(user_input)
+
+            # UI layer: display results
+            show_agent_response(response)
+
         except KeyboardInterrupt:
-            print("\nExiting...")
+            show_exit_message()
             break
 
 
