@@ -1,6 +1,18 @@
 """UI rendering functions for CLI output."""
 
-from simple_agent_poc.types import LLMResponse
+from simple_agent_poc.types import AgentError, LLMResponse
+
+
+def show_error(error: Exception) -> None:
+    """Display an error message to the user.
+
+    Shows a user-friendly message for known error types,
+    or a generic message for unexpected errors.
+    """
+    if isinstance(error, AgentError):
+        print(f"⚠️  Error: {error.display_message}")
+    else:
+        print(f"⚠️  Error: An unexpected error occurred: {error}")
 
 
 def show_welcome() -> None:

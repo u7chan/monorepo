@@ -1,9 +1,19 @@
 """LLM client implementation."""
 
 from litellm import completion
+from litellm.exceptions import (
+    AuthenticationError as LiteLLMAuthError,
+    RateLimitError as LiteLLMRateLimitError,
+)
 
 from simple_agent_poc.interfaces import LLMClient
-from simple_agent_poc.types import LLMResponse, Message
+from simple_agent_poc.types import (
+    LLMResponse,
+    Message,
+    AuthenticationError,
+    RateLimitError,
+    LLMError,
+)
 
 
 class LiteLLMClient(LLMClient):
@@ -13,11 +23,34 @@ class LiteLLMClient(LLMClient):
         self.model = model
 
     def complete(self, messages: list[Message]) -> LLMResponse:
-        response = completion(
-            model=self.model,
-            messages=messages,
-            stream=False,
-        )
+        try:
+            response = completion(
+                model=self.model,
+                messages=messages,
+                stream=False,
+            )
+        except LiteLLMAuthError as e:
+            raise AuthenticationError(
+                message=str(e),
+                display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
+            ) from e
+        except LiteLLMRateLimitError as e:
+            raise RateLimitError(
+                message=str(e),
+                display_message="Rate limit exceeded. Please wait a moment before trying again.",
+            ) from e
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "authentication" in error_msg or "api key" in error_msg or "401" in error_msg:
+                raise AuthenticationError(
+                    message=str(e),
+                    display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
+                ) from e
+            raise LLMError(
+                message=str(e),
+                display_message=f"An error occurred while communicating with the LLM: {e}",
+            ) from e
+
         return {
             "content": response.choices[0].message.content,
             "usage": {
