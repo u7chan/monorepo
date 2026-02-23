@@ -29,7 +29,13 @@ class LLMError(AgentError):
     pass
 
 
-type MessageRole = Literal["user", "assistant"]
+class ValidationError(AgentError):
+    """Raised when validation fails."""
+
+    pass
+
+
+type MessageRole = Literal["system", "user", "assistant"]
 
 
 class Message(TypedDict):
