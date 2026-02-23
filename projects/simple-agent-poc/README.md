@@ -31,6 +31,11 @@ Check code:
 uv run ruff check .
 ```
 
+Type check:
+```bash
+uvx ty check
+```
+
 Run tests:
 ```bash
 uv run pytest

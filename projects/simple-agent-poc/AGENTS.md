@@ -12,6 +12,7 @@
 - **uv**: Dependency management and virtual environments
 - **ruff**: Code formatting and linting
 - **pytest**: Unit and integration testing
+- **ty**: Type checker
 
 ### Runtime Dependencies
 - **LiteLLM**: LLM provider integration
@@ -62,12 +63,24 @@ LLMResponse: {content: str, usage: {prompt_tokens, completion_tokens, total_toke
 
 ## Development
 
+### Code Quality
+
+Format code:
 ```bash
 uv run ruff format .
+```
+
+Check code:
+```bash
 uv run ruff check .
 ```
 
-## Testing
+Type check:
+```bash
+uvx ty check
+```
+
+### Testing
 
 Run all tests:
 ```bash
@@ -84,7 +97,7 @@ Generate HTML coverage report:
 uv run pytest --cov=simple_agent_poc --cov-report=html
 ```
 
-### Test Structure
+#### Test Structure
 
 - `tests/test_types.py` - Exception classes and TypedDict definitions
 - `tests/test_llm_client.py` - LLM client with mocked LiteLLM
@@ -92,7 +105,7 @@ uv run pytest --cov=simple_agent_poc --cov-report=html
 - `tests/test_renderer.py` - UI rendering functions
 - `tests/test_interfaces.py` - Protocol definitions
 
-### Testing Guidelines
+#### Testing Guidelines
 
 - **Mock external dependencies**: LiteLLM client is always mocked
 - **Capture mutable arguments**: Lists passed to mocks are copied at call time

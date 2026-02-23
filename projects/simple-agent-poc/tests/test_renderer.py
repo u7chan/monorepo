@@ -1,6 +1,6 @@
 """Tests for renderer module."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from simple_agent_poc.renderer import (
     get_user_input,
@@ -16,7 +16,7 @@ class TestShowError:
     """Tests for show_error function."""
 
     @patch("builtins.print")
-    def test_show_agent_error(self, mock_print: object) -> None:
+    def test_show_agent_error(self, mock_print: MagicMock) -> None:
         """Test showing an AgentError."""
         error = AgentError(
             message="Internal details",
@@ -27,7 +27,7 @@ class TestShowError:
         mock_print.assert_called_once_with("⚠️  Error: User-friendly message")
 
     @patch("builtins.print")
-    def test_show_authentication_error(self, mock_print: object) -> None:
+    def test_show_authentication_error(self, mock_print: MagicMock) -> None:
         """Test showing an AuthenticationError."""
         error = AuthenticationError(
             message="Auth failed",
@@ -38,7 +38,7 @@ class TestShowError:
         mock_print.assert_called_once_with("⚠️  Error: Please check your API key")
 
     @patch("builtins.print")
-    def test_show_generic_exception(self, mock_print: object) -> None:
+    def test_show_generic_exception(self, mock_print: MagicMock) -> None:
         """Test showing a generic exception."""
         error = ValueError("Something went wrong")
         show_error(error)
@@ -52,7 +52,7 @@ class TestShowWelcome:
     """Tests for show_welcome function."""
 
     @patch("builtins.print")
-    def test_show_welcome(self, mock_print: object) -> None:
+    def test_show_welcome(self, mock_print: MagicMock) -> None:
         """Test showing welcome banner."""
         show_welcome()
 
@@ -71,7 +71,7 @@ class TestGetUserInput:
     """Tests for get_user_input function."""
 
     @patch("builtins.input", return_value="hello world")
-    def test_get_user_input(self, mock_input: object) -> None:
+    def test_get_user_input(self, mock_input: MagicMock) -> None:
         """Test getting user input."""
         result = get_user_input()
 
@@ -79,7 +79,7 @@ class TestGetUserInput:
         mock_input.assert_called_once_with("> ")
 
     @patch("builtins.input", return_value="")
-    def test_get_empty_input(self, mock_input: object) -> None:
+    def test_get_empty_input(self, mock_input: MagicMock) -> None:
         """Test getting empty input."""
         result = get_user_input()
 
@@ -90,7 +90,7 @@ class TestShowAgentResponse:
     """Tests for show_agent_response function."""
 
     @patch("builtins.print")
-    def test_show_response(self, mock_print: object) -> None:
+    def test_show_response(self, mock_print: MagicMock) -> None:
         """Test showing agent response."""
         response: LLMResponse = {
             "content": "Hello, user!",
@@ -114,7 +114,7 @@ class TestShowExitMessage:
     """Tests for show_exit_message function."""
 
     @patch("builtins.print")
-    def test_show_exit_message(self, mock_print: object) -> None:
+    def test_show_exit_message(self, mock_print: MagicMock) -> None:
         """Test showing exit message."""
         show_exit_message()
 
