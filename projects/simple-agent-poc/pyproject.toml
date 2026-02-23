@@ -5,3 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+[project.scripts]
+dev = "simple_agent_poc.main:main"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simple_agent_poc"]
