@@ -36,11 +36,12 @@ BUILD_PROJECTS=$(cat build_projects.txt)
 echo "Projects to build: $BUILD_PROJECTS"
 
 # カンマ区切りの場合とファイルの各行の場合の両方に対応
+# （環境変数経由とファイル直接読み込みの両方をサポート）
 if [[ "$BUILD_PROJECTS" == *","* ]]; then
-  # カンマ区切りの場合
+  # 環境変数BUILD_PROJECTからカンマ区切りで読み込んだ場合
   IFS=',' read -ra PROJECT_ARRAY <<< "$BUILD_PROJECTS"
 else
-  # 改行区切りの場合
+  # ファイルから改行区切りで読み込んだ場合
   mapfile -t PROJECT_ARRAY < build_projects.txt
 fi
 
