@@ -93,11 +93,29 @@ def get_user_input() -> str:
 def show_agent_response(response: LLMResponse) -> None:
     """Display the agent's response."""
     print(f"Agent: {response['content']}")
-    print(
-        f"[Usage: Input={response['usage']['prompt_tokens']}, "
-        f"Output={response['usage']['completion_tokens']}, "
-        f"Total={response['usage']['total_tokens']} tokens]"
+
+    # Format response time
+    elapsed = response["response_time"]
+    if elapsed < 1:
+        time_str = f"{elapsed * 1000:.0f}ms"
+    else:
+        time_str = f"{elapsed:.2f}s"
+
+    # Extract model name (remove provider prefix if exists)
+    model = response["model"]
+    if "/" in model:
+        model = model.split("/")[-1]
+
+    # Build stats line
+    usage = response["usage"]
+    stats = (
+        f"Model: {model} │ "
+        f"Time: {time_str} │ "
+        f"Tokens: {usage['prompt_tokens']} → {usage['completion_tokens']} "
+        f"(total: {usage['total_tokens']})"
     )
+
+    print(f"  └─ {stats}")
 
 
 def show_exit_message() -> None:
