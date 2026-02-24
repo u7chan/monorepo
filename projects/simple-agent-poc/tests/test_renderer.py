@@ -2,12 +2,15 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from simple_agent_poc.renderer import (
     get_user_input,
     show_agent_response,
     show_error,
     show_exit_message,
     show_welcome,
+    with_indicator,
 )
 from simple_agent_poc.types import AgentError, AuthenticationError, LLMResponse
 
@@ -119,3 +122,25 @@ class TestShowExitMessage:
         show_exit_message()
 
         mock_print.assert_called_once_with("\nExiting...")
+
+
+class TestWithIndicator:
+    """Tests for with_indicator function."""
+
+    def test_executes_operation_and_returns_result(self) -> None:
+        """Test that operation is executed and result is returned."""
+        mock_op = MagicMock(return_value="test_result")
+
+        result = with_indicator("Loading", mock_op)
+
+        assert result == "test_result"
+        mock_op.assert_called_once()
+
+    def test_propagates_exception_and_stops_indicator(self) -> None:
+        """Test that exceptions are propagated and indicator stops cleanly."""
+        mock_op = MagicMock(side_effect=ValueError("test error"))
+
+        with pytest.raises(ValueError, match="test error"):
+            with_indicator("Loading", mock_op)
+
+        mock_op.assert_called_once()
