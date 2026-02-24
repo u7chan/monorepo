@@ -12,6 +12,7 @@ from simple_agent_poc.renderer import (
     show_error,
     show_exit_message,
     show_welcome,
+    with_indicator,
 )
 
 # Suppress LiteLLM logging to stderr
@@ -58,12 +59,19 @@ def main() -> None:
                 continue
 
             # Business logic layer: process request
-            response = agent.process_user_input(user_input)
+            response = with_indicator(
+                "Thinking",
+                lambda: agent.process_user_input(user_input),
+            )
 
             # UI layer: display results
             show_agent_response(response)
 
         except KeyboardInterrupt:
+            show_exit_message()
+            break
+        except EOFError:
+            # Handle EOF (e.g., piped input, terminal closed)
             show_exit_message()
             break
         except Exception as e:
