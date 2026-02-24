@@ -153,7 +153,7 @@ export function Diff() {
         >
           {mode === 'view' ? (
             <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path strokeWidth='2.5' d='M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 2-2v-7'></path>
+              <path strokeWidth='2.5' d='M11 4H4a2 2 0 0 0 -2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2 -2v-7'></path>
               <path strokeWidth='2.5' d='m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z'></path>
             </svg>
           ) : (
