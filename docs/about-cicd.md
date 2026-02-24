@@ -4,55 +4,125 @@
 
 GitHub Actionsを使用したCI/CDパイプラインです。変更のあったプロジェクトのみを検出して効率的にビルド・デプロイを行います。
 
-| トリガー | 実行内容 |
+## CIとCDの違い
+
+| 項目 | CI（継続的インテグレーション） | CD（継続的デリバリー） |
+|-----|---------------------------|---------------------|
+| **トリガー** | `main` ブランチへのPR作成・更新時 | `main` ブランチへのpush時（PRマージなど） |
+| **目的** | 変更の検証 | 本番デプロイ |
+| **ビルドステージ** | `test` ステージ | `final` ステージ |
+| **成果物** | ビルド結果の確認のみ | GHCRへイメージをプッシュ |
+| **ワークフロー** | `pullrequest-check.yml` | `docker-build.yml` |
+
+## CI発火条件
+
+CIは以下の条件で発火します。
+
+### トリガー
+
+| イベント | 発火条件 |
 |---------|---------|
-| **mainブランチへのpush** | Dockerイメージをビルド → GHCRにプッシュ → 古いイメージをクリーンアップ |
-| **mainブランチへのpull request** | 変更プロジェクトを検出 → testステージでビルド検証 |
+| **Pull Request** | `main` ブランチへのPR作成・更新時 |
+
+### 対象ディレクトリ
+
+- `projects/`
+- `packages/`
+
+### プロジェクト選定基準
+
+変更ディレクトリのうち、**ルートに `Dockerfile` が存在し、`test` ステージを持つもの**が対象です。
+
+```
+projects/
+├── my-app/
+│   ├── Dockerfile  ← CI対象（testステージあり）
+│   └── src/
+└── lib/
+    └── src/        ← CI対象外（Dockerfileなし）
+```
+
+### testステージの必要性
+
+CIは `--target=test` を指定してビルドします。`test` ステージがないプロジェクトはスキップされます。
+
+```dockerfile
+# testステージが必須
+FROM base AS test
+RUN ./run-tests.sh
+```
+
+サンプルプロジェクト: [`projects/cicd-ci-sample/`](../projects/cicd-ci-sample/)
+
+## CD発火条件
+
+CDは以下の条件で発火します。
+
+### トリガー
+
+| イベント | 発火条件 |
+|---------|---------|
+| **Push** | `main` ブランチへのpush時（PRマージ、直接pushなど） |
+
+### 対象ディレクトリ
+
+- `projects/`
+- `packages/`
+
+### プロジェクト選定基準
+
+変更ディレクトリのうち、**ルートに `Dockerfile` が存在するもの**が対象です。
+
+```
+projects/
+├── my-app/
+│   ├── Dockerfile  ← CD対象
+│   └── src/
+└── lib/
+    └── src/        ← CD対象外（Dockerfileなし）
+```
+
+### finalステージ
+
+CDは `--target=final` を指定してビルドします。`final` ステージがない場合は、マルチステージ全体がビルドされます。
+
+```dockerfile
+# finalステージ（推奨）
+FROM base AS final
+COPY . .
+CMD ["./start.sh"]
+```
+
+### 実行される処理
+
+1. **Dockerイメージのビルド** - `final` ステージでビルド
+2. **GHCRへのプッシュ** - `ghcr.io/{リポジトリ}/{プロジェクト}:latest` としてプッシュ
+3. **古いイメージのクリーンアップ** - 別リポジトリのワークフローをトリガー
 
 ## ワークフロー構成
 
-### docker-build.yml (CD - 継続的デリバリー)
-
-mainブランチへのpush時に実行されます。
-
-```
-1. コードのチェックアウト (fetch-depth: 2)
-   └─ 直前のコミットとの差分検出に必要な最小限の履歴
-
-2. 変更ディレクトリの検出 (get-changed-directories)
-   └─ projects/ および packages/ 配下の変更を検出
-
-3. 変更プロジェクトの特定 (get-changed-projects)
-   └─ Dockerfileがあるプロジェクトを絞り込み
-
-4. Dockerイメージのビルド (build-docker-images)
-   └─ finalステージを指定してビルド
-
-5. Dockerイメージのプッシュ (push-docker-images)
-   └─ GHCR (ghcr.io) へlatestタグでプッシュ
-
-6. 古いイメージのクリーンアップ (cleanup-docker-images)
-   └─ 別リポジトリのワークフローをトリガーして整理
-```
-
-### pullrequest-check.yml (CI - 継続的インテグレーション)
-
-mainブランチへのpull request時に実行されます。
+### pullrequest-check.yml (CI)
 
 ```
 1. コードのチェックアウト (fetch-depth: 50)
-   └─ PRのベースブランチとの差分検出に必要な履歴
-
-2. 変更ディレクトリの検出 (get-changed-directories)
-
-3. 変更プロジェクトの特定 (get-changed-projects)
-
-4. Dockerイメージのビルド (build-docker-images)
-   └─ testステージを指定してビルド（軽量な検証用）
-
-5. Dockerイメージの表示
-   └─ ビルド結果の確認
+2. 変更ディレクトリの検出
+3. 変更プロジェクトの特定（Dockerfile + testステージ必須）
+4. Dockerイメージのビルド (--target=test)
+5. ビルド結果の表示
 ```
+
+### docker-build.yml (CD)
+
+```
+1. コードのチェックアウト (fetch-depth: 2)
+2. 変更ディレクトリの検出
+3. 変更プロジェクトの特定（Dockerfile必須）
+4. Dockerイメージのビルド (--target=final)
+5. Dockerイメージのプッシュ (GHCR)
+6. 古いイメージのクリーンアップ
+```
+
+---
 
 ## カスタムアクション詳細
 
@@ -62,10 +132,9 @@ mainブランチへのpull request時に実行されます。
 
 | 項目 | 内容 |
 |-----|------|
-| 入力 | `HEAD` とベースリファレンス（PR時: `origin/main`、Push時: `HEAD~1`）の差分 |
-| 対象 | `projects/`、`packages/` 配下のディレクトリ |
-| 出力 | `changed_dirs.txt`（改行区切りのディレクトリパス） |
-| 特徴 | リネーム（移動）されたファイルにも対応 |
+| 入力 | `HEAD` とベースリファレンスの差分 |
+| 対象 | `projects/`、`packages/` 配下 |
+| 出力 | `changed_dirs.txt` |
 
 ### get-changed-projects
 
@@ -75,7 +144,7 @@ Dockerfileがある変更プロジェクトを絞り込みます。
 |-----|------|
 | 入力 | `changed_dirs.txt` |
 | 処理 | 各ディレクトリに `Dockerfile` が存在するか確認 |
-| 出力 | `build_projects.txt` + `BUILD_PROJECT` 環境変数（カンマ区切り） |
+| 出力 | `build_projects.txt` + `BUILD_PROJECT` 環境変数 |
 
 ### build-docker-images
 
@@ -83,16 +152,12 @@ Dockerイメージをビルドします。
 
 | パラメータ | 必須 | 説明 |
 |-----------|------|------|
-| `stage` | ○ | ビルドステージ（`test` または `final`） |
+| `stage` | ○ | `test` または `final` |
 
 **ビルド仕様:**
 - `COMMIT_HASH` をビルド引数として渡す
-- 指定ステージが存在する場合: `--target` 指定でビルド
-- 存在しない場合: 通常ビルド（マルチステージ全体）
 - タグ: `ghcr.io/{リポジトリ名}/{プロジェクト名}:latest`
-
-**オプション機能:**
-- プロジェクト配下に `pre-docker-build.sh` があれば自動実行
+- `pre-docker-build.sh` があれば自動実行
 
 ### push-docker-images
 
@@ -100,12 +165,8 @@ GHCRへDockerイメージをプッシュします。
 
 | パラメータ | 必須 | 説明 |
 |-----------|------|------|
-| `registry` | × | レジストリURL（デフォルト: `ghcr.io`） |
 | `username` | ○ | レジストリのユーザー名 |
 | `password` | ○ | レジストリのパスワード（トークン） |
-
-**出力:**
-- `project_names_csv`: プッシュしたプロジェクト名（カンマ区切り）
 
 ### cleanup-docker-images
 
@@ -113,14 +174,10 @@ GHCRへDockerイメージをプッシュします。
 
 | パラメータ | 必須 | 説明 |
 |-----------|------|------|
-| `token` | ○ | GitHubトークン（`repo` スコープが必要） |
+| `token` | ○ | GitHubトークン（`repo` スコープ） |
 | `repo-name` | ○ | クリーンアップ処理があるリポジトリ名 |
 | `project-names-csv` | ○ | 対象プロジェクト名（カンマ区切り） |
 | `keep-count` | × | 保持するイメージ数（デフォルト: `3`） |
-
-**動作:**
-- リポジトリディスパッチイベントを発行
-- 別リポジトリのワークフローをトリガー
 
 ## ファイル間のデータ連携
 
@@ -163,6 +220,7 @@ GHCRへDockerイメージをプッシュします。
 
 - `BUILD_PROJECT` 環境変数が設定されているか確認
 - Dockerfileがプロジェクトルートに存在するか確認
+- **CIの場合**: `test` ステージが定義されているか確認
 
 ### プッシュに失敗する
 
