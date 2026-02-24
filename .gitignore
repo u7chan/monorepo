@@ -1,2 +1,6 @@
+# Ignore files that track recently changed directories and build projects
 changed_dirs.txt
 build_projects.txt
+
+# Ignore local settings for Claude
+.claude/settings.local.json
