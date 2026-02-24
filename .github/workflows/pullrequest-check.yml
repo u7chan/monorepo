@@ -8,13 +8,16 @@ on:
 
 jobs:
   pull-request-check-if-changes-detected:
-    runs-on: ubuntu-latest # Docker Command を使うので ubuntu-slim は利用できない
+    # Docker commands require ubuntu-latest, ubuntu-slim is not available
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 50 # プルリクエストの差分を取得するのに十分な履歴
+          # PRのベースブランチとの差分取得に必要な履歴深度
+          # 50コミットあれば通常のPRの変更はカバーできる
+          fetch-depth: 50
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch base branch for comparison

@@ -6,7 +6,7 @@
 set -e
 
 # 対象ディレクトリを定義
-TARGET_DIRS=("projects", "packages")
+TARGET_DIRS=("projects" "packages")
 
 # 関数: diff_with_renames
 # 引数:

@@ -13,7 +13,6 @@
 #   - ローカルテストでDockerが不要な場合に使用
 
 set -e
-# set -x  # デバッグ出力（必要に応じてコメントアウト）
 
 # モックモードの環境変数をチェック
 # MOCK_DOCKER_COMMANDS=true の場合、実際のDockerコマンドを実行せずにモックで動作
@@ -120,11 +119,12 @@ else
 fi
 
 # カンマ区切りの場合とファイルの各行の場合の両方に対応
+# （環境変数経由とファイル直接読み込みの両方をサポート）
 if [[ "$BUILD_PROJECTS" == *","* ]]; then
-  # カンマ区切りの場合
+  # 環境変数BUILD_PROJECTからカンマ区切りで読み込んだ場合
   IFS=',' read -ra PROJECT_ARRAY <<< "$BUILD_PROJECTS"
 else
-  # 改行区切りの場合（macOS互換）
+  # ファイルから改行区切りで読み込んだ場合（macOS互換）
   PROJECT_ARRAY=()
   while IFS= read -r line; do
     [[ -n "$line" ]] && PROJECT_ARRAY+=("$line")

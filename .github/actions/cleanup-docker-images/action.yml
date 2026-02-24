@@ -1,0 +1,29 @@
+name: Cleanup Docker Images
+description: Trigger repository dispatch to clean up old Docker images
+
+inputs:
+  token:
+    description: "GitHub token for repository dispatch"
+    required: true
+  repo-name:
+    description: "Target repository name for cleanup"
+    required: true
+  project-names-csv:
+    description: "Comma separated project names to clean up"
+    required: true
+  keep-count:
+    description: "Number of images to keep"
+    required: false
+    default: "3"
+
+runs:
+  using: composite
+  steps:
+    - name: Trigger Cleanup Workflow
+      shell: bash
+      run: |
+        ${{ github.action_path }}/cleanup-docker-images.sh \
+          "${{ inputs.token }}" \
+          "${{ inputs.repo-name }}" \
+          "${{ inputs.project-names-csv }}" \
+          "${{ inputs.keep-count }}"
