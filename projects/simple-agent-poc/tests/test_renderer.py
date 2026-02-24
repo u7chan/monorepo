@@ -102,15 +102,18 @@ class TestShowAgentResponse:
                 "completion_tokens": 5,
                 "total_tokens": 15,
             },
+            "model": "gpt-4o-mini",
+            "response_time": 0.85,
         }
         show_agent_response(response)
 
         assert mock_print.call_count == 2
         calls = [call.args[0] for call in mock_print.call_args_list]
         assert calls[0] == "Agent: Hello, user!"
-        assert "Input=10" in calls[1]
-        assert "Output=5" in calls[1]
-        assert "Total=15" in calls[1]
+        assert "gpt-4o-mini" in calls[1]
+        assert "850ms" in calls[1] or "0.85s" in calls[1]
+        assert "10 → 5" in calls[1]
+        assert "total: 15" in calls[1]
 
 
 class TestShowExitMessage:

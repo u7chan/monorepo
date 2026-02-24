@@ -1,5 +1,7 @@
 """LLM client implementation."""
 
+import time
+
 from litellm import completion
 from litellm.exceptions import (
     AuthenticationError as LiteLLMAuthError,
@@ -23,6 +25,7 @@ class LiteLLMClient(LLMClient):
         self.model = model
 
     def complete(self, messages: list[Message]) -> LLMResponse:
+        start_time = time.perf_counter()
         try:
             response = completion(
                 model=self.model,
@@ -55,6 +58,7 @@ class LiteLLMClient(LLMClient):
                 display_message=f"An error occurred while communicating with the LLM: {e}",
             ) from e
 
+        elapsed = time.perf_counter() - start_time
         return {
             "content": response.choices[0].message.content,
             "usage": {
@@ -62,4 +66,6 @@ class LiteLLMClient(LLMClient):
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             },
+            "model": self.model,
+            "response_time": elapsed,
         }

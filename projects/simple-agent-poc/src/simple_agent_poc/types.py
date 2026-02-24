@@ -52,3 +52,5 @@ class Usage(TypedDict):
 class LLMResponse(TypedDict):
     content: str
     usage: Usage
+    model: str
+    response_time: float

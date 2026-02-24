@@ -103,6 +103,8 @@ class TestAgent:
                 "completion_tokens": 5,
                 "total_tokens": 15,
             },
+            "model": "gpt-4o-mini",
+            "response_time": 0.85,
         }
         mock_client.complete.return_value = mock_response
 
