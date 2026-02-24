@@ -32,9 +32,9 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # -----------------------------------------------
-# runner stage
+# final stage
 # -----------------------------------------------
-FROM base AS runner
+FROM base AS final
 
 ENV TZ=Asia/Tokyo
 ENV NODE_ENV=production

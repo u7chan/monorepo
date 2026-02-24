@@ -2,6 +2,21 @@ FROM oven/bun:alpine AS base
 
 WORKDIR /app
 
+# -----------------------------------------------
+# test stage
+# -----------------------------------------------
+FROM base AS test
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+COPY src ./src
+COPY tsconfig.json ./
+RUN bun run lint
+
+# -----------------------------------------------
+# dev stage
+# -----------------------------------------------
 FROM base AS dev
 
 RUN apk update && apk add --no-cache \
@@ -14,7 +29,10 @@ RUN apk update && apk add --no-cache \
   && echo "Asia/Tokyo" > /etc/timezone \
   && adduser -D -s /bin/sh u7chan
 
-FROM base AS build
+# -----------------------------------------------
+# builder stage
+# -----------------------------------------------
+FROM base AS builder
 
 # Install dependencies
 COPY package.json bun.lock ./
@@ -24,7 +42,10 @@ RUN bun install --production
 COPY src ./src
 COPY tsconfig.json ./
 
-FROM base AS runner
+# -----------------------------------------------
+# final stage
+# -----------------------------------------------
+FROM base AS final
 
 ENV TZ=Asia/Tokyo
 ENV NODE_ENV=production
@@ -36,10 +57,10 @@ RUN apk update && apk add --no-cache \
   && echo "Asia/Tokyo" > /etc/timezone \
   && adduser -D -s /bin/sh u7chan
 
-# Copy only the necessary files from the build stage
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/src ./src
-COPY --from=build /app/tsconfig.json ./
+# Copy only the necessary files from the builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/tsconfig.json ./
 
 # Set the user to a non-root user
 USER u7chan

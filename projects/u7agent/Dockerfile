@@ -1,6 +1,10 @@
 
 FROM oven/bun:alpine AS bun
 FROM node:25-alpine AS base
+
+# -----------------------------------------------
+# test stage
+# -----------------------------------------------
 FROM base AS test
 
 WORKDIR /app
@@ -11,6 +15,9 @@ COPY . .
 RUN bun install
 RUN bun run lint
 
+# -----------------------------------------------
+# builder stage
+# -----------------------------------------------
 FROM base AS builder
 
 WORKDIR /app
@@ -21,7 +28,10 @@ COPY . .
 RUN bun install
 RUN bun run build
 
-FROM base AS runner
+# -----------------------------------------------
+# final stage
+# -----------------------------------------------
+FROM base AS final
 
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0

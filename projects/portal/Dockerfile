@@ -1,17 +1,39 @@
 # Docker Container Portal - Dockerfile
 # マルチステージビルドで最適化されたイメージ
 
-# Stage 1: 依存関係のインストール
-FROM oven/bun:1 AS dependencies
+ARG COMMIT_HASH=""
+
+# -----------------------------------------------
+# base stage
+# -----------------------------------------------
+FROM oven/bun:1 AS base
 
 WORKDIR /app
+
+# -----------------------------------------------
+# test stage
+# -----------------------------------------------
+FROM base AS test
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+COPY . .
+RUN bun run lint
+
+# -----------------------------------------------
+# dependencies stage
+# -----------------------------------------------
+FROM base AS dependencies
 
 # パッケージファイルのみをコピーしてキャッシュを最適化
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-# Stage 2: 本番環境
-FROM oven/bun:1-slim AS production
+# -----------------------------------------------
+# final stage
+# -----------------------------------------------
+FROM oven/bun:1-slim AS final
 
 WORKDIR /app
 
