@@ -54,6 +54,18 @@ RUN ./run-tests.sh
 
 サンプルプロジェクト: [`projects/cicd-ci-sample/`](../projects/cicd-ci-sample/)
 
+### CI専用プロジェクト
+
+`test` ステージのみを持ち `final` ステージがないプロジェクトは「CI専用プロジェクト」となります。
+
+| 特性 | 説明 |
+|-----|------|
+| **CI動作** | PR時に `test` ステージでビルド検証が実行される |
+| **CD動作** | `final` ステージがないため、CD対象外となりスキップされる |
+| **用途** | ライブラリ検証、テスト専用ツール、ビルド検証のみが必要なプロジェクト |
+
+CI専用プロジェクトでは、本番デプロイ用の成果物（Dockerイメージ）は作成されません。
+
 ## CD発火条件
 
 CDは以下の条件で発火します。
@@ -84,10 +96,10 @@ projects/
 
 ### finalステージ
 
-CDは `--target=final` を指定してビルドします。`final` ステージがない場合は、マルチステージ全体がビルドされます。
+CDは `--target=final` を指定してビルドします。**`final` ステージがないプロジェクトはCD対象外となり、イメージビルドとプッシュがスキップされます。**
 
 ```dockerfile
-# finalステージ（推奨）
+# finalステージ（CD対象にする場合は必須）
 FROM base AS final
 COPY . .
 CMD ["./start.sh"]
@@ -116,7 +128,7 @@ CMD ["./start.sh"]
 ```
 1. コードのチェックアウト (fetch-depth: 2)
 2. 変更ディレクトリの検出
-3. 変更プロジェクトの特定（Dockerfile必須）
+3. 変更プロジェクトの特定（Dockerfile + finalステージ必須）
 4. Dockerイメージのビルド (--target=final)
 5. Dockerイメージのプッシュ (GHCR)
 6. 古いイメージのクリーンアップ
@@ -140,10 +152,14 @@ CMD ["./start.sh"]
 
 Dockerfileがある変更プロジェクトを絞り込みます。
 
+| パラメータ | 必須 | 説明 |
+|-----------|------|------|
+| `required-stage` | × | 指定した場合、そのステージを持つプロジェクトのみを対象にする |
+
 | 項目 | 内容 |
 |-----|------|
 | 入力 | `changed_dirs.txt` |
-| 処理 | 各ディレクトリに `Dockerfile` が存在するか確認 |
+| 処理 | 各ディレクトリに `Dockerfile` が存在し、`required-stage` が指定されていればそのステージも持つか確認 |
 | 出力 | `build_projects.txt` + `BUILD_PROJECT` 環境変数 |
 
 ### build-docker-images

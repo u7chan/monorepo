@@ -1,6 +1,12 @@
 name: Get Changed Projects
 description: Get a list of projects with Dockerfile whose differences have been changed
 
+inputs:
+  required-stage:
+    description: "If specified, only include projects that have this stage in their Dockerfile"
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -8,4 +14,4 @@ runs:
       shell: bash
       run: |
         # 共通スクリプトを実行
-        ${{ github.action_path }}/get-changed-projects.sh
+        ${{ github.action_path }}/get-changed-projects.sh "${{ inputs.required-stage }}"
