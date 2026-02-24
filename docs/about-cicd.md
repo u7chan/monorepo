@@ -27,7 +27,6 @@ CIは以下の条件で発火します。
 ### 対象ディレクトリ
 
 - `projects/`
-- `packages/`
 
 ### プロジェクト選定基準
 
@@ -79,7 +78,6 @@ CDは以下の条件で発火します。
 ### 対象ディレクトリ
 
 - `projects/`
-- `packages/`
 
 ### プロジェクト選定基準
 
@@ -145,7 +143,7 @@ CMD ["./start.sh"]
 | 項目 | 内容 |
 |-----|------|
 | 入力 | `HEAD` とベースリファレンスの差分 |
-| 対象 | `projects/`、`packages/` 配下 |
+| 対象 | `projects/` 配下 |
 | 出力 | `changed_dirs.txt` |
 
 ### get-changed-projects
@@ -230,7 +228,7 @@ GHCRへDockerイメージをプッシュします。
 ### 変更が検出されない
 
 - `fetch-depth` が十分か確認（PR時は50、Push時は2）
-- 対象ディレクトリ（`projects/`、`packages/`）配下の変更か確認
+- 対象ディレクトリ（`projects/`）配下の変更か確認
 
 ### ビルドがスキップされる
 

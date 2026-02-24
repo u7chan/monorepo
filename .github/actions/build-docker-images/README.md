@@ -75,7 +75,7 @@ cd .github/actions/build-docker-images
 
 このテストスクリプトは以下の処理を実行します：
 
-1. テスト用の `build_projects.txt` を作成（`packages/chatbot-ui` を含む）
+1. テスト用の `build_projects.txt` を作成（`projects/chatbot-ui` を含む）
 2. `GITHUB_REPOSITORY` 環境変数をモック設定
 3. `production` ステージでビルドを実行
 
@@ -85,7 +85,7 @@ cd .github/actions/build-docker-images
 cd .github/actions/build-docker-images
 
 # 1. テスト用のbuild_projects.txtを作成
-echo -e "packages/chatbot-ui\nprojects/portfolio" > build_projects.txt
+echo -e "projects/chatbot-ui\nprojects/portfolio" > build_projects.txt
 
 # 2. GitHub環境変数をモック
 export GITHUB_REPOSITORY="your-username/your-repo"
@@ -209,14 +209,14 @@ echo "COMMIT_HASH=${COMMIT_HASH}" > .env.production
 ### カンマ区切り形式
 
 ```
-projects/portfolio,packages/chatbot-ui,projects/api
+projects/portfolio,projects/chatbot-ui,projects/api
 ```
 
 ### 改行区切り形式
 
 ```
 projects/portfolio
-packages/chatbot-ui
+projects/chatbot-ui
 projects/api
 ```
 

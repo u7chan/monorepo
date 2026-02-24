@@ -74,7 +74,7 @@ cd .github/actions/get-changed-projects
 cd .github/actions/get-changed-projects
 
 # 1. 前提条件として changed_dirs.txt を作成
-echo -e "packages/chatbot-ui\nprojects/portfolio\nprojects/example-without-dockerfile" > changed_dirs.txt
+echo -e "projects/portfolio\nprojects/example-without-dockerfile" > changed_dirs.txt
 
 # 2. スクリプトを実行
 ./get-changed-projects.sh
@@ -110,7 +110,6 @@ rm changed_dirs.txt build_projects.txt
 このアクションは `get-changed-directories` アクションで検出された以下のディレクトリ配下の変更を対象とします：
 
 - `projects/` - 各種プロジェクト
-- `packages/` - 共有パッケージ
 
 ## エラーハンドリング
 
