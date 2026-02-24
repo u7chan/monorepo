@@ -14,7 +14,7 @@ PR時にCIワークフローが発火してビルド検証を行うためのサ�
 | ビルドタイプ | 対象ステージ | 用途 |
 |-----------|------------|------|
 | **CI (Pull Request時)** | `test` | 軽量な検証（テスト実行、lint、型チェックなど） |
-| **CD (main push時)** | `final` | 本番用イメージのビルドとデプロイ |
+| **CD (main push時)** | スキップ | CI専用プロジェクトのため、CDではイメージビルド・プッシュを行わない |
 
 ### CIでtestステージが選ばれる仕組み
 
@@ -34,7 +34,8 @@ testステージが存在しないDockerfileは、PR時のCIビルドでスキ�
 |-------|------|
 | base | ベースイメージ |
 | **test** | **CI検証用（PR時にビルド）** |
-| final | 本番用（省略可能） |
+
+このプロジェクトは `final` ステージを持たない**CI専用プロジェクト**です。PR時にCI検証が行われますが、mainブランチへのマージ時にはCDでイメージビルド・プッシュは行われません。
 
 ## サンプル解説
 
@@ -97,15 +98,23 @@ CIと同じ条件でローカルビルドを確認できます：
 ```bash
 # testステージを指定してビルド（CIと同じ）
 docker build -t cicd-ci-sample:test --target=test --progress plain .
-
-# finalステージを指定してビルド（CDと同じ）
-docker build -t cicd-ci-sample:latest --target=final --progress plain .
 ```
 
+このプロジェクトはCI専用のため、`final` ステージは存在しません。mainブランチへのマージ時にはCD対象外となります。
+
 ## CIワークフローとの連携
+
+### PR時（CI）
 
 1. PRを作成すると、`pullrequest-check.yml` が発火
 2. `get-changed-directories` で変更ディレクトリを検出
 3. `get-changed-projects` でDockerfileがあるプロジェクトを絞り込み
 4. `build-docker-images`（stage=test）でビルド検証
 5. ビルド成功でPRチェックがパス
+
+### mainブランチへのマージ時（CD）
+
+1. PRがマージされると、`docker-build.yml` が発火
+2. `get-changed-directories` で変更ディレクトリを検出
+3. `get-changed-projects`（`required-stage: final`）で`final`ステージを持つプロジェクトを絞り込み
+4. **このプロジェクトは`final`ステージを持たないため、CD対象外となりスキップされる**

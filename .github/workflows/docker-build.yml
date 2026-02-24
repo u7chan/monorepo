@@ -24,6 +24,8 @@ jobs:
 
       - name: Get Changed Projects
         uses: ./.github/actions/get-changed-projects
+        with:
+          required-stage: final
 
       - name: Build Docker Images
         if: env.BUILD_PROJECT != ''
