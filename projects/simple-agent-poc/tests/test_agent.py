@@ -24,7 +24,11 @@ class TestAgent:
     def test_init_with_custom_client(self) -> None:
         """Test agent initialization with custom client."""
         mock_client = MagicMock()
-        agent = Agent(system_prompt=DEFAULT_SYSTEM_PROMPT, model=DEFAULT_MODEL, llm_client=mock_client)
+        agent = Agent(
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            model=DEFAULT_MODEL,
+            llm_client=mock_client,
+        )
         assert agent._client is mock_client
         assert len(agent._messages) == 1
         assert agent._messages[0]["role"] == "system"
@@ -69,7 +73,11 @@ class TestAgent:
             "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
         }
 
-        agent = Agent(system_prompt=DEFAULT_SYSTEM_PROMPT, model=DEFAULT_MODEL, llm_client=mock_client)
+        agent = Agent(
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            model=DEFAULT_MODEL,
+            llm_client=mock_client,
+        )
         agent.process_user_input("Hello")
 
         # System message should be first, then user message
@@ -98,7 +106,11 @@ class TestAgent:
         }
         mock_client.complete.return_value = mock_response
 
-        agent = Agent(system_prompt=DEFAULT_SYSTEM_PROMPT, model=DEFAULT_MODEL, llm_client=mock_client)
+        agent = Agent(
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            model=DEFAULT_MODEL,
+            llm_client=mock_client,
+        )
         response = agent.process_user_input("Hello")
 
         assert response == mock_response
@@ -136,7 +148,11 @@ class TestAgent:
         mock_client = MagicMock()
         mock_client.complete.side_effect = capture_and_return
 
-        agent = Agent(system_prompt=DEFAULT_SYSTEM_PROMPT, model=DEFAULT_MODEL, llm_client=mock_client)
+        agent = Agent(
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            model=DEFAULT_MODEL,
+            llm_client=mock_client,
+        )
 
         # First message (system + user + assistant = 3)
         agent.process_user_input("First")
@@ -177,7 +193,11 @@ class TestAgent:
         mock_client = MagicMock()
         mock_client.complete.side_effect = capture_and_return
 
-        agent = Agent(system_prompt=DEFAULT_SYSTEM_PROMPT, model=DEFAULT_MODEL, llm_client=mock_client)
+        agent = Agent(
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            model=DEFAULT_MODEL,
+            llm_client=mock_client,
+        )
         agent.process_user_input("Test")
 
         # Check the messages passed to complete() at call time
