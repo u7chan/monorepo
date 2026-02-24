@@ -6,7 +6,7 @@
 
 - Gitの差分を使用して変更されたファイルを検出
 - ファイルのリネーム（移動）を適切に処理
-- 対象ディレクトリ（`projects/`、`packages/`）配下の変更のみを抽出
+- 対象ディレクトリ（`projects/`）配下の変更のみを抽出
 - 重複を除去してユニークなディレクトリリストを生成
 
 ## 入力パラメータ
@@ -117,7 +117,7 @@ export GITHUB_BASE_REF="main"
    - 通常の差分からリネームされたファイルを除外
 
 2. **対象ディレクトリのフィルタリング**
-   - `projects/` および `packages/` ディレクトリ配下のファイルのみを対象
+   - `projects/` ディレクトリ配下のファイルのみを対象
    - ディレクトリレベル（例：`projects/portfolio`）で抽出
 
 3. **重複除去**
@@ -128,7 +128,6 @@ export GITHUB_BASE_REF="main"
 現在、以下のディレクトリ配下の変更を検出対象としています：
 
 - `projects/` - 各種プロジェクト
-- `packages/` - 共有パッケージ
 
 ### 対象ディレクトリの変更
 
@@ -136,7 +135,7 @@ export GITHUB_BASE_REF="main"
 
 ```bash
 # get-changed-dirs.sh 内
-TARGET_DIRS=("projects", "packages", "新しいディレクトリ")
+TARGET_DIRS=("projects" "新しいディレクトリ")
 ```
 
 ## リネーム処理の詳細
