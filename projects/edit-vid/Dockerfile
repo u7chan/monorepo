@@ -35,9 +35,9 @@ RUN apt update && apt-get update \
   && adduser --uid "${UID}" "${USERNAME}"
 
 # -----------------------------------------------
-# builder stage
+# python builder stage
 # -----------------------------------------------
-FROM base AS builder
+FROM base AS python-builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY src src
@@ -45,6 +45,23 @@ COPY src src
 RUN --mount=type=bind,source=uv.lock,target=uv.lock \
   --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
   uv sync --no-dev --frozen
+
+# -----------------------------------------------
+# frontend builder stage
+# -----------------------------------------------
+FROM node:24-slim AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy package files
+COPY frontend/package.json frontend/package-lock.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source files and build
+COPY frontend/ ./
+RUN npm run build
 
 # -----------------------------------------------
 # final stage
@@ -67,8 +84,9 @@ RUN apt update && apt-get update \
   && adduser --uid "${UID}" "${USERNAME}" \
   && chown -R $USERNAME:$USERNAME /app
 
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/.venv .venv
-COPY --from=builder --chown=$USERNAME:$USERNAME /app/src src
+COPY --from=python-builder --chown=$USERNAME:$USERNAME /app/.venv .venv
+COPY --from=python-builder --chown=$USERNAME:$USERNAME /app/src src
+COPY --from=frontend-builder --chown=$USERNAME:$USERNAME /app/frontend/dist frontend/dist
 
 USER $USERNAME
 
