@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/* カスタムスタイル */
+body {
+  @apply bg-gray-100;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ドラッグ&ドロップ時のスタイル */
+.dragover {
+  @apply bg-gray-200 border-gray-400;
+}
+
+/* タイムラインの固定ヘッダー */
+.sticky-header th {
+  @apply sticky top-0 bg-gray-100;
+}
+
+/* スピナーアニメーション */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
