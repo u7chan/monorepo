@@ -41,6 +41,12 @@ os.makedirs("exports", exist_ok=True)
 
 app = FastAPI()
 
+# 本番環境: ビルドされたフロントエンドを配信
+# frontend/dist が存在する場合はそこから静的ファイルを配信
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
+if os.path.isdir(FRONTEND_DIST):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+
 
 def remove_file(path: str):
     """指定されたパスのファイルを削除する"""
@@ -251,6 +257,10 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
 @app.get("/")
 def read_root():
     """フロントエンドのHTMLを返す"""
+    # 本番環境: ビルドされたindex.htmlを返す
+    if os.path.isdir(FRONTEND_DIST):
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+    # 開発環境: 従来のindex.htmlを返す（互換性のため）
     return FileResponse("src/index.html")
 
 
