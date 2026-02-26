@@ -257,11 +257,13 @@ async def preview_subtitle(item: SubtitlePreview, background_tasks: BackgroundTa
 @app.get("/")
 def read_root():
     """フロントエンドのHTMLを返す"""
-    # 本番環境: ビルドされたindex.htmlを返す
     if os.path.isdir(FRONTEND_DIST):
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
-    # 開発環境: 従来のindex.htmlを返す（互換性のため）
-    return FileResponse("src/index.html")
+    # ビルド済みフロントエンドがない場合は503エラー
+    raise HTTPException(
+        status_code=503,
+        detail="Frontend not built. Please build the frontend first with 'npm run build' in the frontend directory."
+    )
 
 
 # 静的ファイルの配信

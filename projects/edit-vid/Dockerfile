@@ -40,7 +40,7 @@ RUN apt update && apt-get update \
 FROM base AS python-builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-COPY src src
+COPY backend backend
 
 RUN --mount=type=bind,source=uv.lock,target=uv.lock \
   --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -85,10 +85,10 @@ RUN apt update && apt-get update \
   && chown -R $USERNAME:$USERNAME /app
 
 COPY --from=python-builder --chown=$USERNAME:$USERNAME /app/.venv .venv
-COPY --from=python-builder --chown=$USERNAME:$USERNAME /app/src src
+COPY --from=python-builder --chown=$USERNAME:$USERNAME /app/backend backend
 COPY --from=frontend-builder --chown=$USERNAME:$USERNAME /app/frontend/dist frontend/dist
 
 USER $USERNAME
 
 EXPOSE 8000
-CMD ["fastapi", "run", "src/main.py", "--port", "8000"]
+CMD ["fastapi", "run", "backend/main.py", "--port", "8000"]
