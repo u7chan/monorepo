@@ -10,6 +10,8 @@ services:
     command: ["--config", "/app/config/config.yaml"]
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Tokyo
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
