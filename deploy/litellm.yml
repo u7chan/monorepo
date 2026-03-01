@@ -9,10 +9,10 @@ services:
     restart: always
     ports:
       - 4000:4000
+    volumes:
+      - ./config:/app/config:ro
     env_file:
       - .env.secret
-    environment:
-      STORE_MODEL_IN_DB: "True"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
