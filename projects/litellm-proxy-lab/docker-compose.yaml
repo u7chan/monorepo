@@ -1,0 +1,30 @@
+services:
+  litellm:
+    container_name: litellm
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: always
+    ports:
+      - 4000:4000
+    volumes:
+      - ./config/config.yaml:/app/config/config.yaml
+    command: ["--config", "/app/config/config.yaml"]
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - rdb
+
+  rdb:
+    container_name: rdb
+    image: postgres:17-alpine
+    restart: always
+    ports:
+      - 4001:5432
+    env_file:
+      - .env
+    volumes:
+      - rdb-data:/var/lib/postgresql/data
+
+volumes:
+  rdb-data:

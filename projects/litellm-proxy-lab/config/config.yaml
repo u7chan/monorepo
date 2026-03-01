@@ -1,0 +1,15 @@
+litellm_settings:
+  # drop_params:
+  #   True にすると、プロバイダー（OpenAI/Anthropic等）がサポートしていない
+  #   リクエストパラメータを自動的に削除し、エラーを防ぎます。
+  drop_params: true
+
+general_settings:
+  # store_prompts_in_spend_logs:
+  #   True にすると、リクエスト内容（プロンプト）とレスポンス内容（回答）をデータベースに保存します。
+  store_prompts_in_spend_logs: true
+
+  # store_model_in_db:
+  #   True にすると、使用されたモデル名をDBに記録します。
+  #   モデルごとの利用傾向やコスト分析に必須の設定です。
+  store_model_in_db: true
