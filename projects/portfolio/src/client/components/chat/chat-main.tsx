@@ -159,6 +159,7 @@ export function ChatMain({
   const [chatResults, setChatResults] = useState<{
     model?: string
     finish_reason: string
+    responseTimeMs?: number
     usage?: {
       promptTokens: number
       completionTokens: number
@@ -299,6 +300,7 @@ export function ChatMain({
     }
 
     setLoading(true)
+    const requestStartTime = Date.now()
     setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
     setInput('')
     setTemplateInput(null)
@@ -326,6 +328,7 @@ export function ChatMain({
         setStream(stream)
       },
     }).then((result) => {
+      const responseTimeMs = Date.now() - requestStartTime
       const userInput = params.messages?.at(-1)?.content
       const newConversationMessages = [
         // TODO: append system message
@@ -349,6 +352,7 @@ export function ChatMain({
                 metadata: {
                   model: result.model,
                   finishReason: result.finishReason,
+                  responseTimeMs: responseTimeMs,
                   usage: {
                     promptTokens: result.usage?.promptTokens || 0,
                     completionTokens: result.usage?.completionTokens || 0,
@@ -390,6 +394,7 @@ export function ChatMain({
         setChatResults({
           model: result.model,
           finish_reason: result.finishReason,
+          responseTimeMs: responseTimeMs,
           usage: result.usage,
         })
       }
@@ -679,6 +684,7 @@ export function ChatMain({
                 <ChatResults
                   model={chatResults.model}
                   finishReason={chatResults.finish_reason}
+                  responseTimeMs={chatResults.responseTimeMs}
                   usage={chatResults.usage}
                 />
               )}
@@ -1009,6 +1015,7 @@ const sendChatCompletion = async (req: {
       content: result.content,
       reasoningContent: result.reasoning_content,
     },
+    responseTimeMs: 0,
     usage: usage
       ? {
           promptTokens: usage.prompt_tokens,

@@ -1,13 +1,21 @@
 interface ChatResultsProps {
   model?: string
   finishReason?: string
+  responseTimeMs?: number
   usage?: {
     promptTokens?: number
     completionTokens?: number
   } | null
 }
 
-export function ChatResults({ model, finishReason, usage }: ChatResultsProps) {
+function formatResponseTime(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`
+  }
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+export function ChatResults({ model, finishReason, responseTimeMs, usage }: ChatResultsProps) {
   return (
     <div className='mt-2 flex flex-wrap justify-end gap-1'>
       <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
@@ -18,6 +26,12 @@ export function ChatResults({ model, finishReason, usage }: ChatResultsProps) {
         <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
           <span className='mr-1'>finish_reason:</span>
           <span>{finishReason}</span>
+        </div>
+      )}
+      {responseTimeMs !== undefined && (
+        <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>
+          <span className='mr-1'>time:</span>
+          <span>{formatResponseTime(responseTimeMs)}</span>
         </div>
       )}
       <div className='flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'>

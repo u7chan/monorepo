@@ -49,6 +49,7 @@ export type UserMessage = z.infer<typeof UserMessageSchema>
 export const AssistantMetadataSchema = z.object({
   model: z.string(),
   finishReason: z.string().optional(),
+  responseTimeMs: z.number().optional(),
   usage: z.object({
     completionTokens: z.number().optional(),
     promptTokens: z.number().optional(),
@@ -134,6 +135,7 @@ export interface ChatCompletionResult {
     content: string
     reasoningContent: string
   }
+  responseTimeMs: number
   usage: {
     promptTokens: number
     completionTokens: number
