@@ -10,6 +10,8 @@ import { TextInput } from './settings/text-input'
 interface Props {
   settings: Settings
   fetchedModels: string[]
+  isLoadingModels: boolean
+  fetchError: string | null
   temperature: number
   temperatureEnabled: boolean
   autoModel: boolean
@@ -39,6 +41,8 @@ interface Props {
 export function ChatSettingsForm({
   settings,
   fetchedModels,
+  isLoadingModels,
+  fetchError,
   temperature,
   temperatureEnabled,
   autoModel,
@@ -82,6 +86,8 @@ export function ChatSettingsForm({
               autoModel={autoModel}
               fakeMode={fakeMode}
               fetchedModels={fetchedModels}
+              isLoadingModels={isLoadingModels}
+              fetchError={fetchError}
               onChangeAutoModel={onChangeAutoModel}
               onChangeManualModel={onChangeManualModel}
             />

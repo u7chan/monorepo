@@ -288,6 +288,7 @@ const app = new Hono<HonoEnv>()
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
+          signal: AbortSignal.timeout(8000), // 8 seconds timeout
         })
         if (response.ok) {
           const data = await response.json()

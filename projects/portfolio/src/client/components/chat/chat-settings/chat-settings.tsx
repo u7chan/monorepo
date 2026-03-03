@@ -32,6 +32,8 @@ export function ChatSettings({
   const {
     settings,
     fetchedModels,
+    isLoadingModels,
+    fetchError,
     temperature,
     temperatureEnabled,
     autoModel,
@@ -102,6 +104,8 @@ export function ChatSettings({
         <ChatSettingsForm
           settings={settings}
           fetchedModels={fetchedModels}
+          isLoadingModels={isLoadingModels}
+          fetchError={fetchError}
           temperature={temperature}
           temperatureEnabled={temperatureEnabled}
           autoModel={autoModel}
