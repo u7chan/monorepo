@@ -15,6 +15,8 @@ interface UseChatSettingsOptions {
 interface UseChatSettingsReturn {
   settings: Settings
   fetchedModels: string[]
+  isLoadingModels: boolean
+  fetchError: string | null
   temperature: number
   temperatureEnabled: boolean
   autoModel: boolean
@@ -39,23 +41,40 @@ interface UseChatSettingsReturn {
   handleToggleInteractiveMode: () => void
   handleToggleReasoningEffort: () => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void
+  refetchModels: () => void
 }
 
-async function fetchModels(baseURL: string, apiKey: string): Promise<string[]> {
+const FETCH_TIMEOUT_MS = 10000 // 10 seconds
+
+async function fetchModelsWithTimeout(
+  baseURL: string,
+  apiKey: string
+): Promise<{ models: string[]; error: string | null }> {
+  const fetchPromise = client.api['fetch-models'].$get({
+    header: {
+      'api-key': apiKey,
+      'base-url': baseURL,
+    },
+  })
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Timeout')), FETCH_TIMEOUT_MS)
+  })
+
   try {
-    const response = await client.api['fetch-models'].$get({
-      header: {
-        'api-key': apiKey,
-        'base-url': baseURL,
-      },
-    })
+    const response = await Promise.race([fetchPromise, timeoutPromise])
     if (response.ok) {
-      return await response.json()
+      const models = await response.json()
+      return { models, error: null }
     }
+    return { models: [], error: 'Failed to fetch models' }
   } catch (error) {
+    if (error instanceof Error && error.message === 'Timeout') {
+      return { models: [], error: 'Request timed out' }
+    }
     console.error('Failed to fetch models:', error)
+    return { models: [], error: 'Failed to fetch models' }
   }
-  return []
 }
 
 export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSettingsReturn {
@@ -71,6 +90,8 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSe
   const [temperatureEnabled, setTemperatureEnabled] = useState(defaultSettings?.temperatureEnabled ?? false)
   const [autoModel, setAutoModel] = useState(defaultSettings?.autoModel ?? false)
   const [fetchedModels, setFetchedModels] = useState<string[]>([])
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
@@ -83,9 +104,26 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSe
   // Fetch models when autoModel is enabled
   useEffect(() => {
     if (autoModel) {
+      setIsLoadingModels(true)
+      setFetchError(null)
       const { baseURL, apiKey } = readFromLocalStorage()
-      fetchModels(baseURL, apiKey).then((models) => {
+      fetchModelsWithTimeout(baseURL, apiKey).then(({ models, error }) => {
         setFetchedModels(models)
+        setFetchError(error)
+        setIsLoadingModels(false)
+      })
+    }
+  }, [autoModel])
+
+  const refetchModels = useCallback(() => {
+    if (autoModel) {
+      setIsLoadingModels(true)
+      setFetchError(null)
+      const { baseURL, apiKey } = readFromLocalStorage()
+      fetchModelsWithTimeout(baseURL, apiKey).then(({ models, error }) => {
+        setFetchedModels(models)
+        setFetchError(error)
+        setIsLoadingModels(false)
       })
     }
   }, [autoModel])
@@ -210,6 +248,8 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSe
   return {
     settings,
     fetchedModels,
+    isLoadingModels,
+    fetchError,
     temperature,
     temperatureEnabled,
     autoModel,
@@ -234,5 +274,6 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): UseChatSe
     handleToggleInteractiveMode,
     handleToggleReasoningEffort,
     handleChangeReasoningEffort,
+    refetchModels,
   }
 }
