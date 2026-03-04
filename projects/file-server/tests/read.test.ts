@@ -236,19 +236,28 @@ describe("file endpoint /file", () => {
     } catch (_error) {}
   })
 
-  it("should render file content as <pre>", async () => {
+  it("should redirect to parent directory on non-htmx request", async () => {
     await Bun.write(path.join(UPLOAD_DIR, "readme.md"), "# Hello\nworld")
     const req = new Request("http://localhost/file?path=readme.md", {
       method: "GET",
     })
     const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("# Hello")
-    expect(text).toMatch(/<pre[^>]*>/)
-    expect(text).toContain('id="file-viewer-container"')
-    expect(text).toContain("<html") // 通常リクエストはフルHTML
-    expect(text).toContain("<svg") // クローズボタンのSVGアイコンが存在
+    expect(res.status).toBe(302)
+    expect(res.headers.get("Location")).toBe("/")
+  })
+
+  it("should redirect to parent directory for nested file", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "subdir"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "subdir/nested.txt"),
+      "nested content",
+    )
+    const req = new Request("http://localhost/file?path=subdir/nested.txt", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    expect(res.status).toBe(302)
+    expect(res.headers.get("Location")).toBe("/?path=subdir")
   })
 
   it("should render file content as partial HTML for htmx request", async () => {

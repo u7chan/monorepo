@@ -13,6 +13,13 @@ export const PageShell: FC<PageShellProps> = ({ children }) => {
         <title>File Server</title>
         <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+        <style>{`
+          .image-viewer-img {
+            height: -webkit-fill-available;
+            height: -moz-available;
+            height: stretch;
+          }
+        `}</style>
       </head>
       <body className="box-border font-sans bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 min-h-screen">
         <div className="max-w-7xl mx-auto p-5">
