@@ -11,7 +11,7 @@ export const ImageViewer: FC<ImageViewerProps> = ({ fileUrl, fileName }) => {
       <img
         src={fileUrl}
         alt={fileName}
-        className="max-w-full max-h-full object-contain rounded-xl border-2 border-indigo-200"
+        className="max-w-full max-h-full object-contain"
       />
     </div>
   )
