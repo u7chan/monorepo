@@ -9,8 +9,8 @@ import {
 import * as path from "node:path"
 import type { Context } from "hono"
 import { FileList } from "../components/FileList"
-import { isInvalidPath, resolveUploadPath, sortFiles } from "../utils/fileUtils"
 import { getFileList } from "../utils/fileListing"
+import { isInvalidPath, resolveUploadPath, sortFiles } from "../utils/fileUtils"
 import { getUploadDir, isHtmxRequest } from "../utils/requestUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
