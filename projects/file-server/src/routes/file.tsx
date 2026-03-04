@@ -59,6 +59,14 @@ fileRoutes.get("/", async (c) => {
   const isText = isTextMime(mimeType)
   const isHtmx = isHtmxRequest(c)
 
+  // htmxリクエストでない場合（リロード時）は親ディレクトリにリダイレクト
+  if (!isHtmx) {
+    const parentDir = path.dirname(requestPath)
+    const redirectPath =
+      parentDir === "." ? "/" : `/?path=${encodeURIComponent(parentDir)}`
+    return c.redirect(redirectPath)
+  }
+
   if (isText) {
     const content = await readFile(resolvedFile, "utf-8")
     return renderWithShell(
