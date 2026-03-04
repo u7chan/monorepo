@@ -30,8 +30,8 @@ const toArrayBuffer = (contentBuffer: Buffer): ArrayBuffer =>
     contentBuffer.byteOffset + contentBuffer.byteLength,
   ) as ArrayBuffer
 
-// /file: ファイル閲覧部分HTML（htmx用）
-fileRoutes.get("/file", async (c) => {
+// /: ファイル閲覧部分HTML（htmx用）
+fileRoutes.get("/", async (c) => {
   const uploadDir = getUploadDir(c)
   const requestPath = getRequestPath(c)
 
@@ -96,8 +96,8 @@ fileRoutes.get("/file", async (c) => {
   return new Response(toArrayBuffer(contentBuffer), { headers })
 })
 
-// /file/raw: バイナリファイルの生データ（画像/動画/PDF用）
-fileRoutes.get("/file/raw", async (c) => {
+// /raw: バイナリファイルの生データ（画像/動画/PDF用）
+fileRoutes.get("/raw", async (c) => {
   const uploadDir = getUploadDir(c)
   const requestPath = getRequestPath(c)
 

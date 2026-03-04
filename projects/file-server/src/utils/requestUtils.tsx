@@ -2,13 +2,16 @@ import type { Stats } from "node:fs"
 import { stat as fsStat } from "node:fs/promises"
 import type { Context } from "hono"
 import { env } from "hono/adapter"
-import type { ContentfulStatusCode } from "hono/utils/http-status"
 import type { HtmlEscapedString } from "hono/utils/html"
+import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { PageShell } from "../components/PageShell"
 import { isInvalidPath } from "./fileUtils"
 
+/** Default upload directory when UPLOAD_DIR env var is not set */
+export const DEFAULT_UPLOAD_DIR = "./tmp"
+
 export function getUploadDir(c: Context): string {
-  return env(c).UPLOAD_DIR || "./tmp"
+  return env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
 }
 
 export function getRequestPath(c: Context): string {

@@ -3,7 +3,7 @@
   "scripts": {
     "dev": "bun run --hot src/index.tsx",
     "lint": "tsc --noEmit && biome lint --write",
-    "format": "biome format --write",
+    "format": "biome check --write",
     "test": "bun test"
   },
   "dependencies": {

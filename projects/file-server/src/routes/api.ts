@@ -1,13 +1,13 @@
-import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
+import { Hono } from "hono"
 import z from "zod"
-import type { AppBindings } from "../types"
 import {
   deleteFileHandler,
   listFilesHandler,
   mkdirHandler,
   uploadFileHandler,
 } from "../api/handlers"
+import type { AppBindings } from "../types"
 
 const apiRoutes = new Hono<AppBindings>()
 
