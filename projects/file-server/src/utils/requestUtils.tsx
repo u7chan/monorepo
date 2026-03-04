@@ -7,8 +7,11 @@ import type { HtmlEscapedString } from "hono/utils/html"
 import { PageShell } from "../components/PageShell"
 import { isInvalidPath } from "./fileUtils"
 
+/** Default upload directory when UPLOAD_DIR env var is not set */
+export const DEFAULT_UPLOAD_DIR = "./tmp"
+
 export function getUploadDir(c: Context): string {
-  return env(c).UPLOAD_DIR || "./tmp"
+  return env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
 }
 
 export function getRequestPath(c: Context): string {
