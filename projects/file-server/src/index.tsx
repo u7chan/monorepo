@@ -14,6 +14,6 @@ const app = new Hono<AppBindings>()
 
 app.route("/api", apiRoutes)
 app.route("/", browseRoutes)
-app.route("/", fileRoutes)
+app.route("/file", fileRoutes)
 
 export default app
