@@ -7,11 +7,11 @@ interface ImageViewerProps {
 
 export const ImageViewer: FC<ImageViewerProps> = ({ fileUrl, fileName }) => {
   return (
-    <div className="flex-1 overflow-auto flex justify-center items-center">
+    <div className="flex-1 overflow-hidden flex justify-center items-center">
       <img
         src={fileUrl}
         alt={fileName}
-        className="max-w-full rounded-xl border-2 border-indigo-200"
+        className="max-w-full max-h-full object-contain rounded-xl border-2 border-indigo-200"
       />
     </div>
   )
