@@ -5,6 +5,7 @@ import {
   deleteFileHandler,
   listFilesHandler,
   mkdirHandler,
+  updateFileHandler,
   uploadFileHandler,
 } from "../api/handlers"
 import type { AppBindings } from "../types"
@@ -50,6 +51,19 @@ apiRoutes.post(
     }),
   ),
   mkdirHandler,
+)
+
+// ファイル内容更新API
+apiRoutes.post(
+  "/update",
+  zValidator(
+    "form",
+    z.object({
+      path: z.string(),
+      content: z.string(),
+    }),
+  ),
+  updateFileHandler,
 )
 
 export default apiRoutes

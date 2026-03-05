@@ -1,12 +1,15 @@
 import type { Child, FC } from "hono/jsx"
 import { CloseIcon } from "../icons/CloseIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
+import { EditIcon } from "../icons/EditIcon"
 
 interface FileViewerModalProps {
   fileName?: string
   path?: string
   borderColor?: string
   animation?: string
+  isEditing?: boolean
+  showEdit?: boolean
   children: Child
 }
 
@@ -15,26 +18,42 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
   path,
   borderColor = "indigo-300",
   animation,
+  isEditing = false,
+  showEdit = false,
   children,
 }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
-  const closeScript = "document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = 'auto'; history.pushState(null, '', '/');"
+  const closeScript =
+    "document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = 'auto'; history.pushState(null, '', '/');"
 
   const downloadButton = path ? (
     <a
       href={`/file/raw?path=${encodedPath}`}
       download={fileName || true}
-      className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-block"
+      className="w-12 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-flex items-center justify-center"
     >
       <DownloadIcon />
     </a>
   ) : null
 
+  const editButton =
+    path && !isEditing && showEdit ? (
+      <button
+        type="button"
+        hx-get={`/file?path=${encodedPath}&edit=true`}
+        hx-target="#file-viewer-container"
+        hx-swap="outerHTML"
+        className="w-12 h-10 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-emerald-600 hover:to-teal-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-flex items-center justify-center"
+      >
+        <EditIcon />
+      </button>
+    ) : null
+
   const closeButton = (
     <button
       type="button"
       hx-on:click={closeScript}
-      className="px-4 py-2 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-rose-600 hover:to-pink-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md"
+      className="w-12 h-10 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-rose-600 hover:to-pink-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-flex items-center justify-center"
     >
       <CloseIcon />
     </button>
@@ -61,6 +80,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
             </h2>
             <div className="flex items-center gap-2">
               {downloadButton}
+              {editButton}
               {closeButton}
             </div>
           </div>
