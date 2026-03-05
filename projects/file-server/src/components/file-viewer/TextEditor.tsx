@@ -27,7 +27,7 @@ export const TextEditor: FC<TextEditorProps> = ({ content, path }) => {
         <button
           type="button"
           className="px-4 py-2 bg-gradient-to-r from-gray-400 to-gray-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-gray-500 hover:to-gray-600 transition-all"
-          hx-get={`/file/?path=${encodedPath}`}
+          hx-get={`/file?path=${encodedPath}`}
           hx-target="#file-viewer-container"
           hx-swap="outerHTML"
         >
