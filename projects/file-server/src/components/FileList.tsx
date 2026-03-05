@@ -148,7 +148,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         className="hidden"
       >
         <input type="hidden" name="path" value={requestPath} />
-        <input type="file" name="file" id="drop-upload-input" />
+        <input type="file" name="files" id="drop-upload-input" multiple />
       </form>
 
       {/* ファイル一覧（ドラッグ＆ドロップ対応） */}

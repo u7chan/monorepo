@@ -15,13 +15,16 @@ const apiRoutes = new Hono<AppBindings>()
 // ファイル・ディレクトリ一覧取得（JSON API）
 apiRoutes.get("/*", listFilesHandler)
 
-// ファイルアップロード
+// ファイルアップロード（複数ファイル対応、最大10件）
 apiRoutes.post(
   "/upload",
   zValidator(
     "form",
     z.object({
-      file: z.instanceof(File),
+      files: z.preprocess(
+        (val) => (Array.isArray(val) ? val : val ? [val] : []),
+        z.array(z.instanceof(File)).max(10),
+      ),
       path: z.string().optional(),
     }),
   ),
