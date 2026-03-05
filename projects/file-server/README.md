@@ -1,1 +1,132 @@
 # file-server
+
+Bun + Hono + HTMX で構築されたWebベースのファイルサーバー/マネージャー。
+ブラウザ上でファイルのアップロード・閲覧・削除・ディレクトリ作成が行える。
+
+## 機能
+
+- ファイル/ディレクトリのブラウジング（パンくずナビゲーション付き）
+- ファイルアップロード（ドラッグ&ドロップ対応）
+- ファイルプレビュー（テキスト、画像、動画、PDF）
+- ファイル/ディレクトリの削除
+- ディレクトリ作成
+- HTMXによるページ遷移なしの動的UI更新
+- パス検証によるディレクトリトラバーサル防止
+
+## 技術スタック
+
+| カテゴリ | 技術 |
+|---------|------|
+| ランタイム | [Bun](https://bun.sh) |
+| フレームワーク | [Hono](https://hono.dev) |
+| フロントエンド | [HTMX](https://htmx.org) + [Tailwind CSS](https://tailwindcss.com) v4 |
+| バリデーション | [Zod](https://zod.dev) |
+| 言語 | TypeScript + JSX |
+| リンター/フォーマッター | [Biome](https://biomejs.dev) |
+
+## プロジェクト構成
+
+```
+src/
+├── index.tsx              # エントリーポイント
+├── types.ts               # 型定義
+├── api/
+│   └── handlers.tsx       # APIリクエストハンドラー
+├── routes/
+│   ├── api.ts             # REST APIルート定義
+│   ├── browse.tsx         # ディレクトリブラウズルート
+│   └── file.tsx           # ファイル表示/ダウンロードルート
+├── components/
+│   ├── PageShell.tsx      # HTMLシェルレイアウト
+│   ├── FileList.tsx       # ファイル一覧コンポーネント
+│   ├── file-viewer/       # ファイルタイプ別ビューアー
+│   │   ├── index.tsx
+│   │   ├── FileViewerModal.tsx
+│   │   ├── TextViewer.tsx
+│   │   ├── ImageViewer.tsx
+│   │   ├── VideoViewer.tsx
+│   │   ├── PdfViewer.tsx
+│   │   └── DefaultViewer.tsx
+│   └── icons/             # SVGアイコンコンポーネント
+└── utils/
+    ├── fileListing.ts     # ファイル一覧取得
+    ├── fileUtils.ts       # パス検証、ソート
+    ├── formatters.ts      # サイズ・日時フォーマット
+    └── requestUtils.tsx   # リクエストユーティリティ
+tests/
+├── read.test.ts           # ファイル閲覧テスト
+├── upload.test.ts         # アップロードテスト
+├── delete.test.ts         # 削除テスト
+└── mkdir.test.ts          # ディレクトリ作成テスト
+```
+
+## APIエンドポイント
+
+### REST API
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| GET | `/api/*` | ファイル/ディレクトリ一覧取得 |
+| POST | `/api/upload` | ファイルアップロード |
+| POST | `/api/delete` | ファイル/ディレクトリ削除 |
+| POST | `/api/mkdir` | ディレクトリ作成 |
+
+### HTMLルート
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| GET | `/` | ディレクトリブラウズ（メインUI） |
+| GET | `/browse` | ディレクトリ一覧（HTMX部分更新用） |
+| GET | `/file` | ファイルビューアー表示 |
+| GET | `/file/raw` | ファイルの生データ配信 |
+
+## セットアップ
+
+### 必要環境
+
+- [Bun](https://bun.sh) v1.3.10+
+
+### 開発
+
+```bash
+# 依存関係のインストール
+bun install
+
+# 開発サーバー起動（ホットリロード付き）
+bun run dev
+
+# リント
+bun run lint
+
+# フォーマット
+bun run format
+
+# テスト
+bun test
+```
+
+### 環境変数
+
+| 変数 | 説明 | デフォルト |
+|------|------|-----------|
+| `UPLOAD_DIR` | ファイル保存ディレクトリ | `./tmp` |
+
+## Docker
+
+```bash
+# ビルド
+docker build -t file-server .
+
+# テスト実行
+docker build --target=test .
+
+# 実行
+docker run -p 3000:3000 -e UPLOAD_DIR=/app/uploads -v $(pwd)/data:/app/uploads file-server
+```
+
+### Dockerfileの構成（マルチステージ）
+
+1. **base** - Node 24 Alpine + Bun
+2. **test** - lint + テスト実行
+3. **builder** - 本番依存関係のインストール
+4. **final** - 本番イメージ（非rootユーザー実行、ポート3000）
