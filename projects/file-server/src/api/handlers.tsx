@@ -2,6 +2,7 @@ import {
   stat as fsStat,
   mkdir,
   readdir,
+  readFile,
   rm,
   unlink,
   writeFile,
@@ -216,4 +217,74 @@ export async function mkdirHandler(
   }
 
   return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
+}
+
+export async function updateFileHandler(
+  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
+) {
+  const validatedData = c.req.valid("form" as never) as {
+    path: string
+    content: string
+  }
+  const { path: filePathParam, content } = validatedData
+  const uploadDir = getUploadDir(c)
+  if (isInvalidPath(filePathParam)) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "PathError", message: "Invalid path" },
+      },
+      400,
+    )
+  }
+  const targetPath = path.join(uploadDir, filePathParam)
+
+  // Check if file exists
+  try {
+    const stat = await fsStat(targetPath)
+    if (!stat.isFile()) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "NotAFile", message: "Path is not a file" },
+        },
+        400,
+      )
+    }
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: { name: "FileNotFound", message: "File does not exist" },
+        },
+        400,
+      )
+    }
+    throw err
+  }
+
+  // Write the updated content
+  await writeFile(targetPath, content, "utf-8")
+
+  // For htmx requests, return the updated file viewer in view mode
+  if (isHtmxRequest(c)) {
+    const { FileViewer } = await import("../components/file-viewer")
+    const updatedContent = await readFile(targetPath, "utf-8")
+    return c.html(
+      <FileViewer
+        content={updatedContent}
+        fileName={path.basename(targetPath)}
+        path={filePathParam}
+        isEditing={false}
+      />,
+    )
+  }
+
+  return c.json({ success: true })
 }

@@ -69,12 +69,14 @@ fileRoutes.get("/", async (c) => {
 
   if (isText) {
     const content = await readFile(resolvedFile, "utf-8")
+    const isEditing = c.req.query("edit") === "true"
     return renderWithShell(
       c,
       <FileViewer
         content={content}
         fileName={path.basename(resolvedFile)}
         path={requestPath}
+        isEditing={isEditing}
       />,
     )
   }

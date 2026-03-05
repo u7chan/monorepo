@@ -3,6 +3,7 @@ import { DefaultViewer } from "./DefaultViewer"
 import { FileViewerModal } from "./FileViewerModal"
 import { ImageViewer } from "./ImageViewer"
 import { PdfViewer } from "./PdfViewer"
+import { TextEditor } from "./TextEditor"
 import { TextViewer } from "./TextViewer"
 import { VideoViewer } from "./VideoViewer"
 
@@ -11,6 +12,7 @@ interface FileViewerProps {
   mimeType?: string
   fileName?: string
   path?: string
+  isEditing?: boolean
 }
 
 export const FileViewer: FC<FileViewerProps> = ({
@@ -18,14 +20,33 @@ export const FileViewer: FC<FileViewerProps> = ({
   mimeType,
   fileName,
   path,
+  isEditing = false,
 }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
   const fileUrl = `/file/raw?path=${encodedPath}`
 
   // テキストファイルの場合
   if (content !== undefined) {
+    if (isEditing && path) {
+      return (
+        <FileViewerModal
+          fileName={fileName}
+          path={path}
+          borderColor="indigo-300"
+          isEditing={true}
+          showEdit={true}
+        >
+          <TextEditor content={content} path={path} />
+        </FileViewerModal>
+      )
+    }
     return (
-      <FileViewerModal fileName={fileName} path={path} borderColor="indigo-300">
+      <FileViewerModal
+        fileName={fileName}
+        path={path}
+        borderColor="indigo-300"
+        showEdit={true}
+      >
         <TextViewer content={content} />
       </FileViewerModal>
     )
