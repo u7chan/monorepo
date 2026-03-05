@@ -68,38 +68,58 @@ export async function uploadFileHandler(
   c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
 ) {
   const validatedData = c.req.valid("form" as never) as {
-    file: File
+    files: File[]
     path?: string
   }
-  const { file, path: filePathParam } = validatedData
+  const { files, path: filePathParam } = validatedData
   const uploadDir = getUploadDir(c)
-  const relativePath = await resolveUploadPath(
-    uploadDir,
-    filePathParam,
-    file.name,
-  )
-  if (isInvalidPath(relativePath)) {
-    return c.json(
-      {
-        success: false,
-        error: { name: "PathError", message: "Invalid path" },
-      },
-      400,
-    )
+
+  const results = {
+    success: [] as string[],
+    failed: [] as { name: string; reason: string }[],
   }
-  const savePath = path.join(uploadDir, relativePath)
-  await mkdir(path.dirname(savePath), { recursive: true })
-  const buffer = await file.arrayBuffer()
-  await writeFile(savePath, Buffer.from(buffer))
+
+  // Process each file individually to allow partial failures
+  for (const file of files) {
+    try {
+      const relativePath = await resolveUploadPath(
+        uploadDir,
+        filePathParam,
+        file.name,
+      )
+      if (isInvalidPath(relativePath)) {
+        results.failed.push({
+          name: file.name,
+          reason: "Invalid path",
+        })
+        continue
+      }
+      const savePath = path.join(uploadDir, relativePath)
+      await mkdir(path.dirname(savePath), { recursive: true })
+      const buffer = await file.arrayBuffer()
+      await writeFile(savePath, Buffer.from(buffer))
+      results.success.push(file.name)
+    } catch (err) {
+      results.failed.push({
+        name: file.name,
+        reason: err instanceof Error ? err.message : "Unknown error",
+      })
+    }
+  }
 
   // For htmx requests, return the updated file list
   if (isHtmxRequest(c)) {
     const parentPath = filePathParam || ""
-    const files = await getFileList(uploadDir, parentPath)
-    return c.html(<FileList files={files} requestPath={parentPath} />)
+    const fileList = await getFileList(uploadDir, parentPath)
+    return c.html(<FileList files={fileList} requestPath={parentPath} />)
   }
 
-  return c.redirect(`/?path=${encodeURIComponent(filePathParam || "")}`, 301)
+  // Return JSON response with results
+  return c.json({
+    success: results.failed.length === 0,
+    uploaded: results.success,
+    failed: results.failed,
+  })
 }
 
 export async function deleteFileHandler(
