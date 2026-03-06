@@ -9,6 +9,8 @@ beforeEach(async () => {
   await rm(UPLOAD_DIR, { recursive: true, force: true })
   await mkdir(UPLOAD_DIR, { recursive: true })
   process.env.UPLOAD_DIR = UPLOAD_DIR
+  delete process.env.USERS_FILE
+  delete process.env.SESSION_SECRET
 })
 
 describe("POST /api/mkdir", () => {

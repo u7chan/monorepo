@@ -4,6 +4,7 @@ import { Hono } from "hono"
 import * as mime from "mime-types"
 import { FileViewer } from "../components/file-viewer"
 import type { AppBindings } from "../types"
+import { ensureUploadDirExists } from "../utils/fileListing"
 import {
   ensureValidPath,
   errorResponse,
@@ -40,6 +41,7 @@ fileRoutes.get("/", async (c) => {
     return invalidResponse
   }
 
+  await ensureUploadDirExists(uploadDir)
   const resolvedFile = path.join(uploadDir, requestPath)
   const statOrResponse = await statOrNotFound(
     c,
@@ -116,6 +118,7 @@ fileRoutes.get("/raw", async (c) => {
     return invalidResponse
   }
 
+  await ensureUploadDirExists(uploadDir)
   const resolvedFile = path.join(uploadDir, requestPath)
   const statOrResponse = await statOrNotFound(
     c,

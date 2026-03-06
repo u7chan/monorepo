@@ -1,11 +1,17 @@
-import { stat as fsStat, readdir } from "node:fs/promises"
+import { stat as fsStat, mkdir, readdir } from "node:fs/promises"
 import * as path from "node:path"
 import type { FileItem } from "../components/FileList"
+
+export async function ensureUploadDirExists(uploadDir: string): Promise<void> {
+  await mkdir(uploadDir, { recursive: true })
+}
 
 export async function getFileList(
   uploadDir: string,
   requestPath: string,
 ): Promise<FileItem[]> {
+  await ensureUploadDirExists(uploadDir)
+
   const resolvedDir = path.join(uploadDir, requestPath)
   const dirents = await readdir(resolvedDir, { withFileTypes: true })
   return await Promise.all(

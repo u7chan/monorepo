@@ -11,6 +11,8 @@ describe("upload", () => {
     await mkdir(UPLOAD_DIR, { recursive: true })
     // 環境変数を設定
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   it("should upload a single file", async () => {

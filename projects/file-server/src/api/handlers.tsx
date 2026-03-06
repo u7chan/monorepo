@@ -10,15 +10,27 @@ import {
 import * as path from "node:path"
 import type { Context } from "hono"
 import { FileList } from "../components/FileList"
-import { getFileList } from "../utils/fileListing"
+import type { AppBindings } from "../types"
+import { ensureUploadDirExists, getFileList } from "../utils/fileListing"
 import { isInvalidPath, resolveUploadPath, sortFiles } from "../utils/fileUtils"
 import { getUploadDir, isHtmxRequest } from "../utils/requestUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
 
-export async function listFilesHandler(c: Context) {
+function isInvalidFolderName(folder: string): boolean {
+  return (
+    !folder ||
+    folder === "." ||
+    folder === ".." ||
+    folder.includes("/") ||
+    folder.includes("\\")
+  )
+}
+
+export async function listFilesHandler(c: Context<AppBindings>) {
   const uploadDir = getUploadDir(c)
   const subPath = c.req.path.replace(BASE_PATH_REGEX, "")
+
   if (isInvalidPath(subPath)) {
     return c.json(
       {
@@ -28,17 +40,20 @@ export async function listFilesHandler(c: Context) {
       400,
     )
   }
+
+  await ensureUploadDirExists(uploadDir)
   const targetDir = path.join(uploadDir, subPath)
+
   let files: { name: string; type: "file" | "dir"; size?: number }[] = []
   try {
     const dirents = await readdir(targetDir, { withFileTypes: true })
     files = await Promise.all(
       dirents.map(async (ent) => {
         if (ent.isDirectory()) {
-          return { name: ent.name, type: "dir" }
+          return { name: ent.name, type: "dir" as const }
         }
         const stat = await fsStat(path.join(targetDir, ent.name))
-        return { name: ent.name, type: "file", size: stat.size }
+        return { name: ent.name, type: "file" as const, size: stat.size }
       }),
     )
   } catch (err: unknown) {
@@ -60,13 +75,10 @@ export async function listFilesHandler(c: Context) {
   }
 
   const sortedFiles = sortFiles(files)
-
   return c.json({ files: sortedFiles })
 }
 
-export async function uploadFileHandler(
-  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
-) {
+export async function uploadFileHandler(c: Context<AppBindings>) {
   const validatedData = c.req.valid("form" as never) as {
     files: File[]
     path?: string
@@ -79,7 +91,6 @@ export async function uploadFileHandler(
     failed: [] as { name: string; reason: string }[],
   }
 
-  // Process each file individually to allow partial failures
   for (const file of files) {
     try {
       const relativePath = await resolveUploadPath(
@@ -94,6 +105,7 @@ export async function uploadFileHandler(
         })
         continue
       }
+
       const savePath = path.join(uploadDir, relativePath)
       await mkdir(path.dirname(savePath), { recursive: true })
       const buffer = await file.arrayBuffer()
@@ -107,14 +119,12 @@ export async function uploadFileHandler(
     }
   }
 
-  // For htmx requests, return the updated file list
   if (isHtmxRequest(c)) {
     const parentPath = filePathParam || ""
     const fileList = await getFileList(uploadDir, parentPath)
     return c.html(<FileList files={fileList} requestPath={parentPath} />)
   }
 
-  // Return JSON response with results
   return c.json({
     success: results.failed.length === 0,
     uploaded: results.success,
@@ -122,14 +132,13 @@ export async function uploadFileHandler(
   })
 }
 
-export async function deleteFileHandler(
-  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
-) {
+export async function deleteFileHandler(c: Context<AppBindings>) {
   const validatedData = c.req.valid("form" as never) as {
     path: string
   }
   const { path: filePathParam } = validatedData
   const uploadDir = getUploadDir(c)
+
   if (isInvalidPath(filePathParam)) {
     return c.json(
       {
@@ -139,6 +148,7 @@ export async function deleteFileHandler(
       400,
     )
   }
+
   const targetPath = path.join(uploadDir, filePathParam)
   let redirectPath = "/"
   try {
@@ -179,7 +189,6 @@ export async function deleteFileHandler(
     redirectPath = `${redirectPath.replace(/\\/g, "/")}`
   }
 
-  // For htmx requests, return the updated file list
   if (isHtmxRequest(c)) {
     const files = await getFileList(uploadDir, redirectPath)
     return c.html(<FileList files={files} requestPath={redirectPath} />)
@@ -188,16 +197,15 @@ export async function deleteFileHandler(
   return c.redirect(`/?path=${redirectPath}`, 301)
 }
 
-export async function mkdirHandler(
-  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
-) {
+export async function mkdirHandler(c: Context<AppBindings>) {
   const validatedData = c.req.valid("form" as never) as {
     path: string
     folder: string
   }
   const { path: dirPathParam, folder } = validatedData
   const uploadDir = getUploadDir(c)
-  if (isInvalidPath(dirPathParam)) {
+
+  if (isInvalidPath(dirPathParam) || isInvalidFolderName(folder)) {
     return c.json(
       {
         success: false,
@@ -206,6 +214,8 @@ export async function mkdirHandler(
       400,
     )
   }
+
+  await ensureUploadDirExists(uploadDir)
   const targetDir = path.join(uploadDir, dirPathParam)
   try {
     await mkdir(path.join(targetDir, folder), { recursive: false })
@@ -230,7 +240,6 @@ export async function mkdirHandler(
     throw err
   }
 
-  // For htmx requests, return the updated file list
   if (isHtmxRequest(c)) {
     const files = await getFileList(uploadDir, dirPathParam || "")
     return c.html(<FileList files={files} requestPath={dirPathParam || ""} />)
@@ -239,15 +248,14 @@ export async function mkdirHandler(
   return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
 }
 
-export async function updateFileHandler(
-  c: Context<{ Bindings: { UPLOAD_DIR: string } }>,
-) {
+export async function updateFileHandler(c: Context<AppBindings>) {
   const validatedData = c.req.valid("form" as never) as {
     path: string
     content: string
   }
   const { path: filePathParam, content } = validatedData
   const uploadDir = getUploadDir(c)
+
   if (isInvalidPath(filePathParam)) {
     return c.json(
       {
@@ -257,9 +265,8 @@ export async function updateFileHandler(
       400,
     )
   }
-  const targetPath = path.join(uploadDir, filePathParam)
 
-  // Check if file exists
+  const targetPath = path.join(uploadDir, filePathParam)
   try {
     const stat = await fsStat(targetPath)
     if (!stat.isFile()) {
@@ -289,10 +296,8 @@ export async function updateFileHandler(
     throw err
   }
 
-  // Write the updated content
   await writeFile(targetPath, content, "utf-8")
 
-  // For htmx requests, return the updated file viewer in view mode
   if (isHtmxRequest(c)) {
     const { FileViewer } = await import("../components/file-viewer")
     const updatedContent = await readFile(targetPath, "utf-8")

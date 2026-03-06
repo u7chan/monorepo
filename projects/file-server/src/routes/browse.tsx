@@ -2,7 +2,7 @@ import * as path from "node:path"
 import { Hono } from "hono"
 import { FileList } from "../components/FileList"
 import type { AppBindings } from "../types"
-import { getFileList } from "../utils/fileListing"
+import { ensureUploadDirExists, getFileList } from "../utils/fileListing"
 import {
   ensureValidPath,
   errorResponse,
@@ -24,6 +24,7 @@ browseRoutes.get("/", async (c) => {
     return invalidResponse
   }
 
+  await ensureUploadDirExists(uploadDir)
   const resolvedDir = path.join(uploadDir, requestPath)
   const statOrResponse = await statOrNotFound(
     c,
@@ -56,6 +57,7 @@ browseRoutes.get("/browse", async (c) => {
     return invalidResponse
   }
 
+  await ensureUploadDirExists(uploadDir)
   const resolvedDir = path.join(uploadDir, requestPath)
   const statOrResponse = await statOrNotFound(
     c,

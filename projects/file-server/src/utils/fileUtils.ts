@@ -1,8 +1,9 @@
 import { stat as fsStat } from "node:fs/promises"
 import * as path from "node:path"
+import { isPathTraversal } from "./pathTraversal"
 
 export function isInvalidPath(p: string): boolean {
-  return p.includes("..") || path.isAbsolute(p) || p.startsWith("/")
+  return isPathTraversal(p)
 }
 
 export async function resolveUploadPath(

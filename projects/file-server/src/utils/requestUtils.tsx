@@ -5,25 +5,29 @@ import { env } from "hono/adapter"
 import type { HtmlEscapedString } from "hono/utils/html"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { PageShell } from "../components/PageShell"
+import type { AppBindings } from "../types"
+import { getUserUploadDir } from "./auth"
 import { isInvalidPath } from "./fileUtils"
 
 /** Default upload directory when UPLOAD_DIR env var is not set */
 export const DEFAULT_UPLOAD_DIR = "./tmp"
 
-export function getUploadDir(c: Context): string {
-  return env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
+export function getUploadDir(c: Context<AppBindings>): string {
+  const baseDir = env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
+  const user = c.get("user") ?? { type: "anonymous" }
+  return getUserUploadDir(baseDir, user)
 }
 
-export function getRequestPath(c: Context): string {
+export function getRequestPath(c: Context<AppBindings>): string {
   return decodeURIComponent(c.req.query("path") || "")
 }
 
-export function isHtmxRequest(c: Context): boolean {
+export function isHtmxRequest(c: Context<AppBindings>): boolean {
   return c.req.header("HX-Request") === "true"
 }
 
 export function errorResponse(
-  c: Context,
+  c: Context<AppBindings>,
   name: string,
   message: string,
   status: ContentfulStatusCode = 400,
@@ -37,12 +41,12 @@ export function errorResponse(
   )
 }
 
-export function invalidPathResponse(c: Context) {
+export function invalidPathResponse(c: Context<AppBindings>) {
   return errorResponse(c, "PathError", "Invalid path", 400)
 }
 
 export function ensureValidPath(
-  c: Context,
+  c: Context<AppBindings>,
   requestPath: string,
 ): Response | null {
   if (isInvalidPath(requestPath)) {
@@ -52,7 +56,7 @@ export function ensureValidPath(
 }
 
 export async function statOrNotFound(
-  c: Context,
+  c: Context<AppBindings>,
   resolvedPath: string,
   notFoundName: string,
   notFoundMessage: string,
@@ -73,11 +77,11 @@ export async function statOrNotFound(
 }
 
 export function renderWithShell(
-  c: Context,
+  c: Context<AppBindings>,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ) {
   if (isHtmxRequest(c)) {
     return c.html(body)
   }
-  return c.html(<PageShell>{body}</PageShell>)
+  return c.html(<PageShell user={c.get("user")}>{body}</PageShell>)
 }
