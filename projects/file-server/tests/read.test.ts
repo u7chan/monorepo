@@ -17,6 +17,8 @@ describe("read", () => {
     await mkdir(UPLOAD_DIR, { recursive: true })
     // 環境変数を設定
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   afterEach(async () => {
@@ -26,6 +28,8 @@ describe("read", () => {
     } catch (_error) {
       // ディレクトリが存在しない場合は無視
     }
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   it("should return empty files list when directory is empty", async () => {
@@ -90,7 +94,7 @@ describe("read", () => {
     expect(responseData.files).toHaveLength(2)
   })
 
-  it("should handle non-existent directory gracefully", async () => {
+  it("should create upload directory on demand when missing", async () => {
     // 存在しないディレクトリを設定
     process.env.UPLOAD_DIR = "./non-existent-dir"
 
@@ -98,18 +102,17 @@ describe("read", () => {
     const req = new Request("http://localhost/api/")
     const res = await app.request(req)
 
-    // レスポンスを検証（エラーが発生するはず）
-    expect(res.status).toBe(400)
+    // レスポンスを検証（オンデマンド作成される）
+    expect(res.status).toBe(200)
     const responseData = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
+      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
     }
-    expect(responseData.success).toBe(false)
-    expect(responseData.error).toBeDefined()
-    expect(responseData.error.name).toBe("DirNotFound")
+    expect(responseData.files).toEqual([])
 
     // 環境変数を元に戻す
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 })
 
@@ -121,11 +124,15 @@ describe("browse endpoint /", () => {
     } catch (_error) {}
     await mkdir(UPLOAD_DIR, { recursive: true })
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
   afterEach(async () => {
     try {
       await rm(UPLOAD_DIR, { recursive: true, force: true })
     } catch (_error) {}
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   it("should render directory listing as HTML", async () => {
@@ -229,11 +236,15 @@ describe("file endpoint /file", () => {
     } catch (_error) {}
     await mkdir(UPLOAD_DIR, { recursive: true })
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
   afterEach(async () => {
     try {
       await rm(UPLOAD_DIR, { recursive: true, force: true })
     } catch (_error) {}
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   it("should redirect to parent directory on non-htmx request", async () => {
@@ -317,11 +328,15 @@ describe("browse endpoint /browse (htmx)", () => {
     } catch (_error) {}
     await mkdir(UPLOAD_DIR, { recursive: true })
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
   afterEach(async () => {
     try {
       await rm(UPLOAD_DIR, { recursive: true, force: true })
     } catch (_error) {}
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   it("should return directory listing as partial HTML", async () => {

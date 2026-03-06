@@ -9,6 +9,8 @@ describe("delete", () => {
   beforeEach(async () => {
     await mkdir(UPLOAD_DIR, { recursive: true })
     process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
   })
 
   it("should delete a file", async () => {

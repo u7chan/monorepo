@@ -4,7 +4,8 @@
     "dev": "bun run --hot src/index.tsx",
     "lint": "tsc --noEmit && biome lint --write",
     "format": "biome check --write",
-    "test": "bun test"
+    "test": "bun test",
+    "hash-password": "bun run scripts/hash-password.ts"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.6",
