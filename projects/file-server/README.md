@@ -144,6 +144,64 @@ bun run hash-password 'your-password'
 ]
 ```
 
+### 開発時にユーザー認証を有効化する手順
+
+1. パスワードハッシュを生成する。
+
+```bash
+bun run hash-password 'alice-password'
+```
+
+2. プロジェクトルート（`README.md` と同じ階層）に `users.dev.json` を作成する。
+
+```bash
+touch users.dev.json
+```
+
+3. `users.dev.json` に `username` と `passwordHash` を設定する。
+
+```json
+[
+  {
+    "username": "alice",
+    "passwordHash": "$2b$10$..."
+  }
+]
+```
+
+4. `SESSION_SECRET` と `USERS_FILE` を指定して開発サーバーを起動する。
+
+```bash
+SESSION_SECRET='replace-with-32+chars-secret' \
+USERS_FILE='./users.dev.json' \
+bun run dev
+```
+
+5. ブラウザで `http://localhost:3000/login` を開き、設定したユーザーでログインする。
+
+### 本番環境での `SESSION_SECRET` 運用
+
+- `SESSION_SECRET` は 32 文字以上の十分に長いランダム値を使う（推奨: 64 バイト相当）。
+- ソースコードや Git にコミットしない。環境変数として注入する。
+- 複数インスタンス運用時は、同一サービスで同じ `SESSION_SECRET` を共有する。
+- 定期ローテーションを行う（切り替え時は既存セッション失効を想定）。
+
+生成例:
+
+```bash
+openssl rand -base64 48
+```
+
+Docker 例:
+
+```bash
+docker run -p 3000:3000 \
+  -e SESSION_SECRET='generated-secret' \
+  -e USERS_FILE='/app/users.json' \
+  -e UPLOAD_DIR='/app/uploads' \
+  file-server
+```
+
 ## Docker
 
 ```bash
