@@ -8,6 +8,7 @@ Web-based file server built with Bun + Hono + HTMX.
 - `bun run dev` - Start dev server
 - `bun run lint` - TypeScript check + Biome format
 - `bun test` - Run tests
+- `bun run hash-password 'password'` - Generate bcrypt hash for USERS_FILE
 
 ## Code Style
 
@@ -19,17 +20,21 @@ Web-based file server built with Bun + Hono + HTMX.
 ## Structure
 
 - `src/index.tsx` - Entry point
-- `src/routes/` - Route definitions (api, browse, file)
+- `src/middleware/auth.ts` - Auth middleware
+- `src/routes/` - Route definitions (api, auth, browse, file)
 - `src/api/handlers.tsx` - API handlers
 - `src/components/` - JSX components
 - `src/utils/` - Utilities
-- `tests/` - Tests (read, upload, delete, mkdir)
+- `tests/` - Tests (auth, read, upload, delete, mkdir, update)
 
 ## Environment Variables
 
 - `UPLOAD_DIR` - File storage directory (default: `./tmp`)
+- `USERS_FILE` - Path to users JSON file (enables authentication when set)
+- `SESSION_SECRET` - Session signing secret (required when `USERS_FILE` is set)
 
 ## Important
 
 - Path validation prevents directory traversal. Do not bypass this mechanism.
+- If auth is enabled, keep per-user directory isolation intact.
 - Ensure all tests pass with `bun test` before committing.
