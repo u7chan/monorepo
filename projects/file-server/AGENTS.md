@@ -32,6 +32,7 @@ Web-based file server built with Bun + Hono + HTMX.
 - `UPLOAD_DIR` - File storage directory (default: `./tmp`)
 - `USERS_FILE` - Path to users JSON file (enables authentication when set)
 - `SESSION_SECRET` - Session signing secret (required when `USERS_FILE` is set)
+- Use `.env.example` as a template and set values in `.env` for local development (`bun run` loads `.env` automatically)
 
 ## Important
 

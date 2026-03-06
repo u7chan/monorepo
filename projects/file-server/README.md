@@ -172,12 +172,19 @@ touch users.dev.json
 4. `SESSION_SECRET` と `USERS_FILE` を指定して開発サーバーを起動する。
 
 ```bash
-SESSION_SECRET='replace-with-32+chars-secret' \
-USERS_FILE='./users.dev.json' \
+cp .env.example .env
+```
+
+```bash
+# 必要に応じて .env を編集
+# USERS_FILE=./users.dev.json
+# SESSION_SECRET=replace-with-32+chars-secret
 bun run dev
 ```
 
 5. ブラウザで `http://localhost:3000/login` を開き、設定したユーザーでログインする。
+
+`bun run` 実行時は Bun が `.env` を自動で読み込むため、毎回起動コマンドに環境変数を付ける必要はない。
 
 ### 本番環境での `SESSION_SECRET` 運用
 
