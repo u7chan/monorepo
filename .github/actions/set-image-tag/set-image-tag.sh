@@ -20,6 +20,7 @@ else
 fi
 
 echo "Using image tag: $IMAGE_TAG"
+echo "image_tag=$IMAGE_TAG"
 
 if [[ -n "$GITHUB_OUTPUT" ]]; then
   echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
