@@ -4,21 +4,46 @@
 
 このリポジトリでは GitHub Actions を使って、`projects/` 配下の Docker 対応プロジェクトを CI と CD で扱います。
 
-- CI は PR 上で `test` ステージを検証します。
-- CD は `final` ステージのイメージを GHCR に push します。
-- CD は `main` への push で自動実行でき、任意の ref / project を指定した手動実行にも対応しています。
+- CI は `main` 向け PR で、変更のあったプロジェクトの Dockerfile にある `test` ステージを検証します。
+- CD は `main` への push または手動実行で、対象プロジェクトの Dockerfile にある `final` ステージを build して GHCR に push します。
+- 手動実行では `Git ref` に branch 名やコミットハッシュを指定でき、`project directories` とあわせて対象を絞れます。deploy handoff に使う `image_tag` もログに出力します。
 
 ```mermaid
 flowchart LR
-  PR["main 向け PR"] --> CI["CI<br/>pullrequest-check.yml"]
-  PUSH["main への push"] --> CD_AUTO["CD 自動実行<br/>docker-build.yml"]
-  MANUAL["Run workflow"] --> CD_MANUAL["CD 手動実行<br/>docker-build.yml"]
+  subgraph Trigger["Trigger"]
+    PR["main 向け PR<br/>pullrequest-check.yml"]
+    PUSH["main への push<br/>docker-build.yml"]
+    MANUAL["Run workflow<br/>docker-build.yml"]
+  end
 
-  CI --> TEST["Dockerfile の test ステージを build"]
-  CD_AUTO --> FINAL["Dockerfile の final ステージを build"]
-  CD_MANUAL --> FINAL
-  FINAL --> GHCR["GHCR に push"]
+  subgraph CI["CI"]
+    CI_DIRS["変更ディレクトリを検出<br/>changed_dirs.txt"]
+    CI_PROJECTS["test ステージを持つ project を抽出<br/>build_projects.txt"]
+    CI_BUILD["--target=test で Docker build"]
+
+    CI_DIRS --> CI_PROJECTS
+    CI_PROJECTS --> CI_BUILD
+  end
+
+  subgraph CD["CD"]
+    CD_AUTO["自動実行<br/>変更ディレクトリを検出"]
+    CD_MANUAL["手動実行<br/>Git ref / project を検証"]
+    CD_BUILD["--target=final で build<br/>image_tag を決定"]
+    GHCR["GHCR に push"]
+    HANDOFF["deploy handoff をログ出力"]
+
+    CD_AUTO --> CD_BUILD
+    CD_MANUAL --> CD_BUILD
+    CD_BUILD --> GHCR
+    GHCR --> HANDOFF
+  end
+
+  PR --> CI_DIRS
+  PUSH --> CD_AUTO
+  MANUAL --> CD_MANUAL
 ```
+
+この図のとおり、CI と CD は同じ `projects/` 配下を対象にしつつ、使う workflow と Docker stage、実行トリガーが異なります。以降では、その違いと各 custom action の役割を順に説明します。
 
 ## どちらが何をするか
 
@@ -110,7 +135,7 @@ sequenceDiagram
 
   User->>GA: Run workflow
   User->>GA: Git ref / project directories を入力
-  GA->>Repo: 指定 ref を checkout
+  GA->>Repo: 指定した branch / commit を checkout
   GA->>GA: 対象 project を検証
   GA->>GA: final ステージを build
   GA->>GHCR: イメージを push
@@ -120,7 +145,7 @@ sequenceDiagram
 入力時の見方は次のとおりです。
 
 - `Use workflow from` は通常 `main` のままで問題ありません。
-- `Git ref (branch/tag/SHA)` に build したい branch / tag / commit を入力します。
+- `Git ref (branch name or commit SHA)` に build したい branch 名またはコミットハッシュを入力します。
 - `Comma separated project directories` に `projects/portal` のようなディレクトリを入力します。
 - 手動実行時の build stage は常に `final` です。
 - 手動実行時の manual image cleanup は常に最新 `3` 件を残します。
@@ -132,7 +157,7 @@ sequenceDiagram
 
 ### CD の処理順
 
-1. 対象 ref を checkout する
+1. 指定した branch 名またはコミットハッシュを checkout する
 2. 自動実行では変更ディレクトリを検出する
 3. build 対象プロジェクトを `build_projects.txt` に確定する
 4. `--target=final` で Docker build を実行する
