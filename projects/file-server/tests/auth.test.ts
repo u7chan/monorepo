@@ -10,6 +10,7 @@ import { createTestSession } from "./helpers/auth"
 const UPLOAD_DIR = "./tmp-test-auth"
 const USERS_FILE = path.join(UPLOAD_DIR, "users.json")
 const SESSION_SECRET = "0123456789abcdef0123456789abcdef"
+const zipAvailable = Bun.spawnSync(["which", "zip"]).exitCode === 0
 
 type PlainUser = {
   username: string
@@ -164,6 +165,53 @@ describe("auth", () => {
       success: boolean
       error: { name: string; message: string }
     }
+    expect(body.success).toBe(false)
+    expect(body.error.name).toBe("PathError")
+  })
+
+  it("isolates archive downloads by authenticated user directory", async () => {
+    if (!zipAvailable) {
+      return
+    }
+
+    await writeUsers([
+      { username: "alice", password: "password1" },
+      { username: "bob", password: "password2" },
+    ])
+
+    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
+    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
+    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
+    await writeFile(path.join(UPLOAD_DIR, "bob", "bob.txt"), "bob")
+
+    const aliceSession = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request("http://localhost/file/archive?path=", {
+        headers: { cookie: aliceSession.cookie },
+      }),
+    )
+    const bodyText = Buffer.from(await res.arrayBuffer()).toString("latin1")
+
+    expect(res.status).toBe(200)
+    expect(bodyText).toContain("alice.txt")
+    expect(bodyText).not.toContain("bob.txt")
+  })
+
+  it("rejects archive traversal attempts for authenticated users", async () => {
+    await writeUsers([{ username: "alice", password: "password1" }])
+    const session = await createTestSession("alice", SESSION_SECRET)
+
+    const res = await app.request(
+      new Request("http://localhost/file/archive?path=../bob", {
+        headers: { cookie: session.cookie },
+      }),
+    )
+    const body = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+
+    expect(res.status).toBe(400)
     expect(body.success).toBe(false)
     expect(body.error.name).toBe("PathError")
   })
