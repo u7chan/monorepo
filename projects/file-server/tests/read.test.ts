@@ -3,6 +3,12 @@ import { mkdir, rm } from "node:fs/promises"
 import * as path from "node:path"
 import app from "../src/index"
 
+const zipAvailable = Bun.spawnSync(["which", "zip"]).exitCode === 0
+
+function zipBodyText(body: ArrayBuffer): string {
+  return Buffer.from(body).toString("latin1")
+}
+
 describe("read", () => {
   const UPLOAD_DIR = "./tmp-test"
 
@@ -181,6 +187,19 @@ describe("browse endpoint /", () => {
     expect(text).toContain("hx-push-url")
   })
 
+  it("should render directory zip download link", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
+    const req = new Request("http://localhost/?path=foo%2Fbar", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(text).toContain('href="/file/archive?path=foo%2Fbar"')
+    expect(text).toContain("Download Zip")
+  })
+
   it("should redirect to /file when file is selected", async () => {
     await Bun.write(path.join(UPLOAD_DIR, "hello.txt"), "hello world")
     const req = new Request("http://localhost/?path=hello.txt", {
@@ -317,6 +336,166 @@ describe("file endpoint /file", () => {
     expect(data.success).toBe(false)
     expect(data.error).toBeDefined()
     expect(data.error.name).toBe("NotAFile")
+  })
+})
+
+describe("file archive endpoint /file/archive", () => {
+  const UPLOAD_DIR = "./tmp-test"
+  beforeEach(async () => {
+    try {
+      await rm(UPLOAD_DIR, { recursive: true, force: true })
+    } catch (_error) {}
+    await mkdir(UPLOAD_DIR, { recursive: true })
+    process.env.UPLOAD_DIR = UPLOAD_DIR
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
+  })
+  afterEach(async () => {
+    try {
+      await rm(UPLOAD_DIR, { recursive: true, force: true })
+    } catch (_error) {}
+    delete process.env.USERS_FILE
+    delete process.env.SESSION_SECRET
+  })
+
+  it("should return a zip archive for the root directory", async () => {
+    if (!zipAvailable) {
+      return
+    }
+
+    await mkdir(path.join(UPLOAD_DIR, "nested"), { recursive: true })
+    await Bun.write(path.join(UPLOAD_DIR, "foo.txt"), "foo")
+    await Bun.write(path.join(UPLOAD_DIR, "nested", "bar.txt"), "bar")
+
+    const req = new Request("http://localhost/file/archive?path=", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const body = await res.arrayBuffer()
+    const zipText = zipBodyText(body)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("application/zip")
+    expect(res.headers.get("Content-Disposition")).toContain("root.zip")
+    expect(zipText).toContain("PK\u0003\u0004")
+    expect(zipText).toContain("foo.txt")
+    expect(zipText).toContain("nested/")
+    expect(zipText).toContain("nested/bar.txt")
+  })
+
+  it("should return a zip archive for a nested directory without parent wrapper", async () => {
+    if (!zipAvailable) {
+      return
+    }
+
+    await mkdir(path.join(UPLOAD_DIR, "docs/images"), { recursive: true })
+    await Bun.write(path.join(UPLOAD_DIR, "docs", "readme.md"), "# docs")
+    await Bun.write(path.join(UPLOAD_DIR, "docs/images", "logo.txt"), "logo")
+
+    const req = new Request("http://localhost/file/archive?path=docs", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const body = await res.arrayBuffer()
+    const zipText = zipBodyText(body)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Disposition")).toContain("docs.zip")
+    expect(zipText).toContain("readme.md")
+    expect(zipText).toContain("images/")
+    expect(zipText).toContain("images/logo.txt")
+    expect(zipText).not.toContain("docs/readme.md")
+  })
+
+  it("should return an empty zip archive for an empty directory", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "empty"), { recursive: true })
+
+    const req = new Request("http://localhost/file/archive?path=empty", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const body = await res.arrayBuffer()
+    const zipText = zipBodyText(body)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Disposition")).toContain("empty.zip")
+    expect(zipText).toContain("PK\u0005\u0006")
+  })
+
+  it("should return error for file path on archive endpoint", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "file-only.txt"), "content")
+
+    const req = new Request("http://localhost/file/archive?path=file-only.txt", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+
+    expect(res.status).toBe(400)
+    expect(data.success).toBe(false)
+    expect(data.error.name).toBe("NotADirectory")
+  })
+
+  it("should return a user-friendly error when zip command is unavailable", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "foo.txt"), "foo")
+
+    const originalSpawn = Bun.spawn
+    Bun.spawn = ((..._args: unknown[]) => {
+      throw new Error('Executable not found in $PATH: "zip"')
+    }) as unknown as typeof Bun.spawn
+
+    try {
+      const req = new Request("http://localhost/file/archive?path=", {
+        method: "GET",
+      })
+      const res = await app.request(req)
+      const data = (await res.json()) as {
+        success: boolean
+        error: { name: string; message: string }
+      }
+
+      expect(res.status).toBe(500)
+      expect(data.success).toBe(false)
+      expect(data.error.name).toBe("ArchiveError")
+      expect(data.error.message).toBe(
+        "Zip download is unavailable because the server does not have the zip command installed",
+      )
+    } finally {
+      Bun.spawn = originalSpawn
+    }
+  })
+
+  it("should return error for non-existent archive path", async () => {
+    const req = new Request("http://localhost/file/archive?path=missing", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+
+    expect(res.status).toBe(400)
+    expect(data.success).toBe(false)
+    expect(data.error.name).toBe("NotFound")
+  })
+
+  it("should reject path traversal on archive endpoint", async () => {
+    const req = new Request("http://localhost/file/archive?path=../secret", {
+      method: "GET",
+    })
+    const res = await app.request(req)
+    const data = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+
+    expect(res.status).toBe(400)
+    expect(data.success).toBe(false)
+    expect(data.error.name).toBe("PathError")
   })
 })
 

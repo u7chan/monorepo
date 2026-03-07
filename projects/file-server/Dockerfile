@@ -8,6 +8,8 @@ WORKDIR /app
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
 
+RUN apk add --no-cache zip
+
 # -----------------------------------------------
 # test stage
 #   - example: `docker build -t ex --target=test --progress plain .`

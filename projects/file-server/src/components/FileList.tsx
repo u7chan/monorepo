@@ -2,6 +2,7 @@ import * as path from "node:path"
 import type { FC } from "hono/jsx"
 import { formatFileSize, formatTimestamp } from "../utils/formatters"
 import { DeleteIcon } from "./icons/DeleteIcon"
+import { DownloadIcon } from "./icons/DownloadIcon"
 import { FileIcon } from "./icons/FileIcon"
 import { FolderIcon } from "./icons/FolderIcon"
 import { UploadIcon } from "./icons/UploadIcon"
@@ -75,6 +76,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
   const folderPath = requestPath
     ? requestPath + (requestPath.endsWith("/") ? "" : "/")
     : ""
+  const archiveHref = `/file/archive?path=${encodeURIComponent(requestPath)}`
 
   return (
     <div id="file-list-container">
@@ -112,6 +114,13 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
           <FolderIcon />
           New Folder
         </button>
+        <a
+          href={archiveHref}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg no-underline hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+        >
+          <DownloadIcon />
+          Download Zip
+        </a>
       </div>
 
       {/* New Folder フォーム（アコーディオン） */}

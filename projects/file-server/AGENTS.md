@@ -1,6 +1,7 @@
 # AGENTS.md
 
 Web-based file server built with Bun + Hono + HTMX.
+Current features include per-directory Zip download via `/file/archive`.
 
 ## Commands
 
@@ -38,4 +39,6 @@ Web-based file server built with Bun + Hono + HTMX.
 
 - Path validation prevents directory traversal. Do not bypass this mechanism.
 - If auth is enabled, keep per-user directory isolation intact.
+- Archive downloads must preserve the same path validation and user-scoped directory isolation rules.
+- Runtime and Docker images must provide the `zip` command for `/file/archive`.
 - Ensure all tests pass with `bun test` before committing.
