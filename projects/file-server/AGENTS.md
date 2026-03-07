@@ -35,10 +35,17 @@ Current features include per-directory Zip download via `/file/archive`.
 - `SESSION_SECRET` - Session signing secret (required when `USERS_FILE` is set)
 - Use `.env.example` as a template and set values in `.env` for local development (`bun run` loads `.env` automatically)
 
+## Authentication Roles
+
+- `USERS_FILE` entries must include `role` with `"user"` or `"admin"`.
+- `user`: request root `/` maps to `UPLOAD_DIR/<username>`.
+- `admin`: request root `/` maps to the full `UPLOAD_DIR`.
+- Session stores only `username`; role is reloaded from `USERS_FILE` on each request.
+
 ## Important
 
 - Path validation prevents directory traversal. Do not bypass this mechanism.
-- If auth is enabled, keep per-user directory isolation intact.
-- Archive downloads must preserve the same path validation and user-scoped directory isolation rules.
+- If auth is enabled, preserve role-based isolation (`user` scoped, `admin` global root).
+- Archive downloads must preserve the same path validation and role-based scope rules.
 - Runtime and Docker images must provide the `zip` command for `/file/archive`.
 - Ensure all tests pass with `bun test` before committing.

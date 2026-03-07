@@ -35,6 +35,9 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
                   <span className="rounded-md bg-indigo-50 px-2 py-1 font-medium text-indigo-700">
                     {user.username}
                   </span>
+                  <span className="rounded-md bg-gray-100 px-2 py-1 font-medium text-gray-700">
+                    {user.role}
+                  </span>
                   <form action="/logout" method="post">
                     <button
                       type="submit"
@@ -46,6 +49,13 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
                 </div>
               )}
             </header>
+            {user?.type === "authenticated" && (
+              <p className="mb-4 text-sm text-gray-600">
+                {user.role === "admin"
+                  ? "Current / maps to the server upload root."
+                  : `Current / maps to your private directory (${user.username}/).`}
+              </p>
+            )}
             <div
               id="notification-area"
               className="fixed top-5 right-5 z-50 max-w-md"

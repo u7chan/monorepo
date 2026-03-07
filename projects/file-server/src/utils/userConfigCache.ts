@@ -1,7 +1,8 @@
 import { readFile, stat } from "node:fs/promises"
-import type { UserConfig } from "../types"
+import type { UserConfig, UserRole } from "../types"
 
 const USERNAME_PATTERN = /^[a-z0-9_-]+$/
+const USER_ROLES = new Set(["admin", "user"])
 
 let cachedUsers: UserConfig[] | null = null
 let cachedMtimeMs: number | null = null
@@ -19,6 +20,7 @@ function toValidatedUsers(input: unknown): UserConfig[] {
 
     const username = (item as { username?: unknown }).username
     const passwordHash = (item as { passwordHash?: unknown }).passwordHash
+    const role = (item as { role?: unknown }).role
 
     if (typeof username !== "string" || !USERNAME_PATTERN.test(username)) {
       throw new Error(
@@ -30,8 +32,11 @@ function toValidatedUsers(input: unknown): UserConfig[] {
         `USERS_FILE entry at index ${index} has invalid passwordHash.`,
       )
     }
+    if (typeof role !== "string" || !USER_ROLES.has(role)) {
+      throw new Error(`USERS_FILE entry at index ${index} has invalid role.`)
+    }
 
-    return { username, passwordHash }
+    return { username, passwordHash, role: role as UserRole }
   })
 }
 

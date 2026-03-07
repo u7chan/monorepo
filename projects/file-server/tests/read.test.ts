@@ -425,9 +425,12 @@ describe("file archive endpoint /file/archive", () => {
   it("should return error for file path on archive endpoint", async () => {
     await Bun.write(path.join(UPLOAD_DIR, "file-only.txt"), "content")
 
-    const req = new Request("http://localhost/file/archive?path=file-only.txt", {
-      method: "GET",
-    })
+    const req = new Request(
+      "http://localhost/file/archive?path=file-only.txt",
+      {
+        method: "GET",
+      },
+    )
     const res = await app.request(req)
     const data = (await res.json()) as {
       success: boolean
