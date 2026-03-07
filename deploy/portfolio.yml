@@ -5,7 +5,7 @@ networks:
 services:
   portfolio:
     container_name: portfolio
-    image: ghcr.io/u7chan/monorepo/portfolio:latest
+    image: ghcr.io/u7chan/monorepo/portfolio:${PROJECT_IMAGE_TAG:-latest}
     restart: always
     ports:
       - 8000:3000

@@ -12,6 +12,10 @@ inputs:
   password:
     description: "Registry password"
     required: true
+  image_tag:
+    description: "Docker image tag"
+    required: false
+    default: "latest"
 
 outputs:
   project_names_csv:
@@ -25,4 +29,4 @@ runs:
       shell: bash
       run: |
         # 共通スクリプトを実行
-        ${{ github.action_path }}/push-docker-images.sh "${{ inputs.registry }}" "${{ inputs.username }}" "${{ inputs.password }}"
+        ${{ github.action_path }}/push-docker-images.sh "${{ inputs.registry }}" "${{ inputs.username }}" "${{ inputs.password }}" "${{ inputs.image_tag }}"

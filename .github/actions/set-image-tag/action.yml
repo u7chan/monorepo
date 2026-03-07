@@ -1,0 +1,25 @@
+name: Set Image Tag
+description: Determine Docker image tag for push and manual builds
+
+inputs:
+  event_name:
+    description: "GitHub event name"
+    required: true
+  ref_input:
+    description: "workflow_dispatch ref input"
+    required: false
+    default: ""
+
+outputs:
+  image_tag:
+    description: "Docker image tag"
+    value: ${{ steps.set-image-tag.outputs.image_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set Image Tag
+      id: set-image-tag
+      shell: bash
+      run: |
+        ${{ github.action_path }}/set-image-tag.sh "${{ inputs.event_name }}" "${{ inputs.ref_input }}"

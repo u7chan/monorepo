@@ -5,7 +5,7 @@ networks:
 services:
   chat-mcp-client:
     container_name: chat-mcp-client
-    image: ghcr.io/u7chan/monorepo/chat-mcp-client:latest
+    image: ghcr.io/u7chan/monorepo/chat-mcp-client:${PROJECT_IMAGE_TAG:-latest}
     restart: always
     ports:
       - 8003:3000

@@ -5,7 +5,7 @@ networks:
 services:
   file-server:
     container_name: file-server
-    image: ghcr.io/u7chan/monorepo/file-server:latest
+    image: ghcr.io/u7chan/monorepo/file-server:${PROJECT_IMAGE_TAG:-latest}
     restart: always
     ports:
       - 8010:3000

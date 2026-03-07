@@ -5,6 +5,22 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Build target ref"
+        required: true
+      projects:
+        description: "Comma separated project directories"
+        required: true
+      stage:
+        description: "Docker build stage"
+        required: false
+        default: "final"
+      keep_count:
+        description: "Number of manual images to keep"
+        required: false
+        default: "3"
 
 jobs:
   docker-build-if-changes-detected:
@@ -15,23 +31,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
           # プッシュイベントでは直前のコミットとの差分で十分
           # 2コミット分の履歴で変更検出が可能
           fetch-depth: 2
 
       - name: Get Changed Directories
+        if: github.event_name == 'push'
         uses: ./.github/actions/get-changed-directories
 
       - name: Get Changed Projects
+        if: github.event_name == 'push'
         uses: ./.github/actions/get-changed-projects
         with:
           required-stage: final
+
+      - name: Prepare manual build inputs
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/prepare-manual-build-inputs
+        with:
+          projects: ${{ github.event.inputs.projects }}
+          stage: ${{ github.event.inputs.stage || 'final' }}
+
+      - name: Set image tag
+        id: set-image-tag
+        uses: ./.github/actions/set-image-tag
+        with:
+          event_name: ${{ github.event_name }}
+          ref_input: ${{ github.event.inputs.ref }}
 
       - name: Build Docker Images
         if: env.BUILD_PROJECT != ''
         uses: ./.github/actions/build-docker-images
         with:
-          stage: final
+          stage: ${{ github.event.inputs.stage || 'final' }}
+          image_tag: ${{ steps.set-image-tag.outputs.image_tag }}
 
       - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
@@ -45,6 +79,7 @@ jobs:
         with:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          image_tag: ${{ steps.set-image-tag.outputs.image_tag }}
 
       - name: Clean Up Docker Images
         if: steps.push_images.outputs.project_names_csv != ''
@@ -53,4 +88,5 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           repo-name: ${{ secrets.PRIVATE_REPO_NAME }}
           project-names-csv: ${{ steps.push_images.outputs.project_names_csv }}
-          keep-count: 3
+          keep-count: ${{ github.event.inputs.keep_count || '3' }}
+          cleanup-mode: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'normal' }}
