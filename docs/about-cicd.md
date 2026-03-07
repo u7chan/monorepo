@@ -10,9 +10,9 @@
 
 ```mermaid
 flowchart LR
-  PR["main 向け PR"] --> CI["CI\npullrequest-check.yml"]
-  PUSH["main への push"] --> CD_AUTO["CD 自動実行\ndocker-build.yml"]
-  MANUAL["Run workflow"] --> CD_MANUAL["CD 手動実行\ndocker-build.yml"]
+  PR["main 向け PR"] --> CI["CI<br/>pullrequest-check.yml"]
+  PUSH["main への push"] --> CD_AUTO["CD 自動実行<br/>docker-build.yml"]
+  MANUAL["Run workflow"] --> CD_MANUAL["CD 手動実行<br/>docker-build.yml"]
 
   CI --> TEST["Dockerfile の test ステージを build"]
   CD_AUTO --> FINAL["Dockerfile の final ステージを build"]
@@ -63,7 +63,7 @@ CMD ["./start.sh"]
 flowchart TD
   A["PR 更新"] --> B["actions/checkout"]
   B --> C["変更ディレクトリを検出"]
-  C --> D["test ステージを持つ\n変更プロジェクトを抽出"]
+  C --> D["test ステージを持つ<br/>変更プロジェクトを抽出"]
   D --> E["--target=test で Docker build"]
   E --> F["ビルド結果を表示"]
 ```
@@ -80,7 +80,7 @@ flowchart TD
 ```mermaid
 flowchart LR
   AUTO["main への push"] --> A1["変更ディレクトリを検出"]
-  A1 --> A2["final ステージを持つ\n変更プロジェクトを抽出"]
+  A1 --> A2["final ステージを持つ<br/>変更プロジェクトを抽出"]
   A2 --> BUILD["--target=final で build"]
 
   MANUAL["workflow_dispatch"] --> M1["ref と project を入力"]
