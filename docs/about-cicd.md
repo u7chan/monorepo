@@ -1,14 +1,51 @@
 # CI/CDについて
 
-## 概要
+## まず全体像
 
 このリポジトリでは GitHub Actions を使って、`projects/` 配下の Docker 対応プロジェクトを CI と CD で扱います。
 
-- CI は PR 上で `test` ステージを検証します。
-- CD は `final` ステージのイメージを GHCR に push します。
-- CD には `main` への push による自動実行と、任意の ref / project を指定する手動実行があります。
+- CI は `main` 向け PR で、変更のあったプロジェクトの Dockerfile にある `test` ステージを検証します。
+- CD は `main` への push または手動実行で、対象プロジェクトの Dockerfile にある `final` ステージを build して GHCR に push します。
+- 手動実行では `Git ref` に branch 名やコミットハッシュを指定でき、`project directories` とあわせて対象を絞れます。deploy handoff に使う `image_tag` もログに出力します。
 
-## CIとCDの違い
+```mermaid
+flowchart LR
+  subgraph Trigger["Trigger"]
+    PR["main 向け PR<br/>pullrequest-check.yml"]
+    PUSH["main への push<br/>docker-build.yml"]
+    MANUAL["Run workflow<br/>docker-build.yml"]
+  end
+
+  subgraph CI["CI"]
+    CI_DIRS["変更ディレクトリを検出<br/>changed_dirs.txt"]
+    CI_PROJECTS["test ステージを持つ project を抽出<br/>build_projects.txt"]
+    CI_BUILD["--target=test で Docker build"]
+
+    CI_DIRS --> CI_PROJECTS
+    CI_PROJECTS --> CI_BUILD
+  end
+
+  subgraph CD["CD"]
+    CD_AUTO["自動実行<br/>変更ディレクトリを検出"]
+    CD_MANUAL["手動実行<br/>Git ref / project を検証"]
+    CD_BUILD["--target=final で build<br/>image_tag を決定"]
+    GHCR["GHCR に push"]
+    HANDOFF["deploy handoff をログ出力"]
+
+    CD_AUTO --> CD_BUILD
+    CD_MANUAL --> CD_BUILD
+    CD_BUILD --> GHCR
+    GHCR --> HANDOFF
+  end
+
+  PR --> CI_DIRS
+  PUSH --> CD_AUTO
+  MANUAL --> CD_MANUAL
+```
+
+この図のとおり、CI と CD は同じ `projects/` 配下を対象にしつつ、使う workflow と Docker stage、実行トリガーが異なります。以降では、その違いと各 custom action の役割を順に説明します。
+
+## どちらが何をするか
 
 | 項目 | CI | CD |
 |---|---|---|
@@ -18,67 +55,109 @@
 | 目的 | 変更の検証 | 配布用イメージの作成と push |
 | 成果物 | ビルド結果の確認 | GHCR イメージ |
 
-## CI
+## 対象になるプロジェクト
 
-### 発火条件
-
-- `main` 向け PR の作成・更新時に実行されます。
-- 対象は `projects/` 配下の変更です。
-
-### 対象プロジェクト
-
-以下を満たすディレクトリが対象です。
+対象は `projects/` 配下にあり、次の条件を満たすディレクトリです。
 
 - ルートに `Dockerfile` がある
-- `Dockerfile` に `test` ステージがある
+- CI の対象にするには `test` ステージがある
+- CD の対象にするには `final` ステージがある
 
 ```dockerfile
 FROM base AS test
 RUN ./run-tests.sh
-```
 
-`test` ステージだけを持ち `final` ステージを持たないプロジェクトは、CI 専用プロジェクトとして扱えます。
-
-### 処理の流れ
-
-1. `actions/checkout` でコードを取得する
-2. 変更ディレクトリを検出する
-3. `test` ステージを持つ変更プロジェクトを絞り込む
-4. `--target=test` で Docker build を実行する
-5. ビルド結果を表示する
-
-## CD
-
-### 自動実行
-
-- `main` への push 時に実行されます。
-- 対象は `projects/` 配下の変更です。
-- `final` ステージを持つプロジェクトのみ build / push されます。
-
-```dockerfile
 FROM base AS final
 COPY . .
 CMD ["./start.sh"]
 ```
 
+- `test` ステージだけを持つプロジェクトは CI 専用として扱えます。
+- `final` ステージを持たないプロジェクトは CD の対象になりません。
+
+## CI
+
+### いつ動くか
+
+- `main` 向け PR の作成・更新時に実行されます。
+- 対象は `projects/` 配下の変更です。
+
+### 何をするか
+
+```mermaid
+flowchart TD
+  A["PR 更新"] --> B["actions/checkout"]
+  B --> C["変更ディレクトリを検出"]
+  C --> D["test ステージを持つ<br/>変更プロジェクトを抽出"]
+  D --> E["--target=test で Docker build"]
+  E --> F["ビルド結果を表示"]
+```
+
+### 見るポイント
+
+- PR で失敗した場合、まず `test` ステージが存在するか確認します。
+- CI は push しません。検証だけを行います。
+
+## CD
+
+### 自動実行と手動実行
+
+```mermaid
+flowchart LR
+  AUTO["main への push"] --> A1["変更ディレクトリを検出"]
+  A1 --> A2["final ステージを持つ<br/>変更プロジェクトを抽出"]
+  A2 --> BUILD["--target=final で build"]
+
+  MANUAL["workflow_dispatch"] --> M1["ref と project を入力"]
+  M1 --> M2["入力プロジェクトを検証"]
+  M2 --> BUILD
+
+  BUILD --> PUSH["GHCR へ push"]
+  PUSH --> CLEAN["古い manual image を cleanup"]
+```
+
+### 自動実行
+
+- `main` への push 時に実行されます。
+- 対象は `projects/` 配下の変更です。
+- `final` ステージを持つプロジェクトだけが build / push されます。
+
 ### 手動実行
 
-`docker-build.yml` は `workflow_dispatch` にも対応しています。通常のテスト build では GitHub Actions の `Run workflow` からそのまま起動します。
+`docker-build.yml` は `workflow_dispatch` に対応しています。通常のテスト build では GitHub Actions の `Run workflow` からそのまま起動します。
+
+```mermaid
+sequenceDiagram
+  participant User as 実行者
+  participant GA as GitHub Actions
+  participant Repo as 対象 ref
+  participant GHCR as GHCR
+
+  User->>GA: Run workflow
+  User->>GA: Git ref / project directories を入力
+  GA->>Repo: 指定した branch / commit を checkout
+  GA->>GA: 対象 project を検証
+  GA->>GA: final ステージを build
+  GA->>GHCR: イメージを push
+  GA-->>User: image_tag / handoff 情報をログ出力
+```
+
+入力時の見方は次のとおりです。
 
 - `Use workflow from` は通常 `main` のままで問題ありません。
-- `Git ref (branch/tag/SHA)` に build したい branch / tag / commit を入力します。
+- `Git ref (branch name or commit SHA)` に build したい branch 名またはコミットハッシュを入力します。
 - `Comma separated project directories` に `projects/portal` のようなディレクトリを入力します。
 - 手動実行時の build stage は常に `final` です。
 - 手動実行時の manual image cleanup は常に最新 `3` 件を残します。
 
-手動 build 完了後のログには、次の deploy handoff に使う値がそのまま表示されます。
+手動 build 完了後のログには、次の deploy handoff 用の値が表示されます。
 
 - `image_tag=<generated-tag>`
 - `target=<project-name> image_tag=<generated-tag>`
 
-### 処理の流れ
+### CD の処理順
 
-1. 対象 ref を checkout する
+1. 指定した branch 名またはコミットハッシュを checkout する
 2. 自動実行では変更ディレクトリを検出する
 3. build 対象プロジェクトを `build_projects.txt` に確定する
 4. `--target=final` で Docker build を実行する
@@ -87,13 +166,27 @@ CMD ["./start.sh"]
 
 ## カスタムアクション
 
-### `get-changed-directories`
+### 役割の対応表
+
+| アクション | 役割 | 主な出力 |
+|---|---|---|
+| `get-changed-directories` | 差分から `projects/` 配下の変更ディレクトリを拾う | `changed_dirs.txt` |
+| `get-changed-projects` | 必要な Docker stage を持つ project を絞り込む | `build_projects.txt`, `BUILD_PROJECT` |
+| `prepare-manual-build-inputs` | 手動実行で指定された project を検証する | `build_projects.txt`, `BUILD_PROJECT` |
+| `set-image-tag` | 実行種別に応じた tag を決める | `image_tag` |
+| `build-docker-images` | Docker image を build する | build 結果 |
+| `push-docker-images` | GHCR に push する | `project_names_csv` |
+| `cleanup-docker-images` | 古い image を cleanup する | cleanup 結果 |
+
+### 各アクションの詳細
+
+#### `get-changed-directories`
 
 - 入力: `HEAD` と比較対象 ref の差分
 - 対象: `projects/` 配下
 - 出力: `changed_dirs.txt`
 
-### `get-changed-projects`
+#### `get-changed-projects`
 
 - 入力: `changed_dirs.txt`
 - オプション: `required-stage`
@@ -101,19 +194,19 @@ CMD ["./start.sh"]
 
 `required-stage` が指定された場合、そのステージを持つ Dockerfile だけが対象になります。
 
-### `prepare-manual-build-inputs`
+#### `prepare-manual-build-inputs`
 
 - 入力: `projects`
 - 出力: `build_projects.txt`, `BUILD_PROJECT`
 
 手動実行用です。指定されたプロジェクトに `Dockerfile` と `final` ステージがあることを確認します。
 
-### `set-image-tag`
+#### `set-image-tag`
 
 - push 実行時は `latest`
 - 手動実行時は `manual-<sanitized-ref>-<short-sha>`
 
-### `build-docker-images`
+#### `build-docker-images`
 
 - 入力: `stage`, `image_tag`
 
@@ -122,14 +215,14 @@ CMD ["./start.sh"]
 - `COMMIT_HASH` を build arg として渡します。
 - `pre-docker-build.sh` があれば build 前に実行します。
 
-### `push-docker-images`
+#### `push-docker-images`
 
 - 入力: `username`, `password`, `image_tag`
 - 出力: `project_names_csv`
 
 push 成功時は、対象プロジェクト名と deploy handoff 用の `target=... image_tag=...` をログに出します。
 
-### `cleanup-docker-images`
+#### `cleanup-docker-images`
 
 - 入力: `token`, `repo-name`, `project-names-csv`, `keep-count`
 
@@ -137,12 +230,12 @@ CD 実行後、不要な古いイメージの cleanup を行います。manual b
 
 ## データの受け渡し
 
-```text
-changed_dirs.txt
-  -> build_projects.txt
-  -> BUILD_PROJECT
-  -> image_tag
-  -> project_names_csv
+```mermaid
+flowchart LR
+  A["changed_dirs.txt"] --> B["build_projects.txt"]
+  B --> C["BUILD_PROJECT"]
+  C --> D["image_tag"]
+  D --> E["project_names_csv"]
 ```
 
 主に `build_projects.txt` と step output を使って、build 対象と push 対象を次の step に渡します。
