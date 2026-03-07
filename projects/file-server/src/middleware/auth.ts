@@ -98,6 +98,7 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
   const authenticated = {
     type: "authenticated" as const,
     username: user.username,
+    role: user.role,
   }
   c.set("user", authenticated)
   await mkdir(getUserUploadDir(uploadBaseDir, authenticated), {

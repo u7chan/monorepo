@@ -15,6 +15,7 @@ const zipAvailable = Bun.spawnSync(["which", "zip"]).exitCode === 0
 type PlainUser = {
   username: string
   password: string
+  role?: "admin" | "user"
 }
 
 async function writeUsers(users: PlainUser[]) {
@@ -25,6 +26,7 @@ async function writeUsers(users: PlainUser[]) {
         algorithm: "bcrypt",
         cost: 4,
       }),
+      role: user.role ?? "user",
     })),
   )
   await writeFile(USERS_FILE, JSON.stringify(userConfigs), "utf-8")
@@ -150,6 +152,63 @@ describe("auth", () => {
     expect(bobJson.files.map((file) => file.name)).not.toContain("alice.txt")
   })
 
+  it("allows admin to browse the whole upload root", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2", role: "user" },
+      { username: "bob", password: "password3", role: "user" },
+    ])
+
+    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
+    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
+    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
+    await writeFile(path.join(UPLOAD_DIR, "bob", "bob.txt"), "bob")
+
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+    const res = await app.request(
+      new Request("http://localhost/api/", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+    const body = (await res.json()) as {
+      files: Array<{ name: string; type: "file" | "dir" }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(body.files).toEqual(
+      expect.arrayContaining([
+        { name: "alice", type: "dir" },
+        { name: "bob", type: "dir" },
+      ]),
+    )
+  })
+
+  it("allows admin to upload to another user's directory", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "bob", password: "password2", role: "user" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
+
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+    const formData = new FormData()
+    formData.append("files", new File(["hello"], "from-admin.txt"))
+    formData.append("path", "bob")
+
+    const res = await app.request(
+      new Request("http://localhost/api/upload", {
+        method: "POST",
+        body: formData,
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(
+      Bun.file(path.join(UPLOAD_DIR, "bob", "from-admin.txt")).text(),
+    ).resolves.toBe("hello")
+  })
+
   it("rejects path traversal attempts for authenticated users", async () => {
     await writeUsers([{ username: "alice", password: "password1" }])
     const session = await createTestSession("alice", SESSION_SECRET)
@@ -216,6 +275,51 @@ describe("auth", () => {
     expect(body.error.name).toBe("PathError")
   })
 
+  it("allows admin to archive another user's directory", async () => {
+    if (!zipAvailable) {
+      return
+    }
+
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2", role: "user" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
+    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
+
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+    const res = await app.request(
+      new Request("http://localhost/file/archive?path=alice", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+    const bodyText = Buffer.from(await res.arrayBuffer()).toString("latin1")
+
+    expect(res.status).toBe(200)
+    expect(bodyText).toContain("alice.txt")
+  })
+
+  it("rejects path traversal attempts for admins", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+    ])
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+
+    const res = await app.request(
+      new Request("http://localhost/?path=../etc", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+    const body = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+
+    expect(res.status).toBe(400)
+    expect(body.success).toBe(false)
+    expect(body.error.name).toBe("PathError")
+  })
+
   it("clears the session cookie on logout", async () => {
     await writeUsers([{ username: "alice", password: "password1" }])
     const session = await createTestSession("alice", SESSION_SECRET)
@@ -266,7 +370,22 @@ describe("auth", () => {
   it("rejects invalid username entries in USERS_FILE", async () => {
     await writeFile(
       USERS_FILE,
-      JSON.stringify([{ username: "alice/root", passwordHash: "dummy" }]),
+      JSON.stringify([
+        { username: "alice/root", passwordHash: "dummy", role: "user" },
+      ]),
+      "utf-8",
+    )
+
+    const res = await app.request(new Request("http://localhost/login"))
+    expect(res.status).toBe(500)
+  })
+
+  it("rejects invalid role entries in USERS_FILE", async () => {
+    await writeFile(
+      USERS_FILE,
+      JSON.stringify([
+        { username: "alice", passwordHash: "dummy", role: "super-admin" },
+      ]),
       "utf-8",
     )
 

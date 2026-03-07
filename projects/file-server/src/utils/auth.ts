@@ -116,6 +116,10 @@ export function getUserUploadDir(
     return baseDir
   }
 
+  if (userState.role === "admin") {
+    return baseDir
+  }
+
   return path.join(baseDir, userState.username)
 }
 
