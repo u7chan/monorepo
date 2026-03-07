@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Backend SSE Chat PoC</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  </head>
+  <body class="min-h-screen bg-[radial-gradient(circle_at_top,_#1f2937,_#020617_55%)] text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <header class="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.35em] text-cyan-300">Issue #657 PoC</p>
+            <h1 class="mt-2 text-3xl font-semibold tracking-tight">Backend-centric streaming chat</h1>
+            <p class="mt-3 max-w-3xl text-sm text-slate-300">
+              OpenAI ストリームはバックエンドが受信し、フロントエンドは SSE を購読して途中生成だけを表示します。
+            </p>
+          </div>
+          <div class="rounded-2xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-100">
+            <div class="font-medium">Conversation</div>
+            <div id="conversation-id" class="mt-1 break-all font-mono text-xs">{{ conversation_id }}</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid flex-1 gap-6 lg:grid-cols-[1.7fr_0.8fr]">
+        <div class="flex min-h-[65vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 shadow-2xl shadow-cyan-950/20">
+          <div class="border-b border-white/10 px-5 py-4">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <h2 class="text-lg font-medium">Conversation log</h2>
+                <p class="text-sm text-slate-400">リロード後は `/state` から最新状態を復元します。</p>
+              </div>
+              <a href="/" class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300 hover:text-cyan-200">New conversation</a>
+            </div>
+          </div>
+
+          <div id="messages" class="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5"></div>
+
+          <form id="message-form" class="border-t border-white/10 bg-slate-950/80 p-4 sm:p-5">
+            <label for="message-input" class="mb-2 block text-sm font-medium text-slate-300">Message</label>
+            <div class="flex flex-col gap-3 sm:flex-row">
+              <textarea
+                id="message-input"
+                name="content"
+                rows="3"
+                maxlength="4000"
+                class="min-h-28 flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-400/20"
+                placeholder="例: SSE の途中生成がリロード後も復元される理由を説明して"
+                required
+              ></textarea>
+              <button
+                id="submit-button"
+                type="submit"
+                class="rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+              >
+                Send
+              </button>
+            </div>
+            <p id="form-error" class="mt-3 hidden text-sm text-rose-300"></p>
+          </form>
+        </div>
+
+        <aside class="space-y-4">
+          <section class="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+            <h2 class="text-lg font-medium">Generation status</h2>
+            <div id="generation-list" class="mt-4 space-y-3"></div>
+          </section>
+
+          <section class="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+            <h2 class="text-lg font-medium">Event stream</h2>
+            <div id="event-log" class="mt-4 max-h-72 space-y-2 overflow-y-auto text-xs text-slate-300"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <template id="message-template">
+      <article class="rounded-3xl border border-white/10 p-4 shadow-lg shadow-slate-950/20">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div data-role class="text-xs uppercase tracking-[0.3em] text-slate-400"></div>
+            <div data-content class="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-100"></div>
+          </div>
+          <span data-status class="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.25em] text-slate-400"></span>
+        </div>
+      </article>
+    </template>
+
+    <script>
+      const conversationId = {{ conversation_id | tojson }};
+      const messageTemplate = document.getElementById("message-template");
+      const messagesEl = document.getElementById("messages");
+      const generationListEl = document.getElementById("generation-list");
+      const eventLogEl = document.getElementById("event-log");
+      const formEl = document.getElementById("message-form");
+      const inputEl = document.getElementById("message-input");
+      const submitButtonEl = document.getElementById("submit-button");
+      const formErrorEl = document.getElementById("form-error");
+
+      const state = {
+        messages: new Map(),
+        generations: new Map(),
+        lastEventId: 0,
+      };
+
+      let eventSource;
+
+      const messageCardClass = {
+        user: "border-cyan-400/30 bg-cyan-400/10",
+        assistant: "border-white/10 bg-white/5",
+      };
+
+      const statusClass = {
+        queued: "border-slate-500/30 text-slate-300",
+        streaming: "border-amber-300/30 text-amber-200",
+        completed: "border-emerald-300/30 text-emerald-200",
+        failed: "border-rose-300/30 text-rose-200",
+      };
+
+      function upsertMessage(message) {
+        state.messages.set(message.id, { ...message });
+      }
+
+      function upsertGeneration(generation) {
+        state.generations.set(generation.id, { ...generation });
+      }
+
+      function escapeHtml(value) {
+        return value
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function renderMessages() {
+        const orderedMessages = [...state.messages.values()].sort(
+          (left, right) => new Date(left.created_at) - new Date(right.created_at),
+        );
+
+        messagesEl.innerHTML = "";
+        for (const message of orderedMessages) {
+          const node = messageTemplate.content.firstElementChild.cloneNode(true);
+          const roleEl = node.querySelector("[data-role]");
+          const contentEl = node.querySelector("[data-content]");
+          const statusEl = node.querySelector("[data-status]");
+
+          node.className = `${node.className} ${messageCardClass[message.role] ?? messageCardClass.assistant}`;
+          roleEl.textContent = message.role;
+          contentEl.innerHTML = escapeHtml(message.content || "...").replaceAll("\n", "<br />");
+          statusEl.textContent = message.status;
+          statusEl.className = `rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.25em] ${statusClass[message.status] ?? statusClass.queued}`;
+
+          messagesEl.appendChild(node);
+        }
+
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function renderGenerations() {
+        const orderedGenerations = [...state.generations.values()].sort(
+          (left, right) => new Date(left.created_at) - new Date(right.created_at),
+        );
+
+        generationListEl.innerHTML = orderedGenerations.length
+          ? orderedGenerations
+              .map(
+                (generation) => `
+                  <article class="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="font-mono text-xs text-slate-300">${generation.id}</div>
+                      <span class="rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.25em] ${statusClass[generation.status] ?? statusClass.queued}">${generation.status}</span>
+                    </div>
+                    <dl class="mt-3 space-y-2 text-xs text-slate-400">
+                      <div class="flex items-center justify-between gap-3"><dt>Assistant</dt><dd class="font-mono text-slate-300">${generation.assistant_message_id}</dd></div>
+                      <div class="flex items-center justify-between gap-3"><dt>Seq</dt><dd class="font-mono text-slate-300">${generation.sequence}</dd></div>
+                      <div class="flex items-center justify-between gap-3"><dt>Error</dt><dd class="max-w-[12rem] break-words text-right text-rose-200">${generation.error ?? "-"}</dd></div>
+                    </dl>
+                  </article>
+                `,
+              )
+              .join("")
+          : '<p class="text-sm text-slate-400">No generations yet.</p>';
+      }
+
+      function appendEventLog(label, data) {
+        const row = document.createElement("div");
+        row.className = "rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2";
+        row.innerHTML = `<div class="font-medium text-slate-100">${label}</div><pre class="mt-2 whitespace-pre-wrap text-[11px] text-slate-400">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+        eventLogEl.prepend(row);
+        while (eventLogEl.children.length > 12) {
+          eventLogEl.removeChild(eventLogEl.lastElementChild);
+        }
+      }
+
+      async function loadState() {
+        const response = await fetch(`/conversations/${conversationId}/state`);
+        if (!response.ok) {
+          throw new Error(`failed to load state: ${response.status}`);
+        }
+
+        const payload = await response.json();
+        state.messages.clear();
+        state.generations.clear();
+        payload.messages.forEach(upsertMessage);
+        payload.generations.forEach(upsertGeneration);
+        state.lastEventId = payload.last_event_id;
+        renderMessages();
+        renderGenerations();
+      }
+
+      function connectEvents() {
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        eventSource = new EventSource(`/conversations/${conversationId}/events?after=${state.lastEventId}`);
+
+        ["message_started", "message_delta", "message_completed", "message_failed"].forEach((eventName) => {
+          eventSource.addEventListener(eventName, (event) => {
+            const payload = JSON.parse(event.data);
+            const numericEventId = Number(event.lastEventId || state.lastEventId);
+            if (!Number.isNaN(numericEventId)) {
+              state.lastEventId = Math.max(state.lastEventId, numericEventId);
+            }
+
+            const message = state.messages.get(payload.message_id);
+            const generation = state.generations.get(payload.generation_id);
+
+            if (eventName === "message_started") {
+              if (message) {
+                message.status = "streaming";
+              }
+              if (generation) {
+                generation.status = "streaming";
+                generation.error = null;
+              }
+            }
+
+            if (eventName === "message_delta") {
+              if (message) {
+                message.content += payload.delta;
+                message.status = "streaming";
+                message.version = payload.version;
+              }
+              if (generation) {
+                generation.sequence = payload.seq;
+                generation.status = "streaming";
+              }
+            }
+
+            if (eventName === "message_completed") {
+              if (message) {
+                message.status = "completed";
+              }
+              if (generation) {
+                generation.sequence = payload.seq;
+                generation.status = "completed";
+              }
+            }
+
+            if (eventName === "message_failed") {
+              if (message) {
+                message.status = "failed";
+              }
+              if (generation) {
+                generation.sequence = payload.seq;
+                generation.status = "failed";
+                generation.error = payload.error;
+              }
+            }
+
+            appendEventLog(eventName, payload);
+            renderMessages();
+            renderGenerations();
+          });
+        });
+      }
+
+      async function submitMessage(event) {
+        event.preventDefault();
+        const content = inputEl.value.trim();
+        if (!content) {
+          return;
+        }
+
+        submitButtonEl.disabled = true;
+        formErrorEl.classList.add("hidden");
+
+        try {
+          const response = await fetch(`/conversations/${conversationId}/messages`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ content }),
+          });
+
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail ?? `request failed with ${response.status}`);
+          }
+
+          const payload = await response.json();
+          upsertMessage(payload.user_message);
+          upsertMessage(payload.assistant_message);
+          upsertGeneration(payload.generation);
+          renderMessages();
+          renderGenerations();
+          inputEl.value = "";
+          inputEl.focus();
+        } catch (error) {
+          formErrorEl.textContent = error instanceof Error ? error.message : String(error);
+          formErrorEl.classList.remove("hidden");
+        } finally {
+          submitButtonEl.disabled = false;
+        }
+      }
+
+      formEl.addEventListener("submit", submitMessage);
+
+      window.addEventListener("beforeunload", () => {
+        if (eventSource) {
+          eventSource.close();
+        }
+      });
+
+      (async () => {
+        await loadState();
+        connectEvents();
+      })().catch((error) => {
+        formErrorEl.textContent = error instanceof Error ? error.message : String(error);
+        formErrorEl.classList.remove("hidden");
+      });
+    </script>
+  </body>
+</html>
