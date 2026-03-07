@@ -6,6 +6,7 @@
 set -e
 
 STAGE="$1"
+IMAGE_TAG="${2:-latest}"
 
 # ステージパラメータのチェック
 if [[ -z "$STAGE" ]]; then
@@ -13,7 +14,13 @@ if [[ -z "$STAGE" ]]; then
   exit 1
 fi
 
+if [[ -z "$IMAGE_TAG" ]]; then
+  echo "Error: Image tag parameter is required."
+  exit 1
+fi
+
 echo "> Building Docker images for stage: $STAGE"
+echo "> Docker image tag: $IMAGE_TAG"
 
 # build_projects.txt ファイルが存在するかチェック
 if [[ ! -f "build_projects.txt" ]]; then
@@ -54,7 +61,11 @@ for project in "${PROJECT_ARRAY[@]}"; do
   # プロジェクト名を取得（パスの最後の部分）
   project_name=$(basename "$project")
 
-  GHCR_URI="ghcr.io/$GITHUB_REPOSITORY/$project_name:latest"
+  if [[ -n "$GITHUB_REPOSITORY" ]]; then
+    GHCR_URI="ghcr.io/$GITHUB_REPOSITORY/$project_name:$IMAGE_TAG"
+  else
+    GHCR_URI="ghcr.io/test/$project_name:$IMAGE_TAG"
+  fi
   DOCKER_FILE="$project/Dockerfile"
   SEARCH_KEYWORD="AS $STAGE"
   PREBUILD_SCRIPT_NAME="pre-docker-build.sh"

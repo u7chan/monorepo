@@ -5,7 +5,7 @@ networks:
 services:
   portal:
     container_name: portal
-    image: ghcr.io/u7chan/monorepo/portal:latest
+    image: ghcr.io/u7chan/monorepo/portal:${PROJECT_IMAGE_TAG:-latest}
     restart: unless-stopped # 手動停止時は再起動しない
     ports:
       - 3000:3000

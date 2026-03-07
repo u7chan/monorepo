@@ -5,7 +5,7 @@ networks:
 services:
   edit-vid:
     container_name: edit-vid
-    image: ghcr.io/u7chan/monorepo/edit-vid:latest
+    image: ghcr.io/u7chan/monorepo/edit-vid:${PROJECT_IMAGE_TAG:-latest}
     restart: always
     ports:
       - 8005:8000

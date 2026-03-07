@@ -1,0 +1,18 @@
+name: Prepare Manual Build Inputs
+description: Validate workflow_dispatch inputs and write build_projects.txt
+
+inputs:
+  projects:
+    description: "Comma separated project directories"
+    required: true
+  stage:
+    description: "Required Docker build stage"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare Manual Build Inputs
+      shell: bash
+      run: |
+        ${{ github.action_path }}/prepare-manual-build-inputs.sh "${{ inputs.projects }}" "${{ inputs.stage }}"

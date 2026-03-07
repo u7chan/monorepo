@@ -5,7 +5,7 @@ networks:
 services:
   chatbot-ui:
     container_name: chatbot-ui
-    image: ghcr.io/u7chan/monorepo/chatbot-ui:latest
+    image: ghcr.io/u7chan/monorepo/chatbot-ui:${PROJECT_IMAGE_TAG:-latest}
     restart: always
     ports:
       - 8001:3000

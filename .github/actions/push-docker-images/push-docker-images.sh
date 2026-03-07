@@ -66,6 +66,7 @@ execute_docker_push() {
 REGISTRY="$1"
 USERNAME="$2"
 PASSWORD="$3"
+IMAGE_TAG="${4:-latest}"
 
 # 引数のチェック
 if [[ -z "$REGISTRY" ]]; then
@@ -83,7 +84,13 @@ if [[ -z "$PASSWORD" ]]; then
   exit 1
 fi
 
+if [[ -z "$IMAGE_TAG" ]]; then
+  echo "Error: Image tag parameter is required."
+  exit 1
+fi
+
 echo "> Pushing Docker images to registry: $REGISTRY"
+echo "> Docker image tag: $IMAGE_TAG"
 
 # build_projects.txt ファイルが存在するかチェック
 if [[ ! -f "build_projects.txt" ]]; then
@@ -164,10 +171,10 @@ for project in "${PROJECT_ARRAY[@]}"; do
 
   # GitHub Container Registry URI を構築
   if [[ -n "$GITHUB_REPOSITORY" ]]; then
-    GHCR_URI="$REGISTRY/$GITHUB_REPOSITORY/$project_name:latest"
+    GHCR_URI="$REGISTRY/$GITHUB_REPOSITORY/$project_name:$IMAGE_TAG"
   else
     # ローカルテスト用のフォールバック
-    GHCR_URI="$REGISTRY/test/$project_name:latest"
+    GHCR_URI="$REGISTRY/test/$project_name:$IMAGE_TAG"
   fi
 
   echo ""
