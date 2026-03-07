@@ -5,9 +5,6 @@ inputs:
   projects:
     description: "Comma separated project directories"
     required: true
-  stage:
-    description: "Required Docker build stage"
-    required: true
 
 runs:
   using: composite
@@ -15,4 +12,4 @@ runs:
     - name: Prepare Manual Build Inputs
       shell: bash
       run: |
-        ${{ github.action_path }}/prepare-manual-build-inputs.sh "${{ inputs.projects }}" "${{ inputs.stage }}"
+        ${{ github.action_path }}/prepare-manual-build-inputs.sh "${{ inputs.projects }}"

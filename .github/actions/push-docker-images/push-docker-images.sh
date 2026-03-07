@@ -179,6 +179,7 @@ for project in "${PROJECT_ARRAY[@]}"; do
 
   echo ""
   echo "=== Pushing project: $project ==="
+  echo "Project name: $project_name"
   echo "GHCR_URI: $GHCR_URI"
 
   # イメージが存在するかチェック
@@ -190,6 +191,11 @@ for project in "${PROJECT_ARRAY[@]}"; do
     else
       if execute_docker_push "$GHCR_URI"; then
         echo "Successfully pushed: $GHCR_URI"
+        echo "========================================"
+        echo "===== Push Result / Deploy Handoff ====="
+        echo "Pushed project image: $project_name"
+        echo "Deploy handoff: target=$project_name image_tag=$IMAGE_TAG"
+        echo "========================================"
       else
         echo "Error: Failed to push $GHCR_URI"
         exit 1

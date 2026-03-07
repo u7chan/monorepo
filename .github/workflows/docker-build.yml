@@ -8,19 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Build target ref"
+        description: "Git ref (branch/tag/SHA)"
         required: true
       projects:
         description: "Comma separated project directories"
         required: true
-      stage:
-        description: "Docker build stage"
-        required: false
-        default: "final"
-      keep_count:
-        description: "Number of manual images to keep"
-        required: false
-        default: "3"
 
 jobs:
   docker-build-if-changes-detected:
@@ -51,7 +43,6 @@ jobs:
         uses: ./.github/actions/prepare-manual-build-inputs
         with:
           projects: ${{ github.event.inputs.projects }}
-          stage: ${{ github.event.inputs.stage || 'final' }}
 
       - name: Set image tag
         id: set-image-tag
@@ -64,7 +55,7 @@ jobs:
         if: env.BUILD_PROJECT != ''
         uses: ./.github/actions/build-docker-images
         with:
-          stage: ${{ github.event.inputs.stage || 'final' }}
+          stage: final
           image_tag: ${{ steps.set-image-tag.outputs.image_tag }}
 
       - name: Show Docker Images
@@ -81,6 +72,20 @@ jobs:
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
           image_tag: ${{ steps.set-image-tag.outputs.image_tag }}
 
+      - name: Show manual deploy inputs
+        if: github.event_name == 'workflow_dispatch' && steps.push_images.outputs.project_names_csv != ''
+        env:
+          PROJECT_NAMES_CSV: ${{ steps.push_images.outputs.project_names_csv }}
+          IMAGE_TAG: ${{ steps.set-image-tag.outputs.image_tag }}
+        run: |
+          echo "Manual build handoff"
+          echo "image_tag=$IMAGE_TAG"
+          echo ""
+          IFS=',' read -ra PROJECT_NAMES <<< "$PROJECT_NAMES_CSV"
+          for project_name in "${PROJECT_NAMES[@]}"; do
+            echo "target=$project_name image_tag=$IMAGE_TAG"
+          done
+
       - name: Clean Up Docker Images
         if: steps.push_images.outputs.project_names_csv != ''
         uses: ./.github/actions/cleanup-docker-images
@@ -88,5 +93,5 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           repo-name: ${{ secrets.PRIVATE_REPO_NAME }}
           project-names-csv: ${{ steps.push_images.outputs.project_names_csv }}
-          keep-count: ${{ github.event.inputs.keep_count || '3' }}
+          keep-count: "3"
           cleanup-mode: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'normal' }}

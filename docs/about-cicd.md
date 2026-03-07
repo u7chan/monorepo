@@ -2,241 +2,165 @@
 
 ## 概要
 
-GitHub Actionsを使用したCI/CDパイプラインです。変更のあったプロジェクトのみを検出して効率的にビルド・デプロイを行います。
+このリポジトリでは GitHub Actions を使って、`projects/` 配下の Docker 対応プロジェクトを CI と CD で扱います。
+
+- CI は PR 上で `test` ステージを検証します。
+- CD は `final` ステージのイメージを GHCR に push します。
+- CD には `main` への push による自動実行と、任意の ref / project を指定する手動実行があります。
 
 ## CIとCDの違い
 
-| 項目 | CI（継続的インテグレーション） | CD（継続的デリバリー） |
-|-----|---------------------------|---------------------|
-| **トリガー** | `main` ブランチへのPR作成・更新時 | `main` ブランチへのpush時（PRマージなど） |
-| **目的** | 変更の検証 | 本番デプロイ |
-| **ビルドステージ** | `test` ステージ | `final` ステージ |
-| **成果物** | ビルド結果の確認のみ | GHCRへイメージをプッシュ |
-| **ワークフロー** | `pullrequest-check.yml` | `docker-build.yml` |
+| 項目 | CI | CD |
+|---|---|---|
+| Workflow | `pullrequest-check.yml` | `docker-build.yml` |
+| 主なトリガー | `main` 向け PR | `main` への push / manual run |
+| 対象ステージ | `test` | `final` |
+| 目的 | 変更の検証 | 配布用イメージの作成と push |
+| 成果物 | ビルド結果の確認 | GHCR イメージ |
 
-## CI発火条件
+## CI
 
-CIは以下の条件で発火します。
+### 発火条件
 
-### トリガー
+- `main` 向け PR の作成・更新時に実行されます。
+- 対象は `projects/` 配下の変更です。
 
-| イベント | 発火条件 |
-|---------|---------|
-| **Pull Request** | `main` ブランチへのPR作成・更新時 |
+### 対象プロジェクト
 
-### 対象ディレクトリ
+以下を満たすディレクトリが対象です。
 
-- `projects/`
-
-### プロジェクト選定基準
-
-変更ディレクトリのうち、**ルートに `Dockerfile` が存在し、`test` ステージを持つもの**が対象です。
-
-```
-projects/
-├── my-app/
-│   ├── Dockerfile  ← CI対象（testステージあり）
-│   └── src/
-└── lib/
-    └── src/        ← CI対象外（Dockerfileなし）
-```
-
-### testステージの必要性
-
-CIは `--target=test` を指定してビルドします。`test` ステージがないプロジェクトはスキップされます。
+- ルートに `Dockerfile` がある
+- `Dockerfile` に `test` ステージがある
 
 ```dockerfile
-# testステージが必須
 FROM base AS test
 RUN ./run-tests.sh
 ```
 
-サンプルプロジェクト: [`projects/cicd-ci-sample/`](../projects/cicd-ci-sample/)
+`test` ステージだけを持ち `final` ステージを持たないプロジェクトは、CI 専用プロジェクトとして扱えます。
 
-### CI専用プロジェクト
+### 処理の流れ
 
-`test` ステージのみを持ち `final` ステージがないプロジェクトは「CI専用プロジェクト」となります。
+1. `actions/checkout` でコードを取得する
+2. 変更ディレクトリを検出する
+3. `test` ステージを持つ変更プロジェクトを絞り込む
+4. `--target=test` で Docker build を実行する
+5. ビルド結果を表示する
 
-| 特性 | 説明 |
-|-----|------|
-| **CI動作** | PR時に `test` ステージでビルド検証が実行される |
-| **CD動作** | `final` ステージがないため、CD対象外となりスキップされる |
-| **用途** | ライブラリ検証、テスト専用ツール、ビルド検証のみが必要なプロジェクト |
+## CD
 
-CI専用プロジェクトでは、本番デプロイ用の成果物（Dockerイメージ）は作成されません。
+### 自動実行
 
-## CD発火条件
-
-CDは以下の条件で発火します。
-
-### トリガー
-
-| イベント | 発火条件 |
-|---------|---------|
-| **Push** | `main` ブランチへのpush時（PRマージ、直接pushなど） |
-
-### 対象ディレクトリ
-
-- `projects/`
-
-### プロジェクト選定基準
-
-変更ディレクトリのうち、**ルートに `Dockerfile` が存在するもの**が対象です。
-
-```
-projects/
-├── my-app/
-│   ├── Dockerfile  ← CD対象
-│   └── src/
-└── lib/
-    └── src/        ← CD対象外（Dockerfileなし）
-```
-
-### finalステージ
-
-CDは `--target=final` を指定してビルドします。**`final` ステージがないプロジェクトはCD対象外となり、イメージビルドとプッシュがスキップされます。**
+- `main` への push 時に実行されます。
+- 対象は `projects/` 配下の変更です。
+- `final` ステージを持つプロジェクトのみ build / push されます。
 
 ```dockerfile
-# finalステージ（CD対象にする場合は必須）
 FROM base AS final
 COPY . .
 CMD ["./start.sh"]
 ```
 
-### 実行される処理
+### 手動実行
 
-1. **Dockerイメージのビルド** - `final` ステージでビルド
-2. **GHCRへのプッシュ** - `ghcr.io/{リポジトリ}/{プロジェクト}:latest` としてプッシュ
-3. **古いイメージのクリーンアップ** - 別リポジトリのワークフローをトリガー
+`docker-build.yml` は `workflow_dispatch` にも対応しています。通常のテスト build では GitHub Actions の `Run workflow` からそのまま起動します。
 
-## ワークフロー構成
+- `Use workflow from` は通常 `main` のままで問題ありません。
+- `Git ref (branch/tag/SHA)` に build したい branch / tag / commit を入力します。
+- `Comma separated project directories` に `projects/portal` のようなディレクトリを入力します。
+- 手動実行時の build stage は常に `final` です。
+- 手動実行時の manual image cleanup は常に最新 `3` 件を残します。
 
-### pullrequest-check.yml (CI)
+手動 build 完了後のログには、次の deploy handoff に使う値がそのまま表示されます。
 
+- `image_tag=<generated-tag>`
+- `target=<project-name> image_tag=<generated-tag>`
+
+### 処理の流れ
+
+1. 対象 ref を checkout する
+2. 自動実行では変更ディレクトリを検出する
+3. build 対象プロジェクトを `build_projects.txt` に確定する
+4. `--target=final` で Docker build を実行する
+5. `ghcr.io/{repo}/{project}:{image_tag}` へ push する
+6. 古い manual image を含む不要イメージを cleanup する
+
+## カスタムアクション
+
+### `get-changed-directories`
+
+- 入力: `HEAD` と比較対象 ref の差分
+- 対象: `projects/` 配下
+- 出力: `changed_dirs.txt`
+
+### `get-changed-projects`
+
+- 入力: `changed_dirs.txt`
+- オプション: `required-stage`
+- 出力: `build_projects.txt`, `BUILD_PROJECT`
+
+`required-stage` が指定された場合、そのステージを持つ Dockerfile だけが対象になります。
+
+### `prepare-manual-build-inputs`
+
+- 入力: `projects`
+- 出力: `build_projects.txt`, `BUILD_PROJECT`
+
+手動実行用です。指定されたプロジェクトに `Dockerfile` と `final` ステージがあることを確認します。
+
+### `set-image-tag`
+
+- push 実行時は `latest`
+- 手動実行時は `manual-<sanitized-ref>-<short-sha>`
+
+### `build-docker-images`
+
+- 入力: `stage`, `image_tag`
+
+補足:
+
+- `COMMIT_HASH` を build arg として渡します。
+- `pre-docker-build.sh` があれば build 前に実行します。
+
+### `push-docker-images`
+
+- 入力: `username`, `password`, `image_tag`
+- 出力: `project_names_csv`
+
+push 成功時は、対象プロジェクト名と deploy handoff 用の `target=... image_tag=...` をログに出します。
+
+### `cleanup-docker-images`
+
+- 入力: `token`, `repo-name`, `project-names-csv`, `keep-count`
+
+CD 実行後、不要な古いイメージの cleanup を行います。manual build では `keep-count=3` が使われます。
+
+## データの受け渡し
+
+```text
+changed_dirs.txt
+  -> build_projects.txt
+  -> BUILD_PROJECT
+  -> image_tag
+  -> project_names_csv
 ```
-1. コードのチェックアウト (fetch-depth: 50)
-2. 変更ディレクトリの検出
-3. 変更プロジェクトの特定（Dockerfile + testステージ必須）
-4. Dockerイメージのビルド (--target=test)
-5. ビルド結果の表示
-```
 
-### docker-build.yml (CD)
-
-```
-1. コードのチェックアウト (fetch-depth: 2)
-2. 変更ディレクトリの検出
-3. 変更プロジェクトの特定（Dockerfile + finalステージ必須）
-4. Dockerイメージのビルド (--target=final)
-5. Dockerイメージのプッシュ (GHCR)
-6. 古いイメージのクリーンアップ
-```
-
----
-
-## カスタムアクション詳細
-
-### get-changed-directories
-
-変更のあったディレクトリを検出します。
-
-| 項目 | 内容 |
-|-----|------|
-| 入力 | `HEAD` とベースリファレンスの差分 |
-| 対象 | `projects/` 配下 |
-| 出力 | `changed_dirs.txt` |
-
-### get-changed-projects
-
-Dockerfileがある変更プロジェクトを絞り込みます。
-
-| パラメータ | 必須 | 説明 |
-|-----------|------|------|
-| `required-stage` | × | 指定した場合、そのステージを持つプロジェクトのみを対象にする |
-
-| 項目 | 内容 |
-|-----|------|
-| 入力 | `changed_dirs.txt` |
-| 処理 | 各ディレクトリに `Dockerfile` が存在し、`required-stage` が指定されていればそのステージも持つか確認 |
-| 出力 | `build_projects.txt` + `BUILD_PROJECT` 環境変数 |
-
-### build-docker-images
-
-Dockerイメージをビルドします。
-
-| パラメータ | 必須 | 説明 |
-|-----------|------|------|
-| `stage` | ○ | `test` または `final` |
-
-**ビルド仕様:**
-- `COMMIT_HASH` をビルド引数として渡す
-- タグ: `ghcr.io/{リポジトリ名}/{プロジェクト名}:latest`
-- `pre-docker-build.sh` があれば自動実行
-
-### push-docker-images
-
-GHCRへDockerイメージをプッシュします。
-
-| パラメータ | 必須 | 説明 |
-|-----------|------|------|
-| `username` | ○ | レジストリのユーザー名 |
-| `password` | ○ | レジストリのパスワード（トークン） |
-
-### cleanup-docker-images
-
-古いDockerイメージのクリーンアップを別リポジトリに依頼します。
-
-| パラメータ | 必須 | 説明 |
-|-----------|------|------|
-| `token` | ○ | GitHubトークン（`repo` スコープ） |
-| `repo-name` | ○ | クリーンアップ処理があるリポジトリ名 |
-| `project-names-csv` | ○ | 対象プロジェクト名（カンマ区切り） |
-| `keep-count` | × | 保持するイメージ数（デフォルト: `3`） |
-
-## ファイル間のデータ連携
-
-```
-┌─────────────────────────┐
-│ get-changed-directories │
-│    changed_dirs.txt     │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│  get-changed-projects   │
-│   build_projects.txt    │
-│    BUILD_PROJECT env    │
-└───────────┬─────────────┘
-            │
-    ┌───────┴───────┐
-    ▼               ▼
-┌─────────┐   ┌─────────┐
-│  build  │   │  push   │
-│docker-  │   │docker-  │
-│ images  │   │ images  │
-└─────────┘   └────┬────┘
-                   │
-                   ▼
-          ┌─────────────┐
-          │   cleanup   │
-          │docker-images│
-          └─────────────┘
-```
+主に `build_projects.txt` と step output を使って、build 対象と push 対象を次の step に渡します。
 
 ## トラブルシューティング
 
-### 変更が検出されない
+### ビルド対象が見つからない
 
-- `fetch-depth` が十分か確認（PR時は50、Push時は2）
-- 対象ディレクトリ（`projects/`）配下の変更か確認
+- 対象が `projects/` 配下か確認する
+- Dockerfile がプロジェクトルートにあるか確認する
+- CI では `test`、CD では `final` ステージがあるか確認する
 
-### ビルドがスキップされる
+### 手動 build で意図した ref が使われない
 
-- `BUILD_PROJECT` 環境変数が設定されているか確認
-- Dockerfileがプロジェクトルートに存在するか確認
-- **CIの場合**: `test` ステージが定義されているか確認
+- `Use workflow from` ではなく `Git ref (branch/tag/SHA)` を確認する
+- `Use workflow from` は通常 `main` のままでよい
 
-### プッシュに失敗する
+### push に失敗する
 
-- `PRIVATE_REPO_TOKEN` が正しく設定されているか確認
-- トークンに `write:packages` 権限があるか確認
+- `PRIVATE_REPO_TOKEN` が正しいか確認する
+- `write:packages` 権限があるか確認する

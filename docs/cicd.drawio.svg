@@ -45,13 +45,13 @@
                         <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 118px; height: 1px; padding-top: 192px; margin-left: 871px;">
                             <div style="box-sizing: border-box; font-size: 0; text-align: center; color: #000000; ">
                                 <div style="display: inline-block; font-size: 12px; font-family: &quot;Helvetica&quot;; color: light-dark(#000000, #ffffff); line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
-                                    self-hosted-only
+                                    deploy workflow
                                 </div>
                             </div>
                         </div>
                     </foreignObject>
                     <text x="930" y="195" fill="light-dark(#000000, #ffffff)" font-family="&quot;Helvetica&quot;" font-size="12px" text-anchor="middle">
-                        self-hosted-only
+                        deploy workflow
                     </text>
                 </switch>
             </g>
@@ -120,14 +120,14 @@
                             <div style="box-sizing: border-box; font-size: 0; text-align: center; color: #000000; ">
                                 <div style="display: inline-block; font-size: 12px; font-family: &quot;Helvetica&quot;; color: light-dark(#000000, #ffffff); line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
                                     <span style="color: light-dark(rgb(0, 0, 0), rgb(237, 237, 237));">
-                                        Self-hosted Runner
+                                        Deployment target
                                     </span>
                                 </div>
                             </div>
                         </div>
                     </foreignObject>
                     <text x="930" y="423" fill="light-dark(#000000, #ffffff)" font-family="&quot;Helvetica&quot;" font-size="12px" text-anchor="middle">
-                        Self-hosted Runner
+                        Deployment target
                     </text>
                 </switch>
             </g>
@@ -169,13 +169,13 @@
                         <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 98px; height: 1px; padding-top: 174px; margin-left: 996px;">
                             <div style="box-sizing: border-box; font-size: 0; text-align: center; color: #000000; ">
                                 <div style="display: inline-block; font-size: 12px; font-family: &quot;Helvetica&quot;; color: light-dark(#000000, #ffffff); line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
-                                    ① Manual Deploy
+                                    ① Manual build
                                 </div>
                             </div>
                         </div>
                     </foreignObject>
                     <text x="1045" y="178" fill="light-dark(#000000, #ffffff)" font-family="&quot;Helvetica&quot;" font-size="12px" text-anchor="middle">
-                        ① Manual Deploy
+                        ① Manual build
                     </text>
                 </switch>
             </g>
@@ -190,13 +190,13 @@
                         <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 134px; height: 1px; padding-top: 345px; margin-left: 935px;">
                             <div style="box-sizing: border-box; font-size: 0; text-align: center; color: #000000; ">
                                 <div style="display: inline-block; font-size: 12px; font-family: &quot;Helvetica&quot;; color: light-dark(#000000, #ffffff); line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
-                                    ②Run Github Actions
+                                    ② Run deploy flow
                                 </div>
                             </div>
                         </div>
                     </foreignObject>
                     <text x="1002" y="349" fill="light-dark(#000000, #ffffff)" font-family="&quot;Helvetica&quot;" font-size="12px" text-anchor="middle">
-                        ②Run Github Actions
+                        ② Run deploy flow
                     </text>
                 </switch>
             </g>
@@ -358,13 +358,13 @@
                         <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 134px; height: 1px; padding-top: 79px; margin-left: 735px;">
                             <div style="box-sizing: border-box; font-size: 0; text-align: center; color: #000000; ">
                                 <div style="display: inline-block; font-size: 12px; font-family: &quot;Helvetica&quot;; color: light-dark(#000000, #ffffff); line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
-                                    manual-deploy.yml
+                                    deploy workflow
                                 </div>
                             </div>
                         </div>
                     </foreignObject>
                     <text x="802" y="83" fill="light-dark(#000000, #ffffff)" font-family="&quot;Helvetica&quot;" font-size="12px" text-anchor="middle">
-                        manual-deploy.yml
+                        deploy workflow
                     </text>
                 </switch>
             </g>

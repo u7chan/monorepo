@@ -3,15 +3,10 @@
 set -e
 
 PROJECTS_INPUT="$1"
-STAGE_INPUT="$2"
+STAGE_INPUT="final"
 
 if [[ -z "$PROJECTS_INPUT" ]]; then
   echo "Error: projects input is required."
-  exit 1
-fi
-
-if [[ -z "$STAGE_INPUT" ]]; then
-  echo "Error: stage input is required."
   exit 1
 fi
 
@@ -42,3 +37,7 @@ fi
 if [[ -n "$GITHUB_ENV" ]]; then
   echo "BUILD_PROJECT=$(paste -sd, build_projects.txt)" >> "$GITHUB_ENV"
 fi
+
+echo "Manual build stage fixed to: $STAGE_INPUT"
+echo "Manual build projects:"
+cat build_projects.txt
