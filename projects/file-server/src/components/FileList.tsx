@@ -3,6 +3,7 @@ import type { FC } from "hono/jsx"
 import { formatFileSize, formatTimestamp } from "../utils/formatters"
 import { DeleteIcon } from "./icons/DeleteIcon"
 import { DownloadIcon } from "./icons/DownloadIcon"
+import { EditIcon } from "./icons/EditIcon"
 import { FileIcon } from "./icons/FileIcon"
 import { FolderIcon } from "./icons/FolderIcon"
 import { UploadIcon } from "./icons/UploadIcon"
@@ -100,11 +101,11 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
       </nav>
 
       {/* アクションボタン群 */}
-      <div className="flex gap-3 mb-4">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:flex">
         <button
           id="new-file-button"
           type="button"
-          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+          className="flex w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-2 border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-700 transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 sm:w-auto sm:px-4 sm:text-base"
           hx-on:click="
             const form = document.getElementById('new-file-form');
             const otherForm = document.getElementById('new-folder-form');
@@ -127,7 +128,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         <button
           id="new-folder-button"
           type="button"
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-105"
+          className="flex w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-none bg-gradient-to-r from-indigo-500 to-purple-500 px-3 py-2 text-sm font-semibold text-white transition-all hover:from-indigo-600 hover:to-purple-600 sm:w-auto sm:px-4 sm:text-base sm:hover:scale-105"
           hx-on:click="
             const form = document.getElementById('new-folder-form');
             const otherForm = document.getElementById('new-file-form');
@@ -149,7 +150,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         </button>
         <a
           href={archiveHref}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg no-underline hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+          className="col-span-2 flex w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-2 border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-700 no-underline transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 sm:col-span-1 sm:w-auto sm:px-4 sm:text-base"
         >
           <DownloadIcon />
           Download Zip
@@ -286,9 +287,9 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       : `/file?path=${encodedPath}`
                   }
                 >
-                  <div className="flex justify-between items-center gap-4">
+                  <div className="flex items-center justify-between gap-3">
                     {/* ファイル/ディレクトリ名リンク */}
-                    <span className="flex items-center gap-2 text-indigo-700 font-medium hover:text-purple-600 transition-colors overflow-hidden min-w-0">
+                    <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-indigo-700 font-medium transition-colors hover:text-purple-600">
                       {file.type === "dir" ? (
                         <>
                           <span className="flex-shrink-0">
@@ -308,19 +309,19 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       )}
                     </span>
 
-                    <div className="flex gap-4 items-center">
+                    <div className="flex shrink-0 items-center gap-2 md:gap-4">
                       {/* ファイルサイズ表示（ファイルのみ） */}
                       {file.type === "file" && (
-                        <div className="hidden sm:block sm:w-30 text-right">
+                        <div className="hidden md:block md:w-30 text-right">
                           {formatFileSize(file.size || 0)}
                         </div>
                       )}
                       {/* タイムスタンプ表示 */}
-                      <div className="hidden sm:block sm:w-45 text-right text-gray-600 text-sm">
+                      <div className="hidden md:block md:w-45 text-right text-gray-600 text-sm">
                         {file.mtime && formatTimestamp(new Date(file.mtime))}
                       </div>
                       <div
-                        className="flex gap-2 justify-end"
+                        className="flex shrink-0 justify-end gap-2"
                         hx-on:click="event.stopPropagation()"
                       >
                         <button
@@ -328,7 +329,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                           title="Rename"
                           aria-label="Rename"
                           data-rename-button
-                          className="px-3 h-8 flex items-center justify-center bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-indigo-200 bg-white px-0 text-indigo-700 transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 md:w-auto md:px-3 md:font-semibold"
                           hx-on:click={`
                             event.stopPropagation();
                             const form = document.getElementById('${renameFormId}');
@@ -345,7 +346,13 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                             }
                           `}
                         >
-                          Rename
+                          <span className="md:hidden">
+                            <EditIcon />
+                          </span>
+                          <span className="hidden md:flex md:items-center md:gap-2">
+                            <EditIcon />
+                            <span>Rename</span>
+                          </span>
                         </button>
                         <form
                           hx-post="/api/delete"
