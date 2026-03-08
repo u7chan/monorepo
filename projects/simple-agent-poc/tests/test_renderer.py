@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from simple_agent_poc.application import RunAgentResponse
 from simple_agent_poc.renderer import (
     get_user_input,
     show_agent_response,
@@ -12,7 +13,7 @@ from simple_agent_poc.renderer import (
     show_welcome,
     with_indicator,
 )
-from simple_agent_poc.types import AgentError, AuthenticationError, LLMResponse
+from simple_agent_poc.types import AgentError, AuthenticationError
 
 
 class TestShowError:
@@ -95,16 +96,16 @@ class TestShowAgentResponse:
     @patch("builtins.print")
     def test_show_response(self, mock_print: MagicMock) -> None:
         """Test showing agent response."""
-        response: LLMResponse = {
-            "content": "Hello, user!",
-            "usage": {
+        response = RunAgentResponse(
+            message="Hello, user!",
+            usage={
                 "prompt_tokens": 10,
                 "completion_tokens": 5,
                 "total_tokens": 15,
             },
-            "model": "gpt-4o-mini",
-            "response_time": 0.85,
-        }
+            model="gpt-4o-mini",
+            response_time=0.85,
+        )
         show_agent_response(response)
 
         assert mock_print.call_count == 2

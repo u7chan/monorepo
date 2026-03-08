@@ -5,7 +5,8 @@ import threading
 import time
 from typing import Callable
 
-from simple_agent_poc.types import AgentError, LLMResponse
+from simple_agent_poc.application import RunAgentResponse
+from simple_agent_poc.types import AgentError
 
 
 class LoadingIndicator:
@@ -90,24 +91,24 @@ def get_user_input() -> str:
     return input("> ")
 
 
-def show_agent_response(response: LLMResponse) -> None:
+def show_agent_response(response: RunAgentResponse) -> None:
     """Display the agent's response."""
-    print(f"Agent: {response['content']}")
+    print(f"Agent: {response.message}")
 
     # Format response time
-    elapsed = response["response_time"]
+    elapsed = response.response_time
     if elapsed < 1:
         time_str = f"{elapsed * 1000:.0f}ms"
     else:
         time_str = f"{elapsed:.2f}s"
 
     # Extract model name (remove provider prefix if exists)
-    model = response["model"]
+    model = response.model
     if "/" in model:
         model = model.split("/")[-1]
 
     # Build stats line
-    usage = response["usage"]
+    usage = response.usage
     stats = (
         f"Model: {model} │ "
         f"Time: {time_str} │ "
