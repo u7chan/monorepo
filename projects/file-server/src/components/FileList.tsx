@@ -19,6 +19,20 @@ interface FileListProps {
   requestPath: string
 }
 
+const formErrorClassName =
+  "hidden mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+
+function FormErrorMessage() {
+  return (
+    <p
+      data-form-error
+      role="alert"
+      aria-live="polite"
+      className={formErrorClassName}
+    ></p>
+  )
+}
+
 // パンくずリスト部分を生成
 function generateBreadcrumbs(requestPath: string) {
   const parts = requestPath.split("/").filter(Boolean)
@@ -145,6 +159,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
       {/* New File フォーム（アコーディオン） */}
       <form
         id="new-file-form"
+        data-inline-error-form
         hx-post="/api/file"
         hx-target="#file-list-container"
         hx-swap="innerHTML"
@@ -164,11 +179,13 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         >
           Create File
         </button>
+        <FormErrorMessage />
       </form>
 
       {/* New Folder フォーム（アコーディオン） */}
       <form
         id="new-folder-form"
+        data-inline-error-form
         hx-post="/api/mkdir"
         hx-target="#file-list-container"
         hx-swap="innerHTML"
@@ -188,6 +205,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         >
           Create Folder
         </button>
+        <FormErrorMessage />
       </form>
 
       {/* ドラッグ＆ドロップ用隠しフォーム */}
@@ -351,6 +369,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                   <form
                     id={renameFormId}
                     data-rename-form
+                    data-inline-error-form
                     hx-post="/api/rename"
                     hx-target="#file-list-container"
                     hx-swap="innerHTML"
@@ -387,6 +406,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                         </button>
                       </div>
                     </div>
+                    <FormErrorMessage />
                   </form>
                 </li>
               )

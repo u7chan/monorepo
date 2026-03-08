@@ -63,6 +63,7 @@ describe("POST /api/file", () => {
     }
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("AlreadyExists")
+    expect(json.error.message).toBe('"exist.txt" already exists.')
   })
 
   it("should return error when directory with same name exists", async () => {
@@ -81,6 +82,7 @@ describe("POST /api/file", () => {
     }
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("AlreadyExists")
+    expect(json.error.message).toBe('"exist-dir" already exists.')
   })
 
   it("should return error for invalid path", async () => {
@@ -167,6 +169,7 @@ describe("POST /api/file", () => {
     expect(text).toContain("htmx-child.txt")
     expect(text).toContain("htmx-parent")
     expect(text).not.toContain("<html")
+    expect(text).toContain("data-form-error")
 
     const st = await stat(join(UPLOAD_DIR, "htmx-parent", "htmx-child.txt"))
     expect(st.isFile()).toBe(true)
