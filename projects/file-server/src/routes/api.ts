@@ -6,6 +6,7 @@ import {
   deleteFileHandler,
   listFilesHandler,
   mkdirHandler,
+  renameHandler,
   updateFileHandler,
   uploadFileHandler,
 } from "../api/handlers"
@@ -71,6 +72,18 @@ apiRoutes.post(
 )
 
 // ファイル内容更新API
+apiRoutes.post(
+  "/rename",
+  zValidator(
+    "form",
+    z.object({
+      path: z.string(),
+      name: z.string(),
+    }),
+  ),
+  renameHandler,
+)
+
 apiRoutes.post(
   "/update",
   zValidator(
