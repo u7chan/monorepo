@@ -245,11 +245,13 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
             {sortedFiles.map((file) => {
               const filePath = path.join(requestPath, file.name)
               const encodedPath = encodeURIComponent(filePath)
+              const renameFormId = `rename-form-${encodedPath}`
+              const renameInputId = `rename-input-${encodedPath}`
 
               return (
                 <li
                   key={file.name}
-                  className="flex justify-between items-center py-3 px-4 mb-2 rounded-xl border-2 border-transparent hover:border-indigo-300 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-purple-50 cursor-pointer transition-all duration-200"
+                  className="py-3 px-4 mb-2 rounded-xl border-2 border-transparent hover:border-indigo-300 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-purple-50 cursor-pointer transition-all duration-200"
                   hx-get={
                     file.type === "dir"
                       ? `/browse?path=${encodedPath}`
@@ -266,59 +268,126 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       : `/file?path=${encodedPath}`
                   }
                 >
-                  {/* ファイル/ディレクトリ名リンク */}
-                  <span className="flex items-center gap-2 text-indigo-700 font-medium hover:text-purple-600 transition-colors overflow-hidden min-w-0">
-                    {file.type === "dir" ? (
-                      <>
-                        <span className="flex-shrink-0">
-                          <FolderIcon />
-                        </span>
-                        <span className="break-all min-w-0">{file.name}/</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="flex-shrink-0">
-                          <FileIcon />
-                        </span>
-                        <span className="break-all min-w-0">{file.name}</span>
-                      </>
-                    )}
-                  </span>
+                  <div className="flex justify-between items-center gap-4">
+                    {/* ファイル/ディレクトリ名リンク */}
+                    <span className="flex items-center gap-2 text-indigo-700 font-medium hover:text-purple-600 transition-colors overflow-hidden min-w-0">
+                      {file.type === "dir" ? (
+                        <>
+                          <span className="flex-shrink-0">
+                            <FolderIcon />
+                          </span>
+                          <span className="break-all min-w-0">
+                            {file.name}/
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-shrink-0">
+                            <FileIcon />
+                          </span>
+                          <span className="break-all min-w-0">{file.name}</span>
+                        </>
+                      )}
+                    </span>
 
-                  <div className="flex gap-4 items-center">
-                    {/* ファイルサイズ表示（ファイルのみ） */}
-                    {file.type === "file" && (
-                      <div className="hidden sm:block sm:w-30 text-right">
-                        {formatFileSize(file.size || 0)}
+                    <div className="flex gap-4 items-center">
+                      {/* ファイルサイズ表示（ファイルのみ） */}
+                      {file.type === "file" && (
+                        <div className="hidden sm:block sm:w-30 text-right">
+                          {formatFileSize(file.size || 0)}
+                        </div>
+                      )}
+                      {/* タイムスタンプ表示 */}
+                      <div className="hidden sm:block sm:w-45 text-right text-gray-600 text-sm">
+                        {file.mtime && formatTimestamp(new Date(file.mtime))}
                       </div>
-                    )}
-                    {/* タイムスタンプ表示 */}
-                    <div className="hidden sm:block sm:w-45 text-right text-gray-600 text-sm">
-                      {file.mtime && formatTimestamp(new Date(file.mtime))}
-                    </div>
-                    {/* 削除ボタン */}
-                    <div
-                      className="flex justify-end"
-                      hx-on:click="event.stopPropagation()"
-                    >
-                      <form
-                        hx-post="/api/delete"
-                        hx-target="#file-list-container"
-                        hx-swap="innerHTML"
-                        hx-confirm={`Are you sure you want to delete ${file.name}?`}
+                      <div
+                        className="flex gap-2 justify-end"
+                        hx-on:click="event.stopPropagation()"
                       >
-                        <input type="hidden" name="path" value={filePath} />
                         <button
-                          type="submit"
-                          title="Delete"
-                          aria-label="Delete"
-                          className="w-8 h-8 flex items-center justify-center bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
+                          type="button"
+                          title="Rename"
+                          aria-label="Rename"
+                          data-rename-button
+                          className="px-3 h-8 flex items-center justify-center bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+                          hx-on:click={`
+                            event.stopPropagation();
+                            const form = document.getElementById('${renameFormId}');
+                            const input = document.getElementById('${renameInputId}');
+                            const container = document.getElementById('file-list-container');
+                            const shouldOpen = form.classList.contains('hidden');
+                            container.querySelectorAll('[data-rename-form]').forEach((el) => el.classList.add('hidden'));
+                            container.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove('ring-2', 'ring-purple-400'));
+                            if (shouldOpen) {
+                              form.classList.remove('hidden');
+                              this.classList.add('ring-2', 'ring-purple-400');
+                              input.focus();
+                              input.select();
+                            }
+                          `}
                         >
-                          <DeleteIcon />
+                          Rename
                         </button>
-                      </form>
+                        <form
+                          hx-post="/api/delete"
+                          hx-target="#file-list-container"
+                          hx-swap="innerHTML"
+                          hx-confirm={`Are you sure you want to delete ${file.name}?`}
+                        >
+                          <input type="hidden" name="path" value={filePath} />
+                          <button
+                            type="submit"
+                            title="Delete"
+                            aria-label="Delete"
+                            className="w-8 h-8 flex items-center justify-center bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
+                          >
+                            <DeleteIcon />
+                          </button>
+                        </form>
+                      </div>
                     </div>
                   </div>
+                  <form
+                    id={renameFormId}
+                    data-rename-form
+                    hx-post="/api/rename"
+                    hx-target="#file-list-container"
+                    hx-swap="innerHTML"
+                    className="hidden mt-3 pt-3 border-t border-indigo-100"
+                    hx-on:click="event.stopPropagation()"
+                  >
+                    <input type="hidden" name="path" value={filePath} />
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id={renameInputId}
+                        type="text"
+                        name="name"
+                        value={file.name}
+                        required
+                        className="px-4 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors"
+                          hx-on:click={`
+                            event.stopPropagation();
+                            document.getElementById('${renameFormId}').classList.add('hidden');
+                            document.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove('ring-2', 'ring-purple-400'));
+                          `}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </form>
                 </li>
               )
             })}

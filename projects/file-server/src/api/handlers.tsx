@@ -3,6 +3,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  rename,
   rm,
   unlink,
   writeFile,
@@ -298,6 +299,102 @@ export async function createFileHandler(c: Context<AppBindings>) {
   }
 
   return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
+}
+
+export async function renameHandler(c: Context<AppBindings>) {
+  const validatedData = c.req.valid("form" as never) as {
+    path: string
+    name: string
+  }
+  const { path: currentPathParam, name } = validatedData
+  const uploadDir = getUploadDir(c)
+
+  if (isInvalidPath(currentPathParam) || isInvalidNodeName(name)) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "PathError", message: "Invalid path" },
+      },
+      400,
+    )
+  }
+
+  const parentPath = path.dirname(currentPathParam)
+  const normalizedParentPath =
+    parentPath === "." ? "" : parentPath.replace(/\\/g, "/")
+  const currentName = path.basename(currentPathParam)
+
+  if (currentName === name) {
+    if (isHtmxRequest(c)) {
+      const files = await getFileList(uploadDir, normalizedParentPath)
+      return c.html(
+        <FileList files={files} requestPath={normalizedParentPath} />,
+      )
+    }
+
+    return c.redirect(`/?path=${encodeURIComponent(normalizedParentPath)}`, 301)
+  }
+
+  const sourcePath = path.join(uploadDir, currentPathParam)
+  const destinationRelativePath = normalizedParentPath
+    ? path.join(normalizedParentPath, name)
+    : name
+  const destinationPath = path.join(uploadDir, destinationRelativePath)
+
+  try {
+    await fsStat(sourcePath)
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            name: "FileNotFound",
+            message: "File or directory does not exist",
+          },
+        },
+        400,
+      )
+    }
+    throw err
+  }
+
+  try {
+    await fsStat(destinationPath)
+    return c.json(
+      {
+        success: false,
+        error: {
+          name: "AlreadyExists",
+          message: "File or directory already exists",
+        },
+      },
+      400,
+    )
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code !== "ENOENT"
+    ) {
+      throw err
+    }
+  }
+
+  await rename(sourcePath, destinationPath)
+
+  if (isHtmxRequest(c)) {
+    const files = await getFileList(uploadDir, normalizedParentPath)
+    return c.html(<FileList files={files} requestPath={normalizedParentPath} />)
+  }
+
+  return c.redirect(`/?path=${encodeURIComponent(normalizedParentPath)}`, 301)
 }
 
 export async function updateFileHandler(c: Context<AppBindings>) {
