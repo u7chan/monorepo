@@ -19,6 +19,20 @@ OPENAI_BASE_URL="your-base-url"
 uv run dev
 ```
 
+## Architecture Direction
+
+`simple-agent-poc` keeps the CLI as the primary development entrypoint, but the architecture is
+now defined as a multi-entry application so the same agent flow can later be reused from HTTP and
+other adapters.
+
+- `core`: agent behavior and conversation rules
+- `application`: reusable use cases and DTOs
+- `adapters`: CLI, HTTP, and infrastructure integrations
+- `entrypoints`: thin startup modules that wire dependencies
+
+The current boundary policy and migration direction are documented in
+`.claude/skills/architecture/SKILL.md`.
+
 ## Development
 
 Format code:
