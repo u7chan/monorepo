@@ -201,6 +201,9 @@ describe("browse endpoint /", () => {
     expect(res.status).toBe(200)
     expect(text).toContain('href="/file/archive?path=foo%2Fbar"')
     expect(text).toContain("Download Zip")
+    expect(text).toContain("mb-4 grid grid-cols-2 gap-3 sm:flex")
+    expect(text).toContain("whitespace-nowrap")
+    expect(text).toContain("col-span-2 flex w-full")
   })
 
   it("should redirect to /file when file is selected", async () => {
