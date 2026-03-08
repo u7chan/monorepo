@@ -349,7 +349,10 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                           <span className="sm:hidden">
                             <EditIcon />
                           </span>
-                          <span className="hidden sm:inline">Rename</span>
+                          <span className="hidden sm:flex sm:items-center sm:gap-2">
+                            <EditIcon />
+                            <span>Rename</span>
+                          </span>
                         </button>
                         <form
                           hx-post="/api/delete"

@@ -286,7 +286,7 @@ describe("POST /api/rename", () => {
     const text = await res.text()
     expect(text).toContain('hx-post="/api/rename"')
     expect(text).toContain('aria-label="Rename"')
-    expect(text).toContain("hidden sm:inline")
+    expect(text).toContain("hidden sm:flex sm:items-center sm:gap-2")
     expect(text).toContain("sm:hidden")
     expect(text).toContain("h-8 w-8")
     expect(text).toContain('value="browse-test.txt"')
