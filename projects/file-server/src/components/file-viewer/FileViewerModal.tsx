@@ -1,4 +1,8 @@
 import type { Child, FC } from "hono/jsx"
+import {
+  dismissIconButtonClassName,
+  secondaryIconButtonClassName,
+} from "../buttonStyles"
 import { CloseIcon } from "../icons/CloseIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 import { EditIcon } from "../icons/EditIcon"
@@ -30,7 +34,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     <a
       href={`/file/raw?path=${encodedPath}`}
       download={fileName || true}
-      className="w-12 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-flex items-center justify-center"
+      className={secondaryIconButtonClassName}
     >
       <DownloadIcon />
     </a>
@@ -43,7 +47,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
         hx-get={`/file?path=${encodedPath}&edit=true`}
         hx-target="#file-viewer-container"
         hx-swap="outerHTML"
-        className="w-12 h-10 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-emerald-600 hover:to-teal-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-flex items-center justify-center"
+        className={secondaryIconButtonClassName}
       >
         <EditIcon />
       </button>
@@ -53,7 +57,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     <button
       type="button"
       hx-on:click={closeScript}
-      className="w-12 h-10 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-base border-none rounded-xl cursor-pointer hover:from-rose-600 hover:to-pink-600 transition-all transform hover:scale-110 hover:shadow-xl shadow-md inline-flex items-center justify-center"
+      className={dismissIconButtonClassName}
     >
       <CloseIcon />
     </button>

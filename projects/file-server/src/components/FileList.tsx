@@ -1,6 +1,13 @@
 import * as path from "node:path"
 import type { FC } from "hono/jsx"
 import { formatFileSize, formatTimestamp } from "../utils/formatters"
+import {
+  dangerIconButtonClassName,
+  dismissButtonClassName,
+  primaryButtonClassName,
+  secondaryButtonClassName,
+  toggleButtonIdleClassName,
+} from "./buttonStyles"
 import { DeleteIcon } from "./icons/DeleteIcon"
 import { DownloadIcon } from "./icons/DownloadIcon"
 import { EditIcon } from "./icons/EditIcon"
@@ -105,7 +112,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         <button
           id="new-file-button"
           type="button"
-          className="flex w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-2 border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-700 transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 sm:w-auto sm:px-4 sm:text-base"
+          className={toggleButtonIdleClassName}
           hx-on:click="
             const form = document.getElementById('new-file-form');
             const otherForm = document.getElementById('new-folder-form');
@@ -114,11 +121,11 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
             if (isHidden) {
               form.classList.remove('hidden');
               otherForm.classList.add('hidden');
-              this.classList.add('ring-2', 'ring-purple-400');
-              otherButton.classList.remove('ring-2', 'ring-purple-400');
+              this.classList.add('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
+              otherButton.classList.remove('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
             } else {
               form.classList.add('hidden');
-              this.classList.remove('ring-2', 'ring-purple-400');
+              this.classList.remove('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
             }
           "
         >
@@ -128,7 +135,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         <button
           id="new-folder-button"
           type="button"
-          className="flex w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-none bg-gradient-to-r from-indigo-500 to-purple-500 px-3 py-2 text-sm font-semibold text-white transition-all hover:from-indigo-600 hover:to-purple-600 sm:w-auto sm:px-4 sm:text-base sm:hover:scale-105"
+          className={toggleButtonIdleClassName}
           hx-on:click="
             const form = document.getElementById('new-folder-form');
             const otherForm = document.getElementById('new-file-form');
@@ -137,11 +144,11 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
             if (isHidden) {
               form.classList.remove('hidden');
               otherForm.classList.add('hidden');
-              this.classList.add('ring-2', 'ring-purple-400');
-              otherButton.classList.remove('ring-2', 'ring-purple-400');
+              this.classList.add('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
+              otherButton.classList.remove('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
             } else {
               form.classList.add('hidden');
-              this.classList.remove('ring-2', 'ring-purple-400');
+              this.classList.remove('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
             }
           "
         >
@@ -150,7 +157,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
         </button>
         <a
           href={archiveHref}
-          className="col-span-2 flex w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-2 border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-700 no-underline transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 sm:col-span-1 sm:w-auto sm:px-4 sm:text-base"
+          className={`${toggleButtonIdleClassName} col-span-2 no-underline sm:col-span-1`}
         >
           <DownloadIcon />
           Download Zip
@@ -174,10 +181,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
           required
           className="px-4 py-2 border-2 border-indigo-300 rounded-lg mr-2 focus:outline-none focus:border-purple-500 transition-colors"
         />
-        <button
-          type="submit"
-          className="px-6 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
-        >
+        <button type="submit" className={`${primaryButtonClassName} px-6`}>
           Create File
         </button>
         <FormErrorMessage />
@@ -200,10 +204,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
           required
           className="px-4 py-2 border-2 border-indigo-300 rounded-lg mr-2 focus:outline-none focus:border-purple-500 transition-colors"
         />
-        <button
-          type="submit"
-          className="px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-105"
-        >
+        <button type="submit" className={`${primaryButtonClassName} px-6`}>
           Create Folder
         </button>
         <FormErrorMessage />
@@ -329,7 +330,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                           title="Rename"
                           aria-label="Rename"
                           data-rename-button
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-indigo-200 bg-white px-0 text-indigo-700 transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 md:w-auto md:px-3 md:font-semibold"
+                          className={`${secondaryButtonClassName} h-8 w-8 px-0 md:w-auto md:px-3`}
                           hx-on:click={`
                             event.stopPropagation();
                             const form = document.getElementById('${renameFormId}');
@@ -337,10 +338,10 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                             const container = document.getElementById('file-list-container');
                             const shouldOpen = form.classList.contains('hidden');
                             container.querySelectorAll('[data-rename-form]').forEach((el) => el.classList.add('hidden'));
-                            container.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove('ring-2', 'ring-purple-400'));
+                            container.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700'));
                             if (shouldOpen) {
                               form.classList.remove('hidden');
-                              this.classList.add('ring-2', 'ring-purple-400');
+                              this.classList.add('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700');
                               input.focus();
                               input.select();
                             }
@@ -365,7 +366,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                             type="submit"
                             title="Delete"
                             aria-label="Delete"
-                            className="w-8 h-8 flex items-center justify-center bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-red-600 hover:to-pink-600 transition-all transform hover:scale-105"
+                            className={dangerIconButtonClassName}
                           >
                             <DeleteIcon />
                           </button>
@@ -396,17 +397,17 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       <div className="flex gap-2">
                         <button
                           type="submit"
-                          className="px-4 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+                          className={primaryButtonClassName}
                         >
                           Save
                         </button>
                         <button
                           type="button"
-                          className="px-4 py-2 bg-gray-100 text-gray-700 font-semibold border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors"
+                          className={dismissButtonClassName}
                           hx-on:click={`
                             event.stopPropagation();
                             document.getElementById('${renameFormId}').classList.add('hidden');
-                            document.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove('ring-2', 'ring-purple-400'));
+                            document.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove('ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700'));
                           `}
                         >
                           Cancel

@@ -161,6 +161,14 @@ describe("browse endpoint /", () => {
     expect(text).toContain("New File")
     expect(text).toContain('id="new-file-form"')
     expect(text).toContain('hx-post="/api/file"')
+    expect(text).toMatch(
+      /id="new-file-button"[^>]*border-2 border-indigo-200 bg-white/,
+    )
+    expect(text).toMatch(
+      /id="new-folder-button"[^>]*border-2 border-indigo-200 bg-white/,
+    )
+    expect(text).toMatch(/>Create File<\/button>/)
+    expect(text).toMatch(/Create File<\/button>[\s\S]*Create Folder<\/button>/)
   })
 
   it("should render breadcrumb navigation in directory listing as HTML", async () => {
@@ -203,7 +211,7 @@ describe("browse endpoint /", () => {
     expect(text).toContain("Download Zip")
     expect(text).toContain("mb-4 grid grid-cols-2 gap-3 sm:flex")
     expect(text).toContain("whitespace-nowrap")
-    expect(text).toContain("col-span-2 flex w-full")
+    expect(text).toContain("col-span-2 no-underline sm:col-span-1")
   })
 
   it("should redirect to /file when file is selected", async () => {
@@ -311,6 +319,46 @@ describe("file endpoint /file", () => {
     expect(text).not.toContain("<html") // htmxリクエストは部分HTML
     expect(text).not.toContain("<head>")
     expect(text).toContain("<svg") // クローズボタンのSVGアイコンが存在
+    expect(text).toMatch(
+      /href="\/file\/raw\?path=htmx-file\.txt"[^>]*border-2 border-indigo-200 bg-white/,
+    )
+    expect(text).toMatch(/edit=true"[^>]*border-2 border-indigo-200 bg-white/)
+    expect(text).toContain("bg-slate-100")
+    expect(text).toContain("history.pushState(null")
+  })
+
+  it("should render an empty-state message for empty text files", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "empty.txt"), "")
+    const req = new Request("http://localhost/file?path=empty.txt", {
+      method: "GET",
+      headers: { "HX-Request": "true" },
+    })
+
+    const res = await app.request(req)
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("This file is empty.")
+    expect(text).not.toMatch(/<pre[^>]*>/)
+  })
+
+  it("should render a placeholder for empty text files in edit mode", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "empty-edit.txt"), "")
+    const req = new Request(
+      "http://localhost/file?path=empty-edit.txt&edit=true",
+      {
+        method: "GET",
+        headers: { "HX-Request": "true" },
+      },
+    )
+
+    const res = await app.request(req)
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('placeholder="This file is empty. Start typing..."')
+    expect(text).toContain(">Cancel</button>")
+    expect(text).toContain(">Save</button>")
   })
 
   it("should return error for non-existent file", async () => {
