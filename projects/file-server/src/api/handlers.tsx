@@ -232,7 +232,7 @@ export async function mkdirHandler(c: Context<AppBindings>) {
           success: false,
           error: {
             name: "AlreadyExists",
-            message: "Directory already exists",
+            message: `"${folder}" already exists.`,
           },
         },
         400,
@@ -284,7 +284,7 @@ export async function createFileHandler(c: Context<AppBindings>) {
           success: false,
           error: {
             name: "AlreadyExists",
-            message: "File already exists",
+            message: `"${file}" already exists.`,
           },
         },
         400,
@@ -371,7 +371,7 @@ export async function renameHandler(c: Context<AppBindings>) {
         success: false,
         error: {
           name: "AlreadyExists",
-          message: "File or directory already exists",
+          message: `"${name}" already exists.`,
         },
       },
       400,

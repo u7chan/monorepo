@@ -6,6 +6,88 @@ interface PageShellProps {
   user?: UserState
 }
 
+const inlineFormErrorScript = `
+  (() => {
+    const formEndpoints = new Set(["/api/file", "/api/mkdir", "/api/rename"]);
+
+    const getForm = (detail) => {
+      const source = detail?.elt instanceof Element ? detail.elt : null;
+      if (!source) {
+        return null;
+      }
+      return source.closest("form");
+    };
+
+    const getErrorNode = (form) => form?.querySelector("[data-form-error]") ?? null;
+
+    const clearFormError = (form) => {
+      const errorNode = getErrorNode(form);
+      if (!errorNode) {
+        return;
+      }
+      errorNode.textContent = "";
+      errorNode.classList.add("hidden");
+    };
+
+    const showFormError = (form, message) => {
+      const errorNode = getErrorNode(form);
+      if (!errorNode) {
+        return;
+      }
+      errorNode.textContent = message;
+      errorNode.classList.remove("hidden");
+    };
+
+    document.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const form = target.closest("form[data-inline-error-form]");
+      if (form) {
+        clearFormError(form);
+      }
+    });
+
+    document.addEventListener("htmx:beforeRequest", (event) => {
+      const form = getForm(event.detail);
+      if (form?.matches("[data-inline-error-form]")) {
+        clearFormError(form);
+      }
+    });
+
+    document.addEventListener("htmx:responseError", (event) => {
+      const form = getForm(event.detail);
+      if (!form?.matches("[data-inline-error-form]")) {
+        return;
+      }
+
+      const xhr = event.detail?.xhr;
+      if (!xhr || xhr.status !== 400) {
+        return;
+      }
+
+      const action =
+        form.getAttribute("hx-post") || form.getAttribute("action") || "";
+      if (!formEndpoints.has(action)) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(xhr.responseText);
+        if (
+          payload?.error?.name !== "AlreadyExists" ||
+          typeof payload?.error?.message !== "string"
+        ) {
+          return;
+        }
+        showFormError(form, payload.error.message);
+      } catch {
+      }
+    });
+  })();
+`
+
 export const PageShell: FC<PageShellProps> = ({ children, user }) => {
   return (
     <html lang="ja">
@@ -15,6 +97,7 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
         <title>File Server</title>
         <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+        <script dangerouslySetInnerHTML={{ __html: inlineFormErrorScript }} />
         <style>{`
           .image-viewer-img {
             height: -webkit-fill-available;

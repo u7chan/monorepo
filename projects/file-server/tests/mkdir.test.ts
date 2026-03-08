@@ -45,6 +45,7 @@ describe("POST /api/mkdir", () => {
     }
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("AlreadyExists")
+    expect(json.error.message).toBe('"existdir" already exists.')
   })
 
   it("should return error for invalid path", async () => {
@@ -129,6 +130,7 @@ describe("POST /api/mkdir", () => {
     expect(text).toContain("htmx-child/") // 作成されたディレクトリ
     expect(text).toContain("htmx-parent") // パンくずリストに親ディレクトリが含まれる
     expect(text).not.toContain("<html")
+    expect(text).toContain("data-form-error")
 
     // Check if directory was actually created
     const st = await stat(join(UPLOAD_DIR, "htmx-parent", "htmx-child"))

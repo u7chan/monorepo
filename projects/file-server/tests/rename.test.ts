@@ -222,6 +222,7 @@ describe("POST /api/rename", () => {
     }
     expect(json.success).toBe(false)
     expect(json.error.name).toBe("AlreadyExists")
+    expect(json.error.message).toBe('"after.txt" already exists.')
   })
 
   it("returns updated HTML via htmx", async () => {
@@ -245,6 +246,7 @@ describe("POST /api/rename", () => {
     expect(text).toContain("after.txt")
     expect(text).not.toContain("before.txt")
     expect(text).toContain('hx-post="/api/rename"')
+    expect(text).toContain("data-form-error")
     expect(text).not.toContain("<html")
   })
 
@@ -285,6 +287,7 @@ describe("POST /api/rename", () => {
     expect(text).toContain('hx-post="/api/rename"')
     expect(text).toContain("Rename")
     expect(text).toContain('value="browse-test.txt"')
+    expect(text).toContain("data-form-error")
   })
 
   it("prevents authenticated users from renaming outside their scope", async () => {
