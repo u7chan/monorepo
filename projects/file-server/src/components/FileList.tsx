@@ -309,15 +309,15 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                       )}
                     </span>
 
-                    <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+                    <div className="flex shrink-0 items-center gap-2 md:gap-4">
                       {/* ファイルサイズ表示（ファイルのみ） */}
                       {file.type === "file" && (
-                        <div className="hidden sm:block sm:w-30 text-right">
+                        <div className="hidden md:block md:w-30 text-right">
                           {formatFileSize(file.size || 0)}
                         </div>
                       )}
                       {/* タイムスタンプ表示 */}
-                      <div className="hidden sm:block sm:w-45 text-right text-gray-600 text-sm">
+                      <div className="hidden md:block md:w-45 text-right text-gray-600 text-sm">
                         {file.mtime && formatTimestamp(new Date(file.mtime))}
                       </div>
                       <div
@@ -329,7 +329,7 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                           title="Rename"
                           aria-label="Rename"
                           data-rename-button
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-indigo-200 bg-white px-0 text-indigo-700 transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 sm:w-auto sm:px-3 sm:font-semibold"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-indigo-200 bg-white px-0 text-indigo-700 transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 md:w-auto md:px-3 md:font-semibold"
                           hx-on:click={`
                             event.stopPropagation();
                             const form = document.getElementById('${renameFormId}');
@@ -346,10 +346,10 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
                             }
                           `}
                         >
-                          <span className="sm:hidden">
+                          <span className="md:hidden">
                             <EditIcon />
                           </span>
-                          <span className="hidden sm:flex sm:items-center sm:gap-2">
+                          <span className="hidden md:flex md:items-center md:gap-2">
                             <EditIcon />
                             <span>Rename</span>
                           </span>
