@@ -6,6 +6,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from simple_agent_poc.agent import Agent
+from simple_agent_poc.application import RunAgentRequest, RunAgentUseCase
 from simple_agent_poc.renderer import (
     get_user_input,
     show_agent_response,
@@ -49,6 +50,7 @@ def main() -> None:
         system_prompt=formatted_system_prompt,
         model=DEFAULT_MODEL,
     )
+    run_agent = RunAgentUseCase(agent)
 
     # CLI loop
     while True:
@@ -61,7 +63,7 @@ def main() -> None:
             # Business logic layer: process request
             response = with_indicator(
                 "Thinking",
-                lambda: agent.process_user_input(user_input),
+                lambda: run_agent.execute(RunAgentRequest(message=user_input)),
             )
 
             # UI layer: display results

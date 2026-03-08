@@ -33,6 +33,9 @@ other adapters.
 The current boundary policy and migration direction are documented in
 `.claude/skills/architecture/SKILL.md`.
 
+The reusable execution contract currently lives in [src/simple_agent_poc/application.py](src/simple_agent_poc/application.py)
+as `RunAgentUseCase`, `RunAgentRequest`, and `RunAgentResponse`.
+
 ## Development
 
 Format code:
