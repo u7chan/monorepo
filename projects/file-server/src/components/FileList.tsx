@@ -88,23 +88,42 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
       {/* アクションボタン群 */}
       <div className="flex gap-3 mb-4">
         <button
+          id="new-file-button"
           type="button"
-          disabled
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-400 font-semibold border-2 border-gray-200 rounded-lg cursor-not-allowed"
-          title="Coming soon"
+          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+          hx-on:click="
+            const form = document.getElementById('new-file-form');
+            const otherForm = document.getElementById('new-folder-form');
+            const otherButton = document.getElementById('new-folder-button');
+            const isHidden = form.classList.contains('hidden');
+            if (isHidden) {
+              form.classList.remove('hidden');
+              otherForm.classList.add('hidden');
+              this.classList.add('ring-2', 'ring-purple-400');
+              otherButton.classList.remove('ring-2', 'ring-purple-400');
+            } else {
+              form.classList.add('hidden');
+              this.classList.remove('ring-2', 'ring-purple-400');
+            }
+          "
         >
           <FileIcon />
           New File
         </button>
         <button
+          id="new-folder-button"
           type="button"
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold border-none rounded-lg cursor-pointer hover:from-indigo-600 hover:to-purple-600 transition-all transform hover:scale-105"
           hx-on:click="
             const form = document.getElementById('new-folder-form');
+            const otherForm = document.getElementById('new-file-form');
+            const otherButton = document.getElementById('new-file-button');
             const isHidden = form.classList.contains('hidden');
             if (isHidden) {
               form.classList.remove('hidden');
+              otherForm.classList.add('hidden');
               this.classList.add('ring-2', 'ring-purple-400');
+              otherButton.classList.remove('ring-2', 'ring-purple-400');
             } else {
               form.classList.add('hidden');
               this.classList.remove('ring-2', 'ring-purple-400');
@@ -122,6 +141,30 @@ export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
           Download Zip
         </a>
       </div>
+
+      {/* New File フォーム（アコーディオン） */}
+      <form
+        id="new-file-form"
+        hx-post="/api/file"
+        hx-target="#file-list-container"
+        hx-swap="innerHTML"
+        className="hidden mb-4 p-4 bg-white rounded-xl border-2 border-indigo-200"
+      >
+        <input type="hidden" name="path" value={folderPath} />
+        <input
+          type="text"
+          name="file"
+          placeholder="New file name"
+          required
+          className="px-4 py-2 border-2 border-indigo-300 rounded-lg mr-2 focus:outline-none focus:border-purple-500 transition-colors"
+        />
+        <button
+          type="submit"
+          className="px-6 py-2 bg-white text-indigo-700 font-semibold border-2 border-indigo-200 rounded-lg cursor-pointer hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50 transition-all"
+        >
+          Create File
+        </button>
+      </form>
 
       {/* New Folder フォーム（アコーディオン） */}
       <form

@@ -158,6 +158,9 @@ describe("browse endpoint /", () => {
     expect(text).toContain('id="file-list-container"')
     // ファイルリンクはfile-viewer-containerをターゲットにする
     expect(text).toContain('hx-target="#file-viewer-container"')
+    expect(text).toContain("New File")
+    expect(text).toContain('id="new-file-form"')
+    expect(text).toContain('hx-post="/api/file"')
   })
 
   it("should render breadcrumb navigation in directory listing as HTML", async () => {

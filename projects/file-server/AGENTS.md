@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Web-based file server built with Bun + Hono + HTMX.
-Current features include per-directory Zip download via `/file/archive`.
+Current features include empty file creation and per-directory Zip download via `/file/archive`.
 
 ## Commands
 
@@ -26,7 +26,7 @@ Current features include per-directory Zip download via `/file/archive`.
 - `src/api/handlers.tsx` - API handlers
 - `src/components/` - JSX components
 - `src/utils/` - Utilities
-- `tests/` - Tests (auth, read, upload, delete, mkdir, update)
+- `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update)
 
 ## Environment Variables
 

@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator"
 import { Hono } from "hono"
 import z from "zod"
 import {
+  createFileHandler,
   deleteFileHandler,
   listFilesHandler,
   mkdirHandler,
@@ -54,6 +55,19 @@ apiRoutes.post(
     }),
   ),
   mkdirHandler,
+)
+
+// 空ファイル作成API
+apiRoutes.post(
+  "/file",
+  zValidator(
+    "form",
+    z.object({
+      path: z.string(),
+      file: z.string(),
+    }),
+  ),
+  createFileHandler,
 )
 
 // ファイル内容更新API

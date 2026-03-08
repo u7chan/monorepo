@@ -17,13 +17,13 @@ import { getUploadDir, isHtmxRequest } from "../utils/requestUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
 
-function isInvalidFolderName(folder: string): boolean {
+function isInvalidNodeName(name: string): boolean {
   return (
-    !folder ||
-    folder === "." ||
-    folder === ".." ||
-    folder.includes("/") ||
-    folder.includes("\\")
+    !name ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\\")
   )
 }
 
@@ -205,7 +205,7 @@ export async function mkdirHandler(c: Context<AppBindings>) {
   const { path: dirPathParam, folder } = validatedData
   const uploadDir = getUploadDir(c)
 
-  if (isInvalidPath(dirPathParam) || isInvalidFolderName(folder)) {
+  if (isInvalidPath(dirPathParam) || isInvalidNodeName(folder)) {
     return c.json(
       {
         success: false,
@@ -232,6 +232,58 @@ export async function mkdirHandler(c: Context<AppBindings>) {
           error: {
             name: "AlreadyExists",
             message: "Directory already exists",
+          },
+        },
+        400,
+      )
+    }
+    throw err
+  }
+
+  if (isHtmxRequest(c)) {
+    const files = await getFileList(uploadDir, dirPathParam || "")
+    return c.html(<FileList files={files} requestPath={dirPathParam || ""} />)
+  }
+
+  return c.redirect(`/?path=${encodeURIComponent(dirPathParam || "")}`, 301)
+}
+
+export async function createFileHandler(c: Context<AppBindings>) {
+  const validatedData = c.req.valid("form" as never) as {
+    path: string
+    file: string
+  }
+  const { path: dirPathParam, file } = validatedData
+  const uploadDir = getUploadDir(c)
+
+  if (isInvalidPath(dirPathParam) || isInvalidNodeName(file)) {
+    return c.json(
+      {
+        success: false,
+        error: { name: "PathError", message: "Invalid path" },
+      },
+      400,
+    )
+  }
+
+  await ensureUploadDirExists(uploadDir)
+  const targetDir = path.join(uploadDir, dirPathParam)
+
+  try {
+    await writeFile(path.join(targetDir, file), "", { flag: "wx" })
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "EEXIST"
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            name: "AlreadyExists",
+            message: "File already exists",
           },
         },
         400,
