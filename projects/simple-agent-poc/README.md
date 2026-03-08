@@ -36,6 +36,9 @@ The current boundary policy and migration direction are documented in
 The reusable execution contract currently lives in [src/simple_agent_poc/application.py](src/simple_agent_poc/application.py)
 as `RunAgentUseCase`, `RunAgentRequest`, and `RunAgentResponse`.
 
+The interactive CLI adapter now lives in [src/simple_agent_poc/cli.py](src/simple_agent_poc/cli.py),
+while [src/simple_agent_poc/main.py](src/simple_agent_poc/main.py) stays focused on production wiring.
+
 ## Development
 
 Format code:

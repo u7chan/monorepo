@@ -1,4 +1,4 @@
-"""Entry point for the CLI."""
+"""CLI entry point wiring."""
 
 import logging
 from datetime import datetime
@@ -6,15 +6,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from simple_agent_poc.agent import Agent
-from simple_agent_poc.application import RunAgentRequest, RunAgentUseCase
-from simple_agent_poc.renderer import (
-    get_user_input,
-    show_agent_response,
-    show_error,
-    show_exit_message,
-    show_welcome,
-    with_indicator,
-)
+from simple_agent_poc.application import RunAgentUseCase
+from simple_agent_poc.cli import CLIAdapter
 
 # Suppress LiteLLM logging to stderr
 logging.getLogger("litellm").setLevel(logging.CRITICAL)
@@ -37,12 +30,8 @@ Current datetime: {current_datetime}
 DEFAULT_MODEL = "gpt-4.1-nano"
 
 
-def main() -> None:
-    # UI layer: screen rendering
-    show_welcome()
-
-    # Business logic layer: initialize Agent
-    # Format system prompt with current datetime before passing to Agent
+def build_cli_adapter() -> CLIAdapter:
+    """Create the CLI adapter with production dependencies."""
     formatted_system_prompt = DEFAULT_SYSTEM_PROMPT.format(
         current_datetime=datetime.now().isoformat()
     )
@@ -50,35 +39,13 @@ def main() -> None:
         system_prompt=formatted_system_prompt,
         model=DEFAULT_MODEL,
     )
-    run_agent = RunAgentUseCase(agent)
+    return CLIAdapter(RunAgentUseCase(agent))
 
-    # CLI loop
-    while True:
-        try:
-            # UI layer: user input
-            user_input = get_user_input()
-            if not user_input.strip():
-                continue
 
-            # Business logic layer: process request
-            response = with_indicator(
-                "Thinking",
-                lambda: run_agent.execute(RunAgentRequest(message=user_input)),
-            )
-
-            # UI layer: display results
-            show_agent_response(response)
-
-        except KeyboardInterrupt:
-            show_exit_message()
-            break
-        except EOFError:
-            # Handle EOF (e.g., piped input, terminal closed)
-            show_exit_message()
-            break
-        except Exception as e:
-            # UI layer: display user-friendly error message
-            show_error(e)
+def main() -> None:
+    """Run the CLI entry point."""
+    adapter = build_cli_adapter()
+    adapter.run()
 
 
 if __name__ == "__main__":
