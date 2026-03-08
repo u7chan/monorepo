@@ -14,11 +14,15 @@ entrypoint-specific concerns.
 Current files and responsibilities:
 
 - `src/simple_agent_poc/main.py`
-  - CLI entrypoint
+  - CLI entrypoint wiring
   - environment loading and logging setup
   - system prompt and model configuration
   - agent construction
-  - interactive loop and error handling
+- `src/simple_agent_poc/cli.py`
+  - CLI adapter for interactive execution
+  - stdin/stdout interaction loop
+  - CLI-specific exception handling and user-facing messaging
+  - delegation from terminal input to `RunAgentUseCase`
 - `src/simple_agent_poc/renderer.py`
   - CLI input/output only
   - loading indicator for synchronous terminal usage
@@ -33,9 +37,9 @@ Current files and responsibilities:
 - `src/simple_agent_poc/types.py`
   - shared DTO-like types and domain/application errors
 
-The main coupling that blocks multi-entry support today is that `main.py` directly owns the
-interactive flow and constructs `Agent` as the executable application flow. That keeps the CLI
-fast to iterate on, but it leaves no reusable use case boundary for an HTTP adapter.
+The current structure now separates entrypoint wiring from interactive CLI behavior. The next
+multi-entry steps can build on this by keeping new transport adapters thin and routing them
+through the same application use case boundary.
 
 ## Target layers
 
@@ -118,9 +122,12 @@ Migration guidance:
 - `agent.py` is the nearest precursor to the future core/application split.
   - conversation state should trend toward `core`
   - execution orchestration should trend toward `application`
+- `cli.py` is the current CLI adapter boundary
+  - interactive loop and terminal error handling live here
+  - it should remain transport-specific as HTTP support is added
 - `renderer.py` should remain CLI-specific and move under `adapters/cli`
 - `llm_client.py` should remain an adapter and move under `adapters/llm`
-- `main.py` should be split into an entrypoint and CLI adapter responsibilities
+- `main.py` is now the thin entrypoint and should stay focused on dependency wiring
 
 ## Non-goals
 
