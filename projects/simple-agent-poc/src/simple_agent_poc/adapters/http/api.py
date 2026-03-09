@@ -74,7 +74,9 @@ def create_app(
                 )
             )
         except SessionNotFoundError as error:
-            raise HTTPException(status_code=404, detail=error.display_message) from error
+            raise HTTPException(
+                status_code=404, detail=error.display_message
+            ) from error
 
         return ChatResponse.from_use_case_response(response)
 

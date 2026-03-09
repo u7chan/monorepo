@@ -7,7 +7,11 @@ import pytest
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import RunAgentRequest, RunAgentResponse
 from simple_agent_poc.application.use_cases import RunAgentUseCase
-from simple_agent_poc.core.types import LLMResponse, SessionNotFoundError, ValidationError
+from simple_agent_poc.core.types import (
+    LLMResponse,
+    SessionNotFoundError,
+    ValidationError,
+)
 
 
 class TestRunAgentRequest:

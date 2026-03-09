@@ -34,7 +34,9 @@ class RunAgentUseCase:
 
         session.append_assistant_message(response["content"])
         self._session_store.save(session)
-        return RunAgentResponse.from_llm_response(response, session_id=session.session_id)
+        return RunAgentResponse.from_llm_response(
+            response, session_id=session.session_id
+        )
 
     def _load_session(self, session_id: str | None) -> ConversationSession:
         if session_id is None:
