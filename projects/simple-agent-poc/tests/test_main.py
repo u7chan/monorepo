@@ -2,19 +2,19 @@
 
 from unittest.mock import MagicMock, patch
 
-from simple_agent_poc.main import build_cli_adapter, main
+from simple_agent_poc.entrypoints.main_cli import build_cli_adapter, main
 
 
 class TestBuildCLIAdapter:
     """Tests for production CLI wiring."""
 
-    @patch("simple_agent_poc.main.CLIAdapter")
+    @patch("simple_agent_poc.entrypoints.main_cli.CLIAdapter")
     def test_build_cli_adapter_wires_dependencies(
         self,
         mock_cli_adapter: MagicMock,
     ) -> None:
         with patch(
-            "simple_agent_poc.main.bootstrap.create_run_agent_use_case"
+            "simple_agent_poc.entrypoints.main_cli.bootstrap.create_run_agent_use_case"
         ) as mock_create_run_agent_use_case:
             adapter = build_cli_adapter()
 
@@ -28,7 +28,7 @@ class TestBuildCLIAdapter:
 class TestMain:
     """Tests for the CLI entry point."""
 
-    @patch("simple_agent_poc.main.build_cli_adapter")
+    @patch("simple_agent_poc.entrypoints.main_cli.build_cli_adapter")
     def test_main_runs_built_adapter(self, mock_build_cli_adapter: MagicMock) -> None:
         adapter = mock_build_cli_adapter.return_value
 

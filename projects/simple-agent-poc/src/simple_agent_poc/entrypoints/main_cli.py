@@ -1,7 +1,7 @@
 """CLI entry point wiring."""
 
-from simple_agent_poc import bootstrap
-from simple_agent_poc.cli import CLIAdapter
+from simple_agent_poc.adapters.cli.adapter import CLIAdapter
+from simple_agent_poc.entrypoints import bootstrap
 
 DEFAULT_MODEL = bootstrap.DEFAULT_MODEL
 

@@ -1,26 +1,35 @@
-"""Tests for interfaces module."""
+"""Tests for application ports."""
 
 from typing import get_type_hints
 
-from simple_agent_poc.interfaces import LLMClient
-from simple_agent_poc.types import LLMResponse
+from simple_agent_poc.application.ports import LLMClient, SessionStore
+from simple_agent_poc.core.session import ConversationSession
+from simple_agent_poc.core.types import LLMResponse
 
 
 class TestLLMClient:
-    """Tests for LLMClient protocol."""
+    """Tests for the LLMClient protocol."""
 
     def test_protocol_has_complete_method(self) -> None:
-        """Test that LLMClient protocol has complete method."""
         assert hasattr(LLMClient, "complete")
 
     def test_complete_signature(self) -> None:
-        """Test complete method signature."""
         hints = get_type_hints(LLMClient.complete)
 
-        # Check return type
         assert hints.get("return") == LLMResponse
 
     def test_protocol_is_callable(self) -> None:
-        """Test that LLMClient is a proper Protocol."""
-        # Protocol should not be instantiable
         assert hasattr(LLMClient, "__protocol_attrs__")
+
+
+class TestSessionStore:
+    """Tests for the SessionStore protocol."""
+
+    def test_protocol_has_required_methods(self) -> None:
+        assert hasattr(SessionStore, "get")
+        assert hasattr(SessionStore, "save")
+
+    def test_get_signature(self) -> None:
+        hints = get_type_hints(SessionStore.get)
+
+        assert hints.get("return") == ConversationSession | None

@@ -8,18 +8,18 @@ from litellm.exceptions import (
     RateLimitError as LiteLLMRateLimitError,
 )
 
-from simple_agent_poc.interfaces import LLMClient
-from simple_agent_poc.types import (
+from simple_agent_poc.application.ports import LLMClient
+from simple_agent_poc.core.types import (
+    AuthenticationError,
+    LLMError,
     LLMResponse,
     Message,
-    AuthenticationError,
     RateLimitError,
-    LLMError,
 )
 
 
 class LiteLLMClient(LLMClient):
-    """LLM client implementation using LiteLLM"""
+    """LLM client implementation using LiteLLM."""
 
     def __init__(self, model: str) -> None:
         self.model = model
@@ -32,31 +32,31 @@ class LiteLLMClient(LLMClient):
                 messages=messages,
                 stream=False,
             )
-        except LiteLLMAuthError as e:
+        except LiteLLMAuthError as error:
             raise AuthenticationError(
-                message=str(e),
+                message=str(error),
                 display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
-            ) from e
-        except LiteLLMRateLimitError as e:
+            ) from error
+        except LiteLLMRateLimitError as error:
             raise RateLimitError(
-                message=str(e),
+                message=str(error),
                 display_message="Rate limit exceeded. Please wait a moment before trying again.",
-            ) from e
-        except Exception as e:
-            error_msg = str(e).lower()
+            ) from error
+        except Exception as error:
+            error_msg = str(error).lower()
             if (
                 "authentication" in error_msg
                 or "api key" in error_msg
                 or "401" in error_msg
             ):
                 raise AuthenticationError(
-                    message=str(e),
+                    message=str(error),
                     display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
-                ) from e
+                ) from error
             raise LLMError(
-                message=str(e),
-                display_message=f"An error occurred while communicating with the LLM: {e}",
-            ) from e
+                message=str(error),
+                display_message=f"An error occurred while communicating with the LLM: {error}",
+            ) from error
 
         elapsed = time.perf_counter() - start_time
         return {

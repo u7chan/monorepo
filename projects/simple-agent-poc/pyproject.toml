@@ -12,8 +12,8 @@ dependencies = [
 ]
 
 [project.scripts]
-api = "simple_agent_poc.main_api:main"
-dev = "simple_agent_poc.main:main"
+api = "simple_agent_poc.entrypoints.main_api:main"
+dev = "simple_agent_poc.entrypoints.main_cli:main"
 
 [tool.uv]
 package = true
