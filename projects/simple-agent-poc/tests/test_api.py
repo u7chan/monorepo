@@ -1,51 +1,59 @@
 """Tests for the HTTP API adapter."""
 
-from unittest.mock import MagicMock
-
 from fastapi.testclient import TestClient
 
-from simple_agent_poc.api import create_app
-from simple_agent_poc.application import RunAgentResponse
+from simple_agent_poc.adapters.http.api import create_app
+from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
+from simple_agent_poc.application.ports import LLMClient
+from simple_agent_poc.application.use_cases import RunAgentUseCase
+from simple_agent_poc.core.types import LLMResponse, Message
 
 
-class TestAPI:
-    """Tests for the FastAPI entrypoint."""
+class StubLLMClient(LLMClient):
+    """Deterministic LLM stub for HTTP adapter tests."""
 
-    def test_chat_returns_use_case_response(self) -> None:
-        run_agent = MagicMock()
-        run_agent.execute.return_value = RunAgentResponse(
-            message="Hello, user!",
-            usage={
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            model="gpt-4o-mini",
-            response_time=0.85,
-        )
-        use_case_factory = MagicMock(return_value=run_agent)
-        app = create_app(use_case_factory=use_case_factory)
-        client = TestClient(app)
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+        self.calls: list[list[Message]] = []
 
-        response = client.post("/api/chat", json={"message": "Hello"})
-
-        assert response.status_code == 200
-        assert response.json() == {
-            "message": "Hello, user!",
+    def complete(self, messages: list[Message]) -> LLMResponse:
+        self.calls.append(list(messages))
+        return {
+            "content": self.reply,
             "usage": {
                 "prompt_tokens": 10,
                 "completion_tokens": 5,
                 "total_tokens": 15,
             },
-            "model": "gpt-4o-mini",
-            "response_time": 0.85,
+            "model": "stub-model",
+            "response_time": 0.1,
         }
-        use_case_factory.assert_called_once_with()
-        request = run_agent.execute.call_args.args[0]
-        assert request.message == "Hello"
+
+
+class TestAPI:
+    """Tests for the FastAPI adapter."""
+
+    def test_chat_returns_use_case_response_with_session_id(self) -> None:
+        llm_client = StubLLMClient(reply="Hello, user!")
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client=llm_client,
+                session_store=InMemorySessionStore(),
+                system_prompt="System prompt",
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/chat", json={"message": "Hello"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Hello, user!"
+        assert data["model"] == "stub-model"
+        assert data["session_id"]
 
     def test_chat_rejects_missing_message(self) -> None:
-        app = create_app(use_case_factory=MagicMock())
+        app = create_app(use_case_factory=lambda: None)
         client = TestClient(app)
 
         response = client.post("/api/chat", json={})
@@ -53,45 +61,59 @@ class TestAPI:
         assert response.status_code == 422
 
     def test_chat_rejects_blank_message(self) -> None:
-        app = create_app(use_case_factory=MagicMock())
+        app = create_app(use_case_factory=lambda: None)
         client = TestClient(app)
 
         response = client.post("/api/chat", json={"message": "   "})
 
         assert response.status_code == 422
 
-    def test_chat_uses_new_use_case_per_request(self) -> None:
-        first_use_case = MagicMock()
-        first_use_case.execute.return_value = RunAgentResponse(
-            message="First",
-            usage={
-                "prompt_tokens": 1,
-                "completion_tokens": 1,
-                "total_tokens": 2,
-            },
-            model="gpt-4o-mini",
-            response_time=0.1,
+    def test_chat_reuses_session_across_new_use_case_instances(self) -> None:
+        store = InMemorySessionStore()
+        first_llm = StubLLMClient(reply="First")
+        second_llm = StubLLMClient(reply="Second")
+        llm_clients = iter([first_llm, second_llm])
+
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client=next(llm_clients),
+                session_store=store,
+                system_prompt="System prompt",
+            )
         )
-        second_use_case = MagicMock()
-        second_use_case.execute.return_value = RunAgentResponse(
-            message="Second",
-            usage={
-                "prompt_tokens": 2,
-                "completion_tokens": 2,
-                "total_tokens": 4,
-            },
-            model="gpt-4o-mini",
-            response_time=0.2,
-        )
-        use_case_factory = MagicMock(side_effect=[first_use_case, second_use_case])
-        app = create_app(use_case_factory=use_case_factory)
         client = TestClient(app)
 
         first_response = client.post("/api/chat", json={"message": "Hello"})
-        second_response = client.post("/api/chat", json={"message": "Again"})
+        session_id = first_response.json()["session_id"]
+        second_response = client.post(
+            "/api/chat",
+            json={"message": "Again", "session_id": session_id},
+        )
 
         assert first_response.status_code == 200
         assert second_response.status_code == 200
-        assert first_response.json()["message"] == "First"
         assert second_response.json()["message"] == "Second"
-        assert use_case_factory.call_count == 2
+        assert second_llm.calls[0] == [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "First"},
+            {"role": "user", "content": "Again"},
+        ]
+
+    def test_chat_returns_404_for_unknown_session(self) -> None:
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client=StubLLMClient(reply="unused"),
+                session_store=InMemorySessionStore(),
+                system_prompt="System prompt",
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/chat",
+            json={"message": "Hello", "session_id": "missing-session"},
+        )
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Session not found."}

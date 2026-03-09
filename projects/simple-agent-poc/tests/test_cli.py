@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from simple_agent_poc.application import RunAgentResponse
-from simple_agent_poc.cli import CLIAdapter
+from simple_agent_poc.adapters.cli.adapter import CLIAdapter
+from simple_agent_poc.application.dto import RunAgentResponse
 
 
 def passthrough_indicator(
@@ -32,6 +32,7 @@ class TestCLIAdapter:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            session_id="session-1",
         )
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
         response_renderer = MagicMock()
@@ -53,8 +54,42 @@ class TestCLIAdapter:
         run_agent.execute.assert_called_once()
         request = run_agent.execute.call_args.args[0]
         assert request.message == "Hello"
+        assert request.session_id is None
         response_renderer.assert_called_once_with(run_agent.execute.return_value)
         exit_renderer.assert_called_once_with()
+
+    def test_run_reuses_session_id_on_later_turns(self) -> None:
+        run_agent = MagicMock()
+        run_agent.execute.side_effect = [
+            RunAgentResponse(
+                message="First",
+                usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                model="gpt-4o-mini",
+                response_time=0.1,
+                session_id="session-1",
+            ),
+            RunAgentResponse(
+                message="Second",
+                usage={"prompt_tokens": 2, "completion_tokens": 2, "total_tokens": 4},
+                model="gpt-4o-mini",
+                response_time=0.2,
+                session_id="session-1",
+            ),
+        ]
+        input_reader = MagicMock(side_effect=["Hello", "Again", EOFError()])
+
+        adapter = CLIAdapter(
+            run_agent,
+            input_reader=input_reader,
+            indicator_runner=passthrough_indicator,
+        )
+
+        adapter.run()
+
+        first_request = run_agent.execute.call_args_list[0].args[0]
+        second_request = run_agent.execute.call_args_list[1].args[0]
+        assert first_request.session_id is None
+        assert second_request.session_id == "session-1"
 
     def test_run_skips_blank_input(self) -> None:
         run_agent = MagicMock()
@@ -102,6 +137,7 @@ class TestCLIAdapter:
             },
             model="gpt-4o-mini",
             response_time=0.25,
+            session_id="session-1",
         )
         run_agent.execute.side_effect = [RuntimeError("boom"), recovered_response]
         input_reader = MagicMock(side_effect=["Hello", "Retry", EOFError()])

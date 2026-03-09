@@ -1,4 +1,4 @@
-"""Type definitions for the agent."""
+"""Shared core types and domain errors."""
 
 from typing import Literal, TypedDict
 
@@ -14,28 +14,24 @@ class AgentError(Exception):
 class AuthenticationError(AgentError):
     """Raised when API authentication fails."""
 
-    pass
-
 
 class RateLimitError(AgentError):
     """Raised when rate limit is exceeded."""
-
-    pass
 
 
 class LLMError(AgentError):
     """Raised for general LLM errors."""
 
-    pass
-
 
 class ValidationError(AgentError):
     """Raised when validation fails."""
 
-    pass
+
+class SessionNotFoundError(AgentError):
+    """Raised when a requested session does not exist."""
 
 
-type MessageRole = Literal["system", "user", "assistant"]
+MessageRole = Literal["system", "user", "assistant"]
 
 
 class Message(TypedDict):

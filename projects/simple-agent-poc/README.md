@@ -35,27 +35,38 @@ curl -X POST http://127.0.0.1:8000/api/chat \
   -d '{"message":"Hello"}'
 ```
 
+Continue the same conversation by sending back the returned `session_id`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Continue","session_id":"<session-id>"}'
+```
+
 ## Architecture Direction
 
 `simple-agent-poc` keeps the CLI as the primary development entrypoint, but the architecture is
 now defined as a multi-entry application so the same agent flow can later be reused from HTTP and
 other adapters.
 
-- `core`: agent behavior and conversation rules
-- `application`: reusable use cases and DTOs
-- `adapters`: CLI, HTTP, and infrastructure integrations
+- `core`: conversation session model, message types, and domain errors
+- `application`: use cases, DTOs, and ports such as `SessionStore` and `LLMClient`
+- `adapters`: CLI, HTTP, LiteLLM, and in-memory session storage
 - `entrypoints`: thin startup modules that wire dependencies
 
 The current boundary policy and migration direction are documented in
 `.claude/skills/architecture/SKILL.md`.
 
-The reusable execution contract currently lives in [src/simple_agent_poc/application.py](src/simple_agent_poc/application.py)
-as `RunAgentUseCase`, `RunAgentRequest`, and `RunAgentResponse`.
+The reusable execution contract now lives under `src/simple_agent_poc/application/`.
+The session model lives under `src/simple_agent_poc/core/`.
+The CLI and HTTP adapters live under `src/simple_agent_poc/adapters/`.
+The process entrypoints live under `src/simple_agent_poc/entrypoints/`.
 
-The interactive CLI adapter now lives in [src/simple_agent_poc/cli.py](src/simple_agent_poc/cli.py),
-while [src/simple_agent_poc/main.py](src/simple_agent_poc/main.py) stays focused on production wiring.
-The HTTP adapter lives in [src/simple_agent_poc/api.py](src/simple_agent_poc/api.py),
-while [src/simple_agent_poc/main_api.py](src/simple_agent_poc/main_api.py) provides API startup wiring.
+## Session Model
+
+- CLI keeps one in-process conversation and forwards the active `session_id` internally.
+- HTTP accepts an optional `session_id` and returns the effective `session_id` on every response.
+- The initial implementation uses an in-memory `SessionStore`; durable persistence is a later step.
 
 ## Development
 

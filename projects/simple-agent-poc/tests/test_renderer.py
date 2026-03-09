@@ -1,11 +1,10 @@
-"""Tests for renderer module."""
+"""Tests for CLI renderer functions."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from simple_agent_poc.application import RunAgentResponse
-from simple_agent_poc.renderer import (
+from simple_agent_poc.adapters.cli.renderer import (
     get_user_input,
     show_agent_response,
     show_error,
@@ -13,7 +12,8 @@ from simple_agent_poc.renderer import (
     show_welcome,
     with_indicator,
 )
-from simple_agent_poc.types import AgentError, AuthenticationError
+from simple_agent_poc.application.dto import RunAgentResponse
+from simple_agent_poc.core.types import AgentError, AuthenticationError
 
 
 class TestShowError:
@@ -21,7 +21,6 @@ class TestShowError:
 
     @patch("builtins.print")
     def test_show_agent_error(self, mock_print: MagicMock) -> None:
-        """Test showing an AgentError."""
         error = AgentError(
             message="Internal details",
             display_message="User-friendly message",
@@ -32,7 +31,6 @@ class TestShowError:
 
     @patch("builtins.print")
     def test_show_authentication_error(self, mock_print: MagicMock) -> None:
-        """Test showing an AuthenticationError."""
         error = AuthenticationError(
             message="Auth failed",
             display_message="Please check your API key",
@@ -43,7 +41,6 @@ class TestShowError:
 
     @patch("builtins.print")
     def test_show_generic_exception(self, mock_print: MagicMock) -> None:
-        """Test showing a generic exception."""
         error = ValueError("Something went wrong")
         show_error(error)
 
@@ -57,15 +54,13 @@ class TestShowWelcome:
 
     @patch("builtins.print")
     def test_show_welcome(self, mock_print: MagicMock) -> None:
-        """Test showing welcome banner."""
         show_welcome()
 
         assert mock_print.call_count == 5
         calls = [
             call.args[0] if call.args else "" for call in mock_print.call_args_list
         ]
-        # Filter out empty prints (just newlines)
-        non_empty_calls = [c for c in calls if c]
+        non_empty_calls = [call for call in calls if call]
         assert "═" * 40 in non_empty_calls[0]
         assert "Welcome to Simple Agent POC" in non_empty_calls[1]
         assert "Ctrl+C" in non_empty_calls[2]
@@ -76,7 +71,6 @@ class TestGetUserInput:
 
     @patch("builtins.input", return_value="hello world")
     def test_get_user_input(self, mock_input: MagicMock) -> None:
-        """Test getting user input."""
         result = get_user_input()
 
         assert result == "hello world"
@@ -84,7 +78,6 @@ class TestGetUserInput:
 
     @patch("builtins.input", return_value="")
     def test_get_empty_input(self, mock_input: MagicMock) -> None:
-        """Test getting empty input."""
         result = get_user_input()
 
         assert result == ""
@@ -95,7 +88,6 @@ class TestShowAgentResponse:
 
     @patch("builtins.print")
     def test_show_response(self, mock_print: MagicMock) -> None:
-        """Test showing agent response."""
         response = RunAgentResponse(
             message="Hello, user!",
             usage={
@@ -105,6 +97,7 @@ class TestShowAgentResponse:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            session_id="session-1",
         )
         show_agent_response(response)
 
@@ -122,7 +115,6 @@ class TestShowExitMessage:
 
     @patch("builtins.print")
     def test_show_exit_message(self, mock_print: MagicMock) -> None:
-        """Test showing exit message."""
         show_exit_message()
 
         mock_print.assert_called_once_with("\nExiting...")
@@ -132,7 +124,6 @@ class TestWithIndicator:
     """Tests for with_indicator function."""
 
     def test_executes_operation_and_returns_result(self) -> None:
-        """Test that operation is executed and result is returned."""
         mock_op = MagicMock(return_value="test_result")
 
         result = with_indicator("Loading", mock_op)
@@ -141,7 +132,6 @@ class TestWithIndicator:
         mock_op.assert_called_once()
 
     def test_propagates_exception_and_stops_indicator(self) -> None:
-        """Test that exceptions are propagated and indicator stops cleanly."""
         mock_op = MagicMock(side_effect=ValueError("test error"))
 
         with pytest.raises(ValueError, match="test error"):

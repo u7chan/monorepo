@@ -5,8 +5,8 @@ import threading
 import time
 from typing import Callable
 
-from simple_agent_poc.application import RunAgentResponse
-from simple_agent_poc.types import AgentError
+from simple_agent_poc.application.dto import RunAgentResponse
+from simple_agent_poc.core.types import AgentError
 
 
 class LoadingIndicator:
@@ -27,7 +27,6 @@ class LoadingIndicator:
             sys.stdout.flush()
             idx += 1
             time.sleep(0.08)
-        # Clear the line when stopped
         sys.stdout.write("\r" + " " * (len(self.message) + 10) + "\r")
         sys.stdout.flush()
 
@@ -45,15 +44,7 @@ class LoadingIndicator:
 
 
 def with_indicator[T](message: str, operation: Callable[[], T]) -> T:
-    """Execute an operation with a loading indicator.
-
-    Args:
-        message: The message to display next to the spinner.
-        operation: The function to execute while showing the indicator.
-
-    Returns:
-        The result of the operation.
-    """
+    """Execute an operation with a loading indicator."""
     indicator = LoadingIndicator(message)
     indicator.start()
     try:
@@ -63,11 +54,7 @@ def with_indicator[T](message: str, operation: Callable[[], T]) -> T:
 
 
 def show_error(error: Exception) -> None:
-    """Display an error message to the user.
-
-    Shows a user-friendly message for known error types,
-    or a generic message for unexpected errors.
-    """
+    """Display an error message to the user."""
     if isinstance(error, AgentError):
         print(f"⚠️  Error: {error.display_message}")
     else:
@@ -84,10 +71,7 @@ def show_welcome() -> None:
 
 
 def get_user_input() -> str:
-    """Get user input and return the input string.
-
-    Returns empty string if input is empty.
-    """
+    """Get user input and return the input string."""
     return input("> ")
 
 
@@ -95,19 +79,16 @@ def show_agent_response(response: RunAgentResponse) -> None:
     """Display the agent's response."""
     print(f"Agent: {response.message}")
 
-    # Format response time
     elapsed = response.response_time
     if elapsed < 1:
         time_str = f"{elapsed * 1000:.0f}ms"
     else:
         time_str = f"{elapsed:.2f}s"
 
-    # Extract model name (remove provider prefix if exists)
     model = response.model
     if "/" in model:
         model = model.split("/")[-1]
 
-    # Build stats line
     usage = response.usage
     stats = (
         f"Model: {model} │ "

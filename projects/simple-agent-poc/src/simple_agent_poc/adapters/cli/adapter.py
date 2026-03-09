@@ -3,12 +3,9 @@
 from collections.abc import Callable
 from typing import Protocol
 
-from simple_agent_poc.application import (
-    RunAgentRequest,
-    RunAgentResponse,
-    RunAgentUseCase,
-)
-from simple_agent_poc.renderer import (
+from simple_agent_poc.application.dto import RunAgentRequest, RunAgentResponse
+from simple_agent_poc.application.use_cases import RunAgentUseCase
+from simple_agent_poc.adapters.cli.renderer import (
     get_user_input,
     show_agent_response,
     show_error,
@@ -49,6 +46,7 @@ class CLIAdapter:
         self._welcome_renderer = welcome_renderer
         self._exit_renderer = exit_renderer
         self._indicator_runner = indicator_runner
+        self._session_id: str | None = None
 
     def run(self) -> None:
         """Start the interactive CLI loop."""
@@ -63,9 +61,13 @@ class CLIAdapter:
                 response = self._indicator_runner(
                     "Thinking",
                     lambda: self._run_agent.execute(
-                        RunAgentRequest(message=user_input)
+                        RunAgentRequest(
+                            message=user_input,
+                            session_id=self._session_id,
+                        )
                     ),
                 )
+                self._session_id = response.session_id
                 self._response_renderer(response)
             except KeyboardInterrupt:
                 self._exit_renderer()

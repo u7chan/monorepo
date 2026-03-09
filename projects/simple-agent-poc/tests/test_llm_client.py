@@ -1,4 +1,4 @@
-"""Tests for llm_client module."""
+"""Tests for LiteLLM client adapter."""
 
 from unittest.mock import MagicMock, patch
 
@@ -8,8 +8,8 @@ from litellm.exceptions import (
     RateLimitError as LiteLLMRateLimitError,
 )
 
-from simple_agent_poc.llm_client import LiteLLMClient
-from simple_agent_poc.types import (
+from simple_agent_poc.adapters.llm.litellm_client import LiteLLMClient
+from simple_agent_poc.core.types import (
     AuthenticationError,
     LLMError,
     Message,
@@ -21,14 +21,11 @@ class TestLiteLLMClient:
     """Tests for LiteLLMClient class."""
 
     def test_init(self) -> None:
-        """Test client initialization."""
         client = LiteLLMClient(model="gpt-4")
         assert client.model == "gpt-4"
 
-    @patch("simple_agent_poc.llm_client.completion")
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_success(self, mock_completion: MagicMock) -> None:
-        """Test successful completion."""
-        # Setup mock response
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Hello, world!"
@@ -53,9 +50,8 @@ class TestLiteLLMClient:
             stream=False,
         )
 
-    @patch("simple_agent_poc.llm_client.completion")
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_authentication_error(self, mock_completion: MagicMock) -> None:
-        """Test handling of authentication error."""
         mock_completion.side_effect = LiteLLMAuthError(
             "Invalid API key",
             llm_provider="openai",
@@ -71,9 +67,8 @@ class TestLiteLLMClient:
         assert "Authentication failed" in exc_info.value.display_message
         assert "Invalid API key" in str(exc_info.value)
 
-    @patch("simple_agent_poc.llm_client.completion")
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_rate_limit_error(self, mock_completion: MagicMock) -> None:
-        """Test handling of rate limit error."""
         mock_completion.side_effect = LiteLLMRateLimitError(
             "Rate limit exceeded",
             llm_provider="openai",
@@ -88,9 +83,8 @@ class TestLiteLLMClient:
 
         assert "Rate limit exceeded" in exc_info.value.display_message
 
-    @patch("simple_agent_poc.llm_client.completion")
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_generic_error(self, mock_completion: MagicMock) -> None:
-        """Test handling of generic error."""
         mock_completion.side_effect = ValueError("Something went wrong")
 
         client = LiteLLMClient(model="gpt-4")
@@ -101,12 +95,11 @@ class TestLiteLLMClient:
 
         assert "An error occurred" in exc_info.value.display_message
 
-    @patch("simple_agent_poc.llm_client.completion")
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_auth_error_from_generic_exception(
         self,
         mock_completion: MagicMock,
     ) -> None:
-        """Test that generic exceptions with auth keywords are converted."""
         mock_completion.side_effect = Exception("401 unauthorized: invalid api key")
 
         client = LiteLLMClient(model="gpt-4")
@@ -117,9 +110,8 @@ class TestLiteLLMClient:
 
         assert "Authentication failed" in exc_info.value.display_message
 
-    @patch("simple_agent_poc.llm_client.completion")
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_multiple_messages(self, mock_completion: MagicMock) -> None:
-        """Test completion with multiple messages."""
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Response"
