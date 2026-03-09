@@ -15,14 +15,22 @@ Current files and responsibilities:
 
 - `src/simple_agent_poc/main.py`
   - CLI entrypoint wiring
-  - environment loading and logging setup
+  - CLI adapter composition
+- `src/simple_agent_poc/main_api.py`
+  - HTTP API entrypoint wiring
+  - Uvicorn startup wiring
+- `src/simple_agent_poc/bootstrap.py`
+  - shared environment loading and logging setup
   - system prompt and model configuration
-  - agent construction
+  - shared `RunAgentUseCase` construction
 - `src/simple_agent_poc/cli.py`
   - CLI adapter for interactive execution
   - stdin/stdout interaction loop
   - CLI-specific exception handling and user-facing messaging
   - delegation from terminal input to `RunAgentUseCase`
+- `src/simple_agent_poc/api.py`
+  - HTTP adapter for FastAPI request parsing and response serialization
+  - delegation from HTTP requests to `RunAgentUseCase`
 - `src/simple_agent_poc/renderer.py`
   - CLI input/output only
   - loading indicator for synchronous terminal usage
@@ -127,7 +135,9 @@ Migration guidance:
   - it should remain transport-specific as HTTP support is added
 - `renderer.py` should remain CLI-specific and move under `adapters/cli`
 - `llm_client.py` should remain an adapter and move under `adapters/llm`
-- `main.py` is now the thin entrypoint and should stay focused on dependency wiring
+- `main.py` is the thin CLI entrypoint and should stay focused on dependency wiring
+- `main_api.py` is the thin HTTP entrypoint and should stay focused on dependency wiring
+- `bootstrap.py` owns the shared production wiring used by both CLI and HTTP
 
 ## Non-goals
 

@@ -2,33 +2,27 @@
 
 from unittest.mock import MagicMock, patch
 
-from simple_agent_poc.main import DEFAULT_MODEL, build_cli_adapter, main
+from simple_agent_poc.main import build_cli_adapter, main
 
 
 class TestBuildCLIAdapter:
     """Tests for production CLI wiring."""
 
     @patch("simple_agent_poc.main.CLIAdapter")
-    @patch("simple_agent_poc.main.RunAgentUseCase")
-    @patch("simple_agent_poc.main.Agent")
-    @patch("simple_agent_poc.main.datetime")
     def test_build_cli_adapter_wires_dependencies(
         self,
-        mock_datetime: MagicMock,
-        mock_agent: MagicMock,
-        mock_use_case: MagicMock,
         mock_cli_adapter: MagicMock,
     ) -> None:
-        mock_datetime.now.return_value.isoformat.return_value = "2026-03-09T12:00:00"
+        with patch(
+            "simple_agent_poc.main.bootstrap.create_run_agent_use_case"
+        ) as mock_create_run_agent_use_case:
+            adapter = build_cli_adapter()
 
-        adapter = build_cli_adapter()
-
-        assert adapter is mock_cli_adapter.return_value
-        mock_agent.assert_called_once()
-        assert mock_agent.call_args.kwargs["model"] == DEFAULT_MODEL
-        assert "2026-03-09T12:00:00" in mock_agent.call_args.kwargs["system_prompt"]
-        mock_use_case.assert_called_once_with(mock_agent.return_value)
-        mock_cli_adapter.assert_called_once_with(mock_use_case.return_value)
+            assert adapter is mock_cli_adapter.return_value
+            mock_create_run_agent_use_case.assert_called_once_with()
+            mock_cli_adapter.assert_called_once_with(
+                mock_create_run_agent_use_case.return_value
+            )
 
 
 class TestMain:

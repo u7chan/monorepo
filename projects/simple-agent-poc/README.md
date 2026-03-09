@@ -19,6 +19,22 @@ OPENAI_BASE_URL="your-base-url"
 uv run dev
 ```
 
+## API Usage
+
+Start the HTTP API:
+
+```bash
+uv run api
+```
+
+Send a request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello"}'
+```
+
 ## Architecture Direction
 
 `simple-agent-poc` keeps the CLI as the primary development entrypoint, but the architecture is
@@ -38,6 +54,8 @@ as `RunAgentUseCase`, `RunAgentRequest`, and `RunAgentResponse`.
 
 The interactive CLI adapter now lives in [src/simple_agent_poc/cli.py](src/simple_agent_poc/cli.py),
 while [src/simple_agent_poc/main.py](src/simple_agent_poc/main.py) stays focused on production wiring.
+The HTTP adapter lives in [src/simple_agent_poc/api.py](src/simple_agent_poc/api.py),
+while [src/simple_agent_poc/main_api.py](src/simple_agent_poc/main_api.py) provides API startup wiring.
 
 ## Development
 
