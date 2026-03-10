@@ -87,7 +87,8 @@ class TestAPI:
         session_id = first_response.json()["session_id"]
         second_response = client.post(
             "/api/chat",
-            json={"message": "Again", "session_id": session_id},
+            headers={"Session-Id": session_id},
+            json={"message": "Again"},
         )
 
         assert first_response.status_code == 200
@@ -100,7 +101,33 @@ class TestAPI:
             {"role": "user", "content": "Again"},
         ]
 
-    def test_chat_returns_404_for_unknown_session(self) -> None:
+    def test_chat_accepts_body_session_id_for_compatibility(self) -> None:
+        store = InMemorySessionStore()
+        first_llm = StubLLMClient(reply="First")
+        second_llm = StubLLMClient(reply="Second")
+        llm_clients = iter([first_llm, second_llm])
+
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client=next(llm_clients),
+                session_store=store,
+                system_prompt="System prompt",
+            )
+        )
+        client = TestClient(app)
+
+        first_response = client.post("/api/chat", json={"message": "Hello"})
+        session_id = first_response.json()["session_id"]
+        second_response = client.post(
+            "/api/chat",
+            json={"message": "Again", "session_id": session_id},
+        )
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+        assert second_response.json()["message"] == "Second"
+
+    def test_chat_returns_404_for_unknown_session_header(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
                 llm_client=StubLLMClient(reply="unused"),
@@ -112,8 +139,33 @@ class TestAPI:
 
         response = client.post(
             "/api/chat",
-            json={"message": "Hello", "session_id": "missing-session"},
+            headers={"Session-Id": "missing-session"},
+            json={"message": "Hello"},
         )
 
         assert response.status_code == 404
         assert response.json() == {"detail": "Session not found."}
+
+    def test_chat_returns_400_for_conflicting_session_transports(self) -> None:
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client=StubLLMClient(reply="unused"),
+                session_store=InMemorySessionStore(),
+                system_prompt="System prompt",
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/chat",
+            headers={"Session-Id": "header-session"},
+            json={"message": "Hello", "session_id": "body-session"},
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": (
+                "Conflicting session_id values were provided in the "
+                "Session-Id header and request body."
+            )
+        }
