@@ -2,12 +2,18 @@
 
 ## Setup
 
-1. Copy the environment file:
+1. Install dependencies:
+
+```bash
+uv sync
+```
+
+2. Copy the environment file:
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` and set your API credentials:
+3. Edit `.env` and set your API credentials:
 ```bash
 OPENAI_API_KEY="your-api-key"
 OPENAI_BASE_URL="your-base-url"
