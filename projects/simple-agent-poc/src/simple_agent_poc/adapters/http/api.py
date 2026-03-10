@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from simple_agent_poc.application.dto import RunAgentRequest, RunAgentResponse
@@ -50,6 +50,27 @@ class ChatResponse(BaseModel):
         )
 
 
+def resolve_session_id(
+    *,
+    header_session_id: str | None,
+    body_session_id: str | None,
+) -> str | None:
+    """Resolve the effective session ID across supported HTTP transports."""
+    if header_session_id is None:
+        return body_session_id
+
+    if body_session_id is None or body_session_id == header_session_id:
+        return header_session_id
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "Conflicting session_id values were provided in the Session-Id header "
+            "and request body."
+        ),
+    )
+
+
 def create_app(
     *,
     use_case_factory: Callable[[], RunAgentUseCase] | None = None,
@@ -65,12 +86,20 @@ def create_app(
     def chat(
         request: ChatRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
+        *,
+        session_id_header: Annotated[
+            str | None,
+            Header(alias="Session-Id"),
+        ] = None,
     ) -> ChatResponse:
         try:
             response = run_agent.execute(
                 RunAgentRequest(
                     message=request.message,
-                    session_id=request.session_id,
+                    session_id=resolve_session_id(
+                        header_session_id=session_id_header,
+                        body_session_id=request.session_id,
+                    ),
                 )
             )
         except SessionNotFoundError as error:

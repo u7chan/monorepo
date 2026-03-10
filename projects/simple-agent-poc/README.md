@@ -45,9 +45,14 @@ Continue the same conversation by sending back the returned `session_id`:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/chat \
+  -H "Session-Id: <session-id>" \
   -H "Content-Type: application/json" \
-  -d '{"message":"Continue","session_id":"<session-id>"}'
+  -d '{"message":"Continue"}'
 ```
+
+`/api/chat` uses the `Session-Id` request header as the primary session transport.
+For compatibility, the JSON body still accepts an optional `session_id` for now. If both are
+sent, they must match; otherwise the API returns `400`.
 
 ## Architecture Direction
 
@@ -71,7 +76,8 @@ The process entrypoints live under `src/simple_agent_poc/entrypoints/`.
 ## Session Model
 
 - CLI keeps one in-process conversation and forwards the active `session_id` internally.
-- HTTP accepts an optional `session_id` and returns the effective `session_id` on every response.
+- HTTP accepts `Session-Id` as the primary session transport and returns the effective `session_id` on every response.
+- HTTP request-body `session_id` remains temporarily supported for compatibility, but it must match `Session-Id` when both are present.
 - The initial implementation uses an in-memory `SessionStore`; durable persistence is a later step.
 
 ## Development
