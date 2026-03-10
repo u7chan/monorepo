@@ -11,3 +11,8 @@
 | **Type Checking** | ty | Static type checking |
 | **LLM Integration** | LiteLLM | LLM provider integration |
 | **Environment** | python-dotenv | Environment variable management |
+
+## References
+
+- Project overview and setup: `README.md`
+- Skills index: `.claude/skills/README.md`

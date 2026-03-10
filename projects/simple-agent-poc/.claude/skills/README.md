@@ -1,27 +1,15 @@
 # Skills README
 
-This file is a human-facing index for navigating project skills and references.
+This file is a human-facing index for navigating project docs and project-specific skills.
 Do not treat it as a required one-shot load target for agents; open only the specific linked files you need.
 
-## Tech Stack
+## Project Docs
 
-- [CLAUDE.md](../../CLAUDE.md)
+- [README.md](../../README.md): setup, usage, API examples, development commands
+- [CLAUDE.md](../../CLAUDE.md): shared workspace guidance
 
-## Architecture
+## Project Skills
 
-- [architecture/SKILL.md](./architecture/SKILL.md)
-
-### Multi-entry boundary policy
-
-- Keep CLI input/output concerns in adapters, not in reusable application flows.
-- Add shared execution logic under application use cases with explicit DTOs.
-- Keep entrypoints thin and focused on wiring.
-- Use `./architecture/SKILL.md` as the reference for follow-up refactors.
-
-## Development
-
-- [development/SKILL.md](./development/SKILL.md)
-
-## Testing
-
-- [testing/SKILL.md](./testing/SKILL.md)
+- [architecture/SKILL.md](./architecture/SKILL.md): architecture boundaries and layer responsibilities
+- [development/SKILL.md](./development/SKILL.md): development tools and quality commands
+- [testing/SKILL.md](./testing/SKILL.md): testing guidance for this project
