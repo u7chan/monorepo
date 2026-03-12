@@ -13,5 +13,9 @@ async def main() -> None:
     print(response.output_text)
 
 
-if __name__ == "__main__":
+def cli() -> None:
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli()

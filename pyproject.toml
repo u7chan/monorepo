@@ -7,3 +7,13 @@ requires-python = ">=3.14"
 dependencies = [
     "openai>=1.109.0",
 ]
+
+[project.scripts]
+dev = "main:cli"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]

@@ -12,5 +12,5 @@ uv sync
 ## Run
 
 ```bash
-uv run python main.py
+load_myapp_env && uv run dev
 ```
