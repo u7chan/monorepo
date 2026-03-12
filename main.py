@@ -1,10 +1,14 @@
 import asyncio
 import json
+import subprocess
 import sys
 from collections.abc import Callable
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types.responses.function_tool_param import FunctionToolParam
+from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
+from openai.types.responses.response_input_param import ResponseInputParam
 
 
 def get_weather_forecast(location: str) -> dict[str, Any]:
@@ -17,11 +21,12 @@ def get_weather_forecast(location: str) -> dict[str, Any]:
     }
 
 
-TOOLS: list[dict[str, Any]] = [
+TOOLS: list[FunctionToolParam] = [
     {
         "type": "function",
         "name": "get_weather_forecast",
         "description": "指定した場所の天気予報を取得します。",
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
@@ -61,12 +66,14 @@ async def main(user_prompt: str) -> None:
 
         while True:
             function_calls = [
-                item for item in response.output if item.type == "function_call"
+                item
+                for item in response.output
+                if isinstance(item, ResponseFunctionToolCall)
             ]
             if not function_calls:
                 break
 
-            tool_outputs = []
+            tool_outputs: ResponseInputParam = []
             for call in function_calls:
                 output = run_tool(call.name, call.arguments)
                 tool_outputs.append(
@@ -96,6 +103,17 @@ def cli() -> None:
         raise SystemExit("user_prompt を指定してください。")
 
     asyncio.run(main(user_prompt))
+
+
+def check() -> None:
+    commands = [
+        ["ruff", "check", "."],
+        ["ty", "check"],
+    ]
+    for command in commands:
+        completed = subprocess.run(command, check=False)
+        if completed.returncode != 0:
+            raise SystemExit(completed.returncode)
 
 
 if __name__ == "__main__":

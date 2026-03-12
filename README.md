@@ -14,3 +14,9 @@ uv sync
 ```bash
 load_myapp_env && uv run dev "こんにちは。短く自己紹介して。"
 ```
+
+## Check
+
+```bash
+uv run check
+```
