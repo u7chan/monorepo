@@ -12,5 +12,5 @@ uv sync
 ## Run
 
 ```bash
-load_myapp_env && uv run dev
+load_myapp_env && uv run dev "こんにちは。短く自己紹介して。"
 ```
