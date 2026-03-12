@@ -1,4 +1,4 @@
-# OpenAI Python Async Example
+# OpenAI Responses API Async Example
 
 `uv` で依存を入れて、OpenAI Python SDK の `responses` API を async で呼ぶ最小例です。
 

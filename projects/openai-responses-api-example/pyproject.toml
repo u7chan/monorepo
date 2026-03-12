@@ -1,5 +1,5 @@
 [project]
-name = "openai-async-example"
+name = "openai-responses-api-example"
 version = "0.1.0"
 description = "Minimal async Responses API example with the OpenAI Python SDK"
 readme = "README.md"
