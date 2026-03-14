@@ -47,6 +47,8 @@ TOOL_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
 
 
 def run_tool(tool_name: str, arguments: str) -> str:
+    print(f"[{tool_name}] {arguments}", flush=True)
+
     handler = TOOL_HANDLERS.get(tool_name)
     if handler is None:
         raise ValueError(f"未対応のツールです: {tool_name}")

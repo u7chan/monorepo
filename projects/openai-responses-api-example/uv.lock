@@ -149,7 +149,7 @@ wheels = [
 ]
 
 [[package]]
-name = "openai-async-example"
+name = "openai-responses-api-example"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
