@@ -129,6 +129,7 @@ fileRoutes.get("/", async (c) => {
 
   const mimeType = mime.lookup(resolvedFile) || "application/octet-stream"
   const isText = isTextMime(mimeType)
+  const forceTextView = c.req.query("view") === "text"
   const isHtmx = isHtmxRequest(c)
 
   // htmxリクエストでない場合（リロード時）は親ディレクトリにリダイレクト
@@ -139,9 +140,9 @@ fileRoutes.get("/", async (c) => {
     return c.redirect(redirectPath)
   }
 
-  if (isText) {
+  if (isText || forceTextView) {
     const content = await readFile(resolvedFile, "utf-8")
-    const isEditing = c.req.query("edit") === "true"
+    const isEditing = !forceTextView && c.req.query("edit") === "true"
     return renderWithShell(
       c,
       <FileViewer
@@ -149,6 +150,7 @@ fileRoutes.get("/", async (c) => {
         fileName={path.basename(resolvedFile)}
         path={requestPath}
         isEditing={isEditing}
+        allowEdit={!forceTextView}
       />,
     )
   }

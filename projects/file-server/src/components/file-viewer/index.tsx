@@ -13,6 +13,7 @@ interface FileViewerProps {
   fileName?: string
   path?: string
   isEditing?: boolean
+  allowEdit?: boolean
 }
 
 export const FileViewer: FC<FileViewerProps> = ({
@@ -21,6 +22,7 @@ export const FileViewer: FC<FileViewerProps> = ({
   fileName,
   path,
   isEditing = false,
+  allowEdit = true,
 }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
   const fileUrl = `/file/raw?path=${encodedPath}`
@@ -34,22 +36,22 @@ export const FileViewer: FC<FileViewerProps> = ({
           path={path}
           borderColor="indigo-300"
           isEditing={true}
-          showEdit={true}
+          showEdit={allowEdit}
         >
           <TextEditor content={content} path={path} />
         </FileViewerModal>
       )
     }
     return (
-      <FileViewerModal
-        fileName={fileName}
-        path={path}
-        borderColor="indigo-300"
-        showEdit={true}
-      >
-        <TextViewer content={content} />
-      </FileViewerModal>
-    )
+        <FileViewerModal
+          fileName={fileName}
+          path={path}
+          borderColor="indigo-300"
+          showEdit={allowEdit}
+        >
+          <TextViewer content={content} />
+        </FileViewerModal>
+      )
   }
 
   // バイナリファイルの場合
@@ -99,7 +101,7 @@ export const FileViewer: FC<FileViewerProps> = ({
       borderColor="purple-300"
       animation="animate-[slideIn_0.2s_ease-out]"
     >
-      <DefaultViewer />
+      <DefaultViewer path={path} />
     </FileViewerModal>
   )
 }
