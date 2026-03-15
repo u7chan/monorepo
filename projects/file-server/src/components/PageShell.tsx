@@ -104,6 +104,15 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
             height: -moz-available;
             height: stretch;
           }
+
+          .pdf-viewer-shell {
+            min-height: 0;
+          }
+
+          .pdf-viewer-frame {
+            display: block;
+            min-height: min(72vh, 56rem);
+          }
         `}</style>
       </head>
       <body className="box-border min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-sans">

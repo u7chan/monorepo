@@ -7,10 +7,10 @@ interface PdfViewerProps {
 
 export const PdfViewer: FC<PdfViewerProps> = ({ fileUrl, fileName }) => {
   return (
-    <div className="flex-1 overflow-auto flex justify-center items-center">
+    <div className="pdf-viewer-shell flex-1 min-h-0">
       <iframe
         src={fileUrl}
-        className="w-full h-full border-2 border-indigo-200 rounded-xl"
+        className="pdf-viewer-frame h-full w-full rounded-xl border-2 border-indigo-200 bg-white"
         title={fileName || "PDF Viewer"}
       ></iframe>
     </div>
