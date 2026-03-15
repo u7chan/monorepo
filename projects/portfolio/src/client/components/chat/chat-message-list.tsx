@@ -3,15 +3,20 @@ import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-b
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
-import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { ChatMessage } from '#/types'
-import type { RefObject } from 'react'
+import { memo, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+const markdownRemarkPlugins = [remarkGfm]
+const markdownComponents = {
+  a: MarkdownLink,
+  code: CodeBlockRenderer,
+}
+
 interface ChatMessageListProps {
   messages: ChatMessage[]
-  settings: Settings
+  markdownPreview: boolean
   loading: boolean
   stream: {
     content: string
@@ -35,7 +40,7 @@ interface ChatMessageListProps {
 
 export function ChatMessageList({
   messages,
-  settings,
+  markdownPreview,
   loading,
   stream,
   chatResults,
@@ -47,18 +52,14 @@ export function ChatMessageList({
   return (
     <div className='container mx-auto mt-4 max-w-(--breakpoint-lg) px-4'>
       <div className='message-list'>
-        {messages.map((message, index) => (
-          <MessageRenderer
-            key={`chat_${index}`}
-            message={message}
-            index={index}
-            settings={settings}
-            copied={copiedId === `chat_${index}`}
-            disabled={loading || !!stream}
-            onCopyMessage={onCopyMessage}
-            onDeleteMessage={onDeleteMessage}
-          />
-        ))}
+        <MessageHistory
+          messages={messages}
+          markdownPreview={markdownPreview}
+          copiedId={copiedId}
+          disabled={loading || !!stream}
+          onCopyMessage={onCopyMessage}
+          onDeleteMessage={onDeleteMessage}
+        />
         {loading && (
           <div className='flex align-item'>
             <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
@@ -71,15 +72,9 @@ export function ChatMessageList({
                     {stream.reasoning_content}
                   </div>
                 )}
-                {settings.markdownPreview ? (
+                {markdownPreview ? (
                   <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        a: MarkdownLink,
-                        code: CodeBlockRenderer,
-                      }}
-                    >
+                    <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
                       {stream.content}
                     </ReactMarkdown>
                   </div>
@@ -109,3 +104,34 @@ export function ChatMessageList({
     </div>
   )
 }
+
+interface MessageHistoryProps {
+  messages: ChatMessage[]
+  markdownPreview: boolean
+  copiedId: string
+  disabled: boolean
+  onCopyMessage: (message: string, index: number) => void
+  onDeleteMessage: (index: number) => void
+}
+
+const MessageHistory = memo(function MessageHistory({
+  messages,
+  markdownPreview,
+  copiedId,
+  disabled,
+  onCopyMessage,
+  onDeleteMessage,
+}: MessageHistoryProps) {
+  return messages.map((message, index) => (
+    <MessageRenderer
+      key={`chat_${index}`}
+      message={message}
+      index={index}
+      markdownPreview={markdownPreview}
+      copied={copiedId === `chat_${index}`}
+      disabled={disabled}
+      onCopyMessage={onCopyMessage}
+      onDeleteMessage={onDeleteMessage}
+    />
+  ))
+})

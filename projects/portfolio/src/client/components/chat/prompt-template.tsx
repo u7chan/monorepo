@@ -1,6 +1,6 @@
 import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { ChangeEvent, KeyboardEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 
 interface PromptTemplate {
   id: string
@@ -81,7 +81,7 @@ interface Props {
   onSubmit?: (templateInput: TemplateInput) => void
 }
 
-export function PromptTemplate({ placeholder, onSubmit }: Props) {
+function PromptTemplateComponent({ placeholder, onSubmit }: Props) {
   const [composing, setComposition] = useState(false)
 
   const defaultSettings = useMemo(() => {
@@ -165,3 +165,5 @@ export function PromptTemplate({ placeholder, onSubmit }: Props) {
     </div>
   )
 }
+
+export const PromptTemplate = memo(PromptTemplateComponent)

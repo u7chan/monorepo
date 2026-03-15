@@ -1,7 +1,7 @@
 import type { AppType } from '#/server/app.d'
 import type { ChatCompletionResult, ChatMessage } from '#/types'
 import { hc } from 'hono/client'
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 const client = hc<AppType>('/')
 
@@ -41,65 +41,68 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
     } | null
   } | null>(null)
 
-  const cancelStream = () => {
+  const cancelStream = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
     }
-  }
+  }, [])
 
-  const resetChatResults = () => {
+  const resetChatResults = useCallback(() => {
     setChatResults(null)
-  }
+  }, [])
 
-  const submitChatCompletion = async ({
-    header,
-    model,
-    messages,
-    streamMode,
-    temperature,
-    maxTokens,
-    reasoningEffort,
-  }: SubmitChatCompletionParams): Promise<{ result: ChatCompletionResult | null; responseTimeMs: number }> => {
-    setLoading(true)
-    setChatResults(null)
-    abortControllerRef.current = new AbortController()
-    onSubmitting?.(true)
-    const requestStartTime = Date.now()
+  const submitChatCompletion = useCallback(
+    async ({
+      header,
+      model,
+      messages,
+      streamMode,
+      temperature,
+      maxTokens,
+      reasoningEffort,
+    }: SubmitChatCompletionParams): Promise<{ result: ChatCompletionResult | null; responseTimeMs: number }> => {
+      setLoading(true)
+      setChatResults(null)
+      abortControllerRef.current = new AbortController()
+      onSubmitting?.(true)
+      const requestStartTime = Date.now()
 
-    try {
-      const result = await sendChatCompletion({
-        abortController: abortControllerRef.current,
-        header,
-        model,
-        messages,
-        stream: streamMode,
-        temperature,
-        maxTokens,
-        reasoningEffort,
-        onStream: (stream) => {
-          setStream(stream)
-        },
-      })
-      const responseTimeMs = Date.now() - requestStartTime
-
-      if (result) {
-        setChatResults({
-          model: result.model,
-          finish_reason: result.finishReason,
-          responseTimeMs,
-          usage: result.usage,
+      try {
+        const result = await sendChatCompletion({
+          abortController: abortControllerRef.current,
+          header,
+          model,
+          messages,
+          stream: streamMode,
+          temperature,
+          maxTokens,
+          reasoningEffort,
+          onStream: (stream) => {
+            setStream(stream)
+          },
         })
-      }
+        const responseTimeMs = Date.now() - requestStartTime
 
-      return { result, responseTimeMs }
-    } finally {
-      abortControllerRef.current = null
-      setStream(null)
-      setLoading(false)
-      onSubmitting?.(false)
-    }
-  }
+        if (result) {
+          setChatResults({
+            model: result.model,
+            finish_reason: result.finishReason,
+            responseTimeMs,
+            usage: result.usage,
+          })
+        }
+
+        return { result, responseTimeMs }
+      } finally {
+        abortControllerRef.current = null
+        setStream(null)
+        setLoading(false)
+        onSubmitting?.(false)
+      }
+    },
+    [onSubmitting]
+  )
 
   return {
     loading,

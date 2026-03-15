@@ -1,17 +1,17 @@
 import { ChatInput } from '#/client/components/chat/chat-input'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
-import { PromptTemplate } from '#/client/components/chat/prompt-template'
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/components/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scroll'
 import { useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
+import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowUpIcon } from '#/client/components/svg/arrow-upIcon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { ChatMessage, Conversation } from '#/types'
-import React, { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import React, { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
 
 interface Props {
@@ -97,129 +97,163 @@ export function ChatMain({
     setTimeout(() => {
       scrollToMessageEnd()
     }, 0)
-  }, [currentConversation])
+  }, [currentConversation, resetChatResults, scrollToMessageEnd])
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const form = {
-      model: settings.fakeMode ? 'fakemode' : settings.model,
-      baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
-      apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
-      mcpServerURLs: settings.fakeMode ? '' : settings.mcpServerURLs,
-      temperature: settings.temperatureEnabled ? settings.temperature : undefined,
-      maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
-      userInput: formData.get('userInput')?.toString() || '',
-    }
-    const params = buildChatMessages({
-      interactiveMode: settings.interactiveMode,
-      messages,
-      model: form.model,
-    })
-    if (!params) {
-      return
-    }
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      const formData = new FormData(event.currentTarget)
+      const form = {
+        model: settings.fakeMode ? 'fakemode' : settings.model,
+        baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
+        apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
+        mcpServerURLs: settings.fakeMode ? '' : settings.mcpServerURLs,
+        temperature: settings.temperatureEnabled ? settings.temperature : undefined,
+        maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
+        userInput: formData.get('userInput')?.toString() || '',
+      }
+      const params = buildChatMessages({
+        interactiveMode: settings.interactiveMode,
+        messages,
+        model: form.model,
+      })
+      if (!params) {
+        return
+      }
 
-    setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
-    resetAfterSubmit()
-    resetChatResults()
+      setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
+      resetAfterSubmit()
+      resetChatResults()
 
-    submitChatCompletion({
-      header: {
-        apiKey: form.apiKey,
-        baseURL: form.baseURL,
-        mcpServerURLs: form.mcpServerURLs,
-      },
-      model: params.model,
-      messages: params.messages,
-      streamMode: settings.streamMode,
-      temperature: form.temperature,
-      maxTokens: form.maxTokens,
-      reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-    }).then(({ result, responseTimeMs }) => {
-      const userInput = params.messages?.at(-1)?.content
-      const newConversationMessages = [
-        // TODO: append system message
-        {
-          role: 'user' as const,
-          content: typeof userInput === 'string' ? userInput : '',
-          reasoningContent: '',
-          metadata: {
-            model: params.model,
-            stream: settings.streamMode,
-            temperature: form.temperature,
-            maxTokens: form.maxTokens,
-          },
+      submitChatCompletion({
+        header: {
+          apiKey: form.apiKey,
+          baseURL: form.baseURL,
+          mcpServerURLs: form.mcpServerURLs,
         },
-        ...(result
-          ? [
-              {
-                role: 'assistant' as const,
-                content: result.message.content,
-                reasoningContent: result.message.reasoningContent,
-                metadata: {
-                  model: result.model,
-                  finishReason: result.finishReason,
-                  responseTimeMs: responseTimeMs,
-                  usage: {
-                    promptTokens: result.usage?.promptTokens || 0,
-                    completionTokens: result.usage?.completionTokens || 0,
-                    totalTokens: result.usage?.totalTokens || 0,
-                    reasoningTokens: result.usage?.reasoningTokens,
+        model: params.model,
+        messages: params.messages,
+        streamMode: settings.streamMode,
+        temperature: form.temperature,
+        maxTokens: form.maxTokens,
+        reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
+      }).then(({ result, responseTimeMs }) => {
+        const userInput = params.messages?.at(-1)?.content
+        const newConversationMessages = [
+          // TODO: append system message
+          {
+            role: 'user' as const,
+            content: typeof userInput === 'string' ? userInput : '',
+            reasoningContent: '',
+            metadata: {
+              model: params.model,
+              stream: settings.streamMode,
+              temperature: form.temperature,
+              maxTokens: form.maxTokens,
+            },
+          },
+          ...(result
+            ? [
+                {
+                  role: 'assistant' as const,
+                  content: result.message.content,
+                  reasoningContent: result.message.reasoningContent,
+                  metadata: {
+                    model: result.model,
+                    finishReason: result.finishReason,
+                    responseTimeMs: responseTimeMs,
+                    usage: {
+                      promptTokens: result.usage?.promptTokens || 0,
+                      completionTokens: result.usage?.completionTokens || 0,
+                      totalTokens: result.usage?.totalTokens || 0,
+                      reasoningTokens: result.usage?.reasoningTokens,
+                    },
                   },
                 },
-              },
-            ]
-          : []),
-      ]
-
-      // 会話IDが指定されていない場合は会話IDを新規作成
-      const currentConversationId =
-        conversationId ||
-        (() => {
-          const newConversationId = uuidv7()
-          setConversationId(newConversationId)
-          return newConversationId
-        })()
-
-      // 親コンポーネントに更新されたメッセージを通知
-      onConversationChange?.({
-        id: currentConversationId,
-        title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
-        messages: newConversationMessages,
-      })
-
-      if (result) {
-        const newMessages = [
-          ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
-          {
-            role: 'assistant' as const,
-            content: result.message.content,
-            reasoning_content: result.message.reasoningContent,
-          },
+              ]
+            : []),
         ]
-        setMessages(newMessages)
-      }
-    })
-  }
 
-  const handleClickDeleteMessage = (index: number) => {
-    if (confirm('本当に削除しますか？')) {
-      let isConversationEmpty = false
-      setMessages((prevMessages) => {
-        const newMessages = [...prevMessages]
-        newMessages.splice(index, 1)
-        newMessages.splice(index, 1)
-        isConversationEmpty = newMessages.length <= 0
-        return newMessages
+        // 会話IDが指定されていない場合は会話IDを新規作成
+        const currentConversationId =
+          conversationId ||
+          (() => {
+            const newConversationId = uuidv7()
+            setConversationId(newConversationId)
+            return newConversationId
+          })()
+
+        // 親コンポーネントに更新されたメッセージを通知
+        onConversationChange?.({
+          id: currentConversationId,
+          title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
+          messages: newConversationMessages,
+        })
+
+        if (result) {
+          const newMessages = [
+            ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
+            {
+              role: 'assistant' as const,
+              content: result.message.content,
+              reasoning_content: result.message.reasoningContent,
+            },
+          ]
+          setMessages(newMessages)
+        }
       })
-      const deleteMessageIds = [
-        currentConversation?.messages?.at(index)?.id,
-        currentConversation?.messages?.at(index + 1)?.id,
-      ].filter((value): value is string => value !== undefined)
-      onDeleteMessages?.(deleteMessageIds, isConversationEmpty)
-    }
-  }
+    },
+    [
+      buildChatMessages,
+      conversationId,
+      messages,
+      onConversationChange,
+      resetAfterSubmit,
+      resetChatResults,
+      settings.apiKey,
+      settings.baseURL,
+      settings.fakeMode,
+      settings.interactiveMode,
+      settings.maxTokens,
+      settings.mcpServerURLs,
+      settings.model,
+      settings.reasoningEffort,
+      settings.reasoningEffortEnabled,
+      settings.streamMode,
+      settings.temperature,
+      settings.temperatureEnabled,
+      submitChatCompletion,
+    ]
+  )
+
+  const handleTemplateSubmit = useCallback(
+    (templateInput: TemplateInput) => {
+      setTemplateInput(templateInput)
+      formRef.current?.requestSubmit()
+    },
+    [setTemplateInput]
+  )
+
+  const handleClickDeleteMessage = useCallback(
+    (index: number) => {
+      if (confirm('本当に削除しますか？')) {
+        let isConversationEmpty = false
+        setMessages((prevMessages) => {
+          const newMessages = [...prevMessages]
+          newMessages.splice(index, 1)
+          newMessages.splice(index, 1)
+          isConversationEmpty = newMessages.length <= 0
+          return newMessages
+        })
+        const deleteMessageIds = [
+          currentConversation?.messages?.at(index)?.id,
+          currentConversation?.messages?.at(index + 1)?.id,
+        ].filter((value): value is string => value !== undefined)
+        onDeleteMessages?.(deleteMessageIds, isConversationEmpty)
+      }
+    },
+    [currentConversation?.messages, onDeleteMessages]
+  )
 
   const emptyMessage = messages.length === 0
 
@@ -237,13 +271,7 @@ export function ChatMain({
                 お手伝いできることはありますか？
               </div>
               <div className='hidden md:block'>
-                <PromptTemplate
-                  placeholder={settings.model}
-                  onSubmit={(templateInput) => {
-                    setTemplateInput(templateInput)
-                    formRef?.current?.requestSubmit()
-                  }}
-                />
+                <PromptTemplate placeholder={settings.model} onSubmit={handleTemplateSubmit} />
               </div>
               <ChatInput
                 name='userInput'
@@ -301,7 +329,7 @@ export function ChatMain({
         {!emptyMessage && (
           <ChatMessageList
             messages={messages}
-            settings={settings}
+            markdownPreview={settings.markdownPreview}
             loading={loading}
             stream={stream}
             chatResults={chatResults}

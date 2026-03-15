@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseMessageScrollParams {
   loading: boolean
@@ -52,7 +52,7 @@ export function useMessageScroll({ loading, streamMode, stream, chatResults }: U
     messageEndRef.current?.scrollIntoView(!streamMode && { behavior: 'smooth' })
   }, [stream, chatResults, streamMode, autoScroll, bottomChatInputContainerHeight])
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
     const threshold = 36
@@ -61,14 +61,14 @@ export function useMessageScroll({ loading, streamMode, stream, chatResults }: U
     } else {
       setAutoScroll(false)
     }
-  }
+  }, [])
 
-  const scrollToMessageEnd = (behavior: ScrollBehavior = 'instant') => {
+  const scrollToMessageEnd = useCallback((behavior: ScrollBehavior = 'instant') => {
     messageEndRef.current?.scrollIntoView({
       behavior,
       block: 'end',
     })
-  }
+  }, [])
 
   return {
     scrollContainerRef,
