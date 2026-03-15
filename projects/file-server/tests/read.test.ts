@@ -361,6 +361,48 @@ describe("file endpoint /file", () => {
     expect(text).not.toContain("edit=true")
   })
 
+  it("should offer text view toggle for unsupported file types", async () => {
+    await Bun.write(
+      path.join(UPLOAD_DIR, "config.custom"),
+      JSON.stringify({ hello: "world" }),
+    )
+    const req = new Request("http://localhost/file?path=config.custom", {
+      method: "GET",
+      headers: { "HX-Request": "true" },
+    })
+
+    const res = await app.request(req)
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("This file type cannot be displayed in the browser.")
+    expect(text).toContain('hx-get="/file?path=config.custom&amp;view=text"')
+    expect(text).toContain("Open as text")
+  })
+
+  it("should render unsupported file types as text when text view is requested", async () => {
+    await Bun.write(
+      path.join(UPLOAD_DIR, "config.custom"),
+      JSON.stringify({ hello: "world" }),
+    )
+    const req = new Request(
+      "http://localhost/file?path=config.custom&view=text",
+      {
+        method: "GET",
+        headers: { "HX-Request": "true" },
+      },
+    )
+
+    const res = await app.request(req)
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('{&quot;hello&quot;:&quot;world&quot;}')
+    expect(text).toMatch(/<pre[^>]*>/)
+    expect(text).not.toContain("Open as text")
+    expect(text).not.toContain("edit=true")
+  })
+
   it("should render a placeholder for empty text files in edit mode", async () => {
     await Bun.write(path.join(UPLOAD_DIR, "empty-edit.txt"), "")
     const req = new Request(
