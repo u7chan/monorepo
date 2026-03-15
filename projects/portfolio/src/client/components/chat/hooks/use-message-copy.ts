@@ -1,10 +1,10 @@
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 export function useMessageCopy() {
   const [copiedId, setCopiedId] = useState('')
 
-  const copyMessage = async (message: string, index: number) => {
+  const copyMessage = useCallback(async (message: string, index: number) => {
     setCopiedId(`chat_${index}`)
     try {
       await copyToClipboard(message)
@@ -13,7 +13,7 @@ export function useMessageCopy() {
       alert(error)
     }
     setCopiedId('')
-  }
+  }, [])
 
   return {
     copiedId,

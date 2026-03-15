@@ -3,27 +3,32 @@ import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
-import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { ChatMessage } from '#/types'
 import { isImageContentArray } from '#/types'
-import { Fragment } from 'react'
+import { Fragment, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+
+const markdownRemarkPlugins = [remarkGfm]
+const markdownComponents = {
+  a: MarkdownLink,
+  code: CodeBlockRenderer,
+}
 
 interface MessageRendererProps {
   message: ChatMessage
   index: number
-  settings: Settings
+  markdownPreview: boolean
   copied: boolean
   disabled?: boolean
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage?: (index: number) => void
 }
 
-export function MessageRenderer({
+function MessageRendererComponent({
   message,
   index,
-  settings,
+  markdownPreview,
   copied,
   disabled,
   onCopyMessage,
@@ -83,15 +88,9 @@ export function MessageRenderer({
             {message.reasoning_content}
           </div>
         )}
-        {settings.markdownPreview ? (
+        {markdownPreview ? (
           <div className='prose mt-1 max-w-(--breakpoint-md) break-all'>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                a: MarkdownLink,
-                code: CodeBlockRenderer,
-              }}
-            >
+            <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
               {message.content}
             </ReactMarkdown>
           </div>
@@ -116,3 +115,15 @@ export function MessageRenderer({
     </div>
   )
 }
+
+export const MessageRenderer = memo(
+  MessageRendererComponent,
+  (prevProps, nextProps) =>
+    prevProps.message === nextProps.message &&
+    prevProps.index === nextProps.index &&
+    prevProps.markdownPreview === nextProps.markdownPreview &&
+    prevProps.copied === nextProps.copied &&
+    prevProps.disabled === nextProps.disabled &&
+    prevProps.onCopyMessage === nextProps.onCopyMessage &&
+    prevProps.onDeleteMessage === nextProps.onDeleteMessage
+)
