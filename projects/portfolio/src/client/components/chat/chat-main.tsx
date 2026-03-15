@@ -1,13 +1,8 @@
 import { ChatInput } from '#/client/components/chat/chat-input'
-import { ChatResults } from '#/client/components/chat/chat-results'
+import { ChatMessageList } from '#/client/components/chat/chat-message-list'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowUpIcon } from '#/client/components/svg/arrow-upIcon'
-import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
-import { CheckIcon } from '#/client/components/svg/check-icon'
-import { CopyIcon } from '#/client/components/svg/copy-icon'
-import { DeleteIcon } from '#/client/components/svg/delete-icon'
-import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
@@ -17,17 +12,12 @@ import { hc } from 'hono/client'
 import React, {
   type ChangeEvent,
   type FormEvent,
-  Fragment,
   type KeyboardEvent,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
-import ReactMarkdown from 'react-markdown'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
-import remarkGfm from 'remark-gfm'
 import { uuidv7 } from 'uuidv7'
 
 const client = hc<AppType>('/')
@@ -44,82 +34,6 @@ async function copyToClipboard(text: string) {
     document.execCommand('copy')
     document.body.removeChild(input)
   }
-}
-
-type MarkdownLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
-
-function MarkdownLink({ href, children }: MarkdownLinkProps) {
-  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault()
-    if (!href) {
-      return
-    }
-    if (href.startsWith('http')) {
-      window.open(href, '_blank')
-    } else {
-      window.location.href = href
-    }
-  }
-  return (
-    <a href={href} onClick={handleClick} className='text-primary-800 underline dark:text-primary-400'>
-      {children}
-    </a>
-  )
-}
-
-type MarkdownCodeBlockProps = React.HTMLAttributes<HTMLElement> & {
-  children?: React.ReactNode | string
-}
-
-function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
-  const isDarkMode = document.documentElement.classList.contains('dark')
-  const [copied, setCopied] = useState(false)
-  const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
-
-  const language = className?.split('-')[1]
-
-  if (typeof children !== 'string' || !language) {
-    return <code>{children}</code>
-  }
-
-  const handleClickCopy = async () => {
-    setCopied(true)
-    try {
-      await copyToClipboard(children.trim())
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-    } catch (e) {
-      alert(e)
-    }
-    setCopied(false)
-  }
-
-  return (
-    <>
-      <div className='flex justify-end'>
-        <button
-          type='button'
-          onClick={handleClickCopy}
-          disabled={copied}
-          className='flex cursor-pointer gap-1 align-center'
-        >
-          {copied ? (
-            <>
-              <CheckIcon size={18} className='stroke-white' />
-              <span className='text-white text-xs'>コピーしました</span>
-            </>
-          ) : (
-            <>
-              <CopyIcon size={18} className='stroke-white' />
-              <span className='text-white text-xs'>コピーする</span>
-            </>
-          )}
-        </button>
-      </div>
-      <SyntaxHighlighter style={isDarkMode ? atomDark : undefined} language={language}>
-        {code}
-      </SyntaxHighlighter>
-    </>
-  )
 }
 
 const MIN_TEXT_LINE_COUNT = 2
@@ -433,6 +347,35 @@ export function ChatMain({
     setComposition(composition)
   }
 
+  const handleClickCopyMessage = async (message: string, index: number) => {
+    setCopiedId(`chat_${index}`)
+    try {
+      await copyToClipboard(message)
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    } catch (error) {
+      alert(error)
+    }
+    setCopiedId('')
+  }
+
+  const handleClickDeleteMessage = (index: number) => {
+    if (confirm('本当に削除しますか？')) {
+      let isConversationEmpty = false
+      setMessages((prevMessages) => {
+        const newMessages = [...prevMessages]
+        newMessages.splice(index, 1)
+        newMessages.splice(index, 1)
+        isConversationEmpty = newMessages.length <= 0
+        return newMessages
+      })
+      const deleteMessageIds = [
+        currentConversation?.messages?.at(index)?.id,
+        currentConversation?.messages?.at(index + 1)?.id,
+      ].filter((value): value is string => value !== undefined)
+      onDeleteMessages?.(deleteMessageIds, isConversationEmpty)
+    }
+  }
+
   const emptyMessage = messages.length === 0
 
   return (
@@ -511,186 +454,17 @@ export function ChatMain({
         }
       >
         {!emptyMessage && (
-          <div className='container mx-auto mt-4 max-w-(--breakpoint-lg) px-4'>
-            <div className='message-list'>
-              {messages.map((message, index) => {
-                const copied = copiedId === `chat_${index}`
-                const handleClickCopy = async (message: string) => {
-                  setCopiedId(`chat_${index}`)
-                  try {
-                    await copyToClipboard(message)
-                    await new Promise((resolve) => setTimeout(resolve, 3000))
-                  } catch (e) {
-                    alert(e)
-                  }
-                  setCopiedId('')
-                }
-                const handleClickDelete = (i: number) => {
-                  if (confirm('本当に削除しますか？')) {
-                    let isConversationEmpty = false
-                    setMessages((prevMessages) => {
-                      const newMessages = [...prevMessages]
-                      newMessages.splice(i, 1) // user
-                      newMessages.splice(i, 1) // assistant
-                      isConversationEmpty = newMessages.length <= 0
-                      return newMessages
-                    })
-                    const deleteMessageIds = [
-                      currentConversation?.messages?.at(i)?.id,
-                      currentConversation?.messages?.at(i + 1)?.id,
-                    ].filter((x): x is string => x !== undefined)
-                    onDeleteMessages?.(deleteMessageIds, isConversationEmpty)
-                  }
-                }
-                return (
-                  <React.Fragment key={`chat_${index}`}>
-                    {message.role === 'user' && (
-                      <div className={'message mt-2 text-right'}>
-                        <div className='group'>
-                          <div
-                            className={
-                              'inline-block whitespace-pre-wrap break-all rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left dark:bg-gray-600 dark:text-white'
-                            }
-                          >
-                            {typeof message.content === 'string'
-                              ? message.content
-                              : message.content.map((value, i) => {
-                                  return (
-                                    <Fragment key={`${i}`}>
-                                      <div>{value.type === 'text' && value.text}</div>
-                                      {value.type === 'image_url' && (
-                                        <img
-                                          src={value.image_url.url}
-                                          alt='upload-img'
-                                          className='my-1 max-w-3xs border'
-                                        />
-                                      )}
-                                    </Fragment>
-                                  )
-                                })}
-                          </div>
-                          <div
-                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'} ${loading || stream ? 'invisible' : ''}`}
-                          >
-                            <button
-                              type='button'
-                              className='cursor-pointer p-1'
-                              onClick={() =>
-                                handleClickCopy(typeof message.content === 'string' ? message.content : '')
-                              }
-                              disabled={copied}
-                            >
-                              {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
-                            </button>
-                            <button
-                              type='button'
-                              className='cursor-pointer p-1'
-                              onClick={() => handleClickDelete(index)}
-                            >
-                              <DeleteIcon size={20} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {message.role === 'assistant' && (
-                      <div className='flex'>
-                        <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
-                          <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
-                        </div>
-                        <div className='message group ml-2 text-left'>
-                          {message.reasoning_content && (
-                            <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
-                              {message.reasoning_content}
-                            </div>
-                          )}
-                          {settings.markdownPreview ? (
-                            <div className='prose mt-1 max-w-(--breakpoint-md) break-all'>
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  a: MarkdownLink,
-                                  code: MarkdownCodeBlock,
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            </div>
-                          ) : (
-                            <div className='message text-left'>
-                              <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all'>
-                                {message.content}
-                              </p>
-                            </div>
-                          )}
-                          <div
-                            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
-                          >
-                            <button
-                              type='button'
-                              className='cursor-pointer p-1'
-                              onClick={() => handleClickCopy(message.content)}
-                              disabled={copied}
-                            >
-                              {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </React.Fragment>
-                )
-              })}
-              {loading && (
-                <div className='flex align-item'>
-                  <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
-                    <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
-                  </div>
-                  {stream ? (
-                    <div className='message ml-2 text-left'>
-                      {stream.reasoning_content && (
-                        <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
-                          {stream.reasoning_content}
-                        </div>
-                      )}
-                      {settings.markdownPreview ? (
-                        <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              a: MarkdownLink,
-                              code: MarkdownCodeBlock,
-                            }}
-                          >
-                            {stream.content}
-                          </ReactMarkdown>
-                        </div>
-                      ) : (
-                        <div className='message text-left'>
-                          <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all'>
-                            {stream.content}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className='ml-2 scale-75'>
-                      <SpinnerIcon />
-                    </div>
-                  )}
-                </div>
-              )}
-              {!loading && chatResults && (
-                <ChatResults
-                  model={chatResults.model}
-                  finishReason={chatResults.finish_reason}
-                  responseTimeMs={chatResults.responseTimeMs}
-                  usage={chatResults.usage}
-                />
-              )}
-              <div ref={messageEndRef} className='h-4' />
-            </div>
-          </div>
+          <ChatMessageList
+            messages={messages}
+            settings={settings}
+            loading={loading}
+            stream={stream}
+            chatResults={chatResults}
+            copiedId={copiedId}
+            messageEndRef={messageEndRef}
+            onCopyMessage={handleClickCopyMessage}
+            onDeleteMessage={handleClickDeleteMessage}
+          />
         )}
       </div>
 
