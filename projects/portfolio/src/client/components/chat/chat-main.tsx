@@ -54,7 +54,6 @@ export function ChatMain({
   const {
     scrollContainerRef,
     bottomChatInputContainerRef,
-    bottomChatInputContainerHeight,
     messageEndRef,
     handleScroll,
     scrollToMessageEnd,
@@ -258,9 +257,9 @@ export function ChatMain({
   const emptyMessage = messages.length === 0
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className='h-full'>
+    <form ref={formRef} onSubmit={handleSubmit} className='flex h-full min-h-0 flex-1 flex-col'>
       {emptyMessage && (
-        <div className='flex h-full items-center justify-center'>
+        <div className='flex min-h-0 flex-1 items-center justify-center'>
           <div className='container mx-auto flex max-w-(--breakpoint-lg) flex-1 items-center justify-center'>
             <div className='flex w-full flex-col justify-center gap-3'>
               <div
@@ -319,12 +318,7 @@ export function ChatMain({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className={emptyMessage ? 'hidden' : 'h-calc overflow-y-auto'}
-        style={
-          {
-            '--height': `${bottomChatInputContainerHeight}px`,
-          } as never
-        }
+        className={emptyMessage ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto'}
       >
         {!emptyMessage && (
           <ChatMessageList
