@@ -342,6 +342,25 @@ describe("file endpoint /file", () => {
     expect(text).not.toMatch(/<pre[^>]*>/)
   })
 
+  it("should render pdf viewer with pdf-specific modal layout", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "preview.pdf"), "fake pdf content")
+    const req = new Request("http://localhost/file?path=preview.pdf", {
+      method: "GET",
+      headers: { "HX-Request": "true" },
+    })
+
+    const res = await app.request(req)
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('src="/file/raw?path=preview.pdf"')
+    expect(text).toContain("max-w-6xl")
+    expect(text).toContain("h-[92vh] max-h-[92vh]")
+    expect(text).toContain("pdf-viewer-shell")
+    expect(text).toContain("pdf-viewer-frame")
+    expect(text).not.toContain("edit=true")
+  })
+
   it("should render a placeholder for empty text files in edit mode", async () => {
     await Bun.write(path.join(UPLOAD_DIR, "empty-edit.txt"), "")
     const req = new Request(

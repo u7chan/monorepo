@@ -83,6 +83,7 @@ export const FileViewer: FC<FileViewerProps> = ({
           fileName={fileName}
           path={path}
           borderColor="indigo-300"
+          layout="pdf"
         >
           <PdfViewer fileUrl={fileUrl} fileName={fileName} />
         </FileViewerModal>
