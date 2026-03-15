@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from openai.types.responses.function_tool_param import FunctionToolParam
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 from openai.types.responses.response_input_param import ResponseInputParam
+from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 
 
 def get_weather_forecast(location: str) -> dict[str, Any]:
@@ -47,6 +48,8 @@ TOOL_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
 
 
 def run_tool(tool_name: str, arguments: str) -> str:
+    print(f"[{tool_name}] {arguments}", flush=True)
+
     handler = TOOL_HANDLERS.get(tool_name)
     if handler is None:
         raise ValueError(f"未対応のツールです: {tool_name}")
@@ -56,13 +59,43 @@ def run_tool(tool_name: str, arguments: str) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+async def stream_response(
+    client: AsyncOpenAI,
+    *,
+    model: str,
+    input: str | ResponseInputParam,
+    tools: list[FunctionToolParam],
+    previous_response_id: str | None = None,
+) -> tuple[Any, bool]:
+    text_streamed = False
+    request_kwargs: dict[str, Any] = {
+        "model": model,
+        "input": input,
+        "tools": tools,
+    }
+    if previous_response_id is not None:
+        request_kwargs["previous_response_id"] = previous_response_id
+
+    async with client.responses.stream(**request_kwargs) as stream:
+        async for event in stream:
+            if isinstance(event, ResponseTextDeltaEvent):
+                print(event.delta, end="", flush=True)
+                text_streamed = True
+
+        response = await stream.get_final_response()
+
+    return response, text_streamed
+
+
 async def main(user_prompt: str) -> None:
     async with AsyncOpenAI() as client:
-        response = await client.responses.create(
+        response, printed_text = await stream_response(
+            client,
             model="gpt-4.1-nano",
             input=user_prompt,
             tools=TOOLS,
         )
+        printed_any_text = printed_text
 
         while True:
             function_calls = [
@@ -72,6 +105,10 @@ async def main(user_prompt: str) -> None:
             ]
             if not function_calls:
                 break
+
+            if printed_any_text:
+                print(flush=True)
+                printed_any_text = False
 
             tool_outputs: ResponseInputParam = []
             for call in function_calls:
@@ -84,14 +121,17 @@ async def main(user_prompt: str) -> None:
                     }
                 )
 
-            response = await client.responses.create(
+            response, printed_text = await stream_response(
+                client,
                 model="gpt-4.1-nano",
-                previous_response_id=response.id,
                 input=tool_outputs,
                 tools=TOOLS,
+                previous_response_id=response.id,
             )
+            printed_any_text = printed_text
 
-        print(response.output_text)
+        if printed_any_text:
+            print(flush=True)
 
 
 def cli() -> None:
