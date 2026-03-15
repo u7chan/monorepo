@@ -1,22 +1,10 @@
+import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import type { AnchorHTMLAttributes, HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
-
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(text)
-  } else {
-    const input = document.createElement('textarea')
-    input.value = text
-    document.body.appendChild(input)
-    input.select()
-    document.execCommand('copy')
-    document.body.removeChild(input)
-  }
-}
 
 type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>
 

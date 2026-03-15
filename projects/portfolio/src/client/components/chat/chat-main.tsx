@@ -1,43 +1,18 @@
 import { ChatInput } from '#/client/components/chat/chat-input'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
-import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
+import { PromptTemplate } from '#/client/components/chat/prompt-template'
+import { useChatForm } from '#/client/components/chat/use-chat-form'
+import { useMessageCopy } from '#/client/components/chat/use-message-copy'
+import { useMessageScroll } from '#/client/components/chat/use-message-scroll'
+import { useStreamProcessor } from '#/client/components/chat/use-stream-processor'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowUpIcon } from '#/client/components/svg/arrow-upIcon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
-import type { AppType } from '#/server/app.d'
-import type { ChatMessage, ChatMessageSystem, ChatMessageUser, ChatCompletionResult, Conversation } from '#/types'
-import { hc } from 'hono/client'
-import React, {
-  type ChangeEvent,
-  type FormEvent,
-  type KeyboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import type { ChatMessage, Conversation } from '#/types'
+import React, { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
-
-const client = hc<AppType>('/')
-
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard) {
-    // https only
-    await navigator.clipboard.writeText(text)
-  } else {
-    const input = document.createElement('textarea')
-    input.value = text
-    document.body.appendChild(input)
-    input.select()
-    document.execCommand('copy')
-    document.body.removeChild(input)
-  }
-}
-
-const MIN_TEXT_LINE_COUNT = 2
-const MAX_TEXT_LINE_COUNT = 5
 
 interface Props {
   initTrigger?: number
@@ -57,44 +32,43 @@ export function ChatMain({
   onDeleteMessages,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
-  const [bottomChatInputContainerHeight, setbottomChatInputContainerHeight] = useState(0)
-  const messageEndRef = useRef<HTMLDivElement>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
 
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [copiedId, setCopiedId] = useState('')
-  const [stream, setStream] = useState<{
-    content: string
-    reasoning_content?: string
-  } | null>(null)
-  const [chatResults, setChatResults] = useState<{
-    model?: string
-    finish_reason: string
-    responseTimeMs?: number
-    usage?: {
-      promptTokens: number
-      completionTokens: number
-      totalTokens: number
-    } | null
-  } | null>(null)
-  const [input, setInput] = useState('')
-  const [templateInput, setTemplateInput] = useState<TemplateInput | null>(null)
-  const [uploadImages, setUploadImages] = useState<string[]>([])
-  const [textAreaRows, setTextAreaRows] = useState(MIN_TEXT_LINE_COUNT)
-  const [composing, setComposition] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [autoScroll, setAutoScroll] = useState(true)
+  const {
+    input,
+    uploadImages,
+    textAreaRows,
+    setTemplateInput,
+    handleUploadImageChange,
+    handleChangeInput,
+    handleKeyDown,
+    handleChangeComposition,
+    buildChatMessages,
+    resetAfterSubmit,
+  } = useChatForm({ initTrigger, formRef })
+  const { copiedId, copyMessage } = useMessageCopy()
+  const { loading, stream, chatResults, cancelStream, resetChatResults, submitChatCompletion } = useStreamProcessor({
+    onSubmitting,
+  })
+  const {
+    scrollContainerRef,
+    bottomChatInputContainerRef,
+    bottomChatInputContainerHeight,
+    messageEndRef,
+    handleScroll,
+    scrollToMessageEnd,
+  } = useMessageScroll({
+    loading,
+    streamMode: settings.streamMode,
+    stream,
+    chatResults,
+  })
 
   useEffect(() => {
     setMessages([])
     setConversationId(null)
-    setChatResults(null)
-    setInput('')
-    setUploadImages([])
-    setTextAreaRows(MIN_TEXT_LINE_COUNT)
+    resetChatResults()
   }, [initTrigger])
 
   // 選択された会話のメッセージを設定
@@ -119,73 +93,11 @@ export function ChatMain({
     })
     setConversationId(currentConversation.id)
     setMessages(convertedMessages)
-    setChatResults(null)
+    resetChatResults()
     setTimeout(() => {
-      // メッセージの末尾にスクロール
-      messageEndRef?.current?.scrollIntoView({
-        behavior: 'instant',
-        block: 'end',
-      })
+      scrollToMessageEnd()
     }, 0)
   }, [currentConversation])
-
-  useEffect(() => {
-    const buttomChatInputContainerObserver = new ResizeObserver(([element]) => {
-      setbottomChatInputContainerHeight(element.contentRect.height)
-    })
-
-    if (bottomChatInputContainerRef?.current) {
-      buttomChatInputContainerObserver.observe(bottomChatInputContainerRef?.current)
-    }
-
-    return () => {
-      if (bottomChatInputContainerRef?.current) {
-        buttomChatInputContainerObserver.unobserve(bottomChatInputContainerRef?.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!loading) return
-    messageEndRef?.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [loading])
-
-  useEffect(() => {
-    if (!autoScroll) return
-    messageEndRef?.current?.scrollIntoView(!settings.streamMode && { behavior: 'smooth' })
-  }, [stream, chatResults, settings, autoScroll, bottomChatInputContainerHeight])
-
-  const handleScroll = () => {
-    if (!scrollContainerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-    const threshold = 36
-    if (scrollTop + clientHeight >= scrollHeight - threshold) {
-      setAutoScroll(true)
-    } else {
-      setAutoScroll(false)
-    }
-  }
-
-  const handleStreamCancel = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-      abortControllerRef.current = null
-    }
-  }
-
-  const handleUploadImageChange = (src: string, index?: number) => {
-    if (!src && index !== undefined) {
-      // pop
-      if (uploadImages.length === 1) {
-        setUploadImages([])
-      } else {
-        setUploadImages((pre) => pre.filter((_, idx) => idx !== index))
-      }
-    } else {
-      // push
-      setUploadImages([...uploadImages, src])
-    }
-  }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -199,34 +111,20 @@ export function ChatMain({
       maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
       userInput: formData.get('userInput')?.toString() || '',
     }
-    const options = {
+    const params = buildChatMessages({
       interactiveMode: settings.interactiveMode,
       messages,
-      uploadImages,
-    }
-
-    const inputText = form.userInput.trim()
-    const params = templateInput
-      ? createTemplateMessage(templateInput, form.model, options)
-      : createMessage(inputText, form.model, options)
+      model: form.model,
+    })
     if (!params) {
       return
     }
 
-    setLoading(true)
-    const requestStartTime = Date.now()
     setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
-    setInput('')
-    setTemplateInput(null)
-    setUploadImages([])
-    setTextAreaRows(MIN_TEXT_LINE_COUNT)
-    setChatResults(null)
+    resetAfterSubmit()
+    resetChatResults()
 
-    abortControllerRef.current = new AbortController()
-
-    onSubmitting?.(true)
-    sendChatCompletion({
-      abortController: abortControllerRef.current,
+    submitChatCompletion({
       header: {
         apiKey: form.apiKey,
         baseURL: form.baseURL,
@@ -234,15 +132,11 @@ export function ChatMain({
       },
       model: params.model,
       messages: params.messages,
-      stream: settings.streamMode,
+      streamMode: settings.streamMode,
       temperature: form.temperature,
       maxTokens: form.maxTokens,
       reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-      onStream: (stream) => {
-        setStream(stream)
-      },
-    }).then((result) => {
-      const responseTimeMs = Date.now() - requestStartTime
+    }).then(({ result, responseTimeMs }) => {
       const userInput = params.messages?.at(-1)?.content
       const newConversationMessages = [
         // TODO: append system message
@@ -305,57 +199,8 @@ export function ChatMain({
           },
         ]
         setMessages(newMessages)
-        setChatResults({
-          model: result.model,
-          finish_reason: result.finishReason,
-          responseTimeMs: responseTimeMs,
-          usage: result.usage,
-        })
       }
-      setStream(null)
-      setLoading(false)
-      onSubmitting?.(false)
     })
-  }
-
-  const handleChangeInput = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    const value = event.target.value
-    const lineCount = (value.match(/\n/g) || []).length + 1
-
-    if (lineCount <= MIN_TEXT_LINE_COUNT) {
-      setTextAreaRows(MIN_TEXT_LINE_COUNT)
-    } else if (lineCount >= MAX_TEXT_LINE_COUNT) {
-      setTextAreaRows(MAX_TEXT_LINE_COUNT)
-    } else {
-      setTextAreaRows(lineCount)
-    }
-
-    setInput(value)
-  }
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    const content = event.currentTarget.value.trim()
-    if (event.key === 'Enter' && !event.shiftKey && !composing) {
-      event.preventDefault()
-      if (content && formRef.current) {
-        formRef.current.requestSubmit()
-      }
-    }
-  }
-
-  const handleChangeComposition = (composition: boolean) => {
-    setComposition(composition)
-  }
-
-  const handleClickCopyMessage = async (message: string, index: number) => {
-    setCopiedId(`chat_${index}`)
-    try {
-      await copyToClipboard(message)
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-    } catch (error) {
-      alert(error)
-    }
-    setCopiedId('')
   }
 
   const handleClickDeleteMessage = (index: number) => {
@@ -411,7 +256,7 @@ export function ChatMain({
                     color={settings.interactiveMode ? 'primary' : 'green'}
                     loading={loading}
                     disabled={loading || !!stream || input.trim().length <= 0}
-                    handleClickStop={handleStreamCancel}
+                    handleClickStop={cancelStream}
                   />
                 }
                 leftBottom={
@@ -462,7 +307,7 @@ export function ChatMain({
             chatResults={chatResults}
             copiedId={copiedId}
             messageEndRef={messageEndRef}
-            onCopyMessage={handleClickCopyMessage}
+            onCopyMessage={copyMessage}
             onDeleteMessage={handleClickDeleteMessage}
           />
         )}
@@ -482,7 +327,7 @@ export function ChatMain({
                   color={settings.interactiveMode ? 'primary' : 'green'}
                   loading={loading}
                   disabled={loading || !!stream || input.trim().length <= 0}
-                  handleClickStop={handleStreamCancel}
+                  handleClickStop={cancelStream}
                 />
               }
               leftBottom={
@@ -558,245 +403,4 @@ function SendButton({ color = 'blue', loading, disabled, handleClickStop }: Send
       )}
     </>
   )
-}
-
-const createMessage = (
-  inputText: string,
-  model: string,
-  {
-    interactiveMode,
-    messages,
-    uploadImages,
-  }: { interactiveMode: boolean; messages: ChatMessage[]; uploadImages: string[] }
-): {
-  model: string
-  messages: ChatMessage[]
-} | null => {
-  if (!inputText) {
-    return null
-  }
-  const userMessage: ChatMessageUser = {
-    role: 'user',
-    content:
-      uploadImages.length > 0
-        ? [
-            {
-              type: 'text' as const,
-              text: inputText,
-            },
-            ...uploadImages.map((image) => ({
-              type: 'image_url' as const,
-              image_url: {
-                url: image,
-              },
-            })),
-          ]
-        : inputText,
-  }
-  const newMessages: ChatMessage[] = [...messages, userMessage]
-  return {
-    model,
-    messages: interactiveMode ? newMessages : [userMessage],
-  }
-}
-
-const createTemplateMessage = (
-  templateInput: TemplateInput,
-  model: string,
-  { interactiveMode, messages }: { interactiveMode: boolean; messages: ChatMessage[] }
-): {
-  model: string
-  messages: ChatMessage[]
-} => {
-  const userMessage: ChatMessageUser = {
-    role: 'user',
-    content: templateInput.content,
-  }
-  const systemMessage: ChatMessageSystem = {
-    role: 'system',
-    content: templateInput.prompt,
-  }
-  const newMessages: ChatMessage[] =
-    messages.length === 0 && templateInput ? [systemMessage, userMessage] : [...messages, userMessage]
-  return {
-    model: templateInput.model || model,
-    messages: interactiveMode ? newMessages : [systemMessage, userMessage],
-  }
-}
-
-const sendChatCompletion = async (req: {
-  abortController: AbortController
-  header: {
-    apiKey: string
-    baseURL: string
-    mcpServerURLs: string
-  }
-  model: string
-  messages: ChatMessage[]
-  stream: boolean
-  temperature?: number
-  maxTokens?: number
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-  onStream?: (stream: { content: string; reasoning_content: string }) => void
-}): Promise<ChatCompletionResult | null> => {
-  const result = {
-    content: '',
-    reasoning_content: '',
-  }
-  let finish_reason = ''
-  let usage: {
-    prompt_tokens: number
-    completion_tokens: number
-    total_tokens: number
-    completion_tokens_details?: {
-      reasoning_tokens?: number
-    }
-  } | null = null
-  let responseModel = 'N/A'
-
-  // Call the Chat API
-  // TODO: [!] Cognitive Complexity
-  try {
-    const res = await client.api.chat.$post(
-      {
-        header: {
-          'api-key': req.header.apiKey,
-          'base-url': req.header.baseURL,
-          'mcp-server-urls': req.header.mcpServerURLs,
-        },
-        json: {
-          messages: req.messages,
-          model: req.model,
-          stream: req.stream,
-          temperature: req.temperature,
-          max_tokens: req.maxTokens,
-          reasoning_effort: req.reasoningEffort,
-          stream_options: req.stream
-            ? {
-                include_usage: true,
-              }
-            : undefined,
-        },
-      },
-      { init: { signal: req.abortController.signal } }
-    )
-    if (!res.ok) {
-      const error = (await res.json()) as unknown as { message?: string }
-      result.content = error?.message || JSON.stringify(error)
-    } else {
-      const nonStream = res.headers.get('Content-Type') === 'application/json'
-      if (nonStream) {
-        const data = (await res.json()) as unknown as {
-          choices: {
-            message: { content: string; reasoning_content?: string }
-          }[]
-          model?: string
-          usage?: {
-            prompt_tokens: number
-            completion_tokens: number
-            total_tokens: number
-            reasoning_tokens: number
-          }
-        }
-        result.reasoning_content = data.choices[0].message?.reasoning_content || ''
-        result.content = data.choices[0].message.content
-        responseModel = data?.model || 'N/A'
-        usage = data?.usage ?? null
-      } else {
-        const reader = res.body?.getReader()
-        if (!reader) {
-          throw new Error('Failed to get reader from response body.')
-        }
-        const decoder = new TextDecoder('utf-8')
-        let buffer = ''
-        let running = true
-        while (running) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          while (running) {
-            const idx = buffer.indexOf('\n')
-            if (idx === -1) break
-
-            const line = buffer.slice(0, idx).trim()
-            buffer = buffer.slice(idx + 1)
-            if (!line.startsWith('data: ')) continue
-
-            const jsonStr = line.replace(/^data:\s*/, '')
-            if (jsonStr === '[DONE]') {
-              console.log('Stream completed.')
-              running = false
-              break
-            }
-            try {
-              const parsedChunk = JSON.parse(jsonStr) as {
-                choices: {
-                  delta: { content: string; reasoning_content?: string }
-                  finish_reason: string
-                }[]
-                model?: string
-                usage?: {
-                  prompt_tokens: number
-                  completion_tokens: number
-                  total_tokens: number
-                  completion_tokens_details?: {
-                    reasoning_tokens?: number
-                  }
-                }
-              }
-              // Append chunk to result
-              result.reasoning_content += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
-              result.content += parsedChunk.choices.at(0)?.delta?.content || ''
-              const _finish_reason = parsedChunk.choices.at(0)?.finish_reason || ''
-              if (_finish_reason) {
-                finish_reason = _finish_reason
-              }
-              if (parsedChunk?.model) {
-                responseModel = parsedChunk.model
-              }
-              if (parsedChunk?.usage) {
-                usage = parsedChunk.usage
-              }
-              const streamChunk = {
-                content: result.content ? `${result.content}` : '',
-                reasoning_content: result.reasoning_content,
-              }
-              req.onStream?.(streamChunk)
-            } catch (e) {
-              console.error('JSON parse error:', e)
-              running = false
-              break
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    if (e instanceof Error && e.name === 'AbortError') {
-      // Stream canceled
-    } else {
-      throw e
-    }
-  }
-  if (!result.content) {
-    return null
-  }
-  return {
-    model: responseModel,
-    finishReason: finish_reason,
-    message: {
-      content: result.content,
-      reasoningContent: result.reasoning_content,
-    },
-    responseTimeMs: 0,
-    usage: usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-          reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
-        }
-      : null,
-  }
 }
