@@ -1,4 +1,4 @@
-import { chatConversationRepository } from '#/server/features/chat-conversations/chat-conversation-repository'
+import { chatConversationRepository } from '#/server/features/chat-conversations/repository'
 import { ConversationSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
