@@ -62,6 +62,7 @@ export default defineConfig(({ mode }) => {
 
     default:
       return {
+        base: '/static/',
         plugins: [
           tanstackRouter({
             target: 'react',
