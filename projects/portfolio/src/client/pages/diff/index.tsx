@@ -1,7 +1,12 @@
 import Editor from '@monaco-editor/react'
+import type { ComponentType } from 'react'
 import { useEffect, useState } from 'react'
-import ReactDiffViewer from 'react-diff-viewer'
+import ReactDiffViewerModule from 'react-diff-viewer'
 import { loadDiffState, saveDiffState } from '../../storage/diff-state'
+
+const reactDiffViewerImport = ReactDiffViewerModule as ComponentType<any> | { default: ComponentType<any> }
+const ReactDiffViewer =
+  typeof reactDiffViewerImport === 'function' ? reactDiffViewerImport : reactDiffViewerImport.default
 
 const LANGUAGE_OPTIONS: string[] = [
   // Web / フロントエンド
