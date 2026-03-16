@@ -1,15 +1,5 @@
-type Env = Partial<{
-    NODE_ENV: string;
-    SERVER_PORT: string;
-    DATABASE_URL: string;
-    COOKIE_SECRET: string;
-    COOKIE_NAME: string;
-    COOKIE_EXPIRES: string;
-}>;
-type HonoEnv = {
-    Bindings: Env;
-};
-declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
+import { HonoEnv } from './routes/shared';
+declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
     "api/signin": {
         $post: {
             input: {
@@ -37,14 +27,14 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-} & {
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/chat": {
         $post: {
             input: {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string;
+                    'mcp-server-urls': string | undefined;
                 };
             } & {
                 json: {
@@ -71,7 +61,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
-                    reasoning_effort?: "low" | "high" | "none" | "minimal" | "medium" | "xhigh" | undefined;
+                    reasoning_effort?: "none" | "low" | "high" | "minimal" | "medium" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -89,7 +79,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string;
+                    'mcp-server-urls': string | undefined;
                 };
             } & {
                 json: {
@@ -116,7 +106,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
-                    reasoning_effort?: "low" | "high" | "none" | "minimal" | "medium" | "xhigh" | undefined;
+                    reasoning_effort?: "none" | "low" | "high" | "minimal" | "medium" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -130,7 +120,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string;
+                    'mcp-server-urls': string | undefined;
                 };
             } & {
                 json: {
@@ -157,7 +147,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
-                    reasoning_effort?: "low" | "high" | "none" | "minimal" | "medium" | "xhigh" | undefined;
+                    reasoning_effort?: "none" | "low" | "high" | "minimal" | "medium" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -246,7 +236,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             status: import('hono/utils/http-status').StatusCode;
         };
     };
-} & {
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/conversations": {
         $get: {
             input: {};
@@ -553,7 +543,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-} & {
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/fetch-models": {
         $get: {
             input: {
@@ -579,7 +569,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-} & {
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "*": {
         $get: {
             input: {};
@@ -588,6 +578,6 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
             status: import('hono/utils/http-status').StatusCode;
         };
     };
-}, "/", "*">;
+}, "/">, "/", "/">;
 export type AppType = typeof app;
 export default app;
