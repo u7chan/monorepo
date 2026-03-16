@@ -1,11 +1,13 @@
+import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import devServer from '@hono/vite-dev-server'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import { defineConfig } from 'vite'
 import dts from 'vite-plugin-dts'
 
+const rootDir = fileURLToPath(new URL('.', import.meta.url))
 const sourceAlias = {
-  '#': resolve(__dirname, 'src'),
+  '#': resolve(rootDir, 'src'),
 }
 
 export default defineConfig(({ mode }) => {
@@ -14,13 +16,13 @@ export default defineConfig(({ mode }) => {
       return {
         plugins: [
           dts({
-            include: resolve(__dirname, 'src/server/app.tsx'),
-            outDir: resolve(__dirname, 'src/server'),
+            include: resolve(rootDir, 'src/server/app.tsx'),
+            outDir: resolve(rootDir, 'src/server'),
             declarationOnly: true,
             insertTypesEntry: false,
             rollupTypes: false,
             copyDtsFiles: false,
-            entryRoot: resolve(__dirname, 'src/server'),
+            entryRoot: resolve(rootDir, 'src/server'),
           }),
         ],
         resolve: {
@@ -29,7 +31,7 @@ export default defineConfig(({ mode }) => {
         },
         build: {
           lib: {
-            entry: resolve(__dirname, 'src/server/app.tsx'),
+            entry: resolve(rootDir, 'src/server/app.tsx'),
             name: 'typegen',
             formats: ['es'],
           },
@@ -46,7 +48,7 @@ export default defineConfig(({ mode }) => {
             target: 'react',
           }),
           devServer({
-            entry: resolve(__dirname, 'src/server/app.tsx'),
+            entry: resolve(rootDir, 'src/server/app.tsx'),
           }),
         ],
         resolve: {
@@ -71,9 +73,9 @@ export default defineConfig(({ mode }) => {
         },
         build: {
           minify: true,
-          outDir: resolve(__dirname, 'dist/static'),
+          outDir: resolve(rootDir, 'dist/static'),
           rollupOptions: {
-            input: [resolve(__dirname, 'src/client/main.tsx'), resolve(__dirname, 'src/client/main.css')],
+            input: [resolve(rootDir, 'src/client/main.tsx'), resolve(rootDir, 'src/client/main.css')],
             output: {
               entryFileNames: 'client.js',
               assetFileNames: '[name].[ext]',
