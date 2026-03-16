@@ -6,6 +6,9 @@
     "typegen": "vite build --mode typegen",
     "build": "vite build",
     "start": "NODE_ENV=production dotenv -- bunx tsx ./src/server/node-server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "tsc && oxlint",
     "lint:fix": "oxlint --fix",
     "format:check": "oxfmt --check",
@@ -47,6 +50,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@vitest/coverage-v8": "^4.1.0",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.9",
     "oxfmt": "0.41.0",
@@ -55,6 +59,7 @@
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.0",
-    "vite-plugin-dts": "^4.5.4"
+    "vite-plugin-dts": "^4.5.4",
+    "vitest": "^4.1.0"
   }
 }

@@ -10,6 +10,7 @@
 - **Build & Bundler**: Vite
 - **Backend**: Hono
 - **Frontend**: React (SPA)
+- **Testing**: Vitest
 - **Routing**: TanStack Router
 - **Database**: PostgreSQL
 - **ORM**: Drizzle ORM
@@ -28,3 +29,8 @@
 
 - **Lint**: `bun run lint`
 - **Format**: `bun run format`
+
+## Test
+
+- **Test**: `bun run test`
+- **Test Coverage**: `bun run test:coverage`

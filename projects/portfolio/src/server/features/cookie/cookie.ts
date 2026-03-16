@@ -18,7 +18,7 @@ export const cookie: Cookie = {
       secure: false, // httpのため
       httpOnly: true,
       maxAge: cookieExpiresSec,
-      expires: new Date(Date.now() + cookieExpiresSec),
+      expires: new Date(Date.now() + cookieExpiresSec * 1000),
       sameSite: 'Strict',
     }
   },
