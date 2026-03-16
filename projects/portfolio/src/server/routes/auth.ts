@@ -8,7 +8,7 @@ import type { HonoEnv } from './shared'
 import { getServerEnv } from './shared'
 
 const SignInBodySchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   password: z.string().min(1),
 })
 
