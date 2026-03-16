@@ -4,6 +4,10 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import { defineConfig } from 'vite'
 import dts from 'vite-plugin-dts'
 
+const sourceAlias = {
+  '#': resolve(__dirname, 'src'),
+}
+
 export default defineConfig(({ mode }) => {
   switch (mode) {
     case 'typegen':
@@ -20,6 +24,7 @@ export default defineConfig(({ mode }) => {
           }),
         ],
         resolve: {
+          alias: sourceAlias,
           tsconfigPaths: true,
         },
         build: {
@@ -45,6 +50,7 @@ export default defineConfig(({ mode }) => {
           }),
         ],
         resolve: {
+          alias: sourceAlias,
           tsconfigPaths: true,
         },
         server: {
@@ -60,6 +66,7 @@ export default defineConfig(({ mode }) => {
           }),
         ],
         resolve: {
+          alias: sourceAlias,
           tsconfigPaths: true,
         },
         build: {
