@@ -11,13 +11,18 @@ import * as path from "node:path"
 import type { Context } from "hono"
 import type { AppBindings } from "../types"
 import { ensureUploadDirExists, getFileList } from "../utils/fileListing"
-import { isInvalidPath, resolveUploadPath } from "../utils/fileUtils"
 import {
-  alreadyExistsResponse,
+  normalizeRelativePath,
+  resolveUploadPath,
+} from "../utils/fileUtils"
+import { alreadyExistsResponse, renderFileListResponse } from "../utils/apiHelpers"
+import { isPathTraversal } from "../utils/pathTraversal"
+import {
+  errorResponse,
+  getUploadDir,
+  isHtmxRequest,
   isNodeErrorCode,
-  renderFileListResponse,
-} from "../utils/apiHelpers"
-import { errorResponse, getUploadDir, isHtmxRequest } from "../utils/requestUtils"
+} from "../utils/requestUtils"
 
 const BASE_PATH_REGEX = /^\/api\/?/
 
@@ -35,7 +40,7 @@ export async function listFilesHandler(c: Context<AppBindings>) {
   const uploadDir = getUploadDir(c)
   const subPath = c.req.path.replace(BASE_PATH_REGEX, "")
 
-  if (isInvalidPath(subPath)) {
+  if (isPathTraversal(subPath)) {
     return errorResponse(c, "PathError", "Invalid path", 400)
   }
 
@@ -72,7 +77,7 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
         filePathParam,
         file.name,
       )
-      if (isInvalidPath(relativePath)) {
+      if (isPathTraversal(relativePath)) {
         results.failed.push({
           name: file.name,
           reason: "Invalid path",
@@ -111,12 +116,12 @@ export async function deleteFileHandler(c: Context<AppBindings>) {
   const { path: filePathParam } = validatedData
   const uploadDir = getUploadDir(c)
 
-  if (isInvalidPath(filePathParam)) {
+  if (isPathTraversal(filePathParam)) {
     return errorResponse(c, "PathError", "Invalid path", 400)
   }
 
   const targetPath = path.join(uploadDir, filePathParam)
-  let redirectPath = "/"
+  let redirectPath = ""
   try {
     const stat = await fsStat(targetPath)
     if (stat.isDirectory()) {
@@ -140,11 +145,7 @@ export async function deleteFileHandler(c: Context<AppBindings>) {
     throw err
   }
 
-  if (redirectPath === "") {
-    redirectPath = ""
-  } else {
-    redirectPath = `${redirectPath.replace(/\\/g, "/")}`
-  }
+  redirectPath = normalizeRelativePath(redirectPath)
 
   return renderFileListResponse(c, uploadDir, redirectPath, {
     encodeRedirectPath: false,
@@ -159,7 +160,7 @@ export async function mkdirHandler(c: Context<AppBindings>) {
   const { path: dirPathParam, folder } = validatedData
   const uploadDir = getUploadDir(c)
 
-  if (isInvalidPath(dirPathParam) || isInvalidNodeName(folder)) {
+  if (isPathTraversal(dirPathParam) || isInvalidNodeName(folder)) {
     return errorResponse(c, "PathError", "Invalid path", 400)
   }
 
@@ -185,7 +186,7 @@ export async function createFileHandler(c: Context<AppBindings>) {
   const { path: dirPathParam, file } = validatedData
   const uploadDir = getUploadDir(c)
 
-  if (isInvalidPath(dirPathParam) || isInvalidNodeName(file)) {
+  if (isPathTraversal(dirPathParam) || isInvalidNodeName(file)) {
     return errorResponse(c, "PathError", "Invalid path", 400)
   }
 
@@ -212,13 +213,12 @@ export async function renameHandler(c: Context<AppBindings>) {
   const { path: currentPathParam, name } = validatedData
   const uploadDir = getUploadDir(c)
 
-  if (isInvalidPath(currentPathParam) || isInvalidNodeName(name)) {
+  if (isPathTraversal(currentPathParam) || isInvalidNodeName(name)) {
     return errorResponse(c, "PathError", "Invalid path", 400)
   }
 
   const parentPath = path.dirname(currentPathParam)
-  const normalizedParentPath =
-    parentPath === "." ? "" : parentPath.replace(/\\/g, "/")
+  const normalizedParentPath = normalizeRelativePath(parentPath)
   const currentName = path.basename(currentPathParam)
 
   if (currentName === name) {
@@ -267,7 +267,7 @@ export async function updateFileHandler(c: Context<AppBindings>) {
   const { path: filePathParam, content } = validatedData
   const uploadDir = getUploadDir(c)
 
-  if (isInvalidPath(filePathParam)) {
+  if (isPathTraversal(filePathParam)) {
     return errorResponse(c, "PathError", "Invalid path", 400)
   }
 

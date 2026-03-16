@@ -1,10 +1,5 @@
 import { stat as fsStat } from "node:fs/promises"
 import * as path from "node:path"
-import { isPathTraversal } from "./pathTraversal"
-
-export function isInvalidPath(p: string): boolean {
-  return isPathTraversal(p)
-}
 
 export async function resolveUploadPath(
   baseDir: string,
@@ -26,6 +21,14 @@ export async function resolveUploadPath(
     }
     return filePathParam
   }
+}
+
+export function normalizeRelativePath(p: string): string {
+  if (p === "." || p === "") {
+    return ""
+  }
+
+  return p.replace(/\\/g, "/")
 }
 
 export function sortFiles<T extends { name: string; type: "file" | "dir" }>(

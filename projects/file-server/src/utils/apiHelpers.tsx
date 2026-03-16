@@ -2,30 +2,7 @@ import type { Context } from "hono"
 import { FileList } from "../components/FileList"
 import type { AppBindings } from "../types"
 import { getFileList } from "./fileListing"
-import {
-	errorResponse,
-	invalidPathResponse,
-	isHtmxRequest,
-} from "./requestUtils"
-
-export function isNodeErrorCode(error: unknown, code: string): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		(error as { code?: string }).code === code
-	)
-}
-
-export function validatePathOrError(
-	c: Context<AppBindings>,
-	requestPath: string,
-): Response | null {
-	if (requestPath.includes("\0")) {
-		return invalidPathResponse(c)
-	}
-	return null
-}
+import { errorResponse, isHtmxRequest } from "./requestUtils"
 
 export async function renderFileListResponse(
 	c: Context<AppBindings>,
