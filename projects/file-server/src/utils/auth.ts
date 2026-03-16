@@ -6,6 +6,7 @@ import { loadUsersFromFileWithCache } from "./userConfigCache"
 const USERNAME_PATTERN = /^[a-z0-9_-]+$/
 export const SESSION_COOKIE_NAME = "session"
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
+export const DEFAULT_UPLOAD_DIR = "./tmp"
 
 export function validateAuthConfig(
   usersFile: string | undefined,

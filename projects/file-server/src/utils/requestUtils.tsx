@@ -6,11 +6,8 @@ import type { HtmlEscapedString } from "hono/utils/html"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { PageShell } from "../components/PageShell"
 import type { AppBindings } from "../types"
-import { getUserUploadDir } from "./auth"
-import { isInvalidPath } from "./fileUtils"
-
-/** Default upload directory when UPLOAD_DIR env var is not set */
-export const DEFAULT_UPLOAD_DIR = "./tmp"
+import { DEFAULT_UPLOAD_DIR, getUserUploadDir } from "./auth"
+import { isPathTraversal } from "./pathTraversal"
 
 export function getUploadDir(c: Context<AppBindings>): string {
   const baseDir = env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
@@ -24,6 +21,15 @@ export function getRequestPath(c: Context<AppBindings>): string {
 
 export function isHtmxRequest(c: Context<AppBindings>): boolean {
   return c.req.header("HX-Request") === "true"
+}
+
+export function isNodeErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === code
+  )
 }
 
 export function errorResponse(
@@ -49,7 +55,7 @@ export function ensureValidPath(
   c: Context<AppBindings>,
   requestPath: string,
 ): Response | null {
-  if (isInvalidPath(requestPath)) {
+  if (isPathTraversal(requestPath)) {
     return invalidPathResponse(c)
   }
   return null
@@ -64,12 +70,7 @@ export async function statOrNotFound(
   try {
     return await fsStat(resolvedPath)
   } catch (err: unknown) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
-    ) {
+    if (isNodeErrorCode(err, "ENOENT")) {
       return errorResponse(c, notFoundName, notFoundMessage, 400)
     }
     throw err

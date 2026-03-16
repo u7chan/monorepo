@@ -4,6 +4,7 @@ import { env } from "hono/adapter"
 import { getCookie } from "hono/cookie"
 import type { AppBindings } from "../types"
 import {
+  DEFAULT_UPLOAD_DIR,
   getUserUploadDir,
   loadUsersConfig,
   normalizeReturnTo,
@@ -11,8 +12,7 @@ import {
   validateAuthConfig,
   verifySession,
 } from "../utils/auth"
-
-const DEFAULT_UPLOAD_DIR = "./tmp"
+import { errorResponse } from "../utils/requestUtils"
 
 function getRequestPathWithQuery(c: Context<AppBindings>): string {
   const url = new URL(c.req.url)
@@ -34,14 +34,10 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
     validateAuthConfig(USERS_FILE, SESSION_SECRET)
   } catch (error) {
     console.error(error)
-    return c.json(
-      {
-        success: false,
-        error: {
-          name: "AuthConfigError",
-          message: "Invalid authentication configuration",
-        },
-      },
+    return errorResponse(
+      c,
+      "AuthConfigError",
+      "Invalid authentication configuration",
       500,
     )
   }
@@ -51,14 +47,10 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
     return next()
   }
   if (!SESSION_SECRET) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          name: "AuthConfigError",
-          message: "SESSION_SECRET is required when USERS_FILE is set",
-        },
-      },
+    return errorResponse(
+      c,
+      "AuthConfigError",
+      "SESSION_SECRET is required when USERS_FILE is set",
       500,
     )
   }
@@ -68,14 +60,10 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
     users = await loadUsersConfig(USERS_FILE)
   } catch (error) {
     console.error(error)
-    return c.json(
-      {
-        success: false,
-        error: {
-          name: "AuthConfigError",
-          message: "Failed to load users configuration",
-        },
-      },
+    return errorResponse(
+      c,
+      "AuthConfigError",
+      "Failed to load users configuration",
       500,
     )
   }
