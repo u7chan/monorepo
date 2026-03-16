@@ -285,6 +285,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                                 reasoningTokens?: number | undefined;
                             };
                             finishReason?: string | undefined;
+                            responseTimeMs?: number | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -339,6 +340,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                                 reasoningTokens?: number | undefined;
                             };
                             finishReason?: string | undefined;
+                            responseTimeMs?: number | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -394,6 +396,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                                 reasoningTokens?: number | undefined;
                             };
                             finishReason?: string | undefined;
+                            responseTimeMs?: number | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -447,6 +450,7 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, {
                                 reasoningTokens?: number | undefined;
                             };
                             finishReason?: string | undefined;
+                            responseTimeMs?: number | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
