@@ -3,7 +3,7 @@ import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import type { Conversation } from '#/types'
 import { asc, desc, eq, sql } from 'drizzle-orm'
 
-export async function readConversation(databaseUrl: string, email: string): Promise<Conversation[] | null> {
+export async function readConversations(databaseUrl: string, email: string): Promise<Conversation[] | null> {
   const db = getDatabase(databaseUrl)
 
   // ユーザーIDの取得

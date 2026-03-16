@@ -1,5 +1,6 @@
-import { deleteConversations, deleteMessagesByIds } from '#/server/features/chat-conversations/delete-conversation'
-import { readConversation } from '#/server/features/chat-conversations/read-conversation'
+import { deleteConversations } from '#/server/features/chat-conversations/delete-conversations'
+import { deleteMessages } from '#/server/features/chat-conversations/delete-messages'
+import { readConversations } from '#/server/features/chat-conversations/read-conversations'
 import { upsertConversation } from '#/server/features/chat-conversations/upsert-conversation'
 import type { Conversation } from '#/types'
 
@@ -25,7 +26,7 @@ interface ChatConversationRepository {
 
 export const chatConversationRepository: ChatConversationRepository = {
   async read(databaseUrl: string, email: string): Promise<Conversation[] | null> {
-    return readConversation(databaseUrl, email)
+    return readConversations(databaseUrl, email)
   },
   async upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void> {
     await upsertConversation(databaseUrl, email, conversation)
@@ -47,6 +48,6 @@ export const chatConversationRepository: ChatConversationRepository = {
     failedMessageIds: string[]
     deletedConversationIds: string[]
   }> {
-    return deleteMessagesByIds(databaseUrl, email, messageIds)
+    return deleteMessages(databaseUrl, email, messageIds)
   },
 }
