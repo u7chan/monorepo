@@ -1,5 +1,5 @@
-import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import devServer from '@hono/vite-dev-server'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import { defineConfig } from 'vite'

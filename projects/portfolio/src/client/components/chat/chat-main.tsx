@@ -51,18 +51,13 @@ export function ChatMain({
   const { loading, stream, chatResults, cancelStream, resetChatResults, submitChatCompletion } = useStreamProcessor({
     onSubmitting,
   })
-  const {
-    scrollContainerRef,
-    bottomChatInputContainerRef,
-    messageEndRef,
-    handleScroll,
-    scrollToMessageEnd,
-  } = useMessageScroll({
-    loading,
-    streamMode: settings.streamMode,
-    stream,
-    chatResults,
-  })
+  const { scrollContainerRef, bottomChatInputContainerRef, messageEndRef, handleScroll, scrollToMessageEnd } =
+    useMessageScroll({
+      loading,
+      streamMode: settings.streamMode,
+      stream,
+      chatResults,
+    })
 
   useEffect(() => {
     setMessages([])
