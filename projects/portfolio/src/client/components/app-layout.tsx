@@ -18,7 +18,7 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   return (
-    <div className={'flex'}>
+    <div className={'flex h-screen overflow-hidden'}>
       {/* デスクトップサイドバー */}
       <div className='hidden md:flex h-screen w-16 flex-col justify-between border-r bg-gray-100 px-2 py-4 dark:border-gray-700 dark:bg-gray-800'>
         {/* メニューリスト */}
