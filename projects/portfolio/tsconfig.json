@@ -8,6 +8,7 @@
     "skipLibCheck": true, // node_modules を無視する設定と合わせてコレも必要
     "jsx": "react-jsx",
     "jsxImportSource": "react",
+    "types": ["node"],
     "paths": {
       "#/*": ["./src/*"]
     }
