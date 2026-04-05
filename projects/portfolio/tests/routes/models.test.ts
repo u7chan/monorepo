@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
 import { modelsRoutes } from '#/server/routes/models'
+import { describe, expect, it, vi } from 'vitest'
 
 describe('modelsRoutes', () => {
   it('必須 header がない場合は 400 を返す', async () => {

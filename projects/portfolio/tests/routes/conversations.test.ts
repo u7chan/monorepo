@@ -1,5 +1,5 @@
-import { createConversationFixture } from '../fixtures'
 import { describe, expect, it, vi } from 'vitest'
+import { createConversationFixture } from '../fixtures'
 
 const { getSignedCookieMock, repositoryMock } = vi.hoisted(() => ({
   getSignedCookieMock: vi.fn(),

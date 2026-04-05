@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
+import { describe, expect, it, vi } from 'vitest'
 
 describe('chatStub.completions', () => {
   it('completion の形で content を返す', async () => {
