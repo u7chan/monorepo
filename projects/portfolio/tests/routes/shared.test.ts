@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
-import type { HonoEnv } from './shared'
-import { getSignedInEmail } from './shared'
+import type { HonoEnv } from '#/server/routes/shared'
+import { getSignedInEmail } from '#/server/routes/shared'
 
 const { getSignedCookieMock, deleteCookieMock } = vi.hoisted(() => ({
   getSignedCookieMock: vi.fn(),

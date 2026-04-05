@@ -21,7 +21,7 @@ vi.mock('hono/cookie', async () => {
   }
 })
 
-import { authRoutes } from './auth'
+import { authRoutes } from '#/server/routes/auth'
 
 describe('authRoutes', () => {
   it('認証成功時に cookie を設定する', async () => {

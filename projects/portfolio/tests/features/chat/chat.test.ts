@@ -18,7 +18,7 @@ const importSubject = async () => {
     },
   }))
 
-  const { chat } = await import('./chat')
+  const { chat } = await import('#/server/features/chat/chat')
 
   return {
     chat,

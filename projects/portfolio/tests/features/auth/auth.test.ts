@@ -5,7 +5,7 @@ vi.mock('#/db', () => ({
 }))
 
 import { getDatabase } from '#/db'
-import { AuthenticationError, auth } from './auth'
+import { AuthenticationError, auth } from '#/server/features/auth/auth'
 
 const mockedGetDatabase = vi.mocked(getDatabase)
 

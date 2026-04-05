@@ -13,7 +13,7 @@ vi.mock('hono/cookie', async () => {
   }
 })
 
-import { htmlRoutes } from './html'
+import { htmlRoutes } from '#/server/routes/html'
 
 describe('htmlRoutes', () => {
   it('development では src 配下の asset を返す', async () => {

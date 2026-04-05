@@ -71,7 +71,7 @@ const importSubject = async (params: {
     },
   }))
 
-  const { deleteMessages } = await import('./delete-messages')
+  const { deleteMessages } = await import('#/server/features/chat-conversations/delete-messages')
   return { deleteMessages, deleteCalls }
 }
 

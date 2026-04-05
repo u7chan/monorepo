@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const importSubject = async () => {
-  vi.doMock('./routes/auth', () => {
+  vi.doMock('#/server/routes/auth', () => {
     class AuthenticationError extends Error {}
 
     const authRoutes = new Hono()
@@ -16,22 +16,22 @@ const importSubject = async () => {
       authRoutes,
     }
   })
-  vi.doMock('./routes/chat', () => ({
+  vi.doMock('#/server/routes/chat', () => ({
     chatRoutes: new Hono().get('/unknown-error', () => {
       throw new Error('boom')
     }),
   }))
-  vi.doMock('./routes/conversations', () => ({
+  vi.doMock('#/server/routes/conversations', () => ({
     conversationsRoutes: new Hono(),
   }))
-  vi.doMock('./routes/models', () => ({
+  vi.doMock('#/server/routes/models', () => ({
     modelsRoutes: new Hono(),
   }))
-  vi.doMock('./routes/html', () => ({
+  vi.doMock('#/server/routes/html', () => ({
     htmlRoutes: new Hono(),
   }))
 
-  const mod = await import('./app')
+  const mod = await import('#/server/app')
   return mod.default
 }
 
