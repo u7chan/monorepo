@@ -41,7 +41,7 @@ const importSubject = async () => {
     }
   })
 
-  const { chatRoutes } = await import('./chat')
+  const { chatRoutes } = await import('#/server/routes/chat')
 
   return {
     chatRoutes,

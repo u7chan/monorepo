@@ -12,13 +12,13 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    setupFiles: ['./src/server/test/setup.ts'],
-    include: ['src/server/**/*.test.{ts,tsx}'],
+    setupFiles: ['./tests/setup.ts'],
+    include: ['tests/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/server/**/*.{ts,tsx}'],
-      exclude: ['src/server/**/*.test.{ts,tsx}', 'src/server/app.d.ts', 'src/server/node-server.ts'],
+      exclude: ['src/server/app.d.ts', 'src/server/node-server.ts'],
       thresholds: {
         lines: 80,
         functions: 80,

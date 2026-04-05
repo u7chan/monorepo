@@ -1,5 +1,5 @@
+import { cookie, parseDurationToSeconds } from '#/server/features/cookie/cookie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cookie, parseDurationToSeconds } from './cookie'
 
 describe('parseDurationToSeconds', () => {
   it('日・時間・分・秒を秒に変換する', () => {

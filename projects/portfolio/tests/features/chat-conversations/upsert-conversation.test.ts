@@ -47,7 +47,7 @@ const importSubject = async (params: {
     uuidv7,
   }))
 
-  const { upsertConversation } = await import('./upsert-conversation')
+  const { upsertConversation } = await import('#/server/features/chat-conversations/upsert-conversation')
 
   return {
     upsertConversation,

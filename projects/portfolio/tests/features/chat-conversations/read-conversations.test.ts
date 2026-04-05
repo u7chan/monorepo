@@ -30,7 +30,7 @@ const importSubject = async (params: {
     getDatabase: vi.fn(() => db),
   }))
 
-  const { readConversations } = await import('./read-conversations')
+  const { readConversations } = await import('#/server/features/chat-conversations/read-conversations')
   return { readConversations }
 }
 

@@ -19,7 +19,7 @@ const importSubject = async () => {
     deleteMessages,
   }))
 
-  const { chatConversationRepository } = await import('./repository')
+  const { chatConversationRepository } = await import('#/server/features/chat-conversations/repository')
 
   return {
     chatConversationRepository,

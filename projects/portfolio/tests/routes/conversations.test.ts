@@ -1,5 +1,5 @@
-import { createConversationFixture } from '#/server/test/fixtures'
 import { describe, expect, it, vi } from 'vitest'
+import { createConversationFixture } from '../fixtures'
 
 const { getSignedCookieMock, repositoryMock } = vi.hoisted(() => ({
   getSignedCookieMock: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock('hono/cookie', async () => {
   }
 })
 
-import { conversationsRoutes } from './conversations'
+import { conversationsRoutes } from '#/server/routes/conversations'
 
 describe('conversationsRoutes', () => {
   it('未認証の GET は空配列を返す', async () => {
