@@ -1,10 +1,10 @@
 const ACTIVE_TOGGLE_CLASSES =
-	"'ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700'"
+  "'ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700'"
 
 export const toggleCreateFormScript = (
-	formId: string,
-	otherFormId: string,
-	otherButtonId: string,
+  formId: string,
+  otherFormId: string,
+  otherButtonId: string,
 ) => `
 	const form = document.getElementById('${formId}');
 	const otherForm = document.getElementById('${otherFormId}');
@@ -49,11 +49,17 @@ export const dropZoneDropScript = `
 `
 
 export const openUploadDialogScript =
-	"document.getElementById('drop-upload-input').click()"
+  "document.getElementById('drop-upload-input').click()"
+
+export const fileInputChangeScript =
+  "if (this.files.length > 0) htmx.trigger(document.getElementById('drop-upload-form'), 'submit')"
 
 export const stopPropagationScript = "event.stopPropagation()"
 
-export const renameButtonScript = (renameFormId: string, renameInputId: string) => `
+export const renameButtonScript = (
+  renameFormId: string,
+  renameInputId: string,
+) => `
 	event.stopPropagation();
 	const form = document.getElementById('${renameFormId}');
 	const input = document.getElementById('${renameInputId}');
