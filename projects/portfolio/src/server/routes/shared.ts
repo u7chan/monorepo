@@ -22,7 +22,9 @@ export const getSignedInEmail = async (c: Context<HonoEnv>) => {
   const email = await getSignedCookie(c, COOKIE_SECRET, COOKIE_NAME)
 
   if (!email) {
-    deleteCookie(c, COOKIE_NAME)
+    if (COOKIE_NAME) {
+      deleteCookie(c, COOKIE_NAME)
+    }
     return null
   }
 
