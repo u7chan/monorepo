@@ -6,14 +6,22 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pull-request-check-if-changes-detected:
     # Docker commands require ubuntu-latest, ubuntu-slim is not available
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # PRのベースブランチとの差分取得に必要な履歴深度
           # 50コミットあれば通常のPRの変更はカバーできる
