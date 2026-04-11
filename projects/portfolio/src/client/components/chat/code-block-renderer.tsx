@@ -111,16 +111,24 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
     setCopied(false)
   }
 
+  const headerBg = isDarkMode ? 'bg-[#282c34]' : 'bg-gray-100'
+  const textColor = isDarkMode ? 'text-gray-300' : 'text-gray-600'
+  const iconStroke = isDarkMode ? 'stroke-white' : 'stroke-gray-600'
+  const optionStyle = {
+    backgroundColor: isDarkMode ? '#282c34' : '#f3f4f6',
+    color: isDarkMode ? '#d1d5db' : '#4b5563',
+  }
+
   return (
     <>
-      <div className='flex items-center justify-between'>
+      <div className={`flex items-center justify-between px-2 py-1 ${headerBg}`}>
         <select
           value={selectedLanguage}
           onChange={(e) => setSelectedLanguage(e.target.value)}
-          className='cursor-pointer border-none bg-transparent text-xs text-white'
+          className={`cursor-pointer rounded border-none text-xs ${headerBg} ${textColor}`}
         >
           {languageOptions.map((lang) => (
-            <option key={lang} value={lang}>
+            <option key={lang} value={lang} style={optionStyle}>
               {lang}
             </option>
           ))}
@@ -133,13 +141,13 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
         >
           {copied ? (
             <>
-              <CheckIcon size={18} className='stroke-white' />
-              <span className='text-white text-xs'>コピーしました</span>
+              <CheckIcon size={18} className={iconStroke} />
+              <span className={`text-xs ${textColor}`}>コピーしました</span>
             </>
           ) : (
             <>
-              <CopyIcon size={18} className='stroke-white' />
-              <span className='text-white text-xs'>コピーする</span>
+              <CopyIcon size={18} className={iconStroke} />
+              <span className={`text-xs ${textColor}`}>コピーする</span>
             </>
           )}
         </button>
