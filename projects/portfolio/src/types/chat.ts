@@ -23,7 +23,7 @@ export const TextContentSchema = z.object({
 export type TextContent = z.infer<typeof TextContentSchema>
 
 // ============================================
-// メッセージ型（Zod スキーマ）
+// 共有ドメイン型 — UI state・会話保存の正本
 // ============================================
 
 export const UserMetadataSchema = z.object({
@@ -102,27 +102,54 @@ export const ConversationSchema = z.object({
 export type Conversation = z.infer<typeof ConversationSchema>
 
 // ============================================
-// API 通信用の内部型
+// /api/chat HTTP wire 型 — 送信時の変換先
 // ============================================
 
-/** API リクエスト用のメッセージ型 */
-export interface ChatMessageUser {
-  role: 'user'
-  content: string | Array<TextContent | ImageContent>
-}
+/** /api/chat に送るメッセージの wire スキーマ（metadata・reasoningContent は含まない） */
+export const ApiChatMessageSchema = z.discriminatedUnion('role', [
+  z.object({
+    role: z.literal('user'),
+    content: z.union([z.string().min(1), z.array(z.union([TextContentSchema, ImageContentSchema]))]),
+  }),
+  z.object({
+    role: z.literal('assistant'),
+    content: z.string().min(1),
+  }),
+  z.object({
+    role: z.literal('system'),
+    content: z.string().min(1),
+  }),
+])
 
-export interface ChatMessageAssistant {
-  role: 'assistant'
-  content: string
-  reasoning_content?: string // API 形式に合わせてスネークケース
-}
+export type ApiChatMessage = z.infer<typeof ApiChatMessageSchema>
 
-export interface ChatMessageSystem {
-  role: 'system'
-  content: string
-}
+/** /api/chat リクエスト本体の共有スキーマ */
+export const ApiChatRequestSchema = z.object({
+  messages: ApiChatMessageSchema.array(),
+  model: z.string().min(1),
+  stream: z.boolean().default(false),
+  temperature: z.number().min(0).max(1).optional(),
+  max_tokens: z.number().min(1).optional(),
+  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+  stream_options: z
+    .object({
+      include_usage: z.boolean().optional(),
+    })
+    .optional(),
+})
 
-export type ChatMessage = ChatMessageUser | ChatMessageAssistant | ChatMessageSystem
+export type ApiChatRequest = z.infer<typeof ApiChatRequestSchema>
+
+/** ドメイン Message → /api/chat wire メッセージへの変換 */
+export function toApiChatMessage(message: Message): ApiChatMessage {
+  if (message.role === 'user') {
+    return { role: 'user', content: message.content }
+  }
+  if (message.role === 'assistant') {
+    return { role: 'assistant', content: message.content }
+  }
+  return { role: 'system', content: message.content }
+}
 
 // ============================================
 // API レスポンス型

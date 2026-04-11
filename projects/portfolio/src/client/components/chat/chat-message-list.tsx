@@ -3,7 +3,7 @@ import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-b
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
-import type { ChatMessage } from '#/types'
+import type { Message } from '#/types'
 import { memo, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -15,7 +15,7 @@ const markdownComponents = {
 }
 
 interface ChatMessageListProps {
-  messages: ChatMessage[]
+  messages: Message[]
   markdownPreview: boolean
   loading: boolean
   stream: {
@@ -106,7 +106,7 @@ export function ChatMessageList({
 }
 
 interface MessageHistoryProps {
-  messages: ChatMessage[]
+  messages: Message[]
   markdownPreview: boolean
   copiedId: string
   disabled: boolean

@@ -1,65 +1,8 @@
+import type { ApiChatMessage } from '#/types'
 import OpenAI from 'openai'
-import type { Stream } from 'openai/streaming'
-import z from 'zod'
+import type { Completions, StreamChunk } from './transport'
 
-export type CompletionChunk = OpenAI.ChatCompletion & {
-  choices: {
-    message: {
-      reasoning_content?: string // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
-    }
-  }[]
-  usage?: {
-    completion_tokens_details?: {
-      reasoning_tokens: number // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
-    }
-  }
-}
-export type StreamCompletionChunk = OpenAI.ChatCompletionChunk & {
-  choices: {
-    delta: {
-      reasoning_content?: string // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
-    }
-  }[]
-  usage?: {
-    completion_tokens_details?: {
-      reasoning_tokens: number // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
-    }
-  }
-}
-export type StreamChunk = Stream<StreamCompletionChunk>
-type Completions = CompletionChunk | StreamChunk
-
-export const MessageSchema = z.union([
-  z.object({
-    role: z.enum(['system']),
-    content: z.string().min(1),
-  }),
-  z.object({
-    role: z.enum(['assistant']),
-    content: z.string().min(1),
-  }),
-  z.object({
-    role: z.enum(['user']),
-    content: z.union([
-      z.string().min(1),
-      z
-        .union([
-          z.object({
-            type: z.enum(['text']),
-            text: z.string().min(1),
-          }),
-          z.object({
-            type: z.enum(['image_url']),
-            image_url: z.object({
-              url: z.string().min(1),
-              detail: z.enum(['auto', 'low', 'high']).optional(),
-            }),
-          }),
-        ])
-        .array(),
-    ]),
-  }),
-])
+export type { CompletionChunk, StreamCompletionChunk, StreamChunk } from './transport'
 
 interface Chat {
   completions(
@@ -70,7 +13,7 @@ interface Chat {
     },
     params: {
       model: string
-      messages: z.infer<typeof MessageSchema>[]
+      messages: ApiChatMessage[]
       temperature?: number
       maxTokens?: number
       reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -101,7 +44,7 @@ export const chat: Chat = {
       includeUsage,
     }: {
       model: string
-      messages: z.infer<typeof MessageSchema>[]
+      messages: ApiChatMessage[]
       temperature?: number
       maxTokens?: number
       reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'

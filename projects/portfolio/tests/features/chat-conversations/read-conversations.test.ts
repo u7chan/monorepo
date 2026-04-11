@@ -95,7 +95,8 @@ describe('readConversations', () => {
             role: 'system',
             content: 'system',
             reasoningContent: '',
-            metadata: null,
+            // metadata が null の場合は undefined（SystemMessage.metadata は optional）
+            metadata: undefined,
           },
           {
             id: 'message-2',
@@ -112,5 +113,57 @@ describe('readConversations', () => {
         messages: [],
       },
     ])
+  })
+
+  it('配列 content（JSON 文字列）を deserialize して配列に戻す', async () => {
+    const { readConversations } = await importSubject({
+      users: [{ id: 'user-1', email: 'test@example.com' }],
+      rows: [
+        {
+          conversationId: 'conversation-1',
+          conversationTitle: 'Test',
+          conversationCreatedAt: new Date(),
+          messageId: 'message-1',
+          messageRole: 'user',
+          // 配列 content が JSON 文字列として保存されている
+          messageContent: JSON.stringify([
+            { type: 'text', text: 'hello' },
+            { type: 'image_url', image_url: { url: 'http://example.com/img.png' } },
+          ]),
+          messageReasoningContent: '',
+          messageMetadata: { model: 'gpt-test' },
+          messageCreatedAt: new Date(),
+        },
+      ],
+    })
+
+    const result = await readConversations('postgres://db', 'test@example.com')
+    expect(result?.[0].messages[0].content).toEqual([
+      { type: 'text', text: 'hello' },
+      { type: 'image_url', image_url: { url: 'http://example.com/img.png' } },
+    ])
+  })
+
+  it('legacy: metadata が文字列化 JSON の場合はパースして返す', async () => {
+    const { readConversations } = await importSubject({
+      users: [{ id: 'user-1', email: 'test@example.com' }],
+      rows: [
+        {
+          conversationId: 'conversation-1',
+          conversationTitle: 'Test',
+          conversationCreatedAt: new Date(),
+          messageId: 'message-1',
+          messageRole: 'user',
+          messageContent: 'hello',
+          messageReasoningContent: '',
+          // legacy: metadata が JSON 文字列として格納されているケース
+          messageMetadata: JSON.stringify({ model: 'gpt-test', stream: true }),
+          messageCreatedAt: new Date(),
+        },
+      ],
+    })
+
+    const result = await readConversations('postgres://db', 'test@example.com')
+    expect(result?.[0].messages[0].metadata).toEqual({ model: 'gpt-test', stream: true })
   })
 })
