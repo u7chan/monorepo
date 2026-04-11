@@ -6,7 +6,7 @@ import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scr
 import { useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
-import { ArrowUpIcon } from '#/client/components/svg/arrow-upIcon'
+import { ArrowUpIcon } from '#/client/components/svg/arrow-up-icon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
