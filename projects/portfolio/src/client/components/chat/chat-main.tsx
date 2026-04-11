@@ -103,8 +103,11 @@ export function ChatMain({
       }
 
       // 送信直後に user メッセージを state に追加（ドメイン型で保持）
+      // テンプレート初回送信時は systemMessage も先頭に含めて follow-up でも system prompt を維持する
       const nextMessages: Message[] =
-        messages.length === 0 ? [params.draftUserMessage] : [...messages, params.draftUserMessage]
+        messages.length === 0
+          ? [...(params.systemMessage ? [params.systemMessage] : []), params.draftUserMessage]
+          : [...messages, params.draftUserMessage]
       setMessages(nextMessages)
       resetAfterSubmit()
       resetChatResults()
@@ -203,7 +206,7 @@ export function ChatMain({
           const newMessages = [...prevMessages]
           newMessages.splice(index, 1)
           newMessages.splice(index, 1)
-          isConversationEmpty = newMessages.length <= 0
+          isConversationEmpty = newMessages.filter((m) => m.role !== 'system').length <= 0
           return newMessages
         })
         const deleteMessageIds = [
@@ -216,7 +219,7 @@ export function ChatMain({
     [currentConversation?.messages, onDeleteMessages]
   )
 
-  const emptyMessage = messages.length === 0
+  const emptyMessage = messages.filter((m) => m.role !== 'system').length === 0
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className='flex h-full min-h-0 flex-1 flex-col'>

@@ -23,6 +23,8 @@ interface BuiltChatMessages {
   apiMessages: ApiChatMessage[]
   /** 送信に使ったドメインメッセージ（state 更新用） */
   draftUserMessage: Message
+  /** テンプレート送信時の system message（state 保持用）。通常送信時は undefined */
+  systemMessage?: Message
 }
 
 export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
@@ -178,5 +180,6 @@ const createTemplateMessage = (
     model: templateInput.model || model,
     apiMessages,
     draftUserMessage,
+    systemMessage,
   }
 }
