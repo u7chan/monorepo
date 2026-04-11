@@ -10,7 +10,7 @@ import { ArrowUpIcon } from '#/client/components/svg/arrow-upIcon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
-import type { ChatMessage, Conversation } from '#/types'
+import type { Conversation, Message } from '#/types'
 import React, { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
 
@@ -34,7 +34,7 @@ export function ChatMain({
   const formRef = useRef<HTMLFormElement>(null)
 
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const {
     input,
     uploadImages,
@@ -71,22 +71,9 @@ export function ChatMain({
       return
     }
 
-    // 会話が選択された時、そのメッセージを設定
-    const convertedMessages: ChatMessage[] = currentConversation.messages.map((msg) => {
-      const base = {
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content,
-      }
-      if (msg.role === 'assistant') {
-        return {
-          ...base,
-          reasoning_content: msg.reasoningContent,
-        } as ChatMessage
-      }
-      return base as ChatMessage
-    })
+    // 会話が選択された時、そのメッセージをドメイン型のまま設定（変換不要）
     setConversationId(currentConversation.id)
-    setMessages(convertedMessages)
+    setMessages(currentConversation.messages)
     resetChatResults()
     setTimeout(() => {
       scrollToMessageEnd()
@@ -115,7 +102,9 @@ export function ChatMain({
         return
       }
 
-      setMessages(messages.length === 0 ? [...messages, ...params.messages] : params.messages)
+      // 送信直後に user メッセージを state に追加（ドメイン型で保持）
+      const nextMessages: Message[] = messages.length === 0 ? [params.draftUserMessage] : [...messages, params.draftUserMessage]
+      setMessages(nextMessages)
       resetAfterSubmit()
       resetChatResults()
 
@@ -126,47 +115,36 @@ export function ChatMain({
           mcpServerURLs: form.mcpServerURLs,
         },
         model: params.model,
-        messages: params.messages,
+        messages: params.apiMessages,
         streamMode: settings.streamMode,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
       }).then(({ result, responseTimeMs }) => {
-        const userInput = params.messages?.at(-1)?.content
-        const newConversationMessages = [
-          // TODO: append system message
-          {
-            role: 'user' as const,
-            content: typeof userInput === 'string' ? userInput : '',
-            reasoningContent: '',
-            metadata: {
-              model: params.model,
-              stream: settings.streamMode,
-              temperature: form.temperature,
-              maxTokens: form.maxTokens,
-            },
-          },
-          ...(result
-            ? [
-                {
-                  role: 'assistant' as const,
-                  content: result.message.content,
-                  reasoningContent: result.message.reasoningContent,
-                  metadata: {
-                    model: result.model,
-                    finishReason: result.finishReason,
-                    responseTimeMs: responseTimeMs,
-                    usage: {
-                      promptTokens: result.usage?.promptTokens || 0,
-                      completionTokens: result.usage?.completionTokens || 0,
-                      totalTokens: result.usage?.totalTokens || 0,
-                      reasoningTokens: result.usage?.reasoningTokens,
-                    },
-                  },
+        const userContent = params.draftUserMessage.content
+
+        // assistant メッセージを state に追加（ドメイン型で保持）
+        const assistantMessage: Message | null = result
+          ? {
+              role: 'assistant' as const,
+              content: result.message.content,
+              reasoningContent: result.message.reasoningContent,
+              metadata: {
+                model: result.model,
+                finishReason: result.finishReason,
+                responseTimeMs: responseTimeMs,
+                usage: {
+                  promptTokens: result.usage?.promptTokens || 0,
+                  completionTokens: result.usage?.completionTokens || 0,
+                  totalTokens: result.usage?.totalTokens || 0,
+                  reasoningTokens: result.usage?.reasoningTokens,
                 },
-              ]
-            : []),
-        ]
+              },
+            }
+          : null
+
+        const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
+        setMessages(finalMessages)
 
         // 会話IDが指定されていない場合は会話IDを新規作成
         const currentConversationId =
@@ -177,24 +155,12 @@ export function ChatMain({
             return newConversationId
           })()
 
-        // 親コンポーネントに更新されたメッセージを通知
+        // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
         onConversationChange?.({
           id: currentConversationId,
-          title: typeof userInput === 'string' ? userInput.slice(0, 10) : '',
-          messages: newConversationMessages,
+          title: typeof userContent === 'string' ? userContent.slice(0, 10) : '',
+          messages: finalMessages,
         })
-
-        if (result) {
-          const newMessages = [
-            ...(messages.length === 0 ? [...messages, ...params.messages] : params.messages),
-            {
-              role: 'assistant' as const,
-              content: result.message.content,
-              reasoning_content: result.message.reasoningContent,
-            },
-          ]
-          setMessages(newMessages)
-        }
       })
     },
     [

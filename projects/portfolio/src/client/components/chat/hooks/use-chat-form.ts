@@ -1,5 +1,6 @@
 import type { TemplateInput } from '#/client/components/chat/prompt-template'
-import type { ChatMessage, ChatMessageSystem, ChatMessageUser } from '#/types'
+import type { ApiChatMessage, Message } from '#/types'
+import { toApiChatMessage } from '#/types'
 import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
 
 const MIN_TEXT_LINE_COUNT = 2
@@ -12,13 +13,16 @@ interface UseChatFormParams {
 
 interface BuildChatMessagesParams {
   interactiveMode: boolean
-  messages: ChatMessage[]
+  messages: Message[]
   model: string
 }
 
 interface BuiltChatMessages {
   model: string
-  messages: ChatMessage[]
+  /** /api/chat wire 形式（metadata・reasoningContent を除いた送信用メッセージ） */
+  apiMessages: ApiChatMessage[]
+  /** 送信に使ったドメインメッセージ（state 更新用） */
+  draftUserMessage: Message
 }
 
 export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
@@ -114,13 +118,13 @@ const createMessage = (
     interactiveMode,
     messages,
     uploadImages,
-  }: { interactiveMode: boolean; messages: ChatMessage[]; uploadImages: string[] }
+  }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] }
 ): BuiltChatMessages | null => {
   if (!inputText) {
     return null
   }
 
-  const userMessage: ChatMessageUser = {
+  const draftUserMessage: Message = {
     role: 'user',
     content:
       uploadImages.length > 0
@@ -137,33 +141,46 @@ const createMessage = (
             })),
           ]
         : inputText,
+    reasoningContent: '',
+    metadata: { model },
   }
-  const newMessages: ChatMessage[] = [...messages, userMessage]
+
+  const allMessages: Message[] = [...messages, draftUserMessage]
+  const apiMessages: ApiChatMessage[] = (interactiveMode ? allMessages : [draftUserMessage]).map(toApiChatMessage)
 
   return {
     model,
-    messages: interactiveMode ? newMessages : [userMessage],
+    apiMessages,
+    draftUserMessage,
   }
 }
 
 const createTemplateMessage = (
   templateInput: TemplateInput,
   model: string,
-  { interactiveMode, messages }: { interactiveMode: boolean; messages: ChatMessage[] }
+  { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
 ): BuiltChatMessages => {
-  const userMessage: ChatMessageUser = {
+  const draftUserMessage: Message = {
     role: 'user',
     content: templateInput.content,
+    reasoningContent: '',
+    metadata: { model: templateInput.model || model },
   }
-  const systemMessage: ChatMessageSystem = {
+  const systemMessage: Message = {
     role: 'system',
     content: templateInput.prompt,
+    reasoningContent: '',
   }
-  const newMessages: ChatMessage[] =
-    messages.length === 0 && templateInput ? [systemMessage, userMessage] : [...messages, userMessage]
+
+  const allMessages: Message[] =
+    messages.length === 0 && templateInput ? [systemMessage, draftUserMessage] : [...messages, draftUserMessage]
+
+  const sendMessages: Message[] = interactiveMode ? allMessages : [systemMessage, draftUserMessage]
+  const apiMessages: ApiChatMessage[] = sendMessages.map(toApiChatMessage)
 
   return {
     model: templateInput.model || model,
-    messages: interactiveMode ? newMessages : [systemMessage, userMessage],
+    apiMessages,
+    draftUserMessage,
   }
 }

@@ -1,7 +1,41 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
-import type { Conversation } from '#/types'
+import type { AssistantMetadata, Conversation, ImageContent, Message, TextContent, UserMetadata } from '#/types'
 import { asc, desc, eq, sql } from 'drizzle-orm'
+
+/**
+ * DB から読み出した content 文字列を deserialize する。
+ * 配列として保存されている場合（先頭が "[" ）は JSON.parse して配列に戻す。
+ * legacy データや通常の文字列はそのまま返す。
+ */
+function deserializeContent(value: string): string | Array<TextContent | ImageContent> {
+  if (value.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) {
+        return parsed as Array<TextContent | ImageContent>
+      }
+    } catch {
+      // パース失敗は文字列として扱う
+    }
+  }
+  return value
+}
+
+/**
+ * DB から読み出した metadata を deserialize する。
+ * jsonb カラムだが、legacy データとして JSON 文字列が入っている場合に対応。
+ */
+function deserializeMetadata(value: unknown): unknown {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  return value
+}
 
 export async function readConversations(databaseUrl: string, email: string): Promise<Conversation[] | null> {
   const db = getDatabase(databaseUrl)
@@ -57,16 +91,65 @@ export async function readConversations(databaseUrl: string, email: string): Pro
     if (row.messageRole && row.messageContent !== null && row.messageReasoningContent !== null) {
       const conversation = conversationMap.get(row.conversationId)
       if (conversation) {
-        conversation.messages.push({
+        const message = buildMessage({
           id: row.messageId ?? '',
-          role: row.messageRole as 'user' | 'assistant' | 'system',
+          role: row.messageRole,
           content: row.messageContent,
           reasoningContent: row.messageReasoningContent,
-          metadata: row.messageMetadata as never,
+          metadata: deserializeMetadata(row.messageMetadata),
         })
+        if (message) {
+          conversation.messages.push(message)
+        }
       }
     }
   }
 
   return Array.from(conversationMap.values())
+}
+
+/**
+ * DB 行からドメイン Message を構築する。
+ * role ごとに分岐して discriminated union を満たす。
+ */
+function buildMessage(row: {
+  id: string
+  role: string
+  content: string
+  reasoningContent: string
+  metadata: unknown
+}): Message | null {
+  const content = deserializeContent(row.content)
+
+  if (row.role === 'user') {
+    return {
+      id: row.id,
+      role: 'user',
+      content,
+      reasoningContent: row.reasoningContent,
+      metadata: (row.metadata ?? {}) as UserMetadata,
+    }
+  }
+
+  if (row.role === 'assistant') {
+    return {
+      id: row.id,
+      role: 'assistant',
+      content: typeof content === 'string' ? content : '',
+      reasoningContent: row.reasoningContent || undefined,
+      metadata: (row.metadata ?? {}) as AssistantMetadata,
+    }
+  }
+
+  if (row.role === 'system') {
+    return {
+      id: row.id,
+      role: 'system',
+      content: typeof content === 'string' ? content : '',
+      reasoningContent: row.reasoningContent,
+      metadata: (row.metadata as Record<string, never> | undefined) ?? undefined,
+    }
+  }
+
+  return null
 }

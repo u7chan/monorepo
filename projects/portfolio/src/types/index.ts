@@ -9,6 +9,9 @@ export {
   AssistantMetadataSchema,
   ImageContentSchema,
   TextContentSchema,
+  // /api/chat wire schemas
+  ApiChatMessageSchema,
+  ApiChatRequestSchema,
   // Types
   type Conversation,
   type Message,
@@ -19,12 +22,13 @@ export {
   type AssistantMetadata,
   type ImageContent,
   type TextContent,
-  // API Types
-  type ChatMessage,
-  type ChatMessageUser,
-  type ChatMessageAssistant,
-  type ChatMessageSystem,
+  // /api/chat wire types
+  type ApiChatMessage,
+  type ApiChatRequest,
+  // API レスポンス型
   type ChatCompletionResult,
+  // Converters
+  toApiChatMessage,
   // Guards
   isUserMessage,
   isAssistantMessage,

@@ -108,7 +108,8 @@ describe('upsertConversation', () => {
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'hello' }]),
         reasoningContent: 'thinking',
-        metadata: JSON.stringify({ model: 'gpt-test' }),
+        // metadata は jsonb カラムにオブジェクトのまま渡す（JSON.stringify しない）
+        metadata: { model: 'gpt-test' },
       }),
     ])
     expect(uuidv7).toHaveBeenCalled()

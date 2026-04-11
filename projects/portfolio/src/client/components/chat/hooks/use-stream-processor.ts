@@ -1,5 +1,5 @@
 import type { AppType } from '#/server/app.d'
-import type { ChatCompletionResult, ChatMessage } from '#/types'
+import type { ApiChatMessage, ChatCompletionResult } from '#/types'
 import { hc } from 'hono/client'
 import { useCallback, useRef, useState } from 'react'
 
@@ -12,7 +12,8 @@ interface SubmitChatCompletionParams {
     mcpServerURLs: string
   }
   model: string
-  messages: ChatMessage[]
+  /** /api/chat wire 形式のメッセージ（toApiChatMessage で変換済み） */
+  messages: ApiChatMessage[]
   streamMode: boolean
   temperature?: number
   maxTokens?: number
@@ -122,7 +123,7 @@ const sendChatCompletion = async (req: {
     mcpServerURLs: string
   }
   model: string
-  messages: ChatMessage[]
+  messages: ApiChatMessage[]
   stream: boolean
   temperature?: number
   maxTokens?: number

@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import type { StreamChunk } from '#/server/features/chat/chat'
-import { chat, MessageSchema } from '#/server/features/chat/chat'
+import { chat } from '#/server/features/chat/chat'
+import { ApiChatRequestSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -17,32 +18,8 @@ const ChatHeaderSchema = z.object({
   'mcp-server-urls': z.string().optional(),
 })
 
-const ChatRequestSchema = z.object({
-  messages: MessageSchema.array(),
-  model: z.string().min(1),
-  stream: z.boolean().default(false),
-  temperature: z.number().min(0).max(1).optional(),
-  max_tokens: z.number().min(1).optional(),
-  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
-  stream_options: z
-    .object({
-      include_usage: z.boolean().optional(),
-    })
-    .optional(),
-})
-
-const StubChatRequestSchema = z.object({
-  messages: MessageSchema.array(),
-  model: z.string().min(1),
-  stream: z.boolean().default(false),
-  temperature: z.number().min(0).max(1).optional(),
-  max_tokens: z.number().min(1).optional(),
-  stream_options: z
-    .object({
-      include_usage: z.boolean().optional(),
-    })
-    .optional(),
-})
+// /api/chat stub endpoint 用スキーマ（reasoning_effort なし）
+const StubChatRequestSchema = ApiChatRequestSchema.omit({ reasoning_effort: true })
 
 const chatHeaderValidator = validator('header', (value, c) => {
   const parsed = ChatHeaderSchema.safeParse({
@@ -128,7 +105,7 @@ const streamStubCompletion = (
   })
 
 const chatRoutes = new Hono<HonoEnv>()
-  .post('/api/chat', chatHeaderValidator, sValidator('json', ChatRequestSchema), async (c) => {
+  .post('/api/chat', chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
 

@@ -4,6 +4,14 @@ import type { Conversation } from '#/types'
 import { eq } from 'drizzle-orm'
 import { uuidv7 } from 'uuidv7'
 
+/**
+ * content を DB 保存用に serialize する。
+ * 文字列の場合はそのまま、配列の場合は JSON 文字列に変換する。
+ */
+function serializeContent(content: string | unknown[]): string {
+  return typeof content === 'string' ? content : JSON.stringify(content)
+}
+
 export async function upsertConversation(databaseUrl: string, email: string, { id, title, messages }: Conversation) {
   const db = getDatabase(databaseUrl)
 
@@ -40,9 +48,10 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
       id: uuidv7(),
       conversationId: id,
       role: message.role,
-      content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
+      content: serializeContent(message.content),
       reasoningContent: message.reasoningContent ?? '',
-      metadata: message.metadata ? JSON.stringify(message.metadata) : null,
+      // metadata は jsonb カラムにオブジェクトのまま渡す（JSON.stringify は不要）
+      metadata: message.metadata ?? null,
       createdAt: now,
     }))
 

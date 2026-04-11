@@ -3,7 +3,7 @@ import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
-import type { ChatMessage } from '#/types'
+import type { Message } from '#/types'
 import { isImageContentArray } from '#/types'
 import { Fragment, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
@@ -16,7 +16,7 @@ const markdownComponents = {
 }
 
 interface MessageRendererProps {
-  message: ChatMessage
+  message: Message
   index: number
   markdownPreview: boolean
   copied: boolean
@@ -83,9 +83,9 @@ function MessageRendererComponent({
         <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
       </div>
       <div className='message group ml-2 text-left'>
-        {message.reasoning_content && (
+        {message.reasoningContent && (
           <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
-            {message.reasoning_content}
+            {message.reasoningContent}
           </div>
         )}
         {markdownPreview ? (
