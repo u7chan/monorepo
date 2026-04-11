@@ -1,14 +1,10 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
-import { type ChangeEvent } from 'react'
+import { useChatSettingsContext } from '../chat-settings-context'
 
-interface Props {
-  reasoningEffort: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-  reasoningEffortEnabled: boolean
-  onChange: (event: ChangeEvent<HTMLSelectElement>) => void
-  onToggle: () => void
-}
+export function ReasoningEffort() {
+  const { reasoningEffort, reasoningEffortEnabled, handleChangeReasoningEffort, handleToggleReasoningEffort } =
+    useChatSettingsContext()
 
-export function ReasoningEffort({ reasoningEffort, reasoningEffortEnabled, onChange, onToggle }: Props) {
   return (
     <div className='space-y-2'>
       <label
@@ -22,7 +18,7 @@ export function ReasoningEffort({ reasoningEffort, reasoningEffortEnabled, onCha
         <select
           name='reasoningEffort'
           value={reasoningEffort}
-          onChange={onChange}
+          onChange={handleChangeReasoningEffort}
           disabled={!reasoningEffortEnabled}
           className={`flex-1 rounded-md border px-3 py-2 text-sm outline-none ${
             reasoningEffortEnabled
@@ -37,7 +33,7 @@ export function ReasoningEffort({ reasoningEffort, reasoningEffortEnabled, onCha
           <option value='high'>high</option>
           <option value='xhigh'>xhigh</option>
         </select>
-        <ToggleInput value={reasoningEffortEnabled} onClick={onToggle} />
+        <ToggleInput value={reasoningEffortEnabled} onClick={handleToggleReasoningEffort} />
       </div>
     </div>
   )
