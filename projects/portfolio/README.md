@@ -88,6 +88,8 @@
 
 ## Database Migration
 
+- In Dev Containers, `psql` is available via `postgresql-client`.
+
 - Schema creation (only during the initial setup):
 
   ```sh
