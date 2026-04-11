@@ -1,4 +1,5 @@
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
+import { useDarkMode } from '#/client/hooks/use-dark-mode'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import type { AnchorHTMLAttributes, HTMLAttributes, MouseEvent, ReactNode } from 'react'
@@ -78,7 +79,7 @@ type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
 }
 
 export function CodeBlockRenderer({ className, children }: CodeBlockRendererProps) {
-  const isDarkMode = document.documentElement.classList.contains('dark')
+  const isDarkMode = useDarkMode()
   const [copied, setCopied] = useState(false)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
