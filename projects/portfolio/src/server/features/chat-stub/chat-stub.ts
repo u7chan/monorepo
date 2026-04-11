@@ -15,6 +15,9 @@ interface ChatStub {
   }): Promise<void>
 }
 
+const STREAM_CHUNK_SIZE = 5
+const STUB_REPEAT_COUNT = 3
+
 export const chatStub: ChatStub = {
   async completions(model: string, content: string): Promise<CompletionChunk> {
     return {
@@ -75,16 +78,14 @@ export const chatStub: ChatStub = {
       ],
       usage: null,
     }
-    const chunkSize = 5
-    const repeatCount = 3
     const contentList = [
-      `これからストリームで返すデータは ${repeatCount} 回繰り返します 🚀`,
+      `これからストリームで返すデータは ${STUB_REPEAT_COUNT} 回繰り返します 🚀`,
       '\n\n',
-      ...splitByLength(content.repeat(repeatCount), chunkSize),
+      ...splitByLength(content.repeat(STUB_REPEAT_COUNT), STREAM_CHUNK_SIZE),
       'ストリームの終端です 🚀',
     ]
     const chunkList = [
-      ...splitByLength(reasoningContent, chunkSize).map((text) => ({
+      ...splitByLength(reasoningContent, STREAM_CHUNK_SIZE).map((text) => ({
         content: undefined,
         reasoning_content: text,
       })),
