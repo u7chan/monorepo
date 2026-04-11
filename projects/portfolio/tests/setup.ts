@@ -1,6 +1,6 @@
 import { afterEach, vi } from 'vitest'
 
-afterEach(  () => {
+afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
