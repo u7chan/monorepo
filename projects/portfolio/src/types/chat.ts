@@ -26,12 +26,14 @@ export type TextContent = z.infer<typeof TextContentSchema>
 // 共有ドメイン型 — UI state・会話保存の正本
 // ============================================
 
-export const UserMetadataSchema = z.object({
-  model: z.string().catch(''),
-  stream: z.boolean().optional(),
-  temperature: z.number().optional(),
-  maxTokens: z.number().optional(),
-}).catch({ model: '' })
+export const UserMetadataSchema = z
+  .object({
+    model: z.string().catch(''),
+    stream: z.boolean().optional(),
+    temperature: z.number().optional(),
+    maxTokens: z.number().optional(),
+  })
+  .catch({ model: '' })
 
 export type UserMetadata = z.infer<typeof UserMetadataSchema>
 
@@ -46,19 +48,21 @@ export const UserMessageSchema = z.object({
 
 export type UserMessage = z.infer<typeof UserMessageSchema>
 
-export const AssistantMetadataSchema = z.object({
-  model: z.string().catch(''),
-  finishReason: z.string().optional(),
-  responseTimeMs: z.number().optional(),
-  usage: z
-    .object({
-      completionTokens: z.number().optional(),
-      promptTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    })
-    .catch({}),
-}).catch({ model: '', usage: {} })
+export const AssistantMetadataSchema = z
+  .object({
+    model: z.string().catch(''),
+    finishReason: z.string().optional(),
+    responseTimeMs: z.number().optional(),
+    usage: z
+      .object({
+        completionTokens: z.number().optional(),
+        promptTokens: z.number().optional(),
+        totalTokens: z.number().optional(),
+        reasoningTokens: z.number().optional(),
+      })
+      .catch({}),
+  })
+  .catch({ model: '', usage: {} })
 
 export type AssistantMetadata = z.infer<typeof AssistantMetadataSchema>
 
