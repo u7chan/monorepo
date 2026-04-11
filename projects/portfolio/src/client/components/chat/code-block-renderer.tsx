@@ -28,6 +28,51 @@ export function MarkdownLink({ href, children }: MarkdownLinkProps) {
   )
 }
 
+const SUPPORTED_LANGUAGES = [
+  'plain',
+  'bash',
+  'c',
+  'cpp',
+  'csharp',
+  'css',
+  'dart',
+  'diff',
+  'docker',
+  'elixir',
+  'erlang',
+  'go',
+  'graphql',
+  'http',
+  'java',
+  'javascript',
+  'json',
+  'jsx',
+  'kotlin',
+  'lua',
+  'makefile',
+  'markup',
+  'markdown',
+  'nginx',
+  'objectivec',
+  'perl',
+  'php',
+  'powershell',
+  'python',
+  'r',
+  'ruby',
+  'rust',
+  'scala',
+  'scss',
+  'sql',
+  'swift',
+  'toml',
+  'tsx',
+  'typescript',
+  'vim',
+  'yaml',
+  'zig',
+]
+
 type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
   children?: ReactNode | string
 }
@@ -35,12 +80,25 @@ type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
 export function CodeBlockRenderer({ className, children }: CodeBlockRendererProps) {
   const isDarkMode = document.documentElement.classList.contains('dark')
   const [copied, setCopied] = useState(false)
-  const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
-  const language = className?.split('-')[1]
 
-  if (typeof children !== 'string' || !language) {
-    return <code>{children}</code>
+  const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
+  const detectedLanguage = className?.split('-')[1]
+  const initialLanguage = detectedLanguage ?? 'plain'
+
+  const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage)
+
+  // Block code: has a language identifier OR children contains newlines
+  // (react-markdown adds a trailing \n to fenced code blocks)
+  const isBlock = detectedLanguage !== undefined || (typeof children === 'string' && code.includes('\n'))
+
+  if (!isBlock || typeof children !== 'string') {
+    return <code className={className}>{children}</code>
   }
+
+  // Include detected language in options even if not in the standard list
+  const languageOptions = SUPPORTED_LANGUAGES.includes(initialLanguage)
+    ? SUPPORTED_LANGUAGES
+    : [initialLanguage, ...SUPPORTED_LANGUAGES]
 
   const handleClickCopy = async () => {
     setCopied(true)
@@ -55,7 +113,18 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
 
   return (
     <>
-      <div className='flex justify-end'>
+      <div className='flex items-center justify-between'>
+        <select
+          value={selectedLanguage}
+          onChange={(e) => setSelectedLanguage(e.target.value)}
+          className='cursor-pointer border-none bg-transparent text-xs text-white'
+        >
+          {languageOptions.map((lang) => (
+            <option key={lang} value={lang}>
+              {lang}
+            </option>
+          ))}
+        </select>
         <button
           type='button'
           onClick={handleClickCopy}
@@ -75,7 +144,10 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
           )}
         </button>
       </div>
-      <SyntaxHighlighter style={isDarkMode ? atomDark : undefined} language={language}>
+      <SyntaxHighlighter
+        style={isDarkMode ? atomDark : undefined}
+        language={selectedLanguage === 'plain' ? undefined : selectedLanguage}
+      >
         {code}
       </SyntaxHighlighter>
     </>
