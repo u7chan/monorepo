@@ -15,6 +15,23 @@ vi.mock('crypto-js', () => ({
 
 const STORAGE_KEY = 'portfolio.chat-settings'
 
+const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => {
+  const store = new Map(Object.entries(initialEntries))
+
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, value)
+    },
+    removeItem: (key: string) => {
+      store.delete(key)
+    },
+    clear: () => {
+      store.clear()
+    },
+  }
+}
+
 const defaultSettings = {
   schemaVersion: '1.0.0',
   model: 'gpt-4.1-mini',
@@ -36,7 +53,7 @@ const defaultSettings = {
 
 describe('useLocalStorageSettings', () => {
   beforeEach(() => {
-    localStorage.clear()
+    vi.stubGlobal('localStorage', createLocalStorageMock())
     vi.resetModules()
   })
 
