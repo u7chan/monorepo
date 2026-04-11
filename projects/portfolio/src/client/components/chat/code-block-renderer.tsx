@@ -111,24 +111,23 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
     setCopied(false)
   }
 
-  const headerBg = isDarkMode ? 'bg-[#282c34]' : 'bg-gray-100'
-  const textColor = isDarkMode ? 'text-gray-300' : 'text-gray-600'
-  const iconStroke = isDarkMode ? 'stroke-white' : 'stroke-gray-600'
-  const optionStyle = {
-    backgroundColor: isDarkMode ? '#282c34' : '#f3f4f6',
+  const selectOptionStyle = {
+    backgroundColor: isDarkMode ? '#282c34' : '#ffffff',
     color: isDarkMode ? '#d1d5db' : '#4b5563',
   }
 
   return (
     <>
-      <div className={`flex items-center justify-between px-2 py-1 ${headerBg}`}>
+      <div className='flex items-center justify-between'>
         <select
           value={selectedLanguage}
           onChange={(e) => setSelectedLanguage(e.target.value)}
-          className={`cursor-pointer rounded border-none text-xs ${headerBg} ${textColor}`}
+          className={`cursor-pointer rounded border-none text-xs ${
+            isDarkMode ? 'bg-[#282c34] text-gray-300' : 'bg-white text-gray-600'
+          }`}
         >
           {languageOptions.map((lang) => (
-            <option key={lang} value={lang} style={optionStyle}>
+            <option key={lang} value={lang} style={selectOptionStyle}>
               {lang}
             </option>
           ))}
@@ -141,13 +140,13 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
         >
           {copied ? (
             <>
-              <CheckIcon size={18} className={iconStroke} />
-              <span className={`text-xs ${textColor}`}>コピーしました</span>
+              <CheckIcon size={18} className='stroke-white' />
+              <span className='text-white text-xs'>コピーしました</span>
             </>
           ) : (
             <>
-              <CopyIcon size={18} className={iconStroke} />
-              <span className={`text-xs ${textColor}`}>コピーする</span>
+              <CopyIcon size={18} className='stroke-white' />
+              <span className='text-white text-xs'>コピーする</span>
             </>
           )}
         </button>
