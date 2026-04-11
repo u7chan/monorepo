@@ -26,12 +26,14 @@ export type TextContent = z.infer<typeof TextContentSchema>
 // 共有ドメイン型 — UI state・会話保存の正本
 // ============================================
 
-export const UserMetadataSchema = z.object({
-  model: z.string(),
-  stream: z.boolean().optional(),
-  temperature: z.number().optional(),
-  maxTokens: z.number().optional(),
-})
+export const UserMetadataSchema = z
+  .object({
+    model: z.string().catch(''),
+    stream: z.boolean().optional(),
+    temperature: z.number().optional(),
+    maxTokens: z.number().optional(),
+  })
+  .catch({ model: '' })
 
 export type UserMetadata = z.infer<typeof UserMetadataSchema>
 
@@ -46,17 +48,21 @@ export const UserMessageSchema = z.object({
 
 export type UserMessage = z.infer<typeof UserMessageSchema>
 
-export const AssistantMetadataSchema = z.object({
-  model: z.string(),
-  finishReason: z.string().optional(),
-  responseTimeMs: z.number().optional(),
-  usage: z.object({
-    completionTokens: z.number().optional(),
-    promptTokens: z.number().optional(),
-    totalTokens: z.number().optional(),
-    reasoningTokens: z.number().optional(),
-  }),
-})
+export const AssistantMetadataSchema = z
+  .object({
+    model: z.string().catch(''),
+    finishReason: z.string().optional(),
+    responseTimeMs: z.number().optional(),
+    usage: z
+      .object({
+        completionTokens: z.number().optional(),
+        promptTokens: z.number().optional(),
+        totalTokens: z.number().optional(),
+        reasoningTokens: z.number().optional(),
+      })
+      .catch({}),
+  })
+  .catch({ model: '', usage: {} })
 
 export type AssistantMetadata = z.infer<typeof AssistantMetadataSchema>
 
@@ -100,6 +106,12 @@ export const ConversationSchema = z.object({
 })
 
 export type Conversation = z.infer<typeof ConversationSchema>
+
+export const ConversationListResponseSchema = z.object({
+  data: z.array(ConversationSchema),
+})
+
+export type ConversationListResponse = z.infer<typeof ConversationListResponseSchema>
 
 // ============================================
 // /api/chat HTTP wire 型 — 送信時の変換先
@@ -154,6 +166,69 @@ export function toApiChatMessage(message: Message): ApiChatMessage {
 // ============================================
 // API レスポンス型
 // ============================================
+
+const ApiUsageSchema = z
+  .object({
+    prompt_tokens: z.number(),
+    completion_tokens: z.number(),
+    total_tokens: z.number(),
+    reasoning_tokens: z.number().optional(),
+    completion_tokens_details: z
+      .object({
+        reasoning_tokens: z.number().optional(),
+      })
+      .optional(),
+  })
+  .nullable()
+
+export const ChatCompletionResponseSchema = z.object({
+  choices: z.array(
+    z.object({
+      message: z.object({
+        content: z.string().nullable(),
+        reasoning_content: z.string().optional(),
+      }),
+      finish_reason: z.string().nullable().optional(),
+    })
+  ),
+  model: z.string().optional(),
+  usage: ApiUsageSchema.optional(),
+})
+
+export type ChatCompletionResponse = z.infer<typeof ChatCompletionResponseSchema>
+
+export const ChatCompletionStreamChunkSchema = z.object({
+  choices: z.array(
+    z.object({
+      delta: z.object({
+        content: z.string().optional(),
+        reasoning_content: z.string().optional(),
+      }),
+      finish_reason: z.string().nullable().optional(),
+    })
+  ),
+  model: z.string().optional(),
+  usage: ApiUsageSchema.optional(),
+})
+
+export type ChatCompletionStreamChunk = z.infer<typeof ChatCompletionStreamChunkSchema>
+
+export interface ChatStreamState {
+  content: string
+  reasoning_content?: string
+}
+
+export interface ChatResultSummary {
+  model?: string
+  finish_reason: string
+  responseTimeMs?: number
+  usage: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    reasoningTokens?: number
+  } | null
+}
 
 export interface ChatCompletionResult {
   model: string

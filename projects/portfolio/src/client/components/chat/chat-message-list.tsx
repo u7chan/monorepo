@@ -3,7 +3,7 @@ import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-b
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
-import type { Message } from '#/types'
+import type { ChatResultSummary, ChatStreamState, Message } from '#/types'
 import { memo, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -18,20 +18,8 @@ interface ChatMessageListProps {
   messages: Message[]
   markdownPreview: boolean
   loading: boolean
-  stream: {
-    content: string
-    reasoning_content?: string
-  } | null
-  chatResults: {
-    model?: string
-    finish_reason: string
-    responseTimeMs?: number
-    usage?: {
-      promptTokens: number
-      completionTokens: number
-      totalTokens: number
-    } | null
-  } | null
+  stream: ChatStreamState | null
+  chatResults: ChatResultSummary | null
   copiedId: string
   messageEndRef: RefObject<HTMLDivElement | null>
   onCopyMessage: (message: string, index: number) => void

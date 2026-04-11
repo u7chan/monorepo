@@ -1,13 +1,11 @@
+import type { ChatResultSummary } from '#/types'
 import { memo } from 'react'
 
 interface ChatResultsProps {
-  model?: string
+  model?: ChatResultSummary['model']
   finishReason?: string
-  responseTimeMs?: number
-  usage?: {
-    promptTokens?: number
-    completionTokens?: number
-  } | null
+  responseTimeMs?: ChatResultSummary['responseTimeMs']
+  usage?: ChatResultSummary['usage']
 }
 
 function formatResponseTime(ms: number): string {
