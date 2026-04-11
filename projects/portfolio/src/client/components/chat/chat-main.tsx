@@ -12,6 +12,8 @@ import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { Conversation, Message } from '#/types'
 import React, { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+const CONVERSATION_TITLE_MAX_LENGTH = 10
 import { uuidv7 } from 'uuidv7'
 
 interface Props {
@@ -162,7 +164,7 @@ export function ChatMain({
         // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
         onConversationChange?.({
           id: currentConversationId,
-          title: typeof userContent === 'string' ? userContent.slice(0, 10) : '',
+          title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
           messages: finalMessages,
         })
       })
