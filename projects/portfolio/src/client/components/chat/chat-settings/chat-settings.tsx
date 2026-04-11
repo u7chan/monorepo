@@ -2,6 +2,7 @@ import { GearIcon } from '#/client/components/svg/gear-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
 import { SidebarIcon } from '#/client/components/svg/sidebar-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
+import { ChatSettingsProvider } from './chat-settings-context'
 import { ChatSettingsForm } from './chat-settings-form'
 import { ChatSettingsPanel } from './chat-settings-panel'
 import { useChatSettings } from './hooks/use-chat-settings'
@@ -29,36 +30,7 @@ export function ChatSettings({
   onChange,
   onHidePopup,
 }: Props) {
-  const {
-    settings,
-    fetchedModels,
-    isLoadingModels,
-    fetchError,
-    temperature,
-    temperatureEnabled,
-    autoModel,
-    fakeMode,
-    markdownPreview,
-    streamMode,
-    interactiveMode,
-    reasoningEffort,
-    reasoningEffortEnabled,
-    handleChangeAutoModel,
-    handleChangeManualModel,
-    handleChangeBaseURL,
-    handleChangeApiKey,
-    handleChangeMcpServerURLs,
-    handleChangeTemperature,
-    handleChangeMaxTokens,
-    handleToggleTemperature,
-    handleToggleAutoModel,
-    handleToggleFakeMode,
-    handleToggleMarkdownPreview,
-    handleToggleStreamMode,
-    handleToggleInteractiveMode,
-    handleToggleReasoningEffort,
-    handleChangeReasoningEffort,
-  } = useChatSettings({ showPopup, onChange })
+  const contextValue = useChatSettings({ showPopup, onChange })
 
   return (
     <>
@@ -93,45 +65,18 @@ export function ChatSettings({
               <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
             </button>
             <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>
-              {fakeMode ? 'Fake Mode' : settings.model}
+              {contextValue.fakeMode ? 'Fake Mode' : contextValue.settings.model}
             </span>
           </div>
         )}
       </div>
 
       {/* Settings Panel */}
-      <ChatSettingsPanel show={showPopup ?? false} onClose={onHidePopup ?? (() => {})}>
-        <ChatSettingsForm
-          settings={settings}
-          fetchedModels={fetchedModels}
-          isLoadingModels={isLoadingModels}
-          fetchError={fetchError}
-          temperature={temperature}
-          temperatureEnabled={temperatureEnabled}
-          autoModel={autoModel}
-          fakeMode={fakeMode}
-          markdownPreview={markdownPreview}
-          streamMode={streamMode}
-          interactiveMode={interactiveMode}
-          reasoningEffort={reasoningEffort}
-          reasoningEffortEnabled={reasoningEffortEnabled}
-          onChangeAutoModel={handleChangeAutoModel}
-          onChangeManualModel={handleChangeManualModel}
-          onChangeBaseURL={handleChangeBaseURL}
-          onChangeApiKey={handleChangeApiKey}
-          onChangeMcpServerURLs={handleChangeMcpServerURLs}
-          onChangeTemperature={handleChangeTemperature}
-          onChangeMaxTokens={handleChangeMaxTokens}
-          onToggleTemperature={handleToggleTemperature}
-          onToggleAutoModel={handleToggleAutoModel}
-          onToggleFakeMode={handleToggleFakeMode}
-          onToggleMarkdownPreview={handleToggleMarkdownPreview}
-          onToggleStreamMode={handleToggleStreamMode}
-          onToggleInteractiveMode={handleToggleInteractiveMode}
-          onToggleReasoningEffort={handleToggleReasoningEffort}
-          onChangeReasoningEffort={handleChangeReasoningEffort}
-        />
-      </ChatSettingsPanel>
+      <ChatSettingsProvider value={contextValue}>
+        <ChatSettingsPanel show={showPopup ?? false} onClose={onHidePopup ?? (() => {})}>
+          <ChatSettingsForm />
+        </ChatSettingsPanel>
+      </ChatSettingsProvider>
     </>
   )
 }

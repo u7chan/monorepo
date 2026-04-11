@@ -1,14 +1,9 @@
 import { ToggleInput } from '#/client/components/input/toggle-input'
-import { type ChangeEvent } from 'react'
+import { useChatSettingsContext } from '../chat-settings-context'
 
-interface Props {
-  temperature: number
-  temperatureEnabled: boolean
-  onChange: (event: ChangeEvent<HTMLInputElement>) => void
-  onToggle: () => void
-}
+export function TemperatureSlider() {
+  const { temperature, temperatureEnabled, handleChangeTemperature, handleToggleTemperature } = useChatSettingsContext()
 
-export function TemperatureSlider({ temperature, temperatureEnabled, onChange, onToggle }: Props) {
   return (
     <div className='space-y-2'>
       <div className='flex items-center justify-between'>
@@ -31,13 +26,13 @@ export function TemperatureSlider({ temperature, temperatureEnabled, onChange, o
           max='1'
           step='0.01'
           value={temperature}
-          onChange={onChange}
+          onChange={handleChangeTemperature}
           disabled={!temperatureEnabled}
           className={`h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-primary-400 accent-primary-800 dark:bg-primary-600 dark:accent-primary-500 ${
             temperatureEnabled ? '' : 'cursor-not-allowed opacity-50'
           }`}
         />
-        <ToggleInput value={temperatureEnabled} onClick={onToggle} />
+        <ToggleInput value={temperatureEnabled} onClick={handleToggleTemperature} />
       </div>
     </div>
   )
