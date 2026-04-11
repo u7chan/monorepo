@@ -114,11 +114,7 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
 const createMessage = (
   inputText: string,
   model: string,
-  {
-    interactiveMode,
-    messages,
-    uploadImages,
-  }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] }
+  { interactiveMode, messages, uploadImages }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] }
 ): BuiltChatMessages | null => {
   if (!inputText) {
     return null

@@ -103,7 +103,8 @@ export function ChatMain({
       }
 
       // 送信直後に user メッセージを state に追加（ドメイン型で保持）
-      const nextMessages: Message[] = messages.length === 0 ? [params.draftUserMessage] : [...messages, params.draftUserMessage]
+      const nextMessages: Message[] =
+        messages.length === 0 ? [params.draftUserMessage] : [...messages, params.draftUserMessage]
       setMessages(nextMessages)
       resetAfterSubmit()
       resetChatResults()

@@ -126,7 +126,10 @@ describe('readConversations', () => {
           messageId: 'message-1',
           messageRole: 'user',
           // 配列 content が JSON 文字列として保存されている
-          messageContent: JSON.stringify([{ type: 'text', text: 'hello' }, { type: 'image_url', image_url: { url: 'http://example.com/img.png' } }]),
+          messageContent: JSON.stringify([
+            { type: 'text', text: 'hello' },
+            { type: 'image_url', image_url: { url: 'http://example.com/img.png' } },
+          ]),
           messageReasoningContent: '',
           messageMetadata: { model: 'gpt-test' },
           messageCreatedAt: new Date(),
