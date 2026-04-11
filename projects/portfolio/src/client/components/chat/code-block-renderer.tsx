@@ -1,7 +1,7 @@
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
-import { useDarkMode } from '#/client/hooks/use-dark-mode'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
+import { useDarkMode } from '#/client/hooks/use-dark-mode'
 import type { AnchorHTMLAttributes, HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
