@@ -55,6 +55,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 COPY . .
 
 RUN bun install --frozen-lockfile \
+  && bun run format:check \
   && bun run lint \
   && bun run test:coverage \
   && bun run typegen \
