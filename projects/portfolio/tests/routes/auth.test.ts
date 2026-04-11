@@ -1,14 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const { loginMock, setSignedCookieMock } = vi.hoisted(() => ({
+const { loginMock, logoutMock, setSignedCookieMock, deleteCookieMock } = vi.hoisted(() => ({
   loginMock: vi.fn(),
+  logoutMock: vi.fn(),
   setSignedCookieMock: vi.fn(),
+  deleteCookieMock: vi.fn(),
 }))
 
 vi.mock('#/server/features/auth/auth', () => ({
   AuthenticationError: class AuthenticationError extends Error {},
   auth: {
     login: loginMock,
+    logout: logoutMock,
   },
 }))
 
@@ -18,6 +21,7 @@ vi.mock('hono/cookie', async () => {
   return {
     ...actual,
     setSignedCookie: setSignedCookieMock,
+    deleteCookie: deleteCookieMock,
   }
 })
 
@@ -52,6 +56,18 @@ describe('authRoutes', () => {
         maxAge: 86400,
       })
     )
+  })
+
+  it('signout で cookie を削除する', async () => {
+    vi.stubEnv('COOKIE_NAME', 'session')
+
+    const res = await authRoutes.request('/api/signout', {
+      method: 'POST',
+    })
+
+    expect(res.status).toBe(200)
+    expect(logoutMock).toHaveBeenCalled()
+    expect(deleteCookieMock).toHaveBeenCalledWith(expect.anything(), 'session', { path: '/' })
   })
 
   it('不正な body は 400 を返す', async () => {

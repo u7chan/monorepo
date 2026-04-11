@@ -57,15 +57,20 @@ export function ChatSettingsForm() {
             onChange={handleChangeBaseURL}
           />
 
-          <TextInput
-            name='apiKey'
-            label='API Key'
-            type='password'
-            defaultValue={settings.apiKey}
-            placeholder='Enter your API key'
-            disabled={fakeMode}
-            onChange={handleChangeApiKey}
-          />
+          <div className='space-y-2'>
+            <TextInput
+              name='apiKey'
+              label='API Key'
+              type='password'
+              defaultValue={settings.apiKey}
+              placeholder='Enter your API key'
+              disabled={fakeMode}
+              onChange={handleChangeApiKey}
+            />
+            <p className='text-xs text-gray-500 dark:text-gray-400'>
+              API Key はブラウザの localStorage に保存されます。秘匿ストアではありません。
+            </p>
+          </div>
 
           <TextInput
             name='mcpServerURLs'

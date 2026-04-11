@@ -15,6 +15,13 @@
       "when": 1750518377202,
       "tag": "0001_many_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775922883832,
+      "tag": "0002_ambitious_gorgon",
+      "breakpoints": true
     }
   ]
 }

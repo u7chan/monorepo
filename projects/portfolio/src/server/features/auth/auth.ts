@@ -1,5 +1,6 @@
 import { getDatabase } from '#/db'
 import { usersTable } from '#/db/schema'
+import { verifyPassword } from '#/server/features/auth/password-hash'
 import { eq } from 'drizzle-orm'
 
 export class AuthenticationError extends Error {
@@ -12,22 +13,21 @@ export class AuthenticationError extends Error {
 
 interface Auth {
   login(databaseUrl: string, email: string, password: string): Promise<void>
-  logout(email: string): Promise<void>
+  logout(): Promise<void>
 }
 
 export const auth: Auth = {
   async login(databaseUrl: string, email: string, password: string): Promise<void> {
     const db = getDatabase(databaseUrl)
     const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
-    const userExists = users.length > 0
+    const user = users[0]
 
-    // TODO: DBを用いたパスワード認証に置き換える
-    if (!userExists || password !== 'testexample') {
+    if (!user?.passwordHash || !verifyPassword(password, user.passwordHash)) {
       throw new AuthenticationError('認証に失敗しました')
     }
   },
 
-  async logout(_email: string): Promise<void> {
-    // TODO
+  async logout(): Promise<void> {
+    return Promise.resolve()
   },
 }

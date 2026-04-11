@@ -3,16 +3,6 @@
 import { renderHook, act } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('crypto-js', () => ({
-  default: {
-    AES: {
-      encrypt: (value: string) => ({ toString: () => value }),
-      decrypt: (value: string) => ({ toString: () => value }),
-    },
-    enc: { Utf8: 'utf8' },
-  },
-}))
-
 const STORAGE_KEY = 'portfolio.chat-settings'
 
 const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => {
@@ -33,7 +23,7 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.0.0',
+  schemaVersion: '1.1.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -243,10 +233,10 @@ describe('useSettingsHandlers', () => {
       })
 
       act(() => {
-        result.current.handlers.handleChangeManualModel(createChangeEvent('custom-model'))
+        result.current.handlers.handleChangeAutoModel(createChangeEvent('gpt-4.1-nano'))
       })
 
-      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ model: 'custom-model' }))
+      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-4.1-nano' }))
     })
   })
 })
