@@ -41,9 +41,11 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
     } else {
       // 存在すれば会話のupdatedAtを更新
       await tx.update(conversationsTable).set({ updatedAt: now }).where(eq(conversationsTable.id, id))
+      // 既存メッセージを削除（全件再挿入による重複を防ぐ）
+      await tx.delete(messagesTable).where(eq(messagesTable.conversationId, id))
     }
 
-    // メッセージの登録
+    // メッセージの登録（全件挿入）
     const messageValues = messages.map((message) => ({
       id: uuidv7(),
       conversationId: id,

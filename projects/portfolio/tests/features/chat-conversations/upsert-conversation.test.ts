@@ -6,6 +6,7 @@ const importSubject = async (params: {
 }) => {
   const insertValues: unknown[] = []
   const updateSets: unknown[] = []
+  const deleteWheres: unknown[] = []
 
   const tx = {
     select: vi.fn(() => ({
@@ -25,6 +26,12 @@ const importSubject = async (params: {
         return {
           where: vi.fn().mockResolvedValue(undefined),
         }
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn((where: unknown) => {
+        deleteWheres.push(where)
+        return Promise.resolve()
       }),
     })),
   }
@@ -53,6 +60,7 @@ const importSubject = async (params: {
     upsertConversation,
     insertValues,
     updateSets,
+    deleteWheres,
     uuidv7,
   }
 }
@@ -115,8 +123,8 @@ describe('upsertConversation', () => {
     expect(uuidv7).toHaveBeenCalled()
   })
 
-  it('既存会話は updatedAt を更新して message を追加する', async () => {
-    const { upsertConversation, updateSets, insertValues } = await importSubject({
+  it('既存会話は updatedAt を更新し、既存 message を削除して全件再挿入する', async () => {
+    const { upsertConversation, updateSets, insertValues, deleteWheres } = await importSubject({
       users: [{ id: 'user-1', email: 'test@example.com' }],
       existingConversations: [{ id: 'conversation-1' }],
     })
@@ -136,9 +144,12 @@ describe('upsertConversation', () => {
       ],
     })
 
-    expect(insertValues).toHaveLength(1)
     expect(updateSets[0]).toEqual({
       updatedAt: expect.any(Date),
     })
+    // 既存 message が削除されること（重複 insert 防止）
+    expect(deleteWheres).toHaveLength(1)
+    // 全件挿入が1回呼ばれること
+    expect(insertValues).toHaveLength(1)
   })
 })
