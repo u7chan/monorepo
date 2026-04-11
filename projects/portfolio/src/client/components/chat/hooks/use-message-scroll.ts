@@ -1,22 +1,11 @@
+import type { ChatResultSummary, ChatStreamState } from '#/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseMessageScrollParams {
   loading: boolean
   streamMode: boolean
-  stream: {
-    content: string
-    reasoning_content?: string
-  } | null
-  chatResults: {
-    model?: string
-    finish_reason: string
-    responseTimeMs?: number
-    usage?: {
-      promptTokens: number
-      completionTokens: number
-      totalTokens: number
-    } | null
-  } | null
+  stream: ChatStreamState | null
+  chatResults: ChatResultSummary | null
 }
 
 export function useMessageScroll({ loading, streamMode, stream, chatResults }: UseMessageScrollParams) {

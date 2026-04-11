@@ -1,6 +1,7 @@
 export {
   // Schemas
   ConversationSchema,
+  ConversationListResponseSchema,
   MessageSchema,
   UserMessageSchema,
   AssistantMessageSchema,
@@ -12,8 +13,11 @@ export {
   // /api/chat wire schemas
   ApiChatMessageSchema,
   ApiChatRequestSchema,
+  ChatCompletionResponseSchema,
+  ChatCompletionStreamChunkSchema,
   // Types
   type Conversation,
+  type ConversationListResponse,
   type Message,
   type UserMessage,
   type AssistantMessage,
@@ -25,7 +29,11 @@ export {
   // /api/chat wire types
   type ApiChatMessage,
   type ApiChatRequest,
+  type ChatCompletionResponse,
+  type ChatCompletionStreamChunk,
   // API レスポンス型
+  type ChatStreamState,
+  type ChatResultSummary,
   type ChatCompletionResult,
   // Converters
   toApiChatMessage,

@@ -11,10 +11,10 @@ import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { Conversation, Message } from '#/types'
-import React, { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { uuidv7 } from 'uuidv7'
 
 const CONVERSATION_TITLE_MAX_LENGTH = 10
-import { uuidv7 } from 'uuidv7'
 
 interface Props {
   initTrigger?: number
@@ -65,7 +65,7 @@ export function ChatMain({
     setMessages([])
     setConversationId(null)
     resetChatResults()
-  }, [initTrigger])
+  }, [initTrigger, resetChatResults])
 
   // 選択された会話のメッセージを設定
   useEffect(() => {

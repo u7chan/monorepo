@@ -1,7 +1,14 @@
 import type { AppType } from '#/server/app.d'
-import type { ApiChatMessage, ChatCompletionResult } from '#/types'
+import type { ApiChatMessage, ChatCompletionResult, ChatResultSummary, ChatStreamState } from '#/types'
 import { hc } from 'hono/client'
 import { useCallback, useRef, useState } from 'react'
+import {
+  parseChatCompletionResponse,
+  parseChatCompletionStreamChunk,
+  toChatCompletionResult,
+  toChatResultSummary,
+  updateChatStream,
+} from './chat-response'
 
 const client = hc<AppType>('/')
 
@@ -27,20 +34,8 @@ interface UseStreamProcessorParams {
 export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = {}) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const [loading, setLoading] = useState(false)
-  const [stream, setStream] = useState<{
-    content: string
-    reasoning_content?: string
-  } | null>(null)
-  const [chatResults, setChatResults] = useState<{
-    model?: string
-    finish_reason: string
-    responseTimeMs?: number
-    usage?: {
-      promptTokens: number
-      completionTokens: number
-      totalTokens: number
-    } | null
-  } | null>(null)
+  const [stream, setStream] = useState<ChatStreamState | null>(null)
+  const [chatResults, setChatResults] = useState<ChatResultSummary | null>(null)
 
   const cancelStream = useCallback(() => {
     if (abortControllerRef.current) {
@@ -86,12 +81,21 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
         const responseTimeMs = Date.now() - requestStartTime
 
         if (result) {
-          setChatResults({
-            model: result.model,
-            finish_reason: result.finishReason,
-            responseTimeMs,
-            usage: result.usage,
-          })
+          setChatResults(
+            toChatResultSummary({
+              model: result.model,
+              finishReason: result.finishReason,
+              responseTimeMs,
+              usage: result.usage
+                ? {
+                    prompt_tokens: result.usage.promptTokens,
+                    completion_tokens: result.usage.completionTokens,
+                    total_tokens: result.usage.totalTokens,
+                    reasoning_tokens: result.usage.reasoningTokens,
+                  }
+                : null,
+            })
+          )
         }
 
         return { result, responseTimeMs }
@@ -128,21 +132,14 @@ const sendChatCompletion = async (req: {
   temperature?: number
   maxTokens?: number
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-  onStream?: (stream: { content: string; reasoning_content: string }) => void
+  onStream?: (stream: ChatStreamState) => void
 }): Promise<ChatCompletionResult | null> => {
-  const result = {
+  let result: ChatStreamState = {
     content: '',
     reasoning_content: '',
   }
   let finish_reason = ''
-  let usage: {
-    prompt_tokens: number
-    completion_tokens: number
-    total_tokens: number
-    completion_tokens_details?: {
-      reasoning_tokens?: number
-    }
-  } | null = null
+  let usage: ChatResultSummary['usage'] = null
   let responseModel = 'N/A'
 
   try {
@@ -173,24 +170,16 @@ const sendChatCompletion = async (req: {
       const error = (await res.json()) as { message?: string }
       result.content = error?.message || JSON.stringify(error)
     } else {
-      const nonStream = res.headers.get('Content-Type') === 'application/json'
+      const nonStream = res.headers.get('Content-Type')?.includes('application/json') ?? false
       if (nonStream) {
-        const data = (await res.json()) as {
-          choices: {
-            message: { content: string; reasoning_content?: string }
-          }[]
-          model?: string
-          usage?: {
-            prompt_tokens: number
-            completion_tokens: number
-            total_tokens: number
-            reasoning_tokens: number
-          }
+        const data = parseChatCompletionResponse(await res.json())
+        const completion = toChatCompletionResult(data)
+
+        if (!completion) {
+          return null
         }
-        result.reasoning_content = data.choices[0].message?.reasoning_content || ''
-        result.content = data.choices[0].message.content
-        responseModel = data?.model || 'N/A'
-        usage = data?.usage ?? null
+
+        return completion
       } else {
         const reader = res.body?.getReader()
         if (!reader) {
@@ -219,36 +208,22 @@ const sendChatCompletion = async (req: {
               break
             }
             try {
-              const parsedChunk = JSON.parse(jsonStr) as {
-                choices: {
-                  delta: { content: string; reasoning_content?: string }
-                  finish_reason: string
-                }[]
-                model?: string
-                usage?: {
-                  prompt_tokens: number
-                  completion_tokens: number
-                  total_tokens: number
-                  completion_tokens_details?: {
-                    reasoning_tokens?: number
-                  }
-                }
+              const parsedChunk = parseChatCompletionStreamChunk(jsonStr)
+              const next = updateChatStream(result, parsedChunk)
+
+              result = next.stream
+              if (next.finishReason) {
+                finish_reason = next.finishReason
               }
-              result.reasoning_content += parsedChunk.choices.at(0)?.delta?.reasoning_content || ''
-              result.content += parsedChunk.choices.at(0)?.delta?.content || ''
-              const chunkFinishReason = parsedChunk.choices.at(0)?.finish_reason || ''
-              if (chunkFinishReason) {
-                finish_reason = chunkFinishReason
+              if (next.model) {
+                responseModel = next.model
               }
-              if (parsedChunk?.model) {
-                responseModel = parsedChunk.model
-              }
-              if (parsedChunk?.usage) {
-                usage = parsedChunk.usage
+              if (next.usage) {
+                usage = next.usage
               }
               req.onStream?.({
-                content: result.content ? `${result.content}` : '',
-                reasoning_content: result.reasoning_content,
+                content: result.content,
+                reasoning_content: result.reasoning_content ?? '',
               })
             } catch (error) {
               console.error('JSON parse error:', error)
@@ -274,16 +249,9 @@ const sendChatCompletion = async (req: {
     finishReason: finish_reason,
     message: {
       content: result.content,
-      reasoningContent: result.reasoning_content,
+      reasoningContent: result.reasoning_content ?? '',
     },
     responseTimeMs: 0,
-    usage: usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-          reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
-        }
-      : null,
+    usage,
   }
 }
