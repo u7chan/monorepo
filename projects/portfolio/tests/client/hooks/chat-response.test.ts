@@ -64,6 +64,23 @@ describe('chat-response helpers', () => {
     })
   })
 
+  it('non-stream response の content=null を結果なしとして扱える', () => {
+    const response = parseChatCompletionResponse({
+      model: 'gpt-test',
+      choices: [
+        {
+          message: {
+            content: null,
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+      usage: null,
+    })
+
+    expect(toChatCompletionResult(response)).toBeNull()
+  })
+
   it('stream chunk を蓄積して finish reason と usage を取り出せる', () => {
     const firstChunk = parseChatCompletionStreamChunk(
       JSON.stringify({
