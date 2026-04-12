@@ -1,5 +1,6 @@
 import { ChatResults } from '#/client/components/chat/chat-results'
 import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
+import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
@@ -84,11 +85,7 @@ function MessageRendererComponent({
         <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
       </div>
       <div className='message group ml-2 text-left'>
-        {message.reasoningContent && (
-          <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
-            {message.reasoningContent}
-          </div>
-        )}
+        {message.reasoningContent && <ReasoningSection content={message.reasoningContent} />}
         {markdownPreview ? (
           <div className='prose mt-1 max-w-(--breakpoint-md) break-all'>
             <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>

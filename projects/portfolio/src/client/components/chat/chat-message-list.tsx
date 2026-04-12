@@ -1,5 +1,6 @@
 import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
+import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import type { ChatStreamState, Message } from '#/types'
@@ -53,9 +54,7 @@ export function ChatMessageList({
             {stream ? (
               <div className='message ml-2 text-left'>
                 {stream.reasoning_content && (
-                  <div className='wrap-break-word whitespace-pre-line break-all text-gray-400 text-xs dark:text-gray-200'>
-                    {stream.reasoning_content}
-                  </div>
+                  <ReasoningSection content={stream.reasoning_content} isStreaming={!stream.content} />
                 )}
                 {markdownPreview ? (
                   <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>
