@@ -159,6 +159,7 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
       <SyntaxHighlighter
         style={isDarkMode ? atomDark : undefined}
         language={selectedLanguage === 'plain' ? undefined : selectedLanguage}
+        customStyle={{ fontSize: '0.875rem' }}
       >
         {code}
       </SyntaxHighlighter>
