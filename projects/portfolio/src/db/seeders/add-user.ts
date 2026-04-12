@@ -1,6 +1,6 @@
 import { hashPassword } from '../../server/features/auth/password-hash'
 import { parseAddUserArgs } from './add-user-args'
-import { addUser } from './add-user-record'
+import { addUser, ensureUserDoesNotExist } from './add-user-record'
 import { readPassword } from './read-password'
 
 async function main() {
@@ -11,6 +11,7 @@ async function main() {
   }
 
   const { email } = parseAddUserArgs(process.argv)
+  await ensureUserDoesNotExist(databaseUrl, email)
   const password = await readPassword()
   const passwordHash = hashPassword(password)
 
