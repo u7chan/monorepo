@@ -37,6 +37,7 @@ export function Chat() {
       const data = ConversationListResponseSchema.parse(await res.json())
       return data.data
     },
+    enabled: !!email,
   })
 
   const conversations = query.data ?? []

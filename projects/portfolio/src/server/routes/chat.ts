@@ -10,7 +10,7 @@ import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
 import type { HonoEnv } from './shared'
-import { getServerEnv, getSignedInEmail } from './shared'
+import { getServerEnv } from './shared'
 
 const ChatHeaderSchema = z.object({
   'api-key': z.string().min(1),
@@ -108,8 +108,6 @@ const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat', chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
-
-    await getSignedInEmail(c)
 
     const completion = await chat.completions(
       {

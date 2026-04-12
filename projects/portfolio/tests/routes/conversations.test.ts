@@ -27,14 +27,14 @@ vi.mock('hono/cookie', async () => {
 import { conversationsRoutes } from '#/server/routes/conversations'
 
 describe('conversationsRoutes', () => {
-  it('未認証の GET は空配列を返す', async () => {
+  it('未認証の GET は 401 を返す', async () => {
     vi.stubEnv('DATABASE_URL', 'postgres://db')
     getSignedCookieMock.mockResolvedValue(null)
 
     const res = await conversationsRoutes.request('/api/conversations')
 
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ data: [] })
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
     expect(repositoryMock.read).not.toHaveBeenCalled()
   })
 
@@ -64,6 +64,27 @@ describe('conversationsRoutes', () => {
     })
 
     expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
+  })
+
+  it('未認証の DELETE は 401 を返す', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://db')
+    getSignedCookieMock.mockResolvedValue(null)
+
+    const res = await conversationsRoutes.request('/api/conversations?ids=conversation-1', { method: 'DELETE' })
+
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
+  })
+
+  it('未認証の DELETE /messages は 401 を返す', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://db')
+    getSignedCookieMock.mockResolvedValue(null)
+
+    const res = await conversationsRoutes.request('/api/conversations/messages?ids=message-1', { method: 'DELETE' })
+
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
   })
 
   it('DELETE は単一 query を配列に変換して repository.delete に渡す', async () => {
