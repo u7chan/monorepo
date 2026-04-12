@@ -1,6 +1,4 @@
-import { uuidv7 } from 'uuidv7'
-import { getDatabase } from '../'
-import { usersTable } from '../schema'
+import { upsertUser } from './upsert-user'
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL || ''
@@ -15,21 +13,7 @@ async function main() {
     throw new Error('AUTH_SEED_EMAIL and AUTH_SEED_PASSWORD_HASH are required')
   }
 
-  const db = getDatabase(databaseUrl)
-  await db
-    .insert(usersTable)
-    .values({
-      id: uuidv7(),
-      email,
-      passwordHash,
-      createdAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: usersTable.email,
-      set: {
-        passwordHash,
-      },
-    })
+  await upsertUser({ databaseUrl, email, passwordHash })
 
   console.log(`User auth seed has been upserted for ${email}.`)
 }
