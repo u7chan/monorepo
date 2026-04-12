@@ -108,22 +108,16 @@
   bun run db:migrate
   ```
 
-- Generate password hash for auth seed:
+- Add auth user after migration:
 
   ```sh
-  node -e "const { randomBytes, scryptSync } = require('node:crypto'); const password = process.argv[1]; const salt = randomBytes(16); const N = 16384; const r = 8; const p = 1; const hash = scryptSync(password, salt, 64, { N, r, p }); console.log(\`scrypt$N=\${N},r=\${r},p=\${p}$\${salt.toString('base64')}$\${hash.toString('base64')}\`)" 'replace-with-password'
+  bun run db:user:add -- --email test@example.com --password 'replace-with-password'
   ```
 
-- Upsert auth user after migration:
-
-  ```sh
-  AUTH_SEED_EMAIL=test@example.com \
-  AUTH_SEED_PASSWORD_HASH='replace-with-generated-hash' \
-  bun run db:seed:users
-  ```
+  The command fails if the email already exists.
 
 ## Authentication Notes
 
 - Sign-in verifies the password against `users.password_hash`.
-- `AUTH_SEED_EMAIL` and `AUTH_SEED_PASSWORD_HASH` are used only when seeding or updating the initial auth user.
+- `db:user:add` hashes the plain password and adds a new auth user.
 - Chat settings `apiKey` is stored in browser `localStorage`. It is not a secure secret store.
