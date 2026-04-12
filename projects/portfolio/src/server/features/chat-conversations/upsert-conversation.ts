@@ -52,8 +52,7 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
       role: message.role,
       content: serializeContent(message.content),
       reasoningContent: message.reasoningContent ?? '',
-      // metadata は jsonb カラムにオブジェクトのまま渡す（JSON.stringify は不要）
-      metadata: message.metadata ?? null,
+      metadata: message.metadata ?? {},
       createdAt: now,
     }))
 

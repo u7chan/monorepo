@@ -1,12 +1,11 @@
 import type { AppType } from '#/server/app.d'
-import type { ApiChatMessage, ChatCompletionResult, ChatResultSummary, ChatStreamState } from '#/types'
+import type { ApiChatMessage, ChatCompletionResult, ChatStreamState } from '#/types'
 import { hc } from 'hono/client'
 import { useCallback, useRef, useState } from 'react'
 import {
   parseChatCompletionResponse,
   parseChatCompletionStreamChunk,
   toChatCompletionResult,
-  toChatResultSummary,
   updateChatStream,
 } from './chat-response'
 
@@ -35,17 +34,12 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
   const abortControllerRef = useRef<AbortController | null>(null)
   const [loading, setLoading] = useState(false)
   const [stream, setStream] = useState<ChatStreamState | null>(null)
-  const [chatResults, setChatResults] = useState<ChatResultSummary | null>(null)
 
   const cancelStream = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
     }
-  }, [])
-
-  const resetChatResults = useCallback(() => {
-    setChatResults(null)
   }, [])
 
   const submitChatCompletion = useCallback(
@@ -59,7 +53,6 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
       reasoningEffort,
     }: SubmitChatCompletionParams): Promise<{ result: ChatCompletionResult | null; responseTimeMs: number }> => {
       setLoading(true)
-      setChatResults(null)
       abortControllerRef.current = new AbortController()
       onSubmitting?.(true)
       const requestStartTime = Date.now()
@@ -80,24 +73,6 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
         })
         const responseTimeMs = Date.now() - requestStartTime
 
-        if (result) {
-          setChatResults(
-            toChatResultSummary({
-              model: result.model,
-              finishReason: result.finishReason,
-              responseTimeMs,
-              usage: result.usage
-                ? {
-                    prompt_tokens: result.usage.promptTokens,
-                    completion_tokens: result.usage.completionTokens,
-                    total_tokens: result.usage.totalTokens,
-                    reasoning_tokens: result.usage.reasoningTokens,
-                  }
-                : null,
-            })
-          )
-        }
-
         return { result, responseTimeMs }
       } finally {
         abortControllerRef.current = null
@@ -112,9 +87,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
   return {
     loading,
     stream,
-    chatResults,
     cancelStream,
-    resetChatResults,
     submitChatCompletion,
   }
 }
@@ -139,7 +112,7 @@ const sendChatCompletion = async (req: {
     reasoning_content: '',
   }
   let finish_reason = ''
-  let usage: ChatResultSummary['usage'] = null
+  let usage: ChatCompletionResult['usage'] = null
   let responseModel = 'N/A'
 
   try {

@@ -33,7 +33,6 @@ export {
   type ChatCompletionStreamChunk,
   // API レスポンス型
   type ChatStreamState,
-  type ChatResultSummary,
   type ChatCompletionResult,
   // Converters
   toApiChatMessage,

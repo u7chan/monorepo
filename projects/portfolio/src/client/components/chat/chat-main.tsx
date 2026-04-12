@@ -50,7 +50,7 @@ export function ChatMain({
     resetAfterSubmit,
   } = useChatForm({ initTrigger, formRef })
   const { copiedId, copyMessage } = useMessageCopy()
-  const { loading, stream, chatResults, cancelStream, resetChatResults, submitChatCompletion } = useStreamProcessor({
+  const { loading, stream, cancelStream, submitChatCompletion } = useStreamProcessor({
     onSubmitting,
   })
   const { scrollContainerRef, bottomChatInputContainerRef, messageEndRef, handleScroll, scrollToMessageEnd } =
@@ -58,14 +58,13 @@ export function ChatMain({
       loading,
       streamMode: settings.streamMode,
       stream,
-      chatResults,
+      messages,
     })
 
   useEffect(() => {
     setMessages([])
     setConversationId(null)
-    resetChatResults()
-  }, [initTrigger, resetChatResults])
+  }, [initTrigger])
 
   // 選択された会話のメッセージを設定
   useEffect(() => {
@@ -76,11 +75,10 @@ export function ChatMain({
     // 会話が選択された時、そのメッセージをドメイン型のまま設定（変換不要）
     setConversationId(currentConversation.id)
     setMessages(currentConversation.messages)
-    resetChatResults()
     setTimeout(() => {
       scrollToMessageEnd()
     }, 0)
-  }, [currentConversation, resetChatResults, scrollToMessageEnd])
+  }, [currentConversation, scrollToMessageEnd])
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -112,7 +110,6 @@ export function ChatMain({
           : [...messages, params.draftUserMessage]
       setMessages(nextMessages)
       resetAfterSubmit()
-      resetChatResults()
 
       submitChatCompletion({
         header: {
@@ -175,7 +172,6 @@ export function ChatMain({
       messages,
       onConversationChange,
       resetAfterSubmit,
-      resetChatResults,
       settings.apiKey,
       settings.baseURL,
       settings.fakeMode,
@@ -293,7 +289,6 @@ export function ChatMain({
             markdownPreview={settings.markdownPreview}
             loading={loading}
             stream={stream}
-            chatResults={chatResults}
             copiedId={copiedId}
             messageEndRef={messageEndRef}
             onCopyMessage={copyMessage}

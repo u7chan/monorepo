@@ -4,7 +4,6 @@ import {
   type ChatCompletionResponse,
   type ChatCompletionResult,
   type ChatCompletionStreamChunk,
-  type ChatResultSummary,
   type ChatStreamState,
 } from '#/types'
 
@@ -25,7 +24,7 @@ export function updateChatStream(
   stream: ChatStreamState
   finishReason: string
   model?: string
-  usage: ChatResultSummary['usage']
+  usage: ChatCompletionResult['usage']
 } {
   const choice = chunk.choices.at(0)
   const nextStream = {
@@ -61,21 +60,7 @@ export function toChatCompletionResult(response: ChatCompletionResponse): ChatCo
   }
 }
 
-export function toChatResultSummary(params: {
-  model?: string
-  finishReason: string
-  responseTimeMs?: number
-  usage: ApiUsage
-}): ChatResultSummary {
-  return {
-    model: params.model,
-    finish_reason: params.finishReason,
-    responseTimeMs: params.responseTimeMs,
-    usage: normalizeUsage(params.usage),
-  }
-}
-
-function normalizeUsage(usage: ApiUsage): ChatResultSummary['usage'] {
+function normalizeUsage(usage: ApiUsage): ChatCompletionResult['usage'] {
   if (!usage) {
     return null
   }
