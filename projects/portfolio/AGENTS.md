@@ -2,19 +2,23 @@
 
 ## Tech Stack
 
-- **Language**: TypeScript
-- **Runtime**: Node
-- **Package Manager**: Bun
-- **Linter & Formatter**: Oxlint / Oxfmt
-- **CSS Styling**: Tailwind CSS
-- **Build & Bundler**: Vite
-- **Backend**: Hono
-- **Frontend**: React (SPA)
-- **Testing**: Vitest
-- **Routing**: TanStack Router
-- **Database**: PostgreSQL
-- **ORM**: Drizzle ORM
-- **Dev Environment**: Dev Containers (VSCode)
+| Item               | Stack                   |
+| ------------------ | ----------------------- |
+| Language           | TypeScript              |
+| Runtime            | Node                    |
+| Package Manager    | Bun                     |
+| Linter & Formatter | Oxlint / Oxfmt          |
+| CSS Styling        | Tailwind CSS            |
+| Build & Bundler    | Vite                    |
+| Backend            | Hono                    |
+| Frontend           | React (SPA)             |
+| Testing            | Vitest                  |
+| Routing            | TanStack Router         |
+| Database           | PostgreSQL              |
+| ORM                | Drizzle ORM             |
+| Dev Environment    | Dev Containers (VSCode) |
+
+For development commands and operational procedures, see [DEVELOPMENT.md](./DEVELOPMENT.md).
 
 ## Code style
 
