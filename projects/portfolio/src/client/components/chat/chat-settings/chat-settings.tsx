@@ -34,40 +34,45 @@ export function ChatSettings({
 
   return (
     <>
-      {/* Button Group - Fixed position (top-left, accounting for sidebar on desktop) */}
-      <div className='fixed top-0 left-0 z-30 p-4 md:left-16'>
+      {/* Header Bar */}
+      <div className='flex h-12 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-700'>
         {showActions && (
-          <div className='flex flex-col items-center gap-2 sm:flex-row'>
-            {/* Sidebar Toggle - Mobile only (shown only when logged in) */}
-            {showSidebarToggle && (
+          <>
+            {/* Left side */}
+            <div className='flex items-center gap-2'>
+              {showSidebarToggle && (
+                <button
+                  type='button'
+                  onClick={onToggleSidebar}
+                  className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
+                >
+                  <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+                </button>
+              )}
+              {showNewChat && (
+                <button
+                  type='button'
+                  onClick={onNewChat}
+                  className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
+                >
+                  <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+                </button>
+              )}
+            </div>
+            {/* Right side */}
+            <div className='flex items-center gap-2'>
+              <span className='max-w-48 truncate text-xs font-medium text-gray-500 dark:text-gray-400'>
+                {contextValue.fakeMode ? 'Fake Mode' : contextValue.settings.model}
+              </span>
               <button
                 type='button'
-                onClick={onToggleSidebar}
-                className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 md:hidden dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
+                onClick={onShowMenu}
+                className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
               >
-                <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+                <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
               </button>
-            )}
-            {showNewChat && (
-              <button
-                type='button'
-                onClick={onNewChat}
-                className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
-              >
-                <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
-              </button>
-            )}
-            <button
-              type='button'
-              onClick={onShowMenu}
-              className='flex transform cursor-pointer items-center justify-center rounded-full bg-white p-2 transition duration-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
-            >
-              <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
-            </button>
-            <span className='hidden max-w-48 truncate text-xs font-medium text-gray-900 sm:block dark:text-gray-200'>
-              {contextValue.fakeMode ? 'Fake Mode' : contextValue.settings.model}
-            </span>
-          </div>
+            </div>
+          </>
         )}
       </div>
 
