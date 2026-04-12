@@ -1,6 +1,7 @@
 import { HonoEnv } from './routes/shared';
-declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
-    "api/signin": {
+declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema, "/", "/">;
+declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
+    "/api/signin": {
         $post: {
             input: {
                 json: {
@@ -27,6 +28,15 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
             status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
+} & {
+    "/api/signout": {
+        $post: {
+            input: {};
+            output: {};
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
 }, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/chat": {
         $post: {
@@ -39,29 +49,28 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
             } & {
                 json: {
                     messages: ({
-                        role: "system";
-                        content: string;
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                     } | {
                         role: "assistant";
                         content: string;
                     } | {
-                        role: "user";
-                        content: string | ({
-                            type: "text";
-                            text: string;
-                        } | {
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                                detail?: "auto" | "low" | "high" | undefined;
-                            };
-                        })[];
+                        role: "system";
+                        content: string;
                     })[];
                     model: string;
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
-                    reasoning_effort?: "none" | "low" | "high" | "minimal" | "medium" | "xhigh" | undefined;
+                    reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -84,29 +93,28 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
             } & {
                 json: {
                     messages: ({
-                        role: "system";
-                        content: string;
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                     } | {
                         role: "assistant";
                         content: string;
                     } | {
-                        role: "user";
-                        content: string | ({
-                            type: "text";
-                            text: string;
-                        } | {
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                                detail?: "auto" | "low" | "high" | undefined;
-                            };
-                        })[];
+                        role: "system";
+                        content: string;
                     })[];
                     model: string;
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
-                    reasoning_effort?: "none" | "low" | "high" | "minimal" | "medium" | "xhigh" | undefined;
+                    reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -125,29 +133,28 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
             } & {
                 json: {
                     messages: ({
-                        role: "system";
-                        content: string;
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                     } | {
                         role: "assistant";
                         content: string;
                     } | {
-                        role: "user";
-                        content: string | ({
-                            type: "text";
-                            text: string;
-                        } | {
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                                detail?: "auto" | "low" | "high" | undefined;
-                            };
-                        })[];
+                        role: "system";
+                        content: string;
                     })[];
                     model: string;
                     stream?: boolean | undefined;
                     temperature?: number | undefined;
                     max_tokens?: number | undefined;
-                    reasoning_effort?: "none" | "low" | "high" | "minimal" | "medium" | "xhigh" | undefined;
+                    reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                     stream_options?: {
                         include_usage?: boolean | undefined;
                     } | undefined;
@@ -166,23 +173,22 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
             input: {
                 json: {
                     messages: ({
-                        role: "system";
-                        content: string;
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                     } | {
                         role: "assistant";
                         content: string;
                     } | {
-                        role: "user";
-                        content: string | ({
-                            type: "text";
-                            text: string;
-                        } | {
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                                detail?: "auto" | "low" | "high" | undefined;
-                            };
-                        })[];
+                        role: "system";
+                        content: string;
                     })[];
                     model: string;
                     stream?: boolean | undefined;
@@ -204,23 +210,22 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
             input: {
                 json: {
                     messages: ({
-                        role: "system";
-                        content: string;
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
                     } | {
                         role: "assistant";
                         content: string;
                     } | {
-                        role: "user";
-                        content: string | ({
-                            type: "text";
-                            text: string;
-                        } | {
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                                detail?: "auto" | "low" | "high" | undefined;
-                            };
-                        })[];
+                        role: "system";
+                        content: string;
                     })[];
                     model: string;
                     stream?: boolean | undefined;
@@ -579,5 +584,5 @@ declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types
         };
     };
 }, "/">, "/", "/">;
-export type AppType = typeof app;
+export type AppType = typeof routes;
 export default app;

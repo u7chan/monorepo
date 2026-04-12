@@ -33,9 +33,8 @@ export function Home() {
 
   const handleSignOut = () => {
     setError(null)
-    fetch('/api/signout', {
-      method: 'POST',
-    })
+    client.api.signout
+      .$post()
       .then((res) => {
         if (!res.ok) {
           setError('サインアウトに失敗しました。')

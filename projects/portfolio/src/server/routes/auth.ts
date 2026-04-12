@@ -13,7 +13,7 @@ const SignInBodySchema = z.object({
 })
 
 const authRoutes = new Hono<HonoEnv>()
-  .post('api/signin', sValidator('json', SignInBodySchema), async (c) => {
+  .post('/api/signin', sValidator('json', SignInBodySchema), async (c) => {
     const { email, password } = c.req.valid('json')
     const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = getServerEnv(c)
 
@@ -22,7 +22,7 @@ const authRoutes = new Hono<HonoEnv>()
 
     return c.json({})
   })
-  .post('api/signout', async (c) => {
+  .post('/api/signout', async (c) => {
     const { COOKIE_NAME = '' } = getServerEnv(c)
 
     await auth.logout()
