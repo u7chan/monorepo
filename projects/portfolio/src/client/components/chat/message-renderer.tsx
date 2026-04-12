@@ -7,7 +7,7 @@ import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
 import type { Message } from '#/types'
 import { isImageContentArray } from '#/types'
-import { Fragment, memo } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -15,6 +15,7 @@ const markdownRemarkPlugins = [remarkGfm]
 const markdownComponents = {
   a: MarkdownLink,
   code: CodeBlockRenderer,
+  pre: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }
 
 interface MessageRendererProps {
