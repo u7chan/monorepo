@@ -1,5 +1,5 @@
 import { getDatabase } from '#/db'
-import { addUser, UserAlreadyExistsError } from '#/db/seeders/add-user-record'
+import { addUser, ensureUserDoesNotExist, UserAlreadyExistsError } from '#/db/seeders/add-user-record'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('#/db', () => ({
@@ -97,5 +97,27 @@ describe('addUser', () => {
         passwordHash: 'hashed-password',
       })
     ).rejects.toBe(expectedError)
+  })
+})
+
+describe('ensureUserDoesNotExist', () => {
+  beforeEach(() => {
+    mockedGetDatabase.mockReset()
+  })
+
+  it('同じメールアドレスのユーザーがいなければ成功する', async () => {
+    const { db } = createDbStub([])
+    mockedGetDatabase.mockReturnValue(db as never)
+
+    await expect(ensureUserDoesNotExist('postgres://db', 'test@example.com')).resolves.toBeUndefined()
+  })
+
+  it('同じメールアドレスのユーザーがいれば UserAlreadyExistsError を投げる', async () => {
+    const { db } = createDbStub([{ id: 'user-1' }])
+    mockedGetDatabase.mockReturnValue(db as never)
+
+    await expect(ensureUserDoesNotExist('postgres://db', 'test@example.com')).rejects.toBeInstanceOf(
+      UserAlreadyExistsError
+    )
   })
 })

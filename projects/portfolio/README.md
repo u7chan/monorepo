@@ -111,7 +111,13 @@
 - Add auth user after migration:
 
   ```sh
-  bun run db:user:add -- --email test@example.com --password 'replace-with-password'
+  bun run db:user:add -- --email test@example.com
+  ```
+
+  Enter the password when prompted. For non-interactive use, pipe it via stdin, for example
+
+  ```sh
+  printf 'replace-with-password\n' | bun run db:user:add -- --email test@example.com
   ```
 
   The command fails if the email already exists.
@@ -119,5 +125,5 @@
 ## Authentication Notes
 
 - Sign-in verifies the password against `users.password_hash`.
-- `db:user:add` hashes the plain password and adds a new auth user.
+- `db:user:add` hashes the plain password from an interactive prompt or stdin and adds a new auth user.
 - Chat settings `apiKey` is stored in browser `localStorage`. It is not a secure secret store.

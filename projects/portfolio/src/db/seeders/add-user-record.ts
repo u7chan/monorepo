@@ -17,6 +17,20 @@ export class UserAlreadyExistsError extends Error {
   }
 }
 
+async function hasUserWithEmail(db: ReturnType<typeof getDatabase>, email: string) {
+  const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
+
+  return Boolean(users[0])
+}
+
+export async function ensureUserDoesNotExist(databaseUrl: string, email: string) {
+  const db = getDatabase(databaseUrl)
+
+  if (await hasUserWithEmail(db, email)) {
+    throw new UserAlreadyExistsError(email)
+  }
+}
+
 function isDuplicateUserEmailError(error: unknown) {
   if (!error || typeof error !== 'object') {
     return false
@@ -27,9 +41,8 @@ function isDuplicateUserEmailError(error: unknown) {
 
 export async function addUser({ databaseUrl, email, passwordHash }: AddUserInput) {
   const db = getDatabase(databaseUrl)
-  const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
 
-  if (users[0]) {
+  if (await hasUserWithEmail(db, email)) {
     throw new UserAlreadyExistsError(email)
   }
 
