@@ -66,4 +66,36 @@ describe('addUser', () => {
 
     expect(insert).not.toHaveBeenCalled()
   })
+
+  it('insert で users.email の一意制約違反が起きた場合は UserAlreadyExistsError を投げる', async () => {
+    const { db, values } = createDbStub([])
+    mockedGetDatabase.mockReturnValue(db as never)
+    values.mockRejectedValueOnce({
+      code: '23505',
+      constraint: 'users_email_unique',
+    })
+
+    await expect(
+      addUser({
+        databaseUrl: 'postgres://db',
+        email: 'test@example.com',
+        passwordHash: 'hashed-password',
+      })
+    ).rejects.toBeInstanceOf(UserAlreadyExistsError)
+  })
+
+  it('insert で別のエラーが起きた場合はそのまま投げる', async () => {
+    const { db, values } = createDbStub([])
+    const expectedError = new Error('database unavailable')
+    mockedGetDatabase.mockReturnValue(db as never)
+    values.mockRejectedValueOnce(expectedError)
+
+    await expect(
+      addUser({
+        databaseUrl: 'postgres://db',
+        email: 'test@example.com',
+        passwordHash: 'hashed-password',
+      })
+    ).rejects.toBe(expectedError)
+  })
 })

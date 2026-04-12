@@ -17,6 +17,14 @@ export class UserAlreadyExistsError extends Error {
   }
 }
 
+function isDuplicateUserEmailError(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  return 'code' in error && error.code === '23505' && 'constraint' in error && error.constraint === 'users_email_unique'
+}
+
 export async function addUser({ databaseUrl, email, passwordHash }: AddUserInput) {
   const db = getDatabase(databaseUrl)
   const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
@@ -25,10 +33,18 @@ export async function addUser({ databaseUrl, email, passwordHash }: AddUserInput
     throw new UserAlreadyExistsError(email)
   }
 
-  await db.insert(usersTable).values({
-    id: uuidv7(),
-    email,
-    passwordHash,
-    createdAt: new Date(),
-  })
+  try {
+    await db.insert(usersTable).values({
+      id: uuidv7(),
+      email,
+      passwordHash,
+      createdAt: new Date(),
+    })
+  } catch (error) {
+    if (isDuplicateUserEmailError(error)) {
+      throw new UserAlreadyExistsError(email)
+    }
+
+    throw error
+  }
 }
