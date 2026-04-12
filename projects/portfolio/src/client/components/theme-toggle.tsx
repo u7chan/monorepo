@@ -1,4 +1,6 @@
 import { useTheme } from '../hooks/use-theme'
+import { MoonIcon } from './svg/moon-icon'
+import { SunIcon } from './svg/sun-icon'
 
 interface ThemeToggleProps {
   className?: string
@@ -14,6 +16,8 @@ export function ThemeToggle({ className = '', size = 'md' }: ThemeToggleProps) {
     lg: 'h-10 w-10 text-base',
   }
 
+  const iconSize = { sm: 14, md: 16, lg: 20 }
+
   return (
     <button
       type='button'
@@ -22,65 +26,9 @@ export function ThemeToggle({ className = '', size = 'md' }: ThemeToggleProps) {
       className={`flex items-center justify-center rounded bg-gray-200 text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 ${sizeClasses[size]} ${className}`}
     >
       {isDark ? (
-        <svg
-          xmlns='http://www.w3.org/2000/svg'
-          viewBox='0 0 24 24'
-          fill='currentColor'
-          width='1em'
-          height='1em'
-          aria-label='ライトモード'
-        >
-          <title>ライトモード</title>
-          <circle cx='12' cy='12' r='5' />
-          <g>
-            <line x1='12' y1='1' x2='12' y2='3' stroke='currentColor' strokeWidth='2' strokeLinecap='round' />
-            <line x1='12' y1='21' x2='12' y2='23' stroke='currentColor' strokeWidth='2' strokeLinecap='round' />
-            <line x1='4.22' y1='4.22' x2='5.64' y2='5.64' stroke='currentColor' strokeWidth='2' strokeLinecap='round' />
-            <line
-              x1='18.36'
-              y1='18.36'
-              x2='19.78'
-              y2='19.78'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-            />
-            <line x1='1' y1='12' x2='3' y2='12' stroke='currentColor' strokeWidth='2' strokeLinecap='round' />
-            <line x1='21' y1='12' x2='23' y2='12' stroke='currentColor' strokeWidth='2' strokeLinecap='round' />
-            <line
-              x1='4.22'
-              y1='19.78'
-              x2='5.64'
-              y2='18.36'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-            />
-            <line
-              x1='18.36'
-              y1='5.64'
-              x2='19.78'
-              y2='4.22'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-            />
-          </g>
-        </svg>
+        <SunIcon size={iconSize[size]} className='stroke-current' />
       ) : (
-        <svg
-          xmlns='http://www.w3.org/2000/svg'
-          viewBox='0 0 24 24'
-          fill='currentColor'
-          width='1em'
-          height='1em'
-          aria-label='ダークモード'
-        >
-          <title>ダークモード</title>
-          <g transform='scale(-1,1) translate(-24,0)'>
-            <path d='M21 12.79A9 9 0 0 1 12.79 3a7 7 0 1 0 8.21 9.79z' />
-          </g>
-        </svg>
+        <MoonIcon size={iconSize[size]} className='fill-current' />
       )}
     </button>
   )
