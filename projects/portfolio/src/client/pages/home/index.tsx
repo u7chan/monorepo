@@ -10,6 +10,7 @@ export function Home() {
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    setError(null)
     const formData = new FormData(e.currentTarget)
     const email = formData.get('email') as string
     const password = formData.get('password') as string
@@ -25,6 +26,25 @@ export function Home() {
         }
         window.location.reload()
       })
+      .catch(() => {
+        setError('サインインに失敗しました。')
+      })
+  }
+
+  const handleSignOut = () => {
+    setError(null)
+    client.api.signout
+      .$post()
+      .then((res) => {
+        if (!res.ok) {
+          setError('サインアウトに失敗しました。')
+          return
+        }
+        window.location.reload()
+      })
+      .catch(() => {
+        setError('サインアウトに失敗しました。')
+      })
   }
 
   return (
@@ -32,18 +52,28 @@ export function Home() {
       <div className='w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 dark:border-gray-700 dark:bg-gray-800'>
         <h2 className='mb-6 text-center font-bold text-2xl text-gray-900 dark:text-white'>Home</h2>
 
+        {error && (
+          <div className='mb-4 rounded bg-red-100 p-3 text-red-700 text-xs dark:bg-red-900/30 dark:text-red-400'>
+            {error}
+          </div>
+        )}
+
         {email ? (
-          <p className='text-center text-gray-700 text-lg dark:text-gray-300'>
-            <span className='font-semibold'>User：</span>
-            <span className='break-all font-mono text-gray-600 dark:text-gray-400'>{email}</span>
-          </p>
+          <div className='space-y-4'>
+            <p className='text-center text-gray-700 text-lg dark:text-gray-300'>
+              <span className='font-semibold'>User：</span>
+              <span className='break-all font-mono text-gray-600 dark:text-gray-400'>{email}</span>
+            </p>
+            <button
+              type='button'
+              onClick={handleSignOut}
+              className='w-full cursor-pointer rounded-sm border border-gray-300 p-2 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
+            >
+              Sign Out
+            </button>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className='space-y-4'>
-            {error && (
-              <div className='mb-2 rounded bg-red-100 p-3 text-red-700 text-xs dark:bg-red-900/30 dark:text-red-400'>
-                {error}
-              </div>
-            )}
             <div>
               <label htmlFor='email' className='mb-1 block font-semibold text-gray-700 text-sm dark:text-gray-300'>
                 Email

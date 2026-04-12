@@ -17,12 +17,12 @@ export default defineConfig(({ mode }) => {
         plugins: [
           dts({
             include: resolve(rootDir, 'src/server/app.tsx'),
-            outDir: resolve(rootDir, 'src/server'),
+            outDir: rootDir,
             declarationOnly: true,
             insertTypesEntry: false,
             rollupTypes: false,
             copyDtsFiles: false,
-            entryRoot: resolve(rootDir, 'src/server'),
+            entryRoot: resolve(rootDir, 'src'),
           }),
         ],
         resolve: {

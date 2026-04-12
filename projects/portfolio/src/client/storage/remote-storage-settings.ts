@@ -1,7 +1,7 @@
-import crypto from 'crypto-js'
+import { decryptLegacyApiKey } from './legacy-remote-storage'
 
-const SCHEMA_VERSION = '1.0.0'
-const AES_KEY = '3f1a9c7e5d4b8f012367a9c4e2d5b7f0'
+const STORAGE_KEY = 'portfolio.chat-settings'
+const SCHEMA_VERSION = '1.1.0'
 
 export interface Settings {
   schemaVersion: string
@@ -26,7 +26,11 @@ export interface Settings {
   }
 }
 
-const defaultSettings: Partial<Settings> = {
+type StoredSettings = Partial<Settings> & {
+  schemaVersion?: string
+}
+
+const defaultSettings: Settings = {
   schemaVersion: SCHEMA_VERSION,
   model: 'gpt-4.1-mini',
   baseURL: '',
@@ -46,35 +50,79 @@ const defaultSettings: Partial<Settings> = {
 }
 
 export function readFromLocalStorage(): Settings {
-  const key = 'portfolio.chat-settings'
-  const value = localStorage.getItem(key)
-  const settings = (value && JSON.parse(value)) || defaultSettings
+  const settings = parseStoredSettings(localStorage.getItem(STORAGE_KEY))
 
-  // SCHEMA_VERSIONのメジャーバージョンチェック
-  const currentMajorVersion = SCHEMA_VERSION.split('.')[0]
-  const settingsMajorVersion = settings.schemaVersion?.split('.')[0]
-
-  // schemaVersionが空文字、undefined、または異なるメジャーバージョンの場合はdefaultSettingsで上書き
-  const finalSettings =
-    !settings.schemaVersion || !settingsMajorVersion || settingsMajorVersion !== currentMajorVersion
-      ? defaultSettings
-      : settings
-
-  return {
-    ...finalSettings,
-    apiKey: crypto.AES.decrypt(finalSettings.apiKey, AES_KEY).toString(crypto.enc.Utf8),
+  if (!settings) {
+    return defaultSettings
   }
+
+  if (isLegacySettings(settings)) {
+    const migratedSettings = migrateLegacySettings(settings)
+    writeToLocalStorage(migratedSettings)
+    return migratedSettings
+  }
+
+  if (!isCompatibleSchema(settings.schemaVersion)) {
+    return defaultSettings
+  }
+
+  return mergeSettings(settings)
 }
 
 export function saveToLocalStorage(settings: Partial<Settings>): Settings {
-  const key = 'portfolio.chat-settings'
-  const newSettings = { ...readFromLocalStorage(), ...settings }
-  localStorage.setItem(
-    key,
-    JSON.stringify({
-      ...newSettings,
-      apiKey: crypto.AES.encrypt(newSettings.apiKey, AES_KEY).toString(),
-    })
-  )
-  return readFromLocalStorage()
+  const nextSettings = mergeSettings({
+    ...readFromLocalStorage(),
+    ...settings,
+    schemaVersion: SCHEMA_VERSION,
+  })
+
+  writeToLocalStorage(nextSettings)
+  return nextSettings
+}
+
+function parseStoredSettings(value: string | null): StoredSettings | null {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value)
+    return isRecord(parsed) ? (parsed as StoredSettings) : null
+  } catch {
+    return null
+  }
+}
+
+function mergeSettings(settings: Partial<Settings>): Settings {
+  return {
+    ...defaultSettings,
+    ...settings,
+    schemaVersion: SCHEMA_VERSION,
+  }
+}
+
+function writeToLocalStorage(settings: Settings): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+}
+
+function isCompatibleSchema(schemaVersion: string | undefined): boolean {
+  return schemaVersion?.split('.')[0] === SCHEMA_VERSION.split('.')[0]
+}
+
+function isLegacySettings(settings: StoredSettings): boolean {
+  return settings.schemaVersion?.startsWith('1.0.') ?? false
+}
+
+function migrateLegacySettings(settings: StoredSettings): Settings {
+  const apiKey = typeof settings.apiKey === 'string' ? (decryptLegacyApiKey(settings.apiKey) ?? '') : ''
+
+  return mergeSettings({
+    ...settings,
+    apiKey,
+    schemaVersion: SCHEMA_VERSION,
+  })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
