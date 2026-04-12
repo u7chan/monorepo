@@ -160,6 +160,8 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
         style={isDarkMode ? atomDark : undefined}
         language={selectedLanguage === 'plain' ? undefined : selectedLanguage}
         customStyle={{ fontSize: '0.875rem', margin: 0, borderRadius: 0 }}
+        showLineNumbers
+        lineNumberStyle={{ color: isDarkMode ? '#6b7280' : '#9ca3af', minWidth: '2.5em' }}
       >
         {code}
       </SyntaxHighlighter>
