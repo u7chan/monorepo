@@ -34,6 +34,8 @@
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
+    "remark-cjk-friendly": "^2.0.1",
+    "remark-cjk-friendly-gfm-strikethrough": "^2.0.1",
     "remark-gfm": "^4.0.1",
     "tsx": "^4.21.0",
     "uuidv7": "^1.2.1",
