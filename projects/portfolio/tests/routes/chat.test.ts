@@ -4,22 +4,6 @@ const readFileSyncMock = vi.fn((filePath: string) =>
   filePath.includes('reasoning') ? 'reasoning content' : 'response content'
 )
 
-const importSubjectUnauthenticated = async () => {
-  vi.doMock('hono/cookie', async () => {
-    const actual = await vi.importActual<typeof import('hono/cookie')>('hono/cookie')
-
-    return {
-      ...actual,
-      getSignedCookie: vi.fn().mockResolvedValue(null),
-      deleteCookie: vi.fn(),
-    }
-  })
-
-  const { chatRoutes } = await import('#/server/routes/chat')
-
-  return { chatRoutes }
-}
-
 const importSubject = async () => {
   const completionsMock = vi.fn()
   const chatStubCompletionsMock = vi.fn()
@@ -90,27 +74,6 @@ describe('chatRoutes', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.useRealTimers()
-  })
-
-  it('未認証の場合は 401 を返す', async () => {
-    const { chatRoutes } = await importSubjectUnauthenticated()
-
-    const res = await chatRoutes.request('/api/chat', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'api-key': 'api-key',
-        'base-url': 'https://example.com',
-      },
-      body: JSON.stringify({
-        model: 'gpt-test',
-        messages: [],
-        stream: false,
-      }),
-    })
-
-    expect(res.status).toBe(401)
-    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
   })
 
   it('必須 header がない場合は 400 を返す', async () => {

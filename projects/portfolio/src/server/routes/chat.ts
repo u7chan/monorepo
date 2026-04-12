@@ -3,7 +3,6 @@ import path from 'node:path'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import type { StreamChunk } from '#/server/features/chat/chat'
 import { chat } from '#/server/features/chat/chat'
-import { requireAuth } from '#/server/middleware/auth'
 import { ApiChatRequestSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
@@ -106,7 +105,7 @@ const streamStubCompletion = (
   })
 
 const chatRoutes = new Hono<HonoEnv>()
-  .post('/api/chat', requireAuth, chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
+  .post('/api/chat', chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
 
