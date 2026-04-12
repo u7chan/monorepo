@@ -9,9 +9,11 @@ import type { Message } from '#/types'
 import { isImageContentArray } from '#/types'
 import { Fragment, memo, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkCjkFriendly from 'remark-cjk-friendly'
+import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
 import remarkGfm from 'remark-gfm'
 
-const markdownRemarkPlugins = [remarkGfm]
+const markdownRemarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough]
 const markdownComponents = {
   a: MarkdownLink,
   code: CodeBlockRenderer,
