@@ -4,7 +4,7 @@ import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import type { ChatStreamState, Message } from '#/types'
-import { memo, type RefObject } from 'react'
+import { memo, type ReactNode, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -12,6 +12,7 @@ const markdownRemarkPlugins = [remarkGfm]
 const markdownComponents = {
   a: MarkdownLink,
   code: CodeBlockRenderer,
+  pre: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }
 
 interface ChatMessageListProps {

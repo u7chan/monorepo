@@ -93,7 +93,13 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
   const isBlock = detectedLanguage !== undefined || (typeof children === 'string' && code.includes('\n'))
 
   if (!isBlock || typeof children !== 'string') {
-    return <code className={className}>{children}</code>
+    return (
+      <code
+        className={`${className ?? ''} before:content-none after:content-none rounded bg-gray-100 px-1 py-0.5 font-mono text-sm dark:bg-gray-700`}
+      >
+        {children}
+      </code>
+    )
   }
 
   // Include detected language in options even if not in the standard list
@@ -113,19 +119,17 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
   }
 
   const selectOptionStyle = {
-    backgroundColor: isDarkMode ? '#282c34' : '#ffffff',
-    color: isDarkMode ? '#d1d5db' : '#4b5563',
+    backgroundColor: isDarkMode ? '#282c34' : '#f9fafb',
+    color: isDarkMode ? '#d1d5db' : '#374151',
   }
 
   return (
-    <>
-      <div className='flex items-center justify-between'>
+    <div className='my-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600'>
+      <div className='flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-1.5 dark:border-gray-600 dark:bg-[#282c34]'>
         <select
           value={selectedLanguage}
           onChange={(e) => setSelectedLanguage(e.target.value)}
-          className={`cursor-pointer rounded border-none text-xs ${
-            isDarkMode ? 'bg-[#282c34] text-gray-300' : 'bg-white text-gray-600'
-          }`}
+          className='cursor-pointer rounded border-none bg-transparent text-xs text-gray-600 dark:text-gray-300'
         >
           {languageOptions.map((lang) => (
             <option key={lang} value={lang} style={selectOptionStyle}>
@@ -141,13 +145,13 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
         >
           {copied ? (
             <>
-              <CheckIcon size={18} className='stroke-white' />
-              <span className='text-white text-xs'>コピーしました</span>
+              <CheckIcon size={18} className='stroke-gray-600 dark:stroke-gray-300' />
+              <span className='text-xs text-gray-600 dark:text-gray-300'>コピーしました</span>
             </>
           ) : (
             <>
-              <CopyIcon size={18} className='stroke-white' />
-              <span className='text-white text-xs'>コピーする</span>
+              <CopyIcon size={18} className='stroke-gray-600 dark:stroke-gray-300' />
+              <span className='text-xs text-gray-600 dark:text-gray-300'>コピーする</span>
             </>
           )}
         </button>
@@ -155,9 +159,12 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
       <SyntaxHighlighter
         style={isDarkMode ? atomDark : undefined}
         language={selectedLanguage === 'plain' ? undefined : selectedLanguage}
+        customStyle={{ fontSize: '0.875rem', margin: 0, borderRadius: 0 }}
+        showLineNumbers
+        lineNumberStyle={{ color: isDarkMode ? '#6b7280' : '#9ca3af', minWidth: '2.5em' }}
       >
         {code}
       </SyntaxHighlighter>
-    </>
+    </div>
   )
 }
