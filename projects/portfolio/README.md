@@ -8,122 +8,14 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
 ![Drizzle ORM](https://img.shields.io/badge/Drizzle_ORM-v0.45-2D87FF?style=flat&logo=drizzle&logoColor=white)
 
-## Architectures
+## Overview
 
-| #                   | tech                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------ |
-| Language            | [TypeScript](https://www.typescriptlang.org/)                                              |
-| Runtime             | [Node](https://nodejs.org/)                                                                |
-| Package Manager     | [Bun](https://bun.sh/)                                                                     |
-| Linter & Formatter  | [Oxlint / Oxfmt](https://oxc.rs/docs/guide/introduction.html)                              |
-| CSS Styling         | [Tailwind CSS](https://tailwindcss.com/)                                                   |
-| Build & Bundler     | [Vite](https://ja.vite.dev/)                                                               |
-| Frontend            | [React](https://react.dev/) (Single Page Application)                                      |
-| Frontend routing    | [TanStack Router](https://tanstack.com/router/latest/docs/framework/react/overview)        |
-| DB                  | [PostgreSQL](https://www.postgresql.org/)                                                  |
-| ORM                 | [Drizzle ORM](https://orm.drizzle.team/)                                                   |
-| Develop environment | [Dev Containers](https://code.visualstudio.com/docs/devcontainers/containers) (for VSCode) |
+技術構成の詳細は [AGENTS.md の Tech Stack](./AGENTS.md#tech-stack) を参照してください。  
+コーディング規約やテスト方針は [AGENTS.md](./AGENTS.md)、開発用コマンドや運用手順は [DEVELOPMENT.md](./DEVELOPMENT.md) に集約しています。
 
-## Commands
+## Development
 
-- Run:
-
-  ```sh
-  bun run dev
-  ```
-
-  open <http://localhost:3000/>
-
-- Lint:
-
-  ```sh
-  bun run lint
-  ```
-
-- Format:
-
-  ```sh
-  bun run format
-  ```
-
-- TypeGen:
-
-  ```sh
-  bun run typegen
-  ```
-
-- Build:
-
-  ```sh
-  bun run build
-  ```
-
-- Start with built artifacts:
-
-  ```sh
-  bun run start
-  ```
-
-  open <http://localhost:3000/>
-
-## Deploy
-
-- Image build:
-
-  ```sh
-  docker build -t portfolio .
-  ```
-
-- Run container:
-
-  ```sh
-  SERVER_PORT=3000; \
-  docker run \
-    -p 3000:3000 \
-    -itd \
-    --restart=always \
-    --env SERVER_PORT=$SERVER_PORT \
-    portfolio
-  ```
-
-## Database Migration
-
-- In Dev Containers, `psql` is available via `postgresql-client`.
-
-- Schema creation (only during the initial setup):
-
-  ```sh
-  CREATE DATABASE portfolio;
-  ```
-
-- Create migration:
-
-  ```sh
-  bun run db:generate
-  ```
-
-- Apply migration:
-
-  ```sh
-  bun run db:migrate
-  ```
-
-- Add auth user after migration:
-
-  ```sh
-  bun run db:user:add -- --email test@example.com
-  ```
-
-  Enter the password when prompted. For non-interactive use, pipe it via stdin, for example
-
-  ```sh
-  printf 'replace-with-password\n' | bun run db:user:add -- --email test@example.com
-  ```
-
-  The command fails if the email already exists.
-
-## Authentication Notes
-
-- Sign-in verifies the password against `users.password_hash`.
-- `db:user:add` hashes the plain password from an interactive prompt or stdin and adds a new auth user.
-- Chat settings `apiKey` is stored in browser `localStorage`. It is not a secure secret store.
+- 開発用コマンド一覧: [DEVELOPMENT.md の Commands](./DEVELOPMENT.md#commands)
+- デプロイ手順: [DEVELOPMENT.md の Deploy](./DEVELOPMENT.md#deploy)
+- DBマイグレーション: [DEVELOPMENT.md の Database Migration](./DEVELOPMENT.md#database-migration)
+- 認証まわりの注意: [DEVELOPMENT.md の Authentication Notes](./DEVELOPMENT.md#authentication-notes)
