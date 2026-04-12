@@ -405,60 +405,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-            };
-            outputFormat: "json";
-            status: 401;
-        } | {
-            input: {
-                json: {
-                    id: string;
-                    title: string;
-                    messages: ({
-                        role: "user";
-                        content: string | ({
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                            };
-                        } | {
-                            type: "text";
-                            text: string;
-                        })[];
-                        metadata: {
-                            model: string;
-                            stream?: boolean | undefined;
-                            temperature?: number | undefined;
-                            maxTokens?: number | undefined;
-                        };
-                        id?: string | undefined;
-                        reasoningContent?: string | undefined;
-                    } | {
-                        role: "assistant";
-                        content: string;
-                        metadata: {
-                            model: string;
-                            usage: {
-                                completionTokens?: number | undefined;
-                                promptTokens?: number | undefined;
-                                totalTokens?: number | undefined;
-                                reasoningTokens?: number | undefined;
-                            };
-                            finishReason?: string | undefined;
-                            responseTimeMs?: number | undefined;
-                        };
-                        id?: string | undefined;
-                        reasoningContent?: string | undefined;
-                    } | {
-                        role: "system";
-                        content: string;
-                        id?: string | undefined;
-                        reasoningContent?: string | undefined;
-                        metadata?: Record<string, never> | undefined;
-                    })[];
-                };
-            };
-            output: {
                 conversationId: string;
             };
             outputFormat: "json";
@@ -480,17 +426,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             outputFormat: "json";
             status: 400;
-        } | {
-            input: {
-                query: {
-                    ids: string | string[];
-                };
-            };
-            output: {
-                error: string;
-            };
-            outputFormat: "json";
-            status: 401;
         } | {
             input: {
                 query: {
@@ -521,17 +456,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             outputFormat: "json";
             status: 400;
-        } | {
-            input: {
-                query: {
-                    ids: string | string[];
-                };
-            };
-            output: {
-                error: string;
-            };
-            outputFormat: "json";
-            status: 401;
         } | {
             input: {
                 query: {
