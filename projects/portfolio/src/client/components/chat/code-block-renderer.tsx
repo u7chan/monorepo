@@ -93,7 +93,11 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
   const isBlock = detectedLanguage !== undefined || (typeof children === 'string' && code.includes('\n'))
 
   if (!isBlock || typeof children !== 'string') {
-    return <code className={className}>{children}</code>
+    return (
+      <code className={`${className ?? ''} before:content-none after:content-none rounded bg-gray-100 px-1 py-0.5 font-mono text-sm dark:bg-gray-700`}>
+        {children}
+      </code>
+    )
   }
 
   // Include detected language in options even if not in the standard list
