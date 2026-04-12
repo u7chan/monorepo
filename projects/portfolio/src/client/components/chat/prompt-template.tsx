@@ -143,7 +143,7 @@ function PromptTemplateComponent({ placeholder, onSubmit }: Props) {
                 <input
                   type='text'
                   spellCheck='false'
-                  className='w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
+                  className='w-full rounded-sm border p-1 text-sm transition-colors placeholder-gray-400 hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400'
                   placeholder={template.placeholder}
                   onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                   onCompositionStart={() => handleChangeComposition(true)}
@@ -151,7 +151,7 @@ function PromptTemplateComponent({ placeholder, onSubmit }: Props) {
                 />
               ) : (
                 <textarea
-                  className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400'
+                  className='max-h-64 min-h-8 w-full rounded-sm border p-1 text-sm transition-colors placeholder-gray-400 hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400'
                   placeholder={template.placeholder}
                   onKeyDown={(e) => handleKeyDownTemplate(e, template)}
                   onCompositionStart={() => handleChangeComposition(true)}
