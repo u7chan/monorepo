@@ -1,3 +1,4 @@
+import { ChatResults } from '#/client/components/chat/chat-results'
 import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
@@ -111,6 +112,7 @@ function MessageRendererComponent({
             {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
           </button>
         </div>
+        <ChatResults metadata={message.metadata} />
       </div>
     </div>
   )

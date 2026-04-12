@@ -2,7 +2,6 @@ import {
   parseChatCompletionResponse,
   parseChatCompletionStreamChunk,
   toChatCompletionResult,
-  toChatResultSummary,
   updateChatStream,
 } from '#/client/components/chat/hooks/chat-response'
 import { describe, expect, it } from 'vitest'
@@ -36,25 +35,6 @@ describe('chat-response helpers', () => {
         reasoningContent: 'thinking',
       },
       responseTimeMs: 0,
-      usage: {
-        promptTokens: 10,
-        completionTokens: 20,
-        totalTokens: 30,
-        reasoningTokens: 5,
-      },
-    })
-
-    expect(
-      toChatResultSummary({
-        model: response.model,
-        finishReason: response.choices[0]?.finish_reason ?? '',
-        responseTimeMs: 1234,
-        usage: response.usage,
-      })
-    ).toEqual({
-      model: 'gpt-test',
-      finish_reason: 'stop',
-      responseTimeMs: 1234,
       usage: {
         promptTokens: 10,
         completionTokens: 20,

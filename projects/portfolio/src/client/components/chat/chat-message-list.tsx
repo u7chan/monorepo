@@ -1,9 +1,8 @@
-import { ChatResults } from '#/client/components/chat/chat-results'
 import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
-import type { ChatResultSummary, ChatStreamState, Message } from '#/types'
+import type { ChatStreamState, Message } from '#/types'
 import { memo, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -19,7 +18,6 @@ interface ChatMessageListProps {
   markdownPreview: boolean
   loading: boolean
   stream: ChatStreamState | null
-  chatResults: ChatResultSummary | null
   copiedId: string
   messageEndRef: RefObject<HTMLDivElement | null>
   onCopyMessage: (message: string, index: number) => void
@@ -31,7 +29,6 @@ export function ChatMessageList({
   markdownPreview,
   loading,
   stream,
-  chatResults,
   copiedId,
   messageEndRef,
   onCopyMessage,
@@ -79,14 +76,6 @@ export function ChatMessageList({
             )}
           </div>
         )}
-        {!loading && chatResults && (
-          <ChatResults
-            model={chatResults.model}
-            finishReason={chatResults.finish_reason}
-            responseTimeMs={chatResults.responseTimeMs}
-            usage={chatResults.usage}
-          />
-        )}
         <div ref={messageEndRef} className='h-4' />
       </div>
     </div>
@@ -112,7 +101,7 @@ const MessageHistory = memo(function MessageHistory({
 }: MessageHistoryProps) {
   return messages.map((message, index) => (
     <MessageRenderer
-      key={`chat_${index}`}
+      key={message.id ?? `chat_${index}`}
       message={message}
       index={index}
       markdownPreview={markdownPreview}

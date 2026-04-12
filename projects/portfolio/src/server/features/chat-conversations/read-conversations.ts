@@ -1,7 +1,7 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import type { AssistantMetadata, Conversation, ImageContent, Message, TextContent, UserMetadata } from '#/types'
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { asc, desc, eq } from 'drizzle-orm'
 
 /**
  * DB から読み出した content 文字列を deserialize する。
@@ -64,16 +64,7 @@ export async function readConversations(databaseUrl: string, email: string): Pro
     .from(conversationsTable)
     .leftJoin(messagesTable, eq(conversationsTable.id, messagesTable.conversationId))
     .where(eq(conversationsTable.userId, userId))
-    .orderBy(
-      desc(conversationsTable.updatedAt),
-      asc(messagesTable.createdAt),
-      sql`CASE
-        WHEN ${messagesTable.role} = 'system' THEN 1
-        WHEN ${messagesTable.role} = 'user' THEN 2
-        WHEN ${messagesTable.role} = 'assistant' THEN 3
-        ELSE 4
-      END`
-    )
+    .orderBy(desc(conversationsTable.updatedAt), asc(messagesTable.createdAt))
 
   // JOINの結果を会話ごとにグループ化
   const conversationMap = new Map<string, Conversation>()

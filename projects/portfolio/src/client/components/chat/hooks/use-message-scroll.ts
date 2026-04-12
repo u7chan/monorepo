@@ -1,14 +1,14 @@
-import type { ChatResultSummary, ChatStreamState } from '#/types'
+import type { ChatStreamState, Message } from '#/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseMessageScrollParams {
   loading: boolean
   streamMode: boolean
   stream: ChatStreamState | null
-  chatResults: ChatResultSummary | null
+  messages: Message[]
 }
 
-export function useMessageScroll({ loading, streamMode, stream, chatResults }: UseMessageScrollParams) {
+export function useMessageScroll({ loading, streamMode, stream, messages }: UseMessageScrollParams) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
@@ -39,7 +39,7 @@ export function useMessageScroll({ loading, streamMode, stream, chatResults }: U
   useEffect(() => {
     if (!autoScroll) return
     messageEndRef.current?.scrollIntoView(!streamMode && { behavior: 'smooth' })
-  }, [stream, chatResults, streamMode, autoScroll, bottomChatInputContainerHeight])
+  }, [stream, messages.length, streamMode, autoScroll, bottomChatInputContainerHeight])
 
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return

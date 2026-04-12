@@ -46,15 +46,16 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
     }
 
     // メッセージの登録（全件挿入）
-    const messageValues = messages.map((message) => ({
+    // index を ms 単位でずらすことで元の配列順序を createdAt に反映し、
+    // DB から読み戻したときの ORDER BY createdAt で順序が保たれるようにする
+    const messageValues = messages.map((message, index) => ({
       id: uuidv7(),
       conversationId: id,
       role: message.role,
       content: serializeContent(message.content),
       reasoningContent: message.reasoningContent ?? '',
-      // metadata は jsonb カラムにオブジェクトのまま渡す（JSON.stringify は不要）
-      metadata: message.metadata ?? null,
-      createdAt: now,
+      metadata: message.metadata ?? {},
+      createdAt: new Date(now.getTime() + index),
     }))
 
     await tx.insert(messagesTable).values(messageValues)

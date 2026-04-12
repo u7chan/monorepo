@@ -218,18 +218,6 @@ export interface ChatStreamState {
   reasoning_content?: string
 }
 
-export interface ChatResultSummary {
-  model?: string
-  finish_reason: string
-  responseTimeMs?: number
-  usage: {
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    reasoningTokens?: number
-  } | null
-}
-
 export interface ChatCompletionResult {
   model: string
   finishReason: string

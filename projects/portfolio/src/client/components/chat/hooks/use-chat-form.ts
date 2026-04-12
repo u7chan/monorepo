@@ -2,6 +2,7 @@ import type { TemplateInput } from '#/client/components/chat/prompt-template'
 import type { ApiChatMessage, Message } from '#/types'
 import { toApiChatMessage } from '#/types'
 import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
+import { uuidv7 } from 'uuidv7'
 
 const MIN_TEXT_LINE_COUNT = 2
 const MAX_TEXT_LINE_COUNT = 5
@@ -123,6 +124,7 @@ const createMessage = (
   }
 
   const draftUserMessage: Message = {
+    id: uuidv7(),
     role: 'user',
     content:
       uploadImages.length > 0
@@ -159,12 +161,14 @@ const createTemplateMessage = (
   { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
 ): BuiltChatMessages => {
   const draftUserMessage: Message = {
+    id: uuidv7(),
     role: 'user',
     content: templateInput.content,
     reasoningContent: '',
     metadata: { model: templateInput.model || model },
   }
   const systemMessage: Message = {
+    id: uuidv7(),
     role: 'system',
     content: templateInput.prompt,
     reasoningContent: '',

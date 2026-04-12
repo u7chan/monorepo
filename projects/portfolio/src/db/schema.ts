@@ -29,7 +29,7 @@ export const messagesTable = pgTable('messages', {
   role: text('role').notNull(), // 'user' | 'assistant'
   content: text('content').notNull(),
   reasoningContent: text('reasoning_content').notNull(),
-  metadata: jsonb('metadata'), // JSONデータ型
+  metadata: jsonb('metadata').notNull().default({}),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull(),
 })
 
