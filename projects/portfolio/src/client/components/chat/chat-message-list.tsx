@@ -101,7 +101,7 @@ const MessageHistory = memo(function MessageHistory({
 }: MessageHistoryProps) {
   return messages.map((message, index) => (
     <MessageRenderer
-      key={`chat_${index}`}
+      key={message.id ?? `chat_${index}`}
       message={message}
       index={index}
       markdownPreview={markdownPreview}

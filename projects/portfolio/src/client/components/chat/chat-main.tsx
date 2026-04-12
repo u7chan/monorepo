@@ -129,6 +129,7 @@ export function ChatMain({
         // assistant メッセージを state に追加（ドメイン型で保持）
         const assistantMessage: Message | null = result
           ? {
+              id: uuidv7(),
               role: 'assistant' as const,
               content: result.message.content,
               reasoningContent: result.message.reasoningContent,
