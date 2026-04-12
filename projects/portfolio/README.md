@@ -1,12 +1,12 @@
 # portfolio
 
-![TypeScript](https://img.shields.io/badge/TypeScript-v5-3178C6?style=flat&logo=typescript&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-v6-3178C6?style=flat&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-v19-61DAFB?style=flat&logo=react&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-v6-646CFF?style=flat&logo=vite&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-v8-646CFF?style=flat&logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
 ![TanStack Router](https://img.shields.io/badge/TanStack_Router-v1-FF41B4?style=flat&logo=tanstack&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-v17-4169E1?style=flat&logo=postgresql&logoColor=white)
-![Drizzle ORM](https://img.shields.io/badge/Drizzle_ORM-v0-2D87FF?style=flat&logo=drizzle&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
+![Drizzle ORM](https://img.shields.io/badge/Drizzle_ORM-v0.45-2D87FF?style=flat&logo=drizzle&logoColor=white)
 
 ## Architectures
 
