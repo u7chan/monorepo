@@ -3,6 +3,7 @@ import path from 'node:path'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import type { StreamChunk } from '#/server/features/chat/chat'
 import { chat } from '#/server/features/chat/chat'
+import { requireAuth } from '#/server/middleware/auth'
 import { ApiChatRequestSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
@@ -10,7 +11,7 @@ import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
 import type { HonoEnv } from './shared'
-import { getServerEnv, getSignedInEmail } from './shared'
+import { getServerEnv } from './shared'
 
 const ChatHeaderSchema = z.object({
   'api-key': z.string().min(1),
@@ -105,11 +106,9 @@ const streamStubCompletion = (
   })
 
 const chatRoutes = new Hono<HonoEnv>()
-  .post('/api/chat', chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
+  .post('/api/chat', requireAuth, chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
-
-    await getSignedInEmail(c)
 
     const completion = await chat.completions(
       {

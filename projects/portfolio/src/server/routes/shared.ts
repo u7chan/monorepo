@@ -13,6 +13,9 @@ export type Env = Partial<{
 
 export type HonoEnv = {
   Bindings: Env
+  Variables: {
+    email: string
+  }
 }
 
 export const getServerEnv = (c: Context<HonoEnv>) => env<Env>(c)
