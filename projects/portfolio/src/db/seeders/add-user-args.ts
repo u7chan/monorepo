@@ -1,21 +1,18 @@
 import { z } from 'zod'
 
-const usage = 'Usage: bun run db:user:add -- --email <email> --password <password>'
+export const addUserUsage = 'Usage: bun run db:user:add -- --email <email>'
 
 const AddUserArgsSchema = z.object({
   email: z.email(),
-  password: z.string().min(1),
 })
 
 export interface AddUserArgs {
   email: string
-  password: string
 }
 
 export function parseAddUserArgs(argv: string[]): AddUserArgs {
   const args = argv.slice(2)
   let email = ''
-  let password = ''
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]
@@ -27,19 +24,13 @@ export function parseAddUserArgs(argv: string[]): AddUserArgs {
       continue
     }
 
-    if (arg === '--password' && value) {
-      password = value
-      index++
-      continue
-    }
-
-    throw new Error(usage)
+    throw new Error(addUserUsage)
   }
 
-  const parsed = AddUserArgsSchema.safeParse({ email, password })
+  const parsed = AddUserArgsSchema.safeParse({ email })
 
   if (!parsed.success) {
-    throw new Error(usage)
+    throw new Error(addUserUsage)
   }
 
   return parsed.data

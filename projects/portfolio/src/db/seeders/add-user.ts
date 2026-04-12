@@ -1,6 +1,7 @@
 import { hashPassword } from '../../server/features/auth/password-hash'
 import { parseAddUserArgs } from './add-user-args'
 import { addUser } from './add-user-record'
+import { readPassword } from './read-password'
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL || ''
@@ -9,7 +10,8 @@ async function main() {
     throw new Error('DATABASE_URL is required')
   }
 
-  const { email, password } = parseAddUserArgs(process.argv)
+  const { email } = parseAddUserArgs(process.argv)
+  const password = await readPassword()
   const passwordHash = hashPassword(password)
 
   await addUser({ databaseUrl, email, passwordHash })
