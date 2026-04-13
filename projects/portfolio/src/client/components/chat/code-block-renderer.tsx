@@ -2,10 +2,20 @@ import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { useDarkMode } from '#/client/hooks/use-dark-mode'
-import type { AnchorHTMLAttributes, HTMLAttributes, MouseEvent, ReactNode } from 'react'
+import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
+
+const CODE_BLOCK_FONT_FAMILY = "'M PLUS 1 Code', monospace"
+const CODE_TEXT_STYLE: CSSProperties = {
+  fontFamily: CODE_BLOCK_FONT_FAMILY,
+  fontWeight: 500,
+  letterSpacing: 0,
+  wordSpacing: 0,
+  fontKerning: 'none',
+  fontVariantLigatures: 'none',
+}
 
 type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>
 
@@ -158,9 +168,22 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
       </div>
       <SyntaxHighlighter
         style={isDarkMode ? atomDark : undefined}
-        language={selectedLanguage === 'plain' ? undefined : selectedLanguage}
-        customStyle={{ fontSize: '0.875rem', margin: 0, borderRadius: 0 }}
-        showLineNumbers
+        language={selectedLanguage}
+        customStyle={{
+          fontSize: '0.875rem',
+          margin: 0,
+          borderRadius: 0,
+          backgroundColor: selectedLanguage === 'plain' ? 'transparent' : undefined,
+          color: selectedLanguage === 'plain' ? (isDarkMode ? '#f3f4f6' : '#111827') : undefined,
+          ...CODE_TEXT_STYLE,
+        }}
+        codeTagProps={{
+          style: {
+            ...CODE_TEXT_STYLE,
+            color: selectedLanguage === 'plain' ? 'inherit' : undefined,
+          },
+        }}
+        showLineNumbers={selectedLanguage !== 'plain'}
         lineNumberStyle={{ color: isDarkMode ? '#6b7280' : '#9ca3af', minWidth: '2.5em' }}
       >
         {code}
