@@ -33,36 +33,18 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
         <span>{model}</span>
         {responseTimeMs !== undefined && (
           <>
-            <span>·</span>
+            <span>/</span>
             <span>{formatResponseTime(responseTimeMs)}</span>
-          </>
-        )}
-        {(usage.promptTokens || usage.completionTokens) && (
-          <>
-            <span>·</span>
-            <span>
-              {usage.promptTokens ?? '--'}→{usage.completionTokens ?? '--'} tokens
-            </span>
           </>
         )}
         <span className='ml-0.5'>{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div className='mt-1 flex flex-wrap gap-1'>
-          <div className={badgeClass}>
-            <span className='mr-1'>model:</span>
-            <span>{model}</span>
-          </div>
           {finishReason && (
             <div className={badgeClass}>
               <span className='mr-1'>finish_reason:</span>
               <span>{finishReason}</span>
-            </div>
-          )}
-          {responseTimeMs !== undefined && (
-            <div className={badgeClass}>
-              <span className='mr-1'>time:</span>
-              <span>{formatResponseTime(responseTimeMs)}</span>
             </div>
           )}
           <div className={badgeClass}>
