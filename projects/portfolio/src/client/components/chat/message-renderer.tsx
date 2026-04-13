@@ -63,7 +63,7 @@ function MessageRendererComponent({
                 })}
           </div>
           <div
-            className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'} ${disabled ? 'invisible' : ''}`}
+            className={`mt-1 ml-1 transition-opacity duration-200 ease-in md:opacity-0 md:group-hover:opacity-100 ${copied ? 'opacity-100' : ''} ${disabled ? 'invisible' : ''}`}
           >
             <button
               type='button'
@@ -101,7 +101,7 @@ function MessageRendererComponent({
           </div>
         )}
         <div
-          className={`mt-1 ml-1 transition-opacity duration-200 ease-in group-hover:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}
+          className={`mt-1 ml-1 transition-opacity duration-200 ease-in md:opacity-0 md:group-hover:opacity-100 ${copied ? 'opacity-100' : ''}`}
         >
           <button
             type='button'
