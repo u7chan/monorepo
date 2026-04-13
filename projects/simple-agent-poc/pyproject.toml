@@ -8,7 +8,7 @@ dependencies = [
     "fastapi>=0.117.1",
     "litellm>=1.81.14",
     "python-dotenv>=1.2.1",
-    "uvicorn>=0.37.0",
+    "uvicorn>=0.44.0",
 ]
 
 [project.scripts]
