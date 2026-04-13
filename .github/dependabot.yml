@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directories:
+      - "/projects/portfolio"
+      - "/projects/file-server"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "uv"
+    directories:
+      - "/projects/edit-vid"
+      - "/projects/simple-agent-poc"
+    schedule:
+      interval: "weekly"
