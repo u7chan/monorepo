@@ -73,6 +73,39 @@
 - `weekly`
 - `monthly`
 
+### PR 数を減らす
+
+`open-pull-requests-limit` を使うと、同時に開く version update PR の本数を制限できます。
+
+```yaml
+open-pull-requests-limit: 2
+```
+
+### minor / patch をまとめる
+
+同じプロジェクトの lockfile を何本も同時に更新しないよう、`groups` で non-major 更新をまとめられます。
+
+```yaml
+groups:
+  non-major:
+    applies-to: version-updates
+    patterns:
+      - "*"
+    update-types:
+      - "minor"
+      - "patch"
+```
+
+### 自動 rebase を止める
+
+`rebase-strategy: disabled` を指定すると、他の Dependabot PR のマージ後に未マージ PR が自動 rebase されにくくなり、`pull_request` CI の再実行回数を減らせます。
+
+```yaml
+rebase-strategy: "disabled"
+```
+
+この設定を入れると CI ノイズは減りますが、競合解消は手動で見る前提になります。
+
 ### 特定パッケージを無視する
 
 `ignore` を追加します。
@@ -95,4 +128,6 @@ labels:
 
 - `bun` と `uv` は別の `updates` ブロックに分ける
 - 対象外プロジェクトは `directories` に追加しない限り更新されない
+- 同じ lockfile を触る PR が多い場合は `groups` と `open-pull-requests-limit` を優先して調整する
+- `rebase-strategy: disabled` は CI ノイズ低減に有効だが、古い PR の競合は手動確認が必要になる
 - 変更後は GitHub 上で Dependabot 設定エラーが出ていないことを確認する
