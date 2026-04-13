@@ -7,6 +7,8 @@ import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
+const CODE_BLOCK_FONT_FAMILY = "'M PLUS 1 Code', monospace"
+
 type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>
 
 export function MarkdownLink({ href, children }: MarkdownLinkProps) {
@@ -159,7 +161,8 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
       <SyntaxHighlighter
         style={isDarkMode ? atomDark : undefined}
         language={selectedLanguage === 'plain' ? undefined : selectedLanguage}
-        customStyle={{ fontSize: '0.875rem', margin: 0, borderRadius: 0 }}
+        customStyle={{ fontSize: '0.875rem', margin: 0, borderRadius: 0, fontFamily: CODE_BLOCK_FONT_FAMILY }}
+        codeTagProps={{ style: { fontFamily: CODE_BLOCK_FONT_FAMILY } }}
         showLineNumbers
         lineNumberStyle={{ color: isDarkMode ? '#6b7280' : '#9ca3af', minWidth: '2.5em' }}
       >
