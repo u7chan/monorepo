@@ -30,6 +30,15 @@ class StubLLMClient(LLMClient):
         }
 
 
+def unused_use_case_factory() -> RunAgentUseCase:
+    """Build a minimal use case for requests that should fail validation first."""
+    return RunAgentUseCase(
+        llm_client=StubLLMClient(reply="unused"),
+        session_store=InMemorySessionStore(),
+        system_prompt="System prompt",
+    )
+
+
 class TestAPI:
     """Tests for the FastAPI adapter."""
 
@@ -53,7 +62,7 @@ class TestAPI:
         assert data["session_id"]
 
     def test_chat_rejects_missing_message(self) -> None:
-        app = create_app(use_case_factory=lambda: None)
+        app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
         response = client.post("/api/chat", json={})
@@ -61,7 +70,7 @@ class TestAPI:
         assert response.status_code == 422
 
     def test_chat_rejects_blank_message(self) -> None:
-        app = create_app(use_case_factory=lambda: None)
+        app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
         response = client.post("/api/chat", json={"message": "   "})
