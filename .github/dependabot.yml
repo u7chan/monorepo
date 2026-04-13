@@ -1,15 +1,28 @@
 version: 2
 updates:
   - package-ecosystem: "bun"
-    directories:
-      - "/projects/portfolio"
-      - "/projects/file-server"
+    directory: "/projects/portfolio"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
     rebase-strategy: "disabled"
     groups:
-      bun-non-major:
+      portfolio-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "bun"
+    directory: "/projects/file-server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    groups:
+      file-server-minor-and-patch:
         applies-to: version-updates
         patterns:
           - "*"
@@ -18,15 +31,28 @@ updates:
           - "patch"
 
   - package-ecosystem: "uv"
-    directories:
-      - "/projects/edit-vid"
-      - "/projects/simple-agent-poc"
+    directory: "/projects/edit-vid"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
     rebase-strategy: "disabled"
     groups:
-      uv-non-major:
+      edit-vid-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/projects/simple-agent-poc"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    groups:
+      simple-agent-poc-minor-and-patch:
         applies-to: version-updates
         patterns:
           - "*"
