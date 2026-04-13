@@ -19,13 +19,15 @@
 ## 日常運用
 
 1. Dependabot PR が作成されたら CI の結果を確認する
+1. grouped PR の場合は対象が単一 project に閉じていることを確認する
+1. major 更新は grouped ではなく dependency ごとの個別 PR になる前提で扱う
 1. 必要に応じて対象プロジェクトだけローカルで動作確認する
 1. 問題がなければ通常の PR と同様にマージする
 1. 問題がある更新は PR を閉じるか、`ignore` を追加して再発を防ぐ
 
 ## 対象プロジェクトを追加する手順
 
-追加したいプロジェクトが Dependabot 対応のマニフェストを持っていることを確認し、`.github/dependabot.yml` の `directories` にパスを追加します。
+追加したいプロジェクトが Dependabot 対応のマニフェストを持っていることを確認し、`.github/dependabot.yml` に project ごとの `updates` block を追加します。`directory` は単数形で指定し、non-major のみを group 化します。
 
 ### Bun プロジェクトを追加する場合
 
@@ -38,11 +40,19 @@
 
 ```yaml
 - package-ecosystem: "bun"
-  directories:
-    - "/projects/example-a"
-    - "/projects/your-bun-project"
+  directory: "/projects/your-bun-project"
   schedule:
     interval: "weekly"
+  open-pull-requests-limit: 1
+  rebase-strategy: "disabled"
+  groups:
+    your-bun-project-minor-and-patch:
+      applies-to: version-updates
+      patterns:
+        - "*"
+      update-types:
+        - "minor"
+        - "patch"
 ```
 
 ### uv プロジェクトを追加する場合
@@ -56,11 +66,19 @@
 
 ```yaml
 - package-ecosystem: "uv"
-  directories:
-    - "/projects/example-python-service"
-    - "/projects/your-uv-project"
+  directory: "/projects/your-uv-project"
   schedule:
     interval: "weekly"
+  open-pull-requests-limit: 1
+  rebase-strategy: "disabled"
+  groups:
+    your-uv-project-minor-and-patch:
+      applies-to: version-updates
+      patterns:
+        - "*"
+      update-types:
+        - "minor"
+        - "patch"
 ```
 
 ## よくある調整
@@ -75,19 +93,19 @@
 
 ### PR 数を減らす
 
-`open-pull-requests-limit` を使うと、同時に開く version update PR の本数を制限できます。
+`open-pull-requests-limit` を使うと、同時に開く version update PR の本数を制限できます。project ごとに `1` を指定しておくと、block を分けても PR 数を抑えやすくなります。
 
 ```yaml
-open-pull-requests-limit: 2
+open-pull-requests-limit: 1
 ```
 
 ### minor / patch をまとめる
 
-同じプロジェクトの lockfile を何本も同時に更新しないよう、`groups` で non-major 更新をまとめられます。
+同じ project の lockfile を何本も同時に更新しないよう、`groups` で non-major 更新をまとめられます。group 名は `{project}-minor-and-patch` 形式にすると識別しやすくなります。major 更新は group に含めず、dependency ごとの個別 PR に任せます。
 
 ```yaml
 groups:
-  non-major:
+  your-project-minor-and-patch:
     applies-to: version-updates
     patterns:
       - "*"
@@ -127,7 +145,9 @@ labels:
 ## 注意点
 
 - `bun` と `uv` は別の `updates` ブロックに分ける
-- 対象外プロジェクトは `directories` に追加しない限り更新されない
+- project ごとに `updates` block を分け、`directory` は単数形で指定する
+- 対象外 project は block を追加しない限り更新されない
 - 同じ lockfile を触る PR が多い場合は `groups` と `open-pull-requests-limit` を優先して調整する
+- major 更新は group 化せず、dependency 単位の個別 PR に任せる
 - `rebase-strategy: disabled` は CI ノイズ低減に有効だが、古い PR の競合は手動確認が必要になる
 - 変更後は GitHub 上で Dependabot 設定エラーが出ていないことを確認する
