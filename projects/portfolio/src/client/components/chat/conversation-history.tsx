@@ -113,11 +113,13 @@ export function ConversationHistory({
                         </div>
                       </div>
                     </div>
-                    {(hoveredId === conversation.id || currentConversationId === conversation.id) && !disabled && (
+                    {!disabled && (
                       <button
                         type='button'
                         onClick={(e) => handleDeleteClick(e, conversation.id)}
-                        className='absolute right-3 top-1/2 ml-2 -translate-y-1/2 rounded-md p-1 text-gray-400 opacity-0 transition-[opacity,background-color,color] hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:text-gray-500 dark:hover:bg-red-500/10 dark:hover:text-red-400'
+                        className={`absolute right-3 top-1/2 ml-2 -translate-y-1/2 rounded-md p-1 text-gray-400 opacity-100 transition-[opacity,background-color,color] hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover:opacity-100 dark:text-gray-500 dark:hover:bg-red-500/10 dark:hover:text-red-400 ${
+                          currentConversationId === conversation.id ? 'md:opacity-100' : ''
+                        }`}
                         title='会話を削除'
                       >
                         <DeleteIcon size={14} className='stroke-current' />
