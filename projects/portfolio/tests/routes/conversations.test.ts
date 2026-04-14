@@ -51,6 +51,29 @@ describe('conversationsRoutes', () => {
     expect(repositoryMock.read).toHaveBeenCalledWith('postgres://db', 'test@example.com')
   })
 
+  it('認証済み GET は updatedAt を JSON 文字列で返す', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://db')
+    getSignedCookieMock.mockResolvedValue('test@example.com')
+    repositoryMock.read.mockResolvedValue([
+      {
+        ...createConversationFixture(),
+        updatedAt: new Date('2026-04-14T12:34:56.000Z'),
+      },
+    ])
+
+    const res = await conversationsRoutes.request('/api/conversations')
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      data: [
+        {
+          ...createConversationFixture(),
+          updatedAt: '2026-04-14T12:34:56.000Z',
+        },
+      ],
+    })
+  })
+
   it('未認証の POST は 401 を返す', async () => {
     vi.stubEnv('DATABASE_URL', 'postgres://db')
     getSignedCookieMock.mockResolvedValue(null)

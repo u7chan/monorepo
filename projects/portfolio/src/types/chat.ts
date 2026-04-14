@@ -102,6 +102,7 @@ export type Message = z.infer<typeof MessageSchema>
 export const ConversationSchema = z.object({
   id: z.string(),
   title: z.string(),
+  updatedAt: z.coerce.date().optional(),
   messages: z.array(MessageSchema),
 })
 
