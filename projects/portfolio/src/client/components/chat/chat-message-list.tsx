@@ -49,8 +49,8 @@ export function ChatMessageList({
         />
         {loading && (
           <div className='flex align-item'>
-            <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-900'>
-              <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-gray-300' />
+            <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-800'>
+              <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-white' />
             </div>
             {stream ? (
               <div className='message ml-2 text-left'>
