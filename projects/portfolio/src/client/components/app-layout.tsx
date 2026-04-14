@@ -84,7 +84,7 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
       )}
 
       {/* メインコンテンツ */}
-      <main className='flex-1 overflow-y-hidden bg-white md:overflow-y-auto dark:bg-gray-900 pt-14 md:pt-0'>
+      <main className='min-w-0 flex-1 overflow-y-hidden bg-white md:overflow-y-auto dark:bg-gray-900 pt-14 md:pt-0'>
         {children}
       </main>
     </div>

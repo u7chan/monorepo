@@ -23,7 +23,7 @@ export function ChatLayout({ conversations, isSidebarOpen, onToggleSidebar, chil
         <div className='fixed top-14 bottom-0 left-0 right-0 bg-black/50 z-40 md:hidden' onClick={onToggleSidebar} />
       )}
 
-      <div className='flex h-full min-h-0 flex-1 flex-col bg-white dark:bg-gray-900'>{children}</div>
+      <div className='min-w-0 flex h-full min-h-0 flex-1 flex-col bg-white dark:bg-gray-900'>{children}</div>
     </div>
   ) : (
     <div className='flex h-[calc(100dvh-3.5rem)] flex-col bg-white md:h-dvh dark:bg-gray-900'>{children}</div>
