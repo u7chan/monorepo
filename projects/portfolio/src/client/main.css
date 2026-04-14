@@ -119,7 +119,6 @@ body {
   background: transparent !important;
 }
 
-
 ::-webkit-scrollbar {
   width: 6px; /* 縦スクロールバーの幅 */
   height: 6px; /* 横スクロールバーの高さ */
