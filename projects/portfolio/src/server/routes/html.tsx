@@ -17,6 +17,11 @@ const htmlRoutes = new Hono<HonoEnv>().get('*', async (c) => {
           <meta name='props' content={`${JSON.stringify({ email })}`} />
           <title>Portfolio</title>
           <link rel='icon' href={prod ? '/static/favicon.ico' : 'favicon.ico'} />
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(){var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');})();`,
+            }}
+          />
           <link rel='stylesheet' href={prod ? '/static/main.css' : '/src/client/main.css'} />
           <script type='module' src={prod ? '/static/client.js' : '/src/client/main.tsx'} />
         </head>
