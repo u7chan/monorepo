@@ -46,6 +46,9 @@ describe('readConversations', () => {
   })
 
   it('会話ごとにグループ化して title fallback と message 順を維持する', async () => {
+    const firstConversationUpdatedAt = new Date('2026-04-14T12:34:56.000Z')
+    const secondConversationUpdatedAt = new Date('2026-04-13T10:00:00.000Z')
+
     const { readConversations } = await importSubject({
       users: [{ id: 'user-1', email: 'test@example.com' }],
       rows: [
@@ -53,6 +56,7 @@ describe('readConversations', () => {
           conversationId: 'conversation-1',
           conversationTitle: null,
           conversationCreatedAt: new Date(),
+          conversationUpdatedAt: firstConversationUpdatedAt,
           messageId: 'message-1',
           messageRole: 'system',
           messageContent: 'system',
@@ -64,6 +68,7 @@ describe('readConversations', () => {
           conversationId: 'conversation-1',
           conversationTitle: null,
           conversationCreatedAt: new Date(),
+          conversationUpdatedAt: firstConversationUpdatedAt,
           messageId: 'message-2',
           messageRole: 'user',
           messageContent: 'hello',
@@ -75,6 +80,7 @@ describe('readConversations', () => {
           conversationId: 'conversation-2',
           conversationTitle: 'Second',
           conversationCreatedAt: new Date(),
+          conversationUpdatedAt: secondConversationUpdatedAt,
           messageId: null,
           messageRole: null,
           messageContent: null,
@@ -89,6 +95,7 @@ describe('readConversations', () => {
       {
         id: 'conversation-1',
         title: 'Untitled Conversation',
+        updatedAt: firstConversationUpdatedAt,
         messages: [
           {
             id: 'message-1',
@@ -110,6 +117,7 @@ describe('readConversations', () => {
       {
         id: 'conversation-2',
         title: 'Second',
+        updatedAt: secondConversationUpdatedAt,
         messages: [],
       },
     ])
@@ -123,6 +131,7 @@ describe('readConversations', () => {
           conversationId: 'conversation-1',
           conversationTitle: 'Test',
           conversationCreatedAt: new Date(),
+          conversationUpdatedAt: new Date('2026-04-14T12:34:56.000Z'),
           messageId: 'message-1',
           messageRole: 'user',
           // 配列 content が JSON 文字列として保存されている
@@ -152,6 +161,7 @@ describe('readConversations', () => {
           conversationId: 'conversation-1',
           conversationTitle: 'Test',
           conversationCreatedAt: new Date(),
+          conversationUpdatedAt: new Date('2026-04-14T12:34:56.000Z'),
           messageId: 'message-1',
           messageRole: 'user',
           messageContent: 'hello',

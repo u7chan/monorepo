@@ -1,7 +1,14 @@
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
+import { MessageIcon } from '#/client/components/svg/message-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
 import type { Conversation } from '#/types'
 import { useState } from 'react'
+
+const conversationDateFormatter = new Intl.DateTimeFormat('ja-JP', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
 
 interface Props {
   conversations: Conversation[]
@@ -10,6 +17,14 @@ interface Props {
   onSelectConversation: (conversationId: string) => void
   onDeleteConversation: (conversationId: string) => void
   onNewConversation: () => void
+}
+
+function getConversationDateLabel(conversation: Conversation) {
+  if (!conversation.updatedAt) {
+    return null
+  }
+
+  return conversationDateFormatter.format(conversation.updatedAt)
 }
 
 export function ConversationHistory({
@@ -48,50 +63,78 @@ export function ConversationHistory({
           <div className='p-4 text-center text-gray-500 text-sm dark:text-gray-400'>会話履歴がありません</div>
         ) : (
           <div className='p-2'>
-            {conversations.map((conversation) => (
-              <div
-                key={conversation.id}
-                className={`group relative mb-1 w-full rounded-md p-3 text-left transition-colors ${
-                  currentConversationId === conversation.id
-                    ? 'border border-primary-200 bg-primary-100 dark:border-primary-600 dark:bg-primary-900/30'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                onMouseEnter={() => setHoveredId(conversation.id)}
-                onMouseLeave={() => setHoveredId(null)}
-              >
-                <div
-                  role='button'
-                  tabIndex={disabled ? -1 : 0}
-                  className='flex items-start justify-between'
-                  onClick={() => !disabled && onSelectConversation(conversation.id)}
-                  onKeyDown={(e) => {
-                    if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
-                      e.preventDefault()
-                      onSelectConversation(conversation.id)
-                    }
-                  }}
-                >
-                  <div className='min-w-0 flex-1'>
-                    <h3 className='truncate font-medium text-gray-900 text-sm dark:text-gray-100'>
-                      {conversation.title}
-                    </h3>
-                    <p className='mt-1 text-gray-500 text-xs dark:text-gray-400'>
-                      {conversation.messages.length} メッセージ
-                    </p>
-                  </div>
-                </div>
-                {(hoveredId === conversation.id || currentConversationId === conversation.id) && !disabled && (
-                  <button
-                    type='button'
-                    onClick={(e) => handleDeleteClick(e, conversation.id)}
-                    className='absolute right-3 top-3 ml-2 p-1 text-gray-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 dark:text-gray-500 dark:hover:text-red-400'
-                    title='会話を削除'
+            {conversations.map((conversation, index) => {
+              const nextConversation = conversations[index + 1]
+              const shouldShowDivider =
+                index < conversations.length - 1 &&
+                hoveredId !== conversation.id &&
+                currentConversationId !== conversation.id &&
+                hoveredId !== nextConversation?.id &&
+                currentConversationId !== nextConversation?.id
+
+              return (
+                <div key={conversation.id}>
+                  <div
+                    className={`group relative w-full rounded-md p-3 text-left transition-colors ${
+                      currentConversationId === conversation.id
+                        ? 'border border-primary-200 bg-primary-100 dark:border-primary-600 dark:bg-primary-900/30'
+                        : 'hover:bg-gray-100/90 dark:hover:bg-gray-700/80'
+                    } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    onMouseEnter={() => setHoveredId(conversation.id)}
+                    onMouseLeave={() => setHoveredId(null)}
                   >
-                    <DeleteIcon size={14} />
-                  </button>
-                )}
-              </div>
-            ))}
+                    <div
+                      role='button'
+                      tabIndex={disabled ? -1 : 0}
+                      className='flex items-center justify-between pr-8'
+                      onClick={() => !disabled && onSelectConversation(conversation.id)}
+                      onKeyDown={(e) => {
+                        if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault()
+                          onSelectConversation(conversation.id)
+                        }
+                      }}
+                    >
+                      <div className='min-w-0 flex-1'>
+                        <h3 className='truncate font-medium text-gray-900 text-sm dark:text-gray-100'>
+                          {conversation.title}
+                        </h3>
+                        <div className='mt-1 flex items-center gap-2 text-gray-500 text-xs dark:text-gray-400'>
+                          <span className='inline-flex shrink-0 items-center gap-1 tabular-nums'>
+                            <MessageIcon size={12} className='stroke-gray-400 dark:stroke-gray-500' />
+                            <span>{conversation.messages.length}</span>
+                          </span>
+                          {getConversationDateLabel(conversation) && (
+                            <>
+                              <span className='h-px min-w-2 flex-1 bg-gray-300 dark:bg-gray-600' />
+                              <span className='shrink-0 tabular-nums'>{getConversationDateLabel(conversation)}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {(hoveredId === conversation.id || currentConversationId === conversation.id) && !disabled && (
+                      <button
+                        type='button'
+                        onClick={(e) => handleDeleteClick(e, conversation.id)}
+                        className='absolute right-3 top-1/2 ml-2 -translate-y-1/2 rounded-md p-1 text-gray-400 opacity-0 transition-[opacity,background-color,color] hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:text-gray-500 dark:hover:bg-red-500/10 dark:hover:text-red-400'
+                        title='会話を削除'
+                      >
+                        <DeleteIcon size={14} className='stroke-current' />
+                      </button>
+                    )}
+                  </div>
+                  {index < conversations.length - 1 && (
+                    <div
+                      className={`mx-3 h-px bg-gray-200 transition-opacity dark:bg-gray-700 ${
+                        shouldShowDivider ? 'opacity-100' : 'opacity-0'
+                      }`}
+                      aria-hidden='true'
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

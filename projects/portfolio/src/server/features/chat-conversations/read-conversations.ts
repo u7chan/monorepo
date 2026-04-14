@@ -54,6 +54,7 @@ export async function readConversations(databaseUrl: string, email: string): Pro
       conversationId: conversationsTable.id,
       conversationTitle: conversationsTable.title,
       conversationCreatedAt: conversationsTable.createdAt,
+      conversationUpdatedAt: conversationsTable.updatedAt,
       messageId: messagesTable.id,
       messageRole: messagesTable.role,
       messageContent: messagesTable.content,
@@ -74,6 +75,7 @@ export async function readConversations(databaseUrl: string, email: string): Pro
       conversationMap.set(row.conversationId, {
         id: row.conversationId,
         title: row.conversationTitle || 'Untitled Conversation',
+        updatedAt: row.conversationUpdatedAt,
         messages: [],
       })
     }

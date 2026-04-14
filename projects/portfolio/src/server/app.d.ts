@@ -291,6 +291,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         id?: string | undefined;
                         metadata?: {} | undefined;
                     })[];
+                    updatedAt?: string | undefined;
                 }[];
             };
             outputFormat: "json";
@@ -346,6 +347,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         reasoningContent?: string | undefined;
                         metadata?: Record<string, never> | undefined;
                     })[];
+                    updatedAt?: unknown;
                 };
             };
             output: {
@@ -402,6 +404,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         reasoningContent?: string | undefined;
                         metadata?: Record<string, never> | undefined;
                     })[];
+                    updatedAt?: unknown;
                 };
             };
             output: {
