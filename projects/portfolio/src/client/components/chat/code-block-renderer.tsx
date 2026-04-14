@@ -130,17 +130,27 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
   return (
     <div className='my-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600'>
       <div className='flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-1.5 dark:border-gray-600 dark:bg-[#282c34]'>
-        <select
-          value={selectedLanguage}
-          onChange={(e) => setSelectedLanguage(e.target.value)}
-          className='cursor-pointer rounded border-none bg-transparent text-xs text-gray-600 dark:text-gray-300'
-        >
-          {languageOptions.map((lang) => (
-            <option key={lang} value={lang}>
-              {lang}
-            </option>
-          ))}
-        </select>
+        <div className='relative'>
+          <select
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            className='cursor-pointer appearance-none rounded border-none bg-gray-50 pr-6 text-xs text-gray-600 dark:bg-[#282c34] dark:text-gray-300'
+          >
+            {languageOptions.map((lang) => (
+              <option key={lang} value={lang} className='bg-white text-gray-900 dark:bg-[#282c34] dark:text-gray-100'>
+                {lang}
+              </option>
+            ))}
+          </select>
+          <svg
+            viewBox='0 0 20 20'
+            aria-hidden='true'
+            className='pointer-events-none absolute top-1/2 right-1 h-3.5 w-3.5 -translate-y-1/2 stroke-gray-600 dark:stroke-gray-300'
+            fill='none'
+          >
+            <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
+          </svg>
+        </div>
         <button
           type='button'
           onClick={handleClickCopy}
