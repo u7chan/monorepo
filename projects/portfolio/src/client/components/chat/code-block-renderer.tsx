@@ -12,6 +12,9 @@ const CUSTOM_STYLE: CSSProperties = {
   fontSize: '0.875rem',
   margin: 0,
   borderRadius: 0,
+  whiteSpace: 'pre',
+  wordBreak: 'normal',
+  overflowWrap: 'normal',
 }
 
 type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>
@@ -157,16 +160,18 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
           )}
         </button>
       </div>
-      <SyntaxHighlighter
-        style={atomDark}
-        language={selectedLanguage}
-        customStyle={CUSTOM_STYLE}
-        codeTagProps={{ style: CUSTOM_STYLE }}
-        showLineNumbers={selectedLanguage !== 'plain'}
-        lineNumberStyle={{ color: '#6b7280', minWidth: '2.5em' }}
-      >
-        {code}
-      </SyntaxHighlighter>
+      <div className='overflow-x-auto'>
+        <SyntaxHighlighter
+          style={atomDark}
+          language={selectedLanguage}
+          customStyle={CUSTOM_STYLE}
+          codeTagProps={{ style: CUSTOM_STYLE }}
+          showLineNumbers={selectedLanguage !== 'plain'}
+          lineNumberStyle={{ color: '#6b7280', minWidth: '2.5em' }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
     </div>
   )
 }
