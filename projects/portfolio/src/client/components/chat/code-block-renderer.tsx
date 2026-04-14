@@ -1,20 +1,17 @@
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
-import { useDarkMode } from '#/client/hooks/use-dark-mode'
 import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
-const CODE_BLOCK_FONT_FAMILY = "'M PLUS 1 Code', monospace"
-const CODE_TEXT_STYLE: CSSProperties = {
-  fontFamily: CODE_BLOCK_FONT_FAMILY,
-  fontWeight: 500,
-  letterSpacing: 0,
-  wordSpacing: 0,
-  fontKerning: 'none',
-  fontVariantLigatures: 'none',
+const CUSTOM_STYLE: CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+  fontWeight: 400,
+  fontSize: '0.875rem',
+  margin: 0,
+  borderRadius: 0,
 }
 
 type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>
@@ -89,7 +86,6 @@ type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
 }
 
 export function CodeBlockRenderer({ className, children }: CodeBlockRendererProps) {
-  const isDarkMode = useDarkMode()
   const [copied, setCopied] = useState(false)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
@@ -128,11 +124,6 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
     setCopied(false)
   }
 
-  const selectOptionStyle = {
-    backgroundColor: isDarkMode ? '#282c34' : '#f9fafb',
-    color: isDarkMode ? '#d1d5db' : '#374151',
-  }
-
   return (
     <div className='my-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600'>
       <div className='flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-1.5 dark:border-gray-600 dark:bg-[#282c34]'>
@@ -142,7 +133,7 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
           className='cursor-pointer rounded border-none bg-transparent text-xs text-gray-600 dark:text-gray-300'
         >
           {languageOptions.map((lang) => (
-            <option key={lang} value={lang} style={selectOptionStyle}>
+            <option key={lang} value={lang}>
               {lang}
             </option>
           ))}
@@ -167,24 +158,12 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
         </button>
       </div>
       <SyntaxHighlighter
-        style={isDarkMode ? atomDark : undefined}
+        style={atomDark}
         language={selectedLanguage}
-        customStyle={{
-          fontSize: '0.875rem',
-          margin: 0,
-          borderRadius: 0,
-          backgroundColor: selectedLanguage === 'plain' ? 'transparent' : undefined,
-          color: selectedLanguage === 'plain' ? (isDarkMode ? '#f3f4f6' : '#111827') : undefined,
-          ...CODE_TEXT_STYLE,
-        }}
-        codeTagProps={{
-          style: {
-            ...CODE_TEXT_STYLE,
-            color: selectedLanguage === 'plain' ? 'inherit' : undefined,
-          },
-        }}
+        customStyle={CUSTOM_STYLE}
+        codeTagProps={{ style: CUSTOM_STYLE }}
         showLineNumbers={selectedLanguage !== 'plain'}
-        lineNumberStyle={{ color: isDarkMode ? '#6b7280' : '#9ca3af', minWidth: '2.5em' }}
+        lineNumberStyle={{ color: '#6b7280', minWidth: '2.5em' }}
       >
         {code}
       </SyntaxHighlighter>
