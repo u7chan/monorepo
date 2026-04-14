@@ -2,6 +2,7 @@ import { ChatLayout } from '#/client/components/chat/chat-layout'
 import { ChatMain } from '#/client/components/chat/chat-main'
 import { ChatSettings } from '#/client/components/chat/chat-settings'
 import { ConversationHistory } from '#/client/components/chat/conversation-history'
+import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import { useChatPageState } from '#/client/pages/chat/use-chat-page-state'
 import { useMetaProps } from '#/client/pages/home'
 import type { AppType } from '#/server/app.d'
@@ -121,18 +122,23 @@ export function Chat() {
       isSidebarOpen={isSidebarOpen}
       onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
       conversations={
-        query.isLoading
-          ? 'Loading...'
-          : conversations.length > 0 && (
-              <ConversationHistory
-                conversations={conversations}
-                currentConversationId={selectedConversationId}
-                disabled={!showSettingsActions}
-                onSelectConversation={selectConversation}
-                onDeleteConversation={handleDeleteConversation}
-                onNewConversation={startNewConversation}
-              />
-            )
+        query.isLoading ? (
+          <div className='flex h-full flex-col items-center justify-center gap-2'>
+            <SpinnerIcon />
+            <span className='text-sm text-gray-500 dark:text-gray-400'>Loading...</span>
+          </div>
+        ) : (
+          conversations.length > 0 && (
+            <ConversationHistory
+              conversations={conversations}
+              currentConversationId={selectedConversationId}
+              disabled={!showSettingsActions}
+              onSelectConversation={selectConversation}
+              onDeleteConversation={handleDeleteConversation}
+              onNewConversation={startNewConversation}
+            />
+          )
+        )
       }
     >
       <ChatSettings
