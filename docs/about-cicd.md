@@ -6,6 +6,7 @@
 
 - CI は `main` 向け PR で、変更のあったプロジェクトの Dockerfile にある `test` ステージを検証します。
 - CD は `main` への push または手動実行で、対象プロジェクトの Dockerfile にある `final` ステージを build して GHCR に push します。
+- deploy 定義の同期は `main` への push で `deploy/*.yml` が変わったときに走り、`u7chan/self-hosted-runner` 側へ `repository_dispatch` を送って Manual Deploy の `target` 選択肢を同期します。
 - 手動実行では `Git ref` に branch 名やコミットハッシュを指定でき、`project directories` とあわせて対象を絞れます。deploy handoff に使う `image_tag` もログに出力します。
 
 ```mermaid
@@ -38,6 +39,15 @@ flowchart LR
     GHCR --> HANDOFF
   end
 
+  subgraph SYNC["Deploy Target Sync"]
+    DEPLOY_PUSH["main への push<br/>deploy/*.yml 変更"]
+    DISPATCH["sync-manual-deploy-targets.yml"]
+    SELF_HOSTED["self-hosted-runner に<br/>repository_dispatch"]
+
+    DEPLOY_PUSH --> DISPATCH
+    DISPATCH --> SELF_HOSTED
+  end
+
   PR --> CI_DIRS
   PUSH --> CD_AUTO
   MANUAL --> CD_MANUAL
@@ -54,6 +64,8 @@ flowchart LR
 | 対象ステージ | `test` | `final` |
 | 目的 | 変更の検証 | 配布用イメージの作成と push |
 | 成果物 | ビルド結果の確認 | GHCR イメージ |
+
+加えて、`deploy/*.yml` の変更時には `sync-manual-deploy-targets.yml` が動き、`self-hosted-runner` 側の Manual Deploy 選択肢同期を起動します。これは Docker build 自体は行わず、deploy 定義変更を通知するための workflow です。
 
 ## 対象になるプロジェクト
 
@@ -164,6 +176,34 @@ sequenceDiagram
 5. `ghcr.io/{repo}/{project}:{image_tag}` へ push する
 6. 古い manual image を含む不要イメージを cleanup する
 
+## Deploy 定義変更時の同期
+
+### いつ動くか
+
+- `main` への push で `deploy/*.yml` が追加・削除・リネーム・更新されたときに実行されます。
+- `deploy/abolished/**` は対象外です。
+
+### 何をするか
+
+```mermaid
+sequenceDiagram
+  participant Push as main への push
+  participant Sync as sync-manual-deploy-targets.yml
+  participant Repo as u7chan/self-hosted-runner
+
+  Push->>Sync: deploy/*.yml の変更を検知
+  Sync->>Repo: repository_dispatch
+  Note right of Repo: event_type=sync_manual_deploy_targets
+  Note right of Repo: source_repository / source_ref / source_sha
+```
+
+- `PRIVATE_REPO_TOKEN` と `PRIVATE_REPO_NAME` を使って `u7chan/self-hosted-runner` に `repository_dispatch` を送ります。
+- payload には次の値を含めます。
+  - `source_repository`
+  - `source_ref`
+  - `source_sha`
+- この workflow 自体は deploy を実行しません。Manual Deploy の `target` プルダウン同期だけを起動します。
+
 ## カスタムアクション
 
 ### 役割の対応表
@@ -177,6 +217,7 @@ sequenceDiagram
 | `build-docker-images` | Docker image を build する | build 結果 |
 | `push-docker-images` | GHCR に push する | `project_names_csv` |
 | `cleanup-docker-images` | 古い image を cleanup する | cleanup 結果 |
+| `sync-manual-deploy-targets` | deploy 定義変更を別 repo に通知する | dispatch 実行結果 |
 
 ### 各アクションの詳細
 
@@ -228,6 +269,12 @@ push 成功時は、対象プロジェクト名と deploy handoff 用の `target
 
 CD 実行後、不要な古いイメージの cleanup を行います。manual build では `keep-count=3` が使われます。
 
+#### `sync-manual-deploy-targets`
+
+- 入力: `token`, `repo-name`, `source-repository`, `source-ref`, `source-sha`
+
+`deploy/*.yml` の変更を契機に、`u7chan/self-hosted-runner` へ `sync_manual_deploy_targets` の `repository_dispatch` を送ります。
+
 ## データの受け渡し
 
 ```mermaid
@@ -257,3 +304,11 @@ flowchart LR
 
 - `PRIVATE_REPO_TOKEN` が正しいか確認する
 - `write:packages` 権限があるか確認する
+
+### deploy 定義変更の同期通知が飛ばない
+
+- `main` への push か確認する
+- 変更ファイルが `deploy/*.yml` 直下か確認する
+- `deploy/abolished/**` 配下の変更ではないか確認する
+- `PRIVATE_REPO_NAME` が `self-hosted-runner` を指しているか確認する
+- `PRIVATE_REPO_TOKEN` に dispatch 先 repo へのアクセス権限があるか確認する

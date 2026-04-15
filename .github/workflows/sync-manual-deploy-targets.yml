@@ -1,0 +1,34 @@
+name: Sync Manual Deploy Targets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # 直下の deploy 定義のみを対象にし、deploy/abolished/** は含めない
+      - "deploy/*.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trigger-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Trigger repository dispatch
+        uses: ./.github/actions/sync-manual-deploy-targets
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          repo-name: ${{ secrets.PRIVATE_REPO_NAME }}
+          source-repository: ${{ github.repository }}
+          source-ref: ${{ github.ref }}
+          source-sha: ${{ github.sha }}
