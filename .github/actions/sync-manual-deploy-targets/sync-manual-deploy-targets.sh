@@ -23,10 +23,16 @@ if [[ -z "$SOURCE_REPOSITORY" || -z "$SOURCE_REF" || -z "$SOURCE_SHA" ]]; then
   exit 1
 fi
 
-PAYLOAD=$(printf '{"event_type":"sync_manual_deploy_targets","client_payload":{"source_repository":"%s","source_ref":"%s","source_sha":"%s"}}' \
-  "$SOURCE_REPOSITORY" \
-  "$SOURCE_REF" \
-  "$SOURCE_SHA")
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required."
+  exit 1
+fi
+
+PAYLOAD=$(jq -n \
+  --arg repo "$SOURCE_REPOSITORY" \
+  --arg ref "$SOURCE_REF" \
+  --arg sha "$SOURCE_SHA" \
+  '{event_type:"sync_manual_deploy_targets",client_payload:{source_repository:$repo,source_ref:$ref,source_sha:$sha}}')
 
 echo "Triggering manual deploy target sync"
 echo "source_repository=$SOURCE_REPOSITORY"
