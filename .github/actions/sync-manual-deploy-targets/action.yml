@@ -1,0 +1,32 @@
+name: Sync Manual Deploy Targets
+description: Trigger repository dispatch to sync manual deploy targets
+
+inputs:
+  token:
+    description: "GitHub token for repository dispatch"
+    required: true
+  repo-name:
+    description: "Target repository name for sync"
+    required: true
+  source-repository:
+    description: "Source repository name"
+    required: true
+  source-ref:
+    description: "Source git ref"
+    required: true
+  source-sha:
+    description: "Source commit SHA"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Trigger Sync Workflow
+      shell: bash
+      run: |
+        ${{ github.action_path }}/sync-manual-deploy-targets.sh \
+          "${{ inputs.token }}" \
+          "${{ inputs.repo-name }}" \
+          "${{ inputs.source-repository }}" \
+          "${{ inputs.source-ref }}" \
+          "${{ inputs.source-sha }}"
