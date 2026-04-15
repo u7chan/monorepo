@@ -1,0 +1,18 @@
+networks:
+  default:
+    name: home_network
+
+services:
+  bifrost:
+    container_name: bifrost
+    image: maximhq/bifrost:latest
+    restart: always
+    ports:
+      - 5000:8080
+    environment:
+      - TZ=Asia/Tokyo
+    volumes:
+      - bifrost-data:/app/data
+
+volumes:
+  bifrost-data:
