@@ -12,13 +12,13 @@ function buildTransport() {
     targets.push({
       level,
       target: 'pino-pretty',
-      options: { colorize: true }
+      options: { colorize: true },
     })
   } else if (logFile) {
     targets.push({
       level,
       target: 'pino/file',
-      options: { destination: 1 }
+      options: { destination: 1 },
     })
   }
 
@@ -26,7 +26,7 @@ function buildTransport() {
     targets.push({
       level,
       target: 'pino/file',
-      options: { destination: logFile, mkdir: true }
+      options: { destination: logFile, mkdir: true },
     })
   }
 
