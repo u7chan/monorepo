@@ -1,7 +1,12 @@
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockLogger } from './helpers/mock-logger'
 
 const importSubject = async () => {
+  mockLogger()
+  vi.doMock('hono-pino', () => ({
+    pinoLogger: () => async (_c: any, next: any) => await next(),
+  }))
   vi.doMock('#/server/routes/auth', () => {
     class AuthenticationError extends Error {}
 

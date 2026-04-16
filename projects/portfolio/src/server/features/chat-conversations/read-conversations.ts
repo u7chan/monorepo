@@ -1,5 +1,6 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import { logger } from '#/server/lib/logger'
 import type { AssistantMetadata, Conversation, ImageContent, Message, TextContent, UserMetadata } from '#/types'
 import { asc, desc, eq } from 'drizzle-orm'
 
@@ -43,7 +44,7 @@ export async function readConversations(databaseUrl: string, email: string): Pro
   // ユーザーIDの取得
   const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
   if (users.length <= 0) {
-    console.warn(`Warning: No users found with email: ${email}`)
+    logger.warn({ email }, 'No users found')
     return null
   }
   const userId = users[0].id

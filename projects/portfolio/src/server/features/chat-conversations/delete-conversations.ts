@@ -1,5 +1,6 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import { logger } from '#/server/lib/logger'
 import { and, eq, inArray } from 'drizzle-orm'
 import { UUID } from 'uuidv7'
 
@@ -38,7 +39,7 @@ export async function deleteConversations(
   }
 
   if (invalidIds.length > 0) {
-    console.warn(`Warning: Invalid UUID format IDs detected: ${invalidIds.join(', ')}`)
+    logger.warn({ invalidIds }, 'Invalid UUID format IDs detected')
   }
 
   // 有効なIDがない場合は早期リターン
@@ -49,7 +50,7 @@ export async function deleteConversations(
   // ユーザーIDの取得
   const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
   if (users.length <= 0) {
-    console.warn(`Warning: No users found with email: ${email}`)
+    logger.warn({ email }, 'No users found')
     return { success: false, deletedIds: [], failedIds: conversationIds }
   }
   const userId = users[0].id
@@ -64,9 +65,7 @@ export async function deleteConversations(
   const unauthorizedIds = conversationIds.filter((id) => !ownedConversationIds.includes(id))
 
   if (unauthorizedIds.length > 0) {
-    console.warn(
-      `Warning: Some conversations not found or access denied. Unauthorized IDs: ${unauthorizedIds.join(', ')}, Email: ${email}`
-    )
+    logger.warn({ unauthorizedIds, email }, 'Conversations not found or access denied')
   }
 
   // 削除可能な会話がない場合
@@ -84,14 +83,14 @@ export async function deleteConversations(
       await tx.delete(conversationsTable).where(inArray(conversationsTable.id, ownedConversationIds))
     })
 
-    console.log(`Successfully deleted conversations: ${ownedConversationIds.join(', ')}`)
+    logger.info({ deletedIds: ownedConversationIds }, 'Conversations deleted')
     return {
       success: true,
       deletedIds: ownedConversationIds,
       failedIds: unauthorizedIds,
     }
   } catch (error) {
-    console.error(`Error deleting conversations ${ownedConversationIds.join(', ')}:`, error)
+    logger.error({ err: error, conversationIds: ownedConversationIds }, 'Failed to delete conversations')
     return { success: false, deletedIds: [], failedIds: conversationIds }
   }
 }

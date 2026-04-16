@@ -1,4 +1,5 @@
 import type { Context } from 'hono'
+import type { PinoLogger } from 'hono-pino'
 import { env } from 'hono/adapter'
 import { deleteCookie, getSignedCookie } from 'hono/cookie'
 
@@ -9,12 +10,14 @@ export type Env = Partial<{
   COOKIE_SECRET: string
   COOKIE_NAME: string
   COOKIE_EXPIRES: string
+  LOG_LEVEL: string
 }>
 
 export type HonoEnv = {
   Bindings: Env
   Variables: {
     email: string
+    logger: PinoLogger
   }
 }
 

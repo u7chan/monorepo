@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockLogger } from '../../helpers/mock-logger'
 
 const importSubject = async (params: {
   users: Array<{ id: string; email: string }>
   existingConversations: Array<{ id: string }>
 }) => {
+  mockLogger()
   const insertValues: unknown[] = []
   const updateSets: unknown[] = []
   const deleteWheres: unknown[] = []
