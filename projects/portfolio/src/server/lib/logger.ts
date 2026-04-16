@@ -25,5 +25,9 @@ const transport = buildTransport()
 
 export const logger = pino({
   level,
+  redact: {
+    paths: ['req.headers["api-key"]', 'req.headers.authorization'],
+    censor: '[REDACTED]',
+  },
   ...(transport ? { transport } : {}),
 })
