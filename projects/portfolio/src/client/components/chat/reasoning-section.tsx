@@ -14,10 +14,10 @@ export function ReasoningSection({ content, isStreaming = false, defaultOpen = f
     <div className='mb-1 text-xs'>
       <button
         type='button'
-        className='flex cursor-pointer items-center gap-1 text-gray-400 hover:text-gray-500 dark:text-gray-400 dark:hover:text-gray-300'
+        className='flex cursor-pointer items-center gap-1 rounded-sm px-0.5 text-gray-400 transition-colors hover:text-gray-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-400 dark:hover:text-gray-300 dark:focus-visible:ring-gray-500'
         onClick={() => setIsOpen((prev) => !prev)}
       >
-        <span className={`inline-flex translate-y-px transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
+        <span className={`inline-flex transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
           <ChevronRightIcon />
         </span>
         <span>reasoning</span>
