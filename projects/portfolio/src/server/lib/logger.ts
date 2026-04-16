@@ -9,13 +9,25 @@ function buildTransport() {
   const targets: TransportTargetOptions[] = []
 
   if (isDev) {
-    targets.push({ target: 'pino-pretty', options: { colorize: true } })
+    targets.push({
+      level,
+      target: 'pino-pretty',
+      options: { colorize: true }
+    })
   } else if (logFile) {
-    targets.push({ target: 'pino/file', options: { destination: 1 } })
+    targets.push({
+      level,
+      target: 'pino/file',
+      options: { destination: 1 }
+    })
   }
 
   if (logFile) {
-    targets.push({ target: 'pino/file', options: { destination: logFile, mkdir: true } })
+    targets.push({
+      level,
+      target: 'pino/file',
+      options: { destination: logFile, mkdir: true }
+    })
   }
 
   return targets.length > 0 ? { targets } : undefined
