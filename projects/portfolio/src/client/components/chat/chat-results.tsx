@@ -1,3 +1,4 @@
+import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import type { AssistantMetadata } from '#/types'
 import { memo, useState } from 'react'
 
@@ -29,6 +30,7 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
         type='button'
         className='flex cursor-pointer flex-wrap items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
         onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
       >
         <span>{model}</span>
         {responseTimeMs !== undefined && (
@@ -37,34 +39,47 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
             <span>{formatResponseTime(responseTimeMs)}</span>
           </>
         )}
-        <span className='ml-0.5'>{open ? '▲' : '▼'}</span>
+        <span className={`ml-0.5 inline-flex transition-transform duration-200 ${open ? '-rotate-90' : 'rotate-90'}`}>
+          <ChevronRightIcon />
+        </span>
       </button>
-      {open && (
-        <div className='mt-1 flex flex-wrap gap-1'>
-          {finishReason && (
-            <div className={badgeClass}>
-              <span className='mr-1'>finish_reason:</span>
-              <span>{finishReason}</span>
-            </div>
-          )}
-          <div className={badgeClass}>
-            <span className='mr-1'>usage:</span>
-            <span className='mr-0.5'>(input:</span>
-            <span>{usage.promptTokens ?? '--'}</span>
-            <span className='mr-0.5'>/</span>
-            <span className='mr-0.5'>output:</span>
-            <span>{usage.completionTokens ?? '--'}</span>
-            {usage.reasoningTokens !== undefined && (
-              <>
-                <span className='mr-0.5'>/</span>
-                <span className='mr-0.5'>reasoning:</span>
-                <span>{usage.reasoningTokens}</span>
-              </>
+      <div
+        aria-hidden={!open}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
+          open ? 'mt-1 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className='min-h-0'>
+          <div
+            className={`flex flex-wrap gap-1 transition-transform duration-200 ease-out motion-reduce:transition-none ${
+              open ? 'translate-y-0' : '-translate-y-1'
+            }`}
+          >
+            {finishReason && (
+              <div className={badgeClass}>
+                <span className='mr-1'>finish_reason:</span>
+                <span>{finishReason}</span>
+              </div>
             )}
-            <span>)</span>
+            <div className={badgeClass}>
+              <span className='mr-1'>usage:</span>
+              <span className='mr-0.5'>(input:</span>
+              <span>{usage.promptTokens ?? '--'}</span>
+              <span className='mr-0.5'>/</span>
+              <span className='mr-0.5'>output:</span>
+              <span>{usage.completionTokens ?? '--'}</span>
+              {usage.reasoningTokens !== undefined && (
+                <>
+                  <span className='mr-0.5'>/</span>
+                  <span className='mr-0.5'>reasoning:</span>
+                  <span>{usage.reasoningTokens}</span>
+                </>
+              )}
+              <span>)</span>
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

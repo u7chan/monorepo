@@ -30,6 +30,63 @@ interface MessageRendererProps {
   onDeleteMessage?: (index: number) => void
 }
 
+interface MessageActionBarProps {
+  copied: boolean
+  disabled?: boolean
+  children: ReactNode
+  align?: 'left' | 'right'
+}
+
+interface CopyMessageButtonProps {
+  copied: boolean
+  onClick: () => void
+}
+
+function MessageActionBar({ copied, disabled, children, align = 'left' }: MessageActionBarProps) {
+  return (
+    <div
+      className={`mt-1 ml-1 flex items-center gap-1 transition-opacity duration-200 ease-out motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100 ${
+        copied ? 'opacity-100' : ''
+      } ${align === 'right' ? 'justify-end' : ''} ${disabled ? 'invisible' : ''}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
+  return (
+    <button
+      type='button'
+      className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 disabled:cursor-default ${
+        copied
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
+      }`}
+      onClick={onClick}
+      disabled={copied}
+      aria-label={copied ? 'Copied' : 'Copy message'}
+    >
+      <span
+        aria-hidden='true'
+        className={`absolute transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+          copied ? '-translate-y-0.5 scale-90 opacity-0' : 'translate-y-0 scale-100 opacity-100'
+        }`}
+      >
+        <CopyIcon size={20} className='stroke-current' />
+      </span>
+      <span
+        aria-hidden='true'
+        className={`absolute transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+          copied ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-0.5 scale-90 opacity-0'
+        }`}
+      >
+        <CheckIcon size={20} className='stroke-current' />
+      </span>
+    </button>
+  )
+}
+
 function MessageRendererComponent({
   message,
   index,
@@ -62,21 +119,20 @@ function MessageRendererComponent({
                   )
                 })}
           </div>
-          <div
-            className={`mt-1 ml-1 transition-opacity duration-200 ease-in md:opacity-0 md:group-hover:opacity-100 ${copied ? 'opacity-100' : ''} ${disabled ? 'invisible' : ''}`}
-          >
+          <MessageActionBar copied={copied} disabled={disabled} align='right'>
+            <CopyMessageButton
+              copied={copied}
+              onClick={() => onCopyMessage(typeof message.content === 'string' ? message.content : '', index)}
+            />
             <button
               type='button'
-              className='cursor-pointer p-1'
-              onClick={() => onCopyMessage(typeof message.content === 'string' ? message.content : '', index)}
-              disabled={copied}
+              className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+              onClick={() => onDeleteMessage?.(index)}
+              aria-label='Delete message'
             >
-              {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
-            </button>
-            <button type='button' className='cursor-pointer p-1' onClick={() => onDeleteMessage?.(index)}>
               <DeleteIcon size={20} />
             </button>
-          </div>
+          </MessageActionBar>
         </div>
       </div>
     )
@@ -100,18 +156,9 @@ function MessageRendererComponent({
             <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all'>{message.content}</p>
           </div>
         )}
-        <div
-          className={`mt-1 ml-1 transition-opacity duration-200 ease-in md:opacity-0 md:group-hover:opacity-100 ${copied ? 'opacity-100' : ''}`}
-        >
-          <button
-            type='button'
-            className='cursor-pointer p-1'
-            onClick={() => onCopyMessage(message.content, index)}
-            disabled={copied}
-          >
-            {copied ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
-          </button>
-        </div>
+        <MessageActionBar copied={copied}>
+          <CopyMessageButton copied={copied} onClick={() => onCopyMessage(message.content, index)} />
+        </MessageActionBar>
         <ChatResults metadata={message.metadata} />
       </div>
     </div>

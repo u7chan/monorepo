@@ -88,6 +88,44 @@ type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
   children?: ReactNode | string
 }
 
+interface CodeBlockCopyButtonProps {
+  copied: boolean
+  onClick: () => void
+}
+
+function CodeBlockCopyButton({ copied, onClick }: CodeBlockCopyButtonProps) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      disabled={copied}
+      aria-label={copied ? 'Copied code block' : 'Copy code block'}
+      className={`relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 disabled:cursor-default ${
+        copied
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'hover:bg-gray-200 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-white'
+      }`}
+    >
+      <span className='relative h-[18px] w-[18px]' aria-hidden='true'>
+        <span
+          className={`absolute inset-0 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+            copied ? '-translate-y-0.5 scale-90 opacity-0' : 'translate-y-0 scale-100 opacity-100'
+          }`}
+        >
+          <CopyIcon size={18} className='stroke-current' />
+        </span>
+        <span
+          className={`absolute inset-0 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+            copied ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-0.5 scale-90 opacity-0'
+          }`}
+        >
+          <CheckIcon size={18} className='stroke-current' />
+        </span>
+      </span>
+    </button>
+  )
+}
+
 export function CodeBlockRenderer({ className, children }: CodeBlockRendererProps) {
   const [copied, setCopied] = useState(false)
 
@@ -151,24 +189,7 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
             <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
           </svg>
         </div>
-        <button
-          type='button'
-          onClick={handleClickCopy}
-          disabled={copied}
-          className='flex cursor-pointer gap-1 align-center'
-        >
-          {copied ? (
-            <>
-              <CheckIcon size={18} className='stroke-gray-600 dark:stroke-gray-300' />
-              <span className='text-xs text-gray-600 dark:text-gray-300'>コピーしました</span>
-            </>
-          ) : (
-            <>
-              <CopyIcon size={18} className='stroke-gray-600 dark:stroke-gray-300' />
-              <span className='text-xs text-gray-600 dark:text-gray-300'>コピーする</span>
-            </>
-          )}
-        </button>
+        <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} />
       </div>
       <div className='overflow-x-auto'>
         <SyntaxHighlighter
