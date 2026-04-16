@@ -21,7 +21,7 @@ export function ReasoningSection({ content, isStreaming = false, defaultOpen = f
         </span>
         <span>reasoning</span>
         {isStreaming && (
-          <span className='inline-block h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent dark:border-gray-500' />
+          <span className='inline-block h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent dark:border-gray-500 dark:border-t-transparent' />
         )}
       </button>
       {isOpen && (
