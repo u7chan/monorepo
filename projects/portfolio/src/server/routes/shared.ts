@@ -11,6 +11,7 @@ export type Env = Partial<{
   COOKIE_NAME: string
   COOKIE_EXPIRES: string
   LOG_LEVEL: string
+  LOG_FILE: string
 }>
 
 export type HonoEnv = {

@@ -63,6 +63,7 @@ const streamChatCompletion = (c: Parameters<typeof streamSSE>[0], completion: St
     })
 
     for await (const chunk of completion) {
+      logger.debug({ chunk }, 'Stream chunk received')
       await stream.writeSSE({ data: JSON.stringify(chunk) })
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
