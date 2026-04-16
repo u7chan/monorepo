@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockLogger } from '../../helpers/mock-logger'
 
 const importSubject = async (params: {
   validIds: string[]
@@ -7,6 +8,7 @@ const importSubject = async (params: {
   remainingResponses?: Array<Array<{ id: string }>>
   transactionShouldFail?: boolean
 }) => {
+  mockLogger()
   const deleteCalls: unknown[] = []
   let remainingCall = 0
   const remainingResponses = params.remainingResponses ?? []

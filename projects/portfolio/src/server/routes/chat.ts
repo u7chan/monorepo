@@ -3,6 +3,7 @@ import path from 'node:path'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import type { StreamChunk } from '#/server/features/chat/chat'
 import { chat } from '#/server/features/chat/chat'
+import { logger } from '#/server/lib/logger'
 import { ApiChatRequestSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
@@ -62,6 +63,7 @@ const streamChatCompletion = (c: Parameters<typeof streamSSE>[0], completion: St
     })
 
     for await (const chunk of completion) {
+      logger.debug({ chunk }, 'Stream chunk received')
       await stream.writeSSE({ data: JSON.stringify(chunk) })
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
@@ -131,8 +133,7 @@ const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat/completions', sValidator('json', StubChatRequestSchema), async (c) => {
     const req = c.req.valid('json')
 
-    console.log('[Request]-->')
-    console.dir(req, { depth: null })
+    logger.debug({ req }, 'Stub chat request received')
     await new Promise((resolve) => setTimeout(resolve, 3000))
 
     const reasoningContent = fs.readFileSync(
@@ -140,8 +141,6 @@ const chatRoutes = new Hono<HonoEnv>()
       'utf8'
     )
     const content = fs.readFileSync(path.join(process.cwd(), 'src/server/data/chat-stub-content.md'), 'utf8')
-
-    console.log('<--[Request]')
 
     return req.stream
       ? streamStubCompletion(c, req, reasoningContent, content)

@@ -1,3 +1,4 @@
+import { logger } from '#/server/lib/logger'
 import { Hono } from 'hono'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
@@ -43,7 +44,7 @@ const modelsRoutes = new Hono<HonoEnv>().get('/api/fetch-models', modelsHeaderVa
       return c.json(models.toSorted())
     }
   } catch (error) {
-    console.error('Failed to fetch models:', error)
+    logger.error({ err: error }, 'Failed to fetch models')
   }
 
   return c.json([])

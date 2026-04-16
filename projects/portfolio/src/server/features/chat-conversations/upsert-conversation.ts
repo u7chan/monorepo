@@ -1,5 +1,6 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import { logger } from '#/server/lib/logger'
 import type { Conversation } from '#/types'
 import { eq } from 'drizzle-orm'
 import { uuidv7 } from 'uuidv7'
@@ -18,7 +19,7 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
   // ユーザーIDの取得
   const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
   if (users.length <= 0) {
-    console.warn(`Warning: No users found with email: ${email}`)
+    logger.warn({ email }, 'No users found')
     return null
   }
   const userId = users[0].id

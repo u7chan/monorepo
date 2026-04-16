@@ -1,5 +1,6 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import { logger } from '#/server/lib/logger'
 import { and, eq, inArray } from 'drizzle-orm'
 import { UUID } from 'uuidv7'
 
@@ -45,7 +46,7 @@ export async function deleteMessages(
   }
 
   if (invalidIds.length > 0) {
-    console.warn(`Warning: Invalid UUID format message IDs detected: ${invalidIds.join(', ')}`)
+    logger.warn({ invalidIds }, 'Invalid UUID format message IDs detected')
   }
 
   if (validIds.length === 0) {
@@ -59,7 +60,7 @@ export async function deleteMessages(
 
   const users = await db.select().from(usersTable).where(eq(usersTable.email, email))
   if (users.length <= 0) {
-    console.warn(`Warning: No users found with email: ${email}`)
+    logger.warn({ email }, 'No users found')
     return {
       success: false,
       deletedMessageIds: [],
@@ -82,9 +83,7 @@ export async function deleteMessages(
   const unauthorizedIds = messageIds.filter((id) => !ownedMessageIds.includes(id))
 
   if (unauthorizedIds.length > 0) {
-    console.warn(
-      `Warning: Some messages not found or access denied. Unauthorized IDs: ${unauthorizedIds.join(', ')}, Email: ${email}`
-    )
+    logger.warn({ unauthorizedIds, email }, 'Messages not found or access denied')
   }
 
   if (ownedMessageIds.length === 0) {
@@ -118,9 +117,9 @@ export async function deleteMessages(
       }
     })
 
-    console.log(`Successfully deleted messages: ${ownedMessageIds.join(', ')}`)
+    logger.info({ deletedIds: ownedMessageIds }, 'Messages deleted')
     if (deletedConversationIds.length > 0) {
-      console.log(`Successfully deleted orphaned conversations: ${deletedConversationIds.join(', ')}`)
+      logger.info({ deletedConversationIds }, 'Orphaned conversations deleted')
     }
 
     return {
@@ -130,7 +129,7 @@ export async function deleteMessages(
       deletedConversationIds,
     }
   } catch (error) {
-    console.error(`Error deleting messages ${ownedMessageIds.join(', ')}:`, error)
+    logger.error({ err: error, messageIds: ownedMessageIds }, 'Failed to delete messages')
     return {
       success: false,
       deletedMessageIds: [],

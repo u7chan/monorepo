@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockLogger } from '../helpers/mock-logger'
 
 const readFileSyncMock = vi.fn((filePath: string) =>
   filePath.includes('reasoning') ? 'reasoning content' : 'response content'
 )
 
 const importSubject = async () => {
+  mockLogger()
   const completionsMock = vi.fn()
   const chatStubCompletionsMock = vi.fn()
   const chatStubStreamCompletionsMock = vi.fn()

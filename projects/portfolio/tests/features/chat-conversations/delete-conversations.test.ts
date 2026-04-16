@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockLogger } from '../../helpers/mock-logger'
 
 const importSubject = async (params: {
   validIds: string[]
@@ -6,6 +7,7 @@ const importSubject = async (params: {
   ownedConversationIds: string[]
   transactionShouldFail?: boolean
 }) => {
+  mockLogger()
   const tx = {
     delete: vi.fn(() => ({
       where: vi.fn().mockResolvedValue(undefined),

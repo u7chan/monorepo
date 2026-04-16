@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockLogger } from '../../helpers/mock-logger'
 
 const importSubject = async (params: {
   users: Array<{ id: string; email: string }>
   rows: Array<Record<string, unknown>>
 }) => {
+  mockLogger()
   const db = {
     select: vi.fn((fields?: unknown) => {
       if (!fields) {
