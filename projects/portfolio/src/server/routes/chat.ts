@@ -106,6 +106,11 @@ const streamStubCompletion = (
     }
   })
 
+const debugLogCompletion = <T>(completion: T, message: string): T => {
+  logger.debug({ completion }, message)
+  return completion
+}
+
 const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat', chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
     const header = c.req.valid('header')
@@ -128,7 +133,9 @@ const chatRoutes = new Hono<HonoEnv>()
       }
     )
 
-    return req.stream ? streamChatCompletion(c, completion as StreamChunk) : c.json(completion)
+    return req.stream
+      ? streamChatCompletion(c, completion as StreamChunk)
+      : c.json(debugLogCompletion(completion, 'Chat completion received'))
   })
   .post('/api/chat/completions', sValidator('json', StubChatRequestSchema), async (c) => {
     const req = c.req.valid('json')
@@ -142,9 +149,13 @@ const chatRoutes = new Hono<HonoEnv>()
     )
     const content = fs.readFileSync(path.join(process.cwd(), 'src/server/data/chat-stub-content.md'), 'utf8')
 
-    return req.stream
-      ? streamStubCompletion(c, req, reasoningContent, content)
-      : c.json(await chatStub.completions(req.model, content))
+    if (req.stream) {
+      return streamStubCompletion(c, req, reasoningContent, content)
+    }
+
+    const completion = await chatStub.completions(req.model, content)
+
+    return c.json(debugLogCompletion(completion, 'Stub chat completion received'))
   })
 
 export { chatRoutes }
