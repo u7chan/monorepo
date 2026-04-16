@@ -1,3 +1,4 @@
+import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { useState } from 'react'
 
 interface ReasoningSectionProps {
@@ -16,8 +17,8 @@ export function ReasoningSection({ content, isStreaming = false, defaultOpen = f
         className='flex cursor-pointer items-center gap-1 text-gray-400 hover:text-gray-500 dark:text-gray-400 dark:hover:text-gray-300'
         onClick={() => setIsOpen((prev) => !prev)}
       >
-        <span className={`inline-block text-[8px] transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
-          ▶
+        <span className={`inline-flex translate-y-px transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
+          <ChevronRightIcon />
         </span>
         <span>reasoning</span>
         {isStreaming && (
