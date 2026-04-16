@@ -176,6 +176,29 @@ describe('chatRoutes', () => {
       })
     })
 
+    it('不正な body は公開契約の validation error 形式で 400 を返す', async () => {
+      const { chatRoutes } = await importSubject()
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: '',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid request body 'model'",
+        code: 'VALIDATION_ERROR',
+      })
+    })
+
     it('upstream エラー時は 502 を返す', async () => {
       const { chatRoutes, completionsMock } = await importSubject()
       completionsMock.mockRejectedValue(new Error('Connection refused'))
@@ -281,6 +304,29 @@ describe('chatRoutes', () => {
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body).toHaveProperty('code', 'VALIDATION_ERROR')
+    })
+
+    it('不正な body は公開契約の validation error 形式で 400 を返す', async () => {
+      const { chatRoutes } = await importSubject()
+
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: '',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid request body 'model'",
+        code: 'VALIDATION_ERROR',
+      })
     })
   })
 

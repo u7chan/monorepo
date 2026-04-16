@@ -120,6 +120,6 @@ function normalizeUsage(usage: RawUsage): ChatUsage | null {
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
-    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+    reasoningTokens: usage.reasoning_tokens ?? usage.completion_tokens_details?.reasoning_tokens,
   }
 }

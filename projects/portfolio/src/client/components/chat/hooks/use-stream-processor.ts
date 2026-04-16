@@ -118,6 +118,9 @@ const makeErrorResponse = (message: string): ChatResponse => ({
   usage: null,
 })
 
+const hasAssistantOutput = ({ content, reasoningContent }: ChatResponse['message']): boolean =>
+  content.length > 0 || reasoningContent.length > 0
+
 const sendNonStreamCompletion = async (req: SendCompletionParams): Promise<ChatResponse | null> => {
   try {
     const res = await client.api.chat.$post(
@@ -144,7 +147,7 @@ const sendNonStreamCompletion = async (req: SendCompletionParams): Promise<ChatR
     }
 
     const data = (await res.json()) as ChatResponse
-    if (!data.message?.content) return null
+    if (!hasAssistantOutput(data.message)) return null
 
     return data
   } catch (error) {
@@ -246,7 +249,7 @@ const sendStreamCompletion = async (
     }
   }
 
-  if (!accumulated.content) return null
+  if (!hasAssistantOutput(accumulated)) return null
 
   return {
     id,

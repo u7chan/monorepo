@@ -66,6 +66,35 @@ const chatHeaderValidator = validator('header', (value, c) => {
   }
 })
 
+const formatValidationPath = (path: unknown): string => {
+  if (!Array.isArray(path) || path.length === 0) return 'request body'
+
+  const keys = path
+    .map((segment) => {
+      if (typeof segment === 'string' || typeof segment === 'number') return String(segment)
+      if (segment && typeof segment === 'object' && 'key' in segment) return String(segment.key)
+      return null
+    })
+    .filter((segment): segment is string => Boolean(segment))
+
+  return keys.join('.') || 'request body'
+}
+
+const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) => {
+  if (result.success) return
+
+  const issue = result.error[0]
+  const fieldName = formatValidationPath(issue?.path)
+
+  return c.json(
+    {
+      error: `Invalid request body '${fieldName}'`,
+      code: 'VALIDATION_ERROR' as const,
+    },
+    400
+  )
+})
+
 const streamStubCompletion = (
   c: Parameters<typeof streamSSE>[0],
   req: z.infer<typeof StubChatRequestSchema>,
@@ -101,7 +130,7 @@ const streamStubCompletion = (
 
 const chatRoutes = new Hono<HonoEnv>()
   // 非ストリーム専用
-  .post('/api/chat', chatHeaderValidator, sValidator('json', ChatApiRequestSchema), async (c) => {
+  .post('/api/chat', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
 
@@ -134,7 +163,7 @@ const chatRoutes = new Hono<HonoEnv>()
     }
   })
   // SSE ストリーム専用
-  .post('/api/chat/stream', chatHeaderValidator, sValidator('json', ChatApiRequestSchema), async (c) => {
+  .post('/api/chat/stream', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
 

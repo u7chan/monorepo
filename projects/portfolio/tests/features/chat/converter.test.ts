@@ -171,6 +171,37 @@ describe('convertCompletion', () => {
     expect(result.message.reasoningContent).toBe('')
     expect(result.usage).toBeNull()
   })
+
+  it('usage.reasoning_tokens を reasoningTokens に正規化できる', () => {
+    const raw = {
+      id: 'chatcmpl-top-level-reasoning',
+      object: 'chat.completion',
+      created: 1700000005,
+      model: 'gpt-4.1',
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'answer',
+            refusal: null,
+          },
+          finish_reason: 'stop',
+          logprobs: null,
+        },
+      ],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 20,
+        total_tokens: 30,
+        reasoning_tokens: 7,
+      },
+    } as unknown as CompletionChunk
+
+    const result = convertCompletion(raw)
+
+    expect(result.usage?.reasoningTokens).toBe(7)
+  })
 })
 
 describe('convertStreamChunks', () => {
@@ -365,5 +396,43 @@ describe('convertStreamChunks', () => {
         reasoningTokens: undefined,
       },
     })
+  })
+
+  it('stream usage の top-level reasoning_tokens を正規化できる', async () => {
+    const stream = createMockStream([
+      {
+        id: 'chunk-top-level-usage',
+        object: 'chat.completion.chunk',
+        created: 1700000000,
+        model: 'gpt-stream',
+        choices: [{ index: 0, delta: {}, finish_reason: null }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+          reasoning_tokens: 9,
+        },
+      } as unknown as StreamCompletionChunk,
+    ])
+
+    const events = []
+    for await (const event of convertStreamChunks(stream)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      {
+        event: 'usage',
+        id: 'chunk-top-level-usage',
+        created: 1700000000,
+        model: 'gpt-stream',
+        usage: {
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 30,
+          reasoningTokens: 9,
+        },
+      },
+    ])
   })
 })

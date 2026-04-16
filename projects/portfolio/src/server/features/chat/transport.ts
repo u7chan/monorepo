@@ -17,6 +17,7 @@ export type CompletionChunk = OpenAI.ChatCompletion & {
     }
   }[]
   usage?: {
+    reasoning_tokens?: number
     completion_tokens_details?: {
       reasoning_tokens: number
     }
@@ -31,6 +32,7 @@ export type StreamCompletionChunk = OpenAI.ChatCompletionChunk & {
     }
   }[]
   usage?: {
+    reasoning_tokens?: number
     completion_tokens_details?: {
       reasoning_tokens: number
     }
