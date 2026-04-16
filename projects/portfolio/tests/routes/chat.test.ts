@@ -53,162 +53,161 @@ const importSubject = async () => {
   }
 }
 
-const createStreamChunk = async function* () {
-  yield {
-    id: 'chunk-1',
-    object: 'chat.completion.chunk',
-    created: 1,
-    model: 'gpt-test',
-    choices: [
-      {
-        index: 0,
-        delta: {
-          content: 'hello',
-        },
-        finish_reason: null,
-      },
-    ],
-    usage: null,
-  }
-}
-
 describe('chatRoutes', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.useRealTimers()
   })
 
-  it('必須 header がない場合は 400 を返す', async () => {
-    const { chatRoutes } = await importSubject()
+  describe('POST /api/chat', () => {
+    it('必須 header がない場合は 400 を返す', async () => {
+      const { chatRoutes } = await importSubject()
 
-    const res = await chatRoutes.request('/api/chat', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-test',
-        messages: [],
-        stream: false,
-      }),
-    })
-
-    expect(res.status).toBe(400)
-  })
-
-  it('fakemode では base-url をローカル endpoint に置き換える', async () => {
-    vi.stubEnv('SERVER_PORT', '3456')
-    const { chatRoutes, completionsMock } = await importSubject()
-    completionsMock.mockResolvedValue({ id: 'completion-1' })
-
-    const res = await chatRoutes.request('/api/chat', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'api-key': 'fakemode',
-        'base-url': 'not-a-url',
-      },
-      body: JSON.stringify({
-        model: 'gpt-test',
-        messages: [],
-        stream: false,
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(completionsMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseURL: 'http://localhost:3456/api',
-      }),
-      expect.objectContaining({
-        model: 'gpt-test',
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
       })
-    )
-  })
 
-  it('stream=false の場合は JSON を返す', async () => {
-    const { chatRoutes, completionsMock } = await importSubject()
-    completionsMock.mockResolvedValue({ id: 'completion-1', choices: [] })
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body).toHaveProperty('error')
+      expect(body).toHaveProperty('code', 'VALIDATION_ERROR')
+    })
 
-    const res = await chatRoutes.request('/api/chat', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'api-key': 'api-key',
-        'base-url': 'https://example.com',
-      },
-      body: JSON.stringify({
+    it('fakemode では base-url をローカル endpoint に置き換える', async () => {
+      vi.stubEnv('SERVER_PORT', '3456')
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'completion-1',
+        created: 1700000000,
         model: 'gpt-test',
-        messages: [],
-        stream: false,
-      }),
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'answer', refusal: null },
+            finish_reason: 'stop',
+            logprobs: null,
+          },
+        ],
+      })
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'fakemode',
+          'base-url': 'not-a-url',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(completionsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseURL: 'http://localhost:3456/api',
+        }),
+        expect.objectContaining({
+          model: 'gpt-test',
+          stream: false,
+        })
+      )
     })
 
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ id: 'completion-1', choices: [] })
-  })
-
-  it('stream=true の場合は SSE で [DONE] を返す', async () => {
-    const { chatRoutes, completionsMock } = await importSubject()
-    completionsMock.mockResolvedValue({
-      controller: { abort: vi.fn() },
-      [Symbol.asyncIterator]: createStreamChunk,
-    })
-
-    const res = await chatRoutes.request('/api/chat', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'api-key': 'api-key',
-        'base-url': 'https://example.com',
-      },
-      body: JSON.stringify({
+    it('正規化された ChatResponse を返す', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'chatcmpl-abc',
+        created: 1700000000,
         model: 'gpt-test',
-        messages: [],
-        stream: true,
-      }),
-    })
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'answer', reasoning_content: 'thinking', refusal: null },
+            finish_reason: 'stop',
+            logprobs: null,
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+          completion_tokens_details: { reasoning_tokens: 5 },
+        },
+      })
 
-    const body = await res.text()
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
 
-    expect(res.headers.get('content-type')).toContain('text/event-stream')
-    expect(body).toContain('data: {')
-    expect(body).toContain('data: [DONE]')
-  })
-
-  it('stub endpoint は非 stream で chatStub.completions を返す', async () => {
-    vi.useFakeTimers()
-    const { chatRoutes, chatStubCompletionsMock } = await importSubject()
-    chatStubCompletionsMock.mockResolvedValue({ id: 'stub-completion' })
-
-    const pending = chatRoutes.request('/api/chat/completions', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({
+        id: 'chatcmpl-abc',
+        created: 1700000000,
         model: 'gpt-test',
-        messages: [],
-        stream: false,
-      }),
+        finishReason: 'stop',
+        message: {
+          content: 'answer',
+          reasoningContent: 'thinking',
+        },
+        usage: {
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 30,
+          reasoningTokens: 5,
+        },
+      })
     })
 
-    await vi.advanceTimersByTimeAsync(3000)
-    const res = await pending
+    it('upstream エラー時は 502 を返す', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockRejectedValue(new Error('Connection refused'))
 
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ id: 'stub-completion' })
-    expect(chatStubCompletionsMock).toHaveBeenCalledWith('gpt-test', 'response content')
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(502)
+      const body = await res.json()
+      expect(body).toEqual({
+        error: 'Connection refused',
+        code: 'UPSTREAM_ERROR',
+      })
+    })
   })
 
-  it('stub endpoint は stream で chatStub.streamCompletions を呼ぶ', async () => {
-    vi.useFakeTimers()
-    const { chatRoutes, chatStubStreamCompletionsMock } = await importSubject()
-    chatStubStreamCompletionsMock.mockImplementation(async ({ onChunk }) => {
-      await onChunk?.({
+  describe('POST /api/chat/stream', () => {
+    const createStreamChunk = async function* () {
+      yield {
         id: 'chunk-1',
         object: 'chat.completion.chunk',
-        created: 1,
+        created: 1700000000,
         model: 'gpt-test',
         choices: [
           {
@@ -220,26 +219,137 @@ describe('chatRoutes', () => {
           },
         ],
         usage: null,
-      })
-    })
-
-    const pending = chatRoutes.request('/api/chat/completions', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
+      }
+      yield {
+        id: 'chunk-2',
+        object: 'chat.completion.chunk',
+        created: 1700000000,
         model: 'gpt-test',
-        messages: [],
-        stream: true,
-      }),
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+        usage: null,
+      }
+    }
+
+    it('app イベント形式の SSE を返す', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        [Symbol.asyncIterator]: createStreamChunk,
+      })
+
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      const body = await res.text()
+
+      expect(res.headers.get('content-type')).toContain('text/event-stream')
+      expect(body).toContain('"event":"delta"')
+      expect(body).toContain('"event":"finish"')
+      expect(body).toContain('data: [DONE]')
     })
 
-    await vi.advanceTimersByTimeAsync(3000)
-    const res = await pending
-    const body = await res.text()
+    it('必須 header がない場合は 400 を返す', async () => {
+      const { chatRoutes } = await importSubject()
 
-    expect(body).toContain('data: {')
-    expect(body).toContain('data: [DONE]')
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body).toHaveProperty('code', 'VALIDATION_ERROR')
+    })
+  })
+
+  describe('POST /api/chat/completions (stub)', () => {
+    it('非 stream で chatStub.completions を返す', async () => {
+      vi.useFakeTimers()
+      const { chatRoutes, chatStubCompletionsMock } = await importSubject()
+      chatStubCompletionsMock.mockResolvedValue({ id: 'stub-completion' })
+
+      const pending = chatRoutes.request('/api/chat/completions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+          stream: false,
+        }),
+      })
+
+      await vi.advanceTimersByTimeAsync(3000)
+      const res = await pending
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ id: 'stub-completion' })
+      expect(chatStubCompletionsMock).toHaveBeenCalledWith('gpt-test', 'response content')
+    })
+
+    it('stream で chatStub.streamCompletions を呼ぶ', async () => {
+      vi.useFakeTimers()
+      const { chatRoutes, chatStubStreamCompletionsMock } = await importSubject()
+      chatStubStreamCompletionsMock.mockImplementation(async ({ onChunk }) => {
+        await onChunk?.({
+          id: 'chunk-1',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: 'gpt-test',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                content: 'hello',
+              },
+              finish_reason: null,
+            },
+          ],
+          usage: null,
+        })
+      })
+
+      const pending = chatRoutes.request('/api/chat/completions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+          stream: true,
+        }),
+      })
+
+      await vi.advanceTimersByTimeAsync(3000)
+      const res = await pending
+      const body = await res.text()
+
+      expect(body).toContain('data: {')
+      expect(body).toContain('data: [DONE]')
+    })
   })
 })

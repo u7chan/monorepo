@@ -1,120 +1,160 @@
-import {
-  parseChatCompletionResponse,
-  parseChatCompletionStreamChunk,
-  toChatCompletionResult,
-  updateChatStream,
-} from '#/client/components/chat/hooks/chat-response'
+import { parseChatStreamEvent, updateChatStream } from '#/client/components/chat/hooks/chat-response'
 import { describe, expect, it } from 'vitest'
 
 describe('chat-response helpers', () => {
-  it('non-stream response を共有型で正規化できる', () => {
-    const response = parseChatCompletionResponse({
-      model: 'gpt-test',
-      choices: [
-        {
-          message: {
-            content: 'assistant answer',
-            reasoning_content: 'thinking',
-          },
-          finish_reason: 'stop',
-        },
-      ],
-      usage: {
-        prompt_tokens: 10,
-        completion_tokens: 20,
-        total_tokens: 30,
-        reasoning_tokens: 5,
-      },
-    })
+  it('delta イベントで content を蓄積できる', () => {
+    const state = { content: '', reasoningContent: '' }
 
-    expect(toChatCompletionResult(response)).toEqual({
-      model: 'gpt-test',
-      finishReason: 'stop',
-      message: {
-        content: 'assistant answer',
+    const event = parseChatStreamEvent(
+      JSON.stringify({
+        event: 'delta',
+        id: 'chunk-1',
+        created: 1700000000,
+        model: 'gpt-test',
+        content: 'hello',
+      })
+    )
+
+    const next = updateChatStream(state, event)
+
+    expect(next).toEqual({
+      content: 'hello',
+      reasoningContent: '',
+    })
+  })
+
+  it('delta イベントで reasoningContent を蓄積できる', () => {
+    const state = { content: '', reasoningContent: '' }
+
+    const event = parseChatStreamEvent(
+      JSON.stringify({
+        event: 'delta',
+        id: 'chunk-1',
+        created: 1700000000,
+        model: 'gpt-test',
         reasoningContent: 'thinking',
-      },
-      responseTimeMs: 0,
-      usage: {
-        promptTokens: 10,
-        completionTokens: 20,
-        totalTokens: 30,
-        reasoningTokens: 5,
-      },
-    })
-  })
-
-  it('non-stream response の content=null を結果なしとして扱える', () => {
-    const response = parseChatCompletionResponse({
-      model: 'gpt-test',
-      choices: [
-        {
-          message: {
-            content: null,
-          },
-          finish_reason: 'tool_calls',
-        },
-      ],
-      usage: null,
-    })
-
-    expect(toChatCompletionResult(response)).toBeNull()
-  })
-
-  it('stream chunk を蓄積して finish reason と usage を取り出せる', () => {
-    const firstChunk = parseChatCompletionStreamChunk(
-      JSON.stringify({
-        model: 'gpt-stream',
-        choices: [
-          {
-            delta: {
-              reasoning_content: 'thinking',
-            },
-            finish_reason: null,
-          },
-        ],
-      })
-    )
-    const secondChunk = parseChatCompletionStreamChunk(
-      JSON.stringify({
-        model: 'gpt-stream',
-        choices: [
-          {
-            delta: {
-              content: 'answer',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 11,
-          completion_tokens: 22,
-          total_tokens: 33,
-          completion_tokens_details: {
-            reasoning_tokens: 7,
-          },
-        },
       })
     )
 
-    const accumulated = updateChatStream({ content: '', reasoning_content: '' }, firstChunk)
-    const completed = updateChatStream(accumulated.stream, secondChunk)
+    const next = updateChatStream(state, event)
 
-    expect(accumulated.stream).toEqual({
+    expect(next).toEqual({
       content: '',
-      reasoning_content: 'thinking',
+      reasoningContent: 'thinking',
     })
-    expect(completed.stream).toEqual({
+  })
+
+  it('finish, usage イベントではストリーム状態が変わらない', () => {
+    const state = { content: 'hello', reasoningContent: 'thinking' }
+
+    const finishEvent = parseChatStreamEvent(
+      JSON.stringify({
+        event: 'finish',
+        id: 'chunk-2',
+        created: 1700000000,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      })
+    )
+
+    const usageEvent = parseChatStreamEvent(
+      JSON.stringify({
+        event: 'usage',
+        id: 'chunk-3',
+        created: 1700000000,
+        model: 'gpt-test',
+        usage: {
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 30,
+          reasoningTokens: 5,
+        },
+      })
+    )
+
+    expect(updateChatStream(state, finishEvent)).toEqual(state)
+    expect(updateChatStream(state, usageEvent)).toEqual(state)
+  })
+
+  it('複数の delta イベントを順次蓄積できる', () => {
+    let state = { content: '', reasoningContent: '' }
+
+    const events = [
+      {
+        event: 'delta',
+        id: 'chunk-1',
+        created: 1700000000,
+        model: 'gpt-stream',
+        reasoningContent: 'think',
+      },
+      {
+        event: 'delta',
+        id: 'chunk-2',
+        created: 1700000000,
+        model: 'gpt-stream',
+        reasoningContent: 'ing',
+      },
+      {
+        event: 'delta',
+        id: 'chunk-3',
+        created: 1700000000,
+        model: 'gpt-stream',
+        content: 'answer',
+      },
+    ]
+
+    for (const raw of events) {
+      const event = parseChatStreamEvent(JSON.stringify(raw))
+      state = updateChatStream(state, event)
+    }
+
+    expect(state).toEqual({
       content: 'answer',
-      reasoning_content: 'thinking',
+      reasoningContent: 'thinking',
     })
-    expect(completed.finishReason).toBe('stop')
-    expect(completed.model).toBe('gpt-stream')
-    expect(completed.usage).toEqual({
-      promptTokens: 11,
-      completionTokens: 22,
-      totalTokens: 33,
-      reasoningTokens: 7,
-    })
+  })
+
+  it('finish イベントから finishReason を取得できる', () => {
+    const event = parseChatStreamEvent(
+      JSON.stringify({
+        event: 'finish',
+        id: 'chunk-finish',
+        created: 1700000000,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      })
+    )
+
+    expect(event.event).toBe('finish')
+    if (event.event === 'finish') {
+      expect(event.finishReason).toBe('stop')
+    }
+  })
+
+  it('usage イベントから token 情報を取得できる', () => {
+    const event = parseChatStreamEvent(
+      JSON.stringify({
+        event: 'usage',
+        id: 'chunk-usage',
+        created: 1700000000,
+        model: 'gpt-test',
+        usage: {
+          promptTokens: 11,
+          completionTokens: 22,
+          totalTokens: 33,
+          reasoningTokens: 7,
+        },
+      })
+    )
+
+    expect(event.event).toBe('usage')
+    if (event.event === 'usage') {
+      expect(event.usage).toEqual({
+        promptTokens: 11,
+        completionTokens: 22,
+        totalTokens: 33,
+        reasoningTokens: 7,
+      })
+    }
   })
 })
