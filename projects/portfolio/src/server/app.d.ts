@@ -1,6 +1,14 @@
 import { HonoEnv } from './routes/shared';
-declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema, "/", "/">;
-declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
+declare const app: import('hono/hono-base').HonoBase<HonoEnv & {
+    Variables: {
+        logger: import('hono-pino').PinoLogger;
+    };
+}, import('hono/types').BlankSchema, "/", "*">;
+declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
+    Variables: {
+        logger: import('hono-pino').PinoLogger;
+    };
+}, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
     "/api/signin": {
         $post: {
             input: {
@@ -67,13 +75,9 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
-                    max_tokens?: number | undefined;
-                    reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                    stream_options?: {
-                        include_usage?: boolean | undefined;
-                    } | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                 };
             };
             output: {
@@ -111,18 +115,17 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
-                    max_tokens?: number | undefined;
-                    reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                    stream_options?: {
-                        include_usage?: boolean | undefined;
-                    } | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                 };
             };
-            output: {};
-            outputFormat: string;
-            status: import('hono/utils/http-status').StatusCode;
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 400;
         } | {
             input: {
                 header: {
@@ -151,20 +154,187 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
-                    stream?: boolean | undefined;
                     temperature?: number | undefined;
-                    max_tokens?: number | undefined;
-                    reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                    stream_options?: {
-                        include_usage?: boolean | undefined;
-                    } | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                 };
             };
             output: {
-                message: string;
+                id: string;
+                created: number;
+                model: string;
+                finishReason: string;
+                message: {
+                    content: string;
+                    reasoningContent: string;
+                };
+                usage: {
+                    promptTokens: number;
+                    completionTokens: number;
+                    totalTokens: number;
+                    reasoningTokens?: number | undefined;
+                } | null;
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                    'mcp-server-urls': string | undefined;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                error: string;
+                code: "UPSTREAM_ERROR";
+            };
+            outputFormat: "json";
+            status: 502;
+        };
+    };
+} & {
+    "/api/chat/stream": {
+        $post: {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                    'mcp-server-urls': string | undefined;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                readonly success: false;
+                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly data: any;
             };
             outputFormat: "json";
             status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                    'mcp-server-urls': string | undefined;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                    'mcp-server-urls': string | undefined;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {};
+            outputFormat: string;
+            status: import('hono/utils/http-status').StatusCode;
         };
     };
 } & {
@@ -510,6 +680,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             status: import('hono/utils/http-status').StatusCode;
         };
     };
-}, "/">, "/", "/">;
+}, "/">, "/", "*">;
 export type AppType = typeof routes;
 export default app;

@@ -136,23 +136,6 @@ export const ApiChatMessageSchema = z.discriminatedUnion('role', [
 
 export type ApiChatMessage = z.infer<typeof ApiChatMessageSchema>
 
-/** /api/chat リクエスト本体の共有スキーマ */
-export const ApiChatRequestSchema = z.object({
-  messages: ApiChatMessageSchema.array(),
-  model: z.string().min(1),
-  stream: z.boolean().default(false),
-  temperature: z.number().min(0).max(1).optional(),
-  max_tokens: z.number().min(1).optional(),
-  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
-  stream_options: z
-    .object({
-      include_usage: z.boolean().optional(),
-    })
-    .optional(),
-})
-
-export type ApiChatRequest = z.infer<typeof ApiChatRequestSchema>
-
 /** ドメイン Message → /api/chat wire メッセージへの変換 */
 export function toApiChatMessage(message: Message): ApiChatMessage {
   if (message.role === 'user') {
@@ -162,77 +145,6 @@ export function toApiChatMessage(message: Message): ApiChatMessage {
     return { role: 'assistant', content: message.content }
   }
   return { role: 'system', content: message.content }
-}
-
-// ============================================
-// API レスポンス型
-// ============================================
-
-const ApiUsageSchema = z
-  .object({
-    prompt_tokens: z.number(),
-    completion_tokens: z.number(),
-    total_tokens: z.number(),
-    reasoning_tokens: z.number().optional(),
-    completion_tokens_details: z
-      .object({
-        reasoning_tokens: z.number().optional(),
-      })
-      .optional(),
-  })
-  .nullable()
-
-export const ChatCompletionResponseSchema = z.object({
-  choices: z.array(
-    z.object({
-      message: z.object({
-        content: z.string().nullable(),
-        reasoning_content: z.string().optional(),
-      }),
-      finish_reason: z.string().nullable().optional(),
-    })
-  ),
-  model: z.string().optional(),
-  usage: ApiUsageSchema.optional(),
-})
-
-export type ChatCompletionResponse = z.infer<typeof ChatCompletionResponseSchema>
-
-export const ChatCompletionStreamChunkSchema = z.object({
-  choices: z.array(
-    z.object({
-      delta: z.object({
-        content: z.string().optional(),
-        reasoning_content: z.string().optional(),
-      }),
-      finish_reason: z.string().nullable().optional(),
-    })
-  ),
-  model: z.string().optional(),
-  usage: ApiUsageSchema.optional(),
-})
-
-export type ChatCompletionStreamChunk = z.infer<typeof ChatCompletionStreamChunkSchema>
-
-export interface ChatStreamState {
-  content: string
-  reasoning_content?: string
-}
-
-export interface ChatCompletionResult {
-  model: string
-  finishReason: string
-  message: {
-    content: string
-    reasoningContent: string
-  }
-  responseTimeMs: number
-  usage: {
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    reasoningTokens?: number
-  } | null
 }
 
 // ============================================

@@ -1,74 +1,20 @@
-import {
-  ChatCompletionResponseSchema,
-  ChatCompletionStreamChunkSchema,
-  type ChatCompletionResponse,
-  type ChatCompletionResult,
-  type ChatCompletionStreamChunk,
-  type ChatStreamState,
-} from '#/types'
+import { ChatStreamEventSchema, type ChatStreamEvent } from '#/types/chat-api'
 
-type ApiUsage = ChatCompletionResponse['usage'] | ChatCompletionStreamChunk['usage']
-
-export function parseChatCompletionResponse(value: unknown): ChatCompletionResponse {
-  return ChatCompletionResponseSchema.parse(value)
+export interface ChatStreamState {
+  content: string
+  reasoningContent: string
 }
 
-export function parseChatCompletionStreamChunk(value: string): ChatCompletionStreamChunk {
-  return ChatCompletionStreamChunkSchema.parse(JSON.parse(value))
+export function parseChatStreamEvent(value: string): ChatStreamEvent {
+  return ChatStreamEventSchema.parse(JSON.parse(value))
 }
 
-export function updateChatStream(
-  stream: ChatStreamState,
-  chunk: ChatCompletionStreamChunk
-): {
-  stream: ChatStreamState
-  finishReason: string
-  model?: string
-  usage: ChatCompletionResult['usage']
-} {
-  const choice = chunk.choices.at(0)
-  const nextStream = {
-    content: stream.content + (choice?.delta.content ?? ''),
-    reasoning_content: (stream.reasoning_content ?? '') + (choice?.delta.reasoning_content ?? ''),
+export function updateChatStream(stream: ChatStreamState, event: ChatStreamEvent): ChatStreamState {
+  if (event.event === 'delta') {
+    return {
+      content: stream.content + (event.content ?? ''),
+      reasoningContent: stream.reasoningContent + (event.reasoningContent ?? ''),
+    }
   }
-
-  return {
-    stream: nextStream,
-    finishReason: choice?.finish_reason ?? '',
-    model: chunk.model,
-    usage: normalizeUsage(chunk.usage),
-  }
-}
-
-export function toChatCompletionResult(response: ChatCompletionResponse): ChatCompletionResult | null {
-  const choice = response.choices.at(0)
-  const content = choice?.message.content ?? ''
-
-  if (!content) {
-    return null
-  }
-
-  return {
-    model: response.model ?? 'N/A',
-    finishReason: choice?.finish_reason ?? '',
-    message: {
-      content,
-      reasoningContent: choice?.message.reasoning_content ?? '',
-    },
-    responseTimeMs: 0,
-    usage: normalizeUsage(response.usage),
-  }
-}
-
-function normalizeUsage(usage: ApiUsage): ChatCompletionResult['usage'] {
-  if (!usage) {
-    return null
-  }
-
-  return {
-    promptTokens: usage.prompt_tokens,
-    completionTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
-    reasoningTokens: usage.reasoning_tokens ?? usage.completion_tokens_details?.reasoning_tokens,
-  }
+  return stream
 }

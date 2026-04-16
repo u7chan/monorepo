@@ -1,10 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
-import type { StreamChunk } from '#/server/features/chat/chat'
 import { chat } from '#/server/features/chat/chat'
+import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
+import type { CompletionChunk, StreamChunk } from '#/server/features/chat/transport'
 import { logger } from '#/server/lib/logger'
-import { ApiChatRequestSchema } from '#/types'
+import { ApiChatMessageSchema } from '#/types'
+import { ChatApiRequestSchema } from '#/types/chat-api'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -19,8 +21,19 @@ const ChatHeaderSchema = z.object({
   'mcp-server-urls': z.string().optional(),
 })
 
-// /api/chat stub endpoint 用スキーマ（reasoning_effort なし）
-const StubChatRequestSchema = ApiChatRequestSchema.omit({ reasoning_effort: true })
+// /api/chat/completions stub endpoint 用スキーマ (OpenAI 互換)
+const StubChatRequestSchema = z.object({
+  messages: ApiChatMessageSchema.array(),
+  model: z.string().min(1),
+  stream: z.boolean().default(false),
+  temperature: z.number().min(0).max(1).optional(),
+  max_tokens: z.number().min(1).optional(),
+  stream_options: z
+    .object({
+      include_usage: z.boolean().optional(),
+    })
+    .optional(),
+})
 
 const chatHeaderValidator = validator('header', (value, c) => {
   const parsed = ChatHeaderSchema.safeParse({
@@ -33,14 +46,14 @@ const chatHeaderValidator = validator('header', (value, c) => {
     const issue = parsed.error.issues[0]
     const headerName = String(issue?.path[0] ?? 'unknown')
 
-    return c.json({ message: `Validation Error: Missing required header '${headerName}'` }, 400)
+    return c.json({ error: `Missing required header '${headerName}'`, code: 'VALIDATION_ERROR' as const }, 400)
   }
 
   const headers = parsed.data
   const fakeMode = headers['api-key'] === 'fakemode'
 
   if (!fakeMode && !z.string().url().safeParse(headers['base-url']).success) {
-    return c.json({ message: `Validation Error: Invalid url 'base-url'` }, 400)
+    return c.json({ error: `Invalid url 'base-url'`, code: 'VALIDATION_ERROR' as const }, 400)
   }
 
   const { SERVER_PORT: port } = getServerEnv(c)
@@ -53,25 +66,34 @@ const chatHeaderValidator = validator('header', (value, c) => {
   }
 })
 
-const streamChatCompletion = (c: Parameters<typeof streamSSE>[0], completion: StreamChunk) =>
-  streamSSE(c, async (stream) => {
-    let aborted = false
+const formatValidationPath = (path: unknown): string => {
+  if (!Array.isArray(path) || path.length === 0) return 'request body'
 
-    stream.onAbort(() => {
-      aborted = true
-      completion.controller.abort()
+  const keys = path
+    .map((segment) => {
+      if (typeof segment === 'string' || typeof segment === 'number') return String(segment)
+      if (segment && typeof segment === 'object' && 'key' in segment) return String(segment.key)
+      return null
     })
+    .filter((segment): segment is string => Boolean(segment))
 
-    for await (const chunk of completion) {
-      logger.debug({ chunk }, 'Stream chunk received')
-      await stream.writeSSE({ data: JSON.stringify(chunk) })
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
+  return keys.join('.') || 'request body'
+}
 
-    if (!aborted) {
-      await stream.writeSSE({ data: '[DONE]' })
-    }
-  })
+const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) => {
+  if (result.success) return
+
+  const issue = result.error[0]
+  const fieldName = formatValidationPath(issue?.path)
+
+  return c.json(
+    {
+      error: `Invalid request body '${fieldName}'`,
+      code: 'VALIDATION_ERROR' as const,
+    },
+    400
+  )
+})
 
 const streamStubCompletion = (
   c: Parameters<typeof streamSSE>[0],
@@ -106,37 +128,93 @@ const streamStubCompletion = (
     }
   })
 
-const debugLogCompletion = <T>(completion: T, message: string): T => {
-  logger.debug({ completion }, message)
-  return completion
-}
-
 const chatRoutes = new Hono<HonoEnv>()
-  .post('/api/chat', chatHeaderValidator, sValidator('json', ApiChatRequestSchema), async (c) => {
+  // 非ストリーム専用
+  .post('/api/chat', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
 
-    const completion = await chat.completions(
-      {
-        apiKey: header['api-key'],
-        baseURL: header['base-url'],
-        mcpServerURLs: header['mcp-server-urls'] ?? '',
-      },
-      {
-        model: req.model,
-        messages: req.messages,
-        temperature: req.temperature,
-        maxTokens: req.max_tokens,
-        reasoningEffort: req.reasoning_effort,
-        stream: req.stream,
-        includeUsage: req.stream_options?.include_usage,
-      }
-    )
+    try {
+      const completion = await chat.completions(
+        {
+          apiKey: header['api-key'],
+          baseURL: header['base-url'],
+          mcpServerURLs: header['mcp-server-urls'] ?? '',
+        },
+        {
+          model: req.model,
+          messages: req.messages,
+          temperature: req.temperature,
+          maxTokens: req.maxTokens,
+          reasoningEffort: req.reasoningEffort,
+          stream: false,
+        }
+      )
 
-    return req.stream
-      ? streamChatCompletion(c, completion as StreamChunk)
-      : c.json(debugLogCompletion(completion, 'Chat completion received'))
+      const response = convertCompletion(completion as CompletionChunk)
+      logger.debug({ response }, 'Chat completion converted')
+      return c.json(response)
+    } catch (err) {
+      logger.error({ err }, 'Upstream chat completion failed')
+      return c.json(
+        { error: err instanceof Error ? err.message : 'Upstream error', code: 'UPSTREAM_ERROR' as const },
+        502
+      )
+    }
   })
+  // SSE ストリーム専用
+  .post('/api/chat/stream', chatHeaderValidator, chatBodyValidator, async (c) => {
+    const header = c.req.valid('header')
+    const req = c.req.valid('json')
+
+    let completion
+    try {
+      completion = await chat.completions(
+        {
+          apiKey: header['api-key'],
+          baseURL: header['base-url'],
+          mcpServerURLs: header['mcp-server-urls'] ?? '',
+        },
+        {
+          model: req.model,
+          messages: req.messages,
+          temperature: req.temperature,
+          maxTokens: req.maxTokens,
+          reasoningEffort: req.reasoningEffort,
+          stream: true,
+          includeUsage: true,
+        }
+      )
+    } catch (err) {
+      logger.error({ err }, 'Upstream stream chat failed')
+      return c.json(
+        { error: err instanceof Error ? err.message : 'Upstream error', code: 'UPSTREAM_ERROR' as const },
+        502
+      )
+    }
+
+    const streamCompletion = completion as StreamChunk
+
+    return streamSSE(c, async (stream) => {
+      let aborted = false
+
+      stream.onAbort(() => {
+        aborted = true
+        streamCompletion.controller.abort()
+      })
+
+      for await (const event of convertStreamChunks(streamCompletion)) {
+        logger.debug({ event }, 'Stream event emitted')
+        await stream.writeSSE({ data: JSON.stringify(event) })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+
+      if (!aborted) {
+        await stream.writeSSE({ data: '[DONE]' })
+      }
+    })
+  })
+  // Stub endpoint (OpenAI 互換、変更なし)
   .post('/api/chat/completions', sValidator('json', StubChatRequestSchema), async (c) => {
     const req = c.req.valid('json')
 
@@ -154,8 +232,9 @@ const chatRoutes = new Hono<HonoEnv>()
     }
 
     const completion = await chatStub.completions(req.model, content)
+    logger.debug({ completion }, 'Stub chat completion received')
 
-    return c.json(debugLogCompletion(completion, 'Stub chat completion received'))
+    return c.json(completion)
   })
 
 export { chatRoutes }

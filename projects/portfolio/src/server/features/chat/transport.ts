@@ -10,12 +10,16 @@ import type { Stream } from 'openai/streaming'
 export type CompletionChunk = OpenAI.ChatCompletion & {
   choices: {
     message: {
-      reasoning_content?: string // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+      reasoning_content?: string // LiteLLM 経由の推論モデル
+      reasoning?: string // Bifrost 経由の推論モデル
+      reasoning_details?: Array<{ type: string; text: string }> // Bifrost fallback
+      provider_specific_fields?: { reasoning_content?: string } // LiteLLM fallback
     }
   }[]
   usage?: {
+    reasoning_tokens?: number
     completion_tokens_details?: {
-      reasoning_tokens: number // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+      reasoning_tokens: number
     }
   }
 }
@@ -23,12 +27,14 @@ export type CompletionChunk = OpenAI.ChatCompletion & {
 export type StreamCompletionChunk = OpenAI.ChatCompletionChunk & {
   choices: {
     delta: {
-      reasoning_content?: string // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+      reasoning_content?: string // LiteLLM 経由の推論モデル
+      reasoning?: string // Bifrost 経由の推論モデル
     }
   }[]
   usage?: {
+    reasoning_tokens?: number
     completion_tokens_details?: {
-      reasoning_tokens: number // OpenAI APIでは提供されていないフィールド。LiteLLM経由の推論モデルでのみ取得可能。
+      reasoning_tokens: number
     }
   }
 }

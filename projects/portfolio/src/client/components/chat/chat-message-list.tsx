@@ -1,9 +1,10 @@
 import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
+import type { ChatStreamState } from '#/client/components/chat/hooks/chat-response'
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
-import type { ChatStreamState, Message } from '#/types'
+import type { Message } from '#/types'
 import { memo, type ReactNode, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -54,8 +55,8 @@ export function ChatMessageList({
             </div>
             {stream ? (
               <div className='message ml-2 text-left'>
-                {stream.reasoning_content && (
-                  <ReasoningSection content={stream.reasoning_content} isStreaming={!stream.content} />
+                {stream.reasoningContent && (
+                  <ReasoningSection content={stream.reasoningContent} isStreaming={!stream.content} />
                 )}
                 {markdownPreview ? (
                   <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>

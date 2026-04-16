@@ -12,9 +12,6 @@ export {
   TextContentSchema,
   // /api/chat wire schemas
   ApiChatMessageSchema,
-  ApiChatRequestSchema,
-  ChatCompletionResponseSchema,
-  ChatCompletionStreamChunkSchema,
   // Types
   type Conversation,
   type ConversationListResponse,
@@ -28,12 +25,6 @@ export {
   type TextContent,
   // /api/chat wire types
   type ApiChatMessage,
-  type ApiChatRequest,
-  type ChatCompletionResponse,
-  type ChatCompletionStreamChunk,
-  // API レスポンス型
-  type ChatStreamState,
-  type ChatCompletionResult,
   // Converters
   toApiChatMessage,
   // Guards
@@ -42,3 +33,24 @@ export {
   isSystemMessage,
   isImageContentArray,
 } from './chat.js'
+
+export {
+  // Chat API contract schemas
+  ChatApiRequestSchema,
+  ChatResponseSchema,
+  ChatUsageSchema,
+  ChatStreamEventSchema,
+  ChatStreamDeltaEventSchema,
+  ChatStreamFinishEventSchema,
+  ChatStreamUsageEventSchema,
+  ChatErrorResponseSchema,
+  // Chat API contract types
+  type ChatApiRequest,
+  type ChatResponse,
+  type ChatUsage,
+  type ChatStreamEvent,
+  type ChatStreamDeltaEvent,
+  type ChatStreamFinishEvent,
+  type ChatStreamUsageEvent,
+  type ChatErrorResponse,
+} from './chat-api.js'
