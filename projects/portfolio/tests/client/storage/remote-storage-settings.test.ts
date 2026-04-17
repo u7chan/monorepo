@@ -51,7 +51,6 @@ describe('remote-storage-settings', () => {
         model: 'gpt-4.1',
         baseURL: 'https://api.openai.com/v1',
         apiKey: crypto.AES.encrypt('secret-api-key', LEGACY_SETTINGS_AES_KEY).toString(),
-        mcpServerURLs: '',
         temperature: 0.7,
         temperatureEnabled: false,
         reasoningEffort: 'medium',
@@ -83,7 +82,6 @@ describe('remote-storage-settings', () => {
         model: 'gpt-4.1',
         baseURL: 'https://api.openai.com/v1',
         apiKey: 'U2FsdGVkX1broken',
-        mcpServerURLs: 'http://localhost:3001',
         temperature: 0.3,
         temperatureEnabled: true,
         reasoningEffort: 'high',
@@ -104,6 +102,22 @@ describe('remote-storage-settings', () => {
     expect(settings.apiKey).toBe('')
     expect(settings.model).toBe('gpt-4.1')
     expect(settings.temperature).toBe(0.3)
-    expect(settings.mcpServerURLs).toBe('http://localhost:3001')
+  })
+
+  it('旧 localStorage に mcpServerURLs があっても読み込み後に除去される', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: '1.1.0',
+        model: 'gpt-4.1-mini',
+        apiKey: 'some-key',
+        mcpServerURLs: 'http://localhost:3001',
+      })
+    )
+
+    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const settings = readFromLocalStorage()
+
+    expect('mcpServerURLs' in settings).toBe(false)
   })
 })

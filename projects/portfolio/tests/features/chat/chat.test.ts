@@ -40,7 +40,6 @@ describe('chat.completions', () => {
       {
         apiKey: 'api-key',
         baseURL: 'https://example.com',
-        mcpServerURLs: 'https://mcp.example.com',
       },
       {
         model: 'gpt-4.1',
@@ -66,18 +65,14 @@ describe('chat.completions', () => {
     })
   })
 
-  it('custom fetch が既存 header を保持して mcp-server-urls を追加する', async () => {
+  it('OpenAI クライアントに apiKey と baseURL が渡される', async () => {
     const { chat, completionsCreateMock, constructorOptionsSpy } = await importSubject()
     completionsCreateMock.mockResolvedValue({ id: 'completion-1' })
-
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
-    vi.stubGlobal('fetch', fetchMock)
 
     await chat.completions(
       {
         apiKey: 'api-key',
         baseURL: 'https://example.com',
-        mcpServerURLs: 'https://mcp.example.com',
       },
       {
         model: 'gpt-4.1',
@@ -86,23 +81,10 @@ describe('chat.completions', () => {
       }
     )
 
-    const constructorOptions = constructorOptionsSpy.mock.calls[0]?.[0] as {
-      fetch: (url: string, options?: RequestInit) => Promise<unknown>
-    }
-
-    await constructorOptions.fetch('https://example.com/v1/chat/completions', {
-      headers: new Headers({
-        Authorization: 'Bearer api-key',
-      }),
-    })
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://example.com/v1/chat/completions',
+    expect(constructorOptionsSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        headers: {
-          authorization: 'Bearer api-key',
-          'mcp-server-urls': 'https://mcp.example.com',
-        },
+        apiKey: 'api-key',
+        baseURL: 'https://example.com',
       })
     )
   })

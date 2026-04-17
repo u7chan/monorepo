@@ -88,7 +88,6 @@ export function ChatMain({
         model: settings.fakeMode ? 'fakemode' : settings.model,
         baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
         apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
-        mcpServerURLs: settings.fakeMode ? '' : settings.mcpServerURLs,
         temperature: settings.temperatureEnabled ? settings.temperature : undefined,
         maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
         userInput: formData.get('userInput')?.toString() || '',
@@ -115,7 +114,6 @@ export function ChatMain({
         header: {
           apiKey: form.apiKey,
           baseURL: form.baseURL,
-          mcpServerURLs: form.mcpServerURLs,
         },
         model: params.model,
         messages: params.apiMessages,
@@ -178,7 +176,6 @@ export function ChatMain({
       settings.fakeMode,
       settings.interactiveMode,
       settings.maxTokens,
-      settings.mcpServerURLs,
       settings.model,
       settings.reasoningEffort,
       settings.reasoningEffortEnabled,

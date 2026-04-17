@@ -9,7 +9,6 @@ interface Chat {
     headers: {
       apiKey: string
       baseURL: string
-      mcpServerURLs: string
     },
     params: {
       model: string
@@ -28,11 +27,9 @@ export const chat: Chat = {
     {
       apiKey,
       baseURL,
-      mcpServerURLs,
     }: {
       apiKey: string
       baseURL: string
-      mcpServerURLs: string
     },
     {
       model,
@@ -55,37 +52,6 @@ export const chat: Chat = {
     const openai = new OpenAI({
       apiKey,
       baseURL,
-      fetch: async (url, options = {}) => {
-        // カスタムヘッダーを追加
-        const customHeaders = {
-          'mcp-server-urls': mcpServerURLs,
-        }
-        // options.headers の型をチェックして、適切にマージ
-        let existingHeaders: Record<string, string> = {}
-
-        if (options.headers instanceof Headers) {
-          // Headersオブジェクトの場合は安全にRecord<string, string>に変換
-          existingHeaders = {}
-          options.headers.forEach((value, key) => {
-            if (typeof key === 'string' && typeof value === 'string') {
-              existingHeaders[key] = value
-            }
-          })
-        } else if (typeof options.headers === 'object' && options.headers !== null) {
-          // plain objectの場合は安全にフィルタリングしてコピー
-          existingHeaders = Object.fromEntries(
-            Object.entries(options.headers).filter(
-              ([key, value]) => typeof key === 'string' && typeof value === 'string'
-            )
-          )
-        }
-        // マージして新しいヘッダーをセット
-        options.headers = {
-          ...existingHeaders,
-          ...customHeaders,
-        }
-        return fetch(url, options)
-      },
     })
     const completion = await openai.chat.completions.create({
       model,

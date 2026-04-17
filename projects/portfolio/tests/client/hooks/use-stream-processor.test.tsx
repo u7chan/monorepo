@@ -38,7 +38,6 @@ describe('useStreamProcessor', () => {
     header: {
       apiKey: 'api-key',
       baseURL: 'https://example.com',
-      mcpServerURLs: '',
     },
     model: 'gpt-test',
     messages: [],

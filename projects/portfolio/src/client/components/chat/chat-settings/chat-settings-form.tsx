@@ -15,7 +15,6 @@ export function ChatSettingsForm() {
     interactiveMode,
     handleChangeBaseURL,
     handleChangeApiKey,
-    handleChangeMcpServerURLs,
     handleChangeMaxTokens,
     handleToggleFakeMode,
     handleToggleMarkdownPreview,
@@ -71,16 +70,6 @@ export function ChatSettingsForm() {
               API Key はブラウザの localStorage に保存されます。秘匿ストアではありません。
             </p>
           </div>
-
-          <TextInput
-            name='mcpServerURLs'
-            label='MCP Server URLs'
-            suffix='(comma separated)'
-            defaultValue={settings.mcpServerURLs || ''}
-            placeholder='http://localhost:3001, http://localhost:3002'
-            disabled={fakeMode}
-            onChange={handleChangeMcpServerURLs}
-          />
         </div>
       </section>
 

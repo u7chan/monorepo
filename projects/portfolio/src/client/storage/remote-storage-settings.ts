@@ -8,7 +8,6 @@ export interface Settings {
   model: string
   baseURL: string
   apiKey: string
-  mcpServerURLs: string
   temperature: number
   temperatureEnabled: boolean
   maxTokens?: number
@@ -35,7 +34,6 @@ const defaultSettings: Settings = {
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
-  mcpServerURLs: '',
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,
@@ -93,10 +91,11 @@ function parseStoredSettings(value: string | null): StoredSettings | null {
   }
 }
 
-function mergeSettings(settings: Partial<Settings>): Settings {
+function mergeSettings(settings: Partial<Settings> & { mcpServerURLs?: unknown }): Settings {
+  const { mcpServerURLs: _dropped, ...rest } = settings
   return {
     ...defaultSettings,
-    ...settings,
+    ...rest,
     schemaVersion: SCHEMA_VERSION,
   }
 }

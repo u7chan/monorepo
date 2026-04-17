@@ -52,47 +52,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string | undefined;
-                };
-            } & {
-                json: {
-                    messages: ({
-                        role: "user";
-                        content: string | ({
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                            };
-                        } | {
-                            type: "text";
-                            text: string;
-                        })[];
-                    } | {
-                        role: "assistant";
-                        content: string;
-                    } | {
-                        role: "system";
-                        content: string;
-                    })[];
-                    model: string;
-                    temperature?: number | undefined;
-                    maxTokens?: number | undefined;
-                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                };
-            };
-            output: {
-                readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
-                readonly data: any;
-            };
-            outputFormat: "json";
-            status: 400;
-        } | {
-            input: {
-                header: {
-                    'api-key': string;
-                    'base-url': string;
-                    'mcp-server-urls': string | undefined;
                 };
             } & {
                 json: {
@@ -131,7 +90,44 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string | undefined;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
                 };
             } & {
                 json: {
@@ -182,7 +178,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string | undefined;
                 };
             } & {
                 json: {
@@ -225,47 +220,6 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string | undefined;
-                };
-            } & {
-                json: {
-                    messages: ({
-                        role: "user";
-                        content: string | ({
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                            };
-                        } | {
-                            type: "text";
-                            text: string;
-                        })[];
-                    } | {
-                        role: "assistant";
-                        content: string;
-                    } | {
-                        role: "system";
-                        content: string;
-                    })[];
-                    model: string;
-                    temperature?: number | undefined;
-                    maxTokens?: number | undefined;
-                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                };
-            };
-            output: {
-                readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
-                readonly data: any;
-            };
-            outputFormat: "json";
-            status: 400;
-        } | {
-            input: {
-                header: {
-                    'api-key': string;
-                    'base-url': string;
-                    'mcp-server-urls': string | undefined;
                 };
             } & {
                 json: {
@@ -304,7 +258,44 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
                 header: {
                     'api-key': string;
                     'base-url': string;
-                    'mcp-server-urls': string | undefined;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
                 };
             } & {
                 json: {

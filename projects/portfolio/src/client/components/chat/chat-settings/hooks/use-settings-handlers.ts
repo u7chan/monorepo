@@ -30,7 +30,6 @@ interface UseSettingsHandlersReturn {
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeApiKey: (event: ChangeEvent<HTMLInputElement>) => void
-  handleChangeMcpServerURLs: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeTemperature: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeMaxTokens: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void
@@ -91,13 +90,6 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
   const handleChangeApiKey = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       updateSetting('apiKey', event.target.value)
-    },
-    [updateSetting]
-  )
-
-  const handleChangeMcpServerURLs = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      updateSetting('mcpServerURLs', event.target.value)
     },
     [updateSetting]
   )
@@ -175,7 +167,6 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     handleChangeManualModel,
     handleChangeBaseURL,
     handleChangeApiKey,
-    handleChangeMcpServerURLs,
     handleChangeTemperature,
     handleChangeMaxTokens,
     handleChangeReasoningEffort,

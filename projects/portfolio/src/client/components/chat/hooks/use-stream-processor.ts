@@ -11,7 +11,6 @@ interface SubmitChatCompletionParams {
   header: {
     apiKey: string
     baseURL: string
-    mcpServerURLs: string
   }
   model: string
   /** /api/chat wire 形式のメッセージ（toApiChatMessage で変換済み） */
@@ -100,7 +99,6 @@ interface SendCompletionParams {
   header: {
     apiKey: string
     baseURL: string
-    mcpServerURLs: string
   }
   model: string
   messages: ApiChatMessage[]
@@ -128,7 +126,6 @@ const sendNonStreamCompletion = async (req: SendCompletionParams): Promise<ChatR
         header: {
           'api-key': req.header.apiKey,
           'base-url': req.header.baseURL,
-          'mcp-server-urls': req.header.mcpServerURLs,
         },
         json: {
           messages: req.messages,
@@ -172,7 +169,6 @@ const sendStreamCompletion = async (
         header: {
           'api-key': req.header.apiKey,
           'base-url': req.header.baseURL,
-          'mcp-server-urls': req.header.mcpServerURLs,
         },
         json: {
           messages: req.messages,
