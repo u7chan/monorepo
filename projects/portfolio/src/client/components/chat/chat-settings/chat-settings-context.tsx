@@ -22,7 +22,6 @@ export interface ChatSettingsContextValue {
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeApiKey: (event: ChangeEvent<HTMLInputElement>) => void
-  handleChangeMcpServerURLs: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeTemperature: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeMaxTokens: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void

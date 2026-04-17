@@ -18,7 +18,6 @@ import { getServerEnv } from './shared'
 const ChatHeaderSchema = z.object({
   'api-key': z.string().min(1),
   'base-url': z.string().min(1),
-  'mcp-server-urls': z.string().optional(),
 })
 
 // /api/chat/completions stub endpoint 用スキーマ (OpenAI 互換)
@@ -39,7 +38,6 @@ const chatHeaderValidator = validator('header', (value, c) => {
   const parsed = ChatHeaderSchema.safeParse({
     'api-key': value['api-key'],
     'base-url': value['base-url'],
-    'mcp-server-urls': value['mcp-server-urls'],
   })
 
   if (!parsed.success) {
@@ -62,7 +60,6 @@ const chatHeaderValidator = validator('header', (value, c) => {
   return {
     'api-key': headers['api-key'],
     'base-url': fakeMode ? fakeBaseURL : headers['base-url'],
-    'mcp-server-urls': headers['mcp-server-urls'],
   }
 })
 
@@ -139,7 +136,6 @@ const chatRoutes = new Hono<HonoEnv>()
         {
           apiKey: header['api-key'],
           baseURL: header['base-url'],
-          mcpServerURLs: header['mcp-server-urls'] ?? '',
         },
         {
           model: req.model,
@@ -173,7 +169,6 @@ const chatRoutes = new Hono<HonoEnv>()
         {
           apiKey: header['api-key'],
           baseURL: header['base-url'],
-          mcpServerURLs: header['mcp-server-urls'] ?? '',
         },
         {
           model: req.model,

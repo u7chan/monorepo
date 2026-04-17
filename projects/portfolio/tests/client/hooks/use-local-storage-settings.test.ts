@@ -27,7 +27,6 @@ const defaultSettings = {
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
-  mcpServerURLs: '',
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,
