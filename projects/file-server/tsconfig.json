@@ -2,13 +2,14 @@
   "compilerOptions": {
     "target": "esnext",
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "strict": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "lib": ["ESNext"],
+    "types": ["node", "bun"],
     "skipLibCheck": true
   },
   "include": ["src/**/*", "tests/**/*"]
