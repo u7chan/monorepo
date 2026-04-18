@@ -1,14 +1,6 @@
 import { HonoEnv } from './routes/shared';
-declare const app: import('hono/hono-base').HonoBase<HonoEnv & {
-    Variables: {
-        logger: import('hono-pino').PinoLogger;
-    };
-}, import('hono/types').BlankSchema, "/", "*">;
-declare const routes: import('hono/hono-base').HonoBase<HonoEnv & {
-    Variables: {
-        logger: import('hono-pino').PinoLogger;
-    };
-}, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
+declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema, "/", "*">;
+declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
     "/api/signin": {
         $post: {
             input: {

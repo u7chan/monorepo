@@ -27,6 +27,7 @@ const modelsHeaderValidator = validator('header', (value, c) => {
 
 const modelsRoutes = new Hono<HonoEnv>().get('/api/fetch-models', modelsHeaderValidator, async (c) => {
   const { 'api-key': apiKey, 'base-url': baseURL } = c.req.valid('header')
+  const requestLogger = c.var.logger ?? logger
 
   try {
     const response = await fetch(`${baseURL}/models`, {
@@ -44,7 +45,7 @@ const modelsRoutes = new Hono<HonoEnv>().get('/api/fetch-models', modelsHeaderVa
       return c.json(models.toSorted())
     }
   } catch (error) {
-    logger.error({ err: error }, 'Failed to fetch models')
+    requestLogger.error({ err: error }, 'Failed to fetch models')
   }
 
   return c.json([])

@@ -130,6 +130,7 @@ const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
+    const requestLogger = c.var.logger ?? logger
 
     try {
       const completion = await chat.completions(
@@ -148,10 +149,10 @@ const chatRoutes = new Hono<HonoEnv>()
       )
 
       const response = convertCompletion(completion as CompletionChunk)
-      logger.debug({ response }, 'Chat completion converted')
+      requestLogger.debug({ response }, 'Chat completion converted')
       return c.json(response)
     } catch (err) {
-      logger.error({ err }, 'Upstream chat completion failed')
+      requestLogger.error({ err }, 'Upstream chat completion failed')
       return c.json(
         { error: err instanceof Error ? err.message : 'Upstream error', code: 'UPSTREAM_ERROR' as const },
         502
@@ -162,6 +163,7 @@ const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat/stream', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
+    const requestLogger = c.var.logger ?? logger
 
     let completion
     try {
@@ -181,7 +183,7 @@ const chatRoutes = new Hono<HonoEnv>()
         }
       )
     } catch (err) {
-      logger.error({ err }, 'Upstream stream chat failed')
+      requestLogger.error({ err }, 'Upstream stream chat failed')
       return c.json(
         { error: err instanceof Error ? err.message : 'Upstream error', code: 'UPSTREAM_ERROR' as const },
         502
@@ -199,7 +201,7 @@ const chatRoutes = new Hono<HonoEnv>()
       })
 
       for await (const event of convertStreamChunks(streamCompletion)) {
-        logger.debug({ event }, 'Stream event emitted')
+        requestLogger.debug({ event }, 'Stream event emitted')
         await stream.writeSSE({ data: JSON.stringify(event) })
         await new Promise((resolve) => setTimeout(resolve, 10))
       }
@@ -212,8 +214,9 @@ const chatRoutes = new Hono<HonoEnv>()
   // Stub endpoint (OpenAI 互換、変更なし)
   .post('/api/chat/completions', sValidator('json', StubChatRequestSchema), async (c) => {
     const req = c.req.valid('json')
+    const requestLogger = c.var.logger ?? logger
 
-    logger.debug({ req }, 'Stub chat request received')
+    requestLogger.debug({ req }, 'Stub chat request received')
     await new Promise((resolve) => setTimeout(resolve, 3000))
 
     const reasoningContent = fs.readFileSync(
@@ -227,7 +230,7 @@ const chatRoutes = new Hono<HonoEnv>()
     }
 
     const completion = await chatStub.completions(req.model, content)
-    logger.debug({ completion }, 'Stub chat completion received')
+    requestLogger.debug({ completion }, 'Stub chat completion received')
 
     return c.json(completion)
   })

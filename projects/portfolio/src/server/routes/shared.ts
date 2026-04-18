@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
-import type { PinoLogger } from 'hono-pino'
 import { env } from 'hono/adapter'
 import { deleteCookie, getSignedCookie } from 'hono/cookie'
+import type pino from 'pino'
 
 export type Env = Partial<{
   NODE_ENV: string
@@ -18,7 +18,8 @@ export type HonoEnv = {
   Bindings: Env
   Variables: {
     email: string
-    logger: PinoLogger
+    logger: pino.Logger
+    requestId: string
   }
 }
 
