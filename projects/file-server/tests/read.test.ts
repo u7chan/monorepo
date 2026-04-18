@@ -397,7 +397,7 @@ describe("file endpoint /file", () => {
 
     expect(res.status).toBe(200)
     const text = await res.text()
-    expect(text).toContain('{&quot;hello&quot;:&quot;world&quot;}')
+    expect(text).toContain("{&quot;hello&quot;:&quot;world&quot;}")
     expect(text).toMatch(/<pre[^>]*>/)
     expect(text).not.toContain("Open as text")
     expect(text).not.toContain("edit=true")

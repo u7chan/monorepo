@@ -43,15 +43,15 @@ export const FileViewer: FC<FileViewerProps> = ({
       )
     }
     return (
-        <FileViewerModal
-          fileName={fileName}
-          path={path}
-          borderColor="indigo-300"
-          showEdit={allowEdit}
-        >
-          <TextViewer content={content} />
-        </FileViewerModal>
-      )
+      <FileViewerModal
+        fileName={fileName}
+        path={path}
+        borderColor="indigo-300"
+        showEdit={allowEdit}
+      >
+        <TextViewer content={content} />
+      </FileViewerModal>
+    )
   }
 
   // バイナリファイルの場合
