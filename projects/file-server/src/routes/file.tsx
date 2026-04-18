@@ -5,11 +5,6 @@ import { FileViewer } from "../components/file-viewer"
 import type { AppBindings } from "../types"
 import { ensureUploadDirExists } from "../utils/fileListing"
 import {
-  errorResponse,
-  isHtmxRequest,
-  renderWithShell,
-} from "../utils/requestUtils"
-import {
   archiveFileName,
   createDirectoryArchive,
   isPreviewableBinary,
@@ -20,6 +15,11 @@ import {
   resolveRequestedFile,
   toArrayBuffer,
 } from "../utils/fileRouteUtils"
+import {
+  errorResponse,
+  isHtmxRequest,
+  renderWithShell,
+} from "../utils/requestUtils"
 
 const fileRoutes = new Hono<AppBindings>()
 

@@ -81,10 +81,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
         className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
         hx-on:click={closeScript}
       >
-        <div
-          className={panelClassName}
-          hx-on:click="event.stopPropagation();"
-        >
+        <div className={panelClassName} hx-on:click="event.stopPropagation();">
           <div className="flex justify-between items-center mb-4 pb-4 border-b-2 border-indigo-200 flex-shrink-0">
             <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent truncate max-w-[70%]">
               {fileName}
