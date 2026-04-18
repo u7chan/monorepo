@@ -1,205 +1,164 @@
-import { beforeEach, describe, expect, it } from "bun:test"
-import { mkdir } from "node:fs/promises"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdir, rm } from "node:fs/promises"
 import * as path from "node:path"
-import app from "../src/index"
+import { createTestApp } from "./helpers/createTestApp"
 
 describe("delete", () => {
-  const UPLOAD_DIR = "./tmp-test"
+	const UPLOAD_DIR = "./tmp-test-delete"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  beforeEach(async () => {
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-  it("should delete a file", async () => {
-    // 事前にファイルを作成
-    const filePath = "delete-me.txt"
-    const content = "bye"
-    await Bun.write(path.join(UPLOAD_DIR, filePath), content)
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-    // 削除リクエスト
-    const formData = new FormData()
-    formData.append("path", filePath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(301)
-    // ファイル削除後は親ディレクトリにリダイレクト
-    expect(res.headers.get("location")).toBe("/?path=")
-    // ファイルが消えていること
-    expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
-  })
+	it("should delete a file", async () => {
+		const filePath = "public/delete-me.txt"
+		await Bun.write(path.join(UPLOAD_DIR, filePath), "bye")
 
-  it("should delete a nested file", async () => {
-    const filePath = "foo/bar/baz.txt"
-    await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, filePath), "nested")
-    const formData = new FormData()
-    formData.append("path", filePath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(301)
-    // ネストしたファイル削除後は親ディレクトリにリダイレクト
-    expect(res.headers.get("location")).toBe("/?path=foo/bar")
-    expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
-  })
+		const formData = new FormData()
+		formData.append("path", filePath)
+		const res = await app.request(
+			new Request("http://localhost/api/delete", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(301)
+		expect(res.headers.get("location")).toBe("/?path=public")
+		expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
+	})
 
-  it("should delete a directory (empty)", async () => {
-    const dirPath = "empty-dir"
-    await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
-    const formData = new FormData()
-    formData.append("path", dirPath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(301)
-    // ディレクトリ削除後は親ディレクトリにリダイレクト
-    expect(res.headers.get("location")).toBe("/?path=")
-    // ディレクトリが消えていること
-    expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
-  })
+	it("should delete a nested file", async () => {
+		const filePath = "public/foo/bar/baz.txt"
+		await mkdir(path.join(UPLOAD_DIR, "public/foo/bar"), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, filePath), "nested")
 
-  it("should delete a directory (with files)", async () => {
-    const dirPath = "dir-with-files"
-    const filePath = path.join(dirPath, "file.txt")
-    await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, filePath), "data")
-    const formData = new FormData()
-    formData.append("path", dirPath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(301)
-    // ディレクトリ削除後は親ディレクトリにリダイレクト
-    expect(res.headers.get("location")).toBe("/?path=")
-    // ディレクトリが消えていること
-    expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
-  })
+		const formData = new FormData()
+		formData.append("path", filePath)
+		const res = await app.request(
+			new Request("http://localhost/api/delete", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(301)
+		expect(res.headers.get("location")).toBe("/?path=public/foo/bar")
+		expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
+	})
 
-  it("should return error for invalid path", async () => {
-    const formData = new FormData()
-    formData.append("path", "../../evil.txt")
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(400)
-    const responseData = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(responseData.success).toBe(false)
-    expect(responseData.error).toBeDefined()
-    expect(responseData.error.name).toBe("PathError")
-  })
+	it("should delete an empty directory", async () => {
+		const dirPath = "public/empty-dir"
+		await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
 
-  it("should return error for non-existent file", async () => {
-    const formData = new FormData()
-    formData.append("path", "notfound.txt")
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(400)
-    const responseData = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(responseData.success).toBe(false)
-    expect(responseData.error).toBeDefined()
-    expect(responseData.error.name).toBe("FileNotFound")
-  })
+		const formData = new FormData()
+		formData.append("path", dirPath)
+		const res = await app.request(
+			new Request("http://localhost/api/delete", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(301)
+		expect(res.headers.get("location")).toBe("/?path=public")
+		expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
+	})
 
-  it("should delete a file via htmx and return HTML with updated file list", async () => {
-    // 事前にファイルを作成
-    const filePath = "delete-htmx.txt"
-    const content = "delete me via htmx"
-    await Bun.write(path.join(UPLOAD_DIR, filePath), content)
-    // 追加のファイルも作成してリストを確認
-    await Bun.write(path.join(UPLOAD_DIR, "other.txt"), "other")
+	it("should delete a directory with files", async () => {
+		const dirPath = "public/dir-with-files"
+		await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, dirPath, "file.txt"), "data")
 
-    // 削除リクエスト（htmx）
-    const formData = new FormData()
-    formData.append("path", filePath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-      headers: { "HX-Request": "true" },
-    })
-    const res = await app.request(req)
+		const formData = new FormData()
+		formData.append("path", dirPath)
+		const res = await app.request(
+			new Request("http://localhost/api/delete", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(301)
+		expect(res.headers.get("location")).toBe("/?path=public")
+		expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
+	})
 
-    // HTMLレスポンスを期待
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('id="file-list-container"')
-    expect(text).toContain("other.txt") // 残っているファイル
-    expect(text).not.toContain("delete-htmx.txt") // 削除されたファイル
-    expect(text).not.toContain("<html") // 部分HTML
-    expect(text).not.toContain("<head>")
+	it("should return error for invalid path", async () => {
+		const formData = new FormData()
+		formData.append("path", "../../evil.txt")
+		const res = await app.request(
+			new Request("http://localhost/api/delete", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("PathError")
+	})
 
-    // ファイルが消えていること
-    expect(Bun.file(path.join(UPLOAD_DIR, filePath)).text()).rejects.toThrow()
-  })
+	it("should return error for non-existent file", async () => {
+		const formData = new FormData()
+		formData.append("path", "public/notfound.txt")
+		const res = await app.request(
+			new Request("http://localhost/api/delete", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("FileNotFound")
+	})
 
-  it("should delete a directory via htmx and return HTML with updated file list", async () => {
-    const dirPath = "dir-to-delete-htmx"
-    await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, dirPath, "file.txt"), "content")
+	it("should delete a file via htmx and return updated file list HTML", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public/delete-htmx.txt"), "delete me")
+		await Bun.write(path.join(UPLOAD_DIR, "public/other.txt"), "other")
 
-    const formData = new FormData()
-    formData.append("path", dirPath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-      headers: { "HX-Request": "true" },
-    })
-    const res = await app.request(req)
+		const formData = new FormData()
+		formData.append("path", "public/delete-htmx.txt")
+		const res = await app.request(
+			new Request("http://localhost/api/delete", {
+				method: "POST",
+				body: formData,
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain('id="file-list-container"')
+		expect(text).toContain("other.txt")
+		expect(text).not.toContain("delete-htmx.txt")
+		expect(text).not.toContain("<html")
+	})
 
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('id="file-list-container"')
-    expect(text).not.toContain("dir-to-delete-htmx") // 削除されたディレクトリ
-    expect(text).not.toContain("<html") // 部分HTML
+	it("should delete a directory via htmx and return updated file list HTML", async () => {
+		const dirPath = "public/dir-to-delete-htmx"
+		await mkdir(path.join(UPLOAD_DIR, dirPath), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, dirPath, "file.txt"), "content")
 
-    // ディレクトリが消えていること
-    expect(Bun.file(path.join(UPLOAD_DIR, dirPath)).text()).rejects.toThrow()
-  })
+		const formData = new FormData()
+		formData.append("path", dirPath)
+		const res = await app.request(
+			new Request("http://localhost/api/delete", {
+				method: "POST",
+				body: formData,
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain('id="file-list-container"')
+		expect(text).not.toContain("dir-to-delete-htmx")
+		expect(text).not.toContain("<html")
+	})
 
-  it("should delete a nested file via htmx and return HTML with correct parent directory", async () => {
-    const filePath = "foo/htmx-delete.txt"
-    await mkdir(path.join(UPLOAD_DIR, "foo"), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, filePath), "nested delete")
-    // 親ディレクトリに別のファイルも作成
-    await Bun.write(path.join(UPLOAD_DIR, "foo", "sibling.txt"), "sibling")
+	it("should delete a nested file via htmx and show correct parent directory", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public/foo"), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, "public/foo/htmx-delete.txt"), "del")
+		await Bun.write(path.join(UPLOAD_DIR, "public/foo/sibling.txt"), "sibling")
 
-    const formData = new FormData()
-    formData.append("path", filePath)
-    const req = new Request("http://localhost/api/delete", {
-      method: "POST",
-      body: formData,
-      headers: { "HX-Request": "true" },
-    })
-    const res = await app.request(req)
-
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('id="file-list-container"')
-    expect(text).toContain("sibling.txt") // 残っているファイル
-    expect(text).not.toContain("htmx-delete.txt") // 削除されたファイル
-    // パンくずリストにfooが含まれることを確認
-    expect(text).toContain("foo")
-  })
+		const formData = new FormData()
+		formData.append("path", "public/foo/htmx-delete.txt")
+		const res = await app.request(
+			new Request("http://localhost/api/delete", {
+				method: "POST",
+				body: formData,
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain('id="file-list-container"')
+		expect(text).toContain("sibling.txt")
+		expect(text).not.toContain("htmx-delete.txt")
+		expect(text).toContain("foo")
+	})
 })

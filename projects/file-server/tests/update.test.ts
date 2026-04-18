@@ -1,204 +1,133 @@
-import { beforeEach, describe, expect, it } from "bun:test"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import * as path from "node:path"
-import app from "../src/index"
+import { createTestApp } from "./helpers/createTestApp"
 
 describe("update", () => {
-  const UPLOAD_DIR = "./tmp-test"
+	const UPLOAD_DIR = "./tmp-test-update"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  beforeEach(async () => {
-    // テスト用のアップロードディレクトリを作成
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    // 環境変数を設定
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-  it("should update a text file via API", async () => {
-    // テストファイルを事前に作成
-    const testFilePath = path.join(UPLOAD_DIR, "test-update.txt")
-    await writeFile(testFilePath, "Initial content", "utf-8")
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-    // 更新内容
-    const newContent = "Updated content!"
+	it("should update a text file via API", async () => {
+		const testFilePath = path.join(UPLOAD_DIR, "public", "test-update.txt")
+		await writeFile(testFilePath, "Initial content", "utf-8")
 
-    // FormDataを作成
-    const formData = new FormData()
-    formData.append("path", "test-update.txt")
-    formData.append("content", newContent)
+		const formData = new FormData()
+		formData.append("path", "public/test-update.txt")
+		formData.append("content", "Updated content!")
 
-    // 更新リクエストを送信
-    const req = new Request("http://localhost/api/update", {
-      method: "POST",
-      body: formData,
-    })
+		const res = await app.request(
+			new Request("http://localhost/api/update", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as { success: boolean }
+		expect(data.success).toBe(true)
 
-    const res = await app.request(req)
+		const saved = await readFile(testFilePath, "utf-8")
+		expect(saved).toBe("Updated content!")
+	})
 
-    // レスポンスを検証
-    expect(res.status).toBe(200)
-    const responseData = (await res.json()) as { success: boolean }
-    expect(responseData.success).toBe(true)
+	it("should update a text file via htmx and return HTML", async () => {
+		const testFilePath = path.join(UPLOAD_DIR, "public", "htmx-update.txt")
+		await writeFile(testFilePath, "Initial htmx content", "utf-8")
 
-    // ファイルが実際に更新されたかを確認
-    const savedContent = await readFile(testFilePath, "utf-8")
-    expect(savedContent).toBe(newContent)
-  })
+		const formData = new FormData()
+		formData.append("path", "public/htmx-update.txt")
+		formData.append("content", "Updated via htmx!")
 
-  it("should update a text file via htmx and return HTML", async () => {
-    // テストファイルを事前に作成
-    const testFilePath = path.join(UPLOAD_DIR, "htmx-update.txt")
-    await writeFile(testFilePath, "Initial htmx content", "utf-8")
+		const res = await app.request(
+			new Request("http://localhost/api/update", {
+				method: "POST",
+				body: formData,
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("htmx-update.txt")
+		expect(text).toContain("Updated via htmx!")
+		expect(text).toContain('id="file-viewer-container"')
+		expect(text).not.toContain("<html")
 
-    // 更新内容
-    const newContent = "Updated via htmx!"
+		const saved = await readFile(testFilePath, "utf-8")
+		expect(saved).toBe("Updated via htmx!")
+	})
 
-    // FormDataを作成
-    const formData = new FormData()
-    formData.append("path", "htmx-update.txt")
-    formData.append("content", newContent)
+	it("should return error when file does not exist", async () => {
+		const formData = new FormData()
+		formData.append("path", "public/non-existent.txt")
+		formData.append("content", "New content")
 
-    // htmxリクエストを送信
-    const req = new Request("http://localhost/api/update", {
-      method: "POST",
-      body: formData,
-      headers: { "HX-Request": "true" },
-    })
+		const res = await app.request(
+			new Request("http://localhost/api/update", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("FileNotFound")
+	})
 
-    const res = await app.request(req)
+	it("should reject update to path traversal path", async () => {
+		const formData = new FormData()
+		formData.append("path", "../../evil.txt")
+		formData.append("content", "Hacked!")
 
-    // レスポンスを検証（HTMLレスポンスを期待）
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("htmx-update.txt")
-    expect(text).toContain(newContent)
-    expect(text).toContain('id="file-viewer-container"')
-    // HTML部分（フルページシェルではない）
-    expect(text).not.toContain("<html")
-    expect(text).not.toContain("<head>")
+		const res = await app.request(
+			new Request("http://localhost/api/update", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("PathError")
+	})
 
-    // ファイルが実際に更新されたかを確認
-    const savedContent = await readFile(testFilePath, "utf-8")
-    expect(savedContent).toBe(newContent)
-  })
+	it("should return error when path is a directory", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public", "testdir"), { recursive: true })
 
-  it("should return error when file does not exist", async () => {
-    // FormDataを作成（存在しないファイル）
-    const formData = new FormData()
-    formData.append("path", "non-existent.txt")
-    formData.append("content", "New content")
+		const formData = new FormData()
+		formData.append("path", "public/testdir")
+		formData.append("content", "New content")
 
-    // 更新リクエストを送信
-    const req = new Request("http://localhost/api/update", {
-      method: "POST",
-      body: formData,
-    })
+		const res = await app.request(
+			new Request("http://localhost/api/update", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotAFile")
+	})
 
-    const res = await app.request(req)
+	it("should update a file in nested directory", async () => {
+		const nestedDir = path.join(UPLOAD_DIR, "public", "update/foo")
+		await mkdir(nestedDir, { recursive: true })
+		const testFilePath = path.join(nestedDir, "bar.txt")
+		await writeFile(testFilePath, "Nested initial content", "utf-8")
 
-    // レスポンスを検証
-    expect(res.status).toBe(400)
-    const responseData = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(responseData.success).toBe(false)
-    expect(responseData.error.name).toBe("FileNotFound")
-  })
+		const formData = new FormData()
+		formData.append("path", "public/update/foo/bar.txt")
+		formData.append("content", "Updated nested content!")
 
-  it("should reject update to parent directory path", async () => {
-    // テストファイルを事前に作成
-    const testFilePath = path.join(UPLOAD_DIR, "evil.txt")
-    await writeFile(testFilePath, "Initial content", "utf-8")
+		const res = await app.request(
+			new Request("http://localhost/api/update", {
+				method: "POST",
+				body: formData,
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("bar.txt")
+		expect(text).toContain("Updated nested content!")
 
-    // FormDataを作成（親ディレクトリへのパス）
-    const formData = new FormData()
-    formData.append("path", "../../evil.txt")
-    formData.append("content", "Hacked!")
-
-    // 更新リクエストを送信
-    const req = new Request("http://localhost/api/update", {
-      method: "POST",
-      body: formData,
-    })
-
-    const res = await app.request(req)
-
-    // レスポンスを検証
-    expect(res.status).toBe(400)
-    const responseData = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(responseData.success).toBe(false)
-    expect(responseData.error.name).toBe("PathError")
-
-    // ファイルが変更されていないことを確認
-    const savedContent = await readFile(testFilePath, "utf-8")
-    expect(savedContent).toBe("Initial content")
-  })
-
-  it("should return error when path is a directory", async () => {
-    // テスト用ディレクトリを作成
-    const testDirPath = path.join(UPLOAD_DIR, "testdir")
-    await mkdir(testDirPath, { recursive: true })
-
-    // FormDataを作成（ディレクトリパス）
-    const formData = new FormData()
-    formData.append("path", "testdir")
-    formData.append("content", "New content")
-
-    // 更新リクエストを送信
-    const req = new Request("http://localhost/api/update", {
-      method: "POST",
-      body: formData,
-    })
-
-    const res = await app.request(req)
-
-    // レスポンスを検証
-    expect(res.status).toBe(400)
-    const responseData = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(responseData.success).toBe(false)
-    expect(responseData.error.name).toBe("NotAFile")
-  })
-
-  it("should update a file in nested directory", async () => {
-    // ネストしたディレクトリとファイルを作成
-    const nestedDir = path.join(UPLOAD_DIR, "update/foo")
-    await mkdir(nestedDir, { recursive: true })
-    const testFilePath = path.join(nestedDir, "bar.txt")
-    await writeFile(testFilePath, "Nested initial content", "utf-8")
-
-    // 更新内容
-    const newContent = "Updated nested content!"
-
-    // FormDataを作成
-    const formData = new FormData()
-    formData.append("path", "update/foo/bar.txt")
-    formData.append("content", newContent)
-
-    // htmxリクエストを送信
-    const req = new Request("http://localhost/api/update", {
-      method: "POST",
-      body: formData,
-      headers: { "HX-Request": "true" },
-    })
-
-    const res = await app.request(req)
-
-    // レスポンスを検証
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("bar.txt")
-    expect(text).toContain(newContent)
-
-    // ファイルが実際に更新されたかを確認
-    const savedContent = await readFile(testFilePath, "utf-8")
-    expect(savedContent).toBe(newContent)
-  })
+		const saved = await readFile(testFilePath, "utf-8")
+		expect(saved).toBe("Updated nested content!")
+	})
 })

@@ -6,13 +6,11 @@ import type { HtmlEscapedString } from "hono/utils/html"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { PageShell } from "../components/PageShell"
 import type { AppBindings } from "../types"
-import { DEFAULT_UPLOAD_DIR, getUserUploadDir } from "./auth"
+import { DEFAULT_UPLOAD_DIR } from "./auth"
 import { isPathTraversal } from "./pathTraversal"
 
 export function getUploadDir(c: Context<AppBindings>): string {
-  const baseDir = env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
-  const user = c.get("user") ?? { type: "anonymous" }
-  return getUserUploadDir(baseDir, user)
+  return env(c).UPLOAD_DIR || DEFAULT_UPLOAD_DIR
 }
 
 export function getRequestPath(c: Context<AppBindings>): string {

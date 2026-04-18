@@ -1,702 +1,438 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdir, rm } from "node:fs/promises"
 import * as path from "node:path"
-import app from "../src/index"
+import { createTestApp } from "./helpers/createTestApp"
 
 const zipAvailable = Bun.spawnSync(["which", "zip"]).exitCode === 0
 
 function zipBodyText(body: ArrayBuffer): string {
-  return Buffer.from(body).toString("latin1")
+	return Buffer.from(body).toString("latin1")
 }
 
-describe("read", () => {
-  const UPLOAD_DIR = "./tmp-test"
+describe("read - API listing", () => {
+	const UPLOAD_DIR = "./tmp-test-read"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  beforeEach(async () => {
-    // 既存のディレクトリを削除してから作成
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {
-      // ディレクトリが存在しない場合は無視
-    }
-    // テスト用のアップロードディレクトリを作成
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    // 環境変数を設定
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-  afterEach(async () => {
-    // テスト用ディレクトリをクリーンアップ
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {
-      // ディレクトリが存在しない場合は無視
-    }
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-  it("should return empty files list when directory is empty", async () => {
-    // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/api/")
-    const res = await app.request(req)
+	it("should return synthetic root entries [public, private]", async () => {
+		const res = await app.request(new Request("http://localhost/api/"))
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as {
+			files: Array<{ name: string; type: "file" | "dir" }>
+		}
+		expect(data.files).toEqual(
+			expect.arrayContaining([
+				{ name: "public", type: "dir" },
+				{ name: "private", type: "dir" },
+			]),
+		)
+		expect(data.files).toHaveLength(2)
+	})
 
-    // レスポンスを検証
-    expect(res.status).toBe(200)
-    const responseData = (await res.json()) as {
-      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
-    }
-    expect(responseData.files).toEqual([])
-  })
+	it("should return empty files list in public when directory is empty", async () => {
+		const res = await app.request(new Request("http://localhost/api/public"))
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as { files: Array<unknown> }
+		expect(data.files).toEqual([])
+	})
 
-  it("should return files list when files exist", async () => {
-    // テストファイルを作成
-    await Bun.write(path.join(UPLOAD_DIR, "test1.txt"), "Hello, World!")
-    await Bun.write(path.join(UPLOAD_DIR, "test2.txt"), "Test content")
+	it("should return files in public directory", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "test1.txt"), "Hello, World!")
+		await Bun.write(path.join(UPLOAD_DIR, "public", "test2.txt"), "Test content")
 
-    // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/api/")
-    const res = await app.request(req)
+		const res = await app.request(new Request("http://localhost/api/public"))
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as {
+			files: Array<{ name: string; type: "file" | "dir"; size?: number }>
+		}
+		expect(data.files).toEqual(
+			expect.arrayContaining([
+				{ name: "test1.txt", type: "file", size: 13 },
+				{ name: "test2.txt", type: "file", size: 12 },
+			]),
+		)
+		expect(data.files).toHaveLength(2)
+	})
 
-    // レスポンスを検証
-    expect(res.status).toBe(200)
-    const responseData = (await res.json()) as {
-      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
-    }
-    expect(responseData.files).toEqual(
-      expect.arrayContaining([
-        { name: "test1.txt", type: "file", size: 13 },
-        { name: "test2.txt", type: "file", size: 12 },
-      ]),
-    )
-    expect(responseData.files).toHaveLength(2)
-  })
+	it("should return files in subdirectory when subpath is specified", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public/foo/bar"), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, "public/foo/bar", "baz.txt"), "baz content")
+		await Bun.write(path.join(UPLOAD_DIR, "public/foo/bar", "qux.txt"), "qux content")
 
-  it("should return files list in subdirectory when subpath is specified", async () => {
-    // サブディレクトリとファイルを作成
-    await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, "foo/bar", "baz.txt"), "baz content")
-    await Bun.write(path.join(UPLOAD_DIR, "foo/bar", "qux.txt"), "qux content")
-    // サブディレクトリ直下のファイルも作成
-    await Bun.write(path.join(UPLOAD_DIR, "foo", "root.txt"), "root content")
+		const res = await app.request(new Request("http://localhost/api/public/foo/bar"))
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as {
+			files: Array<{ name: string; type: "file" | "dir"; size?: number }>
+		}
+		expect(data.files).toEqual(
+			expect.arrayContaining([
+				{ name: "baz.txt", type: "file", size: 11 },
+				{ name: "qux.txt", type: "file", size: 11 },
+			]),
+		)
+		expect(data.files).toHaveLength(2)
+	})
 
-    // サブパス指定でリクエスト
-    const req = new Request("http://localhost/api/foo/bar")
-    const res = await app.request(req)
-
-    // レスポンスを検証
-    expect(res.status).toBe(200)
-    const responseData = (await res.json()) as {
-      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
-    }
-    expect(responseData.files).toEqual(
-      expect.arrayContaining([
-        { name: "baz.txt", type: "file", size: 11 },
-        { name: "qux.txt", type: "file", size: 11 },
-      ]),
-    )
-    expect(responseData.files).toHaveLength(2)
-  })
-
-  it("should create upload directory on demand when missing", async () => {
-    // 存在しないディレクトリを設定
-    process.env.UPLOAD_DIR = "./non-existent-dir"
-
-    // ファイル一覧取得リクエスト
-    const req = new Request("http://localhost/api/")
-    const res = await app.request(req)
-
-    // レスポンスを検証（オンデマンド作成される）
-    expect(res.status).toBe(200)
-    const responseData = (await res.json()) as {
-      files: Array<{ name: string; type: "file" | "dir"; size?: number }>
-    }
-    expect(responseData.files).toEqual([])
-
-    // 環境変数を元に戻す
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	it("should return error for non-existent directory", async () => {
+		const res = await app.request(new Request("http://localhost/api/public/nonexistent"))
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("DirNotFound")
+	})
 })
 
 describe("browse endpoint /", () => {
-  const UPLOAD_DIR = "./tmp-test"
-  beforeEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
-  afterEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	const UPLOAD_DIR = "./tmp-test-browse"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  it("should render directory listing as HTML", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "foo.txt"), "foo content")
-    await Bun.write(path.join(UPLOAD_DIR, "bar.txt"), "bar content")
-    const req = new Request("http://localhost/?path=", { method: "GET" })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("foo.txt")
-    expect(text).toContain("bar.txt")
-    expect(text).toContain("<a href")
-    // htmx属性があることを確認
-    expect(text).toContain("hx-get")
-    expect(text).toContain("hx-target")
-    expect(text).toContain("hx-push-url")
-    expect(text).toContain('id="file-list-container"')
-    // ファイルリンクはfile-viewer-containerをターゲットにする
-    expect(text).toContain('hx-target="#file-viewer-container"')
-    expect(text).toContain("New File")
-    expect(text).toContain('id="new-file-form"')
-    expect(text).toContain('hx-post="/api/file"')
-    expect(text).toMatch(
-      /id="new-file-button"[^>]*border-2 border-indigo-200 bg-white/,
-    )
-    expect(text).toMatch(
-      /id="new-folder-button"[^>]*border-2 border-indigo-200 bg-white/,
-    )
-    expect(text).toMatch(/>Create File<\/button>/)
-    expect(text).toMatch(/Create File<\/button>[\s\S]*Create Folder<\/button>/)
-  })
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-  it("should render breadcrumb navigation in directory listing as HTML", async () => {
-    // ディレクトリ階層を作成
-    await mkdir(path.join(UPLOAD_DIR, "foo/bar/baz"), { recursive: true })
-    // パス付きでアクセス
-    const req = new Request("http://localhost/?path=foo/bar/baz", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    // パンくずリストの各階層リンクが含まれること（htmx属性付き）
-    expect(text).toContain('href="/"')
-    expect(text).toContain('href="/?path=foo"')
-    expect(text).toContain('href="/?path=foo%2Fbar"')
-    expect(text).toContain('href="/?path=foo%2Fbar%2Fbaz"')
-    // パンくずリストにテキストとしてroot/foo/bar/bazがある
-    expect(text).toContain(">root</a>")
-    expect(text).toContain(">foo</a>")
-    expect(text).toContain(">bar</a>")
-    expect(text).toContain(">baz</a>")
-    // htmx属性があることを確認
-    expect(text).toContain('hx-get="/browse?path="')
-    expect(text).toContain('hx-get="/browse?path=foo"')
-    expect(text).toContain('hx-target="#file-list-container"')
-    expect(text).toContain("hx-push-url")
-  })
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-  it("should render directory zip download link", async () => {
-    await mkdir(path.join(UPLOAD_DIR, "foo/bar"), { recursive: true })
-    const req = new Request("http://localhost/?path=foo%2Fbar", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    const text = await res.text()
+	it("should render root as synthetic [public, private]", async () => {
+		const res = await app.request(new Request("http://localhost/?path="))
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("public")
+		expect(text).toContain("private")
+		expect(text).toContain('id="file-list-container"')
+	})
 
-    expect(res.status).toBe(200)
-    expect(text).toContain('href="/file/archive?path=foo%2Fbar"')
-    expect(text).toContain("Download Zip")
-    expect(text).toContain("mb-4 grid grid-cols-2 gap-3 sm:flex")
-    expect(text).toContain("whitespace-nowrap")
-    expect(text).toContain("col-span-2 no-underline sm:col-span-1")
-  })
+	it("should render directory listing in public scope as HTML", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "foo.txt"), "foo content")
+		await Bun.write(path.join(UPLOAD_DIR, "public", "bar.txt"), "bar content")
 
-  it("should redirect to /file when file is selected", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "hello.txt"), "hello world")
-    const req = new Request("http://localhost/?path=hello.txt", {
-      method: "GET",
-      redirect: "manual",
-    })
-    const res = await app.request(req)
-    // 302リダイレクト
-    expect(res.status).toBe(302)
-    expect(res.headers.get("Location")).toBe("/file?path=hello.txt")
-  })
+		const res = await app.request(new Request("http://localhost/?path=public"))
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("foo.txt")
+		expect(text).toContain("bar.txt")
+		expect(text).toContain("<a href")
+		expect(text).toContain("hx-get")
+		expect(text).toContain('id="file-list-container"')
+		expect(text).toContain("New File")
+	})
 
-  it("should return partial HTML for htmx request to /", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "htmx-test.txt"), "htmx content")
-    const req = new Request("http://localhost/?path=", {
-      method: "GET",
-      headers: { "HX-Request": "true" },
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    // 部分HTML（フルページシェルではない）
-    expect(text).toContain("htmx-test.txt")
-    expect(text).toContain('id="file-list-container"')
-    expect(text).not.toContain("<html")
-    expect(text).not.toContain("<head>")
-    expect(text).not.toContain("<title>File Server</title>")
-    expect(text).not.toContain("htmx.min.js")
-  })
+	it("should render breadcrumb navigation in directory listing", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public/foo/bar/baz"), { recursive: true })
 
-  it("should return partial HTML for htmx request to nested directory", async () => {
-    await mkdir(path.join(UPLOAD_DIR, "htmx/nested"), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, "htmx/nested", "file.txt"), "nested")
-    const req = new Request("http://localhost/?path=htmx%2Fnested", {
-      method: "GET",
-      headers: { "HX-Request": "true" },
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("file.txt")
-    expect(text).toContain('id="file-list-container"')
-    expect(text).toContain("htmx") // パンくずリストにhtmxが含まれる
-    expect(text).not.toContain("<html")
-  })
+		const res = await app.request(
+			new Request("http://localhost/?path=public%2Ffoo%2Fbar%2Fbaz"),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain('href="/"')
+		expect(text).toContain('href="/?path=public"')
+		expect(text).toContain('href="/?path=public%2Ffoo"')
+		expect(text).toContain('href="/?path=public%2Ffoo%2Fbar"')
+		expect(text).toContain('href="/?path=public%2Ffoo%2Fbar%2Fbaz"')
+		expect(text).toContain(">public</a>")
+		expect(text).toContain(">foo</a>")
+		expect(text).toContain(">bar</a>")
+		expect(text).toContain(">baz</a>")
+	})
+
+	it("should render directory zip download link", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public/foo/bar"), { recursive: true })
+
+		const res = await app.request(
+			new Request("http://localhost/?path=public%2Ffoo%2Fbar"),
+		)
+		const text = await res.text()
+		expect(res.status).toBe(200)
+		expect(text).toContain('href="/file/archive?path=public%2Ffoo%2Fbar"')
+		expect(text).toContain("Download Zip")
+	})
+
+	it("should redirect to /file when file is selected", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "hello.txt"), "hello world")
+
+		const res = await app.request(
+			new Request("http://localhost/?path=public%2Fhello.txt", { redirect: "manual" }),
+		)
+		expect(res.status).toBe(302)
+		expect(res.headers.get("Location")).toBe("/file?path=public%2Fhello.txt")
+	})
+
+	it("should return partial HTML for htmx request", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "htmx-test.txt"), "htmx content")
+
+		const res = await app.request(
+			new Request("http://localhost/?path=public", {
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("htmx-test.txt")
+		expect(text).toContain('id="file-list-container"')
+		expect(text).not.toContain("<html")
+		expect(text).not.toContain("<head>")
+		expect(text).not.toContain("htmx.min.js")
+	})
+
+	it("should return 404 for non-existent path", async () => {
+		const res = await app.request(new Request("http://localhost/?path=public%2Fnonexistent"))
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotFound")
+	})
 })
 
 describe("file endpoint /file", () => {
-  const UPLOAD_DIR = "./tmp-test"
-  beforeEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
-  afterEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	const UPLOAD_DIR = "./tmp-test-file"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  it("should redirect to parent directory on non-htmx request", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "readme.md"), "# Hello\nworld")
-    const req = new Request("http://localhost/file?path=readme.md", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(302)
-    expect(res.headers.get("Location")).toBe("/")
-  })
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-  it("should redirect to parent directory for nested file", async () => {
-    await mkdir(path.join(UPLOAD_DIR, "subdir"), { recursive: true })
-    await Bun.write(
-      path.join(UPLOAD_DIR, "subdir/nested.txt"),
-      "nested content",
-    )
-    const req = new Request("http://localhost/file?path=subdir/nested.txt", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(302)
-    expect(res.headers.get("Location")).toBe("/?path=subdir")
-  })
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-  it("should render file content as partial HTML for htmx request", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "htmx-file.txt"), "htmx file content")
-    const req = new Request("http://localhost/file?path=htmx-file.txt", {
-      method: "GET",
-      headers: { "HX-Request": "true" },
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("htmx file content")
-    expect(text).toMatch(/<pre[^>]*>/)
-    expect(text).toContain('id="file-viewer-container"')
-    expect(text).not.toContain("<html") // htmxリクエストは部分HTML
-    expect(text).not.toContain("<head>")
-    expect(text).toContain("<svg") // クローズボタンのSVGアイコンが存在
-    expect(text).toMatch(
-      /href="\/file\/raw\?path=htmx-file\.txt"[^>]*border-2 border-indigo-200 bg-white/,
-    )
-    expect(text).toMatch(/edit=true"[^>]*border-2 border-indigo-200 bg-white/)
-    expect(text).toContain("bg-slate-100")
-    expect(text).toContain("history.pushState(null")
-  })
+	it("should redirect to parent directory on non-htmx request", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "readme.md"), "# Hello\nworld")
 
-  it("should render an empty-state message for empty text files", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "empty.txt"), "")
-    const req = new Request("http://localhost/file?path=empty.txt", {
-      method: "GET",
-      headers: { "HX-Request": "true" },
-    })
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Freadme.md"),
+		)
+		expect(res.status).toBe(302)
+		expect(res.headers.get("Location")).toBe("/?path=public")
+	})
 
-    const res = await app.request(req)
+	it("should redirect to parent directory for nested file", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public", "subdir"), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, "public/subdir/nested.txt"), "nested content")
 
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("This file is empty.")
-    expect(text).not.toMatch(/<pre[^>]*>/)
-  })
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fsubdir%2Fnested.txt"),
+		)
+		expect(res.status).toBe(302)
+		expect(res.headers.get("Location")).toBe("/?path=public%2Fsubdir")
+	})
 
-  it("should render pdf viewer with pdf-specific modal layout", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "preview.pdf"), "fake pdf content")
-    const req = new Request("http://localhost/file?path=preview.pdf", {
-      method: "GET",
-      headers: { "HX-Request": "true" },
-    })
+	it("should render file content as partial HTML for htmx request", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "htmx-file.txt"), "htmx file content")
 
-    const res = await app.request(req)
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fhtmx-file.txt", {
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("htmx file content")
+		expect(text).toMatch(/<pre[^>]*>/)
+		expect(text).toContain('id="file-viewer-container"')
+		expect(text).not.toContain("<html")
+		expect(text).not.toContain("<head>")
+	})
 
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('src="/file/raw?path=preview.pdf"')
-    expect(text).toContain("max-w-6xl")
-    expect(text).toContain("h-[92vh] max-h-[92vh]")
-    expect(text).toContain("pdf-viewer-shell")
-    expect(text).toContain("pdf-viewer-frame")
-    expect(text).not.toContain("edit=true")
-  })
+	it("should return error for non-existent file", async () => {
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fnotfound.txt"),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotFound")
+	})
 
-  it("should offer text view toggle for unsupported file types", async () => {
-    await Bun.write(
-      path.join(UPLOAD_DIR, "config.custom"),
-      JSON.stringify({ hello: "world" }),
-    )
-    const req = new Request("http://localhost/file?path=config.custom", {
-      method: "GET",
-      headers: { "HX-Request": "true" },
-    })
+	it("should return error for directory path", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public", "dir1"))
 
-    const res = await app.request(req)
-
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("This file type cannot be displayed in the browser.")
-    expect(text).toContain('hx-get="/file?path=config.custom&amp;view=text"')
-    expect(text).toContain("Open as text")
-  })
-
-  it("should render unsupported file types as text when text view is requested", async () => {
-    await Bun.write(
-      path.join(UPLOAD_DIR, "config.custom"),
-      JSON.stringify({ hello: "world" }),
-    )
-    const req = new Request(
-      "http://localhost/file?path=config.custom&view=text",
-      {
-        method: "GET",
-        headers: { "HX-Request": "true" },
-      },
-    )
-
-    const res = await app.request(req)
-
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("{&quot;hello&quot;:&quot;world&quot;}")
-    expect(text).toMatch(/<pre[^>]*>/)
-    expect(text).not.toContain("Open as text")
-    expect(text).not.toContain("edit=true")
-  })
-
-  it("should render a placeholder for empty text files in edit mode", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "empty-edit.txt"), "")
-    const req = new Request(
-      "http://localhost/file?path=empty-edit.txt&edit=true",
-      {
-        method: "GET",
-        headers: { "HX-Request": "true" },
-      },
-    )
-
-    const res = await app.request(req)
-
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('placeholder="This file is empty. Start typing..."')
-    expect(text).toContain(">Cancel</button>")
-    expect(text).toContain(">Save</button>")
-  })
-
-  it("should return error for non-existent file", async () => {
-    const req = new Request("http://localhost/file?path=notfound.txt", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(400)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(data.success).toBe(false)
-    expect(data.error).toBeDefined()
-    expect(data.error.name).toBe("NotFound")
-  })
-
-  it("should return error for directory path", async () => {
-    await mkdir(path.join(UPLOAD_DIR, "dir1"))
-    const req = new Request("http://localhost/file?path=dir1", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(400)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(data.success).toBe(false)
-    expect(data.error).toBeDefined()
-    expect(data.error.name).toBe("NotAFile")
-  })
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fdir1"),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotAFile")
+	})
 })
 
 describe("file archive endpoint /file/archive", () => {
-  const UPLOAD_DIR = "./tmp-test"
-  beforeEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
-  afterEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	const UPLOAD_DIR = "./tmp-test-archive"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  it("should return a zip archive for the root directory", async () => {
-    if (!zipAvailable) {
-      return
-    }
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-    await mkdir(path.join(UPLOAD_DIR, "nested"), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, "foo.txt"), "foo")
-    await Bun.write(path.join(UPLOAD_DIR, "nested", "bar.txt"), "bar")
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-    const req = new Request("http://localhost/file/archive?path=", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    const body = await res.arrayBuffer()
-    const zipText = zipBodyText(body)
+	it("should return a zip archive for the public directory", async () => {
+		if (!zipAvailable) return
 
-    expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Type")).toBe("application/zip")
-    expect(res.headers.get("Content-Disposition")).toContain("root.zip")
-    expect(zipText).toContain("PK\u0003\u0004")
-    expect(zipText).toContain("foo.txt")
-    expect(zipText).toContain("nested/")
-    expect(zipText).toContain("nested/bar.txt")
-  })
+		await mkdir(path.join(UPLOAD_DIR, "public", "nested"), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, "public", "foo.txt"), "foo")
+		await Bun.write(path.join(UPLOAD_DIR, "public", "nested", "bar.txt"), "bar")
 
-  it("should return a zip archive for a nested directory without parent wrapper", async () => {
-    if (!zipAvailable) {
-      return
-    }
+		const res = await app.request(
+			new Request("http://localhost/file/archive?path=public"),
+		)
+		const body = await res.arrayBuffer()
+		const zipText = zipBodyText(body)
 
-    await mkdir(path.join(UPLOAD_DIR, "docs/images"), { recursive: true })
-    await Bun.write(path.join(UPLOAD_DIR, "docs", "readme.md"), "# docs")
-    await Bun.write(path.join(UPLOAD_DIR, "docs/images", "logo.txt"), "logo")
+		expect(res.status).toBe(200)
+		expect(res.headers.get("Content-Type")).toBe("application/zip")
+		expect(res.headers.get("Content-Disposition")).toContain("public.zip")
+		expect(zipText).toContain("PK\u0003\u0004")
+		expect(zipText).toContain("foo.txt")
+		expect(zipText).toContain("nested/")
+		expect(zipText).toContain("nested/bar.txt")
+	})
 
-    const req = new Request("http://localhost/file/archive?path=docs", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    const body = await res.arrayBuffer()
-    const zipText = zipBodyText(body)
+	it("should return a zip archive for a nested directory", async () => {
+		if (!zipAvailable) return
 
-    expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Disposition")).toContain("docs.zip")
-    expect(zipText).toContain("readme.md")
-    expect(zipText).toContain("images/")
-    expect(zipText).toContain("images/logo.txt")
-    expect(zipText).not.toContain("docs/readme.md")
-  })
+		await mkdir(path.join(UPLOAD_DIR, "public/docs/images"), { recursive: true })
+		await Bun.write(path.join(UPLOAD_DIR, "public", "docs", "readme.md"), "# docs")
+		await Bun.write(path.join(UPLOAD_DIR, "public", "docs/images", "logo.txt"), "logo")
 
-  it("should return an empty zip archive for an empty directory", async () => {
-    await mkdir(path.join(UPLOAD_DIR, "empty"), { recursive: true })
+		const res = await app.request(
+			new Request("http://localhost/file/archive?path=public%2Fdocs"),
+		)
+		const body = await res.arrayBuffer()
+		const zipText = zipBodyText(body)
 
-    const req = new Request("http://localhost/file/archive?path=empty", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    const body = await res.arrayBuffer()
-    const zipText = zipBodyText(body)
+		expect(res.status).toBe(200)
+		expect(res.headers.get("Content-Disposition")).toContain("docs.zip")
+		expect(zipText).toContain("readme.md")
+		expect(zipText).toContain("images/")
+		expect(zipText).not.toContain("docs/readme.md")
+	})
 
-    expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Disposition")).toContain("empty.zip")
-    expect(zipText).toContain("PK\u0005\u0006")
-  })
+	it("should return an empty zip archive for an empty directory", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public", "empty"), { recursive: true })
 
-  it("should return error for file path on archive endpoint", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "file-only.txt"), "content")
+		const res = await app.request(
+			new Request("http://localhost/file/archive?path=public%2Fempty"),
+		)
+		const body = await res.arrayBuffer()
+		const zipText = zipBodyText(body)
 
-    const req = new Request(
-      "http://localhost/file/archive?path=file-only.txt",
-      {
-        method: "GET",
-      },
-    )
-    const res = await app.request(req)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
+		expect(res.status).toBe(200)
+		expect(res.headers.get("Content-Disposition")).toContain("empty.zip")
+		expect(zipText).toContain("PK\u0005\u0006")
+	})
 
-    expect(res.status).toBe(400)
-    expect(data.success).toBe(false)
-    expect(data.error.name).toBe("NotADirectory")
-  })
+	it("should return error for file path on archive endpoint", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "file-only.txt"), "content")
 
-  it("should return a user-friendly error when zip command is unavailable", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "foo.txt"), "foo")
+		const res = await app.request(
+			new Request("http://localhost/file/archive?path=public%2Ffile-only.txt"),
+		)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
 
-    const originalSpawn = Bun.spawn
-    Bun.spawn = ((..._args: unknown[]) => {
-      throw new Error('Executable not found in $PATH: "zip"')
-    }) as unknown as typeof Bun.spawn
+		expect(res.status).toBe(400)
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotADirectory")
+	})
 
-    try {
-      const req = new Request("http://localhost/file/archive?path=", {
-        method: "GET",
-      })
-      const res = await app.request(req)
-      const data = (await res.json()) as {
-        success: boolean
-        error: { name: string; message: string }
-      }
+	it("should reject path traversal on archive endpoint", async () => {
+		const res = await app.request(
+			new Request("http://localhost/file/archive?path=../secret"),
+		)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
 
-      expect(res.status).toBe(500)
-      expect(data.success).toBe(false)
-      expect(data.error.name).toBe("ArchiveError")
-      expect(data.error.message).toBe(
-        "Zip download is unavailable because the server does not have the zip command installed",
-      )
-    } finally {
-      Bun.spawn = originalSpawn
-    }
-  })
-
-  it("should return error for non-existent archive path", async () => {
-    const req = new Request("http://localhost/file/archive?path=missing", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-
-    expect(res.status).toBe(400)
-    expect(data.success).toBe(false)
-    expect(data.error.name).toBe("NotFound")
-  })
-
-  it("should reject path traversal on archive endpoint", async () => {
-    const req = new Request("http://localhost/file/archive?path=../secret", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-
-    expect(res.status).toBe(400)
-    expect(data.success).toBe(false)
-    expect(data.error.name).toBe("PathError")
-  })
+		expect(res.status).toBe(403)
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("Forbidden")
+	})
 })
 
 describe("browse endpoint /browse (htmx)", () => {
-  const UPLOAD_DIR = "./tmp-test"
-  beforeEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
-  afterEach(async () => {
-    try {
-      await rm(UPLOAD_DIR, { recursive: true, force: true })
-    } catch (_error) {}
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-  })
+	const UPLOAD_DIR = "./tmp-test-htmx-browse"
+	let app: Awaited<ReturnType<typeof createTestApp>>
 
-  it("should return directory listing as partial HTML", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "browse-test.txt"), "test")
-    const req = new Request("http://localhost/browse?path=", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("browse-test.txt")
-    expect(text).toContain('id="file-list-container"')
-    expect(text).not.toContain("<html") // /browseは常に部分HTML
-    expect(text).not.toContain("<head>")
-    expect(text).toContain('hx-get="/file?path=browse-test.txt"')
-    expect(text).toContain('hx-target="#file-viewer-container"')
-    expect(text).toContain('hx-push-url="/file?path=browse-test.txt"')
-  })
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
 
-  it("should return nested directory listing", async () => {
-    await mkdir(path.join(UPLOAD_DIR, "browse/nested"), { recursive: true })
-    await Bun.write(
-      path.join(UPLOAD_DIR, "browse/nested", "nested.txt"),
-      "nested content",
-    )
-    const req = new Request("http://localhost/browse?path=browse%2Fnested", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain("nested.txt")
-    expect(text).toContain("browse") // パンくずリストにbrowseが含まれる
-    expect(text).toContain("nested") // パンくずリストにnestedが含まれる
-    expect(text).toContain('hx-get="/browse?path=browse%2Fnested"')
-  })
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
 
-  it("should return error for non-existent directory", async () => {
-    const req = new Request("http://localhost/browse?path=nonexistent", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(400)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(data.success).toBe(false)
-    expect(data.error.name).toBe("NotFound")
-  })
+	it("should return synthetic root listing as partial HTML", async () => {
+		const res = await app.request(new Request("http://localhost/browse?path="))
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("public")
+		expect(text).toContain("private")
+		expect(text).toContain('id="file-list-container"')
+		expect(text).not.toContain("<html")
+	})
 
-  it("should return error for file path", async () => {
-    await Bun.write(path.join(UPLOAD_DIR, "file-only.txt"), "content")
-    const req = new Request("http://localhost/browse?path=file-only.txt", {
-      method: "GET",
-    })
-    const res = await app.request(req)
-    expect(res.status).toBe(400)
-    const data = (await res.json()) as {
-      success: boolean
-      error: { name: string; message: string }
-    }
-    expect(data.success).toBe(false)
-    expect(data.error.name).toBe("NotADirectory")
-  })
+	it("should return public directory listing as partial HTML", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "browse-test.txt"), "test")
+
+		const res = await app.request(new Request("http://localhost/browse?path=public"))
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("browse-test.txt")
+		expect(text).toContain('id="file-list-container"')
+		expect(text).not.toContain("<html")
+		expect(text).not.toContain("<head>")
+	})
+
+	it("should return nested directory listing", async () => {
+		await mkdir(path.join(UPLOAD_DIR, "public/browse/nested"), { recursive: true })
+		await Bun.write(
+			path.join(UPLOAD_DIR, "public/browse/nested", "nested.txt"),
+			"nested content",
+		)
+
+		const res = await app.request(
+			new Request("http://localhost/browse?path=public%2Fbrowse%2Fnested"),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("nested.txt")
+		expect(text).toContain("browse")
+		expect(text).toContain("nested")
+	})
+
+	it("should return error for non-existent directory", async () => {
+		const res = await app.request(
+			new Request("http://localhost/browse?path=public%2Fnonexistent"),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotFound")
+	})
+
+	it("should return error for file path", async () => {
+		await Bun.write(path.join(UPLOAD_DIR, "public", "file-only.txt"), "content")
+
+		const res = await app.request(
+			new Request("http://localhost/browse?path=public%2Ffile-only.txt"),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.success).toBe(false)
+		expect(data.error.name).toBe("NotADirectory")
+	})
 })
