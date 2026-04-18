@@ -567,6 +567,15 @@ describe("auth", () => {
 		expect(Bun.file(outsidePath).exists()).resolves.toBe(false)
 	})
 
+	it("fails to start if users file contains broken JSON", async () => {
+		const usersFile = getUsersFilePath(UPLOAD_DIR)
+		await writeFile(usersFile, "{ broken json", "utf-8")
+
+		await expect(
+			createTestApp({ uploadDir: UPLOAD_DIR, sessionSecret: SESSION_SECRET }),
+		).rejects.toThrow()
+	})
+
 	it("bootstraps admin when users file is empty (0 bytes)", async () => {
 		const usersFile = getUsersFilePath(UPLOAD_DIR)
 		await mkdir(path.dirname(usersFile), { recursive: true })
