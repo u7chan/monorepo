@@ -1,54 +1,40 @@
+import type { BrowseCrumb } from "./types"
+
 interface BreadcrumbsProps {
-  requestPath: string
+  breadcrumbs: BrowseCrumb[]
 }
 
-function buildBreadcrumbs(requestPath: string) {
-  const parts = requestPath.split("/").filter(Boolean)
-  const crumbs = []
-  let acc = ""
+function buildBrowseHref(path: string): string {
+  return path ? `/?path=${encodeURIComponent(path)}` : "/"
+}
 
-  crumbs.push(
-    <span key="root">
-      <a
-        href="/"
-        hx-get="/browse?path="
-        hx-target="#file-list-container"
-        hx-push-url="/?path="
-        className="text-indigo-600 font-semibold no-underline hover:text-purple-600 transition-colors mx-1"
-      >
-        root
-      </a>
-      {parts.length > 0 ? " / " : ""}
-    </span>,
-  )
+function buildBreadcrumbs(breadcrumbs: BrowseCrumb[]) {
+  return breadcrumbs.map((crumb, idx) => {
+    const isLast = idx === breadcrumbs.length - 1
+    const href = buildBrowseHref(crumb.path)
+    const hxGet = `/browse?path=${encodeURIComponent(crumb.path)}`
 
-  parts.forEach((part, idx) => {
-    acc += (acc ? "/" : "") + part
-    const isLast = idx === parts.length - 1
-    const encodedAcc = encodeURIComponent(acc)
-    crumbs.push(
-      <span key={acc}>
+    return (
+      <span key={`${crumb.label}:${crumb.path}`}>
         <a
-          href={`/?path=${encodedAcc}`}
-          hx-get={`/browse?path=${encodedAcc}`}
+          href={href}
+          hx-get={hxGet}
           hx-target="#file-list-container"
-          hx-push-url={`/?path=${encodedAcc}`}
+          hx-push-url={href}
           className="text-indigo-600 font-semibold no-underline hover:text-purple-600 transition-colors mx-1"
         >
-          {part}
+          {crumb.label}
         </a>
         {!isLast ? " / " : ""}
-      </span>,
+      </span>
     )
   })
-
-  return crumbs
 }
 
-export function Breadcrumbs({ requestPath }: BreadcrumbsProps) {
+export function Breadcrumbs({ breadcrumbs }: BreadcrumbsProps) {
   return (
     <nav className="mb-4 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">
-      {buildBreadcrumbs(requestPath)}
+      {buildBreadcrumbs(breadcrumbs)}
     </nav>
   )
 }

@@ -1,33 +1,25 @@
 import type { FC } from "hono/jsx"
-import { sortFiles } from "../utils/fileUtils"
 import { ActionBar } from "./file-list/ActionBar"
 import { Breadcrumbs } from "./file-list/Breadcrumbs"
 import { CreateEntryForms } from "./file-list/CreateEntryForms"
 import { DropUploadForm } from "./file-list/DropUploadForm"
 import { FileEntries } from "./file-list/FileEntries"
-import type { FileItem } from "./file-list/types"
+import type { BrowseViewModel } from "./file-list/types"
 
 interface FileListProps {
-  files: FileItem[]
-  requestPath: string
+  view: BrowseViewModel
 }
 
 export type { FileItem } from "./file-list/types"
 
-export const FileList: FC<FileListProps> = ({ files, requestPath }) => {
-  const sortedFiles = sortFiles(files)
-  const folderPath = requestPath
-    ? requestPath + (requestPath.endsWith("/") ? "" : "/")
-    : ""
-  const archiveHref = `/file/archive?path=${encodeURIComponent(requestPath)}`
-
+export const FileList: FC<FileListProps> = ({ view }) => {
   return (
     <div id="file-list-container">
-      <Breadcrumbs requestPath={requestPath} />
-      <ActionBar archiveHref={archiveHref} />
-      <CreateEntryForms folderPath={folderPath} />
-      <DropUploadForm requestPath={requestPath} />
-      <FileEntries files={sortedFiles} requestPath={requestPath} />
+      <Breadcrumbs breadcrumbs={view.breadcrumbs} />
+      <ActionBar canCreate={view.canCreate} archivePath={view.archivePath} />
+      <CreateEntryForms folderPath={view.actionPath} />
+      <DropUploadForm requestPath={view.actionPath} />
+      <FileEntries files={view.entries} canUpload={view.canUpload} />
     </div>
   )
 }

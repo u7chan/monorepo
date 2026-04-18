@@ -2,10 +2,14 @@ import { primaryButtonClassName } from "../buttonStyles"
 import { FormErrorMessage } from "./FormErrorMessage"
 
 interface CreateEntryFormsProps {
-  folderPath: string
+  folderPath?: string
 }
 
 export function CreateEntryForms({ folderPath }: CreateEntryFormsProps) {
+  if (!folderPath) {
+    return null
+  }
+
   return (
     <>
       <form

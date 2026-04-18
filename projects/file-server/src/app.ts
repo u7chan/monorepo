@@ -11,34 +11,34 @@ import type { AppBindings } from "./types"
 import { DEFAULT_UPLOAD_DIR, validateAuthConfig } from "./utils/auth"
 
 export interface CreateAppOptions {
-	uploadDir?: string
-	usersFile?: string
-	sessionSecret?: string
+  uploadDir?: string
+  usersFile?: string
+  sessionSecret?: string
 }
 
 export async function createApp(
-	options: CreateAppOptions = {},
+  options: CreateAppOptions = {},
 ): Promise<Hono<AppBindings>> {
-	const uploadDir =
-		options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
-	const usersFile = options.usersFile ?? process.env.USERS_FILE
-	const sessionSecret = options.sessionSecret ?? process.env.SESSION_SECRET
+  const uploadDir =
+    options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
+  const usersFile = options.usersFile ?? process.env.USERS_FILE
+  const sessionSecret = options.sessionSecret ?? process.env.SESSION_SECRET
 
-	validateAuthConfig(usersFile, sessionSecret)
+  validateAuthConfig(usersFile, sessionSecret)
 
-	await mkdir(path.join(uploadDir, "public"), { recursive: true })
-	await mkdir(path.join(uploadDir, "private"), { recursive: true })
+  await mkdir(path.join(uploadDir, "public"), { recursive: true })
+  await mkdir(path.join(uploadDir, "private"), { recursive: true })
 
-	const app = new Hono<AppBindings>()
+  const app = new Hono<AppBindings>()
 
-	app.use("*", authMiddleware)
-	app.use("*", requireAuthMiddleware)
+  app.use("*", authMiddleware)
+  app.use("*", requireAuthMiddleware)
 
-	app.route("/", authRoutes)
-	app.route("/public", publicRoutes)
-	app.route("/api", apiRoutes)
-	app.route("/", browseRoutes)
-	app.route("/file", fileRoutes)
+  app.route("/", authRoutes)
+  app.route("/public", publicRoutes)
+  app.route("/api", apiRoutes)
+  app.route("/", browseRoutes)
+  app.route("/file", fileRoutes)
 
-	return app
+  return app
 }

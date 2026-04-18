@@ -144,8 +144,8 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
             {user?.type === "authenticated" && (
               <p className="mb-4 text-sm text-gray-600">
                 {user.role === "admin"
-                  ? "Current / maps to the server upload root."
-                  : `Current / maps to your private directory (${user.username}/).`}
+                  ? "Current / shows the top-level public and private scopes."
+                  : "Current / is your home. Shared public files are shown as a shortcut."}
               </p>
             )}
             <div

@@ -120,6 +120,35 @@ export function getUserUploadDir(
   return baseDir
 }
 
+export function getUserHomeVirtualPath(userState: UserState): string | null {
+  if (userState.type !== "authenticated" || userState.role !== "user") {
+    return null
+  }
+
+  return `private/${userState.username}`
+}
+
+export function isUserHomeVirtualPath(
+  userState: UserState,
+  virtualPath: string,
+): boolean {
+  const homePath = getUserHomeVirtualPath(userState)
+  if (!homePath) {
+    return false
+  }
+
+  return (
+    virtualPath === "" || virtualPath === "private" || virtualPath === homePath
+  )
+}
+
+export function toBrowseLocation(
+  userState: UserState,
+  virtualPath: string,
+): string {
+  return isUserHomeVirtualPath(userState, virtualPath) ? "" : virtualPath
+}
+
 export function normalizeReturnTo(value: string | null | undefined): string {
   if (!value) {
     return "/"
