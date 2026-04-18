@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises"
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises"
+import path from "node:path"
 import type { UserConfig, UserRole } from "../types"
 import { isValidUsername } from "./auth"
 
@@ -10,33 +11,32 @@ let cachedPath: string | null = null
 
 function toValidatedUsers(input: unknown): UserConfig[] {
   if (!Array.isArray(input)) {
-    throw new Error("USERS_FILE must be an array of users.")
+    throw new Error("Users file must be an array of users.")
   }
 
   return input.map((item, index) => {
     if (typeof item !== "object" || item === null) {
-      throw new Error(`USERS_FILE entry at index ${index} must be an object.`)
+      throw new Error(`Users file entry at index ${index} must be an object.`)
     }
 
-    const username = (item as { username?: unknown }).username
-    const passwordHash = (item as { passwordHash?: unknown }).passwordHash
-    const role = (item as { role?: unknown }).role
+    const { username, passwordHash, role, sessionVersion } = item as Record<string, unknown>
 
     if (typeof username !== "string" || !isValidUsername(username)) {
-      throw new Error(
-        `USERS_FILE entry at index ${index} has invalid username.`,
-      )
+      throw new Error(`Users file entry at index ${index} has invalid username.`)
     }
     if (typeof passwordHash !== "string" || passwordHash.length === 0) {
-      throw new Error(
-        `USERS_FILE entry at index ${index} has invalid passwordHash.`,
-      )
+      throw new Error(`Users file entry at index ${index} has invalid passwordHash.`)
     }
     if (typeof role !== "string" || !USER_ROLES.has(role)) {
-      throw new Error(`USERS_FILE entry at index ${index} has invalid role.`)
+      throw new Error(`Users file entry at index ${index} has invalid role.`)
     }
 
-    return { username, passwordHash, role: role as UserRole }
+    return {
+      username,
+      passwordHash,
+      role: role as UserRole,
+      sessionVersion: typeof sessionVersion === "number" ? sessionVersion : 0,
+    }
   })
 }
 
@@ -68,6 +68,17 @@ export async function loadUsersFromFileWithCache(
   cachedMtimeMs = fileStat.mtimeMs
 
   return users
+}
+
+export async function saveUsersToFile(usersFile: string, users: UserConfig[]): Promise<void> {
+  const dir = path.dirname(usersFile)
+  await mkdir(dir, { recursive: true })
+  const tmpFile = `${usersFile}.tmp`
+  await writeFile(tmpFile, JSON.stringify(users, null, 2), "utf-8")
+  await rename(tmpFile, usersFile)
+  cachedUsers = null
+  cachedPath = null
+  cachedMtimeMs = null
 }
 
 export function resetUsersCacheForTests() {

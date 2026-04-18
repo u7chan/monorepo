@@ -130,6 +130,14 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
                   <span className="rounded-md bg-gray-100 px-2 py-1 font-medium text-gray-700">
                     {user.role}
                   </span>
+                  {user.role === "admin" && (
+                    <a
+                      href="/admin/users"
+                      className="rounded-md bg-indigo-50 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-100"
+                    >
+                      User Management
+                    </a>
+                  )}
                   <form action="/logout" method="post">
                     <button
                       type="submit"

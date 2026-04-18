@@ -12,13 +12,14 @@ export type UserConfig = {
   username: string
   passwordHash: string
   role: UserRole
+  sessionVersion: number
 }
 
 export type AppBindings = {
   Bindings: {
     UPLOAD_DIR: string
     SESSION_SECRET?: string
-    USERS_FILE?: string
+    INITIAL_ADMIN_PASSWORD?: string
   }
   Variables: {
     user: UserState

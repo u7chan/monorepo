@@ -153,24 +153,10 @@ describe("GET /public/*", () => {
   })
 
   it("is accessible without a session cookie when auth is enabled", async () => {
-    const USERS_FILE = path.join(UPLOAD_DIR, "users.json")
-    await writeFile(
-      USERS_FILE,
-      JSON.stringify([
-        {
-          username: "alice",
-          passwordHash: await Bun.password.hash("pw", {
-            algorithm: "bcrypt",
-            cost: 4,
-          }),
-          role: "user",
-        },
-      ]),
-    )
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
-      usersFile: USERS_FILE,
       sessionSecret: "0123456789abcdef0123456789abcdef",
+      initialAdminPassword: "test-admin-pass",
     })
 
     await writeFile(
