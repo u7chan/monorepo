@@ -400,6 +400,12 @@ adminRoutes.post("/users/:username/password", async (c) => {
 	const targetUsername = c.req.param("username")
 	const currentUser = c.get("user") as Extract<typeof c.var.user, { type: "authenticated" }>
 
+	if (targetUsername === MASTER_ADMIN_USERNAME) {
+		return c.redirect(
+			`/admin/users?error=${encodeURIComponent("Cannot reset master admin password via this endpoint. Use 'Change My Password'.")}`,
+		)
+	}
+
 	if (targetUsername === currentUser.username) {
 		return c.redirect(
 			`/admin/users?error=${encodeURIComponent("Use 'Change My Password' to change your own password.")}`,

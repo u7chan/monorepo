@@ -566,4 +566,41 @@ describe("auth", () => {
 		const outsidePath = path.join(UPLOAD_DIR, "outside.txt")
 		expect(Bun.file(outsidePath).exists()).resolves.toBe(false)
 	})
+
+	it("bootstraps admin when users file is empty (0 bytes)", async () => {
+		const usersFile = getUsersFilePath(UPLOAD_DIR)
+		await mkdir(path.dirname(usersFile), { recursive: true })
+		await writeFile(usersFile, "", "utf-8")
+
+		app = await createTestApp({
+			uploadDir: UPLOAD_DIR,
+			sessionSecret: SESSION_SECRET,
+			initialAdminPassword: "initial-admin-pass",
+		})
+
+		const res = await login("admin", "initial-admin-pass")
+		expect(res.status).toBe(302)
+	})
+
+	it("blocks master admin password reset via /admin/users/:username/password", async () => {
+		const adminSession = await createTestSession("admin", SESSION_SECRET)
+
+		const body = new URLSearchParams({ newPassword: "hacked" })
+		const res = await app.request(
+			new Request("http://localhost/admin/users/admin/password", {
+				method: "POST",
+				body,
+				headers: {
+					"content-type": "application/x-www-form-urlencoded",
+					cookie: adminSession.cookie,
+				},
+				redirect: "manual",
+			}),
+		)
+
+		expect(res.status).toBe(302)
+		const location = res.headers.get("location") ?? ""
+		expect(location).toContain("error")
+		expect(location).toContain("master%20admin")
+	})
 })

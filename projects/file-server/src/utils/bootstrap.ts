@@ -17,7 +17,13 @@ export async function bootstrapAdminUser(
 	}
 
 	if (fileExists) {
-		const users = await loadUsersFromFileWithCache(usersFile)
+		let users: Awaited<ReturnType<typeof loadUsersFromFileWithCache>>
+		try {
+			users = await loadUsersFromFileWithCache(usersFile)
+		} catch {
+			// Empty or unparseable file — treat as absent and bootstrap
+			users = []
+		}
 
 		if (users.length > 0) {
 			const admin = users.find((u) => u.username === MASTER_ADMIN_USERNAME)
