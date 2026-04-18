@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises"
 import * as path from "node:path"
 import { Hono } from "hono"
 import { authMiddleware, requireAuthMiddleware } from "./middleware/auth"
+import adminRoutes from "./routes/admin"
 import apiRoutes from "./routes/api"
 import authRoutes from "./routes/auth"
 import browseRoutes from "./routes/browse"
@@ -9,36 +10,43 @@ import fileRoutes from "./routes/file"
 import publicRoutes from "./routes/public"
 import type { AppBindings } from "./types"
 import { DEFAULT_UPLOAD_DIR, validateAuthConfig } from "./utils/auth"
+import { bootstrapAdminUser } from "./utils/bootstrap"
 
 export interface CreateAppOptions {
-  uploadDir?: string
-  usersFile?: string
-  sessionSecret?: string
+	uploadDir?: string
+	sessionSecret?: string
+	initialAdminPassword?: string
 }
 
 export async function createApp(
-  options: CreateAppOptions = {},
+	options: CreateAppOptions = {},
 ): Promise<Hono<AppBindings>> {
-  const uploadDir =
-    options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
-  const usersFile = options.usersFile ?? process.env.USERS_FILE
-  const sessionSecret = options.sessionSecret ?? process.env.SESSION_SECRET
+	const uploadDir =
+		options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
+	const sessionSecret = options.sessionSecret ?? process.env.SESSION_SECRET
+	const initialAdminPassword =
+		options.initialAdminPassword ?? process.env.INITIAL_ADMIN_PASSWORD
 
-  validateAuthConfig(usersFile, sessionSecret)
+	validateAuthConfig(sessionSecret)
 
-  await mkdir(path.join(uploadDir, "public"), { recursive: true })
-  await mkdir(path.join(uploadDir, "private"), { recursive: true })
+	await mkdir(path.join(uploadDir, "public"), { recursive: true })
+	await mkdir(path.join(uploadDir, "private"), { recursive: true })
 
-  const app = new Hono<AppBindings>()
+	if (sessionSecret) {
+		await bootstrapAdminUser(uploadDir, initialAdminPassword)
+	}
 
-  app.use("*", authMiddleware)
-  app.use("*", requireAuthMiddleware)
+	const app = new Hono<AppBindings>()
 
-  app.route("/", authRoutes)
-  app.route("/public", publicRoutes)
-  app.route("/api", apiRoutes)
-  app.route("/", browseRoutes)
-  app.route("/file", fileRoutes)
+	app.use("*", authMiddleware)
+	app.use("*", requireAuthMiddleware)
 
-  return app
+	app.route("/", authRoutes)
+	app.route("/public", publicRoutes)
+	app.route("/api", apiRoutes)
+	app.route("/admin", adminRoutes)
+	app.route("/", browseRoutes)
+	app.route("/file", fileRoutes)
+
+	return app
 }

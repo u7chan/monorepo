@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { getUsersFilePath } from "../src/utils/auth"
+import { resetUsersCacheForTests } from "../src/utils/userConfigCache"
 import { createTestSession } from "./helpers/auth"
 import { createTestApp } from "./helpers/createTestApp"
 
 const UPLOAD_DIR = "./tmp-test-rename"
-const USERS_FILE = path.join(UPLOAD_DIR, "users.json")
 const SESSION_SECRET = "0123456789abcdef0123456789abcdef"
 let app: Awaited<ReturnType<typeof createTestApp>>
 
 type PlainUser = { username: string; password: string; role?: "admin" | "user" }
 
 async function writeUsers(users: PlainUser[]) {
+  const usersFile = getUsersFilePath(UPLOAD_DIR)
   const userConfigs = await Promise.all(
     users.map(async (u) => ({
       username: u.username,
@@ -20,9 +22,12 @@ async function writeUsers(users: PlainUser[]) {
         cost: 4,
       }),
       role: u.role ?? "user",
+      sessionVersion: 0,
     })),
   )
-  await writeFile(USERS_FILE, JSON.stringify(userConfigs), "utf-8")
+  await mkdir(path.dirname(usersFile), { recursive: true })
+  await writeFile(usersFile, JSON.stringify(userConfigs), "utf-8")
+  resetUsersCacheForTests()
 }
 
 beforeEach(async () => {
@@ -301,7 +306,6 @@ describe("POST /api/rename", () => {
   it("prevents authenticated users from renaming outside their scope (path traversal)", async () => {
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
-      usersFile: USERS_FILE,
       sessionSecret: SESSION_SECRET,
     })
     await writeUsers([{ username: "alice", password: "password1" }])
@@ -330,7 +334,6 @@ describe("POST /api/rename", () => {
   it("allows admins to rename items in private area", async () => {
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
-      usersFile: USERS_FILE,
       sessionSecret: SESSION_SECRET,
     })
     await writeUsers([

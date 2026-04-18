@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Web-based file server built with Bun + Hono + HTMX.
-Current features include empty file creation, per-directory Zip download via `/file/archive`, and unauthenticated public file serving via `GET /public/*`.
+Current features include empty file creation, per-directory Zip download via `/file/archive`, unauthenticated public file serving via `GET /public/*`, and GUI-based user management via `/admin/users`.
 
 ## Commands
 
@@ -9,7 +9,7 @@ Current features include empty file creation, per-directory Zip download via `/f
 - `bun run dev` - Start dev server
 - `bun run lint` - TypeScript check + Biome format
 - `bun test` - Run tests
-- `bun run hash-password 'password'` - Generate bcrypt hash for USERS_FILE
+- `bun run hash-password 'password'` - Generate bcrypt hash (for manual recovery/testing)
 
 ## Code Style
 
@@ -23,7 +23,7 @@ Current features include empty file creation, per-directory Zip download via `/f
 - `src/index.tsx` - Entry point (re-exports `createApp()`)
 - `src/app.ts` - `createApp()` factory (initializes dirs, wires middleware + routes)
 - `src/middleware/auth.ts` - Auth middleware
-- `src/routes/` - Route definitions (api, auth, browse, file, public)
+- `src/routes/` - Route definitions (admin, api, auth, browse, file, public)
 - `src/api/handlers.tsx` - API handlers
 - `src/components/` - JSX components
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
@@ -33,8 +33,8 @@ Current features include empty file creation, per-directory Zip download via `/f
 ## Environment Variables
 
 - `UPLOAD_DIR` - File storage root directory (default: `./tmp`)
-- `USERS_FILE` - Path to users JSON file (enables authentication when set)
-- `SESSION_SECRET` - Session signing secret (required when `USERS_FILE` is set)
+- `SESSION_SECRET` - Session signing secret (32+ chars). Setting this enables authentication.
+- `INITIAL_ADMIN_PASSWORD` - Password for the `admin` user on first bootstrap. If unset, a random password is printed to stdout once at startup.
 - Use `.env.example` as a template and set values in `.env` for local development (`bun run` loads `.env` automatically)
 
 ## Directory Layout
@@ -50,6 +50,10 @@ UPLOAD_DIR/
 ```
 
 `createApp()` creates both directories at startup if they do not exist.
+
+When `SESSION_SECRET` is set, `createApp()` also creates `UPLOAD_DIR/.auth/users.json` with a bootstrapped `admin` user if the file is absent or empty. On subsequent startups the file is validated (must contain `admin` with `role: "admin"`).
+
+**Docker / Docker Compose**: mount `UPLOAD_DIR` as a persistent volume so `UPLOAD_DIR/.auth/users.json` survives container restarts.
 
 ## Virtual Path Resolution
 
@@ -71,13 +75,35 @@ All browse/API requests use a virtual path that maps to one of two scopes:
 - This route bypasses session authentication — it is always accessible.
 - Path traversal is detected and blocked at the handler level.
 
-## Authentication Roles
+## Authentication
 
-- `USERS_FILE` entries must include `role` with `"user"` or `"admin"`.
+Authentication is enabled when `SESSION_SECRET` is set. Users are stored in `UPLOAD_DIR/.auth/users.json`.
+
+### Roles
+
 - `user`: restricted to `UPLOAD_DIR/private/<username>/`. Cannot access other users' directories.
-- `admin`: full access to `UPLOAD_DIR` (all scopes and users).
-- Session stores only `username`; role is reloaded from `USERS_FILE` on each request.
-- Reserved usernames `public` and `private` are rejected by `isValidUsername`.
+- `admin`: full access to `UPLOAD_DIR` (all scopes and users). Can manage users via `/admin/users`.
+
+### Master Admin
+
+- Username `admin` is the master admin: deletion-protected and role-change-protected.
+- Changing `admin`'s own password requires the current password.
+- `UPLOAD_DIR/.auth/users.json` must always contain `admin` with `role: "admin"` when non-empty; otherwise startup fails.
+
+### Session Versioning
+
+Users have a `sessionVersion` counter stored in `users.json`. It is embedded in the session cookie. On password change, role change, or role update the counter increments, invalidating all previous sessions for that user.
+
+### User Management GUI
+
+`GET /admin/users` — accessible to admin-role users only. Provides:
+- Create user (username, password, role)
+- Change role (non-master-admin users)
+- Reset password (other users)
+- Delete user (non-master-admin users)
+- Change own password (requires current password; re-issues session cookie)
+
+Reserved usernames `public` and `private` are rejected by `isValidUsername`.
 
 ## Migration Guide (from pre-Issue-#806)
 
