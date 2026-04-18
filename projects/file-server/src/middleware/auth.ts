@@ -1,11 +1,11 @@
 import { mkdir } from "node:fs/promises"
+import * as path from "node:path"
 import type { Context, Next } from "hono"
 import { env } from "hono/adapter"
 import { getCookie } from "hono/cookie"
 import type { AppBindings } from "../types"
 import {
   DEFAULT_UPLOAD_DIR,
-  getUserUploadDir,
   loadUsersConfig,
   normalizeReturnTo,
   SESSION_COOKIE_NAME,
@@ -21,7 +21,12 @@ function getRequestPathWithQuery(c: Context<AppBindings>): string {
 }
 
 function isPublicPath(pathname: string): boolean {
-  return pathname === "/login" || pathname === "/logout"
+  return (
+    pathname === "/login" ||
+    pathname === "/logout" ||
+    pathname.startsWith("/public/") ||
+    pathname === "/public"
+  )
 }
 
 export async function authMiddleware(c: Context<AppBindings>, next: Next) {
@@ -43,7 +48,6 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
   }
 
   if (!USERS_FILE) {
-    await mkdir(uploadBaseDir, { recursive: true })
     return next()
   }
   if (!SESSION_SECRET) {
@@ -89,9 +93,13 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
     role: user.role,
   }
   c.set("user", authenticated)
-  await mkdir(getUserUploadDir(uploadBaseDir, authenticated), {
-    recursive: true,
-  })
+
+  if (authenticated.role === "user") {
+    await mkdir(path.join(uploadBaseDir, "private", authenticated.username), {
+      recursive: true,
+    })
+  }
+
   return next()
 }
 

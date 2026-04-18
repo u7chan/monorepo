@@ -1,10 +1,14 @@
 import { fileInputChangeScript } from "./clientActions"
 
 interface DropUploadFormProps {
-  requestPath: string
+  requestPath?: string
 }
 
 export function DropUploadForm({ requestPath }: DropUploadFormProps) {
+  if (!requestPath) {
+    return null
+  }
+
   return (
     <>
       <form

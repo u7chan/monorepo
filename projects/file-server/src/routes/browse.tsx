@@ -1,80 +1,54 @@
-import * as path from "node:path"
 import { Hono } from "hono"
 import { FileList } from "../components/FileList"
 import type { AppBindings } from "../types"
-import { ensureUploadDirExists, getFileList } from "../utils/fileListing"
+import { resolveBrowseView } from "../utils/browseContext"
 import {
-  ensureValidPath,
   errorResponse,
   getRequestPath,
   getUploadDir,
   renderWithShell,
-  statOrNotFound,
 } from "../utils/requestUtils"
 
 const browseRoutes = new Hono<AppBindings>()
 
-// ルート: フルHTMLシェルまたは部分HTMLを返す
 browseRoutes.get("/", async (c) => {
-  const uploadDir = getUploadDir(c)
+  const baseDir = getUploadDir(c)
   const requestPath = getRequestPath(c)
+  const user = c.get("user") ?? { type: "anonymous" as const }
 
-  const invalidResponse = ensureValidPath(c, requestPath)
-  if (invalidResponse) {
-    return invalidResponse
+  const resolved = await resolveBrowseView(baseDir, user, requestPath)
+
+  if (resolved.kind === "forbidden") {
+    return errorResponse(c, "Forbidden", "Access denied", 403)
   }
-
-  await ensureUploadDirExists(uploadDir)
-  const resolvedDir = path.join(uploadDir, requestPath)
-  const statOrResponse = await statOrNotFound(
-    c,
-    resolvedDir,
-    "NotFound",
-    "File or directory does not exist",
-  )
-  if (statOrResponse instanceof Response) {
-    return statOrResponse
+  if (resolved.kind === "notFound") {
+    return errorResponse(c, "NotFound", "File or directory does not exist", 400)
   }
-
-  if (statOrResponse.isFile()) {
+  if (resolved.kind === "file") {
     return c.redirect(`/file?path=${encodeURIComponent(requestPath)}`)
   }
 
-  const files = await getFileList(uploadDir, requestPath)
-  return renderWithShell(
-    c,
-    <FileList files={files} requestPath={requestPath} />,
-  )
+  return renderWithShell(c, <FileList view={resolved.view} />)
 })
 
-// /browse: 一覧部分HTML（htmx用）
 browseRoutes.get("/browse", async (c) => {
-  const uploadDir = getUploadDir(c)
+  const baseDir = getUploadDir(c)
   const requestPath = getRequestPath(c)
+  const user = c.get("user") ?? { type: "anonymous" as const }
 
-  const invalidResponse = ensureValidPath(c, requestPath)
-  if (invalidResponse) {
-    return invalidResponse
+  const resolved = await resolveBrowseView(baseDir, user, requestPath)
+
+  if (resolved.kind === "forbidden") {
+    return errorResponse(c, "Forbidden", "Access denied", 403)
   }
-
-  await ensureUploadDirExists(uploadDir)
-  const resolvedDir = path.join(uploadDir, requestPath)
-  const statOrResponse = await statOrNotFound(
-    c,
-    resolvedDir,
-    "NotFound",
-    "Directory does not exist",
-  )
-  if (statOrResponse instanceof Response) {
-    return statOrResponse
+  if (resolved.kind === "notFound") {
+    return errorResponse(c, "NotFound", "Directory does not exist", 400)
   }
-
-  if (!statOrResponse.isDirectory()) {
+  if (resolved.kind === "file") {
     return errorResponse(c, "NotADirectory", "Not a directory", 400)
   }
 
-  const files = await getFileList(uploadDir, requestPath)
-  return c.html(<FileList files={files} requestPath={requestPath} />)
+  return c.html(<FileList view={resolved.view} />)
 })
 
 export default browseRoutes

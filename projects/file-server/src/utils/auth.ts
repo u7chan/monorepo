@@ -4,6 +4,7 @@ import type { UserConfig, UserState } from "../types"
 import { loadUsersFromFileWithCache } from "./userConfigCache"
 
 const USERNAME_PATTERN = /^[a-z0-9_-]+$/
+const RESERVED_USERNAMES = new Set(["public", "private"])
 export const SESSION_COOKIE_NAME = "session"
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 export const DEFAULT_UPLOAD_DIR = "./tmp"
@@ -45,7 +46,7 @@ export function findUser(
 }
 
 export function isValidUsername(username: string): boolean {
-  return USERNAME_PATTERN.test(username)
+  return USERNAME_PATTERN.test(username) && !RESERVED_USERNAMES.has(username)
 }
 
 export async function verifyPassword(
@@ -113,15 +114,39 @@ export function getUserUploadDir(
   baseDir: string,
   userState: UserState,
 ): string {
-  if (userState.type === "anonymous") {
-    return baseDir
+  if (userState.type === "authenticated" && userState.role === "user") {
+    return path.join(baseDir, "private", userState.username)
+  }
+  return baseDir
+}
+
+export function getUserHomeVirtualPath(userState: UserState): string | null {
+  if (userState.type !== "authenticated" || userState.role !== "user") {
+    return null
   }
 
-  if (userState.role === "admin") {
-    return baseDir
+  return `private/${userState.username}`
+}
+
+export function isUserHomeVirtualPath(
+  userState: UserState,
+  virtualPath: string,
+): boolean {
+  const homePath = getUserHomeVirtualPath(userState)
+  if (!homePath) {
+    return false
   }
 
-  return path.join(baseDir, userState.username)
+  return (
+    virtualPath === "" || virtualPath === "private" || virtualPath === homePath
+  )
+}
+
+export function toBrowseLocation(
+  userState: UserState,
+  virtualPath: string,
+): string {
+  return isUserHomeVirtualPath(userState, virtualPath) ? "" : virtualPath
 }
 
 export function normalizeReturnTo(value: string | null | undefined): string {

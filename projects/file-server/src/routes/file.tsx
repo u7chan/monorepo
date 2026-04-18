@@ -3,7 +3,7 @@ import * as path from "node:path"
 import { Hono } from "hono"
 import { FileViewer } from "../components/file-viewer"
 import type { AppBindings } from "../types"
-import { ensureUploadDirExists } from "../utils/fileListing"
+import { toBrowseLocation } from "../utils/auth"
 import {
   archiveFileName,
   createDirectoryArchive,
@@ -23,14 +23,12 @@ import {
 
 const fileRoutes = new Hono<AppBindings>()
 
-// /: ファイル閲覧部分HTML（htmx用）
 fileRoutes.get("/", async (c) => {
   const resolved = await resolveRequestedFile(c, "File does not exist")
   if ("response" in resolved) {
     return resolved.response
   }
 
-  await ensureUploadDirExists(resolved.uploadDir)
   if (!resolved.stat.isFile()) {
     return notAFileResponse(c)
   }
@@ -39,11 +37,15 @@ fileRoutes.get("/", async (c) => {
   const forceTextView = c.req.query("view") === "text"
   const isHtmx = isHtmxRequest(c)
 
-  // htmxリクエストでない場合（リロード時）は親ディレクトリにリダイレクト
   if (!isHtmx) {
-    const parentDir = path.dirname(resolved.requestPath)
+    const parentDir = toBrowseLocation(
+      c.get("user") ?? { type: "anonymous" as const },
+      path.dirname(resolved.requestPath),
+    )
     const redirectPath =
-      parentDir === "." ? "/" : `/?path=${encodeURIComponent(parentDir)}`
+      parentDir === "." || parentDir === ""
+        ? "/"
+        : `/?path=${encodeURIComponent(parentDir)}`
     return c.redirect(redirectPath)
   }
 
@@ -90,14 +92,12 @@ fileRoutes.get("/", async (c) => {
   return new Response(toArrayBuffer(contentBuffer), { headers })
 })
 
-// /raw: バイナリファイルの生データ（画像/動画/PDF用）
 fileRoutes.get("/raw", async (c) => {
   const resolved = await resolveRequestedFile(c, "File does not exist")
   if ("response" in resolved) {
     return resolved.response
   }
 
-  await ensureUploadDirExists(resolved.uploadDir)
   if (!resolved.stat.isFile()) {
     return notAFileResponse(c)
   }
@@ -105,14 +105,12 @@ fileRoutes.get("/raw", async (c) => {
   return readBinaryFileResponse(resolved.resolvedPath, resolved.mimeType)
 })
 
-// /archive: ディレクトリ配下のZipダウンロード
 fileRoutes.get("/archive", async (c) => {
   const resolved = await resolveRequestedFile(c, "Directory does not exist")
   if ("response" in resolved) {
     return resolved.response
   }
 
-  await ensureUploadDirExists(resolved.uploadDir)
   if (!resolved.stat.isDirectory()) {
     return notADirectoryResponse(c)
   }

@@ -7,13 +7,7 @@ export async function ensureUploadDirExists(uploadDir: string): Promise<void> {
   await mkdir(uploadDir, { recursive: true })
 }
 
-export async function getFileList(
-  uploadDir: string,
-  requestPath: string,
-): Promise<FileItem[]> {
-  await ensureUploadDirExists(uploadDir)
-
-  const resolvedDir = path.join(uploadDir, requestPath)
+export async function getFileList(resolvedDir: string): Promise<FileItem[]> {
   const dirents = await readdir(resolvedDir, { withFileTypes: true })
   return sortFiles(
     await Promise.all(

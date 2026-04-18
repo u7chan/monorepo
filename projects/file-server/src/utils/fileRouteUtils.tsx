@@ -3,14 +3,8 @@ import * as path from "node:path"
 import type { Context } from "hono"
 import * as mime from "mime-types"
 import type { AppBindings } from "../types"
-import { ensureUploadDirExists } from "./fileListing"
-import {
-  ensureValidPath,
-  errorResponse,
-  getRequestPath,
-  getUploadDir,
-  statOrNotFound,
-} from "./requestUtils"
+import { errorResponse, getRequestPath, getUploadDir } from "./requestUtils"
+import { resolveVirtualPath } from "./virtualPath"
 
 const EMPTY_ZIP_ARCHIVE = new Uint8Array([
   0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -100,31 +94,42 @@ export async function resolveRequestedFile(
   c: Context<AppBindings>,
   notFoundMessage: string,
 ) {
-  const uploadDir = getUploadDir(c)
+  const baseDir = getUploadDir(c)
   const requestPath = getRequestPath(c)
-  const invalidResponse = ensureValidPath(c, requestPath)
-  if (invalidResponse) {
-    return { response: invalidResponse }
+  const user = c.get("user") ?? { type: "anonymous" as const }
+
+  const result = resolveVirtualPath(baseDir, user, requestPath)
+
+  if (result.kind === "forbidden") {
+    return { response: errorResponse(c, "Forbidden", "Access denied", 403) }
+  }
+  if (result.kind === "notFound" || result.kind === "synthetic") {
+    return { response: errorResponse(c, "NotFound", notFoundMessage, 400) }
   }
 
-  await ensureUploadDirExists(uploadDir)
-  const resolvedPath = path.join(uploadDir, requestPath)
-  const statOrResponse = await statOrNotFound(
-    c,
-    resolvedPath,
-    "NotFound",
-    notFoundMessage,
-  )
-  if (statOrResponse instanceof Response) {
-    return { response: statOrResponse }
-  }
+  const { resolvedPath } = result
 
-  return {
-    uploadDir,
-    requestPath,
-    resolvedPath,
-    stat: statOrResponse,
-    mimeType: mime.lookup(resolvedPath) || "application/octet-stream",
+  try {
+    const { stat: fsStat } = await import("node:fs/promises")
+    const statResult = await fsStat(resolvedPath)
+    const mimeType = mime.lookup(resolvedPath) || "application/octet-stream"
+    return {
+      baseDir,
+      requestPath,
+      resolvedPath,
+      stat: statResult,
+      mimeType,
+    }
+  } catch (err: unknown) {
+    const isEnoent =
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
+    if (isEnoent) {
+      return { response: errorResponse(c, "NotFound", notFoundMessage, 400) }
+    }
+    throw err
   }
 }
 

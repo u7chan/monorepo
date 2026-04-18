@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import app from "../src/index"
 import { validateAuthConfig } from "../src/utils/auth"
 import { isPathTraversal } from "../src/utils/pathTraversal"
-import { resetUsersCacheForTests } from "../src/utils/userConfigCache"
 import { createTestSession } from "./helpers/auth"
+import { createTestApp } from "./helpers/createTestApp"
 
 const UPLOAD_DIR = "./tmp-test-auth"
 const USERS_FILE = path.join(UPLOAD_DIR, "users.json")
@@ -17,6 +16,8 @@ type PlainUser = {
   password: string
   role?: "admin" | "user"
 }
+
+let app: Awaited<ReturnType<typeof createTestApp>>
 
 async function writeUsers(users: PlainUser[]) {
   const userConfigs = await Promise.all(
@@ -51,23 +52,19 @@ async function login(
 describe("auth", () => {
   beforeEach(async () => {
     await rm(UPLOAD_DIR, { recursive: true, force: true })
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    process.env.UPLOAD_DIR = UPLOAD_DIR
-    process.env.USERS_FILE = USERS_FILE
-    process.env.SESSION_SECRET = SESSION_SECRET
-    resetUsersCacheForTests()
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      usersFile: USERS_FILE,
+      sessionSecret: SESSION_SECRET,
+    })
   })
 
   afterEach(async () => {
     await rm(UPLOAD_DIR, { recursive: true, force: true })
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
-    resetUsersCacheForTests()
   })
 
   it("allows access when authentication is disabled", async () => {
-    delete process.env.USERS_FILE
-    delete process.env.SESSION_SECRET
+    app = await createTestApp({ uploadDir: UPLOAD_DIR })
 
     const res = await app.request(
       new Request("http://localhost/?path=", {
@@ -118,21 +115,24 @@ describe("auth", () => {
       { username: "bob", password: "password2" },
     ])
 
-    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
-    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
-    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
-    await writeFile(path.join(UPLOAD_DIR, "bob", "bob.txt"), "bob")
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "alice.txt"),
+      "alice",
+    )
+    await writeFile(path.join(UPLOAD_DIR, "private", "bob", "bob.txt"), "bob")
 
     const aliceSession = await createTestSession("alice", SESSION_SECRET)
     const bobSession = await createTestSession("bob", SESSION_SECRET)
 
     const aliceRes = await app.request(
-      new Request("http://localhost/api/", {
+      new Request("http://localhost/api/private/alice/", {
         headers: { cookie: aliceSession.cookie },
       }),
     )
     const bobRes = await app.request(
-      new Request("http://localhost/api/", {
+      new Request("http://localhost/api/private/bob/", {
         headers: { cookie: bobSession.cookie },
       }),
     )
@@ -146,10 +146,10 @@ describe("auth", () => {
 
     expect(aliceRes.status).toBe(200)
     expect(bobRes.status).toBe(200)
-    expect(aliceJson.files.map((file) => file.name)).toContain("alice.txt")
-    expect(aliceJson.files.map((file) => file.name)).not.toContain("bob.txt")
-    expect(bobJson.files.map((file) => file.name)).toContain("bob.txt")
-    expect(bobJson.files.map((file) => file.name)).not.toContain("alice.txt")
+    expect(aliceJson.files.map((f) => f.name)).toContain("alice.txt")
+    expect(aliceJson.files.map((f) => f.name)).not.toContain("bob.txt")
+    expect(bobJson.files.map((f) => f.name)).toContain("bob.txt")
+    expect(bobJson.files.map((f) => f.name)).not.toContain("alice.txt")
   })
 
   it("allows admin to browse the whole upload root", async () => {
@@ -159,14 +159,17 @@ describe("auth", () => {
       { username: "bob", password: "password3", role: "user" },
     ])
 
-    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
-    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
-    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
-    await writeFile(path.join(UPLOAD_DIR, "bob", "bob.txt"), "bob")
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "alice.txt"),
+      "alice",
+    )
+    await writeFile(path.join(UPLOAD_DIR, "private", "bob", "bob.txt"), "bob")
 
     const adminSession = await createTestSession("admin", SESSION_SECRET)
     const res = await app.request(
-      new Request("http://localhost/api/", {
+      new Request("http://localhost/api/private/", {
         headers: { cookie: adminSession.cookie },
       }),
     )
@@ -183,17 +186,96 @@ describe("auth", () => {
     )
   })
 
+  it("renders / as a home view for regular users", async () => {
+    await writeUsers([{ username: "alice", password: "password1" }])
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice", "docs"), {
+      recursive: true,
+    })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "notes.txt"),
+      "hello",
+    )
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request("http://localhost/?path=", {
+        headers: { cookie: session.cookie },
+      }),
+    )
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(text).toContain(">home</a>")
+    expect(text).toContain("Shared")
+    expect(text).toContain('hx-get="/browse?path=public"')
+    expect(text).toContain('hx-get="/browse?path=private%2Falice%2Fdocs"')
+    expect(text).toContain('name="path" value="private/alice"')
+    expect(text).toContain('href="/file/archive?path=private%2Falice"')
+    expect(text).toContain("notes.txt")
+  })
+
+  it("keeps the home view after htmx create operations for regular users", async () => {
+    await writeUsers([{ username: "alice", password: "password1" }])
+    const session = await createTestSession("alice", SESSION_SECRET)
+
+    const body = new URLSearchParams({
+      path: "private/alice",
+      file: "home.txt",
+    })
+    const res = await app.request(
+      new Request("http://localhost/api/file", {
+        method: "POST",
+        body,
+        headers: {
+          cookie: session.cookie,
+          "content-type": "application/x-www-form-urlencoded",
+          "HX-Request": "true",
+        },
+      }),
+    )
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(text).toContain(">home</a>")
+    expect(text).toContain("Shared")
+    expect(text).toContain("home.txt")
+    expect(text).toContain('name="path" value="private/alice"')
+  })
+
+  it("hides root action controls for admins", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2", role: "user" },
+    ])
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const res = await app.request(
+      new Request("http://localhost/?path=", {
+        headers: { cookie: session.cookie },
+      }),
+    )
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(text).toContain(">root</a>")
+    expect(text).toContain("public")
+    expect(text).toContain("private")
+    expect(text).not.toContain("New File")
+    expect(text).not.toContain("New Folder")
+    expect(text).not.toContain("Download Zip")
+  })
+
   it("allows admin to upload to another user's directory", async () => {
     await writeUsers([
       { username: "admin", password: "password1", role: "admin" },
       { username: "bob", password: "password2", role: "user" },
     ])
-    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
 
     const adminSession = await createTestSession("admin", SESSION_SECRET)
     const formData = new FormData()
     formData.append("files", new File(["hello"], "from-admin.txt"))
-    formData.append("path", "bob")
+    formData.append("path", "private/bob")
 
     const res = await app.request(
       new Request("http://localhost/api/upload", {
@@ -205,7 +287,9 @@ describe("auth", () => {
 
     expect(res.status).toBe(200)
     expect(
-      Bun.file(path.join(UPLOAD_DIR, "bob", "from-admin.txt")).text(),
+      Bun.file(
+        path.join(UPLOAD_DIR, "private", "bob", "from-admin.txt"),
+      ).text(),
     ).resolves.toBe("hello")
   })
 
@@ -219,13 +303,13 @@ describe("auth", () => {
       }),
     )
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(403)
     const body = (await res.json()) as {
       success: boolean
       error: { name: string; message: string }
     }
     expect(body.success).toBe(false)
-    expect(body.error.name).toBe("PathError")
+    expect(body.error.name).toBe("Forbidden")
   })
 
   it("isolates archive downloads by authenticated user directory", async () => {
@@ -238,14 +322,17 @@ describe("auth", () => {
       { username: "bob", password: "password2" },
     ])
 
-    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
-    await mkdir(path.join(UPLOAD_DIR, "bob"), { recursive: true })
-    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
-    await writeFile(path.join(UPLOAD_DIR, "bob", "bob.txt"), "bob")
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "alice.txt"),
+      "alice",
+    )
+    await writeFile(path.join(UPLOAD_DIR, "private", "bob", "bob.txt"), "bob")
 
     const aliceSession = await createTestSession("alice", SESSION_SECRET)
     const res = await app.request(
-      new Request("http://localhost/file/archive?path=", {
+      new Request("http://localhost/file/archive?path=private%2Falice", {
         headers: { cookie: aliceSession.cookie },
       }),
     )
@@ -261,7 +348,7 @@ describe("auth", () => {
     const session = await createTestSession("alice", SESSION_SECRET)
 
     const res = await app.request(
-      new Request("http://localhost/file/archive?path=../bob", {
+      new Request("http://localhost/file/archive?path=..%2Fbob", {
         headers: { cookie: session.cookie },
       }),
     )
@@ -270,9 +357,9 @@ describe("auth", () => {
       error: { name: string; message: string }
     }
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(403)
     expect(body.success).toBe(false)
-    expect(body.error.name).toBe("PathError")
+    expect(body.error.name).toBe("Forbidden")
   })
 
   it("allows admin to archive another user's directory", async () => {
@@ -284,12 +371,15 @@ describe("auth", () => {
       { username: "admin", password: "password1", role: "admin" },
       { username: "alice", password: "password2", role: "user" },
     ])
-    await mkdir(path.join(UPLOAD_DIR, "alice"), { recursive: true })
-    await writeFile(path.join(UPLOAD_DIR, "alice", "alice.txt"), "alice")
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "alice.txt"),
+      "alice",
+    )
 
     const adminSession = await createTestSession("admin", SESSION_SECRET)
     const res = await app.request(
-      new Request("http://localhost/file/archive?path=alice", {
+      new Request("http://localhost/file/archive?path=private%2Falice", {
         headers: { cookie: adminSession.cookie },
       }),
     )
@@ -315,9 +405,9 @@ describe("auth", () => {
       error: { name: string; message: string }
     }
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(403)
     expect(body.success).toBe(false)
-    expect(body.error.name).toBe("PathError")
+    expect(body.error.name).toBe("Forbidden")
   })
 
   it("clears the session cookie on logout", async () => {
@@ -410,17 +500,13 @@ describe("auth", () => {
     )
     const body = (await res.json()) as {
       success: boolean
-      failed: Array<{ reason: string }>
+      error: { name: string }
     }
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(403)
     expect(body.success).toBe(false)
-    expect(body.failed[0]?.reason).toBe("Invalid path")
+    expect(body.error.name).toBe("Forbidden")
     const outsidePath = path.join(UPLOAD_DIR, "outside.txt")
     expect(Bun.file(outsidePath).exists()).resolves.toBe(false)
-    const userFile = await readFile(path.join(UPLOAD_DIR, "alice"), {
-      encoding: "utf-8",
-    }).catch(() => "")
-    expect(userFile).toBe("")
   })
 })
