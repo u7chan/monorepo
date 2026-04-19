@@ -21,6 +21,7 @@ interface Props {
   initTrigger?: number
   settings: Settings
   currentConversation?: Conversation | null
+  canSaveGeneratedFile?: boolean
   onSubmitting?: (submitting: boolean) => void
   onConversationChange?: (conversation: Conversation) => Promise<void> | void
   onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
@@ -30,6 +31,7 @@ export function ChatMain({
   initTrigger,
   settings,
   currentConversation,
+  canSaveGeneratedFile,
   onSubmitting,
   onConversationChange,
   onDeleteMessages,
@@ -203,6 +205,10 @@ export function ChatMain({
 
   const handleSaveGeneratedFile = useCallback(
     async (messageIndex: number, params: SaveGeneratedFileRequest): Promise<GeneratedCodeFile | null> => {
+      if (!canSaveGeneratedFile) {
+        return null
+      }
+
       const target = messages[messageIndex]
       if (!target || target.role !== 'assistant' || !target.id || !conversationId) {
         return null
@@ -243,7 +249,7 @@ export function ChatMain({
       )
       return payload.file
     },
-    [conversationId, messages]
+    [canSaveGeneratedFile, conversationId, messages]
   )
 
   const handleClickDeleteMessage = useCallback(
@@ -337,6 +343,7 @@ export function ChatMain({
           <ChatMessageList
             messages={messages}
             conversationId={conversationId}
+            canSaveGeneratedFile={canSaveGeneratedFile}
             markdownPreview={settings.markdownPreview}
             loading={loading}
             stream={stream}

@@ -20,6 +20,7 @@ const markdownComponents = {
 interface ChatMessageListProps {
   messages: Message[]
   conversationId: string | null
+  canSaveGeneratedFile?: boolean
   markdownPreview: boolean
   loading: boolean
   stream: ChatStreamState | null
@@ -34,6 +35,7 @@ interface ChatMessageListProps {
 export function ChatMessageList({
   messages,
   conversationId,
+  canSaveGeneratedFile,
   markdownPreview,
   loading,
   stream,
@@ -50,6 +52,7 @@ export function ChatMessageList({
         <MessageHistory
           messages={messages}
           conversationId={conversationId}
+          canSaveGeneratedFile={canSaveGeneratedFile}
           markdownPreview={markdownPreview}
           copiedId={copiedId}
           disabled={loading || !!stream}
@@ -96,6 +99,7 @@ export function ChatMessageList({
 interface MessageHistoryProps {
   messages: Message[]
   conversationId: string | null
+  canSaveGeneratedFile?: boolean
   markdownPreview: boolean
   copiedId: string
   disabled: boolean
@@ -108,6 +112,7 @@ interface MessageHistoryProps {
 const MessageHistory = memo(function MessageHistory({
   messages,
   conversationId,
+  canSaveGeneratedFile,
   markdownPreview,
   copiedId,
   disabled,
@@ -122,6 +127,7 @@ const MessageHistory = memo(function MessageHistory({
       message={message}
       index={index}
       conversationId={conversationId}
+      canSaveGeneratedFile={canSaveGeneratedFile}
       markdownPreview={markdownPreview}
       copied={copiedId === `chat_${index}`}
       disabled={disabled}

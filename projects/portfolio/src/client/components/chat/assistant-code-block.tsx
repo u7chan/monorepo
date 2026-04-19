@@ -14,6 +14,7 @@ export interface AssistantCodeBlockContextValue {
   generatedFiles: GeneratedCodeFile[]
   cursor: { current: number }
   disabled?: boolean
+  canSaveGeneratedFile?: boolean
   onSave: (params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
@@ -82,16 +83,18 @@ function AssistantSavableCodeBlock({
 
   const existing = ctx.generatedFiles.find((f) => f.blockIndex === blockIndex)
   const supported = isSupportedLanguage(detectedLanguage)
+  const canShowActions = supported && (!!existing || ctx.canSaveGeneratedFile)
 
   return (
     <div>
       <CodeBlockRenderer className={className} {...rest}>
         {children}
       </CodeBlockRenderer>
-      {supported && (
+      {canShowActions && (
         <GeneratedFileActions
           existing={existing}
           disabled={ctx.disabled}
+          canSave={ctx.canSaveGeneratedFile}
           onSave={() =>
             ctx.onSave({
               blockIndex,
@@ -108,10 +111,11 @@ function AssistantSavableCodeBlock({
 interface GeneratedFileActionsProps {
   existing: GeneratedCodeFile | undefined
   disabled?: boolean
+  canSave?: boolean
   onSave: () => Promise<GeneratedCodeFile | null>
 }
 
-function GeneratedFileActions({ existing, disabled, onSave }: GeneratedFileActionsProps) {
+function GeneratedFileActions({ existing, disabled, canSave, onSave }: GeneratedFileActionsProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -129,6 +133,10 @@ function GeneratedFileActions({ existing, disabled, onSave }: GeneratedFileActio
         <span className='text-gray-400 dark:text-gray-500'>{existing.fileName}</span>
       </div>
     )
+  }
+
+  if (!canSave) {
+    return null
   }
 
   const handleClick = async () => {

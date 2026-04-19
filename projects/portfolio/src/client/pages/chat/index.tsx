@@ -30,6 +30,7 @@ export function Chat() {
   } = useChatPageState()
 
   const { email } = useMetaProps()
+  const isAuthenticated = !!email
 
   const query = useQuery({
     queryKey: ['conversations'],
@@ -149,6 +150,7 @@ export function Chat() {
       <ChatMain
         initTrigger={newChatTrigger}
         settings={settings}
+        canSaveGeneratedFile={isAuthenticated}
         onSubmitting={setSubmitting}
         currentConversation={currentConversation}
         onConversationChange={handleConversationChange}
