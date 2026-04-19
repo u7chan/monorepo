@@ -9,44 +9,51 @@ import browseRoutes from "./routes/browse"
 import fileRoutes from "./routes/file"
 import publicRoutes from "./routes/public"
 import type { AppBindings } from "./types"
-import { DEFAULT_UPLOAD_DIR, validateAuthConfig } from "./utils/auth"
+import {
+  DEFAULT_UPLOAD_DIR,
+  ensureSessionSecret,
+  resolveAuthConfig,
+} from "./utils/auth"
 import { bootstrapAdminUser } from "./utils/bootstrap"
 
 export interface CreateAppOptions {
-	uploadDir?: string
-	sessionSecret?: string
-	initialAdminPassword?: string
+  uploadDir?: string
+  authDir?: string
+  initialAdminPassword?: string
 }
 
 export async function createApp(
-	options: CreateAppOptions = {},
+  options: CreateAppOptions = {},
 ): Promise<Hono<AppBindings>> {
-	const uploadDir =
-		options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
-	const sessionSecret = options.sessionSecret ?? process.env.SESSION_SECRET
-	const initialAdminPassword =
-		options.initialAdminPassword ?? process.env.INITIAL_ADMIN_PASSWORD
+  const uploadDir =
+    options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
+  const authConfig = resolveAuthConfig({
+    AUTH_DIR: options.authDir ?? process.env.AUTH_DIR,
+    SESSION_SECRET: process.env.SESSION_SECRET,
+    USERS_FILE: process.env.USERS_FILE,
+  })
+  const initialAdminPassword =
+    options.initialAdminPassword ?? process.env.INITIAL_ADMIN_PASSWORD
 
-	validateAuthConfig(sessionSecret)
+  await mkdir(path.join(uploadDir, "public"), { recursive: true })
+  await mkdir(path.join(uploadDir, "private"), { recursive: true })
 
-	await mkdir(path.join(uploadDir, "public"), { recursive: true })
-	await mkdir(path.join(uploadDir, "private"), { recursive: true })
+  if (authConfig.authDir) {
+    await bootstrapAdminUser(authConfig.authDir, initialAdminPassword)
+    await ensureSessionSecret(authConfig.authDir)
+  }
 
-	if (sessionSecret) {
-		await bootstrapAdminUser(uploadDir, initialAdminPassword)
-	}
+  const app = new Hono<AppBindings>()
 
-	const app = new Hono<AppBindings>()
+  app.use("*", authMiddleware)
+  app.use("*", requireAuthMiddleware)
 
-	app.use("*", authMiddleware)
-	app.use("*", requireAuthMiddleware)
+  app.route("/", authRoutes)
+  app.route("/public", publicRoutes)
+  app.route("/api", apiRoutes)
+  app.route("/admin", adminRoutes)
+  app.route("/", browseRoutes)
+  app.route("/file", fileRoutes)
 
-	app.route("/", authRoutes)
-	app.route("/public", publicRoutes)
-	app.route("/api", apiRoutes)
-	app.route("/admin", adminRoutes)
-	app.route("/", browseRoutes)
-	app.route("/file", fileRoutes)
-
-	return app
+  return app
 }

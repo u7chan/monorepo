@@ -33,7 +33,7 @@ Current features include empty file creation, per-directory Zip download via `/f
 ## Environment Variables
 
 - `UPLOAD_DIR` - File storage root directory (default: `./tmp`)
-- `SESSION_SECRET` - Session signing secret (32+ chars). Setting this enables authentication.
+- `AUTH_DIR` - Authentication metadata directory. Setting this enables authentication and stores `users.json` plus `session-secret`.
 - `INITIAL_ADMIN_PASSWORD` - Password for the `admin` user on first bootstrap. If unset, a random password is printed to stdout once at startup.
 - Use `.env.example` as a template and set values in `.env` for local development (`bun run` loads `.env` automatically)
 
@@ -51,9 +51,9 @@ UPLOAD_DIR/
 
 `createApp()` creates both directories at startup if they do not exist.
 
-When `SESSION_SECRET` is set, `createApp()` also creates `UPLOAD_DIR/.auth/users.json` with a bootstrapped `admin` user if the file is absent or empty. On subsequent startups the file is validated (must contain `admin` with `role: "admin"`).
+When `AUTH_DIR` is set, `createApp()` also creates `AUTH_DIR/users.json` plus `AUTH_DIR/session-secret`. `users.json` is bootstrapped with an `admin` user if the file is absent or empty. On subsequent startups the file is validated (must contain `admin` with `role: "admin"`).
 
-**Docker / Docker Compose**: mount `UPLOAD_DIR` as a persistent volume so `UPLOAD_DIR/.auth/users.json` survives container restarts.
+**Docker / Docker Compose**: mount `AUTH_DIR` as a persistent volume so `users.json` and `session-secret` survive container restarts.
 
 ## Virtual Path Resolution
 
@@ -77,7 +77,7 @@ All browse/API requests use a virtual path that maps to one of two scopes:
 
 ## Authentication
 
-Authentication is enabled when `SESSION_SECRET` is set. Users are stored in `UPLOAD_DIR/.auth/users.json`.
+Authentication is enabled when `AUTH_DIR` is set. Users are stored in `AUTH_DIR/users.json`, and the session signing key is stored in `AUTH_DIR/session-secret`.
 
 ### Roles
 
@@ -88,7 +88,7 @@ Authentication is enabled when `SESSION_SECRET` is set. Users are stored in `UPL
 
 - Username `admin` is the master admin: deletion-protected and role-change-protected.
 - Changing `admin`'s own password requires the current password.
-- `UPLOAD_DIR/.auth/users.json` must always contain `admin` with `role: "admin"` when non-empty; otherwise startup fails.
+- `AUTH_DIR/users.json` must always contain `admin` with `role: "admin"` when non-empty; otherwise startup fails.
 
 ### Session Versioning
 

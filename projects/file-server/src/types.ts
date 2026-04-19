@@ -17,8 +17,8 @@ export type UserConfig = {
 
 export type AppBindings = {
   Bindings: {
+    AUTH_DIR?: string
     UPLOAD_DIR: string
-    SESSION_SECRET?: string
     INITIAL_ADMIN_PASSWORD?: string
   }
   Variables: {

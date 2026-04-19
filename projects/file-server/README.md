@@ -165,10 +165,21 @@ bun run hash-password 'your-password'
 | 変数 | 説明 | デフォルト |
 |------|------|-----------|
 | `UPLOAD_DIR` | ファイル保存ルートディレクトリ | `./tmp` |
-| `USERS_FILE` | ユーザー設定JSONファイルへのパス（設定時に認証有効） | 未設定 |
-| `SESSION_SECRET` | セッション署名シークレット（`USERS_FILE` 設定時は必須） | 未設定 |
+| `AUTH_DIR` | 認証メタデータ保存ディレクトリ。設定時に認証有効 | 未設定 |
+| `INITIAL_ADMIN_PASSWORD` | 初回 bootstrap 時の `admin` パスワード | 未設定 |
 
-### `USERS_FILE` 例
+`AUTH_DIR` を設定すると、初回起動時に次の2ファイルが自動作成される。
+
+```text
+AUTH_DIR/
+├── users.json
+└── session-secret
+```
+
+- `users.json`: ユーザー定義。存在しない、空、または空配列なら `admin` ユーザーを bootstrap する
+- `session-secret`: セッション署名鍵。再起動後も同じ値が再利用される
+
+### `users.json` 例
 
 ```json
 [
@@ -187,16 +198,29 @@ bun run hash-password 'your-password'
 
 `role` は必須で、`"user"` または `"admin"` のみ指定できる。不正な値は設定エラーとして扱われる。
 `public` と `private` はシステム予約語のため、ユーザー名に使用できない。
+`SESSION_SECRET` と `USERS_FILE` は廃止されており、設定すると起動エラーになる。
 
 ### 開発時にユーザー認証を有効化する手順
 
-1. パスワードハッシュを生成する。
+1. `.env` を作成して `AUTH_DIR` を設定する。
+
+```bash
+cp .env.example .env
+# .env を編集して AUTH_DIR と必要なら INITIAL_ADMIN_PASSWORD を設定
+```
+
+2. 開発サーバーを起動する。
+
+```bash
+bun run dev
+```
+
+3. 初回起動後、`AUTH_DIR/users.json` と `AUTH_DIR/session-secret` が作成される。
+4. 追加ユーザーを手で投入したい場合は、パスワードハッシュを生成して `AUTH_DIR/users.json` を編集する。
 
 ```bash
 bun run hash-password 'alice-password'
 ```
-
-2. プロジェクトルートに `users.dev.json` を作成し、ユーザーを設定する。
 
 ```json
 [
@@ -208,42 +232,28 @@ bun run hash-password 'alice-password'
 ]
 ```
 
-3. `.env` に環境変数を設定して開発サーバーを起動する。
-
-```bash
-cp .env.example .env
-# .env を編集して USERS_FILE と SESSION_SECRET を設定
-bun run dev
-```
-
 認証時のパスとスコープの対応:
 - `role: "user"`: `private/<username>/` のみアクセス可
 - `role: "admin"`: 全スコープにアクセス可
 
 `bun run` 実行時は Bun が `.env` を自動で読み込む。
 
-### 本番環境での `SESSION_SECRET` 運用
+### `AUTH_DIR` の永続化
 
-- `SESSION_SECRET` は 32 文字以上の十分に長いランダム値を使う（推奨: 64 バイト相当）。
-- ソースコードや Git にコミットしない。環境変数として注入する。
-- 複数インスタンス運用時は、同一サービスで同じ `SESSION_SECRET` を共有する。
-- 定期ローテーションを行う（切り替え時は既存セッション失効を想定）。
-
-生成例:
-
-```bash
-openssl rand -base64 48
-```
+- 認証を継続利用する場合、`AUTH_DIR` は永続化ストレージに置く
+- `users.json` を更新すると次回リクエストから再読込される
+- `session-secret` を失うか差し替えると既存セッションはすべて失効する
 
 Docker 例:
 
 ```bash
 docker run -p 3000:3000 \
-  -e SESSION_SECRET='generated-secret' \
-  -e USERS_FILE='/app/users.json' \
+  -e AUTH_DIR='/app/auth' \
   -e UPLOAD_DIR='/app/uploads' \
   file-server
 ```
+
+必要に応じて `/app/auth` と `/app/uploads` を volume mount する。
 
 ## 破壊的変更とマイグレーション
 
