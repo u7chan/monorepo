@@ -116,7 +116,7 @@ export async function saveGeneratedFile(
   }
 
   const fileName = `${params.messageId}-block-${params.blockIndex}.${extension.ext}`
-  const virtualDir = `public/portfolio/${params.conversationId}`
+  const virtualPath = `public/portfolio/${params.conversationId}/${fileName}`
   const publicPath = `/public/portfolio/${params.conversationId}/${fileName}`
 
   try {
@@ -125,7 +125,7 @@ export async function saveGeneratedFile(
       fileName,
       content: params.content,
       contentType: extension.contentType,
-      path: virtualDir,
+      path: virtualPath,
     })
   } catch (error) {
     logger.error({ err: error }, 'failed to upload generated file to file-server')

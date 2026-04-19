@@ -84,7 +84,7 @@ export async function loginToFileServer(config: FileServerConfig): Promise<strin
 
 /**
  * file-server に POST /api/upload する。
- * path は virtual path（例: public/portfolio/xxx）で、file は { fileName, content, contentType }。
+ * path は virtual path で、ディレクトリまたは保存先ファイルパスを指定する。
  */
 export async function uploadFileToFileServer(
   config: FileServerConfig,

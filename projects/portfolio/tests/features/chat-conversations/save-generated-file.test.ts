@@ -185,7 +185,7 @@ describe('saveGeneratedFile', () => {
       expect.objectContaining({
         fileName: 'm1-block-2.svg',
         contentType: 'image/svg+xml; charset=utf-8',
-        path: 'public/portfolio/c1',
+        path: 'public/portfolio/c1/m1-block-2.svg',
       })
     )
     expect(updateSets[0]).toMatchObject({
