@@ -314,3 +314,81 @@ describe("GET /file/download - with auth", () => {
 		expect(res.status).toBe(403)
 	})
 })
+
+describe("GET /file - viewer routing regression", () => {
+	const UPLOAD_DIR = "./tmp-test-file-viewer-regression"
+	let app: Awaited<ReturnType<typeof createTestApp>>
+
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+	})
+
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
+
+	it("should render SVG as source view (text viewer), not image viewer", async () => {
+		await Bun.write(
+			path.join(UPLOAD_DIR, "public", "chart.svg"),
+			'<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>',
+		)
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fchart.svg", {
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toMatch(/<pre[^>]*>/)
+		expect(text).not.toContain("<img")
+	})
+
+	it("should render HTML as source view (text viewer), not image viewer", async () => {
+		await Bun.write(
+			path.join(UPLOAD_DIR, "public", "page.html"),
+			"<html><body>hello</body></html>",
+		)
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fpage.html", {
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toMatch(/<pre[^>]*>/)
+		expect(text).not.toContain("<img")
+	})
+
+	it("should render PNG as image viewer, not source view", async () => {
+		const pngBytes = new Uint8Array([
+			0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		])
+		await Bun.write(path.join(UPLOAD_DIR, "public", "photo.png"), pngBytes)
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fphoto.png", {
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("<img")
+		expect(text).not.toMatch(/<pre[^>]*>/)
+	})
+
+	it("should render PDF as PDF viewer (iframe), not source view", async () => {
+		await Bun.write(
+			path.join(UPLOAD_DIR, "public", "doc.pdf"),
+			"%PDF-1.4 fake pdf content",
+		)
+		const res = await app.request(
+			new Request("http://localhost/file?path=public%2Fdoc.pdf", {
+				headers: { "HX-Request": "true" },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expect(text).toContain("<iframe")
+		expect(text).not.toMatch(/<pre[^>]*>/)
+	})
+})
