@@ -32,6 +32,7 @@ interface MessageRendererProps {
   markdownPreview: boolean
   copied: boolean
   disabled?: boolean
+  savingConversation?: boolean
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage?: (index: number) => void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
@@ -101,6 +102,7 @@ function MessageRendererComponent({
   markdownPreview,
   copied,
   disabled,
+  savingConversation,
   onCopyMessage,
   onDeleteMessage,
   onSaveGeneratedFile,
@@ -160,6 +162,7 @@ function MessageRendererComponent({
           conversationId,
           generatedFiles,
           cursor: cursorRef.current,
+          disabled: savingConversation,
           onSave: (params: SaveGeneratedFileRequest) => onSaveGeneratedFile(index, params),
         }
       : null
@@ -206,6 +209,7 @@ export const MessageRenderer = memo(
     prevProps.markdownPreview === nextProps.markdownPreview &&
     prevProps.copied === nextProps.copied &&
     prevProps.disabled === nextProps.disabled &&
+    prevProps.savingConversation === nextProps.savingConversation &&
     prevProps.onCopyMessage === nextProps.onCopyMessage &&
     prevProps.onDeleteMessage === nextProps.onDeleteMessage &&
     prevProps.onSaveGeneratedFile === nextProps.onSaveGeneratedFile

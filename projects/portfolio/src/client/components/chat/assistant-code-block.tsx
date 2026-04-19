@@ -13,6 +13,7 @@ export interface AssistantCodeBlockContextValue {
   conversationId: string | null
   generatedFiles: GeneratedCodeFile[]
   cursor: { current: number }
+  disabled?: boolean
   onSave: (params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
@@ -90,6 +91,7 @@ function AssistantSavableCodeBlock({
       {supported && (
         <GeneratedFileActions
           existing={existing}
+          disabled={ctx.disabled}
           onSave={() =>
             ctx.onSave({
               blockIndex,
@@ -105,10 +107,11 @@ function AssistantSavableCodeBlock({
 
 interface GeneratedFileActionsProps {
   existing: GeneratedCodeFile | undefined
+  disabled?: boolean
   onSave: () => Promise<GeneratedCodeFile | null>
 }
 
-function GeneratedFileActions({ existing, onSave }: GeneratedFileActionsProps) {
+function GeneratedFileActions({ existing, disabled, onSave }: GeneratedFileActionsProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -145,7 +148,7 @@ function GeneratedFileActions({ existing, onSave }: GeneratedFileActionsProps) {
       <button
         type='button'
         onClick={handleClick}
-        disabled={saving}
+        disabled={saving || disabled}
         className='cursor-pointer rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:bg-gray-100 disabled:cursor-default disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
       >
         {saving ? '生成中…' : '生成'}

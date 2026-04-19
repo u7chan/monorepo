@@ -70,7 +70,19 @@ export async function updateMessageMetadata(
   }
 
   const existing = deserializeMetadata(row.metadata)
-  const merged = { ...existing, ...params.metadataPatch } as Record<string, unknown>
+  const { usage: patchUsage, ...restPatch } = params.metadataPatch
+  const merged = {
+    ...existing,
+    ...restPatch,
+    ...(patchUsage !== undefined
+      ? {
+          usage: {
+            ...(typeof existing.usage === 'object' && existing.usage ? (existing.usage as object) : {}),
+            ...patchUsage,
+          },
+        }
+      : {}),
+  } as Record<string, unknown>
 
   await db.update(messagesTable).set({ metadata: merged }).where(eq(messagesTable.id, params.messageId))
 

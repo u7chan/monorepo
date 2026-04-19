@@ -24,6 +24,7 @@ interface ChatMessageListProps {
   loading: boolean
   stream: ChatStreamState | null
   copiedId: string
+  savingConversation?: boolean
   messageEndRef: RefObject<HTMLDivElement | null>
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
@@ -37,6 +38,7 @@ export function ChatMessageList({
   loading,
   stream,
   copiedId,
+  savingConversation,
   messageEndRef,
   onCopyMessage,
   onDeleteMessage,
@@ -51,6 +53,7 @@ export function ChatMessageList({
           markdownPreview={markdownPreview}
           copiedId={copiedId}
           disabled={loading || !!stream}
+          savingConversation={savingConversation}
           onCopyMessage={onCopyMessage}
           onDeleteMessage={onDeleteMessage}
           onSaveGeneratedFile={onSaveGeneratedFile}
@@ -96,6 +99,7 @@ interface MessageHistoryProps {
   markdownPreview: boolean
   copiedId: string
   disabled: boolean
+  savingConversation?: boolean
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
@@ -107,6 +111,7 @@ const MessageHistory = memo(function MessageHistory({
   markdownPreview,
   copiedId,
   disabled,
+  savingConversation,
   onCopyMessage,
   onDeleteMessage,
   onSaveGeneratedFile,
@@ -120,6 +125,7 @@ const MessageHistory = memo(function MessageHistory({
       markdownPreview={markdownPreview}
       copied={copiedId === `chat_${index}`}
       disabled={disabled}
+      savingConversation={savingConversation}
       onCopyMessage={onCopyMessage}
       onDeleteMessage={onDeleteMessage}
       onSaveGeneratedFile={onSaveGeneratedFile}

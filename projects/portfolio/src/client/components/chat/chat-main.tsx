@@ -22,7 +22,7 @@ interface Props {
   settings: Settings
   currentConversation?: Conversation | null
   onSubmitting?: (submitting: boolean) => void
-  onConversationChange?: (conversation: Conversation) => void
+  onConversationChange?: (conversation: Conversation) => Promise<void> | void
   onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
 }
 
@@ -38,6 +38,7 @@ export function ChatMain({
 
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [isSavingConversation, setIsSavingConversation] = useState(false)
   const {
     input,
     uploadImages,
@@ -122,7 +123,7 @@ export function ChatMain({
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-      }).then(({ result, responseTimeMs }) => {
+      }).then(async ({ result, responseTimeMs }) => {
         const userContent = params.draftUserMessage.content
 
         // assistant メッセージを state に追加（ドメイン型で保持）
@@ -159,11 +160,16 @@ export function ChatMain({
           })()
 
         // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
-        onConversationChange?.({
-          id: currentConversationId,
-          title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
-          messages: finalMessages,
-        })
+        setIsSavingConversation(true)
+        try {
+          await onConversationChange?.({
+            id: currentConversationId,
+            title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
+            messages: finalMessages,
+          })
+        } finally {
+          setIsSavingConversation(false)
+        }
       })
     },
     [
@@ -335,6 +341,7 @@ export function ChatMain({
             loading={loading}
             stream={stream}
             copiedId={copiedId}
+            savingConversation={isSavingConversation}
             messageEndRef={messageEndRef}
             onCopyMessage={copyMessage}
             onDeleteMessage={handleClickDeleteMessage}

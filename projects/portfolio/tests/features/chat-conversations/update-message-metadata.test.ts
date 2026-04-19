@@ -120,6 +120,31 @@ describe('updateMessageMetadata', () => {
     expect(result).toEqual({ ok: false, reason: 'invalid-role' })
   })
 
+  it('usage を patch するとき既存フィールドを deep merge する', async () => {
+    const { updateMessageMetadata, updateSets } = await importSubject({
+      users: [{ id: 'u1', email: 'x@example.com' }],
+      ownedRow: {
+        messageId: 'm1',
+        role: 'assistant',
+        metadata: { model: 'gpt', usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 } },
+        conversationUserId: 'u1',
+      },
+    })
+
+    await updateMessageMetadata('postgres://db', 'x@example.com', {
+      conversationId: 'c1',
+      messageId: 'm1',
+      metadataPatch: { usage: { completionTokens: 1 } },
+    })
+
+    expect(updateSets[0]).toEqual({
+      metadata: {
+        model: 'gpt',
+        usage: { promptTokens: 100, completionTokens: 1, totalTokens: 150 },
+      },
+    })
+  })
+
   it('既存 metadata を壊さず merge して保存する', async () => {
     const { updateMessageMetadata, updateSets } = await importSubject({
       users: [{ id: 'u1', email: 'x@example.com' }],
