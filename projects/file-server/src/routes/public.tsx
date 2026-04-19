@@ -4,7 +4,6 @@ import * as mime from "mime-types"
 import type { AppBindings } from "../types"
 import { isPathTraversal } from "../utils/pathTraversal"
 import { errorResponse, getUploadDir } from "../utils/requestUtils"
-import { isActiveContent } from "../utils/fileRouteUtils"
 
 const publicRoutes = new Hono<AppBindings>()
 
@@ -23,15 +22,6 @@ publicRoutes.get("/*", async (c) => {
 
   const resolvedPath = path.join(baseDir, "public", rawPath)
   const mimeType = mime.lookup(resolvedPath) || "application/octet-stream"
-
-  if (isActiveContent(resolvedPath, mimeType)) {
-    return errorResponse(
-      c,
-      "ActiveContentNotAllowed",
-      "HTML/SVG delivery is tracked in a follow-up issue.",
-      403,
-    )
-  }
 
   try {
     const { stat, readFile } = await import("node:fs/promises")

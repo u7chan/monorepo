@@ -100,7 +100,7 @@ describe("GET /public/*", () => {
     expect(res.status).not.toBe(200)
   })
 
-  it("blocks HTML files with 403", async () => {
+  it("serves an HTML file", async () => {
     await writeFile(
       path.join(UPLOAD_DIR, "public", "page.html"),
       "<html></html>",
@@ -110,16 +110,11 @@ describe("GET /public/*", () => {
       new Request("http://localhost/public/page.html"),
     )
 
-    expect(res.status).toBe(403)
-    const body = (await res.json()) as {
-      success: boolean
-      error: { name: string }
-    }
-    expect(body.success).toBe(false)
-    expect(body.error.name).toBe("ActiveContentNotAllowed")
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("text/html")
   })
 
-  it("blocks HTM files with 403", async () => {
+  it("serves an HTM file", async () => {
     await writeFile(
       path.join(UPLOAD_DIR, "public", "page.htm"),
       "<html></html>",
@@ -129,10 +124,11 @@ describe("GET /public/*", () => {
       new Request("http://localhost/public/page.htm"),
     )
 
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("text/html")
   })
 
-  it("blocks SVG files with 403", async () => {
+  it("serves an SVG file", async () => {
     await writeFile(
       path.join(UPLOAD_DIR, "public", "image.svg"),
       "<svg xmlns='http://www.w3.org/2000/svg'/>",
@@ -142,7 +138,36 @@ describe("GET /public/*", () => {
       new Request("http://localhost/public/image.svg"),
     )
 
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("image/svg+xml")
+  })
+
+  it("serves an XHTML file", async () => {
+    await writeFile(
+      path.join(UPLOAD_DIR, "public", "page.xhtml"),
+      '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"/>',
+    )
+
+    const res = await app.request(
+      new Request("http://localhost/public/page.xhtml"),
+    )
+
+    expect(res.status).toBe(200)
+  })
+
+  it("serves HTML in a subdirectory with encoded path", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "public", "sub dir"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "public", "sub dir", "page.html"),
+      "<html></html>",
+    )
+
+    const res = await app.request(
+      new Request("http://localhost/public/sub%20dir/page.html"),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("text/html")
   })
 
   it("returns 404 when path is a directory", async () => {

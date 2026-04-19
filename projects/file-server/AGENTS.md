@@ -7,7 +7,6 @@ Current features include empty file creation, per-directory Zip download via `/f
 
 - `GET /file/raw` — preview-only route. Blocks `text/html`, `application/xhtml+xml`, `image/svg+xml`, and extensions `.html`, `.htm`, `.xhtml`, `.svg` with `403`. SVG is treated as source view (not embedded image) and is also blocked. Existing image/video/PDF preview behavior is preserved.
 - `GET /file/download` — download route. Always returns `Content-Disposition: attachment`. Supports all file types including HTML and SVG. Applies the same path validation and authorization rules as other file routes.
-- `/public/*` HTML/XHTML/SVG delivery is out of scope for this feature and is tracked in issue #816.
 
 ## Commands
 
@@ -75,11 +74,24 @@ All browse/API requests use a virtual path that maps to one of two scopes:
 
 ## Public Route
 
-`GET /public/*` is unauthenticated and serves passive content (images, audio, PDF, text) directly from `UPLOAD_DIR/public/`.
+`GET /public/*` is unauthenticated and serves files directly from `UPLOAD_DIR/public/`, including HTML, XHTML, and SVG.
 
-- Active content is blocked with 403: `text/html`, `application/xhtml+xml`, `image/svg+xml`, and extensions `.html`, `.htm`, `.xhtml`, `.svg`.
+- **Trusted content premise**: HTML/XHTML/SVG delivery via `/public/*` assumes the content was placed there by an explicit user action or a user-confirmed Internal API call. This is not a mechanism for safely hosting untrusted content on the same origin.
+- Active content (HTML/XHTML/SVG) is served with its native MIME type. Sanitization and XSS prevention are enforced at upload/update time via server-side validation (see Issue #815 / `src/utils/htmlValidation.ts`), not at delivery time.
 - This route bypasses session authentication — it is always accessible.
 - Path traversal is detected and blocked at the handler level.
+- Directories are rejected with 404.
+
+## File Viewer Behavior for HTML/SVG
+
+| Scope | Source view | Public URL button | Download button |
+|---|---|---|---|
+| `public/` | ✓ | ✓ (opens `/public/...` in new tab) | ✓ |
+| `private/` | ✓ | — | ✓ |
+
+- HTML/XHTML/SVG files are always shown as source (text) in the viewer, regardless of scope.
+- The public URL button appears only for `public/` HTML/XHTML/SVG files and opens the rendered page at `/public/...` in a new tab.
+- Path segments are percent-encoded in the generated public URL (supports spaces, Japanese characters, `#`, `?`, etc.).
 
 ## Authentication
 

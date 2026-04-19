@@ -50,6 +50,13 @@ fileRoutes.get("/", async (c) => {
     return c.redirect(redirectPath)
   }
 
+  const isInPublicScope = resolved.requestPath.startsWith("public/")
+  const isHtmlOrSvg = isActiveContent(resolved.resolvedPath, resolved.mimeType)
+  const publicUrl =
+    isInPublicScope && isHtmlOrSvg
+      ? `/${resolved.requestPath.split("/").map(encodeURIComponent).join("/")}`
+      : undefined
+
   if (isText || forceTextView) {
     const content = await readFile(resolved.resolvedPath, "utf-8")
     const isEditing = !forceTextView && c.req.query("edit") === "true"
@@ -61,6 +68,7 @@ fileRoutes.get("/", async (c) => {
         path={resolved.requestPath}
         isEditing={isEditing}
         allowEdit={!forceTextView}
+        publicUrl={publicUrl}
       />,
     )
   }
