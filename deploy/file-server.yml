@@ -9,8 +9,12 @@ services:
     restart: always
     ports:
       - 8010:3000
+    environment:
+      - AUTH_DIR=/app/auth
     volumes:
       - file-server:/app/uploads
+      - file-server-auth:/app/auth
 
 volumes:
   file-server:
+  file-server-auth:
