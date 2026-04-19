@@ -7,13 +7,14 @@ import { createTestSession } from "./helpers/auth"
 import { createTestApp } from "./helpers/createTestApp"
 
 const UPLOAD_DIR = "./tmp-test-rename"
+const AUTH_DIR = path.join(UPLOAD_DIR, ".auth")
 const SESSION_SECRET = "0123456789abcdef0123456789abcdef"
 let app: Awaited<ReturnType<typeof createTestApp>>
 
 type PlainUser = { username: string; password: string; role?: "admin" | "user" }
 
 async function writeUsers(users: PlainUser[]) {
-  const usersFile = getUsersFilePath(UPLOAD_DIR)
+  const usersFile = getUsersFilePath(AUTH_DIR)
   const userConfigs = await Promise.all(
     users.map(async (u) => ({
       username: u.username,
@@ -306,6 +307,7 @@ describe("POST /api/rename", () => {
   it("prevents authenticated users from renaming outside their scope (path traversal)", async () => {
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
       sessionSecret: SESSION_SECRET,
     })
     await writeUsers([{ username: "alice", password: "password1" }])
@@ -334,6 +336,7 @@ describe("POST /api/rename", () => {
   it("allows admins to rename items in private area", async () => {
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
       sessionSecret: SESSION_SECRET,
     })
     await writeUsers([

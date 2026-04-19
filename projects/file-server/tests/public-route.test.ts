@@ -4,6 +4,7 @@ import path from "node:path"
 import { createTestApp } from "./helpers/createTestApp"
 
 const UPLOAD_DIR = "./tmp-test-public-route"
+const AUTH_DIR = path.join(UPLOAD_DIR, ".auth")
 let app: Awaited<ReturnType<typeof createTestApp>>
 
 beforeEach(async () => {
@@ -155,6 +156,7 @@ describe("GET /public/*", () => {
   it("is accessible without a session cookie when auth is enabled", async () => {
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
       sessionSecret: "0123456789abcdef0123456789abcdef",
       initialAdminPassword: "test-admin-pass",
     })

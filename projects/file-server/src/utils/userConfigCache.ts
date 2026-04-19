@@ -19,13 +19,20 @@ function toValidatedUsers(input: unknown): UserConfig[] {
       throw new Error(`Users file entry at index ${index} must be an object.`)
     }
 
-    const { username, passwordHash, role, sessionVersion } = item as Record<string, unknown>
+    const { username, passwordHash, role, sessionVersion } = item as Record<
+      string,
+      unknown
+    >
 
     if (typeof username !== "string" || !isValidUsername(username)) {
-      throw new Error(`Users file entry at index ${index} has invalid username.`)
+      throw new Error(
+        `Users file entry at index ${index} has invalid username.`,
+      )
     }
     if (typeof passwordHash !== "string" || passwordHash.length === 0) {
-      throw new Error(`Users file entry at index ${index} has invalid passwordHash.`)
+      throw new Error(
+        `Users file entry at index ${index} has invalid passwordHash.`,
+      )
     }
     if (typeof role !== "string" || !USER_ROLES.has(role)) {
       throw new Error(`Users file entry at index ${index} has invalid role.`)
@@ -58,7 +65,7 @@ export async function loadUsersFromFileWithCache(
   try {
     parsed = JSON.parse(content)
   } catch {
-    throw new Error("USERS_FILE is not valid JSON.")
+    throw new Error("users.json is not valid JSON.")
   }
 
   const users = toValidatedUsers(parsed)
@@ -70,11 +77,17 @@ export async function loadUsersFromFileWithCache(
   return users
 }
 
-export async function saveUsersToFile(usersFile: string, users: UserConfig[]): Promise<void> {
+export async function saveUsersToFile(
+  usersFile: string,
+  users: UserConfig[],
+): Promise<void> {
   const dir = path.dirname(usersFile)
   await mkdir(dir, { recursive: true })
   const tmpFile = `${usersFile}.tmp`
-  await writeFile(tmpFile, JSON.stringify(users, null, 2), "utf-8")
+  await writeFile(tmpFile, JSON.stringify(users, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  })
   await rename(tmpFile, usersFile)
   cachedUsers = null
   cachedPath = null

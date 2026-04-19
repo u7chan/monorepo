@@ -46,8 +46,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY src ./src
 COPY tsconfig.json ./tsconfig.json
 
-RUN mkdir -p $UPLOAD_DIR && \
-    chown -R node:node $UPLOAD_DIR
+RUN mkdir -p $UPLOAD_DIR /app/auth && \
+    chown -R node:node $UPLOAD_DIR /app/auth
 
 USER node
 

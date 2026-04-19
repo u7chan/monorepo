@@ -1,0 +1,16 @@
+services:
+  file-server:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      AUTH_DIR: /app/auth
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - file_server_auth:/app/auth
+      - file_server_uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  file_server_auth:
+  file_server_uploads:
