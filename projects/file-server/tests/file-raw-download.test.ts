@@ -177,12 +177,13 @@ describe("GET /file/download", () => {
 	it("should download HTML file with attachment disposition", async () => {
 		await Bun.write(
 			path.join(UPLOAD_DIR, "public", "page.html"),
-			"<html><body>hello</body></html>",
+			"<html><body>こんにちは</body></html>",
 		)
 		const res = await app.request(
 			new Request("http://localhost/file/download?path=public%2Fpage.html"),
 		)
 		expect(res.status).toBe(200)
+		expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
 		const disposition = res.headers.get("Content-Disposition")
 		expect(disposition).toContain("attachment")
 		expect(disposition).toContain("page.html")
@@ -197,6 +198,7 @@ describe("GET /file/download", () => {
 			new Request("http://localhost/file/download?path=public%2Fimage.svg"),
 		)
 		expect(res.status).toBe(200)
+		expect(res.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8")
 		const disposition = res.headers.get("Content-Disposition")
 		expect(disposition).toContain("attachment")
 		expect(disposition).toContain("image.svg")
@@ -211,6 +213,7 @@ describe("GET /file/download", () => {
 			new Request("http://localhost/file/download?path=public%2Fphoto.png"),
 		)
 		expect(res.status).toBe(200)
+		expect(res.headers.get("Content-Type")).toBe("image/png")
 		const disposition = res.headers.get("Content-Disposition")
 		expect(disposition).toContain("attachment")
 		expect(disposition).toContain("photo.png")

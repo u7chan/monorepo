@@ -103,7 +103,7 @@ describe("GET /public/*", () => {
   it("serves an HTML file", async () => {
     await writeFile(
       path.join(UPLOAD_DIR, "public", "page.html"),
-      "<html></html>",
+      "<html><body>こんにちは</body></html>",
     )
 
     const res = await app.request(
@@ -111,7 +111,8 @@ describe("GET /public/*", () => {
     )
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toContain("text/html")
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8")
+    expect(await res.text()).toContain("こんにちは")
   })
 
   it("serves an HTM file", async () => {
@@ -125,7 +126,7 @@ describe("GET /public/*", () => {
     )
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toContain("text/html")
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8")
   })
 
   it("serves an SVG file", async () => {
@@ -139,7 +140,7 @@ describe("GET /public/*", () => {
     )
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toContain("image/svg+xml")
+    expect(res.headers.get("content-type")).toBe("image/svg+xml; charset=utf-8")
   })
 
   it("serves an XHTML file", async () => {
@@ -153,6 +154,9 @@ describe("GET /public/*", () => {
     )
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toBe(
+      "application/xhtml+xml; charset=utf-8",
+    )
   })
 
   it("serves HTML in a subdirectory with encoded path", async () => {
@@ -167,7 +171,19 @@ describe("GET /public/*", () => {
     )
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toContain("text/html")
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8")
+  })
+
+  it("does not add charset to binary content types", async () => {
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    await writeFile(path.join(UPLOAD_DIR, "public", "binary.png"), pngHeader)
+
+    const res = await app.request(
+      new Request("http://localhost/public/binary.png"),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toBe("image/png")
   })
 
   it("returns 404 when path is a directory", async () => {

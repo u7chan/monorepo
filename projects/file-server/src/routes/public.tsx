@@ -1,7 +1,7 @@
 import * as path from "node:path"
 import { Hono } from "hono"
-import * as mime from "mime-types"
 import type { AppBindings } from "../types"
+import { resolveResponseMimeType } from "../utils/mimeType"
 import { isPathTraversal } from "../utils/pathTraversal"
 import { errorResponse, getUploadDir } from "../utils/requestUtils"
 
@@ -21,7 +21,7 @@ publicRoutes.get("/*", async (c) => {
   }
 
   const resolvedPath = path.join(baseDir, "public", rawPath)
-  const mimeType = mime.lookup(resolvedPath) || "application/octet-stream"
+  const responseMimeType = resolveResponseMimeType(resolvedPath)
 
   try {
     const { stat, readFile } = await import("node:fs/promises")
@@ -32,7 +32,7 @@ publicRoutes.get("/*", async (c) => {
 
     const content = await readFile(resolvedPath)
     return new Response(content, {
-      headers: { "Content-Type": mimeType },
+      headers: { "Content-Type": responseMimeType },
     })
   } catch (err: unknown) {
     const isEnoent =

@@ -95,7 +95,7 @@ fileRoutes.get("/", async (c) => {
 
   const contentBuffer = await readFile(resolved.resolvedPath)
   const headers: Record<string, string> = {
-    "Content-Type": resolved.mimeType,
+    "Content-Type": resolved.responseMimeType,
     "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
   }
   return new Response(toArrayBuffer(contentBuffer), { headers })
@@ -120,7 +120,10 @@ fileRoutes.get("/raw", async (c) => {
     )
   }
 
-  return readBinaryFileResponse(resolved.resolvedPath, resolved.mimeType)
+  return readBinaryFileResponse(
+    resolved.resolvedPath,
+    resolved.responseMimeType,
+  )
 })
 
 fileRoutes.get("/download", async (c) => {
@@ -136,7 +139,7 @@ fileRoutes.get("/download", async (c) => {
   const contentBuffer = await readFile(resolved.resolvedPath)
   return new Response(toArrayBuffer(contentBuffer), {
     headers: {
-      "Content-Type": resolved.mimeType,
+      "Content-Type": resolved.responseMimeType,
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
     },
   })
