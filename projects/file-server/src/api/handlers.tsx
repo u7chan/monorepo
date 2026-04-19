@@ -16,6 +16,11 @@ import {
 } from "../utils/apiHelpers"
 import { getFileList } from "../utils/fileListing"
 import { normalizeRelativePath, resolveUploadPath } from "../utils/fileUtils"
+import {
+  isPublicHtmlFile,
+  isPublicScope,
+  validatePublicHtml,
+} from "../utils/htmlValidation"
 import { isPathTraversal } from "../utils/pathTraversal"
 import {
   errorResponse,
@@ -114,6 +119,16 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
       const savePath = path.join(baseDir, relativePath)
       await mkdir(path.dirname(savePath), { recursive: true })
       const buffer = await file.arrayBuffer()
+
+      if (isPublicScope(relativePath) && isPublicHtmlFile(relativePath)) {
+        const text = Buffer.from(buffer).toString("utf-8")
+        const validation = validatePublicHtml(text)
+        if (!validation.ok) {
+          results.failed.push({ name: file.name, reason: validation.reason })
+          continue
+        }
+      }
+
       await writeFile(savePath, Buffer.from(buffer))
       results.success.push(file.name)
     } catch (err) {
@@ -298,6 +313,17 @@ export async function renameHandler(c: Context<AppBindings>) {
     }
   }
 
+  if (
+    isPublicScope(destinationRelativePath) &&
+    isPublicHtmlFile(destinationRelativePath)
+  ) {
+    const sourceContent = await readFile(sourcePath, "utf-8")
+    const validation = validatePublicHtml(sourceContent)
+    if (!validation.ok) {
+      return errorResponse(c, "ValidationError", validation.reason, 400)
+    }
+  }
+
   await rename(sourcePath, destinationPath)
 
   return renderFileListResponse(c, baseDir, normalizedParentPath)
@@ -331,6 +357,13 @@ export async function updateFileHandler(c: Context<AppBindings>) {
       return errorResponse(c, "FileNotFound", "File does not exist", 400)
     }
     throw err
+  }
+
+  if (isPublicScope(filePathParam) && isPublicHtmlFile(filePathParam)) {
+    const validation = validatePublicHtml(content)
+    if (!validation.ok) {
+      return errorResponse(c, "ValidationError", validation.reason, 400)
+    }
   }
 
   await writeFile(targetPath, content, "utf-8")

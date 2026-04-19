@@ -81,6 +81,7 @@ src/
     ├── fileListing.ts     # ファイル一覧取得
     ├── fileUtils.ts       # パス検証、ソート
     ├── formatters.ts      # サイズ・日時フォーマット
+    ├── htmlValidation.ts  # public HTML/SVG バリデーション
     ├── pathTraversal.ts   # ディレクトリトラバーサル判定
     ├── requestUtils.tsx   # リクエストユーティリティ
     ├── userConfigCache.ts # ユーザー設定キャッシュ
@@ -99,6 +100,7 @@ tests/
 ├── mkdir.test.ts          # ディレクトリ作成テスト
 ├── rename.test.ts         # リネームテスト
 ├── update.test.ts         # ファイル更新テスト
+├── html-validation.test.ts # public HTML/SVG バリデーションテスト
 └── public-route.test.ts   # 外部公開ルートテスト
 ```
 
@@ -257,6 +259,57 @@ docker compose up -d --build
 ```bash
 docker compose down
 ```
+
+## Internal API 経由の public HTML/SVG 配置
+
+`POST /api/upload` および `POST /api/update` 経由で `public/` スコープに HTML/XHTML/SVG を保存する場合、サーバー側バリデーションが実行される。
+
+### 前提
+
+- この機能は **trusted content** を公開する用途を想定している。LLM 生成物や自動化フローの出力を人間が確認した上でデプロイするフローのガードレールとして機能する。
+- **untrusted content を same-origin で安全に公開する機能ではない。** そのようなユースケースには別設計が必要。
+
+### バリデーションルール
+
+以下を含むコンテンツは reject される:
+
+| 拒否対象 | 説明 |
+|---|---|
+| `<script>` | スクリプトタグ（大文字小文字不問） |
+| `on*` 属性 | `onload`・`onclick` 等のイベントハンドラ属性 |
+| `javascript:` URL | `href`・`src` 等の javascript: スキーム |
+| `<iframe>` | インラインフレーム |
+| `<object>` | オブジェクト埋め込み |
+| `<embed>` | プラグインコンテンツ埋め込み |
+| `meta[http-equiv]` | リダイレクト等を誘発する meta タグ |
+| `<foreignObject>` | SVG 内 HTML 埋め込み要素 |
+
+### エラー応答
+
+バリデーション失敗時は、拒否理由を含むエラーが返される。
+
+**upload (`POST /api/upload`)**: ファイル単位で `failed` 配列に拒否理由が入る。
+```json
+{
+  "success": false,
+  "uploaded": [],
+  "failed": [{ "name": "page.html", "reason": "Prohibited content: <script>" }]
+}
+```
+
+**update (`POST /api/update`)**: 400 レスポンスで `ValidationError` が返される。
+```json
+{
+  "success": false,
+  "error": { "name": "ValidationError", "message": "Prohibited content: <script>" }
+}
+```
+
+### 適用範囲
+
+- バリデーションは `public/` スコープの `.html`、`.htm`、`.xhtml`、`.svg` ファイルにのみ適用される。
+- `private/` スコープへの保存にはバリデーションは実行されない。
+- バリデーション追加前から存在するファイルは対象外（読み取り/配信には影響しない）。
 
 ## 破壊的変更とマイグレーション
 

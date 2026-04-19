@@ -126,6 +126,18 @@ API paths also change:
 - Old: `GET /api/` (admin) → all user dirs
 - New: `GET /api/private/` (admin) → all user dirs
 
+## Public HTML/SVG Validation (Issue #815)
+
+`POST /api/upload` and `POST /api/update` apply server-side validation when saving HTML/XHTML/SVG files (`.html`, `.htm`, `.xhtml`, `.svg`) to the `public/` scope.
+
+- This is a **trusted content** guardrail. It is not a mechanism to safely host untrusted content on the same origin.
+- Validation is implemented in `src/utils/htmlValidation.ts` (`validatePublicHtml`).
+- The following are rejected: `<script>`, `on*` event handler attributes, `javascript:` URLs, `<iframe>`, `<object>`, `<embed>`, `meta[http-equiv]`, `<foreignObject>`.
+- On upload failure, the file appears in the `failed` array with a `reason` field.
+- On update failure, a `400 ValidationError` response is returned.
+- Files in `private/` scope are not validated.
+- Non-HTML/SVG files are not validated regardless of scope.
+
 ## Important
 
 - Path validation prevents directory traversal. Do not bypass this mechanism.
