@@ -30,6 +30,7 @@ export function Chat() {
   } = useChatPageState()
 
   const { email } = useMetaProps()
+  const isAuthenticated = !!email
 
   const query = useQuery({
     queryKey: ['conversations'],
@@ -94,27 +95,21 @@ export function Chat() {
       })
   }
 
-  const handleConversationChange = (conversation: Conversation) => {
+  const handleConversationChange = async (conversation: Conversation): Promise<void> => {
     // カレントの会話IDを更新
     selectConversation(conversation.id)
 
-    if (!email) {
-      return
-    }
+    if (!email) return
 
-    client.api.conversations
-      .$post({
-        json: conversation,
-      })
-      .then((res) => {
-        if (res.status === 200) {
-          // 成功した場合は、会話履歴を再取得
-          query.refetch()
-        }
-      })
-      .catch((error) => {
-        console.error('Error updating conversation:', error)
-      })
+    try {
+      const res = await client.api.conversations.$post({ json: conversation })
+      if (res.status === 200) {
+        // 成功した場合は、会話履歴を再取得
+        query.refetch()
+      }
+    } catch (error) {
+      console.error('Error updating conversation:', error)
+    }
   }
 
   return (
@@ -155,6 +150,7 @@ export function Chat() {
       <ChatMain
         initTrigger={newChatTrigger}
         settings={settings}
+        canSaveGeneratedFile={isAuthenticated}
         onSubmitting={setSubmitting}
         currentConversation={currentConversation}
         onConversationChange={handleConversationChange}

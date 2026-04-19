@@ -125,6 +125,39 @@ describe('upsertConversation', () => {
     expect(uuidv7).toHaveBeenCalled()
   })
 
+  it('message.id が指定されていれば既存 id を保持する', async () => {
+    const { upsertConversation, insertValues, uuidv7 } = await importSubject({
+      users: [{ id: 'user-1', email: 'test@example.com' }],
+      existingConversations: [],
+    })
+
+    await upsertConversation('postgres://db', 'test@example.com', {
+      id: 'conversation-1',
+      title: 'title',
+      messages: [
+        {
+          id: 'keep-this-id',
+          role: 'assistant',
+          content: 'hi',
+          metadata: { model: 'gpt-test', usage: {} },
+        },
+        {
+          role: 'user',
+          content: 'no id',
+          reasoningContent: '',
+          metadata: { model: '' },
+        },
+      ],
+    })
+
+    expect(insertValues[1]).toEqual([
+      expect.objectContaining({ id: 'keep-this-id' }),
+      expect.objectContaining({ id: 'generated-message-id' }),
+    ])
+    // 既存 id を持つ message では uuidv7 を呼ばないこと
+    expect(uuidv7).toHaveBeenCalledTimes(1)
+  })
+
   it('既存会話は updatedAt を更新し、既存 message を削除して全件再挿入する', async () => {
     const { upsertConversation, updateSets, insertValues, deleteWheres } = await importSubject({
       users: [{ id: 'user-1', email: 'test@example.com' }],

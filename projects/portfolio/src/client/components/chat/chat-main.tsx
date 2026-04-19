@@ -1,3 +1,4 @@
+import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import { ChatInput } from '#/client/components/chat/chat-input'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
@@ -10,7 +11,7 @@ import { ArrowUpIcon } from '#/client/components/svg/arrow-up-icon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
-import type { Conversation, Message } from '#/types'
+import type { Conversation, GeneratedCodeFile, Message } from '#/types'
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
 
@@ -20,8 +21,9 @@ interface Props {
   initTrigger?: number
   settings: Settings
   currentConversation?: Conversation | null
+  canSaveGeneratedFile?: boolean
   onSubmitting?: (submitting: boolean) => void
-  onConversationChange?: (conversation: Conversation) => void
+  onConversationChange?: (conversation: Conversation) => Promise<void> | void
   onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
 }
 
@@ -29,6 +31,7 @@ export function ChatMain({
   initTrigger,
   settings,
   currentConversation,
+  canSaveGeneratedFile,
   onSubmitting,
   onConversationChange,
   onDeleteMessages,
@@ -37,6 +40,7 @@ export function ChatMain({
 
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [isSavingConversation, setIsSavingConversation] = useState(false)
   const {
     input,
     uploadImages,
@@ -121,7 +125,7 @@ export function ChatMain({
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-      }).then(({ result, responseTimeMs }) => {
+      }).then(async ({ result, responseTimeMs }) => {
         const userContent = params.draftUserMessage.content
 
         // assistant メッセージを state に追加（ドメイン型で保持）
@@ -158,11 +162,16 @@ export function ChatMain({
           })()
 
         // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
-        onConversationChange?.({
-          id: currentConversationId,
-          title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
-          messages: finalMessages,
-        })
+        setIsSavingConversation(true)
+        try {
+          await onConversationChange?.({
+            id: currentConversationId,
+            title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
+            messages: finalMessages,
+          })
+        } finally {
+          setIsSavingConversation(false)
+        }
       })
     },
     [
@@ -192,6 +201,55 @@ export function ChatMain({
       formRef.current?.requestSubmit()
     },
     [setTemplateInput]
+  )
+
+  const handleSaveGeneratedFile = useCallback(
+    async (messageIndex: number, params: SaveGeneratedFileRequest): Promise<GeneratedCodeFile | null> => {
+      if (!canSaveGeneratedFile) {
+        return null
+      }
+
+      const target = messages[messageIndex]
+      if (!target || target.role !== 'assistant' || !target.id || !conversationId) {
+        return null
+      }
+
+      const res = await fetch('/api/conversations/messages/generated-files', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          messageId: target.id,
+          blockIndex: params.blockIndex,
+          language: params.language,
+          content: params.content,
+        }),
+      })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(err.error ?? `Request failed: ${res.status}`)
+      }
+      const payload = (await res.json()) as { file: GeneratedCodeFile; alreadyExisted?: boolean }
+
+      setMessages((prev) =>
+        prev.map((msg, idx) => {
+          if (idx !== messageIndex || msg.role !== 'assistant') {
+            return msg
+          }
+          const existingFiles = msg.metadata.generatedFiles ?? []
+          const withoutSame = existingFiles.filter((f) => f.blockIndex !== payload.file.blockIndex)
+          return {
+            ...msg,
+            metadata: {
+              ...msg.metadata,
+              generatedFiles: [...withoutSame, payload.file],
+            },
+          }
+        })
+      )
+      return payload.file
+    },
+    [canSaveGeneratedFile, conversationId, messages]
   )
 
   const handleClickDeleteMessage = useCallback(
@@ -284,13 +342,17 @@ export function ChatMain({
         {!emptyMessage && (
           <ChatMessageList
             messages={messages}
+            conversationId={conversationId}
+            canSaveGeneratedFile={canSaveGeneratedFile}
             markdownPreview={settings.markdownPreview}
             loading={loading}
             stream={stream}
             copiedId={copiedId}
+            savingConversation={isSavingConversation}
             messageEndRef={messageEndRef}
             onCopyMessage={copyMessage}
             onDeleteMessage={handleClickDeleteMessage}
+            onSaveGeneratedFile={handleSaveGeneratedFile}
           />
         )}
       </div>

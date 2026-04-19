@@ -1,8 +1,17 @@
 import { deleteConversations } from '#/server/features/chat-conversations/delete-conversations'
 import { deleteMessages } from '#/server/features/chat-conversations/delete-messages'
+import type { FileServerConfig } from '#/server/features/chat-conversations/file-server-client'
 import { readConversations } from '#/server/features/chat-conversations/read-conversations'
+import {
+  saveGeneratedFile,
+  type SaveGeneratedFileResult,
+} from '#/server/features/chat-conversations/save-generated-file'
+import {
+  updateMessageMetadata,
+  type UpdateMessageMetadataResult,
+} from '#/server/features/chat-conversations/update-message-metadata'
 import { upsertConversation } from '#/server/features/chat-conversations/upsert-conversation'
-import type { Conversation } from '#/types'
+import type { AssistantMetadata, Conversation } from '#/types'
 
 interface ChatConversationRepository {
   read(databaseUrl: string, email: string): Promise<Conversation[] | null>
@@ -22,6 +31,27 @@ interface ChatConversationRepository {
     failedMessageIds: string[]
     deletedConversationIds: string[]
   }>
+  updateMessageMetadata(
+    databaseUrl: string,
+    email: string,
+    params: {
+      conversationId: string
+      messageId: string
+      metadataPatch: Partial<AssistantMetadata>
+    }
+  ): Promise<UpdateMessageMetadataResult>
+  saveGeneratedFile(
+    databaseUrl: string,
+    email: string,
+    params: {
+      conversationId: string
+      messageId: string
+      blockIndex: number
+      language: string
+      content: string
+    },
+    fileServerConfig: FileServerConfig | null
+  ): Promise<SaveGeneratedFileResult>
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
@@ -49,5 +79,11 @@ export const chatConversationRepository: ChatConversationRepository = {
     deletedConversationIds: string[]
   }> {
     return deleteMessages(databaseUrl, email, messageIds)
+  },
+  async updateMessageMetadata(databaseUrl, email, params) {
+    return updateMessageMetadata(databaseUrl, email, params)
+  },
+  async saveGeneratedFile(databaseUrl, email, params, fileServerConfig) {
+    return saveGeneratedFile(databaseUrl, email, params, fileServerConfig)
   },
 }

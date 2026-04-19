@@ -48,6 +48,18 @@ export const UserMessageSchema = z.object({
 
 export type UserMessage = z.infer<typeof UserMessageSchema>
 
+export const GeneratedCodeFileSchema = z.object({
+  blockIndex: z.number().int().nonnegative(),
+  language: z.string(),
+  fileName: z.string(),
+  publicPath: z.string(),
+  previewUrl: z.string(),
+  contentType: z.string(),
+  createdAt: z.string(),
+})
+
+export type GeneratedCodeFile = z.infer<typeof GeneratedCodeFileSchema>
+
 export const AssistantMetadataSchema = z
   .object({
     model: z.string().catch(''),
@@ -61,6 +73,7 @@ export const AssistantMetadataSchema = z
         reasoningTokens: z.number().optional(),
       })
       .catch({}),
+    generatedFiles: z.array(GeneratedCodeFileSchema).optional(),
   })
   .catch({ model: '', usage: {} })
 

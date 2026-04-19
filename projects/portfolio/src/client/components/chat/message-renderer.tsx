@@ -1,13 +1,18 @@
+import {
+  AssistantAwareCodeBlock,
+  AssistantCodeBlockContext,
+  type SaveGeneratedFileRequest,
+} from '#/client/components/chat/assistant-code-block'
 import { ChatResults } from '#/client/components/chat/chat-results'
-import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
+import { MarkdownLink } from '#/client/components/chat/code-block-renderer'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
-import type { Message } from '#/types'
+import type { GeneratedCodeFile, Message } from '#/types'
 import { isImageContentArray } from '#/types'
-import { Fragment, memo, type ReactNode } from 'react'
+import { Fragment, memo, type ReactNode, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
@@ -16,18 +21,22 @@ import remarkGfm from 'remark-gfm'
 const markdownRemarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough]
 const markdownComponents = {
   a: MarkdownLink,
-  code: CodeBlockRenderer,
+  code: AssistantAwareCodeBlock,
   pre: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }
 
 interface MessageRendererProps {
   message: Message
   index: number
+  conversationId: string | null
+  canSaveGeneratedFile?: boolean
   markdownPreview: boolean
   copied: boolean
   disabled?: boolean
+  savingConversation?: boolean
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage?: (index: number) => void
+  onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
 interface MessageActionBarProps {
@@ -90,12 +99,21 @@ function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
 function MessageRendererComponent({
   message,
   index,
+  conversationId,
+  canSaveGeneratedFile,
   markdownPreview,
   copied,
   disabled,
+  savingConversation,
   onCopyMessage,
   onDeleteMessage,
+  onSaveGeneratedFile,
 }: MessageRendererProps) {
+  // fenced code block 用の cursor。render のたびに 0 にリセットし、
+  // 子の AssistantAwareCodeBlock が順序どおり blockIndex を取得できるようにする。
+  const cursorRef = useRef({ current: 0 })
+  cursorRef.current.current = 0
+
   if (message.role === 'system') {
     return null
   }
@@ -138,6 +156,26 @@ function MessageRendererComponent({
     )
   }
 
+  const generatedFiles = message.role === 'assistant' ? (message.metadata.generatedFiles ?? []) : []
+  const assistantContextValue =
+    message.role === 'assistant' && message.id && conversationId && onSaveGeneratedFile
+      ? {
+          messageId: message.id,
+          conversationId,
+          generatedFiles,
+          cursor: cursorRef.current,
+          disabled: savingConversation,
+          canSaveGeneratedFile,
+          onSave: (params: SaveGeneratedFileRequest) => onSaveGeneratedFile(index, params),
+        }
+      : null
+
+  const markdownBody = (
+    <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
+      {message.content}
+    </ReactMarkdown>
+  )
+
   return (
     <div className='flex'>
       <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-800'>
@@ -147,9 +185,9 @@ function MessageRendererComponent({
         {message.reasoningContent && <ReasoningSection content={message.reasoningContent} />}
         {markdownPreview ? (
           <div className='prose mt-1 max-w-(--breakpoint-md) break-all'>
-            <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
-              {message.content}
-            </ReactMarkdown>
+            <AssistantCodeBlockContext.Provider value={assistantContextValue}>
+              {markdownBody}
+            </AssistantCodeBlockContext.Provider>
           </div>
         ) : (
           <div className='message text-left'>
@@ -170,9 +208,13 @@ export const MessageRenderer = memo(
   (prevProps, nextProps) =>
     prevProps.message === nextProps.message &&
     prevProps.index === nextProps.index &&
+    prevProps.conversationId === nextProps.conversationId &&
+    prevProps.canSaveGeneratedFile === nextProps.canSaveGeneratedFile &&
     prevProps.markdownPreview === nextProps.markdownPreview &&
     prevProps.copied === nextProps.copied &&
     prevProps.disabled === nextProps.disabled &&
+    prevProps.savingConversation === nextProps.savingConversation &&
     prevProps.onCopyMessage === nextProps.onCopyMessage &&
-    prevProps.onDeleteMessage === nextProps.onDeleteMessage
+    prevProps.onDeleteMessage === nextProps.onDeleteMessage &&
+    prevProps.onSaveGeneratedFile === nextProps.onSaveGeneratedFile
 )
