@@ -6,6 +6,22 @@ import type { AppBindings } from "../types"
 import { errorResponse, getRequestPath, getUploadDir } from "./requestUtils"
 import { resolveVirtualPath } from "./virtualPath"
 
+const ACTIVE_MIME_TYPES = new Set([
+	"text/html",
+	"application/xhtml+xml",
+	"image/svg+xml",
+])
+
+const ACTIVE_EXTENSIONS = new Set([".html", ".htm", ".xhtml", ".svg"])
+
+export function isActiveContent(filePath: string, mimeType: string): boolean {
+	if (ACTIVE_MIME_TYPES.has(mimeType)) {
+		return true
+	}
+	const ext = path.extname(filePath).toLowerCase()
+	return ACTIVE_EXTENSIONS.has(ext)
+}
+
 const EMPTY_ZIP_ARCHIVE = new Uint8Array([
   0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

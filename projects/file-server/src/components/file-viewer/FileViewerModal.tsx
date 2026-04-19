@@ -34,7 +34,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
 
   const downloadButton = path ? (
     <a
-      href={`/file/raw?path=${encodedPath}`}
+      href={`/file/download?path=${encodedPath}`}
       download={fileName || true}
       className={secondaryIconButtonClassName}
     >
