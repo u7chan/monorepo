@@ -1,10 +1,11 @@
+import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
 import type { ChatStreamState } from '#/client/components/chat/hooks/chat-response'
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
-import type { Message } from '#/types'
+import type { GeneratedCodeFile, Message } from '#/types'
 import { memo, type ReactNode, type RefObject } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -18,6 +19,7 @@ const markdownComponents = {
 
 interface ChatMessageListProps {
   messages: Message[]
+  conversationId: string | null
   markdownPreview: boolean
   loading: boolean
   stream: ChatStreamState | null
@@ -25,10 +27,12 @@ interface ChatMessageListProps {
   messageEndRef: RefObject<HTMLDivElement | null>
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
+  onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
 export function ChatMessageList({
   messages,
+  conversationId,
   markdownPreview,
   loading,
   stream,
@@ -36,17 +40,20 @@ export function ChatMessageList({
   messageEndRef,
   onCopyMessage,
   onDeleteMessage,
+  onSaveGeneratedFile,
 }: ChatMessageListProps) {
   return (
     <div className='container mx-auto mt-4 max-w-(--breakpoint-lg) px-4'>
       <div className='message-list'>
         <MessageHistory
           messages={messages}
+          conversationId={conversationId}
           markdownPreview={markdownPreview}
           copiedId={copiedId}
           disabled={loading || !!stream}
           onCopyMessage={onCopyMessage}
           onDeleteMessage={onDeleteMessage}
+          onSaveGeneratedFile={onSaveGeneratedFile}
         />
         {loading && (
           <div className='flex align-item'>
@@ -85,31 +92,37 @@ export function ChatMessageList({
 
 interface MessageHistoryProps {
   messages: Message[]
+  conversationId: string | null
   markdownPreview: boolean
   copiedId: string
   disabled: boolean
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
+  onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
 const MessageHistory = memo(function MessageHistory({
   messages,
+  conversationId,
   markdownPreview,
   copiedId,
   disabled,
   onCopyMessage,
   onDeleteMessage,
+  onSaveGeneratedFile,
 }: MessageHistoryProps) {
   return messages.map((message, index) => (
     <MessageRenderer
       key={message.id ?? `chat_${index}`}
       message={message}
       index={index}
+      conversationId={conversationId}
       markdownPreview={markdownPreview}
       copied={copiedId === `chat_${index}`}
       disabled={disabled}
       onCopyMessage={onCopyMessage}
       onDeleteMessage={onDeleteMessage}
+      onSaveGeneratedFile={onSaveGeneratedFile}
     />
   ))
 })

@@ -50,7 +50,7 @@ export async function upsertConversation(databaseUrl: string, email: string, { i
     // index を ms 単位でずらすことで元の配列順序を createdAt に反映し、
     // DB から読み戻したときの ORDER BY createdAt で順序が保たれるようにする
     const messageValues = messages.map((message, index) => ({
-      id: uuidv7(),
+      id: message.id ?? uuidv7(),
       conversationId: id,
       role: message.role,
       content: serializeContent(message.content),
