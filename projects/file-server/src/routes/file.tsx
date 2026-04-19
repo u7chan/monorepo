@@ -7,6 +7,7 @@ import { toBrowseLocation } from "../utils/auth"
 import {
   archiveFileName,
   createDirectoryArchive,
+  isActiveContent,
   isPreviewableBinary,
   isTextMime,
   notADirectoryResponse,
@@ -102,7 +103,35 @@ fileRoutes.get("/raw", async (c) => {
     return notAFileResponse(c)
   }
 
+  if (isActiveContent(resolved.resolvedPath, resolved.mimeType)) {
+    return errorResponse(
+      c,
+      "ActiveContentNotAllowed",
+      "Active content cannot be served via /file/raw",
+      403,
+    )
+  }
+
   return readBinaryFileResponse(resolved.resolvedPath, resolved.mimeType)
+})
+
+fileRoutes.get("/download", async (c) => {
+  const resolved = await resolveRequestedFile(c, "File does not exist")
+  if ("response" in resolved) {
+    return resolved.response
+  }
+
+  if (!resolved.stat.isFile()) {
+    return notAFileResponse(c)
+  }
+
+  const contentBuffer = await readFile(resolved.resolvedPath)
+  return new Response(toArrayBuffer(contentBuffer), {
+    headers: {
+      "Content-Type": resolved.mimeType,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
+    },
+  })
 })
 
 fileRoutes.get("/archive", async (c) => {

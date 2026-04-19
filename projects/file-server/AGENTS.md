@@ -3,6 +3,12 @@
 Web-based file server built with Bun + Hono + HTMX.
 Current features include empty file creation, per-directory Zip download via `/file/archive`, unauthenticated public file serving via `GET /public/*`, and GUI-based user management via `/admin/users`.
 
+## File Raw and Download Routes
+
+- `GET /file/raw` — preview-only route. Blocks `text/html`, `application/xhtml+xml`, `image/svg+xml`, and extensions `.html`, `.htm`, `.xhtml`, `.svg` with `403`. SVG is treated as source view (not embedded image) and is also blocked. Existing image/video/PDF preview behavior is preserved.
+- `GET /file/download` — download route. Always returns `Content-Disposition: attachment`. Supports all file types including HTML and SVG. Applies the same path validation and authorization rules as other file routes.
+- `/public/*` HTML/XHTML/SVG delivery is out of scope for this feature and is tracked in issue #816.
+
 ## Commands
 
 - `bun install` - Install dependencies

@@ -129,7 +129,8 @@ tests/
 | GET | `/` | ディレクトリブラウズ（メインUI） |
 | GET | `/browse` | ディレクトリ一覧（HTMX部分更新用） |
 | GET | `/file` | ファイルビューアー表示 |
-| GET | `/file/raw` | ファイルの生データ配信 |
+| GET | `/file/raw` | ファイルのプレビュー配信（HTML/XHTML/SVG は 403 ブロック） |
+| GET | `/file/download` | ファイルをダウンロード（`Content-Disposition: attachment`、全ファイル種別対応） |
 | GET | `/file/archive` | 表示中ディレクトリ配下を Zip でダウンロード |
 | GET | `/login` | ログイン画面 |
 | POST | `/login` | ログイン処理 |

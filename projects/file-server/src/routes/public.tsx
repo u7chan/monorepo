@@ -4,24 +4,9 @@ import * as mime from "mime-types"
 import type { AppBindings } from "../types"
 import { isPathTraversal } from "../utils/pathTraversal"
 import { errorResponse, getUploadDir } from "../utils/requestUtils"
+import { isActiveContent } from "../utils/fileRouteUtils"
 
 const publicRoutes = new Hono<AppBindings>()
-
-const ACTIVE_MIME_TYPES = new Set([
-  "text/html",
-  "application/xhtml+xml",
-  "image/svg+xml",
-])
-
-const ACTIVE_EXTENSIONS = new Set([".html", ".htm", ".xhtml", ".svg"])
-
-function isActiveContent(filePath: string, mimeType: string): boolean {
-  if (ACTIVE_MIME_TYPES.has(mimeType)) {
-    return true
-  }
-  const ext = path.extname(filePath).toLowerCase()
-  return ACTIVE_EXTENSIONS.has(ext)
-}
 
 publicRoutes.get("/*", async (c) => {
   const baseDir = getUploadDir(c)
