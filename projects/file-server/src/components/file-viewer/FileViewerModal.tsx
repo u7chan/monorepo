@@ -6,10 +6,12 @@ import {
 import { CloseIcon } from "../icons/CloseIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 import { EditIcon } from "../icons/EditIcon"
+import { ExternalLinkIcon } from "../icons/ExternalLinkIcon"
 
 interface FileViewerModalProps {
   fileName?: string
   path?: string
+  publicUrl?: string
   borderColor?: string
   animation?: string
   isEditing?: boolean
@@ -21,6 +23,7 @@ interface FileViewerModalProps {
 export const FileViewerModal: FC<FileViewerModalProps> = ({
   fileName,
   path,
+  publicUrl,
   borderColor = "indigo-300",
   animation,
   isEditing = false,
@@ -39,6 +42,17 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
       className={secondaryIconButtonClassName}
     >
       <DownloadIcon />
+    </a>
+  ) : null
+
+  const publicUrlButton = publicUrl ? (
+    <a
+      href={publicUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={secondaryIconButtonClassName}
+    >
+      <ExternalLinkIcon />
     </a>
   ) : null
 
@@ -88,6 +102,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
             </h2>
             <div className="flex items-center gap-2">
               {downloadButton}
+              {publicUrlButton}
               {editButton}
               {closeButton}
             </div>
