@@ -34,7 +34,7 @@ Current features include empty file creation, per-directory Zip download via `/f
 
 - `UPLOAD_DIR` - File storage root directory (default: `./tmp`)
 - `AUTH_DIR` - Authentication metadata directory. Setting this enables authentication and stores `users.json` plus `session-secret`.
-- `INITIAL_ADMIN_PASSWORD` - Password for the `admin` user on first bootstrap. If unset, a random password is printed to stdout once at startup.
+- `INITIAL_ADMIN_PASSWORD` - Password for the `admin` user on first bootstrap only. If `users.json` already contains a valid `admin`, this value is ignored. If unset, a random password is printed to stdout once at startup.
 - Use `.env.example` as a template and set values in `.env` for local development (`bun run` loads `.env` automatically)
 
 ## Directory Layout
@@ -51,7 +51,7 @@ UPLOAD_DIR/
 
 `createApp()` creates both directories at startup if they do not exist.
 
-When `AUTH_DIR` is set, `createApp()` also creates `AUTH_DIR/users.json` plus `AUTH_DIR/session-secret`. `users.json` is bootstrapped with an `admin` user if the file is absent or empty. On subsequent startups the file is validated (must contain `admin` with `role: "admin"`).
+When `AUTH_DIR` is set, `createApp()` also creates `AUTH_DIR/users.json` plus `AUTH_DIR/session-secret`. `users.json` is bootstrapped with an `admin` user if the file is absent or empty. On subsequent startups the file is validated (must contain `admin` with `role: "admin"`), and `INITIAL_ADMIN_PASSWORD` is ignored once a valid admin already exists.
 
 **Docker / Docker Compose**: mount `AUTH_DIR` as a persistent volume so `users.json` and `session-secret` survive container restarts.
 

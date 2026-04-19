@@ -166,7 +166,7 @@ bun run hash-password 'your-password'
 |------|------|-----------|
 | `UPLOAD_DIR` | ファイル保存ルートディレクトリ | `./tmp` |
 | `AUTH_DIR` | 認証メタデータ保存ディレクトリ。設定時に認証有効 | 未設定 |
-| `INITIAL_ADMIN_PASSWORD` | 初回 bootstrap 時の `admin` パスワード | 未設定 |
+| `INITIAL_ADMIN_PASSWORD` | 初回 bootstrap 時のみ使う `admin` パスワード。既存の有効な `admin` がいる場合は無視 | 未設定 |
 
 `AUTH_DIR` を設定すると、初回起動時に次の2ファイルが自動作成される。
 
@@ -178,6 +178,7 @@ AUTH_DIR/
 
 - `users.json`: ユーザー定義。存在しない、空、または空配列なら `admin` ユーザーを bootstrap する
 - `session-secret`: セッション署名鍵。再起動後も同じ値が再利用される
+- `INITIAL_ADMIN_PASSWORD`: `users.json` に有効な `admin` がまだ無い初回 bootstrap 時だけ適用される
 
 ### `users.json` 例
 

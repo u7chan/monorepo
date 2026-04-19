@@ -7,6 +7,7 @@ import {
   isValidUsername,
   loadSessionSecretWithCache,
   MASTER_ADMIN_USERNAME,
+  type RuntimeAuthEnv,
   resolveAuthConfig,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
@@ -260,11 +261,6 @@ function AdminUsersPage({
       </section>
     </div>
   )
-}
-
-type RuntimeAuthEnv = AppBindings["Bindings"] & {
-  SESSION_SECRET?: string
-  USERS_FILE?: string
 }
 
 function getAuthConfig(c: Context<AppBindings>) {

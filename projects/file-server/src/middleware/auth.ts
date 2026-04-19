@@ -9,17 +9,13 @@ import {
   loadSessionSecretWithCache,
   normalizeReturnTo,
   type ResolvedAuthConfig,
+  type RuntimeAuthEnv,
   resolveAuthConfig,
   SESSION_COOKIE_NAME,
   verifySession,
 } from "../utils/auth"
 import { errorResponse } from "../utils/requestUtils"
 import { loadUsersFromFileWithCache } from "../utils/userConfigCache"
-
-type RuntimeAuthEnv = AppBindings["Bindings"] & {
-  SESSION_SECRET?: string
-  USERS_FILE?: string
-}
 
 function getRequestPathWithQuery(c: Context<AppBindings>): string {
   const url = new URL(c.req.url)
@@ -42,19 +38,7 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
   const runtimeEnv = env(c) as RuntimeAuthEnv
   const { UPLOAD_DIR } = runtimeEnv
   const uploadBaseDir = UPLOAD_DIR || DEFAULT_UPLOAD_DIR
-  let authConfig: ResolvedAuthConfig
-
-  try {
-    authConfig = resolveAuthConfig(runtimeEnv)
-  } catch (error) {
-    console.error(error)
-    return errorResponse(
-      c,
-      "AuthConfigError",
-      "Invalid authentication configuration",
-      500,
-    )
-  }
+  const authConfig: ResolvedAuthConfig = resolveAuthConfig(runtimeEnv)
 
   if (!authConfig.enabled || !authConfig.usersFile || !authConfig.authDir) {
     return next()
@@ -125,18 +109,7 @@ export async function requireAuthMiddleware(
   next: Next,
 ) {
   const runtimeEnv = env(c) as RuntimeAuthEnv
-  let authConfig: ResolvedAuthConfig
-  try {
-    authConfig = resolveAuthConfig(runtimeEnv)
-  } catch (error) {
-    console.error(error)
-    return errorResponse(
-      c,
-      "AuthConfigError",
-      "Invalid authentication configuration",
-      500,
-    )
-  }
+  const authConfig: ResolvedAuthConfig = resolveAuthConfig(runtimeEnv)
 
   if (!authConfig.enabled) {
     return next()

@@ -13,6 +13,7 @@ import {
   DEFAULT_UPLOAD_DIR,
   ensureSessionSecret,
   resolveAuthConfig,
+  validateLegacyAuthEnv,
 } from "./utils/auth"
 import { bootstrapAdminUser } from "./utils/bootstrap"
 
@@ -27,11 +28,13 @@ export async function createApp(
 ): Promise<Hono<AppBindings>> {
   const uploadDir =
     options.uploadDir ?? process.env.UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR
-  const authConfig = resolveAuthConfig({
+  const authEnv = {
     AUTH_DIR: options.authDir ?? process.env.AUTH_DIR,
     SESSION_SECRET: process.env.SESSION_SECRET,
     USERS_FILE: process.env.USERS_FILE,
-  })
+  }
+  validateLegacyAuthEnv(authEnv)
+  const authConfig = resolveAuthConfig(authEnv)
   const initialAdminPassword =
     options.initialAdminPassword ?? process.env.INITIAL_ADMIN_PASSWORD
 

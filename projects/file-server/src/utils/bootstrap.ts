@@ -35,6 +35,11 @@ export async function bootstrapAdminUser(
             `[FATAL] '${MASTER_ADMIN_USERNAME}' user must have role 'admin'.`,
           )
         }
+        if (initialAdminPassword) {
+          console.log(
+            "[BOOTSTRAP] INITIAL_ADMIN_PASSWORD is ignored because users.json already contains a valid admin user.",
+          )
+        }
         return
       }
       // Valid JSON empty array — fall through to bootstrap

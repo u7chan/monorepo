@@ -7,6 +7,7 @@ import {
   findUser,
   loadSessionSecretWithCache,
   normalizeReturnTo,
+  type RuntimeAuthEnv,
   resolveAuthConfig,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
@@ -143,11 +144,6 @@ function LoginPage({ returnTo, error, username }: LoginPageProps) {
       />
     </div>
   )
-}
-
-type RuntimeAuthEnv = AppBindings["Bindings"] & {
-  SESSION_SECRET?: string
-  USERS_FILE?: string
 }
 
 function getAuthConfig(c: Context<AppBindings>) {

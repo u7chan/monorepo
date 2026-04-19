@@ -84,7 +84,10 @@ export async function saveUsersToFile(
   const dir = path.dirname(usersFile)
   await mkdir(dir, { recursive: true })
   const tmpFile = `${usersFile}.tmp`
-  await writeFile(tmpFile, JSON.stringify(users, null, 2), "utf-8")
+  await writeFile(tmpFile, JSON.stringify(users, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  })
   await rename(tmpFile, usersFile)
   cachedUsers = null
   cachedPath = null

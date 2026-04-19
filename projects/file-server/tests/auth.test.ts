@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createApp } from "../src/app"
 import { getSessionSecretFilePath, getUsersFilePath } from "../src/utils/auth"
@@ -457,10 +457,20 @@ describe("auth", () => {
     expect(secret.trim().length).toBeGreaterThan(0)
   })
 
+  it("writes users.json with restricted permissions", async () => {
+    const usersFile = getUsersFilePath(AUTH_DIR)
+    const fileStat = await stat(usersFile)
+
+    expect(fileStat.mode & 0o777).toBe(0o600)
+  })
+
   it("keeps existing sessions valid after restart with the same AUTH_DIR", async () => {
     const adminLogin = await login("admin", "initial-admin-pass")
     const sessionCookie =
       adminLogin.headers.get("set-cookie")?.split(";")[0] ?? ""
+    const originalSecret = await Bun.file(
+      getSessionSecretFilePath(AUTH_DIR),
+    ).text()
 
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
@@ -474,6 +484,9 @@ describe("auth", () => {
     )
 
     expect(res.status).toBe(200)
+    await expect(
+      Bun.file(getSessionSecretFilePath(AUTH_DIR)).text(),
+    ).resolves.toBe(originalSecret)
   })
 
   it("fails to start if SESSION_SECRET is still set", async () => {
@@ -651,6 +664,28 @@ describe("auth", () => {
 
     const res = await login("admin", "initial-admin-pass")
     expect(res.status).toBe(302)
+  })
+
+  it("logs when INITIAL_ADMIN_PASSWORD is ignored for an existing admin", async () => {
+    const messages: string[] = []
+    const originalConsoleLog = console.log
+    console.log = (...args: unknown[]) => {
+      messages.push(args.join(" "))
+    }
+
+    try {
+      app = await createTestApp({
+        uploadDir: UPLOAD_DIR,
+        authDir: AUTH_DIR,
+        initialAdminPassword: "ignored-admin-pass",
+      })
+    } finally {
+      console.log = originalConsoleLog
+    }
+
+    expect(messages).toContain(
+      "[BOOTSTRAP] INITIAL_ADMIN_PASSWORD is ignored because users.json already contains a valid admin user.",
+    )
   })
 
   it("blocks master admin password reset via /admin/users/:username/password", async () => {

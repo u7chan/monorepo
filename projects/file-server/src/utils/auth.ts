@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import type { UserConfig, UserState } from "../types"
+import type { AppBindings, UserConfig, UserState } from "../types"
 
 const USERNAME_PATTERN = /^[a-z0-9_-]+$/
 const RESERVED_USERNAMES = new Set(["public", "private"])
@@ -17,6 +17,9 @@ export type AuthEnv = {
   SESSION_SECRET?: string
   USERS_FILE?: string
 }
+
+export type RuntimeAuthEnv = AppBindings["Bindings"] &
+  Pick<AuthEnv, "SESSION_SECRET" | "USERS_FILE">
 
 export type ResolvedAuthConfig = {
   enabled: boolean
@@ -54,9 +57,9 @@ export function validateLegacyAuthEnv(
   }
 }
 
-export function resolveAuthConfig(env: AuthEnv): ResolvedAuthConfig {
-  validateLegacyAuthEnv(env)
-
+export function resolveAuthConfig(
+  env: Pick<AuthEnv, "AUTH_DIR">,
+): ResolvedAuthConfig {
   const authDir = normalizeOptionalPath(env.AUTH_DIR)
 
   return {
@@ -72,30 +75,52 @@ function resetSessionSecretCache(): void {
   cachedSessionSecretMtimeMs = null
 }
 
+async function readSessionSecretIfPresent(
+  sessionSecretFile: string,
+): Promise<string | null> {
+  try {
+    const sessionSecret = (await readFile(sessionSecretFile, "utf-8")).trim()
+    return sessionSecret || null
+  } catch (error) {
+    const errno = error as NodeJS.ErrnoException
+    if (errno.code === "ENOENT") {
+      return null
+    }
+    throw error
+  }
+}
+
 export async function ensureSessionSecret(authDir: string): Promise<string> {
   await mkdir(authDir, { recursive: true })
 
   const sessionSecretFile = getSessionSecretFilePath(authDir)
+  const existingSecret = await readSessionSecretIfPresent(sessionSecretFile)
+  if (existingSecret) {
+    return existingSecret
+  }
 
+  const sessionSecret = randomBytes(48).toString("base64url")
   try {
-    const existingSecret = (await readFile(sessionSecretFile, "utf-8")).trim()
-    if (existingSecret) {
-      return existingSecret
-    }
+    // Use exclusive create so concurrent first startups converge on one secret.
+    await writeFile(sessionSecretFile, `${sessionSecret}\n`, {
+      encoding: "utf-8",
+      mode: 0o600,
+      flag: "wx",
+    })
+    resetSessionSecretCache()
+    return sessionSecret
   } catch (error) {
     const errno = error as NodeJS.ErrnoException
-    if (errno.code !== "ENOENT") {
+    if (errno.code !== "EEXIST") {
       throw error
     }
   }
 
-  const sessionSecret = randomBytes(48).toString("base64url")
-  await writeFile(sessionSecretFile, `${sessionSecret}\n`, {
-    encoding: "utf-8",
-    mode: 0o600,
-  })
-  resetSessionSecretCache()
-  return sessionSecret
+  const concurrentSecret = await readSessionSecretIfPresent(sessionSecretFile)
+  if (!concurrentSecret) {
+    throw new Error("session-secret file is empty.")
+  }
+  return concurrentSecret
 }
 
 export async function loadSessionSecretWithCache(
