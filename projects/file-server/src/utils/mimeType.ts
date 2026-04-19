@@ -21,9 +21,14 @@ export const normalizeResponseMimeType = (mimeType: string) => {
   const normalizedMimeType =
     baseMimeType?.trim().toLowerCase() || DEFAULT_MIME_TYPE
 
-  if (!isUtf8TextMime(normalizedMimeType) || /;\s*charset=/i.test(mimeType)) {
+  if (!isUtf8TextMime(normalizedMimeType)) {
     return normalizedMimeType
   }
+
+  if (/;\s*charset=/i.test(mimeType)) {
+    return mimeType
+  }
+
   return `${normalizedMimeType}; charset=utf-8`
 }
 
