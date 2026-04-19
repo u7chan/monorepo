@@ -244,16 +244,17 @@ bun run hash-password 'alice-password'
 - `users.json` を更新すると次回リクエストから再読込される
 - `session-secret` を失うか差し替えると既存セッションはすべて失効する
 
-Docker 例:
+このリポジトリには `compose.yaml` のサンプルが含まれており、`AUTH_DIR` と `UPLOAD_DIR` を別々の named volume に永続化する。
 
 ```bash
-docker run -p 3000:3000 \
-  -e AUTH_DIR='/app/auth' \
-  -e UPLOAD_DIR='/app/uploads' \
-  file-server
+docker compose up -d --build
 ```
 
-必要に応じて `/app/auth` と `/app/uploads` を volume mount する。
+停止時:
+
+```bash
+docker compose down
+```
 
 ## 破壊的変更とマイグレーション
 
@@ -287,15 +288,10 @@ APIパスも変更されている:
 
 現在のランタイムイメージでは `zip` コマンドをインストールしており、`/file/archive` はその `zip` コマンドを使って表示中ディレクトリ配下の子要素だけをアーカイブする。
 
+同梱の `compose.yaml` を使う場合は、次のコマンドで起動できる。
+
 ```bash
-# ビルド
-docker build -t file-server .
-
-# テスト実行
-docker build --target=test .
-
-# 実行
-docker run -p 3000:3000 -e UPLOAD_DIR=/app/uploads -v $(pwd)/data:/app/uploads file-server
+docker compose up -d --build
 ```
 
 ### Dockerfileの構成（マルチステージ）
