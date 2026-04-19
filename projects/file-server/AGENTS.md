@@ -77,7 +77,8 @@ All browse/API requests use a virtual path that maps to one of two scopes:
 `GET /public/*` is unauthenticated and serves files directly from `UPLOAD_DIR/public/`, including HTML, XHTML, and SVG.
 
 - **Trusted content premise**: HTML/XHTML/SVG delivery via `/public/*` assumes the content was placed there by an explicit user action or a user-confirmed Internal API call. This is not a mechanism for safely hosting untrusted content on the same origin.
-- Active content (HTML/XHTML/SVG) is served with its native MIME type. Sanitization and XSS prevention are enforced at upload/update time via server-side validation (see Issue #815 / `src/utils/htmlValidation.ts`), not at delivery time.
+- Active content (HTML/XHTML/SVG) is served with its native MIME type. Sanitization and XSS prevention are enforced at upload/update/rename time via server-side validation (see Issue #815 / `src/utils/htmlValidation.ts`), not at delivery time.
+- **Admin-only write for active content**: When auth is enabled, only `admin`-role users can upload, update, or rename files to HTML/XHTML/SVG extensions in the `public/` scope. Regular `user`-role requests are rejected with 403. In auth-disabled (anonymous) mode this restriction does not apply.
 - This route bypasses session authentication — it is always accessible.
 - Path traversal is detected and blocked at the handler level.
 - Directories are rejected with 404.

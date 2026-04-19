@@ -121,6 +121,13 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
       const buffer = await file.arrayBuffer()
 
       if (isPublicScope(relativePath) && isPublicHtmlFile(relativePath)) {
+        if (user.type === "authenticated" && user.role !== "admin") {
+          results.failed.push({
+            name: file.name,
+            reason: "Only admin can upload HTML/SVG files to public scope",
+          })
+          continue
+        }
         const text = Buffer.from(buffer).toString("utf-8")
         const validation = validatePublicHtml(text)
         if (!validation.ok) {
@@ -317,6 +324,14 @@ export async function renameHandler(c: Context<AppBindings>) {
     isPublicScope(destinationRelativePath) &&
     isPublicHtmlFile(destinationRelativePath)
   ) {
+    if (user.type === "authenticated" && user.role !== "admin") {
+      return errorResponse(
+        c,
+        "Forbidden",
+        "Only admin can rename files to HTML/SVG in public scope",
+        403,
+      )
+    }
     const sourceContent = await readFile(sourcePath, "utf-8")
     const validation = validatePublicHtml(sourceContent)
     if (!validation.ok) {
@@ -360,6 +375,14 @@ export async function updateFileHandler(c: Context<AppBindings>) {
   }
 
   if (isPublicScope(filePathParam) && isPublicHtmlFile(filePathParam)) {
+    if (user.type === "authenticated" && user.role !== "admin") {
+      return errorResponse(
+        c,
+        "Forbidden",
+        "Only admin can update HTML/SVG files in public scope",
+        403,
+      )
+    }
     const validation = validatePublicHtml(content)
     if (!validation.ok) {
       return errorResponse(c, "ValidationError", validation.reason, 400)

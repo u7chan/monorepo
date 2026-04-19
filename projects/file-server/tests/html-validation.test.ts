@@ -521,6 +521,174 @@ describe("update HTML/SVG validation via API", () => {
 	})
 })
 
+describe("public HTML/SVG write restricted to admin when auth is enabled", () => {
+	const UPLOAD_DIR = "./tmp-test-html-validation-role"
+	const SESSION_SECRET = "0123456789abcdef0123456789abcdef"
+	let app: Awaited<ReturnType<typeof createTestApp>>
+	let adminCookie: string
+	let userCookie: string
+
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({
+			uploadDir: UPLOAD_DIR,
+			sessionSecret: SESSION_SECRET,
+			seedUsers: [
+				{ username: "admin", password: "admin-pass", role: "admin" },
+				{ username: "alice", password: "alice-pass", role: "user" },
+			],
+		})
+		const { createTestSession } = await import("./helpers/auth")
+		adminCookie = (await createTestSession("admin", SESSION_SECRET)).cookie
+		userCookie = (await createTestSession("alice", SESSION_SECRET)).cookie
+	})
+
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
+
+	it("admin can upload safe HTML to public", async () => {
+		const safeHtml = "<html><body><p>Hello</p></body></html>"
+		const formData = new FormData()
+		formData.append("files", new File([safeHtml], "page.html", { type: "text/html" }))
+		formData.append("path", "public")
+
+		const res = await app.request(
+			new Request("http://localhost/api/upload", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: adminCookie },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as { success: boolean; uploaded: string[] }
+		expect(data.success).toBe(true)
+		expect(data.uploaded).toContain("page.html")
+	})
+
+	it("regular user cannot upload HTML to public scope", async () => {
+		const safeHtml = "<html><body><p>Hello</p></body></html>"
+		const formData = new FormData()
+		formData.append("files", new File([safeHtml], "page.html", { type: "text/html" }))
+		formData.append("path", "public")
+
+		const res = await app.request(
+			new Request("http://localhost/api/upload", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: userCookie },
+			}),
+		)
+		expect(res.status).toBe(200)
+		const data = (await res.json()) as {
+			success: boolean
+			failed: { name: string; reason: string }[]
+		}
+		expect(data.success).toBe(false)
+		expect(data.failed[0].name).toBe("page.html")
+		expect(data.failed[0].reason).toContain("Only admin")
+	})
+
+	it("regular user cannot upload SVG to public scope", async () => {
+		const safeSvg = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>'
+		const formData = new FormData()
+		formData.append("files", new File([safeSvg], "image.svg", { type: "image/svg+xml" }))
+		formData.append("path", "public")
+
+		const res = await app.request(
+			new Request("http://localhost/api/upload", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: userCookie },
+			}),
+		)
+		const data = (await res.json()) as {
+			success: boolean
+			failed: { name: string; reason: string }[]
+		}
+		expect(data.success).toBe(false)
+		expect(data.failed[0].reason).toContain("Only admin")
+	})
+
+	it("regular user can still upload non-HTML files to public scope", async () => {
+		const formData = new FormData()
+		formData.append("files", new File(["content"], "file.txt", { type: "text/plain" }))
+		formData.append("path", "public")
+
+		const res = await app.request(
+			new Request("http://localhost/api/upload", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: userCookie },
+			}),
+		)
+		const data = (await res.json()) as { success: boolean; uploaded: string[] }
+		expect(data.success).toBe(true)
+		expect(data.uploaded).toContain("file.txt")
+	})
+
+	it("admin can update HTML in public scope", async () => {
+		const { writeFile: fsWrite, mkdir: fsMkdir } = await import("node:fs/promises")
+		await fsMkdir(`${UPLOAD_DIR}/public`, { recursive: true })
+		await fsWrite(`${UPLOAD_DIR}/public/page.html`, "<p>old</p>", "utf-8")
+
+		const formData = new FormData()
+		formData.append("path", "public/page.html")
+		formData.append("content", "<html><body><p>Updated</p></body></html>")
+
+		const res = await app.request(
+			new Request("http://localhost/api/update", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: adminCookie },
+			}),
+		)
+		expect(res.status).toBe(200)
+	})
+
+	it("regular user cannot update HTML in public scope", async () => {
+		const { writeFile: fsWrite, mkdir: fsMkdir } = await import("node:fs/promises")
+		await fsMkdir(`${UPLOAD_DIR}/public`, { recursive: true })
+		await fsWrite(`${UPLOAD_DIR}/public/page.html`, "<p>old</p>", "utf-8")
+
+		const formData = new FormData()
+		formData.append("path", "public/page.html")
+		formData.append("content", "<html><body><p>Hacked</p></body></html>")
+
+		const res = await app.request(
+			new Request("http://localhost/api/update", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: userCookie },
+			}),
+		)
+		expect(res.status).toBe(403)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.error.name).toBe("Forbidden")
+	})
+
+	it("regular user cannot rename file to HTML in public scope", async () => {
+		const { writeFile: fsWrite, mkdir: fsMkdir } = await import("node:fs/promises")
+		await fsMkdir(`${UPLOAD_DIR}/public`, { recursive: true })
+		await fsWrite(`${UPLOAD_DIR}/public/page.txt`, "<p>content</p>", "utf-8")
+
+		const formData = new FormData()
+		formData.append("path", "public/page.txt")
+		formData.append("name", "page.html")
+
+		const res = await app.request(
+			new Request("http://localhost/api/rename", {
+				method: "POST",
+				body: formData,
+				headers: { cookie: userCookie },
+			}),
+		)
+		expect(res.status).toBe(403)
+		const data = (await res.json()) as { success: boolean; error: { name: string } }
+		expect(data.error.name).toBe("Forbidden")
+	})
+})
+
 describe("rename HTML/SVG validation via API", () => {
 	const UPLOAD_DIR = "./tmp-test-html-validation-rename"
 	let app: Awaited<ReturnType<typeof createTestApp>>
