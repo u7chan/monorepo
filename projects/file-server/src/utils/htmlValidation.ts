@@ -24,9 +24,18 @@ const DENIED_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
 	{ pattern: /<foreignObject\b/i, label: "<foreignObject>" },
 ]
 
+function decodeHtmlEntities(content: string): string {
+	return content
+		.replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+			String.fromCodePoint(Number.parseInt(hex, 16)),
+		)
+		.replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
+}
+
 export function validatePublicHtml(content: string): HtmlValidationResult {
+	const decoded = decodeHtmlEntities(content)
 	for (const { pattern, label } of DENIED_PATTERNS) {
-		if (pattern.test(content)) {
+		if (pattern.test(content) || pattern.test(decoded)) {
 			return { ok: false, reason: `Prohibited content: ${label}` }
 		}
 	}

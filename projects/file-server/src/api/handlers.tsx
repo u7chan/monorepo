@@ -120,7 +120,7 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
       await mkdir(path.dirname(savePath), { recursive: true })
       const buffer = await file.arrayBuffer()
 
-      if (isPublicScope(virtualPath) && isPublicHtmlFile(file.name)) {
+      if (isPublicScope(relativePath) && isPublicHtmlFile(relativePath)) {
         const text = Buffer.from(buffer).toString("utf-8")
         const validation = validatePublicHtml(text)
         if (!validation.ok) {
@@ -310,6 +310,17 @@ export async function renameHandler(c: Context<AppBindings>) {
   } catch (err: unknown) {
     if (!isNodeErrorCode(err, "ENOENT")) {
       throw err
+    }
+  }
+
+  if (
+    isPublicScope(destinationRelativePath) &&
+    isPublicHtmlFile(destinationRelativePath)
+  ) {
+    const sourceContent = await readFile(sourcePath, "utf-8")
+    const validation = validatePublicHtml(sourceContent)
+    if (!validation.ok) {
+      return errorResponse(c, "ValidationError", validation.reason, 400)
     }
   }
 

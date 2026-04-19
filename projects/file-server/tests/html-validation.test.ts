@@ -97,6 +97,17 @@ describe("validatePublicHtml", () => {
 		expect(result.ok).toBe(false)
 		if (!result.ok) expect(result.reason).toContain("<script>")
 	})
+
+	it("rejects javascript: via hex entity-encoded colon (&#x3a;)", () => {
+		const result = validatePublicHtml('<a href="javascript&#x3a;alert(1)">link</a>')
+		expect(result.ok).toBe(false)
+		if (!result.ok) expect(result.reason).toContain("javascript: URL")
+	})
+
+	it("rejects javascript: via decimal entity-encoded colon (&#58;)", () => {
+		const result = validatePublicHtml('<a href="javascript&#58;alert(1)">link</a>')
+		expect(result.ok).toBe(false)
+	})
 })
 
 describe("isPublicHtmlFile", () => {
@@ -275,6 +286,47 @@ describe("upload HTML/SVG validation via API", () => {
 		}
 		expect(data.success).toBe(false)
 		expect(data.failed[0].reason).toContain("<foreignObject>")
+	})
+
+	it("rejects dangerous content when path param is public/evil.svg but file.name is safe.txt", async () => {
+		const dangerousSvg =
+			'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+		const formData = new FormData()
+		formData.append(
+			"files",
+			new File([dangerousSvg], "safe.txt", { type: "text/plain" }),
+		)
+		formData.append("path", "public/evil.svg")
+
+		const res = await app.request(
+			new Request("http://localhost/api/upload", { method: "POST", body: formData }),
+		)
+		const data = (await res.json()) as {
+			success: boolean
+			failed: { name: string; reason: string }[]
+		}
+		expect(data.success).toBe(false)
+		expect(data.failed[0].reason).toContain("<script>")
+	})
+
+	it("rejects javascript: via HTML entity in uploaded SVG", async () => {
+		const dangerousSvg = '<svg><a href="javascript&#x3a;alert(1)"><text>x</text></a></svg>'
+		const formData = new FormData()
+		formData.append(
+			"files",
+			new File([dangerousSvg], "image.svg", { type: "image/svg+xml" }),
+		)
+		formData.append("path", "public")
+
+		const res = await app.request(
+			new Request("http://localhost/api/upload", { method: "POST", body: formData }),
+		)
+		const data = (await res.json()) as {
+			success: boolean
+			failed: { name: string; reason: string }[]
+		}
+		expect(data.success).toBe(false)
+		expect(data.failed[0].reason).toContain("javascript: URL")
 	})
 
 	it("does not validate HTML uploaded to private scope", async () => {
@@ -466,5 +518,93 @@ describe("update HTML/SVG validation via API", () => {
 		expect(res.status).toBe(200)
 		const data = (await res.json()) as { success: boolean }
 		expect(data.success).toBe(true)
+	})
+})
+
+describe("rename HTML/SVG validation via API", () => {
+	const UPLOAD_DIR = "./tmp-test-html-validation-rename"
+	let app: Awaited<ReturnType<typeof createTestApp>>
+
+	beforeEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+		app = await createTestApp({ uploadDir: UPLOAD_DIR })
+		await mkdir(path.join(UPLOAD_DIR, "public"), { recursive: true })
+	})
+
+	afterEach(async () => {
+		await rm(UPLOAD_DIR, { recursive: true, force: true })
+	})
+
+	it("allows renaming safe content to public HTML", async () => {
+		await writeFile(
+			path.join(UPLOAD_DIR, "public", "page.txt"),
+			"<html><body><p>Safe</p></body></html>",
+			"utf-8",
+		)
+
+		const formData = new FormData()
+		formData.append("path", "public/page.txt")
+		formData.append("name", "page.html")
+
+		const res = await app.request(
+			new Request("http://localhost/api/rename", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(301)
+	})
+
+	it("rejects renaming file with <script> content to public HTML", async () => {
+		await writeFile(
+			path.join(UPLOAD_DIR, "public", "evil.txt"),
+			"<html><body><script>alert(1)</script></body></html>",
+			"utf-8",
+		)
+
+		const formData = new FormData()
+		formData.append("path", "public/evil.txt")
+		formData.append("name", "evil.html")
+
+		const res = await app.request(
+			new Request("http://localhost/api/rename", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string; message: string } }
+		expect(data.error.name).toBe("ValidationError")
+		expect(data.error.message).toContain("<script>")
+	})
+
+	it("rejects renaming file with javascript: content to public SVG", async () => {
+		await writeFile(
+			path.join(UPLOAD_DIR, "public", "evil.txt"),
+			'<svg><a href="javascript:alert(1)"><text>x</text></a></svg>',
+			"utf-8",
+		)
+
+		const formData = new FormData()
+		formData.append("path", "public/evil.txt")
+		formData.append("name", "evil.svg")
+
+		const res = await app.request(
+			new Request("http://localhost/api/rename", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(400)
+		const data = (await res.json()) as { success: boolean; error: { name: string; message: string } }
+		expect(data.error.name).toBe("ValidationError")
+	})
+
+	it("does not validate when renaming to non-HTML extension", async () => {
+		await writeFile(
+			path.join(UPLOAD_DIR, "public", "old.html"),
+			"<script>alert(1)</script>",
+			"utf-8",
+		)
+
+		const formData = new FormData()
+		formData.append("path", "public/old.html")
+		formData.append("name", "old.txt")
+
+		const res = await app.request(
+			new Request("http://localhost/api/rename", { method: "POST", body: formData }),
+		)
+		expect(res.status).toBe(301)
 	})
 })
