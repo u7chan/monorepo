@@ -17,7 +17,9 @@ describe("lookupMimeType", () => {
 
 describe("normalizeResponseMimeType", () => {
   it("adds utf-8 charset to text/html", () => {
-    expect(normalizeResponseMimeType("text/html")).toBe("text/html; charset=utf-8")
+    expect(normalizeResponseMimeType("text/html")).toBe(
+      "text/html; charset=utf-8",
+    )
   })
 
   it("keeps an existing charset parameter", () => {
@@ -45,7 +47,9 @@ describe("normalizeResponseMimeType", () => {
 
 describe("resolveResponseMimeType", () => {
   it("resolves text/html with utf-8 charset from a file path", () => {
-    expect(resolveResponseMimeType("page.html")).toBe("text/html; charset=utf-8")
+    expect(resolveResponseMimeType("page.html")).toBe(
+      "text/html; charset=utf-8",
+    )
   })
 
   it("resolves binary mime types without adding charset", () => {
