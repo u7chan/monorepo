@@ -86,41 +86,18 @@ function AssistantSavableCodeBlock({
   const previewHref = existing ? existing.previewUrl || existing.publicPath : undefined
   const canShowSaveAction = supported && !existing && ctx.canSaveGeneratedFile
 
-  return (
-    <div>
-      <CodeBlockRenderer className={className} previewHref={previewHref} {...rest}>
-        {children}
-      </CodeBlockRenderer>
-      {canShowSaveAction && (
-        <GeneratedFileActions
-          disabled={ctx.disabled}
-          onSave={() =>
-            ctx.onSave({
-              blockIndex,
-              language: detectedLanguage ?? '',
-              content: code,
-            })
-          }
-        />
-      )}
-    </div>
-  )
-}
-
-interface GeneratedFileActionsProps {
-  disabled?: boolean
-  onSave: () => Promise<GeneratedCodeFile | null>
-}
-
-function GeneratedFileActions({ disabled, onSave }: GeneratedFileActionsProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleClick = async () => {
+  const handleSave = async () => {
     setSaving(true)
     setError(null)
     try {
-      await onSave()
+      await ctx.onSave({
+        blockIndex,
+        language: detectedLanguage ?? '',
+        content: code,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -129,16 +106,24 @@ function GeneratedFileActions({ disabled, onSave }: GeneratedFileActionsProps) {
   }
 
   return (
-    <div className='mt-1 flex items-center gap-2 text-xs'>
-      <button
-        type='button'
-        onClick={handleClick}
-        disabled={saving || disabled}
-        className='cursor-pointer rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:bg-gray-100 disabled:cursor-default disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
+    <div>
+      <CodeBlockRenderer
+        className={className}
+        previewHref={previewHref}
+        generateAction={
+          canShowSaveAction
+            ? {
+                onClick: handleSave,
+                pending: saving,
+                disabled: ctx.disabled,
+              }
+            : undefined
+        }
+        {...rest}
       >
-        {saving ? '生成中…' : '生成'}
-      </button>
-      {error && <span className='text-red-500'>{error}</span>}
+        {children}
+      </CodeBlockRenderer>
+      {error && <div className='mt-1 text-red-500 text-xs'>{error}</div>}
     </div>
   )
 }
