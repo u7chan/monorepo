@@ -133,7 +133,7 @@ export async function saveGeneratedFile(
   }
 
   const createdAt = new Date().toISOString()
-  const previewUrl = `${fileServerConfig.baseUrl}${publicPath}`
+  const previewUrl = publicPath
   const file: GeneratedCodeFile = {
     blockIndex: params.blockIndex,
     language: params.language,

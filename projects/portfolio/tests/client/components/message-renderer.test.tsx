@@ -98,7 +98,7 @@ describe('MessageRenderer', () => {
               language: 'html',
               fileName: 'message-1-block-0.html',
               publicPath: '/public/portfolio/c1/message-1-block-0.html',
-              previewUrl: 'http://localhost/public/portfolio/c1/message-1-block-0.html',
+              previewUrl: '/public/portfolio/c1/message-1-block-0.html',
               contentType: 'text/html; charset=utf-8',
               createdAt: '2026-04-19T00:00:00.000Z',
             },
@@ -113,7 +113,9 @@ describe('MessageRenderer', () => {
         />
       )
 
-      expect(screen.getByRole('link', { name: 'プレビュー' })).toBeTruthy()
+      const previewLink = screen.getByRole('link', { name: 'プレビュー' })
+      expect(previewLink).toBeTruthy()
+      expect(previewLink.getAttribute('href')).toBe('/public/portfolio/c1/message-1-block-0.html')
       expect(screen.queryByRole('button', { name: '生成' })).toBeNull()
     })
   })

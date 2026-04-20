@@ -16,13 +16,23 @@ export interface FileServerEnv {
   FILE_SERVER_ADMIN_PASSWORD?: string
 }
 
+export function resolveFileServerBaseUrl(env: Pick<FileServerEnv, 'FILE_SERVER_URL'>): string | null {
+  const baseUrl = (env.FILE_SERVER_URL ?? '').trim()
+
+  if (!baseUrl) {
+    return null
+  }
+
+  return baseUrl.replace(/\/$/, '')
+}
+
 /**
  * file-server の設定を env から解決する。
  * 現時点では固定 admin credentials を使うが、将来 portfolio user と
  * file-server user の対応付けに差し替えられるよう helper で閉じ込める。
  */
 export function resolveFileServerConfig(env: FileServerEnv): FileServerConfig | null {
-  const baseUrl = (env.FILE_SERVER_URL ?? '').trim()
+  const baseUrl = resolveFileServerBaseUrl(env)
   const username = (env.FILE_SERVER_ADMIN_USERNAME ?? '').trim()
   const password = env.FILE_SERVER_ADMIN_PASSWORD ?? ''
 
@@ -31,7 +41,7 @@ export function resolveFileServerConfig(env: FileServerEnv): FileServerConfig | 
   }
 
   return {
-    baseUrl: baseUrl.replace(/\/$/, ''),
+    baseUrl,
     credentials: { username, password },
   }
 }

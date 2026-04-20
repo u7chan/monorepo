@@ -132,7 +132,7 @@ describe('saveGeneratedFile', () => {
       language: 'html',
       fileName: 'm1-block-0.html',
       publicPath: '/public/portfolio/c1/m1-block-0.html',
-      previewUrl: 'http://fs/public/portfolio/c1/m1-block-0.html',
+      previewUrl: '/public/portfolio/c1/m1-block-0.html',
       contentType: 'text/html; charset=utf-8',
       createdAt: '2026-04-19T00:00:00.000Z',
     }
@@ -195,7 +195,7 @@ describe('saveGeneratedFile', () => {
           expect.objectContaining({
             blockIndex: 2,
             publicPath: '/public/portfolio/c1/m1-block-2.svg',
-            previewUrl: 'http://fs/public/portfolio/c1/m1-block-2.svg',
+            previewUrl: '/public/portfolio/c1/m1-block-2.svg',
           }),
         ],
       },
