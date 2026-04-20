@@ -1,4 +1,7 @@
-import { resolveFileServerConfig } from '#/server/features/chat-conversations/file-server-client'
+import {
+  resolveFileServerConfig,
+  resolveFileServerPublicBaseUrl,
+} from '#/server/features/chat-conversations/file-server-client'
 import { chatConversationRepository } from '#/server/features/chat-conversations/repository'
 import { requireAuth } from '#/server/middleware/auth'
 import { ConversationSchema, GeneratedCodeFileSchema } from '#/types'
@@ -45,9 +48,11 @@ const SaveGeneratedFileBodySchema = z.object({
 
 const conversationsRoutes = new Hono<HonoEnv>()
   .get('/api/conversations', requireAuth, async (c) => {
-    const { DATABASE_URL = '' } = getServerEnv(c)
+    const env = getServerEnv(c)
+    const { DATABASE_URL = '' } = env
     const email = c.get('email')
-    const conversations = await chatConversationRepository.read(DATABASE_URL, email)
+    const fileServerPublicBaseUrl = resolveFileServerPublicBaseUrl(env)
+    const conversations = await chatConversationRepository.read(DATABASE_URL, email, fileServerPublicBaseUrl)
 
     if (!conversations) {
       return c.json({ data: [] })

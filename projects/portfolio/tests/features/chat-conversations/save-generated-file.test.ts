@@ -47,6 +47,7 @@ const importSubject = async (params: {
   const loginToFileServer = vi.fn().mockResolvedValue('session-value')
   const uploadFileToFileServer = vi.fn().mockResolvedValue(undefined)
   vi.doMock('#/server/features/chat-conversations/file-server-client', () => ({
+    buildFileServerPreviewUrl: vi.fn((publicBaseUrl: string, publicPath: string) => `${publicBaseUrl}${publicPath}`),
     loginToFileServer,
     uploadFileToFileServer,
   }))
@@ -98,7 +99,11 @@ describe('saveGeneratedFile', () => {
         language: 'python',
         content: 'print(1)',
       },
-      { baseUrl: 'http://fs', credentials: { username: 'admin', password: 'p' } }
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
     )
 
     expect(result.ok).toBe(false)
@@ -120,7 +125,11 @@ describe('saveGeneratedFile', () => {
         language: 'html',
         content: '<p/>',
       },
-      { baseUrl: 'http://fs', credentials: { username: 'admin', password: 'p' } }
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
     )
 
     expect(result).toEqual({ ok: false, reason: 'forbidden' })
@@ -132,7 +141,7 @@ describe('saveGeneratedFile', () => {
       language: 'html',
       fileName: 'm1-block-0.html',
       publicPath: '/public/portfolio/c1/m1-block-0.html',
-      previewUrl: 'http://fs/public/portfolio/c1/m1-block-0.html',
+      previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-0.html',
       contentType: 'text/html; charset=utf-8',
       createdAt: '2026-04-19T00:00:00.000Z',
     }
@@ -152,7 +161,11 @@ describe('saveGeneratedFile', () => {
       'postgres://db',
       'x@example.com',
       { conversationId: 'c1', messageId: 'm1', blockIndex: 0, language: 'html', content: '<p/>' },
-      { baseUrl: 'http://fs', credentials: { username: 'admin', password: 'p' } }
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
     )
 
     expect(result).toEqual({ ok: true, file: existing, alreadyExisted: true })
@@ -174,7 +187,11 @@ describe('saveGeneratedFile', () => {
       'postgres://db',
       'x@example.com',
       { conversationId: 'c1', messageId: 'm1', blockIndex: 2, language: 'svg', content: '<svg/>' },
-      { baseUrl: 'http://fs', credentials: { username: 'admin', password: 'p' } }
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
     )
 
     expect(result.ok).toBe(true)
@@ -195,7 +212,7 @@ describe('saveGeneratedFile', () => {
           expect.objectContaining({
             blockIndex: 2,
             publicPath: '/public/portfolio/c1/m1-block-2.svg',
-            previewUrl: 'http://fs/public/portfolio/c1/m1-block-2.svg',
+            previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-2.svg',
           }),
         ],
       },

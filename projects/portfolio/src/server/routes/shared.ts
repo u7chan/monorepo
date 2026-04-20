@@ -13,6 +13,7 @@ export type Env = Partial<{
   LOG_LEVEL: string
   LOG_FILE: string
   FILE_SERVER_URL: string
+  FILE_SERVER_PUBLIC_URL: string
   FILE_SERVER_ADMIN_USERNAME: string
   FILE_SERVER_ADMIN_PASSWORD: string
 }>

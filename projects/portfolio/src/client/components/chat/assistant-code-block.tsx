@@ -120,10 +120,12 @@ function GeneratedFileActions({ existing, disabled, canSave, onSave }: Generated
   const [error, setError] = useState<string | null>(null)
 
   if (existing) {
+    const previewHref = existing.previewUrl || existing.publicPath
+
     return (
       <div className='mt-1 flex items-center gap-2 text-xs'>
         <a
-          href={existing.previewUrl}
+          href={previewHref}
           target='_blank'
           rel='noopener noreferrer'
           className='rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'

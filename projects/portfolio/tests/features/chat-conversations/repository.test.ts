@@ -39,9 +39,9 @@ describe('chatConversationRepository', () => {
     const { chatConversationRepository, readConversations } = await importSubject()
     readConversations.mockResolvedValue([{ id: 'conversation-1', title: 'title', messages: [] }])
 
-    await chatConversationRepository.read('postgres://db', 'test@example.com')
+    await chatConversationRepository.read('postgres://db', 'test@example.com', 'http://files.example.com')
 
-    expect(readConversations).toHaveBeenCalledWith('postgres://db', 'test@example.com')
+    expect(readConversations).toHaveBeenCalledWith('postgres://db', 'test@example.com', 'http://files.example.com')
   })
 
   it('upsert を委譲する', async () => {
