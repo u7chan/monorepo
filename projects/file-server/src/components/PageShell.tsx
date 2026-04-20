@@ -8,7 +8,7 @@ interface PageShellProps {
 
 const inlineFormErrorScript = `
   (() => {
-    const formEndpoints = new Set(["/api/file", "/api/mkdir", "/api/rename"]);
+    const formEndpoints = new Set(["/api/file", "/api/mkdir", "/api/rename", "/api/move"]);
 
     const getForm = (detail) => {
       const source = detail?.elt instanceof Element ? detail.elt : null;
@@ -56,6 +56,20 @@ const inlineFormErrorScript = `
       }
     });
 
+    document.addEventListener("htmx:afterRequest", (event) => {
+      const form = getForm(event.detail);
+      if (!form?.matches("[data-move-form]")) {
+        return;
+      }
+      if (!event.detail?.successful) {
+        return;
+      }
+      const picker = document.getElementById("move-picker-container");
+      if (picker) {
+        picker.innerHTML = "";
+      }
+    });
+
     document.addEventListener("htmx:responseError", (event) => {
       const form = getForm(event.detail);
       if (!form?.matches("[data-inline-error-form]")) {
@@ -75,10 +89,7 @@ const inlineFormErrorScript = `
 
       try {
         const payload = JSON.parse(xhr.responseText);
-        if (
-          payload?.error?.name !== "AlreadyExists" ||
-          typeof payload?.error?.message !== "string"
-        ) {
+        if (typeof payload?.error?.message !== "string") {
           return;
         }
         showFormError(form, payload.error.message);
@@ -166,6 +177,7 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
           </div>
         </div>
         <div id="file-viewer-container"></div>
+        <div id="move-picker-container"></div>
       </body>
     </html>
   )

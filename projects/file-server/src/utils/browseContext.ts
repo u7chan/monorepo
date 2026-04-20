@@ -86,13 +86,19 @@ function toBrowseEntry(
   file: FileItem,
   entryPath: string,
   user: UserState,
-  options?: { canRename?: boolean; canDelete?: boolean; badge?: string },
+  options?: {
+    canRename?: boolean
+    canDelete?: boolean
+    canMove?: boolean
+    badge?: string
+  },
 ): BrowseEntry {
   return {
     ...file,
     path: entryPath,
     canRename: options?.canRename ?? requireWritePermission(user, entryPath),
     canDelete: options?.canDelete ?? requireWritePermission(user, entryPath),
+    canMove: options?.canMove ?? requireWritePermission(user, entryPath),
     badge: options?.badge,
   }
 }
@@ -107,6 +113,7 @@ async function buildUserHomeView(
     toBrowseEntry({ name: "public", type: "dir" }, "public", user, {
       canRename: false,
       canDelete: false,
+      canMove: false,
       badge: "Shared",
     }),
     ...homeEntries.map((entry) =>
@@ -135,6 +142,7 @@ function buildSyntheticView(
       toBrowseEntry(entry, joinVirtualPath(requestPath, entry.name), user, {
         canRename: false,
         canDelete: false,
+        canMove: false,
       }),
     ),
     canCreate: false,

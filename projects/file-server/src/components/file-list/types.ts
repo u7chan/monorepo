@@ -9,6 +9,7 @@ export interface BrowseEntry extends FileItem {
   path: string
   canRename: boolean
   canDelete: boolean
+  canMove: boolean
   badge?: string
 }
 

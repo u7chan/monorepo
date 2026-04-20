@@ -6,6 +6,8 @@ import {
   deleteFileHandler,
   listFilesHandler,
   mkdirHandler,
+  moveHandler,
+  movePickerHandler,
   renameHandler,
   updateFileHandler,
   uploadFileHandler,
@@ -13,6 +15,22 @@ import {
 import type { AppBindings } from "../types"
 
 const apiRoutes = new Hono<AppBindings>()
+
+// 移動先ディレクトリピッカー（HTMX）
+apiRoutes.get("/move/picker", movePickerHandler)
+
+// ファイル・ディレクトリ移動
+apiRoutes.post(
+  "/move",
+  zValidator(
+    "form",
+    z.object({
+      path: z.string(),
+      destination: z.string(),
+    }),
+  ),
+  moveHandler,
+)
 
 // ファイル・ディレクトリ一覧取得（JSON API）
 apiRoutes.get("/*", listFilesHandler)

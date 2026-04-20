@@ -9,6 +9,7 @@ import { DeleteIcon } from "../icons/DeleteIcon"
 import { EditIcon } from "../icons/EditIcon"
 import { FileIcon } from "../icons/FileIcon"
 import { FolderIcon } from "../icons/FolderIcon"
+import { MoveIcon } from "../icons/MoveIcon"
 import {
   closeRenameFormScript,
   renameButtonScript,
@@ -30,7 +31,7 @@ export function FileRow({ file }: FileRowProps) {
   const renameFormId = `rename-form-${encodedPath}`
   const renameInputId = `rename-input-${encodedPath}`
   const browseHref = buildBrowseHref(file.path)
-  const showRowActions = file.canRename || file.canDelete
+  const showRowActions = file.canRename || file.canDelete || file.canMove
 
   return (
     <li
@@ -85,6 +86,25 @@ export function FileRow({ file }: FileRowProps) {
               className="flex shrink-0 justify-end gap-2"
               hx-on:click={stopPropagationScript}
             >
+              {file.canMove && (
+                <button
+                  type="button"
+                  title="Move"
+                  aria-label="Move"
+                  className={`${secondaryButtonClassName} h-8 w-8 px-0 md:w-auto md:px-3`}
+                  hx-get={`/api/move/picker?source=${encodedPath}`}
+                  hx-target="#move-picker-container"
+                  hx-swap="innerHTML"
+                >
+                  <span className="md:hidden">
+                    <MoveIcon />
+                  </span>
+                  <span className="hidden md:flex md:items-center md:gap-2">
+                    <MoveIcon />
+                    <span>Move</span>
+                  </span>
+                </button>
+              )}
               {file.canRename && (
                 <button
                   type="button"

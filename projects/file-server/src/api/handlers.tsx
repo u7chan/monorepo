@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises"
 import * as path from "node:path"
 import type { Context } from "hono"
+import { MovePickerModal } from "../components/file-list/MovePickerModal"
 import type { AppBindings } from "../types"
 import {
   alreadyExistsResponse,
@@ -302,6 +303,234 @@ export async function renameHandler(c: Context<AppBindings>) {
   await rename(sourcePath, destinationPath)
 
   return renderFileListResponse(c, baseDir, normalizedParentPath)
+}
+
+function getTopScope(virtualPath: string): string | null {
+  const parts = virtualPath.split("/").filter(Boolean)
+  return parts[0] ?? null
+}
+
+function containsParentSegment(p: string): boolean {
+  return p
+    .replaceAll("\\", "/")
+    .split("/")
+    .some((seg) => seg === "..")
+}
+
+function resolveMovePickerRoot(
+  user:
+    | { type: "anonymous" }
+    | { type: "authenticated"; username: string; role: "admin" | "user" },
+  scope: "public" | "private",
+): string {
+  if (scope === "public") {
+    return "public"
+  }
+  if (user.type === "authenticated" && user.role === "user") {
+    return `private/${user.username}`
+  }
+  return "private"
+}
+
+export async function moveHandler(c: Context<AppBindings>) {
+  const validatedData = c.req.valid("form" as never) as {
+    path: string
+    destination: string
+  }
+  const { path: sourcePathParam, destination: destinationParam } = validatedData
+  const baseDir = getUploadDir(c)
+  const user = c.get("user") ?? { type: "anonymous" as const }
+
+  if (
+    isPathTraversal(sourcePathParam) ||
+    isPathTraversal(destinationParam) ||
+    containsParentSegment(sourcePathParam) ||
+    containsParentSegment(destinationParam)
+  ) {
+    return errorResponse(c, "PathError", "Invalid path", 400)
+  }
+
+  const normalizedSource = normalizeRelativePath(sourcePathParam)
+  const normalizedDestination = normalizeRelativePath(destinationParam)
+
+  if (!normalizedSource) {
+    return errorResponse(c, "PathError", "Invalid path", 400)
+  }
+
+  if (!requireWritePermission(user, normalizedSource)) {
+    return errorResponse(c, "Forbidden", "Access denied", 403)
+  }
+  if (!requireWritePermission(user, normalizedDestination)) {
+    return errorResponse(c, "Forbidden", "Access denied", 403)
+  }
+
+  const sourceScope = getTopScope(normalizedSource)
+  const destinationScope = getTopScope(normalizedDestination)
+  if (sourceScope !== destinationScope) {
+    return errorResponse(
+      c,
+      "CrossScope",
+      "Cannot move across public and private scopes",
+      400,
+    )
+  }
+
+  const sourcePath = path.join(baseDir, normalizedSource)
+  let sourceStat: Awaited<ReturnType<typeof fsStat>>
+  try {
+    sourceStat = await fsStat(sourcePath)
+  } catch (err: unknown) {
+    if (isNodeErrorCode(err, "ENOENT")) {
+      return errorResponse(
+        c,
+        "FileNotFound",
+        "File or directory does not exist",
+        400,
+      )
+    }
+    throw err
+  }
+
+  const destinationDirPath = path.join(baseDir, normalizedDestination)
+  try {
+    const destStat = await fsStat(destinationDirPath)
+    if (!destStat.isDirectory()) {
+      return errorResponse(
+        c,
+        "DestNotDirectory",
+        "Destination is not a directory",
+        400,
+      )
+    }
+  } catch (err: unknown) {
+    if (isNodeErrorCode(err, "ENOENT")) {
+      return errorResponse(
+        c,
+        "DestNotFound",
+        "Destination directory does not exist",
+        400,
+      )
+    }
+    throw err
+  }
+
+  if (sourceStat.isDirectory()) {
+    const resolvedSource = path.resolve(sourcePath)
+    const resolvedDest = path.resolve(destinationDirPath)
+    if (
+      resolvedDest === resolvedSource ||
+      resolvedDest.startsWith(`${resolvedSource}${path.sep}`)
+    ) {
+      return errorResponse(
+        c,
+        "InvalidDestination",
+        "Cannot move a directory into itself",
+        400,
+      )
+    }
+  }
+
+  const basename = path.basename(normalizedSource)
+  const finalDestinationRelative = normalizedDestination
+    ? `${normalizedDestination}/${basename}`
+    : basename
+  const finalDestinationPath = path.join(baseDir, finalDestinationRelative)
+
+  const sourceParent = normalizeRelativePath(path.dirname(normalizedSource))
+
+  if (path.resolve(sourcePath) === path.resolve(finalDestinationPath)) {
+    return renderFileListResponse(c, baseDir, sourceParent)
+  }
+
+  try {
+    await fsStat(finalDestinationPath)
+    return alreadyExistsResponse(c, basename)
+  } catch (err: unknown) {
+    if (!isNodeErrorCode(err, "ENOENT")) {
+      throw err
+    }
+  }
+
+  await rename(sourcePath, finalDestinationPath)
+
+  return renderFileListResponse(c, baseDir, sourceParent)
+}
+
+export async function movePickerHandler(c: Context<AppBindings>) {
+  const sourceParam = c.req.query("source") ?? ""
+  const destParam = c.req.query("dest")
+  const baseDir = getUploadDir(c)
+  const user = c.get("user") ?? { type: "anonymous" as const }
+
+  if (
+    !sourceParam ||
+    isPathTraversal(sourceParam) ||
+    containsParentSegment(sourceParam)
+  ) {
+    return errorResponse(c, "PathError", "Invalid source", 400)
+  }
+  if (destParam !== undefined && containsParentSegment(destParam)) {
+    return errorResponse(c, "PathError", "Invalid destination", 400)
+  }
+
+  const normalizedSource = normalizeRelativePath(sourceParam)
+  if (!normalizedSource) {
+    return errorResponse(c, "PathError", "Invalid source", 400)
+  }
+
+  if (!requireWritePermission(user, normalizedSource)) {
+    return errorResponse(c, "Forbidden", "Access denied", 403)
+  }
+
+  const scope = getTopScope(normalizedSource)
+  if (scope !== "public" && scope !== "private") {
+    return errorResponse(c, "PathError", "Invalid source scope", 400)
+  }
+
+  const pickerRoot = resolveMovePickerRoot(user, scope)
+
+  let currentDest: string
+  if (destParam === undefined) {
+    const sourceParent = normalizeRelativePath(path.dirname(normalizedSource))
+    currentDest = sourceParent || pickerRoot
+  } else {
+    const normalized = normalizeRelativePath(destParam)
+    currentDest = normalized || pickerRoot
+  }
+
+  if (isPathTraversal(currentDest)) {
+    return errorResponse(c, "PathError", "Invalid destination", 400)
+  }
+
+  if (currentDest !== pickerRoot && !currentDest.startsWith(`${pickerRoot}/`)) {
+    currentDest = pickerRoot
+  }
+
+  const resolved = resolveVirtualPath(baseDir, user, currentDest)
+  if (resolved.kind !== "resolved") {
+    return errorResponse(c, "PathError", "Cannot resolve destination", 400)
+  }
+
+  try {
+    const entries = await getFileList(resolved.resolvedPath)
+    const directories = entries
+      .filter((entry) => entry.type === "dir")
+      .map(({ mtime: _m, size: _s, ...rest }) => rest)
+    return c.html(
+      <MovePickerModal
+        source={normalizedSource}
+        sourceName={path.basename(normalizedSource)}
+        currentDest={currentDest}
+        pickerRoot={pickerRoot}
+        directories={directories}
+      />,
+    )
+  } catch (err: unknown) {
+    if (isNodeErrorCode(err, "ENOENT")) {
+      return errorResponse(c, "DestNotFound", "Destination does not exist", 400)
+    }
+    throw err
+  }
 }
 
 export async function updateFileHandler(c: Context<AppBindings>) {
