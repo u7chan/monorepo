@@ -3,6 +3,13 @@
 Web-based file server built with Bun + Hono + HTMX.
 Current features include empty file creation, per-directory Zip download via `/file/archive`, unauthenticated public file serving via `GET /public/*`, and GUI-based user management via `/admin/users`.
 
+## GUI Move
+
+- The browse list exposes a `Move` action alongside `Rename` and `Delete`. Clicking it opens a directory-picker modal served by `GET /api/move/picker`.
+- The picker is scope-bound: sources under `public/` can only choose destinations under `public/`, and sources under `private/<username>/` are limited to the same scope (admins see the entire `private/` tree; regular users see only their own `private/<username>/`).
+- Submitting selects the current picker directory as the destination and posts to `POST /api/move`, which moves the entry while preserving its basename. Renaming is handled by the existing `Rename` action.
+- `POST /api/move` errors: `PathError` (traversal/invalid path), `Forbidden` (no write permission on source or destination), `CrossScope` (public ⇄ private rejected even for admin), `DestNotFound`, `DestNotDirectory`, `InvalidDestination` (moving a directory into itself or a subdirectory), `AlreadyExists`.
+
 ## File Raw and Download Routes
 
 - `GET /file/raw` — preview-only route. Blocks `text/html`, `application/xhtml+xml`, `image/svg+xml`, and extensions `.html`, `.htm`, `.xhtml`, `.svg` with `403`. SVG is treated as source view (not embedded image) and is also blocked. Existing image/video/PDF preview behavior is preserved.
@@ -32,7 +39,7 @@ Current features include empty file creation, per-directory Zip download via `/f
 - `src/api/handlers.tsx` - API handlers
 - `src/components/` - JSX components
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
-- `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, public-route)
+- `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, move, public-route)
 - `tests/helpers/` - `createTestApp.ts` and `auth.ts` helpers
 
 ## Environment Variables
