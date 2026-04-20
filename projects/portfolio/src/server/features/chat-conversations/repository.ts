@@ -14,7 +14,7 @@ import { upsertConversation } from '#/server/features/chat-conversations/upsert-
 import type { AssistantMetadata, Conversation } from '#/types'
 
 interface ChatConversationRepository {
-  read(databaseUrl: string, email: string): Promise<Conversation[] | null>
+  read(databaseUrl: string, email: string, fileServerPublicBaseUrl?: string | null): Promise<Conversation[] | null>
   upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void>
   delete(
     databaseUrl: string,
@@ -55,8 +55,12 @@ interface ChatConversationRepository {
 }
 
 export const chatConversationRepository: ChatConversationRepository = {
-  async read(databaseUrl: string, email: string): Promise<Conversation[] | null> {
-    return readConversations(databaseUrl, email)
+  async read(
+    databaseUrl: string,
+    email: string,
+    fileServerPublicBaseUrl?: string | null
+  ): Promise<Conversation[] | null> {
+    return readConversations(databaseUrl, email, fileServerPublicBaseUrl)
   },
   async upsert(databaseUrl: string, email: string, conversation: Conversation): Promise<void> {
     await upsertConversation(databaseUrl, email, conversation)

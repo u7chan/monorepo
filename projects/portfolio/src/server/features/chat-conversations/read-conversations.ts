@@ -1,7 +1,16 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
+import { buildFileServerPreviewUrl } from '#/server/features/chat-conversations/file-server-client'
 import { logger } from '#/server/lib/logger'
-import type { AssistantMetadata, Conversation, ImageContent, Message, TextContent, UserMetadata } from '#/types'
+import type {
+  AssistantMetadata,
+  Conversation,
+  GeneratedCodeFile,
+  ImageContent,
+  Message,
+  TextContent,
+  UserMetadata,
+} from '#/types'
 import { asc, desc, eq } from 'drizzle-orm'
 
 /**
@@ -38,7 +47,50 @@ function deserializeMetadata(value: unknown): unknown {
   return value
 }
 
-export async function readConversations(databaseUrl: string, email: string): Promise<Conversation[] | null> {
+function normalizeGeneratedFiles(
+  files: unknown,
+  fileServerPublicBaseUrl?: string | null
+): GeneratedCodeFile[] | undefined {
+  if (!Array.isArray(files)) {
+    return undefined
+  }
+
+  return files.map((file) => {
+    if (!file || typeof file !== 'object') {
+      return file as GeneratedCodeFile
+    }
+
+    const generatedFile = file as GeneratedCodeFile
+    if (!fileServerPublicBaseUrl || !generatedFile.publicPath) {
+      return generatedFile
+    }
+
+    return {
+      ...generatedFile,
+      previewUrl: buildFileServerPreviewUrl(fileServerPublicBaseUrl, generatedFile.publicPath),
+    }
+  })
+}
+
+function normalizeAssistantMetadata(metadata: unknown, fileServerPublicBaseUrl?: string | null): AssistantMetadata {
+  const base = (metadata ?? {}) as AssistantMetadata
+  const generatedFiles = normalizeGeneratedFiles(base.generatedFiles, fileServerPublicBaseUrl)
+
+  if (!generatedFiles) {
+    return base
+  }
+
+  return {
+    ...base,
+    generatedFiles,
+  }
+}
+
+export async function readConversations(
+  databaseUrl: string,
+  email: string,
+  fileServerPublicBaseUrl?: string | null
+): Promise<Conversation[] | null> {
   const db = getDatabase(databaseUrl)
 
   // ユーザーIDの取得
@@ -85,13 +137,16 @@ export async function readConversations(databaseUrl: string, email: string): Pro
     if (row.messageRole && row.messageContent !== null && row.messageReasoningContent !== null) {
       const conversation = conversationMap.get(row.conversationId)
       if (conversation) {
-        const message = buildMessage({
-          id: row.messageId ?? '',
-          role: row.messageRole,
-          content: row.messageContent,
-          reasoningContent: row.messageReasoningContent,
-          metadata: deserializeMetadata(row.messageMetadata),
-        })
+        const message = buildMessage(
+          {
+            id: row.messageId ?? '',
+            role: row.messageRole,
+            content: row.messageContent,
+            reasoningContent: row.messageReasoningContent,
+            metadata: deserializeMetadata(row.messageMetadata),
+          },
+          fileServerPublicBaseUrl
+        )
         if (message) {
           conversation.messages.push(message)
         }
@@ -106,13 +161,16 @@ export async function readConversations(databaseUrl: string, email: string): Pro
  * DB 行からドメイン Message を構築する。
  * role ごとに分岐して discriminated union を満たす。
  */
-function buildMessage(row: {
-  id: string
-  role: string
-  content: string
-  reasoningContent: string
-  metadata: unknown
-}): Message | null {
+function buildMessage(
+  row: {
+    id: string
+    role: string
+    content: string
+    reasoningContent: string
+    metadata: unknown
+  },
+  fileServerPublicBaseUrl?: string | null
+): Message | null {
   const content = deserializeContent(row.content)
 
   if (row.role === 'user') {
@@ -131,7 +189,7 @@ function buildMessage(row: {
       role: 'assistant',
       content: typeof content === 'string' ? content : '',
       reasoningContent: row.reasoningContent || undefined,
-      metadata: (row.metadata ?? {}) as AssistantMetadata,
+      metadata: normalizeAssistantMetadata(row.metadata, fileServerPublicBaseUrl),
     }
   }
 

@@ -7,11 +7,13 @@ export interface FileServerCredentials {
 
 export interface FileServerConfig {
   baseUrl: string
+  publicBaseUrl: string
   credentials: FileServerCredentials
 }
 
 export interface FileServerEnv {
   FILE_SERVER_URL?: string
+  FILE_SERVER_PUBLIC_URL?: string
   FILE_SERVER_ADMIN_USERNAME?: string
   FILE_SERVER_ADMIN_PASSWORD?: string
 }
@@ -26,6 +28,20 @@ export function resolveFileServerBaseUrl(env: Pick<FileServerEnv, 'FILE_SERVER_U
   return baseUrl.replace(/\/$/, '')
 }
 
+export function resolveFileServerPublicBaseUrl(env: Pick<FileServerEnv, 'FILE_SERVER_PUBLIC_URL'>): string | null {
+  const baseUrl = (env.FILE_SERVER_PUBLIC_URL ?? '').trim()
+
+  if (!baseUrl) {
+    return null
+  }
+
+  return baseUrl.replace(/\/$/, '')
+}
+
+export function buildFileServerPreviewUrl(publicBaseUrl: string, publicPath: string): string {
+  return `${publicBaseUrl}${publicPath}`
+}
+
 /**
  * file-server の設定を env から解決する。
  * 現時点では固定 admin credentials を使うが、将来 portfolio user と
@@ -33,15 +49,17 @@ export function resolveFileServerBaseUrl(env: Pick<FileServerEnv, 'FILE_SERVER_U
  */
 export function resolveFileServerConfig(env: FileServerEnv): FileServerConfig | null {
   const baseUrl = resolveFileServerBaseUrl(env)
+  const publicBaseUrl = resolveFileServerPublicBaseUrl(env)
   const username = (env.FILE_SERVER_ADMIN_USERNAME ?? '').trim()
   const password = env.FILE_SERVER_ADMIN_PASSWORD ?? ''
 
-  if (!baseUrl || !username || !password) {
+  if (!baseUrl || !publicBaseUrl || !username || !password) {
     return null
   }
 
   return {
     baseUrl,
+    publicBaseUrl,
     credentials: { username, password },
   }
 }

@@ -50,11 +50,12 @@ describe('conversationsRoutes', () => {
 
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ data: [fixture] })
-    expect(repositoryMock.read).toHaveBeenCalledWith('postgres://db', 'test@example.com')
+    expect(repositoryMock.read).toHaveBeenCalledWith('postgres://db', 'test@example.com', null)
   })
 
   it('認証済み GET は updatedAt を JSON 文字列で返す', async () => {
     vi.stubEnv('DATABASE_URL', 'postgres://db')
+    vi.stubEnv('FILE_SERVER_PUBLIC_URL', 'http://files.example.com')
     getSignedCookieMock.mockResolvedValue('test@example.com')
     repositoryMock.read.mockResolvedValue([
       {
@@ -74,6 +75,7 @@ describe('conversationsRoutes', () => {
         },
       ],
     })
+    expect(repositoryMock.read).toHaveBeenCalledWith('postgres://db', 'test@example.com', 'http://files.example.com')
   })
 
   it('未認証の POST は 401 を返す', async () => {
@@ -191,6 +193,7 @@ describe('conversationsRoutes', () => {
   it('POST /messages/generated-files は file-server 未設定なら 503 を返す', async () => {
     vi.stubEnv('DATABASE_URL', 'postgres://db')
     vi.stubEnv('FILE_SERVER_URL', '')
+    vi.stubEnv('FILE_SERVER_PUBLIC_URL', '')
     vi.stubEnv('FILE_SERVER_ADMIN_USERNAME', '')
     vi.stubEnv('FILE_SERVER_ADMIN_PASSWORD', '')
     getSignedCookieMock.mockResolvedValue('test@example.com')
@@ -219,7 +222,7 @@ describe('conversationsRoutes', () => {
       language: 'html',
       fileName: 'm1-block-0.html',
       publicPath: '/public/portfolio/c1/m1-block-0.html',
-      previewUrl: '/public/portfolio/c1/m1-block-0.html',
+      previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-0.html',
       contentType: 'text/html; charset=utf-8',
       createdAt: '2026-04-19T00:00:00.000Z',
     }

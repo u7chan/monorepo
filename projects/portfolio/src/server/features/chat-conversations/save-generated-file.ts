@@ -1,6 +1,7 @@
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import {
+  buildFileServerPreviewUrl,
   type FileServerConfig,
   loginToFileServer,
   uploadFileToFileServer,
@@ -133,7 +134,7 @@ export async function saveGeneratedFile(
   }
 
   const createdAt = new Date().toISOString()
-  const previewUrl = publicPath
+  const previewUrl = buildFileServerPreviewUrl(fileServerConfig.publicBaseUrl, publicPath)
   const file: GeneratedCodeFile = {
     blockIndex: params.blockIndex,
     language: params.language,

@@ -8,7 +8,6 @@ import { chatRoutes } from './routes/chat'
 import { conversationsRoutes } from './routes/conversations'
 import { htmlRoutes } from './routes/html'
 import { modelsRoutes } from './routes/models'
-import { publicRoutes } from './routes/public'
 import type { HonoEnv } from './routes/shared'
 
 const app = new Hono<HonoEnv>()
@@ -76,7 +75,6 @@ const routes = app
   .route('/', chatRoutes)
   .route('/', conversationsRoutes)
   .route('/', modelsRoutes)
-  .route('/', publicRoutes)
   .route('/', htmlRoutes)
 
 export type AppType = typeof routes

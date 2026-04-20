@@ -178,4 +178,51 @@ describe('readConversations', () => {
     const result = await readConversations('postgres://db', 'test@example.com')
     expect(result?.[0].messages[0].metadata).toEqual({ model: 'gpt-test', stream: true })
   })
+
+  it('assistant generatedFiles の previewUrl を公開 URL で補正する', async () => {
+    const { readConversations } = await importSubject({
+      users: [{ id: 'user-1', email: 'test@example.com' }],
+      rows: [
+        {
+          conversationId: 'conversation-1',
+          conversationTitle: 'Test',
+          conversationCreatedAt: new Date(),
+          conversationUpdatedAt: new Date('2026-04-14T12:34:56.000Z'),
+          messageId: 'message-1',
+          messageRole: 'assistant',
+          messageContent: '<div>Hello</div>',
+          messageReasoningContent: '',
+          messageMetadata: {
+            model: 'gpt-test',
+            usage: {},
+            generatedFiles: [
+              {
+                blockIndex: 0,
+                language: 'html',
+                fileName: 'message-1-block-0.html',
+                publicPath: '/public/portfolio/c1/message-1-block-0.html',
+                previewUrl: 'http://file-server:3000/public/portfolio/c1/message-1-block-0.html',
+                contentType: 'text/html; charset=utf-8',
+                createdAt: '2026-04-19T00:00:00.000Z',
+              },
+            ],
+          },
+          messageCreatedAt: new Date(),
+        },
+      ],
+    })
+
+    const result = await readConversations('postgres://db', 'test@example.com', 'http://files.example.com')
+    const message = result?.[0].messages[0]
+
+    expect(message?.role).toBe('assistant')
+    if (message?.role === 'assistant') {
+      expect(message.metadata.generatedFiles).toEqual([
+        expect.objectContaining({
+          publicPath: '/public/portfolio/c1/message-1-block-0.html',
+          previewUrl: 'http://files.example.com/public/portfolio/c1/message-1-block-0.html',
+        }),
+      ])
+    }
+  })
 })

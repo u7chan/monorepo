@@ -120,7 +120,7 @@ function GeneratedFileActions({ existing, disabled, canSave, onSave }: Generated
   const [error, setError] = useState<string | null>(null)
 
   if (existing) {
-    const previewHref = existing.publicPath || existing.previewUrl
+    const previewHref = existing.previewUrl || existing.publicPath
 
     return (
       <div className='mt-1 flex items-center gap-2 text-xs'>
