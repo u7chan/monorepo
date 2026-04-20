@@ -113,7 +113,7 @@ describe('MessageRenderer', () => {
         />
       )
 
-      const previewLink = screen.getByRole('link', { name: 'プレビュー' })
+      const previewLink = screen.getByRole('link', { name: 'Preview code block' })
       expect(previewLink).toBeTruthy()
       expect(previewLink.getAttribute('href')).toBe(
         'http://files.example.com/public/portfolio/c1/message-1-block-0.html'

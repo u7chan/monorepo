@@ -83,18 +83,17 @@ function AssistantSavableCodeBlock({
 
   const existing = ctx.generatedFiles.find((f) => f.blockIndex === blockIndex)
   const supported = isSupportedLanguage(detectedLanguage)
-  const canShowActions = supported && (!!existing || ctx.canSaveGeneratedFile)
+  const previewHref = existing ? existing.previewUrl || existing.publicPath : undefined
+  const canShowSaveAction = supported && !existing && ctx.canSaveGeneratedFile
 
   return (
     <div>
-      <CodeBlockRenderer className={className} {...rest}>
+      <CodeBlockRenderer className={className} previewHref={previewHref} {...rest}>
         {children}
       </CodeBlockRenderer>
-      {canShowActions && (
+      {canShowSaveAction && (
         <GeneratedFileActions
-          existing={existing}
           disabled={ctx.disabled}
-          canSave={ctx.canSaveGeneratedFile}
           onSave={() =>
             ctx.onSave({
               blockIndex,
@@ -109,37 +108,13 @@ function AssistantSavableCodeBlock({
 }
 
 interface GeneratedFileActionsProps {
-  existing: GeneratedCodeFile | undefined
   disabled?: boolean
-  canSave?: boolean
   onSave: () => Promise<GeneratedCodeFile | null>
 }
 
-function GeneratedFileActions({ existing, disabled, canSave, onSave }: GeneratedFileActionsProps) {
+function GeneratedFileActions({ disabled, onSave }: GeneratedFileActionsProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  if (existing) {
-    const previewHref = existing.previewUrl || existing.publicPath
-
-    return (
-      <div className='mt-1 flex items-center gap-2 text-xs'>
-        <a
-          href={previewHref}
-          target='_blank'
-          rel='noopener noreferrer'
-          className='rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
-        >
-          プレビュー
-        </a>
-        <span className='text-gray-400 dark:text-gray-500'>{existing.fileName}</span>
-      </div>
-    )
-  }
-
-  if (!canSave) {
-    return null
-  }
 
   const handleClick = async () => {
     setSaving(true)
