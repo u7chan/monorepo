@@ -16,11 +16,6 @@ import {
 } from "../utils/apiHelpers"
 import { getFileList } from "../utils/fileListing"
 import { normalizeRelativePath, resolveUploadPath } from "../utils/fileUtils"
-import {
-  isPublicHtmlFile,
-  isPublicScope,
-  validatePublicHtml,
-} from "../utils/htmlValidation"
 import { isPathTraversal } from "../utils/pathTraversal"
 import {
   errorResponse,
@@ -119,22 +114,6 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
       const savePath = path.join(baseDir, relativePath)
       await mkdir(path.dirname(savePath), { recursive: true })
       const buffer = await file.arrayBuffer()
-
-      if (isPublicScope(relativePath) && isPublicHtmlFile(relativePath)) {
-        if (user.type === "authenticated" && user.role !== "admin") {
-          results.failed.push({
-            name: file.name,
-            reason: "Only admin can upload HTML/SVG files to public scope",
-          })
-          continue
-        }
-        const text = Buffer.from(buffer).toString("utf-8")
-        const validation = validatePublicHtml(text)
-        if (!validation.ok) {
-          results.failed.push({ name: file.name, reason: validation.reason })
-          continue
-        }
-      }
 
       await writeFile(savePath, Buffer.from(buffer))
       results.success.push(file.name)
@@ -320,25 +299,6 @@ export async function renameHandler(c: Context<AppBindings>) {
     }
   }
 
-  if (
-    isPublicScope(destinationRelativePath) &&
-    isPublicHtmlFile(destinationRelativePath)
-  ) {
-    if (user.type === "authenticated" && user.role !== "admin") {
-      return errorResponse(
-        c,
-        "Forbidden",
-        "Only admin can rename files to HTML/SVG in public scope",
-        403,
-      )
-    }
-    const sourceContent = await readFile(sourcePath, "utf-8")
-    const validation = validatePublicHtml(sourceContent)
-    if (!validation.ok) {
-      return errorResponse(c, "ValidationError", validation.reason, 400)
-    }
-  }
-
   await rename(sourcePath, destinationPath)
 
   return renderFileListResponse(c, baseDir, normalizedParentPath)
@@ -372,21 +332,6 @@ export async function updateFileHandler(c: Context<AppBindings>) {
       return errorResponse(c, "FileNotFound", "File does not exist", 400)
     }
     throw err
-  }
-
-  if (isPublicScope(filePathParam) && isPublicHtmlFile(filePathParam)) {
-    if (user.type === "authenticated" && user.role !== "admin") {
-      return errorResponse(
-        c,
-        "Forbidden",
-        "Only admin can update HTML/SVG files in public scope",
-        403,
-      )
-    }
-    const validation = validatePublicHtml(content)
-    if (!validation.ok) {
-      return errorResponse(c, "ValidationError", validation.reason, 400)
-    }
   }
 
   await writeFile(targetPath, content, "utf-8")
