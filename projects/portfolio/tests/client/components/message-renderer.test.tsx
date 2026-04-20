@@ -50,7 +50,7 @@ describe('MessageRenderer', () => {
         />
       )
 
-      expect(screen.queryByRole('button', { name: '生成' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Generate preview' })).toBeNull()
     })
 
     it('認証済みなら対応言語の生成ボタンを表示する', () => {
@@ -67,7 +67,7 @@ describe('MessageRenderer', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: '生成' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Generate preview' })).toBeTruthy()
     })
 
     it('非対応言語なら認証済みでも生成ボタンを表示しない', () => {
@@ -84,7 +84,7 @@ describe('MessageRenderer', () => {
         />
       )
 
-      expect(screen.queryByRole('button', { name: '生成' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Generate preview' })).toBeNull()
     })
   })
 
@@ -113,12 +113,12 @@ describe('MessageRenderer', () => {
         />
       )
 
-      const previewLink = screen.getByRole('link', { name: 'プレビュー' })
+      const previewLink = screen.getByRole('link', { name: 'Preview code block' })
       expect(previewLink).toBeTruthy()
       expect(previewLink.getAttribute('href')).toBe(
         'http://files.example.com/public/portfolio/c1/message-1-block-0.html'
       )
-      expect(screen.queryByRole('button', { name: '生成' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Generate preview' })).toBeNull()
     })
   })
 })

@@ -83,69 +83,21 @@ function AssistantSavableCodeBlock({
 
   const existing = ctx.generatedFiles.find((f) => f.blockIndex === blockIndex)
   const supported = isSupportedLanguage(detectedLanguage)
-  const canShowActions = supported && (!!existing || ctx.canSaveGeneratedFile)
+  const previewHref = existing ? existing.previewUrl || existing.publicPath : undefined
+  const canShowSaveAction = supported && !existing && ctx.canSaveGeneratedFile
 
-  return (
-    <div>
-      <CodeBlockRenderer className={className} {...rest}>
-        {children}
-      </CodeBlockRenderer>
-      {canShowActions && (
-        <GeneratedFileActions
-          existing={existing}
-          disabled={ctx.disabled}
-          canSave={ctx.canSaveGeneratedFile}
-          onSave={() =>
-            ctx.onSave({
-              blockIndex,
-              language: detectedLanguage ?? '',
-              content: code,
-            })
-          }
-        />
-      )}
-    </div>
-  )
-}
-
-interface GeneratedFileActionsProps {
-  existing: GeneratedCodeFile | undefined
-  disabled?: boolean
-  canSave?: boolean
-  onSave: () => Promise<GeneratedCodeFile | null>
-}
-
-function GeneratedFileActions({ existing, disabled, canSave, onSave }: GeneratedFileActionsProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (existing) {
-    const previewHref = existing.previewUrl || existing.publicPath
-
-    return (
-      <div className='mt-1 flex items-center gap-2 text-xs'>
-        <a
-          href={previewHref}
-          target='_blank'
-          rel='noopener noreferrer'
-          className='rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
-        >
-          プレビュー
-        </a>
-        <span className='text-gray-400 dark:text-gray-500'>{existing.fileName}</span>
-      </div>
-    )
-  }
-
-  if (!canSave) {
-    return null
-  }
-
-  const handleClick = async () => {
+  const handleSave = async () => {
     setSaving(true)
     setError(null)
     try {
-      await onSave()
+      await ctx.onSave({
+        blockIndex,
+        language: detectedLanguage ?? '',
+        content: code,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -154,16 +106,24 @@ function GeneratedFileActions({ existing, disabled, canSave, onSave }: Generated
   }
 
   return (
-    <div className='mt-1 flex items-center gap-2 text-xs'>
-      <button
-        type='button'
-        onClick={handleClick}
-        disabled={saving || disabled}
-        className='cursor-pointer rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:bg-gray-100 disabled:cursor-default disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
+    <div>
+      <CodeBlockRenderer
+        className={className}
+        previewHref={previewHref}
+        generateAction={
+          canShowSaveAction
+            ? {
+                onClick: handleSave,
+                pending: saving,
+                disabled: ctx.disabled,
+              }
+            : undefined
+        }
+        {...rest}
       >
-        {saving ? '生成中…' : '生成'}
-      </button>
-      {error && <span className='text-red-500'>{error}</span>}
+        {children}
+      </CodeBlockRenderer>
+      {error && <div className='mt-1 text-red-500 text-xs'>{error}</div>}
     </div>
   )
 }

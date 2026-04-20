@@ -1,6 +1,8 @@
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
+import { EyeIcon } from '#/client/components/svg/eye-icon'
+import { SparkleIcon } from '#/client/components/svg/sparkle-icon'
 import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -86,6 +88,46 @@ const SUPPORTED_LANGUAGES = [
 
 type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
   children?: ReactNode | string
+  previewHref?: string
+  generateAction?: CodeBlockGenerateAction
+}
+
+export interface CodeBlockGenerateAction {
+  onClick: () => void
+  pending?: boolean
+  disabled?: boolean
+}
+
+interface CodeBlockPreviewButtonProps {
+  href: string
+}
+
+function CodeBlockPreviewButton({ href }: CodeBlockPreviewButtonProps) {
+  return (
+    <a
+      href={href}
+      target='_blank'
+      rel='noopener noreferrer'
+      aria-label='Preview code block'
+      className='relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+    >
+      <EyeIcon size={18} className='stroke-current' />
+    </a>
+  )
+}
+
+function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBlockGenerateAction) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      disabled={pending || disabled}
+      aria-label={pending ? 'Generating preview' : 'Generate preview'}
+      className='relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+    >
+      <SparkleIcon size={18} className={`stroke-current ${pending ? 'animate-pulse' : ''}`} />
+    </button>
+  )
 }
 
 interface CodeBlockCopyButtonProps {
@@ -126,7 +168,7 @@ function CodeBlockCopyButton({ copied, onClick }: CodeBlockCopyButtonProps) {
   )
 }
 
-export function CodeBlockRenderer({ className, children }: CodeBlockRendererProps) {
+export function CodeBlockRenderer({ className, children, previewHref, generateAction }: CodeBlockRendererProps) {
   const [copied, setCopied] = useState(false)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
@@ -189,7 +231,11 @@ export function CodeBlockRenderer({ className, children }: CodeBlockRendererProp
             <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
           </svg>
         </div>
-        <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} />
+        <div className='flex items-center gap-1'>
+          {previewHref && <CodeBlockPreviewButton href={previewHref} />}
+          {!previewHref && generateAction && <CodeBlockGenerateButton {...generateAction} />}
+          <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} />
+        </div>
       </div>
       <div className='overflow-x-auto'>
         <SyntaxHighlighter
