@@ -23,8 +23,8 @@
     "@hono/structured-logger": "^0.1.0",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/typography": "^0.5.19",
-    "@tanstack/react-query": "^5.99.0",
-    "@tanstack/react-router": "^1.168.22",
+    "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-router": "^1.168.23",
     "crypto-js": "^4.2.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.14",
@@ -44,7 +44,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@hono/vite-dev-server": "^0.25.1",
+    "@hono/vite-dev-server": "^0.25.2",
     "@tailwindcss/postcss": "^4.2.2",
     "@tanstack/react-router-devtools": "^1.166.13",
     "@tanstack/router-plugin": "^1.167.22",
@@ -65,7 +65,7 @@
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3",
-    "vite": "^8.0.8",
+    "vite": "^8.0.9",
     "vite-plugin-dts": "^4.5.4",
     "vitest": "^4.1.4"
   }
