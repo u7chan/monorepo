@@ -1,5 +1,9 @@
 import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
-import { CodeBlockRenderer, MarkdownLink } from '#/client/components/chat/code-block-renderer'
+import {
+  CodeBlockRenderer,
+  MarkdownLink,
+  StreamingCodeBlockContext,
+} from '#/client/components/chat/code-block-renderer'
 import type { ChatStreamState } from '#/client/components/chat/hooks/chat-response'
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
@@ -73,9 +77,11 @@ export function ChatMessageList({
                 )}
                 {markdownPreview ? (
                   <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>
-                    <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
-                      {stream.content}
-                    </ReactMarkdown>
+                    <StreamingCodeBlockContext.Provider value={true}>
+                      <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
+                        {stream.content}
+                      </ReactMarkdown>
+                    </StreamingCodeBlockContext.Provider>
                   </div>
                 ) : (
                   <div className='message text-left'>
