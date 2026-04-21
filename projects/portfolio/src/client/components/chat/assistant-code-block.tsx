@@ -1,6 +1,10 @@
-import { CodeBlockRenderer } from '#/client/components/chat/code-block-renderer'
+import {
+  CodeBlockGenerateButton,
+  CodeBlockPreviewButton,
+  CodeBlockRenderer,
+} from '#/client/components/chat/code-block-renderer'
 import type { GeneratedCodeFile } from '#/types'
-import { createContext, type HTMLAttributes, type ReactNode, useContext, useState } from 'react'
+import { createContext, type HTMLAttributes, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 
 export type SaveGeneratedFileRequest = {
   blockIndex: number
@@ -88,10 +92,12 @@ function AssistantSavableCodeBlock({
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const awaitingPreviewRef = useRef(false)
 
   const handleSave = async () => {
     setSaving(true)
     setError(null)
+    awaitingPreviewRef.current = true
     try {
       await ctx.onSave({
         blockIndex,
@@ -99,28 +105,29 @@ function AssistantSavableCodeBlock({
         content: code,
       })
     } catch (err) {
+      awaitingPreviewRef.current = false
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setSaving(false)
     }
   }
 
+  useEffect(() => {
+    if (previewHref && awaitingPreviewRef.current) {
+      window.open(previewHref, '_blank', 'noopener,noreferrer')
+      awaitingPreviewRef.current = false
+    }
+  }, [previewHref])
+
+  const actions = previewHref ? (
+    <CodeBlockPreviewButton href={previewHref} />
+  ) : canShowSaveAction ? (
+    <CodeBlockGenerateButton onClick={handleSave} pending={saving} disabled={ctx.disabled} />
+  ) : undefined
+
   return (
     <div>
-      <CodeBlockRenderer
-        className={className}
-        previewHref={previewHref}
-        generateAction={
-          canShowSaveAction
-            ? {
-                onClick: handleSave,
-                pending: saving,
-                disabled: ctx.disabled,
-              }
-            : undefined
-        }
-        {...rest}
-      >
+      <CodeBlockRenderer className={className} actions={actions} {...rest}>
         {children}
       </CodeBlockRenderer>
       {error && <div className='mt-1 text-red-500 text-xs'>{error}</div>}

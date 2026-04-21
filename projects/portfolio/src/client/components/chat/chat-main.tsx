@@ -364,8 +364,7 @@ export function ChatMain({
               name='userInput'
               value={input}
               textAreaRows={textAreaRows}
-              placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
-              disabled={loading}
+              placeholder='質問してみよう！'
               rightBottom={
                 <SendButton
                   color={settings.interactiveMode ? 'primary' : 'green'}
@@ -382,10 +381,10 @@ export function ChatMain({
                         type='button'
                         onClick={onClick}
                         disabled={loading || !!stream}
-                        className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white'
+                        className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:hover:bg-gray-700'
                       >
                         <UploadIcon size={20} className='fill-gray-500 group-disabled:fill-gray-300' />
-                        <div className='hidden sm:block mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300'>
+                        <div className='hidden sm:block mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
                           画像アップロード
                         </div>
                       </button>
