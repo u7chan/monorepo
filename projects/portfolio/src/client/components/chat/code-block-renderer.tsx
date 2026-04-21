@@ -261,7 +261,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
             <select
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
-              className='cursor-pointer appearance-none rounded border-none bg-gray-50 pr-6 text-xs text-gray-600 dark:bg-[#282c34] dark:text-gray-300'
+              className='cursor-pointer appearance-none rounded border-none bg-gray-50 py-1 pr-6 text-xs text-gray-600 dark:bg-[#282c34] dark:text-gray-300'
             >
               {languageOptions.map((lang) => (
                 <option key={lang} value={lang} className='bg-white text-gray-900 dark:bg-[#282c34] dark:text-gray-100'>
