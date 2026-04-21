@@ -14,10 +14,11 @@ import { useState } from 'react'
 const client = hc<AppType>('/')
 
 export function Chat() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const {
     selectedConversationId,
     isSettingsPopupOpen,
+    isSubmitting,
     newChatTrigger,
     settings,
     showSettingsActions,
@@ -141,6 +142,7 @@ export function Chat() {
         showNewChat={conversations.length <= 0}
         showPopup={isSettingsPopupOpen}
         showSidebarToggle={!!email}
+        isSidebarToggleDisabled={isSubmitting}
         onNewChat={startNewConversation}
         onShowMenu={toggleSettingsPopup}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
