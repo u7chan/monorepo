@@ -40,6 +40,10 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
   }
 }
 
+type HookProps = {
+  selectedConversationId: string | null
+}
+
 describe('useChatPageState', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -56,14 +60,15 @@ describe('useChatPageState', () => {
     return mod.useChatPageState
   }
 
-  it('startNewConversation で選択中会話を解除し popup を閉じて trigger を更新する', async () => {
+  it('startNewConversation で popup を閉じて trigger を更新する', async () => {
     const useChatPageState = await importHook()
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(100)
 
-    const { result } = renderHook(() => useChatPageState())
+    const { result } = renderHook(({ selectedConversationId }: HookProps) => useChatPageState(selectedConversationId), {
+      initialProps: { selectedConversationId: 'conversation-1' as string | null },
+    })
 
     act(() => {
-      result.current.selectConversation('conversation-1')
       result.current.toggleSettingsPopup()
     })
 
@@ -76,14 +81,14 @@ describe('useChatPageState', () => {
       result.current.startNewConversation()
     })
 
-    expect(result.current.selectedConversationId).toBeNull()
+    expect(result.current.selectedConversationId).toBe('conversation-1')
     expect(result.current.isSettingsPopupOpen).toBe(false)
     expect(result.current.newChatTrigger).toBe(200)
   })
 
   it('setSubmitting が showSettingsActions を反転する', async () => {
     const useChatPageState = await importHook()
-    const { result } = renderHook(() => useChatPageState())
+    const { result } = renderHook(() => useChatPageState(null))
 
     expect(result.current.showSettingsActions).toBe(true)
 
@@ -104,10 +109,14 @@ describe('useChatPageState', () => {
 
   it('会話選択と settings 更新を独立して保持する', async () => {
     const useChatPageState = await importHook()
-    const { result } = renderHook(() => useChatPageState())
+    const { result, rerender } = renderHook(
+      ({ selectedConversationId }: HookProps) => useChatPageState(selectedConversationId),
+      {
+        initialProps: { selectedConversationId: 'conversation-2' as string | null },
+      }
+    )
 
     act(() => {
-      result.current.selectConversation('conversation-2')
       result.current.updateSettings({
         ...result.current.settings,
         model: 'gpt-5',
@@ -118,5 +127,33 @@ describe('useChatPageState', () => {
     expect(result.current.selectedConversationId).toBe('conversation-2')
     expect(result.current.settings.model).toBe('gpt-5')
     expect(result.current.settings.streamMode).toBe(false)
+
+    rerender({ selectedConversationId: 'conversation-3' })
+
+    expect(result.current.selectedConversationId).toBe('conversation-3')
+    expect(result.current.settings.model).toBe('gpt-5')
+  })
+
+  it('選択中会話が null になると新規会話 trigger を更新する', async () => {
+    const useChatPageState = await importHook()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(100)
+
+    const { result, rerender } = renderHook(
+      ({ selectedConversationId }: HookProps) => useChatPageState(selectedConversationId),
+      {
+        initialProps: { selectedConversationId: 'conversation-1' as string | null },
+      }
+    )
+
+    act(() => {
+      result.current.toggleSettingsPopup()
+    })
+
+    nowSpy.mockReturnValue(300)
+    rerender({ selectedConversationId: null })
+
+    expect(result.current.selectedConversationId).toBeNull()
+    expect(result.current.isSettingsPopupOpen).toBe(false)
+    expect(result.current.newChatTrigger).toBe(300)
   })
 })

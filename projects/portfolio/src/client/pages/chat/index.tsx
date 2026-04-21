@@ -5,14 +5,18 @@ import { ConversationHistory } from '#/client/components/chat/conversation-histo
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import { useChatPageState } from '#/client/pages/chat/use-chat-page-state'
 import { useMetaProps } from '#/client/pages/home'
+import { Route } from '#/client/routes/chat'
 import type { AppType } from '#/server/app.d'
 import { ConversationListResponseSchema, type Conversation } from '#/types'
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
+import { useCallback, useEffect } from 'react'
 
 const client = hc<AppType>('/')
 
 export function Chat() {
+  const { conversationId } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const {
     selectedConversationId,
     isSettingsPopupOpen,
@@ -25,10 +29,9 @@ export function Chat() {
     toggleSidebar,
     toggleSettingsPopup,
     closeSettingsPopup,
-    selectConversation,
     setSubmitting,
     updateSettings,
-  } = useChatPageState()
+  } = useChatPageState(conversationId ?? null)
 
   const { email } = useMetaProps()
   const isAuthenticated = !!email
@@ -45,6 +48,53 @@ export function Chat() {
 
   const conversations = query.data ?? []
   const currentConversation = conversations.find(({ id }) => id === selectedConversationId) || null
+  const navigateToNewConversation = useCallback(() => {
+    startNewConversation()
+    void navigate({
+      to: '/chat',
+      search: { conversationId: undefined },
+    })
+  }, [navigate, startNewConversation])
+
+  const navigateToConversation = useCallback(
+    (nextConversationId: string, replace = false) => {
+      void navigate({
+        to: '/chat',
+        search: { conversationId: nextConversationId },
+        replace,
+      })
+    },
+    [navigate]
+  )
+
+  useEffect(() => {
+    if (!selectedConversationId) {
+      return
+    }
+
+    if (!isAuthenticated) {
+      void navigate({
+        to: '/chat',
+        search: { conversationId: undefined },
+        replace: true,
+      })
+      return
+    }
+
+    if (query.isLoading) {
+      return
+    }
+
+    if (conversations.some(({ id }) => id === selectedConversationId)) {
+      return
+    }
+
+    void navigate({
+      to: '/chat',
+      search: { conversationId: undefined },
+      replace: true,
+    })
+  }, [conversations, isAuthenticated, navigate, query.isLoading, selectedConversationId])
 
   const handleDeleteConversation = (conversationId: string) => {
     if (!email) {
@@ -62,7 +112,7 @@ export function Chat() {
 
           // カレントの会話が削除された場合、新しい会話を開始
           if (conversationId === selectedConversationId) {
-            startNewConversation()
+            navigateToNewConversation()
           }
         }
       })
@@ -87,7 +137,7 @@ export function Chat() {
 
           // カレントの会話が削除された場合、新しい会話を開始
           if (isConversationEmpty) {
-            startNewConversation()
+            navigateToNewConversation()
           }
         }
       })
@@ -97,8 +147,10 @@ export function Chat() {
   }
 
   const handleConversationChange = async (conversation: Conversation): Promise<void> => {
-    // カレントの会話IDを更新
-    selectConversation(conversation.id)
+    const shouldReplace = !selectedConversationId
+    if (conversation.id !== selectedConversationId) {
+      navigateToConversation(conversation.id, shouldReplace)
+    }
 
     if (!email) return
 
@@ -129,9 +181,11 @@ export function Chat() {
               conversations={conversations}
               currentConversationId={selectedConversationId}
               disabled={!showSettingsActions}
-              onSelectConversation={selectConversation}
+              onSelectConversation={(nextConversationId) => {
+                navigateToConversation(nextConversationId)
+              }}
               onDeleteConversation={handleDeleteConversation}
-              onNewConversation={startNewConversation}
+              onNewConversation={navigateToNewConversation}
             />
           )
         )
@@ -143,7 +197,7 @@ export function Chat() {
         showPopup={isSettingsPopupOpen}
         showSidebarToggle={!!email}
         isSidebarToggleDisabled={isSubmitting}
-        onNewChat={startNewConversation}
+        onNewChat={navigateToNewConversation}
         onShowMenu={toggleSettingsPopup}
         onToggleSidebar={toggleSidebar}
         onChange={updateSettings}
