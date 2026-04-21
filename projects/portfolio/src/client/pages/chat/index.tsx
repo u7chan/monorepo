@@ -9,19 +9,20 @@ import type { AppType } from '#/server/app.d'
 import { ConversationListResponseSchema, type Conversation } from '#/types'
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
-import { useState } from 'react'
 
 const client = hc<AppType>('/')
 
 export function Chat() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const {
     selectedConversationId,
     isSettingsPopupOpen,
+    isSubmitting,
+    isSidebarOpen,
     newChatTrigger,
     settings,
     showSettingsActions,
     startNewConversation,
+    toggleSidebar,
     toggleSettingsPopup,
     closeSettingsPopup,
     selectConversation,
@@ -115,7 +116,7 @@ export function Chat() {
   return (
     <ChatLayout
       isSidebarOpen={isSidebarOpen}
-      onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+      onToggleSidebar={toggleSidebar}
       conversations={
         query.isLoading ? (
           <div className='flex h-full flex-col items-center justify-center gap-2'>
@@ -138,12 +139,13 @@ export function Chat() {
     >
       <ChatSettings
         showActions={showSettingsActions}
-        showNewChat={conversations.length <= 0}
+        showNewChat={(!query.isLoading && conversations.length <= 0) || !isSidebarOpen}
         showPopup={isSettingsPopupOpen}
         showSidebarToggle={!!email}
+        isSidebarToggleDisabled={isSubmitting}
         onNewChat={startNewConversation}
         onShowMenu={toggleSettingsPopup}
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        onToggleSidebar={toggleSidebar}
         onChange={updateSettings}
         onHidePopup={closeSettingsPopup}
       />
