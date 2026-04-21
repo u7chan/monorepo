@@ -37,6 +37,7 @@ export function ChatMain({
   onDeleteMessages,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
+  const prevConversationIdRef = useRef<string | null>(null)
 
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -79,9 +80,14 @@ export function ChatMain({
     // 会話が選択された時、そのメッセージをドメイン型のまま設定（変換不要）
     setConversationId(currentConversation.id)
     setMessages(currentConversation.messages)
-    setTimeout(() => {
-      scrollToMessageEnd()
-    }, 0)
+
+    // 会話IDが実際に変わったときだけスクロール（別タブから戻った際の誤動作防止）
+    if (prevConversationIdRef.current !== currentConversation.id) {
+      prevConversationIdRef.current = currentConversation.id
+      setTimeout(() => {
+        scrollToMessageEnd()
+      }, 0)
+    }
   }, [currentConversation, scrollToMessageEnd])
 
   const handleSubmit = useCallback(
