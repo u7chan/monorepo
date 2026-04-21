@@ -40,7 +40,7 @@ describe('ConversationHistory', () => {
 
     expect(screen.getByText('2026/04/14')).toBeTruthy()
     expect(screen.getByText('2')).toBeTruthy()
-    expect(within(container).getByTitle('message-icon')).toBeTruthy()
+    expect(within(container).getByLabelText('message-icon')).toBeTruthy()
   })
 
   it('updatedAt がない会話はメッセージ数アイコンのみ表示する', () => {
@@ -69,6 +69,6 @@ describe('ConversationHistory', () => {
     )
 
     expect(screen.getByText('1')).toBeTruthy()
-    expect(within(container).getByTitle('message-icon')).toBeTruthy()
+    expect(within(container).getByLabelText('message-icon')).toBeTruthy()
   })
 })
