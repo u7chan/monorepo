@@ -293,7 +293,28 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
         </button>
       )}
       {peekMode ? (
-        <div className='flex max-h-24 flex-col justify-end overflow-hidden'>{highlighter}</div>
+        <div className='relative h-24 select-none overflow-hidden'>
+          <div className='pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden'>
+            <SyntaxHighlighter
+              style={atomDark}
+              language={selectedLanguage}
+              customStyle={{ ...CUSTOM_STYLE, overflow: 'hidden' }}
+              codeTagProps={{ style: CUSTOM_STYLE }}
+              showLineNumbers={selectedLanguage !== 'plain'}
+              lineNumberStyle={{ color: '#6b7280', minWidth: '2.5em' }}
+            >
+              {code}
+            </SyntaxHighlighter>
+          </div>
+          <div
+            aria-hidden='true'
+            className='pointer-events-none absolute inset-x-0 top-0 h-12 backdrop-blur-[3px]'
+            style={{
+              maskImage: 'linear-gradient(to bottom, black 30%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to bottom, black 30%, transparent)',
+            }}
+          />
+        </div>
       ) : (
         <div
           aria-hidden={!isOpen}
