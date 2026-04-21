@@ -4,7 +4,7 @@ import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { EyeIcon } from '#/client/components/svg/eye-icon'
 import { SparkleIcon } from '#/client/components/svg/sparkle-icon'
 import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
@@ -125,7 +125,24 @@ function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBlockGenera
       aria-label={pending ? 'Generating preview' : 'Generate preview'}
       className='relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
     >
-      <SparkleIcon size={18} className={`stroke-current ${pending ? 'animate-pulse' : ''}`} />
+      {pending ? (
+        <svg
+          viewBox='0 0 24 24'
+          aria-hidden='true'
+          fill='none'
+          className='h-[18px] w-[18px] animate-spin'
+        >
+          <circle cx='12' cy='12' r='9' strokeWidth='2.5' className='stroke-current opacity-25' />
+          <path
+            d='M21 12a9 9 0 0 0-9-9'
+            strokeWidth='2.5'
+            strokeLinecap='round'
+            className='stroke-current'
+          />
+        </svg>
+      ) : (
+        <SparkleIcon size={18} className='stroke-current' />
+      )}
     </button>
   )
 }
@@ -170,12 +187,26 @@ function CodeBlockCopyButton({ copied, onClick }: CodeBlockCopyButtonProps) {
 
 export function CodeBlockRenderer({ className, children, previewHref, generateAction }: CodeBlockRendererProps) {
   const [copied, setCopied] = useState(false)
+  const awaitingPreviewRef = useRef(false)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
   const detectedLanguage = className?.split('-')[1]
   const initialLanguage = detectedLanguage ?? 'plain'
 
   const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage)
+
+  useEffect(() => {
+    if (generateAction?.pending) {
+      awaitingPreviewRef.current = true
+    }
+  }, [generateAction?.pending])
+
+  useEffect(() => {
+    if (previewHref && awaitingPreviewRef.current) {
+      window.open(previewHref, '_blank', 'noopener,noreferrer')
+      awaitingPreviewRef.current = false
+    }
+  }, [previewHref])
 
   // Block code: has a language identifier OR children contains newlines
   // (react-markdown adds a trailing \n to fenced code blocks)
