@@ -1,16 +1,24 @@
 import { readFromLocalStorage, saveToLocalStorage, type Settings } from '#/client/storage/remote-storage-settings'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-export function useChatPageState() {
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+export function useChatPageState(selectedConversationId: string | null) {
   const [isSettingsPopupOpen, setIsSettingsPopupOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [newChatTrigger, setNewChatTrigger] = useState(Date.now())
   const [settings, setSettings] = useState<Settings>(() => readFromLocalStorage())
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => readFromLocalStorage().sidebarOpen)
+  const previousConversationIdRef = useRef<string | null>(selectedConversationId)
+
+  useEffect(() => {
+    if (previousConversationIdRef.current !== null && selectedConversationId === null) {
+      setIsSettingsPopupOpen(false)
+      setNewChatTrigger(Date.now())
+    }
+
+    previousConversationIdRef.current = selectedConversationId
+  }, [selectedConversationId])
 
   const startNewConversation = useCallback(() => {
-    setSelectedConversationId(null)
     setIsSettingsPopupOpen(false)
     setNewChatTrigger(Date.now())
   }, [])
@@ -29,10 +37,6 @@ export function useChatPageState() {
 
   const closeSettingsPopup = useCallback(() => {
     setIsSettingsPopupOpen(false)
-  }, [])
-
-  const selectConversation = useCallback((conversationId: string) => {
-    setSelectedConversationId(conversationId)
   }, [])
 
   const setSubmitting = useCallback((submitting: boolean) => {
@@ -55,7 +59,6 @@ export function useChatPageState() {
     toggleSidebar,
     toggleSettingsPopup,
     closeSettingsPopup,
-    selectConversation,
     setSubmitting,
     updateSettings,
   }
