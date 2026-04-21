@@ -224,7 +224,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
   }
 
   return (
-    <div className='my-2 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600'>
+    <div className='my-2 w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600'>
       <div className='flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-1.5 dark:border-gray-600 dark:bg-[#282c34]'>
         <div className='relative'>
           <select
@@ -252,7 +252,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
           <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} />
         </div>
       </div>
-      <div className='overflow-x-auto'>
+      <div className='max-w-full overflow-x-auto'>
         <SyntaxHighlighter
           style={atomDark}
           language={selectedLanguage}

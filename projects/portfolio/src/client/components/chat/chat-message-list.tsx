@@ -67,7 +67,7 @@ export function ChatMessageList({
               <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-white' />
             </div>
             {stream ? (
-              <div className='message ml-2 text-left'>
+              <div className='message ml-2 min-w-0 flex-1 text-left'>
                 {stream.reasoningContent && (
                   <ReasoningSection content={stream.reasoningContent} isStreaming={!stream.content} />
                 )}
