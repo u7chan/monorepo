@@ -4,6 +4,43 @@ import { render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const STORAGE_KEY = 'portfolio.chat-settings'
+
+const defaultSettings = {
+  schemaVersion: '1.1.0',
+  model: 'gpt-4.1-mini',
+  baseURL: '',
+  apiKey: '',
+  temperature: 0.7,
+  temperatureEnabled: false,
+  maxTokens: undefined,
+  reasoningEffort: 'medium',
+  reasoningEffortEnabled: false,
+  fakeMode: false,
+  autoModel: false,
+  markdownPreview: true,
+  streamMode: true,
+  interactiveMode: true,
+  templateModels: {},
+}
+
+const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => {
+  const store = new Map(Object.entries(initialEntries))
+
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, value)
+    },
+    removeItem: (key: string) => {
+      store.delete(key)
+    },
+    clear: () => {
+      store.clear()
+    },
+  }
+}
+
 const navigateMock = vi.fn()
 const useSearchMock = vi.fn()
 const useQueryMock = vi.fn()
@@ -92,6 +129,12 @@ const conversations = [
 
 describe('Chat page', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'localStorage',
+      createLocalStorageMock({
+        [STORAGE_KEY]: JSON.stringify(defaultSettings),
+      })
+    )
     vi.resetModules()
     vi.clearAllMocks()
     chatMainProps = null
