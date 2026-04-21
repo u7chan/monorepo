@@ -142,19 +142,20 @@ export function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBloc
 interface CodeBlockCopyButtonProps {
   copied: boolean
   onClick: () => void
+  disabled?: boolean
 }
 
-function CodeBlockCopyButton({ copied, onClick }: CodeBlockCopyButtonProps) {
+function CodeBlockCopyButton({ copied, onClick, disabled }: CodeBlockCopyButtonProps) {
   return (
     <button
       type='button'
       onClick={onClick}
-      disabled={copied}
+      disabled={copied || disabled}
       aria-label={copied ? 'Copied code block' : 'Copy code block'}
-      className={`relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 disabled:cursor-default ${
+      className={`relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 ${
         copied
-          ? 'text-emerald-600 dark:text-emerald-400'
-          : 'hover:bg-gray-200 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-white'
+          ? 'text-emerald-600 disabled:cursor-default dark:text-emerald-400'
+          : 'hover:bg-gray-200 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:disabled:hover:bg-transparent dark:disabled:hover:text-gray-300'
       }`}
     >
       <span className='relative h-[18px] w-[18px]' aria-hidden='true'>
@@ -280,7 +281,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
         </div>
         <div className='flex items-center gap-1'>
           {actions}
-          <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} />
+          <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} disabled={streaming} />
         </div>
       </div>
       {!isOpen && (
