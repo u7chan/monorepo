@@ -18,6 +18,7 @@ export interface Settings {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  sidebarOpen: boolean
   templateModels: {
     [key: string]: {
       model: string
@@ -44,6 +45,7 @@ const defaultSettings: Settings = {
   markdownPreview: true,
   streamMode: true,
   interactiveMode: true,
+  sidebarOpen: true,
   templateModels: {},
 }
 

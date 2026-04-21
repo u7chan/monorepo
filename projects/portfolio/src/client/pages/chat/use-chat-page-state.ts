@@ -1,4 +1,4 @@
-import { readFromLocalStorage, type Settings } from '#/client/storage/remote-storage-settings'
+import { readFromLocalStorage, saveToLocalStorage, type Settings } from '#/client/storage/remote-storage-settings'
 import { useCallback, useState } from 'react'
 
 export function useChatPageState() {
@@ -7,11 +7,20 @@ export function useChatPageState() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [newChatTrigger, setNewChatTrigger] = useState(Date.now())
   const [settings, setSettings] = useState<Settings>(() => readFromLocalStorage())
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => readFromLocalStorage().sidebarOpen)
 
   const startNewConversation = useCallback(() => {
     setSelectedConversationId(null)
     setIsSettingsPopupOpen(false)
     setNewChatTrigger(Date.now())
+  }, [])
+
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen((current) => {
+      const next = !current
+      saveToLocalStorage({ sidebarOpen: next })
+      return next
+    })
   }, [])
 
   const toggleSettingsPopup = useCallback(() => {
@@ -38,10 +47,12 @@ export function useChatPageState() {
     selectedConversationId,
     isSettingsPopupOpen,
     isSubmitting,
+    isSidebarOpen,
     newChatTrigger,
     settings,
     showSettingsActions: !isSubmitting,
     startNewConversation,
+    toggleSidebar,
     toggleSettingsPopup,
     closeSettingsPopup,
     selectConversation,
