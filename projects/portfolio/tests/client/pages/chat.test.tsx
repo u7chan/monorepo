@@ -53,6 +53,15 @@ const messagesDeleteMock = vi.fn()
 let chatMainProps: Record<string, unknown> | null = null
 let conversationHistoryProps: Record<string, unknown> | null = null
 
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve
+  })
+
+  return { promise, resolve }
+}
+
 vi.mock('#/client/routes/chat', () => ({
   Route: {
     useSearch: () => useSearchMock(),
@@ -144,6 +153,7 @@ describe('Chat page', () => {
     useQueryMock.mockReturnValue({
       data: conversations,
       isLoading: false,
+      isFetching: false,
       refetch: vi.fn(),
     })
     conversationsGetMock.mockResolvedValue({
@@ -179,6 +189,14 @@ describe('Chat page', () => {
   })
 
   it('新規会話の初回保存成功時は conversationId 付き URL へ replace する', async () => {
+    const refetchMock = vi.fn().mockResolvedValue({ data: conversations })
+    useQueryMock.mockReturnValue({
+      data: conversations,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMock,
+    })
+
     const { Chat } = await import('#/client/pages/chat')
     render(<Chat />)
 
@@ -189,6 +207,40 @@ describe('Chat page', () => {
     expect(onConversationChange).toBeTypeOf('function')
 
     await onConversationChange?.(conversations[0])
+
+    expect(refetchMock).toHaveBeenCalledTimes(1)
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/chat',
+      search: { conversationId: 'conversation-1' },
+      replace: true,
+    })
+  })
+
+  it('初回保存では refetch 完了まで conversationId 付き URL へ遷移しない', async () => {
+    const deferred = createDeferred<{ data: typeof conversations }>()
+    const refetchMock = vi.fn().mockReturnValue(deferred.promise)
+    useQueryMock.mockReturnValue({
+      data: conversations,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMock,
+    })
+
+    const { Chat } = await import('#/client/pages/chat')
+    render(<Chat />)
+
+    const onConversationChange = chatMainProps?.onConversationChange as
+      | ((conversation: (typeof conversations)[number]) => Promise<void>)
+      | undefined
+
+    expect(onConversationChange).toBeTypeOf('function')
+
+    const savePromise = onConversationChange?.(conversations[0])
+
+    expect(navigateMock).not.toHaveBeenCalled()
+
+    deferred.resolve({ data: conversations })
+    await savePromise
 
     expect(navigateMock).toHaveBeenCalledWith({
       to: '/chat',
@@ -214,5 +266,21 @@ describe('Chat page', () => {
       search: { conversationId: 'conversation-1' },
       replace: false,
     })
+  })
+
+  it('conversationId 解決中は ChatMain の代わりに loading を表示する', async () => {
+    useSearchMock.mockReturnValue({ conversationId: 'conversation-1' })
+    useQueryMock.mockReturnValue({
+      data: [],
+      isLoading: true,
+      isFetching: true,
+      refetch: vi.fn(),
+    })
+
+    const { Chat } = await import('#/client/pages/chat')
+    const view = render(<Chat />)
+
+    expect(chatMainProps).toBeNull()
+    expect(view.getAllByText('会話を読み込み中...').length).toBeGreaterThan(0)
   })
 })

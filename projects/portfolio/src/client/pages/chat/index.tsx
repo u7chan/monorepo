@@ -48,6 +48,7 @@ export function Chat() {
 
   const conversations = query.data ?? []
   const currentConversation = conversations.find(({ id }) => id === selectedConversationId) || null
+  const isResolvingConversation = selectedConversationId !== null && currentConversation === null
   const navigateToNewConversation = useCallback(() => {
     startNewConversation()
     void navigate({
@@ -148,17 +149,20 @@ export function Chat() {
 
   const handleConversationChange = async (conversation: Conversation): Promise<void> => {
     const shouldReplace = !selectedConversationId
-    if (conversation.id !== selectedConversationId) {
-      navigateToConversation(conversation.id, shouldReplace)
-    }
-
     if (!email) return
 
     try {
       const res = await client.api.conversations.$post({ json: conversation })
       if (res.status === 200) {
         // 成功した場合は、会話履歴を再取得
-        query.refetch()
+        const refetched = await query.refetch()
+
+        if (
+          conversation.id !== selectedConversationId &&
+          (refetched.data ?? []).some(({ id }) => id === conversation.id)
+        ) {
+          navigateToConversation(conversation.id, shouldReplace)
+        }
       }
     } catch (error) {
       console.error('Error updating conversation:', error)
@@ -203,15 +207,22 @@ export function Chat() {
         onChange={updateSettings}
         onHidePopup={closeSettingsPopup}
       />
-      <ChatMain
-        initTrigger={newChatTrigger}
-        settings={settings}
-        canSaveGeneratedFile={isAuthenticated}
-        onSubmitting={setSubmitting}
-        currentConversation={currentConversation}
-        onConversationChange={handleConversationChange}
-        onDeleteMessages={handleDeleteConversationMessage}
-      />
+      {isResolvingConversation ? (
+        <div className='flex min-h-0 flex-1 items-center justify-center gap-2'>
+          <SpinnerIcon />
+          <span className='text-sm text-gray-500 dark:text-gray-400'>会話を読み込み中...</span>
+        </div>
+      ) : (
+        <ChatMain
+          initTrigger={newChatTrigger}
+          settings={settings}
+          canSaveGeneratedFile={isAuthenticated}
+          onSubmitting={setSubmitting}
+          currentConversation={currentConversation}
+          onConversationChange={handleConversationChange}
+          onDeleteMessages={handleDeleteConversationMessage}
+        />
+      )}
     </ChatLayout>
   )
 }
