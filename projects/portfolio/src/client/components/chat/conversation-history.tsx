@@ -53,7 +53,7 @@ export function ConversationHistory({
           disabled={disabled}
           className='flex w-full items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 font-medium text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:enabled:bg-gray-600'
         >
-          <NewChatIcon className='fill-gray-600 dark:fill-gray-400' size={16} />
+          <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' size={16} />
           新しい会話
         </button>
       </div>
