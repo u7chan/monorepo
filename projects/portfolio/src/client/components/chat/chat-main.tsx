@@ -364,8 +364,7 @@ export function ChatMain({
               name='userInput'
               value={input}
               textAreaRows={textAreaRows}
-              placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
-              disabled={loading}
+              placeholder='質問してみよう！'
               rightBottom={
                 <SendButton
                   color={settings.interactiveMode ? 'primary' : 'green'}
