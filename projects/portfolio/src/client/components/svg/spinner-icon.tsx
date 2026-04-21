@@ -4,8 +4,14 @@ interface Props {
 
 export function SpinnerIcon({ className = 'fill-blue-500 dark:fill-blue-400' }: Props) {
   return (
-    <svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg' className='h-8 w-8 animate-spin'>
-      <title>spinner-icon</title>
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      xmlns='http://www.w3.org/2000/svg'
+      className='h-8 w-8 animate-spin'
+      role='img'
+      aria-label='Loading'
+    >
       {/* グラデーションの定義 */}
       <defs>
         <linearGradient id='gradient' x1='0%' y1='0%' x2='100%' y2='100%'>
