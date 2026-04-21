@@ -139,7 +139,7 @@ export function Chat() {
     >
       <ChatSettings
         showActions={showSettingsActions}
-        showNewChat={conversations.length <= 0 || !isSidebarOpen}
+        showNewChat={(!query.isLoading && conversations.length <= 0) || !isSidebarOpen}
         showPopup={isSettingsPopupOpen}
         showSidebarToggle={!!email}
         isSidebarToggleDisabled={isSubmitting}
