@@ -4,7 +4,7 @@ import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { EyeIcon } from '#/client/components/svg/eye-icon'
 import { SparkleIcon } from '#/client/components/svg/sparkle-icon'
 import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
@@ -88,21 +88,14 @@ const SUPPORTED_LANGUAGES = [
 
 type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
   children?: ReactNode | string
-  previewHref?: string
-  generateAction?: CodeBlockGenerateAction
+  actions?: ReactNode
 }
 
-export interface CodeBlockGenerateAction {
-  onClick: () => void
-  pending?: boolean
-  disabled?: boolean
-}
-
-interface CodeBlockPreviewButtonProps {
+export interface CodeBlockPreviewButtonProps {
   href: string
 }
 
-function CodeBlockPreviewButton({ href }: CodeBlockPreviewButtonProps) {
+export function CodeBlockPreviewButton({ href }: CodeBlockPreviewButtonProps) {
   return (
     <a
       href={href}
@@ -116,7 +109,13 @@ function CodeBlockPreviewButton({ href }: CodeBlockPreviewButtonProps) {
   )
 }
 
-function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBlockGenerateAction) {
+export interface CodeBlockGenerateButtonProps {
+  onClick: () => void
+  pending?: boolean
+  disabled?: boolean
+}
+
+export function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBlockGenerateButtonProps) {
   return (
     <button
       type='button'
@@ -185,28 +184,14 @@ function CodeBlockCopyButton({ copied, onClick }: CodeBlockCopyButtonProps) {
   )
 }
 
-export function CodeBlockRenderer({ className, children, previewHref, generateAction }: CodeBlockRendererProps) {
+export function CodeBlockRenderer({ className, children, actions }: CodeBlockRendererProps) {
   const [copied, setCopied] = useState(false)
-  const awaitingPreviewRef = useRef(false)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
   const detectedLanguage = className?.split('-')[1]
   const initialLanguage = detectedLanguage ?? 'plain'
 
   const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage)
-
-  useEffect(() => {
-    if (generateAction?.pending) {
-      awaitingPreviewRef.current = true
-    }
-  }, [generateAction?.pending])
-
-  useEffect(() => {
-    if (previewHref && awaitingPreviewRef.current) {
-      window.open(previewHref, '_blank', 'noopener,noreferrer')
-      awaitingPreviewRef.current = false
-    }
-  }, [previewHref])
 
   // Block code: has a language identifier OR children contains newlines
   // (react-markdown adds a trailing \n to fenced code blocks)
@@ -263,8 +248,7 @@ export function CodeBlockRenderer({ className, children, previewHref, generateAc
           </svg>
         </div>
         <div className='flex items-center gap-1'>
-          {previewHref && <CodeBlockPreviewButton href={previewHref} />}
-          {!previewHref && generateAction && <CodeBlockGenerateButton {...generateAction} />}
+          {actions}
           <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} />
         </div>
       </div>
