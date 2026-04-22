@@ -177,6 +177,7 @@ function MessageRendererComponent({
       {message.content}
     </ReactMarkdown>
   )
+  const dumpMessages = messages.slice(0, index + 1)
 
   return (
     <div className='flex'>
@@ -201,7 +202,7 @@ function MessageRendererComponent({
         <MessageActionBar copied={copied}>
           <CopyMessageButton copied={copied} onClick={() => onCopyMessage(message.content, index)} />
         </MessageActionBar>
-        <ChatResults metadata={message.metadata} messages={messages} />
+        <ChatResults metadata={message.metadata} messages={dumpMessages} />
       </div>
     </div>
   )
