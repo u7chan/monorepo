@@ -32,7 +32,7 @@ describe('convertCompletion', () => {
       },
     } as unknown as CompletionChunk
 
-    const result = convertCompletion(raw)
+    const result = convertCompletion('chat_completions', raw)
 
     expect(result).toEqual({
       id: 'chatcmpl-abc',
@@ -73,7 +73,7 @@ describe('convertCompletion', () => {
       ],
     } as unknown as CompletionChunk
 
-    const result = convertCompletion(raw)
+    const result = convertCompletion('chat_completions', raw)
 
     expect(result.message.reasoningContent).toBe('fallback thinking')
   })
@@ -104,7 +104,7 @@ describe('convertCompletion', () => {
       },
     } as unknown as CompletionChunk
 
-    const result = convertCompletion(raw)
+    const result = convertCompletion('chat_completions', raw)
 
     expect(result.message.reasoningContent).toBe('bifrost thinking')
     expect(result.finishReason).toBe('end_turn')
@@ -140,7 +140,7 @@ describe('convertCompletion', () => {
       ],
     } as unknown as CompletionChunk
 
-    const result = convertCompletion(raw)
+    const result = convertCompletion('chat_completions', raw)
 
     expect(result.message.reasoningContent).toBe('part1part2')
   })
@@ -165,7 +165,7 @@ describe('convertCompletion', () => {
       ],
     } as unknown as CompletionChunk
 
-    const result = convertCompletion(raw)
+    const result = convertCompletion('chat_completions', raw)
 
     expect(result.message.content).toBe('')
     expect(result.message.reasoningContent).toBe('')
@@ -198,7 +198,7 @@ describe('convertCompletion', () => {
       },
     } as unknown as CompletionChunk
 
-    const result = convertCompletion(raw)
+    const result = convertCompletion('chat_completions', raw)
 
     expect(result.usage?.reasoningTokens).toBe(7)
   })
@@ -233,7 +233,7 @@ describe('convertStreamChunks', () => {
     ])
 
     const events = []
-    for await (const event of convertStreamChunks(stream)) {
+    for await (const event of convertStreamChunks('chat_completions', stream)) {
       events.push(event)
     }
 
@@ -268,7 +268,7 @@ describe('convertStreamChunks', () => {
     ])
 
     const events = []
-    for await (const event of convertStreamChunks(stream)) {
+    for await (const event of convertStreamChunks('chat_completions', stream)) {
       events.push(event)
     }
 
@@ -318,7 +318,7 @@ describe('convertStreamChunks', () => {
     ])
 
     const events = []
-    for await (const event of convertStreamChunks(stream)) {
+    for await (const event of convertStreamChunks('chat_completions', stream)) {
       events.push(event)
     }
 
@@ -378,7 +378,7 @@ describe('convertStreamChunks', () => {
     ])
 
     const events = []
-    for await (const event of convertStreamChunks(stream)) {
+    for await (const event of convertStreamChunks('chat_completions', stream)) {
       events.push(event)
     }
 
@@ -416,7 +416,7 @@ describe('convertStreamChunks', () => {
     ])
 
     const events = []
-    for await (const event of convertStreamChunks(stream)) {
+    for await (const event of convertStreamChunks('chat_completions', stream)) {
       events.push(event)
     }
 
@@ -431,6 +431,138 @@ describe('convertStreamChunks', () => {
           completionTokens: 20,
           totalTokens: 30,
           reasoningTokens: 9,
+        },
+      },
+    ])
+  })
+})
+
+describe('responses converter', () => {
+  it('Responses の non-stream 出力を ChatResponse に正規化できる', () => {
+    const raw = {
+      id: 'resp_1',
+      created_at: 1700000000,
+      model: 'gpt-4.1',
+      output_text: 'answer',
+      output: [
+        {
+          id: 'rs_1',
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: 'thinking' }],
+        },
+      ],
+      usage: {
+        input_tokens: 10,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens: 20,
+        output_tokens_details: { reasoning_tokens: 5 },
+        total_tokens: 30,
+      },
+    }
+
+    const result = convertCompletion('responses', raw as any)
+
+    expect(result).toEqual({
+      id: 'resp_1',
+      created: 1700000000,
+      model: 'gpt-4.1',
+      finishReason: 'stop',
+      message: {
+        content: 'answer',
+        reasoningContent: 'thinking',
+      },
+      usage: {
+        promptTokens: 10,
+        completionTokens: 20,
+        totalTokens: 30,
+        reasoningTokens: 5,
+      },
+    })
+  })
+
+  it('Responses の stream 出力を既存イベント契約に正規化できる', async () => {
+    const stream = (async function* () {
+      yield {
+        type: 'response.created',
+        sequence_number: 0,
+        response: {
+          id: 'resp_1',
+          created_at: 1700000000,
+          model: 'gpt-4.1',
+        },
+      }
+      yield {
+        type: 'response.output_text.delta',
+        sequence_number: 1,
+        item_id: 'item_1',
+        output_index: 0,
+        content_index: 0,
+        delta: 'answer',
+        logprobs: [],
+      }
+      yield {
+        type: 'response.reasoning_text.delta',
+        sequence_number: 2,
+        item_id: 'item_2',
+        output_index: 1,
+        content_index: 0,
+        delta: 'thinking',
+      }
+      yield {
+        type: 'response.completed',
+        sequence_number: 3,
+        response: {
+          id: 'resp_1',
+          created_at: 1700000000,
+          model: 'gpt-4.1',
+          usage: {
+            input_tokens: 10,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 20,
+            output_tokens_details: { reasoning_tokens: 5 },
+            total_tokens: 30,
+          },
+        },
+      }
+    })() as any
+
+    const events = []
+    for await (const event of convertStreamChunks('responses', stream)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      {
+        event: 'delta',
+        id: 'resp_1',
+        created: 1700000000,
+        model: 'gpt-4.1',
+        content: 'answer',
+      },
+      {
+        event: 'delta',
+        id: 'resp_1',
+        created: 1700000000,
+        model: 'gpt-4.1',
+        reasoningContent: 'thinking',
+      },
+      {
+        event: 'finish',
+        id: 'resp_1',
+        created: 1700000000,
+        model: 'gpt-4.1',
+        finishReason: 'stop',
+      },
+      {
+        event: 'usage',
+        id: 'resp_1',
+        created: 1700000000,
+        model: 'gpt-4.1',
+        usage: {
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 30,
+          reasoningTokens: 5,
         },
       },
     ])

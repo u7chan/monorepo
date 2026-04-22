@@ -3,9 +3,9 @@ import path from 'node:path'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
-import type { CompletionChunk, StreamChunk } from '#/server/features/chat/transport'
+import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
 import { logger } from '#/server/lib/logger'
-import { ApiChatMessageSchema } from '#/types'
+import { ApiChatMessageSchema, type ApiMode } from '#/types'
 import { ChatApiRequestSchema } from '#/types/chat-api'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
@@ -92,6 +92,10 @@ const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) =
   )
 })
 
+function normalizeApiMode(apiMode: ApiMode | undefined): ApiMode {
+  return apiMode ?? 'chat_completions'
+}
+
 const streamStubCompletion = (
   c: Parameters<typeof streamSSE>[0],
   req: z.infer<typeof StubChatRequestSchema>,
@@ -130,6 +134,7 @@ const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
+    const apiMode = normalizeApiMode(req.apiMode)
     const requestLogger = c.var.logger ?? logger
 
     try {
@@ -139,6 +144,7 @@ const chatRoutes = new Hono<HonoEnv>()
           baseURL: header['base-url'],
         },
         {
+          apiMode,
           model: req.model,
           messages: req.messages,
           temperature: req.temperature,
@@ -148,7 +154,7 @@ const chatRoutes = new Hono<HonoEnv>()
         }
       )
 
-      const response = convertCompletion(completion as CompletionChunk)
+      const response = convertCompletion(apiMode, completion as CompletionChunk)
       requestLogger.debug({ response }, 'Chat completion converted')
       return c.json(response)
     } catch (err) {
@@ -163,6 +169,7 @@ const chatRoutes = new Hono<HonoEnv>()
   .post('/api/chat/stream', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
+    const apiMode = normalizeApiMode(req.apiMode)
     const requestLogger = c.var.logger ?? logger
 
     let completion
@@ -173,6 +180,7 @@ const chatRoutes = new Hono<HonoEnv>()
           baseURL: header['base-url'],
         },
         {
+          apiMode,
           model: req.model,
           messages: req.messages,
           temperature: req.temperature,
@@ -190,7 +198,7 @@ const chatRoutes = new Hono<HonoEnv>()
       )
     }
 
-    const streamCompletion = completion as StreamChunk
+    const streamCompletion = completion as StreamChunk | ResponsesStreamChunk
 
     return streamSSE(c, async (stream) => {
       let aborted = false
@@ -200,7 +208,7 @@ const chatRoutes = new Hono<HonoEnv>()
         streamCompletion.controller.abort()
       })
 
-      for await (const event of convertStreamChunks(streamCompletion)) {
+      for await (const event of convertStreamChunks(apiMode, streamCompletion)) {
         requestLogger.debug({ event }, 'Stream event emitted')
         await stream.writeSSE({ data: JSON.stringify(event) })
         await new Promise((resolve) => setTimeout(resolve, 10))

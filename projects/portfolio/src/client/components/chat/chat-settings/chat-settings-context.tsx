@@ -1,4 +1,5 @@
 import type { Settings } from '#/client/storage/remote-storage-settings'
+import type { ApiMode } from '#/types'
 import { createContext, type ChangeEvent, type ReactNode, useContext } from 'react'
 
 type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -8,6 +9,7 @@ export interface ChatSettingsContextValue {
   temperature: number
   temperatureEnabled: boolean
   autoModel: boolean
+  apiMode: ApiMode
   fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
@@ -22,6 +24,7 @@ export interface ChatSettingsContextValue {
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeApiKey: (event: ChangeEvent<HTMLInputElement>) => void
+  handleChangeApiMode: (event: ChangeEvent<HTMLSelectElement>) => void
   handleChangeTemperature: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeMaxTokens: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void

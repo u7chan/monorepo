@@ -1,4 +1,5 @@
 import type { Settings } from '#/client/storage/remote-storage-settings'
+import type { ApiMode } from '#/types'
 import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
 import { useCallback } from 'react'
 
@@ -9,6 +10,7 @@ interface UseSettingsHandlersDeps {
   setTemperature: Dispatch<SetStateAction<number>>
   setTemperatureEnabled: Dispatch<SetStateAction<boolean>>
   setAutoModel: Dispatch<SetStateAction<boolean>>
+  setApiMode: Dispatch<SetStateAction<ApiMode>>
   setFakeMode: Dispatch<SetStateAction<boolean>>
   setMarkdownPreview: Dispatch<SetStateAction<boolean>>
   setStreamMode: Dispatch<SetStateAction<boolean>>
@@ -17,6 +19,7 @@ interface UseSettingsHandlersDeps {
   setReasoningEffortEnabled: Dispatch<SetStateAction<boolean>>
   temperatureEnabled: boolean
   autoModel: boolean
+  apiMode: ApiMode
   fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
@@ -30,6 +33,7 @@ interface UseSettingsHandlersReturn {
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeApiKey: (event: ChangeEvent<HTMLInputElement>) => void
+  handleChangeApiMode: (event: ChangeEvent<HTMLSelectElement>) => void
   handleChangeTemperature: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeMaxTokens: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void
@@ -48,6 +52,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     setTemperature,
     setTemperatureEnabled,
     setAutoModel,
+    setApiMode,
     setFakeMode,
     setMarkdownPreview,
     setStreamMode,
@@ -56,6 +61,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     setReasoningEffortEnabled,
     temperatureEnabled,
     autoModel,
+    apiMode,
     fakeMode,
     markdownPreview,
     streamMode,
@@ -94,6 +100,16 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     [updateSetting]
   )
 
+  const handleChangeApiMode = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const value = event.target.value as ApiMode
+      const nextSettings = updateSetting('apiMode', value)
+      setApiMode(nextSettings.apiMode)
+      setFakeMode(nextSettings.fakeMode)
+    },
+    [setApiMode, setFakeMode, updateSetting]
+  )
+
   const handleChangeTemperature = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = Number.parseFloat(event.target.value)
@@ -124,10 +140,15 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
   }, [autoModel, setAutoModel, updateSetting])
 
   const handleToggleFakeMode = useCallback(() => {
+    if (apiMode === 'responses') {
+      setFakeMode(false)
+      return
+    }
+
     const newValue = !fakeMode
-    setFakeMode(newValue)
-    updateSetting('fakeMode', newValue)
-  }, [fakeMode, setFakeMode, updateSetting])
+    const nextSettings = updateSetting('fakeMode', newValue)
+    setFakeMode(nextSettings.fakeMode)
+  }, [apiMode, fakeMode, setFakeMode, updateSetting])
 
   const handleToggleMarkdownPreview = useCallback(() => {
     const newValue = !markdownPreview
@@ -167,6 +188,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     handleChangeManualModel,
     handleChangeBaseURL,
     handleChangeApiKey,
+    handleChangeApiMode,
     handleChangeTemperature,
     handleChangeMaxTokens,
     handleChangeReasoningEffort,

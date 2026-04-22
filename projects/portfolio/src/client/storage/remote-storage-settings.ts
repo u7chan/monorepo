@@ -1,13 +1,15 @@
+import { ApiModeSchema, type ApiMode } from '#/types'
 import { decryptLegacyApiKey } from './legacy-remote-storage'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
-const SCHEMA_VERSION = '1.1.0'
+const SCHEMA_VERSION = '1.2.0'
 
 export interface Settings {
   schemaVersion: string
   model: string
   baseURL: string
   apiKey: string
+  apiMode: ApiMode
   temperature: number
   temperatureEnabled: boolean
   maxTokens?: number
@@ -35,6 +37,7 @@ const defaultSettings: Settings = {
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
+  apiMode: 'chat_completions',
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,
@@ -66,7 +69,13 @@ export function readFromLocalStorage(): Settings {
     return defaultSettings
   }
 
-  return mergeSettings(settings)
+  const normalizedSettings = mergeSettings(settings)
+
+  if (shouldPersistNormalizedSettings(settings, normalizedSettings)) {
+    writeToLocalStorage(normalizedSettings)
+  }
+
+  return normalizedSettings
 }
 
 export function saveToLocalStorage(settings: Partial<Settings>): Settings {
@@ -95,9 +104,13 @@ function parseStoredSettings(value: string | null): StoredSettings | null {
 
 function mergeSettings(settings: Partial<Settings> & { mcpServerURLs?: unknown }): Settings {
   const { mcpServerURLs: _dropped, ...rest } = settings
+  const apiMode = normalizeApiMode(rest.apiMode)
+
   return {
     ...defaultSettings,
     ...rest,
+    apiMode,
+    fakeMode: apiMode === 'responses' ? false : (rest.fakeMode ?? defaultSettings.fakeMode),
     schemaVersion: SCHEMA_VERSION,
   }
 }
@@ -122,6 +135,23 @@ function migrateLegacySettings(settings: StoredSettings): Settings {
     apiKey,
     schemaVersion: SCHEMA_VERSION,
   })
+}
+
+function normalizeApiMode(value: unknown): ApiMode {
+  const parsed = ApiModeSchema.safeParse(value)
+  return parsed.success ? parsed.data : defaultSettings.apiMode
+}
+
+function shouldPersistNormalizedSettings(
+  settings: StoredSettings & { mcpServerURLs?: unknown },
+  normalized: Settings
+): boolean {
+  return (
+    settings.schemaVersion !== SCHEMA_VERSION ||
+    !ApiModeSchema.safeParse(settings.apiMode).success ||
+    (normalized.apiMode === 'responses' && settings.fakeMode === true) ||
+    'mcpServerURLs' in settings
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

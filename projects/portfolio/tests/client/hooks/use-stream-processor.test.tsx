@@ -39,6 +39,7 @@ describe('useStreamProcessor', () => {
       apiKey: 'api-key',
       baseURL: 'https://example.com',
     },
+    apiMode: 'chat_completions' as const,
     model: 'gpt-test',
     messages: [],
     temperature: undefined,
@@ -143,6 +144,51 @@ describe('useStreamProcessor', () => {
         },
         usage: null,
       },
+      responseTimeMs: expect.any(Number),
+    })
+  })
+
+  it('finish 未受信の stream は null を返す', async () => {
+    const { useStreamProcessor, chatStreamPostMock } = await importSubject()
+    const encoder = new TextEncoder()
+    const chunks = [
+      encoder.encode(
+        'data: {"event":"delta","id":"chunk-1","created":1700000000,"model":"gpt-test","content":"partial"}\n'
+      ),
+      encoder.encode('data: [DONE]\n'),
+    ]
+
+    chatStreamPostMock.mockResolvedValue({
+      ok: true,
+      body: {
+        getReader() {
+          let index = 0
+
+          return {
+            read: async () => {
+              if (index >= chunks.length) {
+                return { done: true, value: undefined }
+              }
+
+              return { done: false, value: chunks[index++] }
+            },
+          }
+        },
+      },
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+
+    let response: Awaited<ReturnType<typeof result.current.submitChatCompletion>> | undefined
+    await act(async () => {
+      response = await result.current.submitChatCompletion({
+        ...request,
+        streamMode: true,
+      })
+    })
+
+    expect(response).toEqual({
+      result: null,
       responseTimeMs: expect.any(Number),
     })
   })

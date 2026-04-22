@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import type * as ResponsesAPI from 'openai/resources/responses/responses'
 import type { Stream } from 'openai/streaming'
 
 /**
@@ -41,4 +42,10 @@ export type StreamCompletionChunk = OpenAI.ChatCompletionChunk & {
 
 export type StreamChunk = Stream<StreamCompletionChunk>
 
-export type Completions = CompletionChunk | StreamChunk
+export type ResponsesCompletion = ResponsesAPI.Response
+
+export type ResponsesStreamEvent = ResponsesAPI.ResponseStreamEvent
+
+export type ResponsesStreamChunk = Stream<ResponsesStreamEvent>
+
+export type Completions = CompletionChunk | StreamChunk | ResponsesCompletion | ResponsesStreamChunk

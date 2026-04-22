@@ -9,6 +9,7 @@ export {
   UserMetadataSchema,
   AssistantMetadataSchema,
   GeneratedCodeFileSchema,
+  ApiModeSchema,
   ImageContentSchema,
   TextContentSchema,
   // /api/chat wire schemas
@@ -23,6 +24,7 @@ export {
   type UserMetadata,
   type AssistantMetadata,
   type GeneratedCodeFile,
+  type ApiMode,
   type ImageContent,
   type TextContent,
   // /api/chat wire types

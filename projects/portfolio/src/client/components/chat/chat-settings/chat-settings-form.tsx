@@ -9,12 +9,14 @@ import { TextInput } from './settings/text-input'
 export function ChatSettingsForm() {
   const {
     settings,
+    apiMode,
     fakeMode,
     markdownPreview,
     streamMode,
     interactiveMode,
     handleChangeBaseURL,
     handleChangeApiKey,
+    handleChangeApiMode,
     handleChangeMaxTokens,
     handleToggleFakeMode,
     handleToggleMarkdownPreview,
@@ -47,6 +49,21 @@ export function ChatSettingsForm() {
       <section className='space-y-3'>
         <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>API Configuration</h3>
         <div className='space-y-3'>
+          <div className='space-y-2'>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>API Mode</label>
+            <select
+              value={apiMode}
+              onChange={handleChangeApiMode}
+              className='w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-xs outline-hidden transition focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-primary-400 dark:focus:ring-primary-900/40'
+            >
+              <option value='chat_completions'>Chat Completions</option>
+              <option value='responses'>Responses</option>
+            </select>
+            {apiMode === 'responses' && (
+              <p className='text-xs text-gray-500 dark:text-gray-400'>Responses では Fake Mode を利用できません。</p>
+            )}
+          </div>
+
           <TextInput
             name='baseURL'
             label='Base URL'
@@ -122,12 +139,20 @@ export function ChatSettingsForm() {
       {/* Debug Options */}
       <section className='space-y-3'>
         <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Debug Options</h3>
-        <ToggleInput
-          label='Fake Mode'
-          labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-          value={fakeMode}
-          onClick={handleToggleFakeMode}
-        />
+        <div className='space-y-2'>
+          <ToggleInput
+            label='Fake Mode'
+            labelClassName={`text-sm font-medium ${apiMode === 'responses' ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}
+            value={fakeMode}
+            disabled={apiMode === 'responses'}
+            onClick={handleToggleFakeMode}
+          />
+          {apiMode === 'responses' && (
+            <p className='text-xs text-gray-500 dark:text-gray-400'>
+              Fake Mode は `chat_completions` のみサポートします。
+            </p>
+          )}
+        </div>
       </section>
 
       {/* Bottom spacing for safe area */}

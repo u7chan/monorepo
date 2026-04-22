@@ -66,6 +66,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -104,6 +105,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -142,6 +144,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -192,6 +195,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -234,6 +238,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -272,6 +277,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -310,6 +316,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         content: string;
                     })[];
                     model: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
                     temperature?: number | undefined;
                     maxTokens?: number | undefined;
                     reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -416,6 +423,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         reasoningContent: string;
                         metadata: {
                             model: string;
+                            apiMode?: "chat_completions" | "responses" | undefined;
                             stream?: boolean | undefined;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
@@ -432,8 +440,18 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 totalTokens?: number | undefined;
                                 reasoningTokens?: number | undefined;
                             };
+                            apiMode?: "chat_completions" | "responses" | undefined;
                             finishReason?: string | undefined;
                             responseTimeMs?: number | undefined;
+                            generatedFiles?: {
+                                blockIndex: number;
+                                language: string;
+                                fileName: string;
+                                publicPath: string;
+                                previewUrl: string;
+                                contentType: string;
+                                createdAt: string;
+                            }[] | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -471,6 +489,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         })[];
                         metadata: {
                             model: string;
+                            apiMode?: "chat_completions" | "responses" | undefined;
                             stream?: boolean | undefined;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
@@ -488,8 +507,18 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 totalTokens?: number | undefined;
                                 reasoningTokens?: number | undefined;
                             };
+                            apiMode?: "chat_completions" | "responses" | undefined;
                             finishReason?: string | undefined;
                             responseTimeMs?: number | undefined;
+                            generatedFiles?: {
+                                blockIndex: number;
+                                language: string;
+                                fileName: string;
+                                publicPath: string;
+                                previewUrl: string;
+                                contentType: string;
+                                createdAt: string;
+                            }[] | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -528,6 +557,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         })[];
                         metadata: {
                             model: string;
+                            apiMode?: "chat_completions" | "responses" | undefined;
                             stream?: boolean | undefined;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
@@ -545,8 +575,18 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 totalTokens?: number | undefined;
                                 reasoningTokens?: number | undefined;
                             };
+                            apiMode?: "chat_completions" | "responses" | undefined;
                             finishReason?: string | undefined;
                             responseTimeMs?: number | undefined;
+                            generatedFiles?: {
+                                blockIndex: number;
+                                language: string;
+                                fileName: string;
+                                publicPath: string;
+                                previewUrl: string;
+                                contentType: string;
+                                createdAt: string;
+                            }[] | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -623,6 +663,317 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 deletedMessageIds: string[];
                 failedMessageIds: string[];
                 deletedConversationIds: string[];
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/conversations/messages/metadata": {
+        $patch: {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    metadata: {
+                        model?: string | undefined;
+                        apiMode?: "chat_completions" | "responses" | undefined;
+                        finishReason?: string | undefined;
+                        responseTimeMs?: number | undefined;
+                        usage?: {
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        } | undefined;
+                        generatedFiles?: {
+                            blockIndex: number;
+                            language: string;
+                            fileName: string;
+                            publicPath: string;
+                            previewUrl: string;
+                            contentType: string;
+                            createdAt: string;
+                        }[] | undefined;
+                    };
+                };
+            };
+            output: {
+                readonly success: false;
+                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly data: any;
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    metadata: {
+                        model?: string | undefined;
+                        apiMode?: "chat_completions" | "responses" | undefined;
+                        finishReason?: string | undefined;
+                        responseTimeMs?: number | undefined;
+                        usage?: {
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        } | undefined;
+                        generatedFiles?: {
+                            blockIndex: number;
+                            language: string;
+                            fileName: string;
+                            publicPath: string;
+                            previewUrl: string;
+                            contentType: string;
+                            createdAt: string;
+                        }[] | undefined;
+                    };
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 404;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    metadata: {
+                        model?: string | undefined;
+                        apiMode?: "chat_completions" | "responses" | undefined;
+                        finishReason?: string | undefined;
+                        responseTimeMs?: number | undefined;
+                        usage?: {
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        } | undefined;
+                        generatedFiles?: {
+                            blockIndex: number;
+                            language: string;
+                            fileName: string;
+                            publicPath: string;
+                            previewUrl: string;
+                            contentType: string;
+                            createdAt: string;
+                        }[] | undefined;
+                    };
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 403;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    metadata: {
+                        model?: string | undefined;
+                        apiMode?: "chat_completions" | "responses" | undefined;
+                        finishReason?: string | undefined;
+                        responseTimeMs?: number | undefined;
+                        usage?: {
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        } | undefined;
+                        generatedFiles?: {
+                            blockIndex: number;
+                            language: string;
+                            fileName: string;
+                            publicPath: string;
+                            previewUrl: string;
+                            contentType: string;
+                            createdAt: string;
+                        }[] | undefined;
+                    };
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    metadata: {
+                        model?: string | undefined;
+                        apiMode?: "chat_completions" | "responses" | undefined;
+                        finishReason?: string | undefined;
+                        responseTimeMs?: number | undefined;
+                        usage?: {
+                            completionTokens?: number | undefined;
+                            promptTokens?: number | undefined;
+                            totalTokens?: number | undefined;
+                            reasoningTokens?: number | undefined;
+                        } | undefined;
+                        generatedFiles?: {
+                            blockIndex: number;
+                            language: string;
+                            fileName: string;
+                            publicPath: string;
+                            previewUrl: string;
+                            contentType: string;
+                            createdAt: string;
+                        }[] | undefined;
+                    };
+                };
+            };
+            output: {
+                metadata: {
+                    model: string;
+                    usage: {
+                        completionTokens?: number | undefined;
+                        promptTokens?: number | undefined;
+                        totalTokens?: number | undefined;
+                        reasoningTokens?: number | undefined;
+                    };
+                    apiMode?: "chat_completions" | "responses" | undefined;
+                    finishReason?: string | undefined;
+                    responseTimeMs?: number | undefined;
+                    generatedFiles?: {
+                        blockIndex: number;
+                        language: string;
+                        fileName: string;
+                        publicPath: string;
+                        previewUrl: string;
+                        contentType: string;
+                        createdAt: string;
+                    }[] | undefined;
+                };
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/conversations/messages/generated-files": {
+        $post: {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                readonly success: false;
+                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly data: any;
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 404;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 403;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 503;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 502;
+        } | {
+            input: {
+                json: {
+                    conversationId: string;
+                    messageId: string;
+                    blockIndex: number;
+                    language: string;
+                    content: string;
+                };
+            };
+            output: {
+                file: {
+                    blockIndex: number;
+                    language: string;
+                    fileName: string;
+                    publicPath: string;
+                    previewUrl: string;
+                    contentType: string;
+                    createdAt: string;
+                };
+                alreadyExisted: boolean;
             };
             outputFormat: "json";
             status: import('hono/utils/http-status').ContentfulStatusCode;

@@ -176,6 +176,100 @@ describe('chatRoutes', () => {
       })
     })
 
+    it('apiMode 未指定時は chat_completions を既定値で渡す', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'chatcmpl-abc',
+        created: 1700000000,
+        model: 'gpt-test',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'answer', refusal: null },
+            finish_reason: 'stop',
+            logprobs: null,
+          },
+        ],
+      })
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(completionsMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          apiMode: 'chat_completions',
+        })
+      )
+    })
+
+    it('responses モードの非 stream 応答を既存 ChatResponse に正規化する', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'resp_1',
+        created_at: 1700000000,
+        model: 'gpt-test',
+        output_text: 'answer',
+        output: [
+          {
+            id: 'rs_1',
+            type: 'reasoning',
+            summary: [{ type: 'summary_text', text: 'thinking' }],
+          },
+        ],
+        usage: {
+          input_tokens: 10,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens: 20,
+          output_tokens_details: { reasoning_tokens: 5 },
+          total_tokens: 30,
+        },
+      })
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          apiMode: 'responses',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({
+        id: 'resp_1',
+        created: 1700000000,
+        model: 'gpt-test',
+        finishReason: 'stop',
+        message: {
+          content: 'answer',
+          reasoningContent: 'thinking',
+        },
+        usage: {
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 30,
+          reasoningTokens: 5,
+        },
+      })
+    })
+
     it('不正な body は公開契約の validation error 形式で 400 を返す', async () => {
       const { chatRoutes } = await importSubject()
 
@@ -285,6 +379,71 @@ describe('chatRoutes', () => {
       expect(body).toContain('"event":"delta"')
       expect(body).toContain('"event":"finish"')
       expect(body).toContain('data: [DONE]')
+    })
+
+    it('responses モードの SSE を既存イベント契約へ正規化する', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'response.created',
+            sequence_number: 0,
+            response: {
+              id: 'resp_1',
+              created_at: 1700000000,
+              model: 'gpt-test',
+            },
+          }
+          yield {
+            type: 'response.output_text.delta',
+            sequence_number: 1,
+            item_id: 'item_1',
+            output_index: 0,
+            content_index: 0,
+            delta: 'answer',
+            logprobs: [],
+          }
+          yield {
+            type: 'response.completed',
+            sequence_number: 2,
+            response: {
+              id: 'resp_1',
+              created_at: 1700000000,
+              model: 'gpt-test',
+              usage: {
+                input_tokens: 10,
+                input_tokens_details: { cached_tokens: 0 },
+                output_tokens: 20,
+                output_tokens_details: { reasoning_tokens: 5 },
+                total_tokens: 30,
+              },
+            },
+          }
+        },
+      })
+
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          apiMode: 'responses',
+          messages: [],
+        }),
+      })
+
+      const body = await res.text()
+
+      expect(res.headers.get('content-type')).toContain('text/event-stream')
+      expect(body).toContain('"event":"delta"')
+      expect(body).toContain('"content":"answer"')
+      expect(body).toContain('"event":"finish"')
+      expect(body).toContain('"event":"usage"')
     })
 
     it('必須 header がない場合は 400 を返す', async () => {

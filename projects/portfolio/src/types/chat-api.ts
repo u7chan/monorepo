@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ApiChatMessageSchema } from './chat'
+import { ApiChatMessageSchema, ApiModeSchema } from './chat'
 
 // ============================================
 // /api/chat, /api/chat/stream 公開コントラクト
@@ -9,6 +9,7 @@ import { ApiChatMessageSchema } from './chat'
 export const ChatApiRequestSchema = z.object({
   messages: ApiChatMessageSchema.array(),
   model: z.string().min(1),
+  apiMode: ApiModeSchema.optional(),
   temperature: z.number().min(0).max(1).optional(),
   maxTokens: z.number().min(1).optional(),
   reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),

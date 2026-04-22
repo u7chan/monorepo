@@ -23,10 +23,11 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.1.0',
+  schemaVersion: '1.2.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
+  apiMode: 'chat_completions',
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,
@@ -60,6 +61,7 @@ describe('useLocalStorageSettings', () => {
       expect(result.current.temperature).toBe(0.7)
       expect(result.current.temperatureEnabled).toBe(false)
       expect(result.current.autoModel).toBe(false)
+      expect(result.current.apiMode).toBe('chat_completions')
       expect(result.current.streamMode).toBe(true)
     })
 
@@ -75,6 +77,16 @@ describe('useLocalStorageSettings', () => {
       expect(result.current.model).toBe('gpt-4.1')
       expect(result.current.temperature).toBe(0.3)
       expect(result.current.fakeMode).toBe(true)
+    })
+
+    it('responses 設定を復元すると fakeMode は false に正規化される', async () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...defaultSettings, apiMode: 'responses', fakeMode: true }))
+
+      const useLocalStorageSettings = await importHook()
+      const { result } = renderHook(() => useLocalStorageSettings())
+
+      expect(result.current.apiMode).toBe('responses')
+      expect(result.current.fakeMode).toBe(false)
     })
   })
 
@@ -105,6 +117,21 @@ describe('useLocalStorageSettings', () => {
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
       expect(stored.temperature).toBe(1.2)
       expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ temperature: 1.2 }))
+    })
+
+    it('apiMode を responses に更新すると fakeMode も false で保存する', async () => {
+      const onChange = vi.fn()
+      const useLocalStorageSettings = await importHook()
+      const { result } = renderHook(() => useLocalStorageSettings({ onChange }))
+
+      act(() => {
+        result.current.updateSetting('apiMode', 'responses')
+      })
+
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      expect(stored.apiMode).toBe('responses')
+      expect(stored.fakeMode).toBe(false)
+      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ apiMode: 'responses', fakeMode: false }))
     })
   })
 })

@@ -1,5 +1,5 @@
 import type { AppType } from '#/server/app.d'
-import type { ApiChatMessage } from '#/types'
+import type { ApiChatMessage, ApiMode } from '#/types'
 import type { ChatResponse, ChatUsage } from '#/types/chat-api'
 import { hc } from 'hono/client'
 import { useCallback, useRef, useState } from 'react'
@@ -12,6 +12,7 @@ interface SubmitChatCompletionParams {
     apiKey: string
     baseURL: string
   }
+  apiMode: ApiMode
   model: string
   /** /api/chat wire 形式のメッセージ（toApiChatMessage で変換済み） */
   messages: ApiChatMessage[]
@@ -40,6 +41,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
   const submitChatCompletion = useCallback(
     async ({
       header,
+      apiMode,
       model,
       messages,
       streamMode,
@@ -57,6 +59,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
           ? await sendStreamCompletion({
               abortController: abortControllerRef.current,
               header,
+              apiMode,
               model,
               messages,
               temperature,
@@ -67,6 +70,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
           : await sendNonStreamCompletion({
               abortController: abortControllerRef.current,
               header,
+              apiMode,
               model,
               messages,
               temperature,
@@ -100,6 +104,7 @@ interface SendCompletionParams {
     apiKey: string
     baseURL: string
   }
+  apiMode: ApiMode
   model: string
   messages: ApiChatMessage[]
   temperature?: number
@@ -130,11 +135,12 @@ const sendNonStreamCompletion = async (req: SendCompletionParams): Promise<ChatR
         json: {
           messages: req.messages,
           model: req.model,
+          apiMode: req.apiMode,
           temperature: req.temperature,
           maxTokens: req.maxTokens,
           reasoningEffort: req.reasoningEffort,
         },
-      },
+      } as never,
       { init: { signal: req.abortController.signal } }
     )
 
@@ -161,6 +167,7 @@ const sendStreamCompletion = async (
   let created = 0
   let model = 'N/A'
   let finishReason = ''
+  let receivedFinish = false
   let usage: ChatUsage | null = null
 
   try {
@@ -173,11 +180,12 @@ const sendStreamCompletion = async (
         json: {
           messages: req.messages,
           model: req.model,
+          apiMode: req.apiMode,
           temperature: req.temperature,
           maxTokens: req.maxTokens,
           reasoningEffort: req.reasoningEffort,
         },
-      },
+      } as never,
       { init: { signal: req.abortController.signal } }
     )
 
@@ -224,6 +232,7 @@ const sendStreamCompletion = async (
           }
           if (event.event === 'finish') {
             finishReason = event.finishReason
+            receivedFinish = true
           }
           if (event.event === 'usage') {
             usage = event.usage
@@ -239,12 +248,13 @@ const sendStreamCompletion = async (
     }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      // キャンセル時は蓄積した内容があれば返す
+      return null
     } else {
       throw error
     }
   }
 
+  if (!receivedFinish) return null
   if (!hasAssistantOutput(accumulated)) return null
 
   return {

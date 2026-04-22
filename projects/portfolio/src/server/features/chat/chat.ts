@@ -1,8 +1,16 @@
-import type { ApiChatMessage } from '#/types'
+import type { ApiChatMessage, ApiMode } from '#/types'
 import OpenAI from 'openai'
-import type { Completions, StreamChunk } from './transport'
+import type * as ResponsesAPI from 'openai/resources/responses/responses'
+import type { Completions, ResponsesCompletion, ResponsesStreamChunk } from './transport'
 
-export type { CompletionChunk, StreamCompletionChunk, StreamChunk } from './transport'
+export type {
+  CompletionChunk,
+  ResponsesCompletion,
+  ResponsesStreamEvent,
+  ResponsesStreamChunk,
+  StreamCompletionChunk,
+  StreamChunk,
+} from './transport'
 
 interface Chat {
   completions(
@@ -11,6 +19,7 @@ interface Chat {
       baseURL: string
     },
     params: {
+      apiMode: ApiMode
       model: string
       messages: ApiChatMessage[]
       temperature?: number
@@ -32,6 +41,7 @@ export const chat: Chat = {
       baseURL: string
     },
     {
+      apiMode,
       model,
       messages,
       temperature,
@@ -40,6 +50,7 @@ export const chat: Chat = {
       stream,
       includeUsage,
     }: {
+      apiMode: ApiMode
       model: string
       messages: ApiChatMessage[]
       temperature?: number
@@ -53,6 +64,18 @@ export const chat: Chat = {
       apiKey,
       baseURL,
     })
+
+    if (apiMode === 'responses') {
+      return (await openai.responses.create({
+        model,
+        input: convertToResponsesInput(messages),
+        temperature,
+        max_output_tokens: maxTokens,
+        reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
+        stream,
+      })) as ResponsesCompletion | ResponsesStreamChunk
+    }
+
     const completion = await openai.chat.completions.create({
       model,
       messages,
@@ -68,4 +91,36 @@ export const chat: Chat = {
     })
     return completion as Completions
   },
+}
+
+function convertToResponsesInput(messages: ApiChatMessage[]): ResponsesAPI.ResponseInput {
+  return messages.map((message) => {
+    if (message.role === 'system' || message.role === 'assistant') {
+      return {
+        type: 'message',
+        role: message.role,
+        content: message.content,
+      }
+    }
+
+    return {
+      type: 'message',
+      role: 'user',
+      content:
+        typeof message.content === 'string'
+          ? message.content
+          : message.content.map((content) =>
+              content.type === 'text'
+                ? {
+                    type: 'input_text' as const,
+                    text: content.text,
+                  }
+                : {
+                    type: 'input_image' as const,
+                    image_url: content.image_url.url,
+                    detail: 'auto' as const,
+                  }
+            ),
+    }
+  })
 }

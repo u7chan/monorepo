@@ -62,6 +62,16 @@ describe('chat types', () => {
   })
 
   describe('AssistantMetadataSchema', () => {
+    it('apiMode を含む metadata も parse できる', () => {
+      const parsed = AssistantMetadataSchema.parse({
+        model: 'gpt',
+        apiMode: 'responses',
+        usage: {},
+      })
+
+      expect(parsed.apiMode).toBe('responses')
+    })
+
     it('generatedFiles を parse できる', () => {
       const parsed = AssistantMetadataSchema.parse({
         model: 'gpt',
