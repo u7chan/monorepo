@@ -1,3 +1,4 @@
+import { useModelFetching } from '#/client/components/chat/chat-settings/hooks/use-model-fetching'
 import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { memo, useMemo, useState } from 'react'
@@ -77,25 +78,32 @@ export interface TemplateInput {
 }
 
 interface Props {
+  autoModel: boolean
   placeholder?: string
   onSubmit?: (templateInput: TemplateInput) => void
 }
 
-function PromptTemplateComponent({ placeholder, onSubmit }: Props) {
+function PromptTemplateComponent({ autoModel, placeholder, onSubmit }: Props) {
   const [composing, setComposition] = useState(false)
 
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
+  const [templateModels, setTemplateModels] = useState(defaultSettings.templateModels || {})
+  const { fetchedModels, isLoadingModels, fetchError } = useModelFetching({ autoModel })
 
   const handleChangeComposition = (composition: boolean) => {
     setComposition(composition)
   }
 
-  const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement>, id: string) => {
-    const pre = readFromLocalStorage().templateModels || {}
+  const handleChangeTemplateModel = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>, id: string) => {
+    const nextTemplateModels = {
+      ...templateModels,
+      [id]: { model: event.target.value },
+    }
+    setTemplateModels(nextTemplateModels)
     saveToLocalStorage({
-      templateModels: { ...pre, [id]: { model: event.target.value } },
+      templateModels: nextTemplateModels,
     })
   }
 
@@ -107,13 +115,67 @@ function PromptTemplateComponent({ placeholder, onSubmit }: Props) {
     if (event.key === 'Enter' && !event.shiftKey && content && !composing) {
       event.preventDefault()
       const templateInput = {
-        model: readFromLocalStorage()?.templateModels?.[id]?.model || '',
+        model: templateModels[id]?.model || '',
         prompt,
         content,
       }
       onSubmit?.(templateInput)
     }
   }
+
+  const renderTemplateModelInput = (template: PromptTemplate) => {
+    const currentModel = templateModels[template.id]?.model || ''
+
+    if (!autoModel) {
+      return (
+        <input
+          type='text'
+          spellCheck='false'
+          className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
+          onChange={(event) => handleChangeTemplateModel(event, template.id)}
+          value={currentModel}
+          placeholder={placeholder}
+        />
+      )
+    }
+
+    return (
+      <div className='relative'>
+        <select
+          className='w-40 appearance-none rounded-sm border p-1 pr-6 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-70 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
+          onChange={(event) => handleChangeTemplateModel(event, template.id)}
+          disabled={isLoadingModels || fetchedModels.length === 0}
+          value={currentModel}
+        >
+          {isLoadingModels ? (
+            <option>Loading...</option>
+          ) : fetchError ? (
+            <option>Error: {fetchError}</option>
+          ) : fetchedModels.length === 0 ? (
+            <option>No models available</option>
+          ) : (
+            <>
+              <option value=''>Default Model</option>
+              {fetchedModels.map((modelName) => (
+                <option key={modelName} value={modelName}>
+                  {modelName}
+                </option>
+              ))}
+            </>
+          )}
+        </select>
+        <svg
+          viewBox='0 0 20 20'
+          aria-hidden='true'
+          className='pointer-events-none absolute top-1/2 right-1.5 h-3 w-3 -translate-y-1/2 stroke-gray-600 dark:stroke-gray-300'
+          fill='none'
+        >
+          <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
+        </svg>
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className='grid grid-cols-1 gap-3 p-4 md:grid-cols-2'>
@@ -128,14 +190,7 @@ function PromptTemplateComponent({ placeholder, onSubmit }: Props) {
               </div>
               <div className='flex items-center gap-2'>
                 <div className='text-gray-500 text-xs dark:text-gray-400'>Model</div>
-                <input
-                  type='text'
-                  spellCheck='false'
-                  className='rounded-sm border p-1 text-gray-600 text-xs transition-colors hover:border-primary-700 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
-                  onChange={(e) => handleChangeTemplateModel(e, template.id)}
-                  defaultValue={defaultSettings?.templateModels?.[template.id]?.model || ''}
-                  placeholder={placeholder}
-                />
+                {renderTemplateModelInput(template)}
               </div>
             </div>
             <p className='text-gray-600 dark:text-gray-200'>
