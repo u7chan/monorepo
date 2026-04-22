@@ -3,7 +3,7 @@
 import { ChatResults } from '#/client/components/chat/chat-results'
 import type { AssistantMetadata, Message } from '#/types'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(() => {
   cleanup()
@@ -93,6 +93,19 @@ describe('ChatResults', () => {
 
       fireEvent.keyDown(document, { key: 'Escape' })
       expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('copies JSON to clipboard on copy button click', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText } })
+
+      const messages = createMessages(2)
+      render(<ChatResults metadata={createMetadata()} messages={messages} />)
+
+      fireEvent.click(screen.getByLabelText('Open messages dump viewer'))
+      fireEvent.click(screen.getByLabelText('Copy JSON'))
+
+      expect(writeText).toHaveBeenCalledWith(JSON.stringify(messages, null, 2))
     })
   })
 })
