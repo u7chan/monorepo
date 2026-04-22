@@ -1,9 +1,12 @@
+import { MessagesDumpViewer } from '#/client/components/chat/messages-dump-viewer'
 import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
-import type { AssistantMetadata } from '#/types'
+import { EyeIcon } from '#/client/components/svg/eye-icon'
+import type { AssistantMetadata, Message } from '#/types'
 import { memo, useState } from 'react'
 
 interface ChatResultsProps {
   metadata: AssistantMetadata
+  messages: Message[]
 }
 
 function formatResponseTime(ms: number): string {
@@ -14,9 +17,12 @@ function formatResponseTime(ms: number): string {
 }
 
 const badgeClass = 'flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'
+const usageBadgeClass = `${badgeClass} max-w-full flex-wrap gap-x-1 gap-y-0.5`
+const usageItemClass = 'inline-flex items-center gap-0.5'
 
-function ChatResultsComponent({ metadata }: ChatResultsProps) {
+function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
   const [open, setOpen] = useState(false)
+  const [dumpOpen, setDumpOpen] = useState(false)
 
   if (!metadata.model) {
     return null
@@ -26,23 +32,34 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
 
   return (
     <div className='mt-2'>
-      <button
-        type='button'
-        className='flex cursor-pointer flex-wrap items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-      >
-        <span>{model}</span>
-        {responseTimeMs !== undefined && (
-          <>
-            <span>/</span>
-            <span>{formatResponseTime(responseTimeMs)}</span>
-          </>
-        )}
-        <span className={`ml-0.5 inline-flex transition-transform duration-200 ${open ? '-rotate-90' : 'rotate-90'}`}>
-          <ChevronRightIcon />
-        </span>
-      </button>
+      <div className='flex flex-wrap items-center gap-2'>
+        <button
+          type='button'
+          className='flex cursor-pointer flex-wrap items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+        >
+          <span>{model}</span>
+          {responseTimeMs !== undefined && (
+            <>
+              <span>/</span>
+              <span>{formatResponseTime(responseTimeMs)}</span>
+            </>
+          )}
+          <span className={`ml-0.5 inline-flex transition-transform duration-200 ${open ? '-rotate-90' : 'rotate-90'}`}>
+            <ChevronRightIcon />
+          </span>
+        </button>
+        <button
+          type='button'
+          className='flex cursor-pointer items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+          onClick={() => setDumpOpen(true)}
+          aria-label='Open messages dump viewer'
+        >
+          <span>messages: ({messages.length})</span>
+          <EyeIcon size={14} className='stroke-current' />
+        </button>
+      </div>
       <div
         aria-hidden={!open}
         className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
@@ -61,25 +78,36 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
                 <span>{finishReason}</span>
               </div>
             )}
-            <div className={badgeClass}>
+            <div className={usageBadgeClass}>
               <span className='mr-1'>usage:</span>
-              <span className='mr-0.5'>(input:</span>
-              <span>{usage.promptTokens ?? '--'}</span>
-              <span className='mr-0.5'>/</span>
-              <span className='mr-0.5'>output:</span>
-              <span>{usage.completionTokens ?? '--'}</span>
+              <span className={usageItemClass}>
+                <span>input:</span>
+                <span>{usage.promptTokens ?? '--'}</span>
+              </span>
+              <span className='text-gray-400 dark:text-gray-500'>/</span>
+              <span className={usageItemClass}>
+                <span>output:</span>
+                <span>{usage.completionTokens ?? '--'}</span>
+              </span>
+              <span className='text-gray-400 dark:text-gray-500'>/</span>
+              <span className={usageItemClass}>
+                <span>total:</span>
+                <span>{usage.totalTokens ?? '--'}</span>
+              </span>
               {usage.reasoningTokens !== undefined && (
                 <>
-                  <span className='mr-0.5'>/</span>
-                  <span className='mr-0.5'>reasoning:</span>
-                  <span>{usage.reasoningTokens}</span>
+                  <span className='text-gray-400 dark:text-gray-500'>/</span>
+                  <span className={usageItemClass}>
+                    <span>reasoning:</span>
+                    <span>{usage.reasoningTokens}</span>
+                  </span>
                 </>
               )}
-              <span>)</span>
             </div>
           </div>
         </div>
       </div>
+      <MessagesDumpViewer messages={messages} open={dumpOpen} onClose={() => setDumpOpen(false)} />
     </div>
   )
 }

@@ -103,7 +103,8 @@ describe('readConversations', () => {
             id: 'message-1',
             role: 'system',
             content: 'system',
-            reasoningContent: '',
+            // reasoningContent が空文字列の場合は undefined
+            reasoningContent: undefined,
             // metadata が null の場合は undefined（SystemMessage.metadata は optional）
             metadata: undefined,
           },
