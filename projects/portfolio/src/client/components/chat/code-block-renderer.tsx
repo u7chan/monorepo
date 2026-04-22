@@ -319,7 +319,9 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
       ) : (
         <div
           aria-hidden={!isOpen}
-          className={`grid overflow-y-hidden transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
+          className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
+            isOpen ? 'overflow-y-hidden' : 'overflow-hidden'
+          } ${
             isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
           }`}
         >
