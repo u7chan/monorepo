@@ -321,9 +321,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
           aria-hidden={!isOpen}
           className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
             isOpen ? 'overflow-y-hidden' : 'overflow-hidden'
-          } ${
-            isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-          }`}
+          } ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
         >
           <div className='min-h-0'>{highlighter}</div>
         </div>
