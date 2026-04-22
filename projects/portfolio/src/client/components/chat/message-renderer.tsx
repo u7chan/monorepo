@@ -28,6 +28,7 @@ const markdownComponents = {
 interface MessageRendererProps {
   message: Message
   index: number
+  messages: Message[]
   conversationId: string | null
   canSaveGeneratedFile?: boolean
   markdownPreview: boolean
@@ -99,6 +100,7 @@ function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
 function MessageRendererComponent({
   message,
   index,
+  messages,
   conversationId,
   canSaveGeneratedFile,
   markdownPreview,
@@ -199,7 +201,7 @@ function MessageRendererComponent({
         <MessageActionBar copied={copied}>
           <CopyMessageButton copied={copied} onClick={() => onCopyMessage(message.content, index)} />
         </MessageActionBar>
-        <ChatResults metadata={message.metadata} />
+        <ChatResults metadata={message.metadata} messages={messages} />
       </div>
     </div>
   )

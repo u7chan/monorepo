@@ -1,9 +1,12 @@
 import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
-import type { AssistantMetadata } from '#/types'
-import { memo, useState } from 'react'
+import { CloseIcon } from '#/client/components/svg/close-icon'
+import { EyeIcon } from '#/client/components/svg/eye-icon'
+import type { AssistantMetadata, Message } from '#/types'
+import { memo, useEffect, useState } from 'react'
 
 interface ChatResultsProps {
   metadata: AssistantMetadata
+  messages: Message[]
 }
 
 function formatResponseTime(ms: number): string {
@@ -15,8 +18,57 @@ function formatResponseTime(ms: number): string {
 
 const badgeClass = 'flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'
 
-function ChatResultsComponent({ metadata }: ChatResultsProps) {
+function MessagesDumpViewer({ messages, open, onClose }: { messages: Message[]; open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open, onClose])
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>
+      <div className='fixed inset-0 bg-black/50' onClick={onClose} aria-hidden='true' />
+      <div
+        className='relative z-10 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800'
+        role='dialog'
+        aria-modal='true'
+        aria-label='Messages dump viewer'
+      >
+        <div className='flex items-center justify-between border-b border-gray-200 px-4 py-2 dark:border-gray-700'>
+          <span className='text-sm font-medium text-gray-900 dark:text-gray-100'>Messages Dump</span>
+          <button
+            type='button'
+            className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+            onClick={onClose}
+            aria-label='Close viewer'
+          >
+            <CloseIcon size={20} />
+          </button>
+        </div>
+        <div className='overflow-auto p-4'>
+          <pre className='text-xs text-gray-800 dark:text-gray-200'>
+            <code>{JSON.stringify(messages, null, 2)}</code>
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
   const [open, setOpen] = useState(false)
+  const [dumpOpen, setDumpOpen] = useState(false)
 
   if (!metadata.model) {
     return null
@@ -26,23 +78,34 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
 
   return (
     <div className='mt-2'>
-      <button
-        type='button'
-        className='flex cursor-pointer flex-wrap items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-      >
-        <span>{model}</span>
-        {responseTimeMs !== undefined && (
-          <>
-            <span>/</span>
-            <span>{formatResponseTime(responseTimeMs)}</span>
-          </>
-        )}
-        <span className={`ml-0.5 inline-flex transition-transform duration-200 ${open ? '-rotate-90' : 'rotate-90'}`}>
-          <ChevronRightIcon />
-        </span>
-      </button>
+      <div className='flex flex-wrap items-center gap-2'>
+        <button
+          type='button'
+          className='flex cursor-pointer flex-wrap items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+        >
+          <span>{model}</span>
+          {responseTimeMs !== undefined && (
+            <>
+              <span>/</span>
+              <span>{formatResponseTime(responseTimeMs)}</span>
+            </>
+          )}
+          <span className={`ml-0.5 inline-flex transition-transform duration-200 ${open ? '-rotate-90' : 'rotate-90'}`}>
+            <ChevronRightIcon />
+          </span>
+        </button>
+        <button
+          type='button'
+          className='flex cursor-pointer items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+          onClick={() => setDumpOpen(true)}
+          aria-label='Open messages dump viewer'
+        >
+          <span>messages: ({messages.length})</span>
+          <EyeIcon size={14} className='stroke-current' />
+        </button>
+      </div>
       <div
         aria-hidden={!open}
         className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
@@ -80,6 +143,7 @@ function ChatResultsComponent({ metadata }: ChatResultsProps) {
           </div>
         </div>
       </div>
+      <MessagesDumpViewer messages={messages} open={dumpOpen} onClose={() => setDumpOpen(false)} />
     </div>
   )
 }

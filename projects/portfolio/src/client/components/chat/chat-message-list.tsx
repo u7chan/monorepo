@@ -134,6 +134,7 @@ const MessageHistory = memo(function MessageHistory({
       key={message.id ?? `chat_${index}`}
       message={message}
       index={index}
+      messages={messages}
       conversationId={conversationId}
       canSaveGeneratedFile={canSaveGeneratedFile}
       markdownPreview={markdownPreview}

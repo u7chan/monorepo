@@ -41,6 +41,7 @@ describe('MessageRenderer', () => {
         <MessageRenderer
           message={createAssistantMessage('```html\n<div>Hello</div>\n```')}
           index={0}
+          messages={[]}
           conversationId='conversation-1'
           canSaveGeneratedFile={false}
           markdownPreview={true}
@@ -58,6 +59,7 @@ describe('MessageRenderer', () => {
         <MessageRenderer
           message={createAssistantMessage('```html\n<div>Hello</div>\n```')}
           index={0}
+          messages={[]}
           conversationId='conversation-1'
           canSaveGeneratedFile={true}
           markdownPreview={true}
@@ -75,6 +77,7 @@ describe('MessageRenderer', () => {
         <MessageRenderer
           message={createAssistantMessage('```typescript\nconst value = 1\n```')}
           index={0}
+          messages={[]}
           conversationId='conversation-1'
           canSaveGeneratedFile={true}
           markdownPreview={true}
@@ -104,6 +107,7 @@ describe('MessageRenderer', () => {
             },
           ])}
           index={0}
+          messages={[]}
           conversationId='conversation-1'
           canSaveGeneratedFile={false}
           markdownPreview={true}
