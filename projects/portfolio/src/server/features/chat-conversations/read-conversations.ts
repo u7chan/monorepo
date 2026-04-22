@@ -178,7 +178,7 @@ function buildMessage(
       id: row.id,
       role: 'user',
       content,
-      reasoningContent: row.reasoningContent,
+      reasoningContent: row.reasoningContent || undefined,
       metadata: (row.metadata ?? {}) as UserMetadata,
     }
   }
@@ -198,7 +198,7 @@ function buildMessage(
       id: row.id,
       role: 'system',
       content: typeof content === 'string' ? content : '',
-      reasoningContent: row.reasoningContent,
+      reasoningContent: row.reasoningContent || undefined,
       metadata: (row.metadata as Record<string, never> | undefined) ?? undefined,
     }
   }

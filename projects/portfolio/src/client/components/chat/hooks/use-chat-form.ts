@@ -153,7 +153,6 @@ const createMessage = (
             })),
           ]
         : inputText,
-    reasoningContent: '',
     metadata: { model, apiMode },
   }
 
@@ -176,14 +175,12 @@ const createTemplateMessage = (
     id: uuidv7(),
     role: 'user',
     content: templateInput.content,
-    reasoningContent: '',
     metadata: { model: templateInput.model || model, apiMode },
   }
   const systemMessage: Message = {
     id: uuidv7(),
     role: 'system',
     content: templateInput.prompt,
-    reasoningContent: '',
   }
 
   const allMessages: Message[] =

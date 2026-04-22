@@ -47,7 +47,7 @@ export const UserMessageSchema = z.object({
   role: z.literal('user'),
   // 修正: string | Array<TextContent | ImageContent> に対応
   content: z.union([z.string(), z.array(z.union([TextContentSchema, ImageContentSchema]))]),
-  reasoningContent: z.string().default(''),
+  reasoningContent: z.string().optional(),
   metadata: UserMetadataSchema,
 })
 
@@ -99,7 +99,7 @@ export const SystemMessageSchema = z.object({
   id: z.string().optional(),
   role: z.literal('system'),
   content: z.string(),
-  reasoningContent: z.string().default(''),
+  reasoningContent: z.string().optional(),
   metadata: z.object({}).optional(),
 })
 
