@@ -85,7 +85,9 @@ export function ChatMessageList({
                   </div>
                 ) : (
                   <div className='message text-left'>
-                    <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all'>{stream.content}</p>
+                    <p className='wrap-break-word mt-1 inline-block whitespace-pre-wrap break-all text-gray-900 dark:text-gray-100'>
+                      {stream.content}
+                    </p>
                   </div>
                 )}
               </div>
