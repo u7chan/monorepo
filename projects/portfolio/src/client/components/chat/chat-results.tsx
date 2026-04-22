@@ -1,5 +1,5 @@
-import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { MessagesDumpViewer } from '#/client/components/chat/messages-dump-viewer'
+import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { EyeIcon } from '#/client/components/svg/eye-icon'
 import type { AssistantMetadata, Message } from '#/types'
 import { memo, useState } from 'react'
