@@ -91,6 +91,10 @@ export function ChatSettingsForm() {
               defaultValue={settings.apiKey}
               placeholder='Enter your API key'
               disabled={fakeMode}
+              autoComplete='new-password'
+              autoCapitalize='none'
+              autoCorrect='off'
+              spellCheck={false}
               onChange={handleChangeApiKey}
             />
             <p className='text-xs text-gray-500 dark:text-gray-400'>
