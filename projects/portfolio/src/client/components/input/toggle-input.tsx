@@ -10,7 +10,7 @@ export function ToggleInput({ label, labelClassName, value, disabled, onClick }:
   return (
     <div className='flex items-center justify-between gap-2'>
       {label && (
-        <span className={`ml-1 shrink-0 font-medium text-gray-900 text-sm dark:text-gray-200 ${labelClassName || ''}`}>
+        <span className={`shrink-0 font-medium text-gray-900 text-sm dark:text-gray-200 ${labelClassName || ''}`}>
           {label}
         </span>
       )}

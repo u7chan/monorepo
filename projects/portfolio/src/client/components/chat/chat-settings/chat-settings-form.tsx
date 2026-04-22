@@ -69,9 +69,6 @@ export function ChatSettingsForm() {
                 <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
               </svg>
             </div>
-            {apiMode === 'responses' && (
-              <p className='text-xs text-gray-500 dark:text-gray-400'>Responses では Fake Mode を利用できません。</p>
-            )}
           </div>
 
           <TextInput
@@ -162,9 +159,7 @@ export function ChatSettingsForm() {
             onClick={handleToggleFakeMode}
           />
           {apiMode === 'responses' && (
-            <p className='text-xs text-gray-500 dark:text-gray-400'>
-              Fake Mode は `chat_completions` のみサポートします。
-            </p>
+            <p className='text-xs text-gray-500 dark:text-gray-400'>Responses では Fake Mode を利用できません。</p>
           )}
         </div>
       </section>
