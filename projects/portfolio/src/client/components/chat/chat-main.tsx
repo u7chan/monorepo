@@ -299,7 +299,11 @@ export function ChatMain({
                 お手伝いできることはありますか？
               </div>
               <div className='hidden md:block'>
-                <PromptTemplate placeholder={settings.model} onSubmit={handleTemplateSubmit} />
+                <PromptTemplate
+                  autoModel={settings.autoModel}
+                  placeholder={settings.model}
+                  onSubmit={handleTemplateSubmit}
+                />
               </div>
               <ChatInput
                 name='userInput'
