@@ -4,7 +4,7 @@ import {
 } from '#/server/features/chat-conversations/file-server-client'
 import { chatConversationRepository } from '#/server/features/chat-conversations/repository'
 import { requireAuth } from '#/server/middleware/auth'
-import { ConversationSchema, GeneratedCodeFileSchema } from '#/types'
+import { ApiModeSchema, ConversationSchema, GeneratedCodeFileSchema } from '#/types'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -18,6 +18,7 @@ const ConversationIdsQuerySchema = z.object({
 const AssistantMetadataPatchSchema = z
   .object({
     model: z.string().optional(),
+    apiMode: ApiModeSchema.optional(),
     finishReason: z.string().optional(),
     responseTimeMs: z.number().optional(),
     usage: z

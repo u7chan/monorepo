@@ -1,4 +1,5 @@
 import { readFromLocalStorage, type Settings, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
+import type { ApiMode } from '#/types'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from 'react'
 
 type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -13,6 +14,7 @@ interface UseLocalStorageSettingsReturn {
   temperature: number
   temperatureEnabled: boolean
   autoModel: boolean
+  apiMode: ApiMode
   fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
@@ -23,6 +25,7 @@ interface UseLocalStorageSettingsReturn {
   setTemperature: Dispatch<SetStateAction<number>>
   setTemperatureEnabled: Dispatch<SetStateAction<boolean>>
   setAutoModel: Dispatch<SetStateAction<boolean>>
+  setApiMode: Dispatch<SetStateAction<ApiMode>>
   setFakeMode: Dispatch<SetStateAction<boolean>>
   setMarkdownPreview: Dispatch<SetStateAction<boolean>>
   setStreamMode: Dispatch<SetStateAction<boolean>>
@@ -41,6 +44,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
   const [temperature, setTemperature] = useState<number>(defaultSettings.temperature)
   const [temperatureEnabled, setTemperatureEnabled] = useState(defaultSettings?.temperatureEnabled ?? false)
   const [autoModel, setAutoModel] = useState(defaultSettings?.autoModel ?? false)
+  const [apiMode, setApiMode] = useState<ApiMode>(defaultSettings.apiMode)
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
@@ -59,7 +63,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     [onChange]
   )
 
-  const settings = useMemo(() => ({ ...defaultSettings, model }), [defaultSettings, model])
+  const settings = useMemo(() => ({ ...defaultSettings, model, apiMode }), [defaultSettings, model, apiMode])
 
   return {
     settings,
@@ -67,6 +71,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     temperature,
     temperatureEnabled,
     autoModel,
+    apiMode,
     fakeMode,
     markdownPreview,
     streamMode,
@@ -77,6 +82,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     setTemperature,
     setTemperatureEnabled,
     setAutoModel,
+    setApiMode,
     setFakeMode,
     setMarkdownPreview,
     setStreamMode,

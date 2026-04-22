@@ -103,6 +103,7 @@ export function ChatMain({
         userInput: formData.get('userInput')?.toString() || '',
       }
       const params = buildChatMessages({
+        apiMode: settings.apiMode,
         interactiveMode: settings.interactiveMode,
         messages,
         model: form.model,
@@ -125,6 +126,7 @@ export function ChatMain({
           apiKey: form.apiKey,
           baseURL: form.baseURL,
         },
+        apiMode: settings.apiMode,
         model: params.model,
         messages: params.apiMessages,
         streamMode: settings.streamMode,
@@ -143,6 +145,7 @@ export function ChatMain({
               reasoningContent: result.message.reasoningContent,
               metadata: {
                 model: result.model,
+                apiMode: settings.apiMode,
                 finishReason: result.finishReason,
                 responseTimeMs: responseTimeMs,
                 usage: {
@@ -192,6 +195,7 @@ export function ChatMain({
       settings.interactiveMode,
       settings.maxTokens,
       settings.model,
+      settings.apiMode,
       settings.reasoningEffort,
       settings.reasoningEffortEnabled,
       settings.streamMode,

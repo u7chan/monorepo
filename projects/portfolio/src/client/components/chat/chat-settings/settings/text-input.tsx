@@ -7,6 +7,10 @@ interface Props {
   placeholder?: string
   disabled?: boolean
   type?: 'text' | 'password' | 'number'
+  autoComplete?: string
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'
+  autoCorrect?: 'on' | 'off'
+  spellCheck?: boolean
   min?: number
   max?: number
   suffix?: string
@@ -20,6 +24,10 @@ export function TextInput({
   placeholder,
   disabled = false,
   type = 'text',
+  autoComplete,
+  autoCapitalize,
+  autoCorrect,
+  spellCheck,
   min,
   max,
   suffix,
@@ -37,6 +45,10 @@ export function TextInput({
         disabled={disabled}
         onChange={onChange}
         placeholder={placeholder}
+        autoComplete={autoComplete}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={autoCorrect}
+        spellCheck={spellCheck}
         min={min}
         max={max}
         className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition-all ${

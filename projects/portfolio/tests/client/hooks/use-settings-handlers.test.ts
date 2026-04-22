@@ -23,10 +23,11 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.1.0',
+  schemaVersion: '1.2.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
+  apiMode: 'chat_completions',
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,
@@ -83,6 +84,32 @@ describe('useSettingsHandlers', () => {
       expect(result.current.storage.fakeMode).toBe(true)
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
       expect(stored.fakeMode).toBe(true)
+    })
+
+    it('responses では handleToggleFakeMode が fakeMode を有効化しない', async () => {
+      const { useLocalStorageSettings, useSettingsHandlers } = await importHooks()
+
+      const { result } = renderHook(() => {
+        const storage = useLocalStorageSettings()
+        const handlers = useSettingsHandlers({
+          ...storage,
+          updateSetting: storage.updateSetting,
+        })
+        return { storage, handlers }
+      })
+
+      act(() => {
+        result.current.handlers.handleChangeApiMode(createChangeEvent('responses'))
+      })
+      act(() => {
+        result.current.handlers.handleToggleFakeMode()
+      })
+
+      expect(result.current.storage.apiMode).toBe('responses')
+      expect(result.current.storage.fakeMode).toBe(false)
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      expect(stored.apiMode).toBe('responses')
+      expect(stored.fakeMode).toBe(false)
     })
 
     it('handleToggleStreamMode が状態を反転して localStorage に保存する', async () => {
@@ -194,6 +221,32 @@ describe('useSettingsHandlers', () => {
       expect(result.current.storage.reasoningEffort).toBe('high')
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
       expect(stored.reasoningEffort).toBe('high')
+    })
+
+    it('handleChangeApiMode が apiMode を更新し responses では fakeMode を解除する', async () => {
+      const { useLocalStorageSettings, useSettingsHandlers } = await importHooks()
+
+      const { result } = renderHook(() => {
+        const storage = useLocalStorageSettings()
+        const handlers = useSettingsHandlers({
+          ...storage,
+          updateSetting: storage.updateSetting,
+        })
+        return { storage, handlers }
+      })
+
+      act(() => {
+        result.current.handlers.handleToggleFakeMode()
+      })
+      act(() => {
+        result.current.handlers.handleChangeApiMode(createChangeEvent('responses'))
+      })
+
+      expect(result.current.storage.apiMode).toBe('responses')
+      expect(result.current.storage.fakeMode).toBe(false)
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      expect(stored.apiMode).toBe('responses')
+      expect(stored.fakeMode).toBe(false)
     })
   })
 

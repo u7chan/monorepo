@@ -1,5 +1,5 @@
 import type { TemplateInput } from '#/client/components/chat/prompt-template'
-import type { ApiChatMessage, Message } from '#/types'
+import type { ApiChatMessage, ApiMode, Message } from '#/types'
 import { toApiChatMessage } from '#/types'
 import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
@@ -13,6 +13,7 @@ interface UseChatFormParams {
 }
 
 interface BuildChatMessagesParams {
+  apiMode: ApiMode
   interactiveMode: boolean
   messages: Message[]
   model: string
@@ -81,15 +82,16 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
   }
 
   const buildChatMessages = ({
+    apiMode,
     interactiveMode,
     messages,
     model,
   }: BuildChatMessagesParams): BuiltChatMessages | null => {
     if (templateInput) {
-      return createTemplateMessage(templateInput, model, { interactiveMode, messages })
+      return createTemplateMessage(templateInput, model, { apiMode, interactiveMode, messages })
     }
 
-    return createMessage(input.trim(), model, { interactiveMode, messages, uploadImages })
+    return createMessage(input.trim(), model, { apiMode, interactiveMode, messages, uploadImages })
   }
 
   const resetAfterSubmit = () => {
@@ -117,7 +119,17 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
 const createMessage = (
   inputText: string,
   model: string,
-  { interactiveMode, messages, uploadImages }: { interactiveMode: boolean; messages: Message[]; uploadImages: string[] }
+  {
+    apiMode,
+    interactiveMode,
+    messages,
+    uploadImages,
+  }: {
+    apiMode: ApiMode
+    interactiveMode: boolean
+    messages: Message[]
+    uploadImages: string[]
+  }
 ): BuiltChatMessages | null => {
   if (!inputText) {
     return null
@@ -142,7 +154,7 @@ const createMessage = (
           ]
         : inputText,
     reasoningContent: '',
-    metadata: { model },
+    metadata: { model, apiMode },
   }
 
   const allMessages: Message[] = [...messages, draftUserMessage]
@@ -158,14 +170,14 @@ const createMessage = (
 const createTemplateMessage = (
   templateInput: TemplateInput,
   model: string,
-  { interactiveMode, messages }: { interactiveMode: boolean; messages: Message[] }
+  { apiMode, interactiveMode, messages }: { apiMode: ApiMode; interactiveMode: boolean; messages: Message[] }
 ): BuiltChatMessages => {
   const draftUserMessage: Message = {
     id: uuidv7(),
     role: 'user',
     content: templateInput.content,
     reasoningContent: '',
-    metadata: { model: templateInput.model || model },
+    metadata: { model: templateInput.model || model, apiMode },
   }
   const systemMessage: Message = {
     id: uuidv7(),

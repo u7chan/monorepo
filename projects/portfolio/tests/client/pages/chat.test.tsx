@@ -7,10 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const STORAGE_KEY = 'portfolio.chat-settings'
 
 const defaultSettings = {
-  schemaVersion: '1.1.0',
+  schemaVersion: '1.2.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
+  apiMode: 'chat_completions',
   temperature: 0.7,
   temperatureEnabled: false,
   maxTokens: undefined,

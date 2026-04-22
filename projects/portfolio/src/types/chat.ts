@@ -4,6 +4,10 @@ import { z } from 'zod'
 // ベース型（Zod スキーマ）
 // ============================================
 
+export const ApiModeSchema = z.enum(['chat_completions', 'responses'])
+
+export type ApiMode = z.infer<typeof ApiModeSchema>
+
 /** 画像コンテンツ */
 export const ImageContentSchema = z.object({
   type: z.literal('image_url'),
@@ -29,6 +33,7 @@ export type TextContent = z.infer<typeof TextContentSchema>
 export const UserMetadataSchema = z
   .object({
     model: z.string().catch(''),
+    apiMode: ApiModeSchema.optional(),
     stream: z.boolean().optional(),
     temperature: z.number().optional(),
     maxTokens: z.number().optional(),
@@ -63,6 +68,7 @@ export type GeneratedCodeFile = z.infer<typeof GeneratedCodeFileSchema>
 export const AssistantMetadataSchema = z
   .object({
     model: z.string().catch(''),
+    apiMode: ApiModeSchema.optional(),
     finishReason: z.string().optional(),
     responseTimeMs: z.number().optional(),
     usage: z
