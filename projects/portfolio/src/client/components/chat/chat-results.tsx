@@ -83,6 +83,9 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
               <span className='mr-0.5'>/</span>
               <span className='mr-0.5'>output:</span>
               <span>{usage.completionTokens ?? '--'}</span>
+              <span className='mr-0.5'>/</span>
+              <span className='mr-0.5'>total:</span>
+              <span>{usage.totalTokens ?? '--'}</span>
               {usage.reasoningTokens !== undefined && (
                 <>
                   <span className='mr-0.5'>/</span>
