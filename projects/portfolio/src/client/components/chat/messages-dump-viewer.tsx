@@ -58,7 +58,7 @@ export function MessagesDumpViewer({ messages, open, onClose }: MessagesDumpView
     <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>
       <div className='fixed inset-0 bg-black/50' onClick={onClose} aria-hidden='true' />
       <div
-        className='relative z-10 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800'
+        className='relative z-10 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800'
         role='dialog'
         aria-modal='true'
         aria-label='Messages dump viewer'
@@ -95,8 +95,8 @@ export function MessagesDumpViewer({ messages, open, onClose }: MessagesDumpView
             </button>
           </div>
         </div>
-        <div className='overflow-auto p-4'>
-          <pre className='text-xs text-gray-800 dark:text-gray-200'>
+        <div className='messages-dump-scroll overflow-auto bg-gray-50 p-4 dark:bg-gray-800'>
+          <pre className='w-max min-w-full pr-4 text-xs text-gray-800 dark:text-gray-200'>
             <code>{json}</code>
           </pre>
         </div>
