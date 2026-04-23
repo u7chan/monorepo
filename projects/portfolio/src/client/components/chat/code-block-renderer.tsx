@@ -11,6 +11,19 @@ import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
 export const StreamingCodeBlockContext = createContext<boolean>(false)
 
+export type CodeBlockOpenBlocks = ReadonlyMap<string, boolean>
+
+export type CodeBlockOpenChangeHandler = (key: string, isOpen: boolean) => void
+
+export interface CodeBlockOpenStateContextValue {
+  messageId: string
+  cursor: { current: number }
+  openBlocks: CodeBlockOpenBlocks
+  onOpenChange: CodeBlockOpenChangeHandler
+}
+
+export const CodeBlockOpenStateContext = createContext<CodeBlockOpenStateContextValue | null>(null)
+
 const CUSTOM_STYLE: CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
   fontWeight: 400,
@@ -181,19 +194,35 @@ function CodeBlockCopyButton({ copied, onClick, disabled }: CodeBlockCopyButtonP
 export function CodeBlockRenderer({ className, children, actions }: CodeBlockRendererProps) {
   const [copied, setCopied] = useState(false)
   const streaming = useContext(StreamingCodeBlockContext)
+  const openState = useContext(CodeBlockOpenStateContext)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
   const detectedLanguage = className?.split('-')[1]
   const initialLanguage = detectedLanguage ?? 'plain'
 
   const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage)
-  const [isOpen, setIsOpen] = useState(!streaming)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
 
   // Block code: has a language identifier OR children contains newlines
   // (react-markdown adds a trailing \n to fenced code blocks)
   const isBlock = detectedLanguage !== undefined || (typeof children === 'string' && code.includes('\n'))
+  const isRenderableBlock = isBlock && typeof children === 'string'
+  const lineCount = code.replace(/\n$/, '').split('\n').length
+  const canCollapse = lineCount >= 4
+  const stateKey =
+    isRenderableBlock && canCollapse && openState ? `${openState.messageId}:${openState.cursor.current++}` : undefined
+  const controlledOpen = stateKey ? (openState?.openBlocks.get(stateKey) ?? false) : undefined
+  const isOpen = !canCollapse || (controlledOpen ?? uncontrolledOpen)
+  const setIsOpen = (value: boolean | ((current: boolean) => boolean)) => {
+    const nextOpen = typeof value === 'function' ? value(isOpen) : value
+    if (stateKey && openState) {
+      openState.onOpenChange(stateKey, nextOpen)
+    } else {
+      setUncontrolledOpen(nextOpen)
+    }
+  }
 
-  if (!isBlock || typeof children !== 'string') {
+  if (!isRenderableBlock) {
     return (
       <code
         className={`${className ?? ''} before:content-none after:content-none rounded bg-gray-100 px-1 py-0.5 font-mono text-sm dark:bg-gray-700`}
@@ -208,8 +237,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
     ? SUPPORTED_LANGUAGES
     : [initialLanguage, ...SUPPORTED_LANGUAGES]
 
-  const lineCount = code.replace(/\n$/, '').split('\n').length
-  const peekMode = streaming && !isOpen
+  const peekMode = canCollapse && !isOpen
   const toggle = () => setIsOpen((v) => !v)
 
   const handleClickCopy = async () => {
@@ -224,17 +252,19 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
   }
 
   const highlighter = (
-    <div className='max-w-full overflow-x-auto'>
-      <SyntaxHighlighter
-        style={atomDark}
-        language={selectedLanguage}
-        customStyle={CUSTOM_STYLE}
-        codeTagProps={{ style: CUSTOM_STYLE }}
-        showLineNumbers={selectedLanguage !== 'plain'}
-        lineNumberStyle={{ color: '#6b7280', minWidth: '2.5em' }}
-      >
-        {code}
-      </SyntaxHighlighter>
+    <div className='bg-[#282c34]'>
+      <div className='code-block-scrollbar max-w-full overflow-x-auto rounded-b-md'>
+        <SyntaxHighlighter
+          style={atomDark}
+          language={selectedLanguage}
+          customStyle={CUSTOM_STYLE}
+          codeTagProps={{ style: CUSTOM_STYLE }}
+          showLineNumbers={selectedLanguage !== 'plain'}
+          lineNumberStyle={{ color: '#6b7280', minWidth: '2.5em' }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
     </div>
   )
 
@@ -242,21 +272,23 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
     <div className='my-2 w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600'>
       <div className='flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-1.5 dark:border-gray-600 dark:bg-[#282c34]'>
         <div className='flex items-center gap-1'>
-          <button
-            type='button'
-            onClick={toggle}
-            aria-expanded={isOpen}
-            aria-label={isOpen ? 'Collapse code block' : 'Expand code block'}
-            className='inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-600 transition-colors duration-200 ease-out hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
-          >
-            <span
-              className={`inline-flex transition-transform duration-200 ease-out motion-reduce:transition-none ${
-                isOpen ? 'rotate-90' : ''
-              }`}
+          {canCollapse && (
+            <button
+              type='button'
+              onClick={toggle}
+              aria-expanded={isOpen}
+              aria-label={isOpen ? 'Collapse code block' : 'Expand code block'}
+              className='inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-600 transition-colors duration-200 ease-out hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
             >
-              <ChevronRightIcon size={10} />
-            </span>
-          </button>
+              <span
+                className={`inline-flex transition-transform duration-200 ease-out motion-reduce:transition-none ${
+                  isOpen ? 'rotate-90' : ''
+                }`}
+              >
+                <ChevronRightIcon size={10} />
+              </span>
+            </button>
+          )}
           <div className='relative'>
             <select
               value={selectedLanguage}
@@ -284,7 +316,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
           <CodeBlockCopyButton copied={copied} onClick={handleClickCopy} disabled={streaming} />
         </div>
       </div>
-      {!isOpen && (
+      {canCollapse && !isOpen && (
         <button
           type='button'
           onClick={toggle}
@@ -294,7 +326,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
         </button>
       )}
       {peekMode ? (
-        <div className='relative h-24 select-none overflow-hidden'>
+        <div className='relative h-24 select-none overflow-hidden bg-[#282c34]'>
           <div className='pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden'>
             <SyntaxHighlighter
               style={atomDark}

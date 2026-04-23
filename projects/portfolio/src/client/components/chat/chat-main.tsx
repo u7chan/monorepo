@@ -42,6 +42,7 @@ export function ChatMain({
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [isSavingConversation, setIsSavingConversation] = useState(false)
+  const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
   const {
     input,
     uploadImages,
@@ -69,6 +70,7 @@ export function ChatMain({
   useEffect(() => {
     setMessages([])
     setConversationId(null)
+    setStreamMessageId(null)
   }, [initTrigger])
 
   // 選択された会話のメッセージを設定
@@ -80,6 +82,7 @@ export function ChatMain({
     // 会話が選択された時、そのメッセージをドメイン型のまま設定（変換不要）
     setConversationId(currentConversation.id)
     setMessages(currentConversation.messages)
+    setStreamMessageId(null)
 
     // 会話IDが実際に変わったときだけスクロール（別タブから戻った際の誤動作防止）
     if (prevConversationIdRef.current !== currentConversation.id) {
@@ -118,7 +121,9 @@ export function ChatMain({
         messages.length === 0
           ? [...(params.systemMessage ? [params.systemMessage] : []), params.draftUserMessage]
           : [...messages, params.draftUserMessage]
+      const assistantMessageId = uuidv7()
       setMessages(nextMessages)
+      setStreamMessageId(assistantMessageId)
       resetAfterSubmit()
 
       submitChatCompletion({
@@ -133,55 +138,59 @@ export function ChatMain({
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-      }).then(async ({ result, responseTimeMs }) => {
-        const userContent = params.draftUserMessage.content
-
-        // assistant メッセージを state に追加（ドメイン型で保持）
-        const assistantMessage: Message | null = result
-          ? {
-              id: uuidv7(),
-              role: 'assistant' as const,
-              content: result.message.content,
-              reasoningContent: result.message.reasoningContent,
-              metadata: {
-                model: result.model,
-                apiMode: settings.apiMode,
-                finishReason: result.finishReason,
-                responseTimeMs: responseTimeMs,
-                usage: {
-                  promptTokens: result.usage?.promptTokens || 0,
-                  completionTokens: result.usage?.completionTokens || 0,
-                  totalTokens: result.usage?.totalTokens || 0,
-                  reasoningTokens: result.usage?.reasoningTokens,
-                },
-              },
-            }
-          : null
-
-        const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
-        setMessages(finalMessages)
-
-        // 会話IDが指定されていない場合は会話IDを新規作成
-        const currentConversationId =
-          conversationId ||
-          (() => {
-            const newConversationId = uuidv7()
-            setConversationId(newConversationId)
-            return newConversationId
-          })()
-
-        // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
-        setIsSavingConversation(true)
-        try {
-          await onConversationChange?.({
-            id: currentConversationId,
-            title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
-            messages: finalMessages,
-          })
-        } finally {
-          setIsSavingConversation(false)
-        }
       })
+        .then(async ({ result, responseTimeMs }) => {
+          const userContent = params.draftUserMessage.content
+
+          // assistant メッセージを state に追加（ドメイン型で保持）
+          const assistantMessage: Message | null = result
+            ? {
+                id: assistantMessageId,
+                role: 'assistant' as const,
+                content: result.message.content,
+                reasoningContent: result.message.reasoningContent,
+                metadata: {
+                  model: result.model,
+                  apiMode: settings.apiMode,
+                  finishReason: result.finishReason,
+                  responseTimeMs: responseTimeMs,
+                  usage: {
+                    promptTokens: result.usage?.promptTokens || 0,
+                    completionTokens: result.usage?.completionTokens || 0,
+                    totalTokens: result.usage?.totalTokens || 0,
+                    reasoningTokens: result.usage?.reasoningTokens,
+                  },
+                },
+              }
+            : null
+
+          const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
+          setMessages(finalMessages)
+
+          // 会話IDが指定されていない場合は会話IDを新規作成
+          const currentConversationId =
+            conversationId ||
+            (() => {
+              const newConversationId = uuidv7()
+              setConversationId(newConversationId)
+              return newConversationId
+            })()
+
+          // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
+          setIsSavingConversation(true)
+          try {
+            await onConversationChange?.({
+              id: currentConversationId,
+              title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
+              messages: finalMessages,
+            })
+          } finally {
+            setIsSavingConversation(false)
+          }
+        })
+        .finally(() => {
+          setStreamMessageId(null)
+        })
     },
     [
       buildChatMessages,
@@ -361,6 +370,7 @@ export function ChatMain({
             markdownPreview={settings.markdownPreview}
             loading={loading}
             stream={stream}
+            streamMessageId={streamMessageId}
             copiedId={copiedId}
             savingConversation={isSavingConversation}
             messageEndRef={messageEndRef}

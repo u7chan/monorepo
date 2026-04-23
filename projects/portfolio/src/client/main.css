@@ -134,6 +134,22 @@ body {
   border: none;
 }
 
+.code-block-scrollbar {
+  scrollbar-width: auto;
+}
+
+.code-block-scrollbar::-webkit-scrollbar {
+  height: 12px;
+}
+
+.code-block-scrollbar::-webkit-scrollbar-track {
+  margin-inline: 8px;
+}
+
+.code-block-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+}
+
 .messages-dump-scroll::-webkit-scrollbar-corner {
   background-color: inherit;
 }

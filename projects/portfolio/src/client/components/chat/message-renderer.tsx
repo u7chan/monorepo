@@ -4,7 +4,12 @@ import {
   type SaveGeneratedFileRequest,
 } from '#/client/components/chat/assistant-code-block'
 import { ChatResults } from '#/client/components/chat/chat-results'
-import { MarkdownLink } from '#/client/components/chat/code-block-renderer'
+import {
+  CodeBlockOpenStateContext,
+  MarkdownLink,
+  type CodeBlockOpenBlocks,
+  type CodeBlockOpenChangeHandler,
+} from '#/client/components/chat/code-block-renderer'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
@@ -35,6 +40,8 @@ interface MessageRendererProps {
   copied: boolean
   disabled?: boolean
   savingConversation?: boolean
+  codeBlockOpenBlocks?: CodeBlockOpenBlocks
+  onCodeBlockOpenChange?: CodeBlockOpenChangeHandler
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage?: (index: number) => void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
@@ -107,6 +114,8 @@ function MessageRendererComponent({
   copied,
   disabled,
   savingConversation,
+  codeBlockOpenBlocks,
+  onCodeBlockOpenChange,
   onCopyMessage,
   onDeleteMessage,
   onSaveGeneratedFile,
@@ -115,6 +124,8 @@ function MessageRendererComponent({
   // 子の AssistantAwareCodeBlock が順序どおり blockIndex を取得できるようにする。
   const cursorRef = useRef({ current: 0 })
   cursorRef.current.current = 0
+  const codeBlockCursorRef = useRef({ current: 0 })
+  codeBlockCursorRef.current.current = 0
 
   if (message.role === 'system') {
     return null
@@ -173,9 +184,22 @@ function MessageRendererComponent({
       : null
 
   const markdownBody = (
-    <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
-      {message.content}
-    </ReactMarkdown>
+    <CodeBlockOpenStateContext.Provider
+      value={
+        message.id && codeBlockOpenBlocks && onCodeBlockOpenChange
+          ? {
+              messageId: message.id,
+              cursor: codeBlockCursorRef.current,
+              openBlocks: codeBlockOpenBlocks,
+              onOpenChange: onCodeBlockOpenChange,
+            }
+          : null
+      }
+    >
+      <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
+        {message.content}
+      </ReactMarkdown>
+    </CodeBlockOpenStateContext.Provider>
   )
   const dumpMessages = messages.slice(0, index + 1)
 
@@ -219,6 +243,8 @@ export const MessageRenderer = memo(
     prevProps.copied === nextProps.copied &&
     prevProps.disabled === nextProps.disabled &&
     prevProps.savingConversation === nextProps.savingConversation &&
+    prevProps.codeBlockOpenBlocks === nextProps.codeBlockOpenBlocks &&
+    prevProps.onCodeBlockOpenChange === nextProps.onCodeBlockOpenChange &&
     prevProps.onCopyMessage === nextProps.onCopyMessage &&
     prevProps.onDeleteMessage === nextProps.onDeleteMessage &&
     prevProps.onSaveGeneratedFile === nextProps.onSaveGeneratedFile
