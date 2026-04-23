@@ -368,26 +368,7 @@ export function ChatMain({
           </div>
         </div>
       )}
-      <div className={emptyMessage ? 'hidden' : 'relative min-h-0 flex-1'}>
-        {!emptyMessage && (
-          <div
-            className={`absolute inset-x-0 bottom-4 z-10 flex justify-center px-4 transition-opacity duration-200 ease-out motion-reduce:transition-none ${
-              isPinnedToBottom ? 'pointer-events-none opacity-0' : 'pointer-events-none opacity-100'
-            }`}
-          >
-            <button
-              type='button'
-              aria-label='最下部へ移動'
-              aria-hidden={isPinnedToBottom}
-              tabIndex={isPinnedToBottom ? -1 : 0}
-              disabled={isPinnedToBottom}
-              onClick={() => scrollToMessageEnd('smooth')}
-              className='pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
-            >
-              <ArrowDownIcon size={14} className='stroke-current' />
-            </button>
-          </div>
-        )}
+      <div className={emptyMessage ? 'hidden' : 'min-h-0 flex-1 overflow-hidden'}>
         <div ref={scrollContainerRef} onScroll={handleScroll} className='min-h-0 h-full overflow-y-auto'>
           {!emptyMessage && (
             <ChatMessageList
@@ -409,9 +390,29 @@ export function ChatMain({
         </div>
       </div>
 
-      <div ref={bottomChatInputContainerRef} className='container mx-auto max-w-(--breakpoint-lg)'>
+      <div
+        ref={bottomChatInputContainerRef}
+        className='relative z-10 shrink-0 container mx-auto max-w-(--breakpoint-lg)'
+      >
         {!emptyMessage && (
           <>
+            <div
+              className={`absolute inset-x-0 -top-11 flex justify-center px-4 transition-opacity duration-200 ease-out motion-reduce:transition-none ${
+                isPinnedToBottom ? 'pointer-events-none opacity-0' : 'pointer-events-none opacity-100'
+              }`}
+            >
+              <button
+                type='button'
+                aria-label='最下部へ移動'
+                aria-hidden={isPinnedToBottom}
+                tabIndex={isPinnedToBottom ? -1 : 0}
+                disabled={isPinnedToBottom}
+                onClick={() => scrollToMessageEnd('smooth')}
+                className='pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 shadow-sm transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
+              >
+                <ArrowDownIcon size={14} className='stroke-current' />
+              </button>
+            </div>
             <ChatInput
               name='userInput'
               value={input}
