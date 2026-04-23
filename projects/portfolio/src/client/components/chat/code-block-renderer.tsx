@@ -11,6 +11,19 @@ import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
 export const StreamingCodeBlockContext = createContext<boolean>(false)
 
+export type CodeBlockOpenBlocks = ReadonlyMap<string, boolean>
+
+export type CodeBlockOpenChangeHandler = (key: string, isOpen: boolean) => void
+
+export interface CodeBlockOpenStateContextValue {
+  messageId: string
+  cursor: { current: number }
+  openBlocks: CodeBlockOpenBlocks
+  onOpenChange: CodeBlockOpenChangeHandler
+}
+
+export const CodeBlockOpenStateContext = createContext<CodeBlockOpenStateContextValue | null>(null)
+
 const CUSTOM_STYLE: CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
   fontWeight: 400,
@@ -181,19 +194,32 @@ function CodeBlockCopyButton({ copied, onClick, disabled }: CodeBlockCopyButtonP
 export function CodeBlockRenderer({ className, children, actions }: CodeBlockRendererProps) {
   const [copied, setCopied] = useState(false)
   const streaming = useContext(StreamingCodeBlockContext)
+  const openState = useContext(CodeBlockOpenStateContext)
 
   const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
   const detectedLanguage = className?.split('-')[1]
   const initialLanguage = detectedLanguage ?? 'plain'
 
   const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage)
-  const [isOpen, setIsOpen] = useState(!streaming)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
 
   // Block code: has a language identifier OR children contains newlines
   // (react-markdown adds a trailing \n to fenced code blocks)
   const isBlock = detectedLanguage !== undefined || (typeof children === 'string' && code.includes('\n'))
+  const isRenderableBlock = isBlock && typeof children === 'string'
+  const stateKey = isRenderableBlock && openState ? `${openState.messageId}:${openState.cursor.current++}` : undefined
+  const controlledOpen = stateKey ? (openState?.openBlocks.get(stateKey) ?? false) : undefined
+  const isOpen = controlledOpen ?? uncontrolledOpen
+  const setIsOpen = (value: boolean | ((current: boolean) => boolean)) => {
+    const nextOpen = typeof value === 'function' ? value(isOpen) : value
+    if (stateKey && openState) {
+      openState.onOpenChange(stateKey, nextOpen)
+    } else {
+      setUncontrolledOpen(nextOpen)
+    }
+  }
 
-  if (!isBlock || typeof children !== 'string') {
+  if (!isRenderableBlock) {
     return (
       <code
         className={`${className ?? ''} before:content-none after:content-none rounded bg-gray-100 px-1 py-0.5 font-mono text-sm dark:bg-gray-700`}

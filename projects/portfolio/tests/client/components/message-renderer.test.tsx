@@ -35,6 +35,25 @@ function createAssistantMessage(
 }
 
 describe('MessageRenderer', () => {
+  describe('コードブロックの開閉', () => {
+    it('初期表示では閉じている', () => {
+      render(
+        <MessageRenderer
+          message={createAssistantMessage('```typescript\nconst value = 1\n```')}
+          index={0}
+          messages={[]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+        />
+      )
+
+      expect(screen.getByRole('button', { name: 'Expand code block' })).toBeTruthy()
+      expect(screen.getByText('折りたたみ中（1 行・クリックで展開）')).toBeTruthy()
+    })
+  })
+
   describe('生成コードアクション', () => {
     it('未認証なら対応言語でも生成ボタンを表示しない', () => {
       render(

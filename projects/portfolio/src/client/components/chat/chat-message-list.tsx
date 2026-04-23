@@ -1,8 +1,10 @@
 import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import {
+  CodeBlockOpenStateContext,
   CodeBlockRenderer,
   MarkdownLink,
   StreamingCodeBlockContext,
+  type CodeBlockOpenChangeHandler,
 } from '#/client/components/chat/code-block-renderer'
 import type { ChatStreamState } from '#/client/components/chat/hooks/chat-response'
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
@@ -10,7 +12,7 @@ import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
-import { memo, type ReactNode, type RefObject } from 'react'
+import { memo, type ReactNode, type RefObject, useCallback, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -28,6 +30,7 @@ interface ChatMessageListProps {
   markdownPreview: boolean
   loading: boolean
   stream: ChatStreamState | null
+  streamMessageId?: string | null
   copiedId: string
   savingConversation?: boolean
   messageEndRef: RefObject<HTMLDivElement | null>
@@ -43,6 +46,7 @@ export function ChatMessageList({
   markdownPreview,
   loading,
   stream,
+  streamMessageId,
   copiedId,
   savingConversation,
   messageEndRef,
@@ -50,6 +54,25 @@ export function ChatMessageList({
   onDeleteMessage,
   onSaveGeneratedFile,
 }: ChatMessageListProps) {
+  const streamCodeBlockCursorRef = useRef({ current: 0 })
+  streamCodeBlockCursorRef.current.current = 0
+  const [codeBlockOpenBlocks, setCodeBlockOpenBlocks] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+  const handleCodeBlockOpenChange = useCallback<CodeBlockOpenChangeHandler>((key, isOpen) => {
+    setCodeBlockOpenBlocks((prev) => {
+      if (prev.get(key) === isOpen || (!isOpen && !prev.has(key))) {
+        return prev
+      }
+
+      const next = new Map(prev)
+      if (isOpen) {
+        next.set(key, true)
+      } else {
+        next.delete(key)
+      }
+      return next
+    })
+  }, [])
+
   return (
     <div className='container mx-auto mt-4 max-w-(--breakpoint-lg) px-4'>
       <div className='message-list'>
@@ -64,6 +87,8 @@ export function ChatMessageList({
           onCopyMessage={onCopyMessage}
           onDeleteMessage={onDeleteMessage}
           onSaveGeneratedFile={onSaveGeneratedFile}
+          codeBlockOpenBlocks={codeBlockOpenBlocks}
+          onCodeBlockOpenChange={handleCodeBlockOpenChange}
         />
         {loading && (
           <div className='flex align-item'>
@@ -77,11 +102,24 @@ export function ChatMessageList({
                 )}
                 {markdownPreview ? (
                   <div className='prose mt-1 max-w-(--breakpoint-md) break-all dark:text-white'>
-                    <StreamingCodeBlockContext.Provider value={true}>
-                      <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
-                        {stream.content}
-                      </ReactMarkdown>
-                    </StreamingCodeBlockContext.Provider>
+                    <CodeBlockOpenStateContext.Provider
+                      value={
+                        streamMessageId
+                          ? {
+                              messageId: streamMessageId,
+                              cursor: streamCodeBlockCursorRef.current,
+                              openBlocks: codeBlockOpenBlocks,
+                              onOpenChange: handleCodeBlockOpenChange,
+                            }
+                          : null
+                      }
+                    >
+                      <StreamingCodeBlockContext.Provider value={true}>
+                        <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
+                          {stream.content}
+                        </ReactMarkdown>
+                      </StreamingCodeBlockContext.Provider>
+                    </CodeBlockOpenStateContext.Provider>
                   </div>
                 ) : (
                   <div className='message text-left'>
@@ -112,6 +150,8 @@ interface MessageHistoryProps {
   copiedId: string
   disabled: boolean
   savingConversation?: boolean
+  codeBlockOpenBlocks: ReadonlyMap<string, boolean>
+  onCodeBlockOpenChange: CodeBlockOpenChangeHandler
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
@@ -125,6 +165,8 @@ const MessageHistory = memo(function MessageHistory({
   copiedId,
   disabled,
   savingConversation,
+  codeBlockOpenBlocks,
+  onCodeBlockOpenChange,
   onCopyMessage,
   onDeleteMessage,
   onSaveGeneratedFile,
@@ -141,6 +183,8 @@ const MessageHistory = memo(function MessageHistory({
       copied={copiedId === `chat_${index}`}
       disabled={disabled}
       savingConversation={savingConversation}
+      codeBlockOpenBlocks={codeBlockOpenBlocks}
+      onCodeBlockOpenChange={onCodeBlockOpenChange}
       onCopyMessage={onCopyMessage}
       onDeleteMessage={onDeleteMessage}
       onSaveGeneratedFile={onSaveGeneratedFile}
