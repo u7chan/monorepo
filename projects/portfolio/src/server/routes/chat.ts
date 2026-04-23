@@ -6,7 +6,7 @@ import { convertCompletion, convertStreamChunks } from '#/server/features/chat/c
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
 import { logger } from '#/server/lib/logger'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
-import { ChatApiRequestSchema } from '#/types/chat-api'
+import { ChatApiRequestSchema, type ChatApiRequest } from '#/types/chat-api'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -96,6 +96,51 @@ function normalizeApiMode(apiMode: ApiMode | undefined): ApiMode {
   return apiMode ?? 'chat_completions'
 }
 
+function buildChatRequestLog({
+  header,
+  req,
+  apiMode,
+  stream,
+  includeUsage,
+}: {
+  header: z.infer<typeof ChatHeaderSchema>
+  req: ChatApiRequest
+  apiMode: ApiMode
+  stream: boolean
+  includeUsage?: boolean
+}) {
+  const providerRequest =
+    apiMode === 'responses'
+      ? {
+          model: req.model,
+          input: req.messages,
+          temperature: req.temperature,
+          max_output_tokens: req.maxTokens,
+          reasoning: req.reasoningEffort ? { effort: req.reasoningEffort } : undefined,
+          stream,
+        }
+      : {
+          model: req.model,
+          messages: req.messages,
+          temperature: req.temperature,
+          max_tokens: req.maxTokens,
+          reasoning_effort: req.reasoningEffort,
+          stream,
+          stream_options: includeUsage ? { include_usage: true } : undefined,
+        }
+
+  return {
+    baseURL: header['base-url'],
+    apiMode,
+    appRequest: {
+      ...req,
+      apiMode,
+      stream,
+    },
+    providerRequest,
+  }
+}
+
 const streamStubCompletion = (
   c: Parameters<typeof streamSSE>[0],
   req: z.infer<typeof StubChatRequestSchema>,
@@ -138,6 +183,18 @@ const chatRoutes = new Hono<HonoEnv>()
     const requestLogger = c.var.logger ?? logger
 
     try {
+      requestLogger.debug(
+        {
+          request: buildChatRequestLog({
+            header,
+            req,
+            apiMode,
+            stream: false,
+          }),
+        },
+        'Chat request received'
+      )
+
       const completion = await chat.completions(
         {
           apiKey: header['api-key'],
@@ -174,6 +231,19 @@ const chatRoutes = new Hono<HonoEnv>()
 
     let completion
     try {
+      requestLogger.debug(
+        {
+          request: buildChatRequestLog({
+            header,
+            req,
+            apiMode,
+            stream: true,
+            includeUsage: true,
+          }),
+        },
+        'Stream chat request received'
+      )
+
       completion = await chat.completions(
         {
           apiKey: header['api-key'],

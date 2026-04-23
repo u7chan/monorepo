@@ -90,6 +90,45 @@ describe('useStreamProcessor', () => {
     })
   })
 
+  it('非 stream のリクエストに送信設定を含める', async () => {
+    const { useStreamProcessor, chatPostMock } = await importSubject()
+    chatPostMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'chatcmpl-1',
+        created: 1700000000,
+        model: 'gpt-test',
+        finishReason: 'stop',
+        message: {
+          content: 'answer',
+          reasoningContent: '',
+        },
+        usage: null,
+      }),
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+
+    await act(async () => {
+      await result.current.submitChatCompletion({
+        ...request,
+        streamMode: false,
+        temperature: 0.4,
+        maxTokens: 256,
+      })
+    })
+
+    expect(chatPostMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: expect.objectContaining({
+          temperature: 0.4,
+          maxTokens: 256,
+        }),
+      }),
+      expect.anything()
+    )
+  })
+
   it('stream の reasoning-only 応答を保持する', async () => {
     const { useStreamProcessor, chatStreamPostMock } = await importSubject()
     const encoder = new TextEncoder()

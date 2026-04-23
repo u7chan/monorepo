@@ -6,7 +6,7 @@ const readFileSyncMock = vi.fn((filePath: string) =>
 )
 
 const importSubject = async () => {
-  mockLogger()
+  const loggerMock = mockLogger()
   const completionsMock = vi.fn()
   const chatStubCompletionsMock = vi.fn()
   const chatStubStreamCompletionsMock = vi.fn()
@@ -50,6 +50,7 @@ const importSubject = async () => {
     completionsMock,
     chatStubCompletionsMock,
     chatStubStreamCompletionsMock,
+    loggerMock,
   }
 }
 
@@ -211,6 +212,61 @@ describe('chatRoutes', () => {
         expect.objectContaining({
           apiMode: 'chat_completions',
         })
+      )
+    })
+
+    it('debug ログに request と provider 向けパラメータを残す', async () => {
+      const { chatRoutes, completionsMock, loggerMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'chatcmpl-abc',
+        created: 1700000000,
+        model: 'gpt-test',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'answer', refusal: null },
+            finish_reason: 'stop',
+            logprobs: null,
+          },
+        ],
+      })
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [{ role: 'user', content: 'hello' }],
+          temperature: 0.4,
+          maxTokens: 256,
+          reasoningEffort: 'high',
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(loggerMock.debug).toHaveBeenCalledWith(
+        {
+          request: expect.objectContaining({
+            baseURL: 'https://example.com',
+            apiMode: 'chat_completions',
+            appRequest: expect.objectContaining({
+              temperature: 0.4,
+              maxTokens: 256,
+              stream: false,
+            }),
+            providerRequest: expect.objectContaining({
+              temperature: 0.4,
+              max_tokens: 256,
+              reasoning_effort: 'high',
+              stream: false,
+            }),
+          }),
+        },
+        'Chat request received'
       )
     })
 

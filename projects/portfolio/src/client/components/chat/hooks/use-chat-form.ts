@@ -17,6 +17,9 @@ interface BuildChatMessagesParams {
   interactiveMode: boolean
   messages: Message[]
   model: string
+  streamMode: boolean
+  temperature?: number
+  maxTokens?: number
 }
 
 interface BuiltChatMessages {
@@ -86,12 +89,30 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
     interactiveMode,
     messages,
     model,
+    streamMode,
+    temperature,
+    maxTokens,
   }: BuildChatMessagesParams): BuiltChatMessages | null => {
     if (templateInput) {
-      return createTemplateMessage(templateInput, model, { apiMode, interactiveMode, messages })
+      return createTemplateMessage(templateInput, model, {
+        apiMode,
+        interactiveMode,
+        messages,
+        streamMode,
+        temperature,
+        maxTokens,
+      })
     }
 
-    return createMessage(input.trim(), model, { apiMode, interactiveMode, messages, uploadImages })
+    return createMessage(input.trim(), model, {
+      apiMode,
+      interactiveMode,
+      messages,
+      uploadImages,
+      streamMode,
+      temperature,
+      maxTokens,
+    })
   }
 
   const resetAfterSubmit = () => {
@@ -124,11 +145,17 @@ const createMessage = (
     interactiveMode,
     messages,
     uploadImages,
+    streamMode,
+    temperature,
+    maxTokens,
   }: {
     apiMode: ApiMode
     interactiveMode: boolean
     messages: Message[]
     uploadImages: string[]
+    streamMode: boolean
+    temperature?: number
+    maxTokens?: number
   }
 ): BuiltChatMessages | null => {
   if (!inputText) {
@@ -153,7 +180,7 @@ const createMessage = (
             })),
           ]
         : inputText,
-    metadata: { model, apiMode },
+    metadata: { model, apiMode, stream: streamMode, temperature, maxTokens },
   }
 
   const allMessages: Message[] = [...messages, draftUserMessage]
@@ -169,13 +196,27 @@ const createMessage = (
 const createTemplateMessage = (
   templateInput: TemplateInput,
   model: string,
-  { apiMode, interactiveMode, messages }: { apiMode: ApiMode; interactiveMode: boolean; messages: Message[] }
+  {
+    apiMode,
+    interactiveMode,
+    messages,
+    streamMode,
+    temperature,
+    maxTokens,
+  }: {
+    apiMode: ApiMode
+    interactiveMode: boolean
+    messages: Message[]
+    streamMode: boolean
+    temperature?: number
+    maxTokens?: number
+  }
 ): BuiltChatMessages => {
   const draftUserMessage: Message = {
     id: uuidv7(),
     role: 'user',
     content: templateInput.content,
-    metadata: { model: templateInput.model || model, apiMode },
+    metadata: { model: templateInput.model || model, apiMode, stream: streamMode, temperature, maxTokens },
   }
   const systemMessage: Message = {
     id: uuidv7(),

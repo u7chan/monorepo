@@ -110,6 +110,9 @@ export function ChatMain({
         interactiveMode: settings.interactiveMode,
         messages,
         model: form.model,
+        streamMode: settings.streamMode,
+        temperature: form.temperature,
+        maxTokens: form.maxTokens,
       })
       if (!params) {
         return
