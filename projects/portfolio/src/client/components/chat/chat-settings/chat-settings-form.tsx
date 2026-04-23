@@ -6,6 +6,15 @@ import { ReasoningEffort } from './settings/reasoning-effort'
 import { TemperatureSlider } from './settings/temperature-slider'
 import { TextInput } from './settings/text-input'
 
+function SectionHeading({ children }: { children: string }) {
+  return (
+    <h3 className='flex items-center gap-3 text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>
+      <span>{children}</span>
+      <span aria-hidden='true' className='min-w-0 flex-1 border-gray-300 border-t dark:border-gray-600' />
+    </h3>
+  )
+}
+
 export function ChatSettingsForm() {
   const {
     settings,
@@ -28,7 +37,7 @@ export function ChatSettingsForm() {
     <div className='flex flex-col gap-5'>
       {/* Model Section */}
       <section className='space-y-3'>
-        <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Model</h3>
+        <SectionHeading>Model</SectionHeading>
         <div className='space-y-3'>
           {/* Model Selection */}
           <div className='space-y-2'>
@@ -47,7 +56,7 @@ export function ChatSettingsForm() {
 
       {/* API Configuration */}
       <section className='space-y-3'>
-        <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>API Configuration</h3>
+        <SectionHeading>API Configuration</SectionHeading>
         <div className='space-y-3'>
           <div className='space-y-2'>
             <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>API Mode</label>
@@ -105,7 +114,7 @@ export function ChatSettingsForm() {
 
       {/* Parameters */}
       <section className='space-y-3'>
-        <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Parameters</h3>
+        <SectionHeading>Parameters</SectionHeading>
         <div className='space-y-4'>
           <TemperatureSlider />
 
@@ -126,7 +135,7 @@ export function ChatSettingsForm() {
 
       {/* Display Options */}
       <section className='space-y-3'>
-        <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Display Options</h3>
+        <SectionHeading>Display Options</SectionHeading>
         <div className='space-y-3'>
           <ToggleInput
             label='Markdown Preview'
@@ -151,7 +160,7 @@ export function ChatSettingsForm() {
 
       {/* Debug Options */}
       <section className='space-y-3'>
-        <h3 className='text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>Debug Options</h3>
+        <SectionHeading>Debug Options</SectionHeading>
         <div className='space-y-2'>
           <ToggleInput
             label='Fake Mode'
