@@ -41,7 +41,7 @@ describe('ChatMessageList', () => {
         markdownPreview: true,
         loading: true,
         stream: {
-          content: '```typescript\nconst value = 1\n```',
+          content: '```typescript\nconst a = 1\nconst b = 2\nconst c = 3\nconst d = 4\n```',
           reasoningContent: '',
         },
         streamMessageId: 'assistant-1',
@@ -57,7 +57,12 @@ describe('ChatMessageList', () => {
       rerender(
         <ChatMessageList
           {...props}
-          messages={[createAssistantMessage('assistant-1', '```typescript\nconst value = 1\n```')]}
+          messages={[
+            createAssistantMessage(
+              'assistant-1',
+              '```typescript\nconst a = 1\nconst b = 2\nconst c = 3\nconst d = 4\n```'
+            ),
+          ]}
           loading={false}
           stream={null}
         />

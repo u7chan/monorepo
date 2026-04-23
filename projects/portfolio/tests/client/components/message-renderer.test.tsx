@@ -36,10 +36,10 @@ function createAssistantMessage(
 
 describe('MessageRenderer', () => {
   describe('コードブロックの開閉', () => {
-    it('初期表示では閉じている', () => {
+    it('4行以上なら初期表示では閉じている', () => {
       render(
         <MessageRenderer
-          message={createAssistantMessage('```typescript\nconst value = 1\n```')}
+          message={createAssistantMessage('```typescript\nconst a = 1\nconst b = 2\nconst c = 3\nconst d = 4\n```')}
           index={0}
           messages={[]}
           conversationId='conversation-1'
@@ -50,8 +50,26 @@ describe('MessageRenderer', () => {
       )
 
       expect(screen.getByRole('button', { name: 'Expand code block' })).toBeTruthy()
-      expect(screen.getByText('折りたたみ中（1 行・クリックで展開）')).toBeTruthy()
-      expect(screen.getByText('const value = 1')).toBeTruthy()
+      expect(screen.getByText('折りたたみ中（4 行・クリックで展開）')).toBeTruthy()
+      expect(screen.getByText((text) => text.includes('const a = 1'))).toBeTruthy()
+    })
+
+    it('3行以下なら折りたたみ操作を表示せず全文表示する', () => {
+      render(
+        <MessageRenderer
+          message={createAssistantMessage('```typescript\nconst a = 1\nconst b = 2\nconst c = 3\n```')}
+          index={0}
+          messages={[]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Expand code block' })).toBeNull()
+      expect(screen.queryByText('折りたたみ中（3 行・クリックで展開）')).toBeNull()
+      expect(screen.getByText((text) => text.includes('const c = 3'))).toBeTruthy()
     })
   })
 
