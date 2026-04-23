@@ -51,6 +51,7 @@ describe('MessageRenderer', () => {
 
       expect(screen.getByRole('button', { name: 'Expand code block' })).toBeTruthy()
       expect(screen.getByText('折りたたみ中（1 行・クリックで展開）')).toBeTruthy()
+      expect(screen.getByText('const value = 1')).toBeTruthy()
     })
   })
 

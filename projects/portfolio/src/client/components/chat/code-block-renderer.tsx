@@ -235,7 +235,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
     : [initialLanguage, ...SUPPORTED_LANGUAGES]
 
   const lineCount = code.replace(/\n$/, '').split('\n').length
-  const peekMode = streaming && !isOpen
+  const peekMode = !isOpen
   const toggle = () => setIsOpen((v) => !v)
 
   const handleClickCopy = async () => {
