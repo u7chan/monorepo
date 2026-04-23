@@ -382,9 +382,9 @@ export function ChatMain({
               tabIndex={isPinnedToBottom ? -1 : 0}
               disabled={isPinnedToBottom}
               onClick={() => scrollToMessageEnd('smooth')}
-              className='pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
+              className='pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
             >
-              <ArrowDownIcon size={16} className='stroke-current' />
+              <ArrowDownIcon size={14} className='stroke-current' />
             </button>
           </div>
         )}
