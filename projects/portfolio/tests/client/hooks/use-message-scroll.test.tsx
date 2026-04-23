@@ -8,6 +8,7 @@ describe('useMessageScroll', () => {
   const messages: Message[] = []
 
   beforeEach(() => {
+    vi.spyOn(performance, 'now').mockReturnValue(0)
     vi.stubGlobal(
       'ResizeObserver',
       class ResizeObserver {
@@ -16,6 +17,15 @@ describe('useMessageScroll', () => {
         disconnect() {}
       }
     )
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        callback(1000)
+        return 1
+      })
+    )
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
 
   afterEach(() => {
@@ -102,11 +112,8 @@ describe('useMessageScroll', () => {
       scrollHeight: { value: 600, writable: true },
       clientHeight: { value: 200, writable: true },
     })
-    const scrollIntoView = vi.fn()
-
     act(() => {
       result.current.scrollContainerRef.current = scrollContainer
-      result.current.messageEndRef.current = { scrollIntoView } as unknown as HTMLDivElement
       result.current.handleScroll()
     })
 
@@ -115,9 +122,7 @@ describe('useMessageScroll', () => {
     })
 
     expect(result.current.isPinnedToBottom).toBe(true)
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      behavior: 'smooth',
-      block: 'end',
-    })
+    expect(scrollContainer.scrollTop).toBe(400)
+    expect(requestAnimationFrame).toHaveBeenCalled()
   })
 })
