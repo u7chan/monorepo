@@ -12,6 +12,7 @@ interface Props {
   showNewChat?: boolean
   showPopup?: boolean
   showSidebarToggle?: boolean
+  isSidebarOpen?: boolean
   isSidebarToggleDisabled?: boolean
   onNewChat?: () => void
   onShowMenu?: () => void
@@ -25,6 +26,7 @@ export function ChatSettings({
   showNewChat = true,
   showPopup,
   showSidebarToggle = true,
+  isSidebarOpen = true,
   isSidebarToggleDisabled = false,
   onNewChat,
   onShowMenu,
@@ -49,7 +51,10 @@ export function ChatSettings({
                   disabled={isSidebarToggleDisabled}
                   className='flex items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
                 >
-                  <SidebarIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+                  <SidebarIcon
+                    variant={isSidebarOpen ? 'collapse' : 'expand'}
+                    className='fill-[#5D5D5D] dark:fill-gray-300'
+                  />
                 </button>
               )}
               {showNewChat && (

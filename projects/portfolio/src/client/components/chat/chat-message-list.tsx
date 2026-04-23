@@ -10,6 +10,7 @@ import type { ChatStreamState } from '#/client/components/chat/hooks/chat-respon
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
+import { ChatbotTypingIcon } from '#/client/components/svg/chatbot-typing-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
 import { memo, type ReactNode, type RefObject, useCallback, useRef, useState } from 'react'
@@ -93,7 +94,11 @@ export function ChatMessageList({
         {loading && (
           <div className='flex align-item'>
             <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-800'>
-              <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-white' />
+              {stream ? (
+                <ChatbotTypingIcon size={32} className='stroke-gray-600 dark:stroke-white' />
+              ) : (
+                <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-white' />
+              )}
             </div>
             {stream ? (
               <div className='message ml-2 min-w-0 flex-1 text-left'>

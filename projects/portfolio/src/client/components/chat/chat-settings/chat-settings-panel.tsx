@@ -1,3 +1,4 @@
+import { CloseIcon } from '#/client/components/svg/close-icon'
 import type { ReactNode } from 'react'
 
 interface Props {
@@ -32,16 +33,13 @@ export function ChatSettingsPanel({ show, children, onClose }: Props) {
           <h2 id='chat-settings-title' className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
             Chat Settings
           </h2>
-          {/* Close button - visible on mobile */}
           <button
             type='button'
             onClick={onClose}
-            className='rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 sm:hidden dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+            className='flex cursor-pointer items-center justify-center rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200 dark:focus:ring-gray-500'
             aria-label='Close settings'
           >
-            <svg className='h-6 w-6' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
-            </svg>
+            <CloseIcon className='fill-current' />
           </button>
         </div>
 

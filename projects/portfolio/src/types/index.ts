@@ -10,6 +10,7 @@ export {
   AssistantMetadataSchema,
   GeneratedCodeFileSchema,
   ApiModeSchema,
+  ReasoningEffortSchema,
   ImageContentSchema,
   TextContentSchema,
   // /api/chat wire schemas
@@ -25,6 +26,7 @@ export {
   type AssistantMetadata,
   type GeneratedCodeFile,
   type ApiMode,
+  type ReasoningEffort,
   type ImageContent,
   type TextContent,
   // /api/chat wire types

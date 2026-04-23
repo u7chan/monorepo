@@ -70,5 +70,28 @@ describe('ChatMessageList', () => {
 
       expect(screen.getByRole('button', { name: 'Collapse code block' })).toBeTruthy()
     })
+
+    it('ストリーム中はタイピングアイコンを表示する', () => {
+      render(
+        <ChatMessageList
+          messages={[]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          loading={true}
+          stream={{
+            content: 'typing...',
+            reasoningContent: '',
+          }}
+          streamMessageId='assistant-1'
+          copiedId=''
+          messageEndRef={createRef<HTMLDivElement>()}
+          onCopyMessage={vi.fn()}
+          onDeleteMessage={vi.fn()}
+        />
+      )
+
+      expect(screen.getByRole('img', { name: 'chatbot-typing-icon' })).toBeTruthy()
+      expect(screen.queryByRole('img', { name: 'chatbot-icon' })).toBeNull()
+    })
   })
 })

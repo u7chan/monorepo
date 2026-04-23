@@ -200,6 +200,7 @@ export function Chat() {
         showNewChat={(!query.isLoading && conversations.length <= 0) || !isSidebarOpen}
         showPopup={isSettingsPopupOpen}
         showSidebarToggle={!!email}
+        isSidebarOpen={isSidebarOpen}
         isSidebarToggleDisabled={isSubmitting}
         onNewChat={navigateToNewConversation}
         onShowMenu={toggleSettingsPopup}
