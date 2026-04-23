@@ -14,7 +14,7 @@ export function useMessageScroll({ loading, streamMode, stream, messages }: UseM
   const bottomChatInputContainerRef = useRef<HTMLDivElement>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const [bottomChatInputContainerHeight, setBottomChatInputContainerHeight] = useState(0)
-  const [autoScroll, setAutoScroll] = useState(true)
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true)
 
   useEffect(() => {
     const bottomChatInputContainerObserver = new ResizeObserver(([element]) => {
@@ -38,22 +38,23 @@ export function useMessageScroll({ loading, streamMode, stream, messages }: UseM
   }, [loading])
 
   useEffect(() => {
-    if (!autoScroll) return
+    if (!isPinnedToBottom) return
     messageEndRef.current?.scrollIntoView(!streamMode && { behavior: 'smooth' })
-  }, [stream, messages.length, streamMode, autoScroll, bottomChatInputContainerHeight])
+  }, [stream, messages.length, streamMode, isPinnedToBottom, bottomChatInputContainerHeight])
 
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
     const threshold = 36
     if (scrollTop + clientHeight >= scrollHeight - threshold) {
-      setAutoScroll(true)
+      setIsPinnedToBottom(true)
     } else {
-      setAutoScroll(false)
+      setIsPinnedToBottom(false)
     }
   }, [])
 
   const scrollToMessageEnd = useCallback((behavior: ScrollBehavior = 'instant') => {
+    setIsPinnedToBottom(true)
     messageEndRef.current?.scrollIntoView({
       behavior,
       block: 'end',
@@ -65,6 +66,7 @@ export function useMessageScroll({ loading, streamMode, stream, messages }: UseM
     bottomChatInputContainerRef,
     bottomChatInputContainerHeight,
     messageEndRef,
+    isPinnedToBottom,
     handleScroll,
     scrollToMessageEnd,
   }

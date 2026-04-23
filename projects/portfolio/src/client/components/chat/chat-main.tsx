@@ -7,6 +7,7 @@ import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scr
 import { useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
+import { ArrowDownIcon } from '#/client/components/svg/arrow-down-icon'
 import { ArrowUpIcon } from '#/client/components/svg/arrow-up-icon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
@@ -59,13 +60,19 @@ export function ChatMain({
   const { loading, stream, cancelStream, submitChatCompletion } = useStreamProcessor({
     onSubmitting,
   })
-  const { scrollContainerRef, bottomChatInputContainerRef, messageEndRef, handleScroll, scrollToMessageEnd } =
-    useMessageScroll({
-      loading,
-      streamMode: settings.streamMode,
-      stream,
-      messages,
-    })
+  const {
+    scrollContainerRef,
+    bottomChatInputContainerRef,
+    messageEndRef,
+    isPinnedToBottom,
+    handleScroll,
+    scrollToMessageEnd,
+  } = useMessageScroll({
+    loading,
+    streamMode: settings.streamMode,
+    stream,
+    messages,
+  })
 
   useEffect(() => {
     setMessages([])
@@ -361,28 +368,38 @@ export function ChatMain({
           </div>
         </div>
       )}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className={emptyMessage ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto'}
-      >
-        {!emptyMessage && (
-          <ChatMessageList
-            messages={messages}
-            conversationId={conversationId}
-            canSaveGeneratedFile={canSaveGeneratedFile}
-            markdownPreview={settings.markdownPreview}
-            loading={loading}
-            stream={stream}
-            streamMessageId={streamMessageId}
-            copiedId={copiedId}
-            savingConversation={isSavingConversation}
-            messageEndRef={messageEndRef}
-            onCopyMessage={copyMessage}
-            onDeleteMessage={handleClickDeleteMessage}
-            onSaveGeneratedFile={handleSaveGeneratedFile}
-          />
+      <div className={emptyMessage ? 'hidden' : 'relative min-h-0 flex-1'}>
+        {!emptyMessage && !isPinnedToBottom && (
+          <div className='pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4'>
+            <button
+              type='button'
+              aria-label='最下部へ移動'
+              onClick={() => scrollToMessageEnd('smooth')}
+              className='pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
+            >
+              <ArrowDownIcon size={16} className='stroke-current' />
+            </button>
+          </div>
         )}
+        <div ref={scrollContainerRef} onScroll={handleScroll} className='min-h-0 h-full overflow-y-auto'>
+          {!emptyMessage && (
+            <ChatMessageList
+              messages={messages}
+              conversationId={conversationId}
+              canSaveGeneratedFile={canSaveGeneratedFile}
+              markdownPreview={settings.markdownPreview}
+              loading={loading}
+              stream={stream}
+              streamMessageId={streamMessageId}
+              copiedId={copiedId}
+              savingConversation={isSavingConversation}
+              messageEndRef={messageEndRef}
+              onCopyMessage={copyMessage}
+              onDeleteMessage={handleClickDeleteMessage}
+              onSaveGeneratedFile={handleSaveGeneratedFile}
+            />
+          )}
+        </div>
       </div>
 
       <div ref={bottomChatInputContainerRef} className='container mx-auto max-w-(--breakpoint-lg)'>
