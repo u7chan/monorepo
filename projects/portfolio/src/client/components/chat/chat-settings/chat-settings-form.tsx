@@ -95,7 +95,9 @@ export function ChatSettingsForm() {
               onChange={handleChangeApiKey}
             />
             <p className='text-xs text-gray-500 dark:text-gray-400'>
-              API Key はブラウザの localStorage に保存されます。秘匿ストアではありません。
+              API Key はブラウザの localStorage に保存されます。
+              <br />
+              秘匿ストアではありません。
             </p>
           </div>
         </div>

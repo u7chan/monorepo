@@ -15,7 +15,7 @@ export function TemperatureSlider() {
           Temperature
         </label>
         <span className={`text-sm ${temperatureEnabled ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400'}`}>
-          {temperature.toFixed(2)}
+          {temperatureEnabled ? temperature.toFixed(2) : '--'}
         </span>
       </div>
       <div className='flex items-center gap-3'>
