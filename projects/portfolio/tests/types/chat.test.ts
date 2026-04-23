@@ -1,4 +1,9 @@
-import { AssistantMetadataSchema, ConversationListResponseSchema, GeneratedCodeFileSchema } from '#/types'
+import {
+  AssistantMetadataSchema,
+  ConversationListResponseSchema,
+  GeneratedCodeFileSchema,
+  UserMetadataSchema,
+} from '#/types'
 import { describe, expect, it } from 'vitest'
 
 describe('chat types', () => {
@@ -96,6 +101,28 @@ describe('chat types', () => {
     it('generatedFiles 未指定の metadata も parse できる', () => {
       const parsed = AssistantMetadataSchema.parse({ model: 'gpt', usage: {} })
       expect(parsed.generatedFiles).toBeUndefined()
+    })
+  })
+
+  describe('UserMetadataSchema', () => {
+    it('送信設定を含む metadata を parse できる', () => {
+      const parsed = UserMetadataSchema.parse({
+        model: 'gpt-test',
+        apiMode: 'chat_completions',
+        stream: true,
+        temperature: 0.4,
+        maxTokens: 256,
+        reasoningEffort: 'high',
+      })
+
+      expect(parsed).toEqual({
+        model: 'gpt-test',
+        apiMode: 'chat_completions',
+        stream: true,
+        temperature: 0.4,
+        maxTokens: 256,
+        reasoningEffort: 'high',
+      })
     })
   })
 

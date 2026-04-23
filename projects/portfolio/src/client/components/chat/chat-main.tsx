@@ -113,6 +113,7 @@ export function ChatMain({
         streamMode: settings.streamMode,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
+        reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
       })
       if (!params) {
         return

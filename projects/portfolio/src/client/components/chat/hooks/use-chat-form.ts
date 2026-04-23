@@ -1,5 +1,5 @@
 import type { TemplateInput } from '#/client/components/chat/prompt-template'
-import type { ApiChatMessage, ApiMode, Message } from '#/types'
+import type { ApiChatMessage, ApiMode, Message, ReasoningEffort } from '#/types'
 import { toApiChatMessage } from '#/types'
 import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
@@ -20,6 +20,7 @@ interface BuildChatMessagesParams {
   streamMode: boolean
   temperature?: number
   maxTokens?: number
+  reasoningEffort?: ReasoningEffort
 }
 
 interface BuiltChatMessages {
@@ -92,6 +93,7 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
     streamMode,
     temperature,
     maxTokens,
+    reasoningEffort,
   }: BuildChatMessagesParams): BuiltChatMessages | null => {
     if (templateInput) {
       return createTemplateMessage(templateInput, model, {
@@ -101,6 +103,7 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
         streamMode,
         temperature,
         maxTokens,
+        reasoningEffort,
       })
     }
 
@@ -112,6 +115,7 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
       streamMode,
       temperature,
       maxTokens,
+      reasoningEffort,
     })
   }
 
@@ -148,6 +152,7 @@ const createMessage = (
     streamMode,
     temperature,
     maxTokens,
+    reasoningEffort,
   }: {
     apiMode: ApiMode
     interactiveMode: boolean
@@ -156,6 +161,7 @@ const createMessage = (
     streamMode: boolean
     temperature?: number
     maxTokens?: number
+    reasoningEffort?: ReasoningEffort
   }
 ): BuiltChatMessages | null => {
   if (!inputText) {
@@ -180,7 +186,7 @@ const createMessage = (
             })),
           ]
         : inputText,
-    metadata: { model, apiMode, stream: streamMode, temperature, maxTokens },
+    metadata: { model, apiMode, stream: streamMode, temperature, maxTokens, reasoningEffort },
   }
 
   const allMessages: Message[] = [...messages, draftUserMessage]
@@ -203,6 +209,7 @@ const createTemplateMessage = (
     streamMode,
     temperature,
     maxTokens,
+    reasoningEffort,
   }: {
     apiMode: ApiMode
     interactiveMode: boolean
@@ -210,13 +217,21 @@ const createTemplateMessage = (
     streamMode: boolean
     temperature?: number
     maxTokens?: number
+    reasoningEffort?: ReasoningEffort
   }
 ): BuiltChatMessages => {
   const draftUserMessage: Message = {
     id: uuidv7(),
     role: 'user',
     content: templateInput.content,
-    metadata: { model: templateInput.model || model, apiMode, stream: streamMode, temperature, maxTokens },
+    metadata: {
+      model: templateInput.model || model,
+      apiMode,
+      stream: streamMode,
+      temperature,
+      maxTokens,
+      reasoningEffort,
+    },
   }
   const systemMessage: Message = {
     id: uuidv7(),

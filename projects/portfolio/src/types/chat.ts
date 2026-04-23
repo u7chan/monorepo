@@ -8,6 +8,10 @@ export const ApiModeSchema = z.enum(['chat_completions', 'responses'])
 
 export type ApiMode = z.infer<typeof ApiModeSchema>
 
+export const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
+
 /** 画像コンテンツ */
 export const ImageContentSchema = z.object({
   type: z.literal('image_url'),
@@ -37,6 +41,7 @@ export const UserMetadataSchema = z
     stream: z.boolean().optional(),
     temperature: z.number().optional(),
     maxTokens: z.number().optional(),
+    reasoningEffort: ReasoningEffortSchema.optional(),
   })
   .catch({ model: '' })
 

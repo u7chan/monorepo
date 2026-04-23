@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ApiChatMessageSchema, ApiModeSchema } from './chat'
+import { ApiChatMessageSchema, ApiModeSchema, ReasoningEffortSchema } from './chat'
 
 // ============================================
 // /api/chat, /api/chat/stream 公開コントラクト
@@ -12,7 +12,7 @@ export const ChatApiRequestSchema = z.object({
   apiMode: ApiModeSchema.optional(),
   temperature: z.number().min(0).max(1).optional(),
   maxTokens: z.number().min(1).optional(),
-  reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+  reasoningEffort: ReasoningEffortSchema.optional(),
 })
 
 export type ChatApiRequest = z.infer<typeof ChatApiRequestSchema>

@@ -29,6 +29,7 @@ describe('useChatForm', () => {
       streamMode: true,
       temperature: 0.4,
       maxTokens: 256,
+      reasoningEffort: 'high',
     })
 
     expect(built?.draftUserMessage.metadata).toEqual({
@@ -37,6 +38,7 @@ describe('useChatForm', () => {
       stream: true,
       temperature: 0.4,
       maxTokens: 256,
+      reasoningEffort: 'high',
     })
   })
 })
