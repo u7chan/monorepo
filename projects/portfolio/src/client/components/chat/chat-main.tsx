@@ -306,7 +306,7 @@ export function ChatMain({
   const emptyMessage = messages.filter((m) => m.role !== 'system').length === 0
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className='flex h-full min-h-0 flex-1 flex-col'>
+    <form ref={formRef} onSubmit={handleSubmit} className='flex min-h-0 flex-1 flex-col'>
       {emptyMessage && (
         <div className='flex min-h-0 flex-1 items-center justify-center'>
           <div className='container mx-auto flex max-w-(--breakpoint-lg) flex-1 items-center justify-center'>
@@ -368,26 +368,28 @@ export function ChatMain({
           </div>
         </div>
       )}
-      <div className={emptyMessage ? 'hidden' : 'min-h-0 flex-1 overflow-hidden'}>
-        <div ref={scrollContainerRef} onScroll={handleScroll} className='min-h-0 h-full overflow-y-auto'>
-          {!emptyMessage && (
-            <ChatMessageList
-              messages={messages}
-              conversationId={conversationId}
-              canSaveGeneratedFile={canSaveGeneratedFile}
-              markdownPreview={settings.markdownPreview}
-              loading={loading}
-              stream={stream}
-              streamMessageId={streamMessageId}
-              copiedId={copiedId}
-              savingConversation={isSavingConversation}
-              messageEndRef={messageEndRef}
-              onCopyMessage={copyMessage}
-              onDeleteMessage={handleClickDeleteMessage}
-              onSaveGeneratedFile={handleSaveGeneratedFile}
-            />
-          )}
-        </div>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className={emptyMessage ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden'}
+      >
+        {!emptyMessage && (
+          <ChatMessageList
+            messages={messages}
+            conversationId={conversationId}
+            canSaveGeneratedFile={canSaveGeneratedFile}
+            markdownPreview={settings.markdownPreview}
+            loading={loading}
+            stream={stream}
+            streamMessageId={streamMessageId}
+            copiedId={copiedId}
+            savingConversation={isSavingConversation}
+            messageEndRef={messageEndRef}
+            onCopyMessage={copyMessage}
+            onDeleteMessage={handleClickDeleteMessage}
+            onSaveGeneratedFile={handleSaveGeneratedFile}
+          />
+        )}
       </div>
 
       <div
