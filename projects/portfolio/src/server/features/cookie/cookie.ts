@@ -64,3 +64,27 @@ export function parseDurationToSeconds(duration: string): number {
       return 0
   }
 }
+
+export function formatDurationLabel(duration: string): string | null {
+  if (!duration || typeof duration !== 'string') return null
+
+  const regex = /^(\d+)(d|h|m|s)$/i
+  const match = duration.match(regex)
+  if (!match) return null
+
+  const value = Number(match[1])
+  const unit = match[2].toLowerCase()
+
+  switch (unit) {
+    case 'd':
+      return `${value}日`
+    case 'h':
+      return `${value}時間`
+    case 'm':
+      return `${value}分`
+    case 's':
+      return `${value}秒`
+    default:
+      return null
+  }
+}

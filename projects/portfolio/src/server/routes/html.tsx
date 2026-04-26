@@ -1,12 +1,14 @@
 import { Hono } from 'hono'
 import { renderToString } from 'react-dom/server'
+import { formatDurationLabel } from '../features/cookie/cookie'
 import type { HonoEnv } from './shared'
 import { getServerEnv, getSignedInEmail } from './shared'
 
 const htmlRoutes = new Hono<HonoEnv>().get('*', async (c) => {
-  const { NODE_ENV } = getServerEnv(c)
+  const { NODE_ENV, COOKIE_EXPIRES = '1d' } = getServerEnv(c)
   const prod = NODE_ENV === 'production'
   const email = await getSignedInEmail(c)
+  const loginExpiresLabel = formatDurationLabel(COOKIE_EXPIRES)
 
   return c.html(
     renderToString(
@@ -14,7 +16,7 @@ const htmlRoutes = new Hono<HonoEnv>().get('*', async (c) => {
         <head>
           <meta charSet='utf-8' />
           <meta name='viewport' content='width=device-width, initial-scale=1' />
-          <meta name='props' content={`${JSON.stringify({ email })}`} />
+          <meta name='props' content={`${JSON.stringify({ email, loginExpiresLabel })}`} />
           <title>Portfolio</title>
           <link rel='icon' href={prod ? '/static/favicon.ico' : 'favicon.ico'} />
           <script
