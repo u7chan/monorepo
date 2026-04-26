@@ -1,4 +1,4 @@
-import { cookie, parseDurationToSeconds } from '#/server/features/cookie/cookie'
+import { cookie, formatDurationLabel, parseDurationToSeconds } from '#/server/features/cookie/cookie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 describe('parseDurationToSeconds', () => {
@@ -13,6 +13,21 @@ describe('parseDurationToSeconds', () => {
     expect(parseDurationToSeconds('')).toBe(0)
     expect(parseDurationToSeconds('10x')).toBe(0)
     expect(parseDurationToSeconds('abc')).toBe(0)
+  })
+})
+
+describe('formatDurationLabel', () => {
+  it('日・時間・分・秒を日本語の表示へ変換する', () => {
+    expect(formatDurationLabel('1d')).toBe('1日')
+    expect(formatDurationLabel('2h')).toBe('2時間')
+    expect(formatDurationLabel('30m')).toBe('30分')
+    expect(formatDurationLabel('45s')).toBe('45秒')
+  })
+
+  it('不正な値は null を返す', () => {
+    expect(formatDurationLabel('')).toBeNull()
+    expect(formatDurationLabel('10x')).toBeNull()
+    expect(formatDurationLabel('abc')).toBeNull()
   })
 })
 

@@ -6,7 +6,7 @@ const client = hc<AppType>('/')
 
 export function Home() {
   const [error, setError] = useState<string | null>(null)
-  const { email } = useMetaProps()
+  const { email, loginExpiresLabel } = useMetaProps()
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -64,6 +64,12 @@ export function Home() {
               <span className='font-semibold'>User：</span>
               <span className='break-all font-mono text-gray-600 dark:text-gray-400'>{email}</span>
             </p>
+            {loginExpiresLabel && (
+              <p className='text-center text-gray-500 text-sm dark:text-gray-400'>
+                <span className='font-medium'>ログイン有効期限：</span>
+                <span>{loginExpiresLabel}</span>
+              </p>
+            )}
             <button
               type='button'
               onClick={handleSignOut}
@@ -115,6 +121,7 @@ export function Home() {
 
 type Props = {
   email?: string
+  loginExpiresLabel?: string | null
 }
 
 export function useMetaProps(): Props {
