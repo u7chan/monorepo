@@ -1,0 +1,23 @@
+{
+  "name": "hono-react-inertia",
+  "scripts": {
+    "build": "bun build src/client.tsx --outdir public --target browser --format esm",
+    "dev": "bun run build && bun run --hot src/index.ts",
+    "lint": "oxlint && tsc --noEmit",
+    "lint:fix": "oxlint --fix",
+    "typecheck": "tsc --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "dependencies": {
+    "@hono/inertia": "^0.2.0",
+    "@inertiajs/core": "^3.0.3",
+    "hono": "^4.12.16"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "oxfmt": "^0.47.0",
+    "oxlint": "^1.62.0",
+    "typescript": "^6.0.3"
+  }
+}
