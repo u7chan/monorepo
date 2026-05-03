@@ -38,16 +38,6 @@ apiRoutes.get("/*", listFilesHandler)
 // ファイルアップロード（複数ファイル対応、最大10件）
 apiRoutes.post(
   "/upload",
-  zValidator(
-    "form",
-    z.object({
-      files: z.preprocess(
-        (val) => (Array.isArray(val) ? val : val ? [val] : []),
-        z.array(z.instanceof(File)).max(10),
-      ),
-      path: z.string().optional(),
-    }),
-  ),
   uploadFileHandler,
 )
 
