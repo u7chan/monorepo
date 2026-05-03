@@ -1,29 +1,52 @@
-# Repository Guidelines
+# リポジトリのルール
 
-## Tech Stack
+## 技術スタック
 
 - TypeScript
-- Runtime: Bun
-- Package Manager: Bun
-- Build: Bun
-- Linter: Oxlint
-- Formatter: Oxfmt
+- ランタイム: Bun
+- パッケージマネージャー: Bun
+- ビルド: Bun
+- リンター: Oxlint
+- フォーマッター: Oxfmt
 
-## Project Structure & Module Organization
+## 表現ルール
 
-Application code lives in `src/`: `index.ts` is the Hono server, `client.tsx` is the browser entry, `root-view.ts` renders the HTML shell, and `pages/` contains page components. Browser output is built to `public/client.js`; notes live in `docs/`.
+- 日本語で簡潔かつ丁寧に記述
+- 文は短く簡潔に表現
+- 文末は体言止めを基本
+- 長い一行は避け、適度に改行
+- 箇条書きを優先し、読みやすさを重視
 
-## Development Commands
+## プロジェクト構成とモジュール整理
 
-- `bun run dev`: build and start the hot-reload server at `http://localhost:3000`.
-- `bun run build`: bundle `src/client.tsx` into `public/`.
-- `bun run lint` / `bun run lint:fix`: check or fix Oxlint issues.
-- `bun run fmt` / `bun run fmt:check`: format or verify formatting with Oxfmt.
+- アプリケーションコードは `src/`
+- `index.ts` は Hono サーバー
+- `client.tsx` はブラウザー側エントリー
+- `root-view.ts` は HTML シェル描画
+- `pages/` はページコンポーネント置き場
+- ブラウザー向け出力は `public/client.js`
+- メモ類は `docs/`
 
-## Coding Style & Naming Conventions
+## 開発コマンド
 
-Use strict TypeScript and Hono JSX. Prefer two-space indentation, extensionless relative imports, kebab-case filenames such as `root-view.ts`, and PascalCase component names such as `Root`.
+- `bun run dev`: ビルド後、`http://localhost:3000` でホットリロードサーバー起動。
+- `bun run build`: `src/client.tsx` を `public/` にバンドル。
+- `bun run lint` / `bun run lint:fix`: Oxlint の問題確認または修正。
+- `bun run fmt` / `bun run fmt:check`: Oxfmt でフォーマットまたは確認。
 
-## Testing Guidelines
+## コーディングスタイルと命名規則
 
-No test script is defined yet. When adding tests, prefer Bun test with colocated `*.test.ts` or `*.test.tsx` files and add a `test` script. Run `bun run fmt:check` and `bun run lint` before PRs.
+- strict TypeScript と Hono JSX
+- インデントは 2 スペース
+- 相対 import は拡張子なし
+- ファイル名は `root-view.ts` のような kebab-case
+- コンポーネント名は `Root` のような PascalCase
+
+## テスト方針
+
+- 現時点では test スクリプトなし
+- テスト追加時は Bun test
+- テストファイルは対象コードと同じ場所
+- ファイル名は `*.test.ts` または `*.test.tsx`
+- `test` スクリプトも追加
+- PR 前は `bun run fmt:check` と `bun run lint`
