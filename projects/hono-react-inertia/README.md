@@ -1,13 +1,3 @@
-To install dependencies:
+# hono-react-intertia
 
-```sh
-bun install
-```
-
-To run:
-
-```sh
-bun run dev
-```
-
-open http://localhost:3000
+[AGENTS.md](./AGENTS.md)
