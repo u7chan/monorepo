@@ -1,6 +1,7 @@
 # Repository Guidelines
 
 ## Tech Stack
+
 - TypeScript
 - Runtime: Bun
 - Package Manager: Bun

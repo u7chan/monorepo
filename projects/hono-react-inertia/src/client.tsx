@@ -2,12 +2,16 @@ import { getInitialPageFromDOM, router, setupProgress, type Page } from "@inerti
 import type { Child } from "hono/jsx"
 import { createRoot } from "hono/jsx/dom/client"
 
+import AboutPage from "./pages/about"
 import RootPage from "./pages/root"
+import UserShowPage, { type UserShowProps } from "./pages/user-show"
 
 type PageComponent = (props: Page["props"]) => Child
 
 const pages: Record<string, PageComponent> = {
+  About: AboutPage,
   Root: RootPage,
+  UserShow: (props) => <UserShowPage {...(props as unknown as UserShowProps)} />,
 }
 
 const el = document.getElementById("app")

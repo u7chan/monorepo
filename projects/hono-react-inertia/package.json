@@ -3,8 +3,9 @@
   "scripts": {
     "build": "bun build src/client.tsx --outdir public --target browser --format esm",
     "dev": "bun run build && bun run --hot src/index.ts",
-    "lint": "oxlint",
+    "lint": "oxlint && tsc --noEmit",
     "lint:fix": "oxlint --fix",
+    "typecheck": "tsc --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "oxfmt": "^0.47.0",
-    "oxlint": "^1.62.0"
+    "oxlint": "^1.62.0",
+    "typescript": "^6.0.3"
   }
 }
