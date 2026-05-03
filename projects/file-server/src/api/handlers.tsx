@@ -28,8 +28,19 @@ import {
   requireWritePermission,
   resolveVirtualPath,
 } from "../utils/virtualPath"
+import z from "zod"
 
 const BASE_PATH_REGEX = /^\/api\/?/
+const uploadRequestSchema = z.object({
+  files: z
+    .preprocess(
+      (val) => (Array.isArray(val) ? val : val ? [val] : []),
+      z.array(z.instanceof(File)).max(10),
+    )
+    .optional()
+    .transform((files) => files ?? []),
+  path: z.string().optional(),
+})
 
 function isInvalidNodeName(name: string): boolean {
   return (
@@ -78,11 +89,18 @@ export async function listFilesHandler(c: Context<AppBindings>) {
 }
 
 export async function uploadFileHandler(c: Context<AppBindings>) {
-  const validatedData = c.req.valid("form" as never) as {
-    files: File[]
-    path?: string
+  const parsedBody = await c.req.parseBody({ all: true })
+  const validatedData = uploadRequestSchema.safeParse(parsedBody)
+  if (!validatedData.success) {
+    return errorResponse(
+      c,
+      "ZodError",
+      validatedData.error.issues[0]?.message ?? validatedData.error.message,
+      400,
+    )
   }
-  const { files, path: filePathParam } = validatedData
+
+  const { files, path: filePathParam } = validatedData.data
   const baseDir = getUploadDir(c)
   const user = c.get("user") ?? { type: "anonymous" as const }
 
