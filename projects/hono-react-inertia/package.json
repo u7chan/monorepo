@@ -1,13 +1,16 @@
 {
   "name": "hono-react-inertia",
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/client.tsx --outdir public --target browser --format esm",
+    "dev": "bun run build && bun run --hot src/index.ts",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
   "dependencies": {
+    "@hono/inertia": "^0.2.0",
+    "@inertiajs/core": "^3.0.3",
     "hono": "^4.12.16"
   },
   "devDependencies": {
