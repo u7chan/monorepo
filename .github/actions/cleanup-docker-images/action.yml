@@ -1,5 +1,5 @@
 name: Cleanup Docker Images
-description: Trigger repository dispatch to clean up old Docker images
+description: Trigger repository dispatch to clean up old monorepo Docker images
 
 inputs:
   token:
@@ -9,7 +9,7 @@ inputs:
     description: "Target repository name for cleanup"
     required: true
   project-names-csv:
-    description: "Comma separated project names to clean up"
+    description: "Comma separated project names used to build monorepo image paths"
     required: true
   keep-count:
     description: "Number of images to keep"

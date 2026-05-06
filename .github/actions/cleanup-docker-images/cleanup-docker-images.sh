@@ -32,15 +32,40 @@ echo "Triggering cleanup for projects: $PROJECT_NAMES_CSV"
 echo "Keeping $KEEP_COUNT most recent images"
 echo "Cleanup mode: $CLEANUP_MODE"
 
+IMAGE_PATHS_CSV=""
+IFS=',' read -ra PROJECT_NAMES <<< "$PROJECT_NAMES_CSV"
+for project_name in "${PROJECT_NAMES[@]}"; do
+  [[ -z "$project_name" ]] && continue
+
+  if [[ "$project_name" == monorepo/* ]]; then
+    image_path="$project_name"
+  else
+    image_path="monorepo/$project_name"
+  fi
+
+  if [[ -z "$IMAGE_PATHS_CSV" ]]; then
+    IMAGE_PATHS_CSV="$image_path"
+  else
+    IMAGE_PATHS_CSV+=",$image_path"
+  fi
+done
+
+if [[ -z "$IMAGE_PATHS_CSV" ]]; then
+  echo "Warning: No image paths resolved for cleanup. Skipping."
+  exit 0
+fi
+
+echo "Cleanup image paths: $IMAGE_PATHS_CSV"
+
 # リポジトリディスパッチイベントを発行
-curl -X POST \
+curl -fsS -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer $TOKEN" \
   "https://api.github.com/repos/u7chan/$REPO_NAME/dispatches" \
   -d '{
-    "event_type": "deploy_trigger",
+    "event_type": "deploy_local_trigger",
     "client_payload": {
-      "target": "'"$PROJECT_NAMES_CSV"'",
+      "image_path": "'"$IMAGE_PATHS_CSV"'",
       "keep_count": "'"$KEEP_COUNT"'",
       "cleanup_mode": "'"$CLEANUP_MODE"'"
     }

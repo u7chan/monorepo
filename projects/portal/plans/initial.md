@@ -119,7 +119,7 @@ services:
     restart: unless-stopped
 ```
 
-参考ファイル: `../../deploy/*.yml`
+本番用 Docker Compose 定義はこのリポジトリでは管理しません。
 
 ### 必要な権限
 

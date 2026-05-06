@@ -6,8 +6,8 @@
 
 - CI は `main` 向け PR で、変更のあったプロジェクトの Dockerfile にある `test` ステージを検証します。
 - CD は `main` への push または手動実行で、対象プロジェクトの Dockerfile にある `final` ステージを build して GHCR に push します。
-- deploy 定義の同期は `main` への push で `deploy/*.yml` が変わったときに走り、`u7chan/self-hosted-runner` 側へ `repository_dispatch` を送って Manual Deploy の `target` 選択肢を同期します。
-- 手動実行では `Git ref` に branch 名やコミットハッシュを指定でき、`project directories` とあわせて対象を絞れます。deploy handoff に使う `image_tag` もログに出力します。
+- CD 成功後は、push した image path を `u7chan/self-hosted-runner` 側へ通知し、古い GHCR image の cleanup を起動します。
+- deploy 定義はこのリポジトリでは管理しません。`deploy/abolished/**` は履歴用途で残しています。
 
 ```mermaid
 flowchart LR
@@ -31,21 +31,12 @@ flowchart LR
     CD_MANUAL["手動実行<br/>Git ref / project を検証"]
     CD_BUILD["--target=final で build<br/>image_tag を決定"]
     GHCR["GHCR に push"]
-    HANDOFF["deploy handoff をログ出力"]
+    CLEANUP["image cleanup を通知"]
 
     CD_AUTO --> CD_BUILD
     CD_MANUAL --> CD_BUILD
     CD_BUILD --> GHCR
-    GHCR --> HANDOFF
-  end
-
-  subgraph SYNC["Deploy Target Sync"]
-    DEPLOY_PUSH["main への push<br/>deploy/*.yml 変更"]
-    DISPATCH["sync-manual-deploy-targets.yml"]
-    SELF_HOSTED["self-hosted-runner に<br/>repository_dispatch"]
-
-    DEPLOY_PUSH --> DISPATCH
-    DISPATCH --> SELF_HOSTED
+    GHCR --> CLEANUP
   end
 
   PR --> CI_DIRS
@@ -53,7 +44,7 @@ flowchart LR
   MANUAL --> CD_MANUAL
 ```
 
-この図のとおり、CI と CD は同じ `projects/` 配下を対象にしつつ、使う workflow と Docker stage、実行トリガーが異なります。以降では、その違いと各 custom action の役割を順に説明します。
+CI と CD は同じ `projects/` 配下を対象にしつつ、使う workflow と Docker stage、実行トリガーが異なります。
 
 ## どちらが何をするか
 
@@ -64,8 +55,6 @@ flowchart LR
 | 対象ステージ | `test` | `final` |
 | 目的 | 変更の検証 | 配布用イメージの作成と push |
 | 成果物 | ビルド結果の確認 | GHCR イメージ |
-
-加えて、`deploy/*.yml` の変更時には `sync-manual-deploy-targets.yml` が動き、`self-hosted-runner` 側の Manual Deploy 選択肢同期を起動します。これは Docker build 自体は行わず、deploy 定義変更を通知するための workflow です。
 
 ## 対象になるプロジェクト
 
@@ -125,7 +114,7 @@ flowchart LR
   M2 --> BUILD
 
   BUILD --> PUSH["GHCR へ push"]
-  PUSH --> CLEAN["古い manual image を cleanup"]
+  PUSH --> CLEAN["古い image を cleanup"]
 ```
 
 ### 自動実行
@@ -151,7 +140,7 @@ sequenceDiagram
   GA->>GA: 対象 project を検証
   GA->>GA: final ステージを build
   GA->>GHCR: イメージを push
-  GA-->>User: image_tag / handoff 情報をログ出力
+  GA-->>User: image_tag / image_path をログ出力
 ```
 
 入力時の見方は次のとおりです。
@@ -160,12 +149,12 @@ sequenceDiagram
 - `Git ref (branch name or commit SHA)` に build したい branch 名またはコミットハッシュを入力します。
 - `Comma separated project directories` に `projects/portal` のようなディレクトリを入力します。
 - 手動実行時の build stage は常に `final` です。
-- 手動実行時の manual image cleanup は常に最新 `3` 件を残します。
+- 手動実行時の image cleanup は常に最新 `3` 件を残します。
 
-手動 build 完了後のログには、次の deploy handoff 用の値が表示されます。
+手動 build 完了後のログには、次の値が表示されます。
 
 - `image_tag=<generated-tag>`
-- `target=<project-name> image_tag=<generated-tag>`
+- `image_path=monorepo/<project-name> image_tag=<generated-tag>`
 
 ### CD の処理順
 
@@ -174,35 +163,26 @@ sequenceDiagram
 3. build 対象プロジェクトを `build_projects.txt` に確定する
 4. `--target=final` で Docker build を実行する
 5. `ghcr.io/{repo}/{project}:{image_tag}` へ push する
-6. 古い manual image を含む不要イメージを cleanup する
+6. cleanup 用の `repository_dispatch` を送る
 
-## Deploy 定義変更時の同期
+### Cleanup 通知
 
-### いつ動くか
+CD 成功後、`cleanup-docker-images` action が `u7chan/self-hosted-runner` 側へ `repository_dispatch` を送ります。
 
-- `main` への push で `deploy/*.yml` が追加・削除・リネーム・更新されたときに実行されます。
-- `deploy/abolished/**` は対象外です。
-
-### 何をするか
-
-```mermaid
-sequenceDiagram
-  participant Push as main への push
-  participant Sync as sync-manual-deploy-targets.yml
-  participant Repo as u7chan/self-hosted-runner
-
-  Push->>Sync: deploy/*.yml の変更を検知
-  Sync->>Repo: repository_dispatch
-  Note right of Repo: event_type=sync_manual_deploy_targets
-  Note right of Repo: source_repository / source_ref / source_sha
+```json
+{
+  "event_type": "deploy_local_trigger",
+  "client_payload": {
+    "image_path": "monorepo/portfolio,monorepo/u7chat",
+    "keep_count": "3",
+    "cleanup_mode": "normal"
+  }
+}
 ```
 
-- `PRIVATE_REPO_TOKEN` と `PRIVATE_REPO_NAME` を使って `u7chan/self-hosted-runner` に `repository_dispatch` を送ります。
-- payload には次の値を含めます。
-  - `source_repository`
-  - `source_ref`
-  - `source_sha`
-- この workflow 自体は deploy を実行しません。Manual Deploy の `target` プルダウン同期だけを起動します。
+- `image_path` は `monorepo/<project-name>` のカンマ区切りです。
+- `cleanup_mode` は手動実行時に `manual`、通常の push 実行時に `normal` になります。
+- cleanup 通知は deploy 定義の同期ではなく、GHCR image の保持数整理だけを依頼します。
 
 ## カスタムアクション
 
@@ -216,8 +196,7 @@ sequenceDiagram
 | `set-image-tag` | 実行種別に応じた tag を決める | `image_tag` |
 | `build-docker-images` | Docker image を build する | build 結果 |
 | `push-docker-images` | GHCR に push する | `project_names_csv` |
-| `cleanup-docker-images` | 古い image を cleanup する | cleanup 結果 |
-| `sync-manual-deploy-targets` | deploy 定義変更を別 repo に通知する | dispatch 実行結果 |
+| `cleanup-docker-images` | 古い image の cleanup を通知する | cleanup 結果 |
 
 ### 各アクションの詳細
 
@@ -261,19 +240,13 @@ sequenceDiagram
 - 入力: `username`, `password`, `image_tag`
 - 出力: `project_names_csv`
 
-push 成功時は、対象プロジェクト名と deploy handoff 用の `target=... image_tag=...` をログに出します。
+push 成功時は、対象プロジェクト名と `image_path=monorepo/<project-name> image_tag=<image_tag>` をログに出します。
 
 #### `cleanup-docker-images`
 
-- 入力: `token`, `repo-name`, `project-names-csv`, `keep-count`
+- 入力: `token`, `repo-name`, `project-names-csv`, `keep-count`, `cleanup-mode`
 
-CD 実行後、不要な古いイメージの cleanup を行います。manual build では `keep-count=3` が使われます。
-
-#### `sync-manual-deploy-targets`
-
-- 入力: `token`, `repo-name`, `source-repository`, `source-ref`, `source-sha`
-
-`deploy/*.yml` の変更を契機に、`u7chan/self-hosted-runner` へ `sync_manual_deploy_targets` の `repository_dispatch` を送ります。
+CD 実行後、不要な古いイメージの cleanup を `deploy_local_trigger` で依頼します。`project-names-csv` は action 内で `monorepo/<project-name>` の `image_path` に変換されます。
 
 ## データの受け渡し
 
@@ -283,9 +256,10 @@ flowchart LR
   B --> C["BUILD_PROJECT"]
   C --> D["image_tag"]
   D --> E["project_names_csv"]
+  E --> F["image_path"]
 ```
 
-主に `build_projects.txt` と step output を使って、build 対象と push 対象を次の step に渡します。
+主に `build_projects.txt` と step output を使って、build 対象と cleanup 対象を次の step に渡します。
 
 ## トラブルシューティング
 
@@ -305,10 +279,8 @@ flowchart LR
 - `PRIVATE_REPO_TOKEN` が正しいか確認する
 - `write:packages` 権限があるか確認する
 
-### deploy 定義変更の同期通知が飛ばない
+### image cleanup 通知が飛ばない
 
-- `main` への push か確認する
-- 変更ファイルが `deploy/*.yml` 直下か確認する
-- `deploy/abolished/**` 配下の変更ではないか確認する
-- `PRIVATE_REPO_NAME` が `self-hosted-runner` を指しているか確認する
+- `PRIVATE_REPO_NAME` が dispatch 先 repo を指しているか確認する
 - `PRIVATE_REPO_TOKEN` に dispatch 先 repo へのアクセス権限があるか確認する
+- `project_names_csv` が空になっていないか確認する
