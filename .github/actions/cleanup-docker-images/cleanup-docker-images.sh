@@ -58,7 +58,7 @@ fi
 echo "Cleanup image paths: $IMAGE_PATHS_CSV"
 
 # リポジトリディスパッチイベントを発行
-curl -X POST \
+curl -fsS -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer $TOKEN" \
   "https://api.github.com/repos/u7chan/$REPO_NAME/dispatches" \
