@@ -84,11 +84,7 @@ docker build -t portal .
 
 ### 本番デプロイ
 
-本番環境では `../../deploy/portal.yml` を使用：
-
-```bash
-docker-compose -f ../../deploy/portal.yml up -d
-```
+このリポジトリでは本番用 Docker Compose 定義を管理していません。CD で GHCR に push された `ghcr.io/u7chan/monorepo/portal:<tag>` を、deploy 実行側の定義から参照してください。
 
 ## APIエンドポイント
 
@@ -138,15 +134,6 @@ bun format:check      # 整形チェックのみ
 bun test              # テスト実行
 bun test --watch      # ウォッチモード
 ```
-
-## 本番Docker Compose設定
-
-本番環境の設定は `../../deploy/portal.yml` を参照：
-
-- **ポート**: 3000:3000
-- **Docker Socket**: /var/run/docker.sock
-- **再起動**: always
-- **ネットワーク**: home_network
 
 ## 要件
 

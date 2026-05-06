@@ -91,7 +91,7 @@ jobs:
           echo ""
           IFS=',' read -ra PROJECT_NAMES <<< "$PROJECT_NAMES_CSV"
           for project_name in "${PROJECT_NAMES[@]}"; do
-            echo "target=$project_name image_tag=$IMAGE_TAG"
+            echo "image_path=monorepo/$project_name image_tag=$IMAGE_TAG"
           done
 
       - name: Clean Up Docker Images

@@ -194,7 +194,7 @@ for project in "${PROJECT_ARRAY[@]}"; do
         echo "========================================"
         echo "===== Push Result / Deploy Handoff ====="
         echo "Pushed project image: $project_name"
-        echo "Deploy handoff: target=$project_name image_tag=$IMAGE_TAG"
+        echo "Deploy handoff: image_path=monorepo/$project_name image_tag=$IMAGE_TAG"
         echo "========================================"
       else
         echo "Error: Failed to push $GHCR_URI"
