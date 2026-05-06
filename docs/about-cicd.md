@@ -7,7 +7,7 @@
 - CI は `main` 向け PR で、変更のあったプロジェクトの Dockerfile にある `test` ステージを検証します。
 - CD は `main` への push または手動実行で、対象プロジェクトの Dockerfile にある `final` ステージを build して GHCR に push します。
 - CD 成功後は、push した image path を `u7chan/self-hosted-runner` 側へ通知し、古い GHCR image の cleanup を起動します。
-- deploy 定義はこのリポジトリでは管理しません。`deploy/abolished/**` は履歴用途で残しています。
+- deploy 定義はこのリポジトリでは管理しません。
 
 ```mermaid
 flowchart LR
