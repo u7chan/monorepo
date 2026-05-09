@@ -3,8 +3,12 @@
 import type { Container } from "../types/container";
 import { useConfig } from "../hooks/useConfig";
 
+export type ContainerAction = "start" | "stop";
+
 interface ContainerCardProps {
   container: Container;
+  pendingAction?: ContainerAction | null;
+  onAction?: (container: Container, action: ContainerAction) => void;
 }
 
 /**
@@ -92,13 +96,68 @@ function PortLinks({ ports, host }: { ports: Container["ports"]; host: string })
   );
 }
 
+function getContainerAction(container: Container): ContainerAction | null {
+  if (container.state === "exited") {
+    return "start";
+  }
+
+  if (container.state === "running") {
+    return "stop";
+  }
+
+  return null;
+}
+
+function ContainerActionButton({
+  action,
+  pending,
+  onClick,
+}: {
+  action: ContainerAction;
+  pending: boolean;
+  onClick: () => void;
+}) {
+  const isStart = action === "start";
+  const label = isStart ? "Start" : "Stop";
+  const pendingLabel = isStart ? "Starting" : "Stopping";
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={onClick}
+      className={`
+        inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium
+        transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60
+        ${
+          isStart
+            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-emerald-400/50 hover:bg-emerald-500/20"
+            : "border-red-500/30 bg-red-500/10 text-red-300 hover:border-red-400/50 hover:bg-red-500/20"
+        }
+      `}
+    >
+      {isStart ? (
+        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      ) : (
+        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M7 7h10v10H7z" />
+        </svg>
+      )}
+      <span>{pending ? pendingLabel : label}</span>
+    </button>
+  );
+}
+
 /**
  * コンテナカードコンポーネント
  */
-export function ContainerCard({ container }: ContainerCardProps) {
+export function ContainerCard({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
   const shortId = container.id.slice(0, 12);
+  const action = getContainerAction(container);
 
   return (
     <div
@@ -150,6 +209,16 @@ export function ContainerCard({ container }: ContainerCardProps) {
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Ports</p>
           <PortLinks ports={container.ports} host={host} />
         </div>
+
+        {action && onAction && (
+          <div className="mt-4 border-t border-slate-700/50 pt-4">
+            <ContainerActionButton
+              action={action}
+              pending={pendingAction === action}
+              onClick={() => onAction(container, action)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -158,10 +227,11 @@ export function ContainerCard({ container }: ContainerCardProps) {
 /**
  * コンテナリスト行コンポーネント
  */
-export function ContainerListItem({ container }: ContainerCardProps) {
+export function ContainerListItem({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
   const shortId = container.id.slice(0, 12);
+  const action = getContainerAction(container);
 
   return (
     <div
@@ -176,7 +246,7 @@ export function ContainerListItem({ container }: ContainerCardProps) {
       />
 
       <div className="relative p-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(220px,1.2fr)_minmax(260px,1fr)_minmax(220px,1fr)] lg:items-center">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(220px,1.2fr)_minmax(260px,1fr)_minmax(220px,1fr)_auto] lg:items-center">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
               <h3
@@ -220,6 +290,16 @@ export function ContainerListItem({ container }: ContainerCardProps) {
               <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
             </div>
           </div>
+
+          {action && onAction && (
+            <div className="flex justify-start lg:justify-end">
+              <ContainerActionButton
+                action={action}
+                pending={pendingAction === action}
+                onClick={() => onAction(container, action)}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

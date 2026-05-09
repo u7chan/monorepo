@@ -1,6 +1,12 @@
 import { serve } from "bun";
 import index from "./index.html";
-import { fetchContainers, filterContainers } from "./services/docker";
+import {
+  ContainerActionError,
+  fetchContainers,
+  filterContainers,
+  runContainerAction,
+  type ContainerAction,
+} from "./services/docker";
 
 // モックモード表示
 const isMockMode = process.env.USE_MOCK_DATA === "true";
@@ -36,6 +42,44 @@ const server = serve({
               message: error instanceof Error ? error.message : "Unknown error",
             },
             { status: 500 },
+          );
+        }
+      },
+    },
+
+    "/api/containers/:id/:action": {
+      async POST(req) {
+        const { id, action } = req.params;
+
+        if (action !== "start" && action !== "stop") {
+          return Response.json(
+            {
+              error: "Invalid container action",
+              message: "Action must be start or stop",
+            },
+            { status: 400 },
+          );
+        }
+
+        try {
+          await runContainerAction(id, action as ContainerAction);
+
+          return Response.json({
+            success: true,
+            action,
+            containerId: id,
+            mock: process.env.USE_MOCK_DATA === "true",
+          });
+        } catch (error) {
+          console.error(`Error running container action ${action}:`, error);
+
+          const status = error instanceof ContainerActionError ? error.status : 500;
+          return Response.json(
+            {
+              error: "Failed to run container action",
+              message: error instanceof Error ? error.message : "Unknown error",
+            },
+            { status },
           );
         }
       },

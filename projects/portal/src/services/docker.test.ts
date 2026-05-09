@@ -1,7 +1,15 @@
 // Dockerサービスのユニットテスト
 
-import { test, expect, mock, describe } from "bun:test";
-import { parsePorts, normalizeName, parseContainer, filterContainers } from "./docker";
+import { afterEach, test, expect, mock, describe } from "bun:test";
+import {
+  ContainerActionError,
+  filterContainers,
+  normalizeName,
+  parseContainer,
+  parsePorts,
+  runContainerAction,
+  validateContainerAction,
+} from "./docker";
 import type { Container, DockerContainerRaw } from "../types/container";
 
 // Bun.$ のモック
@@ -279,5 +287,72 @@ describe("filterContainers", () => {
   test("空の配列に対しても動作する", () => {
     const result = filterContainers([], "all");
     expect(result).toEqual([]);
+  });
+});
+
+describe("container actions", () => {
+  afterEach(() => {
+    delete process.env.USE_MOCK_DATA;
+  });
+
+  test("startはexited状態のコンテナを許可する", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    const container = await validateContainerAction("ghi012jkl345678", "start");
+
+    expect(container.name).toBe("redis-cache");
+    expect(container.state).toBe("exited");
+  });
+
+  test("stopはrunning状態のコンテナを許可する", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    const container = await validateContainerAction("abc123def456789", "stop");
+
+    expect(container.name).toBe("nginx-proxy");
+    expect(container.state).toBe("running");
+  });
+
+  test("存在しないコンテナは404エラー", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    await expect(validateContainerAction("missing-container", "start")).rejects.toMatchObject({
+      name: "ContainerActionError",
+      status: 404,
+    });
+  });
+
+  test("状態不一致のstartは409エラー", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    await expect(validateContainerAction("abc123def456789", "start")).rejects.toMatchObject({
+      name: "ContainerActionError",
+      status: 409,
+    });
+  });
+
+  test("状態不一致のstopは409エラー", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    await expect(validateContainerAction("ghi012jkl345678", "stop")).rejects.toMatchObject({
+      name: "ContainerActionError",
+      status: 409,
+    });
+  });
+
+  test("モックモードではDockerコマンドを呼ばず成功する", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    await expect(runContainerAction("ghi012jkl345678", "start")).resolves.toBeUndefined();
+  });
+
+  test("操作エラーはContainerActionErrorとして扱える", async () => {
+    process.env.USE_MOCK_DATA = "true";
+
+    try {
+      await validateContainerAction("missing-container", "stop");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContainerActionError);
+    }
   });
 });
