@@ -155,4 +155,75 @@ export function ContainerCard({ container }: ContainerCardProps) {
   );
 }
 
+/**
+ * コンテナリスト行コンポーネント
+ */
+export function ContainerListItem({ container }: ContainerCardProps) {
+  const { config } = useConfig();
+  const host = config?.host || "localhost";
+  const shortId = container.id.slice(0, 12);
+
+  return (
+    <div
+      className="relative group rounded-xl border border-slate-700/50 bg-slate-800/50
+                 backdrop-blur-sm overflow-hidden
+                 hover:border-cyan-500/50 hover:shadow-[0_0_24px_rgba(6,182,212,0.12)]
+                 transition-all duration-300"
+    >
+      <div
+        className="absolute inset-0 bg-linear-to-r from-cyan-500/5 via-transparent to-purple-500/5
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+      />
+
+      <div className="relative p-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(220px,1.2fr)_minmax(260px,1fr)_minmax(220px,1fr)] lg:items-center">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3
+                className="truncate text-base font-semibold text-slate-100
+                           group-hover:text-cyan-400 transition-colors"
+                title={container.name}
+              >
+                {container.name}
+              </h3>
+              <p className="mt-0.5 text-xs font-mono text-slate-500">{shortId}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 lg:hidden">
+              <span className={getStatusDotClass(container.state)}>
+                <span className="block w-2 h-2 rounded-full" />
+              </span>
+              <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
+            </div>
+          </div>
+
+          <div className="min-w-0 space-y-1">
+            <p className="truncate text-sm text-slate-400">
+              <span className="text-slate-500">Image:</span>{" "}
+              <span className="font-mono text-slate-300">{container.image}</span>
+            </p>
+            <p className="truncate text-sm text-slate-400">
+              <span className="text-slate-500">Status:</span> <span>{container.status}</span>
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500 lg:hidden">
+                Ports
+              </p>
+              <PortLinks ports={container.ports} host={host} />
+            </div>
+            <div className="hidden shrink-0 items-center gap-2 lg:flex">
+              <span className={getStatusDotClass(container.state)}>
+                <span className="block w-2 h-2 rounded-full" />
+              </span>
+              <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default ContainerCard;
