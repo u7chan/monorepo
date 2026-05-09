@@ -44,6 +44,9 @@ export function ChatMain({
   const [messages, setMessages] = useState<Message[]>([])
   const [isSavingConversation, setIsSavingConversation] = useState(false)
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
+  const { loading, stream, cancelStream, submitChatCompletion } = useStreamProcessor({
+    onSubmitting,
+  })
   const {
     input,
     uploadImages,
@@ -55,11 +58,8 @@ export function ChatMain({
     handleChangeComposition,
     buildChatMessages,
     resetAfterSubmit,
-  } = useChatForm({ initTrigger, formRef })
+  } = useChatForm({ initTrigger, formRef, submitDisabled: loading || !!stream })
   const { copiedId, copyMessage } = useMessageCopy()
-  const { loading, stream, cancelStream, submitChatCompletion } = useStreamProcessor({
-    onSubmitting,
-  })
   const {
     scrollContainerRef,
     bottomChatInputContainerRef,

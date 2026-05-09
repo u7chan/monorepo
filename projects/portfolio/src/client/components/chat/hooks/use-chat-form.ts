@@ -10,6 +10,7 @@ const MAX_TEXT_LINE_COUNT = 5
 interface UseChatFormParams {
   initTrigger?: number
   formRef: RefObject<HTMLFormElement | null>
+  submitDisabled?: boolean
 }
 
 interface BuildChatMessagesParams {
@@ -33,7 +34,7 @@ interface BuiltChatMessages {
   systemMessage?: Message
 }
 
-export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
+export function useChatForm({ initTrigger, formRef, submitDisabled = false }: UseChatFormParams) {
   const [input, setInput] = useState('')
   const [templateInput, setTemplateInput] = useState<TemplateInput | null>(null)
   const [uploadImages, setUploadImages] = useState<string[]>([])
@@ -79,7 +80,7 @@ export function useChatForm({ initTrigger, formRef }: UseChatFormParams) {
     const content = event.currentTarget.value.trim()
     if (event.key === 'Enter' && !event.shiftKey && !composing) {
       event.preventDefault()
-      if (content && formRef.current) {
+      if (!submitDisabled && content && formRef.current) {
         formRef.current.requestSubmit()
       }
     }

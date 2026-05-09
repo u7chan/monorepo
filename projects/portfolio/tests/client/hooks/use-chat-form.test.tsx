@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 describe('useChatForm', () => {
   const importSubject = async () => {
@@ -11,6 +11,14 @@ describe('useChatForm', () => {
 
   const createChangeEvent = (value: string) =>
     ({ target: { value } }) as unknown as React.ChangeEvent<HTMLTextAreaElement>
+
+  const createKeyDownEvent = ({ key = 'Enter', shiftKey = false, value = 'hello' } = {}) =>
+    ({
+      key,
+      shiftKey,
+      currentTarget: { value },
+      preventDefault: vi.fn(),
+    }) as unknown as React.KeyboardEvent<HTMLTextAreaElement>
 
   it('送信設定を user message metadata に残す', async () => {
     const { useChatForm } = await importSubject()
@@ -40,5 +48,68 @@ describe('useChatForm', () => {
       maxTokens: 256,
       reasoningEffort: 'high',
     })
+  })
+
+  it('Enter でフォーム送信する', async () => {
+    const { useChatForm } = await importSubject()
+    const requestSubmit = vi.fn()
+    const formRef = { current: { requestSubmit } as unknown as HTMLFormElement }
+    const { result } = renderHook(() => useChatForm({ formRef }))
+    const event = createKeyDownEvent()
+
+    act(() => {
+      result.current.handleKeyDown(event)
+    })
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(requestSubmit).toHaveBeenCalledOnce()
+  })
+
+  it('送信不可の Enter はフォーム送信しない', async () => {
+    const { useChatForm } = await importSubject()
+    const requestSubmit = vi.fn()
+    const formRef = { current: { requestSubmit } as unknown as HTMLFormElement }
+    const { result } = renderHook(() => useChatForm({ formRef, submitDisabled: true }))
+    const event = createKeyDownEvent()
+
+    act(() => {
+      result.current.handleKeyDown(event)
+    })
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(requestSubmit).not.toHaveBeenCalled()
+  })
+
+  it('Shift+Enter はフォーム送信しない', async () => {
+    const { useChatForm } = await importSubject()
+    const requestSubmit = vi.fn()
+    const formRef = { current: { requestSubmit } as unknown as HTMLFormElement }
+    const { result } = renderHook(() => useChatForm({ formRef }))
+    const event = createKeyDownEvent({ shiftKey: true })
+
+    act(() => {
+      result.current.handleKeyDown(event)
+    })
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(requestSubmit).not.toHaveBeenCalled()
+  })
+
+  it('変換中の Enter はフォーム送信しない', async () => {
+    const { useChatForm } = await importSubject()
+    const requestSubmit = vi.fn()
+    const formRef = { current: { requestSubmit } as unknown as HTMLFormElement }
+    const { result } = renderHook(() => useChatForm({ formRef }))
+    const event = createKeyDownEvent()
+
+    act(() => {
+      result.current.handleChangeComposition(true)
+    })
+    act(() => {
+      result.current.handleKeyDown(event)
+    })
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(requestSubmit).not.toHaveBeenCalled()
   })
 })
