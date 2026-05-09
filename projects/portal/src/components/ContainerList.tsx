@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Container, ContainerFilter } from "../types/container";
-import { ContainerCard, ContainerListItem } from "./ContainerCard";
+import { ContainerCard, ContainerListItem, type ContainerAction } from "./ContainerCard";
 
 interface ContainerListProps {
   filter?: ContainerFilter;
@@ -13,12 +13,54 @@ interface FetchState {
   containers: Container[];
   loading: boolean;
   error: string | null;
+  actionError: string | null;
   lastUpdated: Date | null;
 }
 
 type ViewMode = "grid" | "list";
 
 const VIEW_MODE_STORAGE_KEY = "portal.containerViewMode";
+
+function matchesFilter(container: Container, filter: ContainerFilter): boolean {
+  if (filter === "running") {
+    return container.state === "running";
+  }
+
+  if (filter === "stopped") {
+    return container.state === "exited" || container.state === "dead";
+  }
+
+  return true;
+}
+
+function applyMockAction(
+  containers: Container[],
+  containerId: string,
+  action: ContainerAction,
+  filter: ContainerFilter,
+): Container[] {
+  const updatedContainers = containers.map((container) => {
+    if (container.id !== containerId) {
+      return container;
+    }
+
+    if (action === "start") {
+      return {
+        ...container,
+        state: "running" as const,
+        status: "Up just now",
+      };
+    }
+
+    return {
+      ...container,
+      state: "exited" as const,
+      status: "Exited (0) just now",
+    };
+  });
+
+  return updatedContainers.filter((container) => matchesFilter(container, filter));
+}
 
 /**
  * 表示切り替えボタンコンポーネント
@@ -73,8 +115,13 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
     containers: [],
     loading: true,
     error: null,
+    actionError: null,
     lastUpdated: null,
   });
+  const [pendingAction, setPendingAction] = useState<{
+    containerId: string;
+    action: ContainerAction;
+  } | null>(null);
 
   const fetchContainers = async () => {
     try {
@@ -92,6 +139,7 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
         containers: data.containers || [],
         loading: false,
         error: null,
+        actionError: null,
         lastUpdated: new Date(),
       });
     } catch (error) {
@@ -101,6 +149,48 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
         loading: false,
         error: error instanceof Error ? error.message : "Failed to fetch containers",
       }));
+    }
+  };
+
+  const runContainerAction = async (container: Container, action: ContainerAction) => {
+    const actionLabel = action === "start" ? "start" : "stop";
+    const confirmed = window.confirm(`Are you sure you want to ${actionLabel} ${container.name}?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setPendingAction({ containerId: container.id, action });
+      setState((prev) => ({ ...prev, actionError: null }));
+
+      const response = await fetch(`/api/containers/${container.id}/${action}`, {
+        method: "POST",
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+
+      if (data.mock) {
+        setState((prev) => ({
+          ...prev,
+          containers: applyMockAction(prev.containers, container.id, action, filter),
+          lastUpdated: new Date(),
+        }));
+        return;
+      }
+
+      await fetchContainers();
+    } catch (error) {
+      console.error(`Failed to ${action} container:`, error);
+      setState((prev) => ({
+        ...prev,
+        actionError: error instanceof Error ? error.message : `Failed to ${action} container`,
+      }));
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -259,16 +349,32 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
         </div>
       </div>
 
+      {state.actionError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {state.actionError}
+        </div>
+      )}
+
       {viewMode === "grid" ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {state.containers.map((container) => (
-            <ContainerCard key={container.id} container={container} />
+            <ContainerCard
+              key={container.id}
+              container={container}
+              pendingAction={pendingAction?.containerId === container.id ? pendingAction.action : null}
+              onAction={runContainerAction}
+            />
           ))}
         </div>
       ) : (
         <div className="space-y-3">
           {state.containers.map((container) => (
-            <ContainerListItem key={container.id} container={container} />
+            <ContainerListItem
+              key={container.id}
+              container={container}
+              pendingAction={pendingAction?.containerId === container.id ? pendingAction.action : null}
+              onAction={runContainerAction}
+            />
           ))}
         </div>
       )}
