@@ -109,7 +109,8 @@ function mergeSettings(settings: Partial<Settings> & { interactiveMode?: unknown
   const { interactiveMode, mcpServerURLs: _dropped, ...rest } = settings
   const apiMode = normalizeApiMode(rest.apiMode)
   const includeChatHistory =
-    rest.includeChatHistory ?? (typeof interactiveMode === 'boolean' ? interactiveMode : defaultSettings.includeChatHistory)
+    rest.includeChatHistory ??
+    (typeof interactiveMode === 'boolean' ? interactiveMode : defaultSettings.includeChatHistory)
 
   return {
     ...defaultSettings,
