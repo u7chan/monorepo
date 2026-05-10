@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 describe('useStreamProcessor', () => {
   beforeEach(() => {
     vi.resetModules()
+    sessionStorage.clear()
+    vi.unstubAllGlobals()
   })
 
   const importSubject = async () => {
@@ -230,5 +232,120 @@ describe('useStreamProcessor', () => {
       result: null,
       responseTimeMs: expect.any(Number),
     })
+  })
+
+  it('session replay の user_message で会話を復元する', async () => {
+    const { useStreamProcessor } = await importSubject()
+    const onSessionConversation = vi.fn()
+    const conversation = {
+      id: 'conversation-1',
+      title: 'hello',
+      messages: [
+        {
+          id: 'message-user-1',
+          role: 'user' as const,
+          content: 'hello',
+          metadata: {
+            model: 'gpt-test',
+          },
+        },
+      ],
+    }
+    const eventSources: FakeEventSource[] = []
+
+    class FakeEventSource {
+      listeners = new Map<string, Array<(message: MessageEvent) => void>>()
+      onerror: (() => void) | null = null
+      url: string
+
+      constructor(url: string) {
+        this.url = url
+        eventSources.push(this)
+      }
+
+      addEventListener(type: string, listener: (message: MessageEvent) => void) {
+        this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+      }
+
+      emit(type: string, data: unknown) {
+        for (const listener of this.listeners.get(type) ?? []) {
+          listener(new MessageEvent(type, { data: JSON.stringify(data) }))
+        }
+      }
+
+      close() {}
+    }
+
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ sessionId: 'session-1' }),
+      })
+    )
+
+    const { result } = renderHook(() => useStreamProcessor({ onSessionConversation }))
+
+    let response: Awaited<ReturnType<typeof result.current.submitChatCompletion>> | undefined
+    void act(async () => {
+      response = await result.current.submitChatCompletion({
+        ...request,
+        streamMode: true,
+        conversation,
+        assistantMessageId: 'message-assistant-1',
+      })
+    })
+
+    await waitFor(() => expect(eventSources).toHaveLength(1))
+
+    act(() => {
+      eventSources[0].emit('user_message', {
+        id: 'event-1',
+        sessionId: 'session-1',
+        type: 'user_message',
+        createdAt: '2026-05-10T00:00:00.000Z',
+        data: {
+          conversation,
+          assistantMessageId: 'message-assistant-1',
+        },
+      })
+      eventSources[0].emit('assistant_delta', {
+        id: 'event-2',
+        sessionId: 'session-1',
+        type: 'assistant_delta',
+        createdAt: '2026-05-10T00:00:01.000Z',
+        data: {
+          event: 'delta',
+          id: 'chunk-1',
+          created: 1700000000,
+          model: 'gpt-test',
+          content: 'answer',
+        },
+      })
+      eventSources[0].emit('assistant_finish', {
+        id: 'event-3',
+        sessionId: 'session-1',
+        type: 'assistant_finish',
+        createdAt: '2026-05-10T00:00:02.000Z',
+        data: {
+          event: 'finish',
+          id: 'chunk-1',
+          created: 1700000000,
+          model: 'gpt-test',
+          finishReason: 'stop',
+        },
+      })
+      eventSources[0].emit('done', {
+        id: 'event-4',
+        sessionId: 'session-1',
+        type: 'done',
+        createdAt: '2026-05-10T00:00:03.000Z',
+        data: {},
+      })
+    })
+
+    await waitFor(() => expect(response?.result?.message.content).toBe('answer'))
+    expect(onSessionConversation).toHaveBeenCalledWith(conversation, 'message-assistant-1')
   })
 })

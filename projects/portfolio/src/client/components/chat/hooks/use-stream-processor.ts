@@ -27,9 +27,10 @@ interface SubmitChatCompletionParams {
 
 interface UseStreamProcessorParams {
   onSubmitting?: (submitting: boolean) => void
+  onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
 }
 
-export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = {}) {
+export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseStreamProcessorParams = {}) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const activeSessionIdRef = useRef<string | null>(null)
@@ -82,6 +83,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
               temperature,
               maxTokens,
               reasoningEffort,
+              onSessionConversation,
               onStream: (stream) => setStream(stream),
             })
           : await sendNonStreamCompletion({
@@ -122,6 +124,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
         afterEventId: undefined,
         eventSourceRef,
         activeSessionIdRef,
+        onSessionConversation,
         onStream: (stream) => setStream(stream),
       })
       if (!result.conversation) return null
@@ -137,7 +140,7 @@ export function useStreamProcessor({ onSubmitting }: UseStreamProcessorParams = 
       setLoading(false)
       onSubmitting?.(false)
     }
-  }, [onSubmitting])
+  }, [onSessionConversation, onSubmitting])
 
   return {
     loading,
@@ -215,6 +218,7 @@ const sendStreamCompletion = async (
     assistantMessageId?: string
     eventSourceRef: MutableRefObject<EventSource | null>
     activeSessionIdRef: MutableRefObject<string | null>
+    onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
     onStream?: (stream: ChatStreamState) => void
   }
 ): Promise<ChatResponse | null> => {
@@ -256,6 +260,7 @@ const sendStreamCompletion = async (
       sessionId: data.sessionId,
       eventSourceRef: req.eventSourceRef,
       activeSessionIdRef: req.activeSessionIdRef,
+      onSessionConversation: req.onSessionConversation,
       onStream: req.onStream,
     })
 
@@ -286,6 +291,7 @@ type ReceiveSessionEventsParams = {
   afterEventId?: string
   eventSourceRef: MutableRefObject<EventSource | null>
   activeSessionIdRef: MutableRefObject<string | null>
+  onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
   onStream?: (stream: ChatStreamState) => void
 }
 
@@ -294,6 +300,7 @@ const receiveSessionEvents = ({
   afterEventId,
   eventSourceRef,
   activeSessionIdRef,
+  onSessionConversation,
   onStream,
 }: ReceiveSessionEventsParams): Promise<Omit<ResumeChatCompletionResult, 'responseTimeMs'>> =>
   new Promise((resolve, reject) => {
@@ -331,6 +338,7 @@ const receiveSessionEvents = ({
       if (sessionEvent.type === 'user_message') {
         conversation = sessionEvent.data.conversation
         assistantMessageId = sessionEvent.data.assistantMessageId
+        onSessionConversation?.(conversation, assistantMessageId)
         return
       }
 

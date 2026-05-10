@@ -52,6 +52,11 @@ export function ChatMain({
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
   const { loading, stream, cancelStream, submitChatCompletion, resumeActiveChatCompletion } = useStreamProcessor({
     onSubmitting,
+    onSessionConversation: (conversation, assistantMessageId) => {
+      setConversationId(conversation.id)
+      setMessages(conversation.messages)
+      setStreamMessageId(assistantMessageId)
+    },
   })
   const {
     input,
