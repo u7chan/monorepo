@@ -23,7 +23,7 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.3.0',
+  schemaVersion: '1.4.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -37,7 +37,7 @@ const defaultSettings = {
   autoModel: false,
   markdownPreview: true,
   streamMode: true,
-  interactiveMode: true,
+  includeChatHistory: true,
   sendImagesOnlyOnce: true,
   templateModels: {},
 }

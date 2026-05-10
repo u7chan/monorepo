@@ -44,9 +44,9 @@ export function prepareApiMessages(
 export function buildEditedSendMessages(
   editedMessages: Message[],
   currentUserMessageId: string | undefined,
-  interactiveMode: boolean
+  includeChatHistory: boolean
 ): Message[] {
-  if (interactiveMode) {
+  if (includeChatHistory) {
     return editedMessages
   }
 

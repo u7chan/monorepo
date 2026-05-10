@@ -13,7 +13,7 @@ export interface ChatSettingsContextValue {
   fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
-  interactiveMode: boolean
+  includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   reasoningEffort: ReasoningEffortLevel
   reasoningEffortEnabled: boolean
@@ -34,7 +34,7 @@ export interface ChatSettingsContextValue {
   handleToggleFakeMode: () => void
   handleToggleMarkdownPreview: () => void
   handleToggleStreamMode: () => void
-  handleToggleInteractiveMode: () => void
+  handleToggleIncludeChatHistory: () => void
   handleToggleSendImagesOnlyOnce: () => void
   handleToggleReasoningEffort: () => void
 }

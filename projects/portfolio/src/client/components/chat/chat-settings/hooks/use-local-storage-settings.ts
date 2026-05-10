@@ -18,7 +18,7 @@ interface UseLocalStorageSettingsReturn {
   fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
-  interactiveMode: boolean
+  includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   reasoningEffort: ReasoningEffortLevel
   reasoningEffortEnabled: boolean
@@ -30,7 +30,7 @@ interface UseLocalStorageSettingsReturn {
   setFakeMode: Dispatch<SetStateAction<boolean>>
   setMarkdownPreview: Dispatch<SetStateAction<boolean>>
   setStreamMode: Dispatch<SetStateAction<boolean>>
-  setInteractiveMode: Dispatch<SetStateAction<boolean>>
+  setIncludeChatHistory: Dispatch<SetStateAction<boolean>>
   setSendImagesOnlyOnce: Dispatch<SetStateAction<boolean>>
   setReasoningEffort: Dispatch<SetStateAction<ReasoningEffortLevel>>
   setReasoningEffortEnabled: Dispatch<SetStateAction<boolean>>
@@ -50,7 +50,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
   const [fakeMode, setFakeMode] = useState(defaultSettings?.fakeMode ?? false)
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
-  const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
+  const [includeChatHistory, setIncludeChatHistory] = useState(defaultSettings?.includeChatHistory ?? true)
   const [sendImagesOnlyOnce, setSendImagesOnlyOnce] = useState(defaultSettings?.sendImagesOnlyOnce ?? true)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffortLevel>(
     defaultSettings?.reasoningEffort ?? 'medium'
@@ -77,7 +77,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
       fakeMode,
       markdownPreview,
       streamMode,
-      interactiveMode,
+      includeChatHistory,
       sendImagesOnlyOnce,
       reasoningEffort,
       reasoningEffortEnabled,
@@ -92,7 +92,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
       fakeMode,
       markdownPreview,
       streamMode,
-      interactiveMode,
+      includeChatHistory,
       sendImagesOnlyOnce,
       reasoningEffort,
       reasoningEffortEnabled,
@@ -109,7 +109,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     fakeMode,
     markdownPreview,
     streamMode,
-    interactiveMode,
+    includeChatHistory,
     sendImagesOnlyOnce,
     reasoningEffort,
     reasoningEffortEnabled,
@@ -121,7 +121,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     setFakeMode,
     setMarkdownPreview,
     setStreamMode,
-    setInteractiveMode,
+    setIncludeChatHistory,
     setSendImagesOnlyOnce,
     setReasoningEffort,
     setReasoningEffortEnabled,

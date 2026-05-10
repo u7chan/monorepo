@@ -2,7 +2,7 @@ import { ApiModeSchema, type ApiMode } from '#/types'
 import { decryptLegacyApiKey } from './legacy-remote-storage'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
-const SCHEMA_VERSION = '1.3.0'
+const SCHEMA_VERSION = '1.4.0'
 
 export interface Settings {
   schemaVersion: string
@@ -19,7 +19,7 @@ export interface Settings {
   autoModel: boolean
   markdownPreview: boolean
   streamMode: boolean
-  interactiveMode: boolean
+  includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   sidebarOpen: boolean
   templateModels: {
@@ -31,6 +31,7 @@ export interface Settings {
 
 type StoredSettings = Partial<Settings> & {
   schemaVersion?: string
+  interactiveMode?: boolean
 }
 
 const defaultSettings: Settings = {
@@ -48,7 +49,7 @@ const defaultSettings: Settings = {
   autoModel: false,
   markdownPreview: true,
   streamMode: true,
-  interactiveMode: true,
+  includeChatHistory: true,
   sendImagesOnlyOnce: true,
   sidebarOpen: true,
   templateModels: {},
@@ -104,13 +105,16 @@ function parseStoredSettings(value: string | null): StoredSettings | null {
   }
 }
 
-function mergeSettings(settings: Partial<Settings> & { mcpServerURLs?: unknown }): Settings {
-  const { mcpServerURLs: _dropped, ...rest } = settings
+function mergeSettings(settings: Partial<Settings> & { interactiveMode?: unknown; mcpServerURLs?: unknown }): Settings {
+  const { interactiveMode, mcpServerURLs: _dropped, ...rest } = settings
   const apiMode = normalizeApiMode(rest.apiMode)
+  const includeChatHistory =
+    rest.includeChatHistory ?? (typeof interactiveMode === 'boolean' ? interactiveMode : defaultSettings.includeChatHistory)
 
   return {
     ...defaultSettings,
     ...rest,
+    includeChatHistory,
     apiMode,
     fakeMode: apiMode === 'responses' ? false : (rest.fakeMode ?? defaultSettings.fakeMode),
     schemaVersion: SCHEMA_VERSION,
@@ -152,6 +156,8 @@ function shouldPersistNormalizedSettings(
     settings.schemaVersion !== SCHEMA_VERSION ||
     !ApiModeSchema.safeParse(settings.apiMode).success ||
     (normalized.apiMode === 'responses' && settings.fakeMode === true) ||
+    settings.includeChatHistory !== normalized.includeChatHistory ||
+    'interactiveMode' in settings ||
     settings.sendImagesOnlyOnce !== normalized.sendImagesOnlyOnce ||
     'mcpServerURLs' in settings
   )
