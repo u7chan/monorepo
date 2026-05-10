@@ -38,6 +38,7 @@ interface ChatMessageListProps {
   messageEndRef: RefObject<HTMLDivElement | null>
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
+  onEditMessage?: (index: number, nextText: string) => Promise<void> | void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
@@ -55,6 +56,7 @@ export function ChatMessageList({
   messageEndRef,
   onCopyMessage,
   onDeleteMessage,
+  onEditMessage,
   onSaveGeneratedFile,
 }: ChatMessageListProps) {
   const streamCodeBlockCursorRef = useRef({ current: 0 })
@@ -86,10 +88,11 @@ export function ChatMessageList({
           markdownPreview={markdownPreview}
           sendImagesOnlyOnce={sendImagesOnlyOnce}
           copiedId={copiedId}
-          disabled={loading || !!stream}
+          disabled={loading || !!stream || !!savingConversation}
           savingConversation={savingConversation}
           onCopyMessage={onCopyMessage}
           onDeleteMessage={onDeleteMessage}
+          onEditMessage={onEditMessage}
           onSaveGeneratedFile={onSaveGeneratedFile}
           codeBlockOpenBlocks={codeBlockOpenBlocks}
           onCodeBlockOpenChange={handleCodeBlockOpenChange}
@@ -163,6 +166,7 @@ interface MessageHistoryProps {
   onCodeBlockOpenChange: CodeBlockOpenChangeHandler
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
+  onEditMessage?: (index: number, nextText: string) => Promise<void> | void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
@@ -179,6 +183,7 @@ const MessageHistory = memo(function MessageHistory({
   onCodeBlockOpenChange,
   onCopyMessage,
   onDeleteMessage,
+  onEditMessage,
   onSaveGeneratedFile,
 }: MessageHistoryProps) {
   return messages.map((message, index) => (
@@ -198,6 +203,7 @@ const MessageHistory = memo(function MessageHistory({
       onCodeBlockOpenChange={onCodeBlockOpenChange}
       onCopyMessage={onCopyMessage}
       onDeleteMessage={onDeleteMessage}
+      onEditMessage={onEditMessage}
       onSaveGeneratedFile={onSaveGeneratedFile}
     />
   ))
