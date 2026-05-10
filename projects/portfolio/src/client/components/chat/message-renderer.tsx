@@ -20,7 +20,7 @@ import { DeleteIcon } from '#/client/components/svg/delete-icon'
 import { EditIcon } from '#/client/components/svg/edit-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
 import { isImageContentArray } from '#/types'
-import { Fragment, memo, type ReactNode, useRef, useState } from 'react'
+import { Fragment, memo, type ReactNode, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
@@ -152,6 +152,17 @@ function MessageRendererComponent({
   const [editText, setEditText] = useState(() => (message.role === 'user' ? getUserMessageText(message) : ''))
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
+  useEffect(() => {
+    if (!isEditing || !disabled) {
+      return
+    }
+
+    if (message.role === 'user') {
+      setEditText(getUserMessageText(message))
+    }
+    setIsEditing(false)
+  }, [disabled, isEditing, message])
+
   if (message.role === 'system') {
     return null
   }
@@ -175,10 +186,10 @@ function MessageRendererComponent({
         return
       }
 
+      setIsEditing(false)
       setIsSavingEdit(true)
       try {
         await onEditMessage?.(index, editText)
-        setIsEditing(false)
       } finally {
         setIsSavingEdit(false)
       }

@@ -2,7 +2,7 @@
 
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
 import type { AssistantMessage, UserMessage } from '#/types'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('react-syntax-highlighter', () => ({
@@ -35,6 +35,77 @@ function createAssistantMessage(
 }
 
 describe('MessageRenderer', () => {
+  describe('ユーザーメッセージ編集', () => {
+    const userMessage: UserMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: '修正前',
+      metadata: { model: 'gpt-test' },
+    }
+
+    it('保存クリック直後に編集表示を閉じる', async () => {
+      const onEditMessage = vi.fn(() => new Promise<void>(() => undefined))
+
+      render(
+        <MessageRenderer
+          message={userMessage}
+          index={0}
+          messages={[userMessage]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+          onEditMessage={onEditMessage}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+      fireEvent.change(screen.getByLabelText('Edit message text'), { target: { value: '修正後' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save edited message' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Edit message text')).toBeNull()
+      })
+      expect(onEditMessage).toHaveBeenCalledWith(0, '修正後')
+    })
+
+    it('チャット送信開始などで無効化されたら編集表示を閉じる', async () => {
+      const { rerender } = render(
+        <MessageRenderer
+          message={userMessage}
+          index={0}
+          messages={[userMessage]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+          onEditMessage={vi.fn()}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+      expect(screen.getByLabelText('Edit message text')).toBeTruthy()
+
+      rerender(
+        <MessageRenderer
+          message={userMessage}
+          index={0}
+          messages={[userMessage]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          disabled={true}
+          onCopyMessage={vi.fn()}
+          onEditMessage={vi.fn()}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Edit message text')).toBeNull()
+      })
+    })
+  })
+
   describe('画像コンテキスト表示', () => {
     const renderUserMessage = (message: UserMessage, sendImagesOnlyOnce: boolean) =>
       render(
