@@ -328,6 +328,540 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
         };
     };
 } & {
+    "/api/chat/sessions": {
+        $post: {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    conversation: {
+                        id: string;
+                        title: string;
+                        messages: ({
+                            role: "user";
+                            content: string | ({
+                                type: "image_url";
+                                image_url: {
+                                    url: string;
+                                };
+                            } | {
+                                type: "text";
+                                text: string;
+                            })[];
+                            metadata: {
+                                model: string;
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                stream?: boolean | undefined;
+                                temperature?: number | undefined;
+                                maxTokens?: number | undefined;
+                                reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                                sendImagesOnlyOnce?: boolean | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "assistant";
+                            content: string;
+                            metadata: {
+                                model: string;
+                                usage: {
+                                    completionTokens?: number | undefined;
+                                    promptTokens?: number | undefined;
+                                    totalTokens?: number | undefined;
+                                    reasoningTokens?: number | undefined;
+                                };
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                finishReason?: string | undefined;
+                                responseTimeMs?: number | undefined;
+                                generatedFiles?: {
+                                    blockIndex: number;
+                                    language: string;
+                                    fileName: string;
+                                    publicPath: string;
+                                    previewUrl: string;
+                                    contentType: string;
+                                    createdAt: string;
+                                }[] | undefined;
+                                imageContext?: {
+                                    policy: "send_once" | "full_history";
+                                    sent: number;
+                                    historyOnly: number;
+                                } | undefined;
+                                apiContextMessages?: ({
+                                    role: "user";
+                                    content: string | ({
+                                        type: "image_url";
+                                        image_url: {
+                                            url: string;
+                                        };
+                                    } | {
+                                        type: "text";
+                                        text: string;
+                                    })[];
+                                } | {
+                                    role: "assistant";
+                                    content: string;
+                                } | {
+                                    role: "system";
+                                    content: string;
+                                })[] | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "system";
+                            content: string;
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                            metadata?: Record<string, never> | undefined;
+                        })[];
+                        updatedAt?: unknown;
+                    };
+                    assistantMessageId: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    conversation: {
+                        id: string;
+                        title: string;
+                        messages: ({
+                            role: "user";
+                            content: string | ({
+                                type: "image_url";
+                                image_url: {
+                                    url: string;
+                                };
+                            } | {
+                                type: "text";
+                                text: string;
+                            })[];
+                            metadata: {
+                                model: string;
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                stream?: boolean | undefined;
+                                temperature?: number | undefined;
+                                maxTokens?: number | undefined;
+                                reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                                sendImagesOnlyOnce?: boolean | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "assistant";
+                            content: string;
+                            metadata: {
+                                model: string;
+                                usage: {
+                                    completionTokens?: number | undefined;
+                                    promptTokens?: number | undefined;
+                                    totalTokens?: number | undefined;
+                                    reasoningTokens?: number | undefined;
+                                };
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                finishReason?: string | undefined;
+                                responseTimeMs?: number | undefined;
+                                generatedFiles?: {
+                                    blockIndex: number;
+                                    language: string;
+                                    fileName: string;
+                                    publicPath: string;
+                                    previewUrl: string;
+                                    contentType: string;
+                                    createdAt: string;
+                                }[] | undefined;
+                                imageContext?: {
+                                    policy: "send_once" | "full_history";
+                                    sent: number;
+                                    historyOnly: number;
+                                } | undefined;
+                                apiContextMessages?: ({
+                                    role: "user";
+                                    content: string | ({
+                                        type: "image_url";
+                                        image_url: {
+                                            url: string;
+                                        };
+                                    } | {
+                                        type: "text";
+                                        text: string;
+                                    })[];
+                                } | {
+                                    role: "assistant";
+                                    content: string;
+                                } | {
+                                    role: "system";
+                                    content: string;
+                                })[] | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "system";
+                            content: string;
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                            metadata?: Record<string, never> | undefined;
+                        })[];
+                        updatedAt?: unknown;
+                    };
+                    assistantMessageId: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    messages: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[];
+                    model: string;
+                    conversation: {
+                        id: string;
+                        title: string;
+                        messages: ({
+                            role: "user";
+                            content: string | ({
+                                type: "image_url";
+                                image_url: {
+                                    url: string;
+                                };
+                            } | {
+                                type: "text";
+                                text: string;
+                            })[];
+                            metadata: {
+                                model: string;
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                stream?: boolean | undefined;
+                                temperature?: number | undefined;
+                                maxTokens?: number | undefined;
+                                reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                                sendImagesOnlyOnce?: boolean | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "assistant";
+                            content: string;
+                            metadata: {
+                                model: string;
+                                usage: {
+                                    completionTokens?: number | undefined;
+                                    promptTokens?: number | undefined;
+                                    totalTokens?: number | undefined;
+                                    reasoningTokens?: number | undefined;
+                                };
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                finishReason?: string | undefined;
+                                responseTimeMs?: number | undefined;
+                                generatedFiles?: {
+                                    blockIndex: number;
+                                    language: string;
+                                    fileName: string;
+                                    publicPath: string;
+                                    previewUrl: string;
+                                    contentType: string;
+                                    createdAt: string;
+                                }[] | undefined;
+                                imageContext?: {
+                                    policy: "send_once" | "full_history";
+                                    sent: number;
+                                    historyOnly: number;
+                                } | undefined;
+                                apiContextMessages?: ({
+                                    role: "user";
+                                    content: string | ({
+                                        type: "image_url";
+                                        image_url: {
+                                            url: string;
+                                        };
+                                    } | {
+                                        type: "text";
+                                        text: string;
+                                    })[];
+                                } | {
+                                    role: "assistant";
+                                    content: string;
+                                } | {
+                                    role: "system";
+                                    content: string;
+                                })[] | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "system";
+                            content: string;
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                            metadata?: Record<string, never> | undefined;
+                        })[];
+                        updatedAt?: unknown;
+                    };
+                    assistantMessageId: string;
+                    apiMode?: "chat_completions" | "responses" | undefined;
+                    temperature?: number | undefined;
+                    maxTokens?: number | undefined;
+                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                };
+            };
+            output: {
+                sessionId: string;
+                status: "error" | "running" | "completed" | "cancelled";
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/chat/sessions/:sessionId": {
+        $get: {
+            input: {
+                param: {
+                    sessionId: string;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 404;
+        } | {
+            input: {
+                param: {
+                    sessionId: string;
+                };
+            };
+            output: {
+                session: {
+                    id: string;
+                    status: "error" | "running" | "completed" | "cancelled";
+                    conversation: {
+                        id: string;
+                        title: string;
+                        messages: ({
+                            role: "user";
+                            content: string | ({
+                                type: "image_url";
+                                image_url: {
+                                    url: string;
+                                };
+                            } | {
+                                type: "text";
+                                text: string;
+                            })[];
+                            metadata: {
+                                model: string;
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                stream?: boolean | undefined;
+                                temperature?: number | undefined;
+                                maxTokens?: number | undefined;
+                                reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                                sendImagesOnlyOnce?: boolean | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "assistant";
+                            content: string;
+                            metadata: {
+                                model: string;
+                                usage: {
+                                    completionTokens?: number | undefined;
+                                    promptTokens?: number | undefined;
+                                    totalTokens?: number | undefined;
+                                    reasoningTokens?: number | undefined;
+                                };
+                                apiMode?: "chat_completions" | "responses" | undefined;
+                                finishReason?: string | undefined;
+                                responseTimeMs?: number | undefined;
+                                generatedFiles?: {
+                                    blockIndex: number;
+                                    language: string;
+                                    fileName: string;
+                                    publicPath: string;
+                                    previewUrl: string;
+                                    contentType: string;
+                                    createdAt: string;
+                                }[] | undefined;
+                                imageContext?: {
+                                    policy: "send_once" | "full_history";
+                                    sent: number;
+                                    historyOnly: number;
+                                } | undefined;
+                                apiContextMessages?: ({
+                                    role: "user";
+                                    content: string | ({
+                                        type: "image_url";
+                                        image_url: {
+                                            url: string;
+                                        };
+                                    } | {
+                                        type: "text";
+                                        text: string;
+                                    })[];
+                                } | {
+                                    role: "assistant";
+                                    content: string;
+                                } | {
+                                    role: "system";
+                                    content: string;
+                                })[] | undefined;
+                            };
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                        } | {
+                            role: "system";
+                            content: string;
+                            id?: string | undefined;
+                            reasoningContent?: string | undefined;
+                            metadata?: {} | undefined;
+                        })[];
+                        updatedAt?: string | undefined;
+                    };
+                    assistantMessageId: string;
+                    apiMode: "chat_completions" | "responses";
+                    model: string;
+                    email: string | null;
+                    createdAt: string;
+                    updatedAt: string;
+                    completedAt: string | null;
+                    error: string | null;
+                };
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/chat/sessions/:sessionId/events": {
+        $get: {
+            input: {
+                param: {
+                    sessionId: string;
+                };
+            };
+            output: {};
+            outputFormat: string;
+            status: import('hono/utils/http-status').StatusCode;
+        };
+    };
+} & {
+    "/api/chat/sessions/:sessionId/cancel": {
+        $post: {
+            input: {
+                param: {
+                    sessionId: string;
+                };
+            };
+            output: {
+                error: string;
+                code: "VALIDATION_ERROR";
+            };
+            outputFormat: "json";
+            status: 404;
+        } | {
+            input: {
+                param: {
+                    sessionId: string;
+                };
+            };
+            output: {
+                status: "error" | "running" | "completed" | "cancelled";
+            };
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
     "/api/chat/completions": {
         $post: {
             input: {
@@ -420,15 +954,17 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             type: "text";
                             text: string;
                         })[];
-                        reasoningContent: string;
                         metadata: {
                             model: string;
                             apiMode?: "chat_completions" | "responses" | undefined;
                             stream?: boolean | undefined;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
+                            reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                            sendImagesOnlyOnce?: boolean | undefined;
                         };
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                     } | {
                         role: "assistant";
                         content: string;
@@ -452,14 +988,37 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 contentType: string;
                                 createdAt: string;
                             }[] | undefined;
+                            imageContext?: {
+                                policy: "send_once" | "full_history";
+                                sent: number;
+                                historyOnly: number;
+                            } | undefined;
+                            apiContextMessages?: ({
+                                role: "user";
+                                content: string | ({
+                                    type: "image_url";
+                                    image_url: {
+                                        url: string;
+                                    };
+                                } | {
+                                    type: "text";
+                                    text: string;
+                                })[];
+                            } | {
+                                role: "assistant";
+                                content: string;
+                            } | {
+                                role: "system";
+                                content: string;
+                            })[] | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
                     } | {
                         role: "system";
                         content: string;
-                        reasoningContent: string;
                         id?: string | undefined;
+                        reasoningContent?: string | undefined;
                         metadata?: {} | undefined;
                     })[];
                     updatedAt?: string | undefined;
@@ -493,6 +1052,8 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             stream?: boolean | undefined;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
+                            reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                            sendImagesOnlyOnce?: boolean | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -519,6 +1080,29 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 contentType: string;
                                 createdAt: string;
                             }[] | undefined;
+                            imageContext?: {
+                                policy: "send_once" | "full_history";
+                                sent: number;
+                                historyOnly: number;
+                            } | undefined;
+                            apiContextMessages?: ({
+                                role: "user";
+                                content: string | ({
+                                    type: "image_url";
+                                    image_url: {
+                                        url: string;
+                                    };
+                                } | {
+                                    type: "text";
+                                    text: string;
+                                })[];
+                            } | {
+                                role: "assistant";
+                                content: string;
+                            } | {
+                                role: "system";
+                                content: string;
+                            })[] | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -561,6 +1145,8 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             stream?: boolean | undefined;
                             temperature?: number | undefined;
                             maxTokens?: number | undefined;
+                            reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+                            sendImagesOnlyOnce?: boolean | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -587,6 +1173,29 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 contentType: string;
                                 createdAt: string;
                             }[] | undefined;
+                            imageContext?: {
+                                policy: "send_once" | "full_history";
+                                sent: number;
+                                historyOnly: number;
+                            } | undefined;
+                            apiContextMessages?: ({
+                                role: "user";
+                                content: string | ({
+                                    type: "image_url";
+                                    image_url: {
+                                        url: string;
+                                    };
+                                } | {
+                                    type: "text";
+                                    text: string;
+                                })[];
+                            } | {
+                                role: "assistant";
+                                content: string;
+                            } | {
+                                role: "system";
+                                content: string;
+                            })[] | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -853,6 +1462,29 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         contentType: string;
                         createdAt: string;
                     }[] | undefined;
+                    imageContext?: {
+                        policy: "send_once" | "full_history";
+                        sent: number;
+                        historyOnly: number;
+                    } | undefined;
+                    apiContextMessages?: ({
+                        role: "user";
+                        content: string | ({
+                            type: "image_url";
+                            image_url: {
+                                url: string;
+                            };
+                        } | {
+                            type: "text";
+                            text: string;
+                        })[];
+                    } | {
+                        role: "assistant";
+                        content: string;
+                    } | {
+                        role: "system";
+                        content: string;
+                    })[] | undefined;
                 };
             };
             outputFormat: "json";

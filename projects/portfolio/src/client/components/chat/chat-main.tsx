@@ -50,7 +50,7 @@ export function ChatMain({
   const [messages, setMessages] = useState<Message[]>([])
   const [isSavingConversation, setIsSavingConversation] = useState(false)
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
-  const { loading, stream, cancelStream, submitChatCompletion } = useStreamProcessor({
+  const { loading, stream, cancelStream, submitChatCompletion, resumeActiveChatCompletion } = useStreamProcessor({
     onSubmitting,
   })
   const {
@@ -85,6 +85,62 @@ export function ChatMain({
     setConversationId(null)
     setStreamMessageId(null)
   }, [initTrigger])
+
+  useEffect(() => {
+    if (currentConversation || messages.length > 0 || loading) {
+      return
+    }
+
+    let mounted = true
+    void resumeActiveChatCompletion().then(async (resumed) => {
+      if (!mounted || !resumed?.conversation) return
+
+      const assistantMessage = resumed.result
+        ? {
+            id: resumed.assistantMessageId,
+            role: 'assistant' as const,
+            content: resumed.result.message.content,
+            reasoningContent: resumed.result.message.reasoningContent,
+            metadata: {
+              model: resumed.result.model,
+              apiMode: settings.apiMode,
+              finishReason: resumed.result.finishReason,
+              responseTimeMs: resumed.responseTimeMs,
+              usage: {
+                promptTokens: resumed.result.usage?.promptTokens || 0,
+                completionTokens: resumed.result.usage?.completionTokens || 0,
+                totalTokens: resumed.result.usage?.totalTokens || 0,
+                reasoningTokens: resumed.result.usage?.reasoningTokens,
+              },
+            },
+          }
+        : null
+      const finalMessages = assistantMessage
+        ? [...resumed.conversation.messages, assistantMessage]
+        : resumed.conversation.messages
+
+      setConversationId(resumed.conversation.id)
+      setMessages(finalMessages)
+
+      if (assistantMessage) {
+        await onConversationChange?.({
+          ...resumed.conversation,
+          messages: finalMessages,
+        })
+      }
+    })
+
+    return () => {
+      mounted = false
+    }
+  }, [
+    currentConversation,
+    loading,
+    messages.length,
+    onConversationChange,
+    resumeActiveChatCompletion,
+    settings.apiMode,
+  ])
 
   // 選択された会話のメッセージを設定
   useEffect(() => {
@@ -140,6 +196,16 @@ export function ChatMain({
           ? [...(params.systemMessage ? [params.systemMessage] : []), params.draftUserMessage]
           : [...messages, params.draftUserMessage]
       const assistantMessageId = uuidv7()
+      const currentConversationId = conversationId || uuidv7()
+      const draftConversation = {
+        id: currentConversationId,
+        title:
+          typeof params.draftUserMessage.content === 'string'
+            ? params.draftUserMessage.content.slice(0, CONVERSATION_TITLE_MAX_LENGTH)
+            : '',
+        messages: nextMessages,
+      }
+      setConversationId(currentConversationId)
       setMessages(nextMessages)
       setStreamMessageId(assistantMessageId)
       resetAfterSubmit()
@@ -153,6 +219,8 @@ export function ChatMain({
         model: params.model,
         messages: params.apiMessages,
         streamMode: settings.streamMode,
+        conversation: draftConversation,
+        assistantMessageId,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
@@ -186,15 +254,6 @@ export function ChatMain({
 
           const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
           setMessages(finalMessages)
-
-          // 会話IDが指定されていない場合は会話IDを新規作成
-          const currentConversationId =
-            conversationId ||
-            (() => {
-              const newConversationId = uuidv7()
-              setConversationId(newConversationId)
-              return newConversationId
-            })()
 
           // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
           setIsSavingConversation(true)
@@ -308,6 +367,13 @@ export function ChatMain({
       const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.includeChatHistory)
       const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
+      const draftConversationId = conversationId || uuidv7()
+      const draftConversation = {
+        id: draftConversationId,
+        title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
+        messages: editedMessages,
+      }
+      setConversationId(draftConversationId)
       setMessages(editedMessages)
       setStreamMessageId(assistantMessageId)
 
@@ -321,6 +387,8 @@ export function ChatMain({
           model: settings.fakeMode ? 'fakemode' : settings.model,
           messages: apiMessages,
           streamMode: settings.streamMode,
+          conversation: draftConversation,
+          assistantMessageId,
           temperature: settings.temperatureEnabled ? settings.temperature : undefined,
           maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
           reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
@@ -352,14 +420,10 @@ export function ChatMain({
         const finalMessages = assistantMessage ? [...editedMessages, assistantMessage] : editedMessages
         setMessages(finalMessages)
 
-        if (!conversationId) {
-          return
-        }
-
         setIsSavingConversation(true)
         try {
           await onConversationChange?.({
-            id: conversationId,
+            id: draftConversationId,
             title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
             messages: finalMessages,
           })
