@@ -4,5 +4,4 @@ dist/
 coverage/
 .env
 .tanstack
-.codex
 logs/
