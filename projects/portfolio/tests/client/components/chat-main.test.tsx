@@ -216,4 +216,50 @@ describe('ChatMain', () => {
       )
     })
   })
+
+  it('非インタラクティブモードの編集時は送信対象を編集中メッセージに絞る', async () => {
+    const conversation: Conversation = {
+      ...currentConversation,
+      messages: [
+        createUserMessage('message-1', '最初の質問'),
+        createAssistantMessage('message-2', '最初の回答'),
+        createUserMessage('message-3', '次の質問'),
+        createAssistantMessage('message-4', '次の回答'),
+      ],
+    }
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/components/chat/chat-main')
+
+    render(
+      <ChatMain
+        settings={{ ...settings, interactiveMode: false }}
+        currentConversation={conversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(chatMessageListProps?.onEditMessage).toBeTypeOf('function')
+    })
+    const onEditMessage = chatMessageListProps?.onEditMessage as (index: number, nextText: string) => Promise<void>
+    await onEditMessage(2, '編集した次の質問')
+
+    expect(submitChatCompletionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: 'user', content: '編集した次の質問' }],
+      })
+    )
+    await waitFor(() => {
+      expect(onConversationChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            expect.objectContaining({ id: 'message-1', role: 'user', content: '最初の質問' }),
+            expect.objectContaining({ id: 'message-2', role: 'assistant', content: '最初の回答' }),
+            expect.objectContaining({ id: 'message-3', role: 'user', content: '編集した次の質問' }),
+            expect.objectContaining({ role: 'assistant', content: '編集後の回答' }),
+          ],
+        })
+      )
+    })
+  })
 })

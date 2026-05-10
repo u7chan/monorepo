@@ -41,6 +41,28 @@ export function prepareApiMessages(
   return messages.map((message) => toApiChatMessage(stripImagesFromHistory(message, currentUserMessageId)))
 }
 
+export function buildEditedSendMessages(
+  editedMessages: Message[],
+  currentUserMessageId: string | undefined,
+  interactiveMode: boolean
+): Message[] {
+  if (interactiveMode) {
+    return editedMessages
+  }
+
+  const currentUserMessageIndex = editedMessages.findIndex(
+    (message) => message.role === 'user' && message.id === currentUserMessageId
+  )
+  const currentUserMessage = editedMessages[currentUserMessageIndex]
+  if (!currentUserMessage) {
+    return []
+  }
+
+  const previousMessages = editedMessages.slice(0, currentUserMessageIndex)
+  const systemPrefix = previousMessages.every((message) => message.role === 'system') ? previousMessages : []
+  return [...systemPrefix, currentUserMessage]
+}
+
 export function summarizeImageContext(
   messages: Message[],
   currentUserMessageId: string | undefined,

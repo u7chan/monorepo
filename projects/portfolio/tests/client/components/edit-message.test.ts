@@ -1,5 +1,10 @@
-import { buildEditedHistory, getUserMessageText, prepareApiMessages } from '#/client/components/chat/edit-message'
-import type { AssistantMessage, Message, UserMessage } from '#/types'
+import {
+  buildEditedHistory,
+  buildEditedSendMessages,
+  getUserMessageText,
+  prepareApiMessages,
+} from '#/client/components/chat/edit-message'
+import type { AssistantMessage, Message, SystemMessage, UserMessage } from '#/types'
 import { describe, expect, it } from 'vitest'
 
 const createUserMessage = (id: string, content: UserMessage['content']): UserMessage => ({
@@ -14,6 +19,12 @@ const createAssistantMessage = (id: string, content: string): AssistantMessage =
   role: 'assistant',
   content,
   metadata: { model: 'gpt-test', usage: {} },
+})
+
+const createSystemMessage = (id: string, content: string): SystemMessage => ({
+  id,
+  role: 'system',
+  content,
 })
 
 describe('edit-message', () => {
@@ -58,6 +69,34 @@ describe('edit-message', () => {
 
       expect(buildEditedHistory(messages, 0, 'edited')).toBeNull()
       expect(buildEditedHistory([createUserMessage('user-1', 'before')], 0, '   ')).toBeNull()
+    })
+  })
+
+  describe('buildEditedSendMessages', () => {
+    it('インタラクティブモードでは編集済み履歴全体を送る', () => {
+      const messages: Message[] = [
+        createUserMessage('user-1', 'first'),
+        createAssistantMessage('assistant-1', 'answer'),
+        createUserMessage('user-2', 'second'),
+      ]
+
+      expect(buildEditedSendMessages(messages, 'user-2', true)).toEqual(messages)
+    })
+
+    it('非インタラクティブモードでは編集中ユーザーメッセージだけを送る', () => {
+      const messages: Message[] = [
+        createUserMessage('user-1', 'first'),
+        createAssistantMessage('assistant-1', 'answer'),
+        createUserMessage('user-2', 'second'),
+      ]
+
+      expect(buildEditedSendMessages(messages, 'user-2', false)).toEqual([messages[2]])
+    })
+
+    it('非インタラクティブモードでも system prefix だけが前にある場合は保持する', () => {
+      const messages: Message[] = [createSystemMessage('system-1', 'prompt'), createUserMessage('user-1', 'first')]
+
+      expect(buildEditedSendMessages(messages, 'user-1', false)).toEqual(messages)
     })
   })
 

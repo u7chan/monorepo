@@ -1,7 +1,12 @@
 import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import { ChatInput } from '#/client/components/chat/chat-input'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
-import { buildEditedHistory, prepareApiMessages, summarizeImageContext } from '#/client/components/chat/edit-message'
+import {
+  buildEditedHistory,
+  buildEditedSendMessages,
+  prepareApiMessages,
+  summarizeImageContext,
+} from '#/client/components/chat/edit-message'
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/components/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scroll'
@@ -300,8 +305,9 @@ export function ChatMain({
       }
 
       const assistantMessageId = uuidv7()
-      const apiMessages = prepareApiMessages(editedMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
-      const imageContext = summarizeImageContext(editedMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
+      const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.interactiveMode)
+      const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
+      const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       setMessages(editedMessages)
       setStreamMessageId(assistantMessageId)
 
@@ -375,6 +381,7 @@ export function ChatMain({
       settings.apiMode,
       settings.baseURL,
       settings.fakeMode,
+      settings.interactiveMode,
       settings.maxTokens,
       settings.model,
       settings.reasoningEffort,
