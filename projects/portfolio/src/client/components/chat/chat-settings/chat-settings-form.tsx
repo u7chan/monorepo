@@ -165,7 +165,9 @@ export function ChatSettingsForm() {
             onClick={handleToggleIncludeChatHistory}
           />
           <p className='text-xs text-gray-500 dark:text-gray-400'>
-            ON の場合、過去の会話履歴を API コンテキストに含めます。OFF の場合、今回の入力のみを送信します。
+            ON の場合、過去の会話履歴を API コンテキストに含めます。
+            <br />
+            OFF の場合、今回の入力のみを送信します。
           </p>
           <ToggleInput
             label='Send attached images only once'
