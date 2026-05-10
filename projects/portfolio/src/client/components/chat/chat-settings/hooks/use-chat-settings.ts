@@ -27,6 +27,7 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): ChatSetti
     setMarkdownPreview: storage.setMarkdownPreview,
     setStreamMode: storage.setStreamMode,
     setInteractiveMode: storage.setInteractiveMode,
+    setSendImagesOnlyOnce: storage.setSendImagesOnlyOnce,
     setReasoningEffort: storage.setReasoningEffort,
     setReasoningEffortEnabled: storage.setReasoningEffortEnabled,
     temperatureEnabled: storage.temperatureEnabled,
@@ -36,6 +37,7 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): ChatSetti
     markdownPreview: storage.markdownPreview,
     streamMode: storage.streamMode,
     interactiveMode: storage.interactiveMode,
+    sendImagesOnlyOnce: storage.sendImagesOnlyOnce,
     reasoningEffortEnabled: storage.reasoningEffortEnabled,
     updateSetting: storage.updateSetting,
   })
@@ -50,6 +52,7 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): ChatSetti
     markdownPreview: storage.markdownPreview,
     streamMode: storage.streamMode,
     interactiveMode: storage.interactiveMode,
+    sendImagesOnlyOnce: storage.sendImagesOnlyOnce,
     reasoningEffort: storage.reasoningEffort,
     reasoningEffortEnabled: storage.reasoningEffortEnabled,
     ...models,

@@ -35,6 +35,7 @@ describe('useChatForm', () => {
       messages: [],
       model: 'gpt-test',
       streamMode: true,
+      sendImagesOnlyOnce: true,
       temperature: 0.4,
       maxTokens: 256,
       reasoningEffort: 'high',
@@ -47,7 +48,95 @@ describe('useChatForm', () => {
       temperature: 0.4,
       maxTokens: 256,
       reasoningEffort: 'high',
+      sendImagesOnlyOnce: true,
     })
+  })
+
+  it('ON 時は過去履歴の画像を API payload から除外し、保存用メッセージには画像を残す', async () => {
+    const { useChatForm } = await importSubject()
+    const formRef = { current: null }
+    const { result } = renderHook(() => useChatForm({ formRef }))
+
+    act(() => {
+      result.current.handleChangeInput(createChangeEvent('色は？'))
+      result.current.handleUploadImageChange('data:image/png;base64,current')
+    })
+
+    const built = result.current.buildChatMessages({
+      apiMode: 'chat_completions',
+      interactiveMode: true,
+      messages: [
+        {
+          id: 'previous-user',
+          role: 'user',
+          content: [
+            { type: 'text', text: 'これはなに？' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,previous' } },
+          ],
+          metadata: { model: 'gpt-test', sendImagesOnlyOnce: true },
+        },
+      ],
+      model: 'gpt-test',
+      streamMode: true,
+      sendImagesOnlyOnce: true,
+    })
+
+    expect(built?.draftUserMessage.content).toEqual([
+      { type: 'text', text: '色は？' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,current' } },
+    ])
+    expect(built?.apiMessages).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'これはなに？' }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '色は？' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,current' } },
+        ],
+      },
+    ])
+    expect(built?.imageContext).toEqual({ policy: 'send_once', sent: 1, historyOnly: 1 })
+  })
+
+  it('OFF 時は過去履歴の画像も API payload に含める', async () => {
+    const { useChatForm } = await importSubject()
+    const formRef = { current: null }
+    const { result } = renderHook(() => useChatForm({ formRef }))
+
+    act(() => {
+      result.current.handleChangeInput(createChangeEvent('続けて'))
+    })
+
+    const built = result.current.buildChatMessages({
+      apiMode: 'chat_completions',
+      interactiveMode: true,
+      messages: [
+        {
+          id: 'previous-user',
+          role: 'user',
+          content: [
+            { type: 'text', text: 'これはなに？' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,previous' } },
+          ],
+          metadata: { model: 'gpt-test', sendImagesOnlyOnce: false },
+        },
+      ],
+      model: 'gpt-test',
+      streamMode: true,
+      sendImagesOnlyOnce: false,
+    })
+
+    expect(built?.apiMessages[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'これはなに？' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,previous' } },
+      ],
+    })
+    expect(built?.imageContext).toEqual({ policy: 'full_history', sent: 1, historyOnly: 0 })
   })
 
   it('Enter でフォーム送信する', async () => {

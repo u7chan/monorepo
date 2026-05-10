@@ -36,11 +36,12 @@ export function FileImageInput({ fileInputButton, onImageChange }: Props) {
 interface FileImagePreviewProps {
   maxImages?: number
   src?: string | string[]
+  contextLabel?: string
   children?: ReactNode
   onImageChange?: (src: string, index?: number) => void
 }
 
-export function FileImagePreview({ maxImages = 3, src, children, onImageChange }: FileImagePreviewProps) {
+export function FileImagePreview({ maxImages = 3, src, contextLabel, children, onImageChange }: FileImagePreviewProps) {
   const [showImageIndex, setShowImageIndex] = useState<number | null>(null)
 
   useEffect(() => {
@@ -78,12 +79,18 @@ export function FileImagePreview({ maxImages = 3, src, children, onImageChange }
       {showChildren && children}
       {src &&
         (typeof src === 'string' ? (
-          <ImagePreview src={src} onImageClick={() => handleShowImage(0)} onCloseClick={() => handleRemoveImage(0)} />
+          <ImagePreview
+            src={src}
+            contextLabel={contextLabel}
+            onImageClick={() => handleShowImage(0)}
+            onCloseClick={() => handleRemoveImage(0)}
+          />
         ) : (
           src.map((x, i) => (
             <ImagePreview
               key={i}
               src={x}
+              contextLabel={contextLabel}
               onImageClick={() => handleShowImage(i)}
               onCloseClick={() => handleRemoveImage(i)}
             />
@@ -113,11 +120,12 @@ export function FileImagePreview({ maxImages = 3, src, children, onImageChange }
 
 interface ImagePreviewProps {
   src?: string
+  contextLabel?: string
   onImageClick?: () => void
   onCloseClick?: () => void
 }
 
-function ImagePreview({ src, onImageClick, onCloseClick }: ImagePreviewProps) {
+function ImagePreview({ src, contextLabel, onImageClick, onCloseClick }: ImagePreviewProps) {
   return (
     <div className='relative h-12 w-12'>
       <img
@@ -137,6 +145,11 @@ function ImagePreview({ src, onImageClick, onCloseClick }: ImagePreviewProps) {
       >
         <CloseIcon size={16} className='fill-white' />
       </button>
+      {contextLabel && (
+        <span className='absolute -bottom-2 left-1/2 max-w-24 -translate-x-1/2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300'>
+          {contextLabel}
+        </span>
+      )}
     </div>
   )
 }

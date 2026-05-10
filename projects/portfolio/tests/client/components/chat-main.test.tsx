@@ -90,7 +90,7 @@ const currentConversation: Conversation = {
 }
 
 const settings: Settings = {
-  schemaVersion: '1.2.0',
+  schemaVersion: '1.3.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -105,6 +105,7 @@ const settings: Settings = {
   markdownPreview: true,
   streamMode: true,
   interactiveMode: true,
+  sendImagesOnlyOnce: true,
   sidebarOpen: true,
   templateModels: {},
 }

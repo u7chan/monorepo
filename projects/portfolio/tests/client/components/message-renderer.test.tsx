@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { MessageRenderer } from '#/client/components/chat/message-renderer'
-import type { AssistantMessage } from '#/types'
+import type { AssistantMessage, UserMessage } from '#/types'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -35,6 +35,56 @@ function createAssistantMessage(
 }
 
 describe('MessageRenderer', () => {
+  describe('画像コンテキスト表示', () => {
+    const renderUserMessage = (message: UserMessage, sendImagesOnlyOnce: boolean) =>
+      render(
+        <MessageRenderer
+          message={message}
+          index={0}
+          messages={[message]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          sendImagesOnlyOnce={sendImagesOnlyOnce}
+          copied={false}
+          onCopyMessage={vi.fn()}
+        />
+      )
+
+    it('ON の画像付き user message は履歴のみとして表示する', () => {
+      renderUserMessage(
+        {
+          id: 'user-1',
+          role: 'user',
+          content: [
+            { type: 'text', text: '画像です' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,test' } },
+          ],
+          metadata: { model: 'gpt-test', sendImagesOnlyOnce: true },
+        },
+        true
+      )
+
+      expect(screen.getByText('履歴のみ')).toBeTruthy()
+    })
+
+    it('OFF の画像付き user message はコンテキスト対象として表示する', () => {
+      renderUserMessage(
+        {
+          id: 'user-1',
+          role: 'user',
+          content: [
+            { type: 'text', text: '画像です' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,test' } },
+          ],
+          metadata: { model: 'gpt-test', sendImagesOnlyOnce: false },
+        },
+        false
+      )
+
+      expect(screen.getByText('コンテキスト対象')).toBeTruthy()
+    })
+  })
+
   describe('コードブロックの開閉', () => {
     it('4行以上なら初期表示では閉じている', () => {
       render(

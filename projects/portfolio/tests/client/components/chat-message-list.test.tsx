@@ -39,6 +39,7 @@ describe('ChatMessageList', () => {
         messages: [],
         conversationId: 'conversation-1',
         markdownPreview: true,
+        sendImagesOnlyOnce: true,
         loading: true,
         stream: {
           content: '```typescript\nconst a = 1\nconst b = 2\nconst c = 3\nconst d = 4\n```',
@@ -77,6 +78,7 @@ describe('ChatMessageList', () => {
           messages={[]}
           conversationId='conversation-1'
           markdownPreview={true}
+          sendImagesOnlyOnce={true}
           loading={true}
           stream={{
             content: 'typing...',

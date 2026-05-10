@@ -23,6 +23,7 @@ export function ChatSettingsForm() {
     markdownPreview,
     streamMode,
     interactiveMode,
+    sendImagesOnlyOnce,
     handleChangeBaseURL,
     handleChangeApiKey,
     handleChangeApiMode,
@@ -31,6 +32,7 @@ export function ChatSettingsForm() {
     handleToggleMarkdownPreview,
     handleToggleStreamMode,
     handleToggleInteractiveMode,
+    handleToggleSendImagesOnlyOnce,
   } = useChatSettingsContext()
 
   return (
@@ -155,6 +157,22 @@ export function ChatSettingsForm() {
             value={interactiveMode}
             onClick={handleToggleInteractiveMode}
           />
+        </div>
+      </section>
+
+      {/* Context Options */}
+      <section className='space-y-3'>
+        <SectionHeading>Context Options</SectionHeading>
+        <div className='space-y-2'>
+          <ToggleInput
+            label='Send attached images only once'
+            labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+            value={sendImagesOnlyOnce}
+            onClick={handleToggleSendImagesOnlyOnce}
+          />
+          <p className='text-xs text-gray-500 dark:text-gray-400'>
+            ON の場合、保存済み履歴の画像は次回以降の API コンテキストから除外します。
+          </p>
         </div>
       </section>
 

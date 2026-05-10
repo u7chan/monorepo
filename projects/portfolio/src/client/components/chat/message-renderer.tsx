@@ -30,6 +30,21 @@ const markdownComponents = {
   pre: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }
 
+function ImageContextBadge({ sendImagesOnlyOnce }: { sendImagesOnlyOnce?: boolean }) {
+  const contextTarget = sendImagesOnlyOnce === false
+  return (
+    <span
+      className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] leading-none ${
+        contextTarget
+          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+          : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+      }`}
+    >
+      {contextTarget ? 'コンテキスト対象' : '履歴のみ'}
+    </span>
+  )
+}
+
 interface MessageRendererProps {
   message: Message
   index: number
@@ -37,6 +52,7 @@ interface MessageRendererProps {
   conversationId: string | null
   canSaveGeneratedFile?: boolean
   markdownPreview: boolean
+  sendImagesOnlyOnce?: boolean
   copied: boolean
   disabled?: boolean
   savingConversation?: boolean
@@ -111,6 +127,7 @@ function MessageRendererComponent({
   conversationId,
   canSaveGeneratedFile,
   markdownPreview,
+  sendImagesOnlyOnce,
   copied,
   disabled,
   savingConversation,
@@ -144,7 +161,10 @@ function MessageRendererComponent({
                     <Fragment key={contentIndex}>
                       <div>{value.type === 'text' && value.text}</div>
                       {value.type === 'image_url' && (
-                        <img src={value.image_url.url} alt='upload-img' className='my-1 max-w-3xs border' />
+                        <div className='my-1 inline-flex flex-col items-start'>
+                          <img src={value.image_url.url} alt='upload-img' className='max-w-3xs border' />
+                          <ImageContextBadge sendImagesOnlyOnce={sendImagesOnlyOnce} />
+                        </div>
                       )}
                     </Fragment>
                   )
@@ -240,6 +260,7 @@ export const MessageRenderer = memo(
     prevProps.conversationId === nextProps.conversationId &&
     prevProps.canSaveGeneratedFile === nextProps.canSaveGeneratedFile &&
     prevProps.markdownPreview === nextProps.markdownPreview &&
+    prevProps.sendImagesOnlyOnce === nextProps.sendImagesOnlyOnce &&
     prevProps.copied === nextProps.copied &&
     prevProps.disabled === nextProps.disabled &&
     prevProps.savingConversation === nextProps.savingConversation &&

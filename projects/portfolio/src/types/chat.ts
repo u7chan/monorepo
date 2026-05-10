@@ -12,6 +12,14 @@ export const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium',
 
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
 
+export const ImageContextSummarySchema = z.object({
+  policy: z.enum(['send_once', 'full_history']),
+  sent: z.number().int().nonnegative(),
+  historyOnly: z.number().int().nonnegative(),
+})
+
+export type ImageContextSummary = z.infer<typeof ImageContextSummarySchema>
+
 /** 画像コンテンツ */
 export const ImageContentSchema = z.object({
   type: z.literal('image_url'),
@@ -42,6 +50,7 @@ export const UserMetadataSchema = z
     temperature: z.number().optional(),
     maxTokens: z.number().optional(),
     reasoningEffort: ReasoningEffortSchema.optional(),
+    sendImagesOnlyOnce: z.boolean().optional(),
   })
   .catch({ model: '' })
 
@@ -85,6 +94,7 @@ export const AssistantMetadataSchema = z
       })
       .catch({}),
     generatedFiles: z.array(GeneratedCodeFileSchema).optional(),
+    imageContext: ImageContextSummarySchema.optional(),
   })
   .catch({ model: '', usage: {} })
 

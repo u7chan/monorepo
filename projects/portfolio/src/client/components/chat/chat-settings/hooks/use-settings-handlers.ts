@@ -15,6 +15,7 @@ interface UseSettingsHandlersDeps {
   setMarkdownPreview: Dispatch<SetStateAction<boolean>>
   setStreamMode: Dispatch<SetStateAction<boolean>>
   setInteractiveMode: Dispatch<SetStateAction<boolean>>
+  setSendImagesOnlyOnce: Dispatch<SetStateAction<boolean>>
   setReasoningEffort: Dispatch<SetStateAction<ReasoningEffortLevel>>
   setReasoningEffortEnabled: Dispatch<SetStateAction<boolean>>
   temperatureEnabled: boolean
@@ -24,6 +25,7 @@ interface UseSettingsHandlersDeps {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  sendImagesOnlyOnce: boolean
   reasoningEffortEnabled: boolean
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => Settings
 }
@@ -43,6 +45,7 @@ interface UseSettingsHandlersReturn {
   handleToggleMarkdownPreview: () => void
   handleToggleStreamMode: () => void
   handleToggleInteractiveMode: () => void
+  handleToggleSendImagesOnlyOnce: () => void
   handleToggleReasoningEffort: () => void
 }
 
@@ -57,6 +60,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     setMarkdownPreview,
     setStreamMode,
     setInteractiveMode,
+    setSendImagesOnlyOnce,
     setReasoningEffort,
     setReasoningEffortEnabled,
     temperatureEnabled,
@@ -66,6 +70,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     markdownPreview,
     streamMode,
     interactiveMode,
+    sendImagesOnlyOnce,
     reasoningEffortEnabled,
     updateSetting,
   } = deps
@@ -168,6 +173,12 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     updateSetting('interactiveMode', newValue)
   }, [interactiveMode, setInteractiveMode, updateSetting])
 
+  const handleToggleSendImagesOnlyOnce = useCallback(() => {
+    const newValue = !sendImagesOnlyOnce
+    setSendImagesOnlyOnce(newValue)
+    updateSetting('sendImagesOnlyOnce', newValue)
+  }, [sendImagesOnlyOnce, setSendImagesOnlyOnce, updateSetting])
+
   const handleToggleReasoningEffort = useCallback(() => {
     const newValue = !reasoningEffortEnabled
     setReasoningEffortEnabled(newValue)
@@ -198,6 +209,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     handleToggleMarkdownPreview,
     handleToggleStreamMode,
     handleToggleInteractiveMode,
+    handleToggleSendImagesOnlyOnce,
     handleToggleReasoningEffort,
   }
 }
