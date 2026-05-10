@@ -26,6 +26,47 @@ function createMessages(count: number): Message[] {
   }))
 }
 
+function createImageConversationMessages(): Message[] {
+  return [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: [
+        { type: 'text', text: 'これはなに？' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,previous' } },
+      ],
+      metadata: { model: 'gpt-test', sendImagesOnlyOnce: true },
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'レモンです',
+      reasoningContent: '',
+      metadata: { model: 'gpt-test', usage: {} },
+    },
+    {
+      id: 'user-2',
+      role: 'user',
+      content: [
+        { type: 'text', text: '色は？' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,current' } },
+      ],
+      metadata: { model: 'gpt-test', sendImagesOnlyOnce: true },
+    },
+    {
+      id: 'assistant-2',
+      role: 'assistant',
+      content: '黄色です',
+      reasoningContent: '',
+      metadata: {
+        model: 'gpt-test',
+        usage: {},
+        imageContext: { policy: 'send_once', sent: 1, historyOnly: 1 },
+      },
+    },
+  ]
+}
+
 describe('ChatResults', () => {
   describe('metadata display', () => {
     it('renders model name and toggles usage badges', () => {
@@ -52,6 +93,17 @@ describe('ChatResults', () => {
       expect(screen.getByText('messages: (3)')).toBeTruthy()
     })
 
+    it('displays image context summary when present', () => {
+      render(
+        <ChatResults
+          metadata={createMetadata({ imageContext: { policy: 'send_once', sent: 1, historyOnly: 2 } })}
+          messages={createMessages(3)}
+        />
+      )
+
+      expect(screen.getByText('images: 1 sent / 2 history-only')).toBeTruthy()
+    })
+
     it('opens popover on click and shows formatted JSON', () => {
       const messages = createMessages(2)
       render(<ChatResults metadata={createMetadata()} messages={messages} />)
@@ -61,6 +113,39 @@ describe('ChatResults', () => {
 
       expect(screen.getByRole('dialog', { name: 'Messages dump viewer' })).toBeTruthy()
       expect(screen.getByText(/"role": "user"/)).toBeTruthy()
+    })
+
+    it('can switch dump viewer to API context without omitted history images', () => {
+      const messages = createImageConversationMessages()
+      render(
+        <ChatResults
+          metadata={createMetadata({
+            imageContext: { policy: 'send_once', sent: 1, historyOnly: 1 },
+            apiContextMessages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: '色は？' },
+                  { type: 'image_url', image_url: { url: 'data:image/png;base64,current' } },
+                ],
+              },
+            ],
+          })}
+          messages={messages}
+        />
+      )
+
+      fireEvent.click(screen.getByLabelText('Open messages dump viewer'))
+      expect(screen.getByText('Saved History')).toBeTruthy()
+      expect(screen.getByText(/data:image\/png;base64,previous/)).toBeTruthy()
+
+      fireEvent.click(screen.getByText('API Context'))
+
+      expect(screen.getByText(/このビューは実際に送信した API コンテキストです。/)).toBeTruthy()
+      expect(screen.queryByText(/data:image\/png;base64,previous/)).toBeNull()
+      expect(screen.queryByText(/これはなに？/)).toBeNull()
+      expect(screen.getByText(/data:image\/png;base64,current/)).toBeTruthy()
+      expect(screen.queryByText(/"metadata":/)).toBeNull()
     })
 
     it('closes popover on backdrop click', () => {

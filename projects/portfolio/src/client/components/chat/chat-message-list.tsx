@@ -29,6 +29,7 @@ interface ChatMessageListProps {
   conversationId: string | null
   canSaveGeneratedFile?: boolean
   markdownPreview: boolean
+  sendImagesOnlyOnce: boolean
   loading: boolean
   stream: ChatStreamState | null
   streamMessageId?: string | null
@@ -45,6 +46,7 @@ export function ChatMessageList({
   conversationId,
   canSaveGeneratedFile,
   markdownPreview,
+  sendImagesOnlyOnce,
   loading,
   stream,
   streamMessageId,
@@ -82,6 +84,7 @@ export function ChatMessageList({
           conversationId={conversationId}
           canSaveGeneratedFile={canSaveGeneratedFile}
           markdownPreview={markdownPreview}
+          sendImagesOnlyOnce={sendImagesOnlyOnce}
           copiedId={copiedId}
           disabled={loading || !!stream}
           savingConversation={savingConversation}
@@ -152,6 +155,7 @@ interface MessageHistoryProps {
   conversationId: string | null
   canSaveGeneratedFile?: boolean
   markdownPreview: boolean
+  sendImagesOnlyOnce: boolean
   copiedId: string
   disabled: boolean
   savingConversation?: boolean
@@ -167,6 +171,7 @@ const MessageHistory = memo(function MessageHistory({
   conversationId,
   canSaveGeneratedFile,
   markdownPreview,
+  sendImagesOnlyOnce,
   copiedId,
   disabled,
   savingConversation,
@@ -185,6 +190,7 @@ const MessageHistory = memo(function MessageHistory({
       conversationId={conversationId}
       canSaveGeneratedFile={canSaveGeneratedFile}
       markdownPreview={markdownPreview}
+      sendImagesOnlyOnce={sendImagesOnlyOnce}
       copied={copiedId === `chat_${index}`}
       disabled={disabled}
       savingConversation={savingConversation}

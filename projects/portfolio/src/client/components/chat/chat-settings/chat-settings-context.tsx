@@ -14,6 +14,7 @@ export interface ChatSettingsContextValue {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  sendImagesOnlyOnce: boolean
   reasoningEffort: ReasoningEffortLevel
   reasoningEffortEnabled: boolean
   fetchedModels: string[]
@@ -34,6 +35,7 @@ export interface ChatSettingsContextValue {
   handleToggleMarkdownPreview: () => void
   handleToggleStreamMode: () => void
   handleToggleInteractiveMode: () => void
+  handleToggleSendImagesOnlyOnce: () => void
   handleToggleReasoningEffort: () => void
 }
 

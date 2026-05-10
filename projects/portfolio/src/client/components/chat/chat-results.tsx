@@ -1,7 +1,8 @@
 import { MessagesDumpViewer } from '#/client/components/chat/messages-dump-viewer'
 import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { EyeIcon } from '#/client/components/svg/eye-icon'
-import type { AssistantMetadata, Message } from '#/types'
+import type { ApiChatMessage, AssistantMetadata, ImageContextSummary, Message, TextContent } from '#/types'
+import { isImageContentArray, toApiChatMessage } from '#/types'
 import { memo, useState } from 'react'
 
 interface ChatResultsProps {
@@ -20,6 +21,35 @@ const badgeClass = 'flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs d
 const usageBadgeClass = `${badgeClass} max-w-full flex-wrap gap-x-1 gap-y-0.5`
 const usageItemClass = 'inline-flex items-center gap-0.5'
 
+function buildApiContextDump(messages: Message[], imageContext?: ImageContextSummary): ApiChatMessage[] | undefined {
+  if (!imageContext) {
+    return undefined
+  }
+
+  const requestMessages = messages.at(-1)?.role === 'assistant' ? messages.slice(0, -1) : messages
+  const currentUserMessageId = requestMessages.findLast((message) => message.role === 'user')?.id
+
+  if (imageContext.policy === 'full_history') {
+    return requestMessages.map(toApiChatMessage)
+  }
+
+  return requestMessages.map((message) => toApiChatMessage(stripHistoryImages(message, currentUserMessageId)))
+}
+
+function stripHistoryImages(message: Message, currentUserMessageId: string | undefined): Message {
+  if (message.role !== 'user' || message.id === currentUserMessageId || !isImageContentArray(message.content)) {
+    return message
+  }
+
+  const textContent = message.content.filter((content): content is TextContent => content.type === 'text')
+  const nonEmptyTextContent = textContent.filter((content) => content.text.trim().length > 0)
+
+  return {
+    ...message,
+    content: nonEmptyTextContent.length > 0 ? nonEmptyTextContent : '[image omitted from context]',
+  }
+}
+
 function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
   const [open, setOpen] = useState(false)
   const [dumpOpen, setDumpOpen] = useState(false)
@@ -28,7 +58,8 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
     return null
   }
 
-  const { model, finishReason, responseTimeMs, usage } = metadata
+  const { model, finishReason, responseTimeMs, usage, imageContext, apiContextMessages } = metadata
+  const dumpApiContextMessages = apiContextMessages ?? buildApiContextDump(messages, imageContext)
 
   return (
     <div className='mt-2'>
@@ -59,6 +90,11 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
           <span>messages: ({messages.length})</span>
           <EyeIcon size={14} className='stroke-current' />
         </button>
+        {imageContext && (
+          <span className='rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-400 dark:bg-gray-700 dark:text-gray-400'>
+            images: {imageContext.sent} sent / {imageContext.historyOnly} history-only
+          </span>
+        )}
       </div>
       <div
         aria-hidden={!open}
@@ -107,7 +143,12 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
           </div>
         </div>
       </div>
-      <MessagesDumpViewer messages={messages} open={dumpOpen} onClose={() => setDumpOpen(false)} />
+      <MessagesDumpViewer
+        messages={messages}
+        apiContextMessages={dumpApiContextMessages}
+        open={dumpOpen}
+        onClose={() => setDumpOpen(false)}
+      />
     </div>
   )
 }

@@ -23,7 +23,7 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.2.0',
+  schemaVersion: '1.3.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -38,6 +38,7 @@ const defaultSettings = {
   markdownPreview: true,
   streamMode: true,
   interactiveMode: true,
+  sendImagesOnlyOnce: true,
   templateModels: {},
 }
 
@@ -156,6 +157,29 @@ describe('useSettingsHandlers', () => {
       expect(result.current.storage.temperatureEnabled).toBe(true)
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
       expect(stored.temperatureEnabled).toBe(true)
+    })
+
+    it('handleToggleSendImagesOnlyOnce が状態を反転して localStorage に保存する', async () => {
+      const { useLocalStorageSettings, useSettingsHandlers } = await importHooks()
+
+      const { result } = renderHook(() => {
+        const storage = useLocalStorageSettings()
+        const handlers = useSettingsHandlers({
+          ...storage,
+          updateSetting: storage.updateSetting,
+        })
+        return { storage, handlers }
+      })
+
+      expect(result.current.storage.sendImagesOnlyOnce).toBe(true)
+
+      act(() => {
+        result.current.handlers.handleToggleSendImagesOnlyOnce()
+      })
+
+      expect(result.current.storage.sendImagesOnlyOnce).toBe(false)
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      expect(stored.sendImagesOnlyOnce).toBe(false)
     })
   })
 

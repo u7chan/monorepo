@@ -2,7 +2,7 @@ import { ApiModeSchema, type ApiMode } from '#/types'
 import { decryptLegacyApiKey } from './legacy-remote-storage'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
-const SCHEMA_VERSION = '1.2.0'
+const SCHEMA_VERSION = '1.3.0'
 
 export interface Settings {
   schemaVersion: string
@@ -20,6 +20,7 @@ export interface Settings {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  sendImagesOnlyOnce: boolean
   sidebarOpen: boolean
   templateModels: {
     [key: string]: {
@@ -48,6 +49,7 @@ const defaultSettings: Settings = {
   markdownPreview: true,
   streamMode: true,
   interactiveMode: true,
+  sendImagesOnlyOnce: true,
   sidebarOpen: true,
   templateModels: {},
 }
@@ -150,6 +152,7 @@ function shouldPersistNormalizedSettings(
     settings.schemaVersion !== SCHEMA_VERSION ||
     !ApiModeSchema.safeParse(settings.apiMode).success ||
     (normalized.apiMode === 'responses' && settings.fakeMode === true) ||
+    settings.sendImagesOnlyOnce !== normalized.sendImagesOnlyOnce ||
     'mcpServerURLs' in settings
   )
 }

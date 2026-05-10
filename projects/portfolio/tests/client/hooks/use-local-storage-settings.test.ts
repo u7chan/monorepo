@@ -23,7 +23,7 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.2.0',
+  schemaVersion: '1.3.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -38,6 +38,7 @@ const defaultSettings = {
   markdownPreview: true,
   streamMode: true,
   interactiveMode: true,
+  sendImagesOnlyOnce: true,
   templateModels: {},
 }
 
@@ -63,6 +64,7 @@ describe('useLocalStorageSettings', () => {
       expect(result.current.autoModel).toBe(false)
       expect(result.current.apiMode).toBe('chat_completions')
       expect(result.current.streamMode).toBe(true)
+      expect(result.current.sendImagesOnlyOnce).toBe(true)
     })
 
     it('localStorage に保存済みの設定を復元する', async () => {

@@ -19,6 +19,7 @@ interface UseLocalStorageSettingsReturn {
   markdownPreview: boolean
   streamMode: boolean
   interactiveMode: boolean
+  sendImagesOnlyOnce: boolean
   reasoningEffort: ReasoningEffortLevel
   reasoningEffortEnabled: boolean
   setModel: Dispatch<SetStateAction<string>>
@@ -30,6 +31,7 @@ interface UseLocalStorageSettingsReturn {
   setMarkdownPreview: Dispatch<SetStateAction<boolean>>
   setStreamMode: Dispatch<SetStateAction<boolean>>
   setInteractiveMode: Dispatch<SetStateAction<boolean>>
+  setSendImagesOnlyOnce: Dispatch<SetStateAction<boolean>>
   setReasoningEffort: Dispatch<SetStateAction<ReasoningEffortLevel>>
   setReasoningEffortEnabled: Dispatch<SetStateAction<boolean>>
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => Settings
@@ -49,6 +51,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
   const [markdownPreview, setMarkdownPreview] = useState(defaultSettings?.markdownPreview ?? true)
   const [streamMode, setStreamMode] = useState(defaultSettings?.streamMode ?? true)
   const [interactiveMode, setInteractiveMode] = useState(defaultSettings?.interactiveMode ?? true)
+  const [sendImagesOnlyOnce, setSendImagesOnlyOnce] = useState(defaultSettings?.sendImagesOnlyOnce ?? true)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffortLevel>(
     defaultSettings?.reasoningEffort ?? 'medium'
   )
@@ -63,7 +66,38 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     [onChange]
   )
 
-  const settings = useMemo(() => ({ ...defaultSettings, model, apiMode }), [defaultSettings, model, apiMode])
+  const settings = useMemo(
+    () => ({
+      ...defaultSettings,
+      model,
+      temperature,
+      temperatureEnabled,
+      autoModel,
+      apiMode,
+      fakeMode,
+      markdownPreview,
+      streamMode,
+      interactiveMode,
+      sendImagesOnlyOnce,
+      reasoningEffort,
+      reasoningEffortEnabled,
+    }),
+    [
+      defaultSettings,
+      model,
+      temperature,
+      temperatureEnabled,
+      autoModel,
+      apiMode,
+      fakeMode,
+      markdownPreview,
+      streamMode,
+      interactiveMode,
+      sendImagesOnlyOnce,
+      reasoningEffort,
+      reasoningEffortEnabled,
+    ]
+  )
 
   return {
     settings,
@@ -76,6 +110,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     markdownPreview,
     streamMode,
     interactiveMode,
+    sendImagesOnlyOnce,
     reasoningEffort,
     reasoningEffortEnabled,
     setModel,
@@ -87,6 +122,7 @@ export function useLocalStorageSettings(options: UseLocalStorageSettingsOptions 
     setMarkdownPreview,
     setStreamMode,
     setInteractiveMode,
+    setSendImagesOnlyOnce,
     setReasoningEffort,
     setReasoningEffortEnabled,
     updateSetting,

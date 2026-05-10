@@ -118,6 +118,7 @@ export function ChatMain({
         messages,
         model: form.model,
         streamMode: settings.streamMode,
+        sendImagesOnlyOnce: settings.sendImagesOnlyOnce,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
@@ -171,6 +172,8 @@ export function ChatMain({
                     totalTokens: result.usage?.totalTokens || 0,
                     reasoningTokens: result.usage?.reasoningTokens,
                   },
+                  imageContext: params.imageContext,
+                  apiContextMessages: params.apiMessages,
                 },
               }
             : null
@@ -218,6 +221,7 @@ export function ChatMain({
       settings.apiMode,
       settings.reasoningEffort,
       settings.reasoningEffortEnabled,
+      settings.sendImagesOnlyOnce,
       settings.streamMode,
       settings.temperature,
       settings.temperatureEnabled,
@@ -340,7 +344,11 @@ export function ChatMain({
                   />
                 }
                 leftBottom={
-                  <FileImagePreview src={uploadImages} onImageChange={handleUploadImageChange}>
+                  <FileImagePreview
+                    src={uploadImages}
+                    contextLabel={settings.sendImagesOnlyOnce ? 'この送信に含む' : '履歴でも継続'}
+                    onImageChange={handleUploadImageChange}
+                  >
                     <FileImageInput
                       fileInputButton={(onClick) => (
                         <button
@@ -379,6 +387,7 @@ export function ChatMain({
             conversationId={conversationId}
             canSaveGeneratedFile={canSaveGeneratedFile}
             markdownPreview={settings.markdownPreview}
+            sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
             loading={loading}
             stream={stream}
             streamMessageId={streamMessageId}
@@ -429,7 +438,11 @@ export function ChatMain({
                 />
               }
               leftBottom={
-                <FileImagePreview src={uploadImages} onImageChange={handleUploadImageChange}>
+                <FileImagePreview
+                  src={uploadImages}
+                  contextLabel={settings.sendImagesOnlyOnce ? 'この送信に含む' : '履歴でも継続'}
+                  onImageChange={handleUploadImageChange}
+                >
                   <FileImageInput
                     fileInputButton={(onClick) => (
                       <button
