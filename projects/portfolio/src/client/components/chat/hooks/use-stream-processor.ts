@@ -6,7 +6,11 @@ import { type MutableRefObject, useCallback, useRef, useState } from 'react'
 import { type ChatStreamState, parseChatStreamEvent, updateChatStream } from './chat-response'
 
 const client = hc<AppType>('/')
-const ACTIVE_SESSION_STORAGE_KEY = 'portfolio.chat.activeSession'
+export const ACTIVE_SESSION_STORAGE_KEY = 'portfolio.chat.activeSession'
+
+export function hasActiveChatSession(): boolean {
+  return readActiveSession() !== null
+}
 
 interface SubmitChatCompletionParams {
   header: {
@@ -520,10 +524,13 @@ const sendLegacyStreamCompletion = async (
 }
 
 function saveActiveSession(session: ActiveSession): void {
+  if (typeof sessionStorage === 'undefined') return
   sessionStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(session))
 }
 
 function readActiveSession(): ActiveSession | null {
+  if (typeof sessionStorage === 'undefined') return null
+
   const value = sessionStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
   if (!value) return null
 
@@ -536,5 +543,6 @@ function readActiveSession(): ActiveSession | null {
 }
 
 function clearActiveSession(): void {
+  if (typeof sessionStorage === 'undefined') return
   sessionStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
 }

@@ -10,7 +10,7 @@ import {
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/components/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scroll'
-import { useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
+import { hasActiveChatSession, useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowDownIcon } from '#/client/components/svg/arrow-down-icon'
@@ -50,13 +50,15 @@ export function ChatMain({
   const [messages, setMessages] = useState<Message[]>([])
   const [isSavingConversation, setIsSavingConversation] = useState(false)
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
+  const resumeStartedRef = useRef(false)
+  const handleSessionConversation = useCallback((conversation: Conversation, assistantMessageId: string) => {
+    setConversationId(conversation.id)
+    setMessages(conversation.messages)
+    setStreamMessageId(assistantMessageId)
+  }, [])
   const { loading, stream, cancelStream, submitChatCompletion, resumeActiveChatCompletion } = useStreamProcessor({
     onSubmitting,
-    onSessionConversation: (conversation, assistantMessageId) => {
-      setConversationId(conversation.id)
-      setMessages(conversation.messages)
-      setStreamMessageId(assistantMessageId)
-    },
+    onSessionConversation: handleSessionConversation,
   })
   const {
     input,
@@ -92,10 +94,11 @@ export function ChatMain({
   }, [initTrigger])
 
   useEffect(() => {
-    if (currentConversation || messages.length > 0 || loading) {
+    if (resumeStartedRef.current || !hasActiveChatSession()) {
       return
     }
 
+    resumeStartedRef.current = true
     let mounted = true
     void resumeActiveChatCompletion().then(async (resumed) => {
       if (!mounted || !resumed?.conversation) return
@@ -138,14 +141,7 @@ export function ChatMain({
     return () => {
       mounted = false
     }
-  }, [
-    currentConversation,
-    loading,
-    messages.length,
-    onConversationChange,
-    resumeActiveChatCompletion,
-    settings.apiMode,
-  ])
+  }, [onConversationChange, resumeActiveChatCompletion, settings.apiMode])
 
   // 選択された会話のメッセージを設定
   useEffect(() => {

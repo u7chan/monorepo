@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { render, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
 
@@ -51,6 +51,7 @@ const conversationsGetMock = vi.fn()
 const conversationsPostMock = vi.fn()
 const conversationsDeleteMock = vi.fn()
 const messagesDeleteMock = vi.fn()
+let hasActiveChatSessionMock = false
 
 let chatMainProps: Record<string, unknown> | null = null
 let conversationHistoryProps: Record<string, unknown> | null = null
@@ -114,6 +115,10 @@ vi.mock('#/client/components/chat/chat-main', () => ({
   },
 }))
 
+vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
+  hasActiveChatSession: () => hasActiveChatSessionMock,
+}))
+
 vi.mock('#/client/components/chat/conversation-history', () => ({
   ConversationHistory: (props: Record<string, unknown>) => {
     conversationHistoryProps = props
@@ -148,6 +153,7 @@ describe('Chat page', () => {
     )
     vi.resetModules()
     vi.clearAllMocks()
+    hasActiveChatSessionMock = false
     chatMainProps = null
     conversationHistoryProps = null
     useMetaPropsMock.mockReturnValue({ email: 'test@example.com' })
@@ -164,6 +170,10 @@ describe('Chat page', () => {
     conversationsPostMock.mockResolvedValue({ status: 200 })
     conversationsDeleteMock.mockResolvedValue({ status: 200 })
     messagesDeleteMock.mockResolvedValue({ status: 200 })
+  })
+
+  afterEach(() => {
+    cleanup()
   })
 
   it('URL の conversationId に対応する会話を ChatMain に渡す', async () => {
@@ -284,5 +294,22 @@ describe('Chat page', () => {
 
     expect(chatMainProps).toBeNull()
     expect(view.getAllByText('会話を読み込み中...').length).toBeGreaterThan(0)
+  })
+
+  it('active session がある場合は conversationId 解決中でも ChatMain を表示する', async () => {
+    hasActiveChatSessionMock = true
+    useSearchMock.mockReturnValue({ conversationId: 'conversation-1' })
+    useQueryMock.mockReturnValue({
+      data: [],
+      isLoading: true,
+      isFetching: true,
+      refetch: vi.fn(),
+    })
+
+    const { Chat } = await import('#/client/pages/chat')
+    const view = render(<Chat />)
+
+    expect(chatMainProps).not.toBeNull()
+    expect(view.queryByText('会話を読み込み中...')).toBeNull()
   })
 })

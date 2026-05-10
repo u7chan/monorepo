@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const useMessageScrollMock = vi.fn()
 const scrollToMessageEndMock = vi.fn()
 const submitChatCompletionMock = vi.fn()
+const resumeActiveChatCompletionMock = vi.fn()
+let hasActiveChatSessionMock = false
+let streamProcessorParams: Record<string, unknown> | null = null
 let chatMessageListProps: Record<string, unknown> | null = null
 
 vi.mock('#/client/components/chat/chat-input', () => ({
@@ -48,12 +51,17 @@ vi.mock('#/client/components/chat/hooks/use-message-scroll', () => ({
 }))
 
 vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
-  useStreamProcessor: () => ({
-    loading: false,
-    stream: null,
-    cancelStream: vi.fn(),
-    submitChatCompletion: submitChatCompletionMock,
-  }),
+  hasActiveChatSession: () => hasActiveChatSessionMock,
+  useStreamProcessor: (params: Record<string, unknown>) => {
+    streamProcessorParams = params
+    return {
+      loading: false,
+      stream: null,
+      cancelStream: vi.fn(),
+      submitChatCompletion: submitChatCompletionMock,
+      resumeActiveChatCompletion: resumeActiveChatCompletionMock,
+    }
+  },
 }))
 
 vi.mock('#/client/components/chat/prompt-template', () => ({
@@ -118,6 +126,9 @@ const settings: Settings = {
 describe('ChatMain', () => {
   beforeEach(() => {
     chatMessageListProps = null
+    streamProcessorParams = null
+    hasActiveChatSessionMock = false
+    resumeActiveChatCompletionMock.mockResolvedValue(null)
     submitChatCompletionMock.mockResolvedValue({
       result: {
         message: {
@@ -147,6 +158,81 @@ describe('ChatMain', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('active session がある場合は既存会話表示中でも復元を開始する', async () => {
+    hasActiveChatSessionMock = true
+    const resumedConversation: Conversation = {
+      id: 'conversation-1',
+      title: '会話',
+      messages: [...currentConversation.messages, createUserMessage('message-3', '続きの質問')],
+    }
+    resumeActiveChatCompletionMock.mockResolvedValue({
+      conversation: resumedConversation,
+      assistantMessageId: 'message-4',
+      result: {
+        id: 'chunk-1',
+        created: 1700000000,
+        model: 'gpt-test',
+        finishReason: 'stop',
+        message: {
+          content: '続きの回答',
+          reasoningContent: '',
+        },
+        usage: null,
+      },
+      responseTimeMs: 123,
+    })
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/components/chat/chat-main')
+
+    render(
+      <ChatMain
+        settings={settings}
+        currentConversation={currentConversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(resumeActiveChatCompletionMock).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(onConversationChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'conversation-1',
+          messages: [
+            expect.objectContaining({ id: 'message-1' }),
+            expect.objectContaining({ id: 'message-2' }),
+            expect.objectContaining({ id: 'message-3' }),
+            expect.objectContaining({ id: 'message-4', content: '続きの回答' }),
+          ],
+        })
+      )
+    })
+  })
+
+  it('session replay 中に user_message を受けたら入力済みメッセージを即時表示する', async () => {
+    const resumedConversation: Conversation = {
+      id: 'conversation-1',
+      title: '会話',
+      messages: [createUserMessage('message-1', '送信済み質問')],
+    }
+    const { ChatMain } = await import('#/client/components/chat/chat-main')
+
+    render(<ChatMain settings={settings} />)
+
+    const onSessionConversation = streamProcessorParams?.onSessionConversation as
+      | ((conversation: Conversation, assistantMessageId: string) => void)
+      | undefined
+    expect(onSessionConversation).toBeTypeOf('function')
+
+    onSessionConversation?.(resumedConversation, 'message-2')
+
+    await waitFor(() => {
+      expect(chatMessageListProps?.messages).toEqual(resumedConversation.messages)
+      expect(chatMessageListProps?.streamMessageId).toBe('message-2')
+    })
   })
 
   it('最下端に吸着している間は最新へ移動ボタンを表示しない', async () => {

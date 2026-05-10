@@ -2,6 +2,7 @@ import { ChatLayout } from '#/client/components/chat/chat-layout'
 import { ChatMain } from '#/client/components/chat/chat-main'
 import { ChatSettings } from '#/client/components/chat/chat-settings'
 import { ConversationHistory } from '#/client/components/chat/conversation-history'
+import { hasActiveChatSession } from '#/client/components/chat/hooks/use-stream-processor'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import { useChatPageState } from '#/client/pages/chat/use-chat-page-state'
 import { useMetaProps } from '#/client/pages/home'
@@ -48,7 +49,8 @@ export function Chat() {
 
   const conversations = query.data ?? []
   const currentConversation = conversations.find(({ id }) => id === selectedConversationId) || null
-  const isResolvingConversation = selectedConversationId !== null && currentConversation === null
+  const isResolvingConversation =
+    selectedConversationId !== null && currentConversation === null && !hasActiveChatSession()
   const navigateToNewConversation = useCallback(() => {
     startNewConversation()
     void navigate({
