@@ -1,6 +1,7 @@
 import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import { ChatInput } from '#/client/components/chat/chat-input'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
+import { buildEditedHistory, prepareApiMessages, summarizeImageContext } from '#/client/components/chat/edit-message'
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/components/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scroll'
@@ -286,6 +287,107 @@ export function ChatMain({
     [canSaveGeneratedFile, conversationId, messages]
   )
 
+  const handleEditMessage = useCallback(
+    async (index: number, nextText: string): Promise<void> => {
+      if (loading || stream || isSavingConversation) {
+        return
+      }
+
+      const editedMessages = buildEditedHistory(messages, index, nextText)
+      const editedUserMessage = editedMessages?.at(-1)
+      if (!editedMessages || !editedUserMessage || editedUserMessage.role !== 'user') {
+        return
+      }
+
+      const assistantMessageId = uuidv7()
+      const apiMessages = prepareApiMessages(editedMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
+      const imageContext = summarizeImageContext(editedMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
+      setMessages(editedMessages)
+      setStreamMessageId(assistantMessageId)
+
+      try {
+        const { result, responseTimeMs } = await submitChatCompletion({
+          header: {
+            apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
+            baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
+          },
+          apiMode: settings.apiMode,
+          model: settings.fakeMode ? 'fakemode' : settings.model,
+          messages: apiMessages,
+          streamMode: settings.streamMode,
+          temperature: settings.temperatureEnabled ? settings.temperature : undefined,
+          maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
+          reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
+        })
+
+        const assistantMessage: Message | null = result
+          ? {
+              id: assistantMessageId,
+              role: 'assistant' as const,
+              content: result.message.content,
+              reasoningContent: result.message.reasoningContent,
+              metadata: {
+                model: result.model,
+                apiMode: settings.apiMode,
+                finishReason: result.finishReason,
+                responseTimeMs,
+                usage: {
+                  promptTokens: result.usage?.promptTokens || 0,
+                  completionTokens: result.usage?.completionTokens || 0,
+                  totalTokens: result.usage?.totalTokens || 0,
+                  reasoningTokens: result.usage?.reasoningTokens,
+                },
+                imageContext,
+                apiContextMessages: apiMessages,
+              },
+            }
+          : null
+
+        const finalMessages = assistantMessage ? [...editedMessages, assistantMessage] : editedMessages
+        setMessages(finalMessages)
+
+        if (!conversationId) {
+          return
+        }
+
+        setIsSavingConversation(true)
+        try {
+          await onConversationChange?.({
+            id: conversationId,
+            title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
+            messages: finalMessages,
+          })
+        } finally {
+          setIsSavingConversation(false)
+        }
+      } finally {
+        setStreamMessageId(null)
+      }
+    },
+    [
+      conversationId,
+      currentConversation?.title,
+      isSavingConversation,
+      loading,
+      messages,
+      onConversationChange,
+      settings.apiKey,
+      settings.apiMode,
+      settings.baseURL,
+      settings.fakeMode,
+      settings.maxTokens,
+      settings.model,
+      settings.reasoningEffort,
+      settings.reasoningEffortEnabled,
+      settings.sendImagesOnlyOnce,
+      settings.streamMode,
+      settings.temperature,
+      settings.temperatureEnabled,
+      stream,
+      submitChatCompletion,
+    ]
+  )
+
   const handleClickDeleteMessage = useCallback(
     (index: number) => {
       if (confirm('本当に削除しますか？')) {
@@ -396,6 +498,7 @@ export function ChatMain({
             messageEndRef={messageEndRef}
             onCopyMessage={copyMessage}
             onDeleteMessage={handleClickDeleteMessage}
+            onEditMessage={handleEditMessage}
             onSaveGeneratedFile={handleSaveGeneratedFile}
           />
         )}

@@ -1,14 +1,6 @@
+import { prepareApiMessages, summarizeImageContext } from '#/client/components/chat/edit-message'
 import type { TemplateInput } from '#/client/components/chat/prompt-template'
-import type {
-  ApiChatMessage,
-  ApiMode,
-  ImageContent,
-  ImageContextSummary,
-  Message,
-  ReasoningEffort,
-  TextContent,
-} from '#/types'
-import { isImageContentArray, toApiChatMessage } from '#/types'
+import type { ApiChatMessage, ApiMode, ImageContextSummary, Message, ReasoningEffort } from '#/types'
 import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
 
@@ -275,72 +267,4 @@ const createTemplateMessage = (
     systemMessage,
     imageContext,
   }
-}
-
-function prepareApiMessages(
-  messages: Message[],
-  currentUserMessageId: string | undefined,
-  sendImagesOnlyOnce: boolean
-) {
-  if (!sendImagesOnlyOnce) {
-    return messages.map(toApiChatMessage)
-  }
-
-  return messages.map((message) => toApiChatMessage(stripImagesFromHistory(message, currentUserMessageId)))
-}
-
-function stripImagesFromHistory(message: Message, currentUserMessageId: string | undefined): Message {
-  if (message.role !== 'user' || message.id === currentUserMessageId || !isImageContentArray(message.content)) {
-    return message
-  }
-
-  const textContent = message.content.filter((content): content is TextContent => content.type === 'text')
-  const nonEmptyTextContent = textContent.filter((content) => content.text.trim().length > 0)
-
-  if (nonEmptyTextContent.length === 0) {
-    return {
-      ...message,
-      content: '[image omitted from context]',
-    }
-  }
-
-  return {
-    ...message,
-    content: nonEmptyTextContent,
-  }
-}
-
-function summarizeImageContext(
-  messages: Message[],
-  currentUserMessageId: string | undefined,
-  sendImagesOnlyOnce: boolean
-): ImageContextSummary {
-  const totalImages = messages.reduce((count, message) => count + countImages(message), 0)
-  const currentImages = messages.reduce((count, message) => {
-    if (message.role !== 'user' || message.id !== currentUserMessageId) {
-      return count
-    }
-    return count + countImages(message)
-  }, 0)
-
-  if (!sendImagesOnlyOnce) {
-    return {
-      policy: 'full_history',
-      sent: totalImages,
-      historyOnly: 0,
-    }
-  }
-
-  return {
-    policy: 'send_once',
-    sent: currentImages,
-    historyOnly: totalImages - currentImages,
-  }
-}
-
-function countImages(message: Message): number {
-  if (message.role !== 'user' || !isImageContentArray(message.content)) {
-    return 0
-  }
-  return message.content.filter((content): content is ImageContent => content.type === 'image_url').length
 }

@@ -10,14 +10,17 @@ import {
   type CodeBlockOpenBlocks,
   type CodeBlockOpenChangeHandler,
 } from '#/client/components/chat/code-block-renderer'
+import { getUserMessageText } from '#/client/components/chat/edit-message'
 import { ReasoningSection } from '#/client/components/chat/reasoning-section'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { CheckIcon } from '#/client/components/svg/check-icon'
+import { CloseIcon } from '#/client/components/svg/close-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
+import { EditIcon } from '#/client/components/svg/edit-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
 import { isImageContentArray } from '#/types'
-import { Fragment, memo, type ReactNode, useRef } from 'react'
+import { Fragment, memo, type ReactNode, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
@@ -60,6 +63,7 @@ interface MessageRendererProps {
   onCodeBlockOpenChange?: CodeBlockOpenChangeHandler
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage?: (index: number) => void
+  onEditMessage?: (index: number, nextText: string) => Promise<void> | void
   onSaveGeneratedFile?: (messageIndex: number, params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
 }
 
@@ -135,6 +139,7 @@ function MessageRendererComponent({
   onCodeBlockOpenChange,
   onCopyMessage,
   onDeleteMessage,
+  onEditMessage,
   onSaveGeneratedFile,
 }: MessageRendererProps) {
   // fenced code block 用の cursor。render のたびに 0 にリセットし、
@@ -143,48 +148,119 @@ function MessageRendererComponent({
   cursorRef.current.current = 0
   const codeBlockCursorRef = useRef({ current: 0 })
   codeBlockCursorRef.current.current = 0
+  const [isEditing, setIsEditing] = useState(false)
+  const [editText, setEditText] = useState(() => (message.role === 'user' ? getUserMessageText(message) : ''))
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
 
   if (message.role === 'system') {
     return null
   }
 
   if (message.role === 'user') {
+    const canSaveEdit = editText.trim().length > 0 && !disabled && !isSavingEdit
+    const userMessageText = getUserMessageText(message)
+
+    const handleStartEdit = () => {
+      setEditText(userMessageText)
+      setIsEditing(true)
+    }
+
+    const handleCancelEdit = () => {
+      setEditText(userMessageText)
+      setIsEditing(false)
+    }
+
+    const handleSaveEdit = async () => {
+      if (!canSaveEdit) {
+        return
+      }
+
+      setIsSavingEdit(true)
+      try {
+        await onEditMessage?.(index, editText)
+        setIsEditing(false)
+      } finally {
+        setIsSavingEdit(false)
+      }
+    }
+
     return (
       <div className='message mt-2 text-right'>
         <div className='group'>
-          <div className='inline-block whitespace-pre-wrap break-all rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left dark:bg-gray-600 dark:text-white'>
-            {typeof message.content === 'string'
-              ? message.content
-              : isImageContentArray(message.content) &&
-                message.content.map((value, contentIndex) => {
-                  return (
-                    <Fragment key={contentIndex}>
-                      <div>{value.type === 'text' && value.text}</div>
-                      {value.type === 'image_url' && (
-                        <div className='my-1 inline-flex flex-col items-start'>
-                          <img src={value.image_url.url} alt='upload-img' className='max-w-3xs border' />
-                          <ImageContextBadge
-                            sendImagesOnlyOnce={message.metadata.sendImagesOnlyOnce ?? sendImagesOnlyOnce}
-                          />
-                        </div>
-                      )}
-                    </Fragment>
-                  )
-                })}
+          <div className='inline-block max-w-full whitespace-pre-wrap break-all rounded-t-3xl rounded-l-3xl bg-gray-100 px-4 py-2 text-left dark:bg-gray-600 dark:text-white'>
+            {isEditing ? (
+              <textarea
+                aria-label='Edit message text'
+                value={editText}
+                rows={Math.min(Math.max(editText.split('\n').length, 2), 8)}
+                className='min-w-72 max-w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-200 dark:border-gray-500 dark:bg-gray-700 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-800'
+                disabled={disabled || isSavingEdit}
+                onChange={(event) => setEditText(event.currentTarget.value)}
+              />
+            ) : typeof message.content === 'string' ? (
+              message.content
+            ) : (
+              isImageContentArray(message.content) &&
+              message.content.map((value, contentIndex) => {
+                return (
+                  <Fragment key={contentIndex}>
+                    <div>{value.type === 'text' && value.text}</div>
+                    {value.type === 'image_url' && (
+                      <div className='my-1 inline-flex flex-col items-start'>
+                        <img src={value.image_url.url} alt='upload-img' className='max-w-3xs border' />
+                        <ImageContextBadge
+                          sendImagesOnlyOnce={message.metadata.sendImagesOnlyOnce ?? sendImagesOnlyOnce}
+                        />
+                      </div>
+                    )}
+                  </Fragment>
+                )
+              })
+            )}
           </div>
           <MessageActionBar copied={copied} disabled={disabled} align='right'>
-            <CopyMessageButton
-              copied={copied}
-              onClick={() => onCopyMessage(typeof message.content === 'string' ? message.content : '', index)}
-            />
-            <button
-              type='button'
-              className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
-              onClick={() => onDeleteMessage?.(index)}
-              aria-label='Delete message'
-            >
-              <DeleteIcon size={20} />
-            </button>
+            {isEditing ? (
+              <>
+                <button
+                  type='button'
+                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                  onClick={handleSaveEdit}
+                  disabled={!canSaveEdit}
+                  aria-label='Save edited message'
+                >
+                  <CheckIcon size={20} className='stroke-current' />
+                </button>
+                <button
+                  type='button'
+                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                  onClick={handleCancelEdit}
+                  disabled={isSavingEdit}
+                  aria-label='Cancel editing message'
+                >
+                  <CloseIcon size={20} className='fill-current' />
+                </button>
+              </>
+            ) : (
+              <>
+                <CopyMessageButton copied={copied} onClick={() => onCopyMessage(userMessageText, index)} />
+                <button
+                  type='button'
+                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                  onClick={handleStartEdit}
+                  aria-label='Edit message'
+                >
+                  <EditIcon size={20} className='stroke-current' />
+                </button>
+                <button
+                  type='button'
+                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                  onClick={() => onDeleteMessage?.(index)}
+                  aria-label='Delete message'
+                >
+                  <DeleteIcon size={20} />
+                </button>
+              </>
+            )}
           </MessageActionBar>
         </div>
       </div>
@@ -270,5 +346,6 @@ export const MessageRenderer = memo(
     prevProps.onCodeBlockOpenChange === nextProps.onCodeBlockOpenChange &&
     prevProps.onCopyMessage === nextProps.onCopyMessage &&
     prevProps.onDeleteMessage === nextProps.onDeleteMessage &&
+    prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onSaveGeneratedFile === nextProps.onSaveGeneratedFile
 )

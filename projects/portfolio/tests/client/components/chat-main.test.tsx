@@ -7,13 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const useMessageScrollMock = vi.fn()
 const scrollToMessageEndMock = vi.fn()
+const submitChatCompletionMock = vi.fn()
+let chatMessageListProps: Record<string, unknown> | null = null
 
 vi.mock('#/client/components/chat/chat-input', () => ({
   ChatInput: () => <div data-testid='chat-input' />,
 }))
 
 vi.mock('#/client/components/chat/chat-message-list', () => ({
-  ChatMessageList: () => <div data-testid='chat-message-list' />,
+  ChatMessageList: (props: Record<string, unknown>) => {
+    chatMessageListProps = props
+    return <div data-testid='chat-message-list' />
+  },
 }))
 
 vi.mock('#/client/components/chat/hooks/use-chat-form', () => ({
@@ -47,7 +52,7 @@ vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
     loading: false,
     stream: null,
     cancelStream: vi.fn(),
-    submitChatCompletion: vi.fn(),
+    submitChatCompletion: submitChatCompletionMock,
   }),
 }))
 
@@ -112,6 +117,23 @@ const settings: Settings = {
 
 describe('ChatMain', () => {
   beforeEach(() => {
+    chatMessageListProps = null
+    submitChatCompletionMock.mockResolvedValue({
+      result: {
+        message: {
+          content: '編集後の回答',
+          reasoningContent: '',
+        },
+        model: 'gpt-test',
+        finishReason: 'stop',
+        usage: {
+          promptTokens: 1,
+          completionTokens: 2,
+          totalTokens: 3,
+        },
+      },
+      responseTimeMs: 123,
+    })
     useMessageScrollMock.mockReturnValue({
       scrollContainerRef: { current: null },
       bottomChatInputContainerRef: { current: null },
@@ -156,5 +178,42 @@ describe('ChatMain', () => {
     fireEvent.click(button)
 
     expect(scrollToMessageEndMock).toHaveBeenCalledWith('smooth')
+  })
+
+  it('ユーザーメッセージ編集時は後続履歴を切り捨てて再生成結果を保存する', async () => {
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/components/chat/chat-main')
+
+    render(
+      <ChatMain
+        settings={settings}
+        currentConversation={currentConversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(chatMessageListProps?.onEditMessage).toBeTypeOf('function')
+    })
+    const onEditMessage = chatMessageListProps?.onEditMessage as (index: number, nextText: string) => Promise<void>
+    await onEditMessage(0, '編集した質問')
+
+    expect(submitChatCompletionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: 'user', content: '編集した質問' }],
+      })
+    )
+    await waitFor(() => {
+      expect(onConversationChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'conversation-1',
+          title: '会話',
+          messages: [
+            expect.objectContaining({ id: 'message-1', role: 'user', content: '編集した質問' }),
+            expect.objectContaining({ role: 'assistant', content: '編集後の回答' }),
+          ],
+        })
+      )
+    })
   })
 })
