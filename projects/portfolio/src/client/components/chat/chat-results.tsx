@@ -58,8 +58,8 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
     return null
   }
 
-  const { model, finishReason, responseTimeMs, usage, imageContext } = metadata
-  const apiContextMessages = buildApiContextDump(messages, imageContext)
+  const { model, finishReason, responseTimeMs, usage, imageContext, apiContextMessages } = metadata
+  const dumpApiContextMessages = apiContextMessages ?? buildApiContextDump(messages, imageContext)
 
   return (
     <div className='mt-2'>
@@ -145,7 +145,7 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
       </div>
       <MessagesDumpViewer
         messages={messages}
-        apiContextMessages={apiContextMessages}
+        apiContextMessages={dumpApiContextMessages}
         open={dumpOpen}
         onClose={() => setDumpOpen(false)}
       />

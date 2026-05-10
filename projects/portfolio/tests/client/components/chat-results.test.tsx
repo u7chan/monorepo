@@ -119,7 +119,18 @@ describe('ChatResults', () => {
       const messages = createImageConversationMessages()
       render(
         <ChatResults
-          metadata={createMetadata({ imageContext: { policy: 'send_once', sent: 1, historyOnly: 1 } })}
+          metadata={createMetadata({
+            imageContext: { policy: 'send_once', sent: 1, historyOnly: 1 },
+            apiContextMessages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: '色は？' },
+                  { type: 'image_url', image_url: { url: 'data:image/png;base64,current' } },
+                ],
+              },
+            ],
+          })}
           messages={messages}
         />
       )
@@ -132,6 +143,7 @@ describe('ChatResults', () => {
 
       expect(screen.getByText(/このビューは実際に送信した API コンテキストです。/)).toBeTruthy()
       expect(screen.queryByText(/data:image\/png;base64,previous/)).toBeNull()
+      expect(screen.queryByText(/これはなに？/)).toBeNull()
       expect(screen.getByText(/data:image\/png;base64,current/)).toBeTruthy()
       expect(screen.queryByText(/"metadata":/)).toBeNull()
     })

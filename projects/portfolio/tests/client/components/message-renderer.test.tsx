@@ -83,6 +83,23 @@ describe('MessageRenderer', () => {
 
       expect(screen.getByText('コンテキスト対象')).toBeTruthy()
     })
+
+    it('送信時 metadata がある場合は現在設定より優先して表示する', () => {
+      renderUserMessage(
+        {
+          id: 'user-1',
+          role: 'user',
+          content: [
+            { type: 'text', text: '画像です' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,test' } },
+          ],
+          metadata: { model: 'gpt-test', sendImagesOnlyOnce: true },
+        },
+        false
+      )
+
+      expect(screen.getByText('履歴のみ')).toBeTruthy()
+    })
   })
 
   describe('コードブロックの開閉', () => {

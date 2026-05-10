@@ -173,6 +173,7 @@ export function ChatMain({
                     reasoningTokens: result.usage?.reasoningTokens,
                   },
                   imageContext: params.imageContext,
+                  apiContextMessages: params.apiMessages,
                 },
               }
             : null

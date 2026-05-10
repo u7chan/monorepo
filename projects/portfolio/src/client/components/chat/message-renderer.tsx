@@ -163,7 +163,9 @@ function MessageRendererComponent({
                       {value.type === 'image_url' && (
                         <div className='my-1 inline-flex flex-col items-start'>
                           <img src={value.image_url.url} alt='upload-img' className='max-w-3xs border' />
-                          <ImageContextBadge sendImagesOnlyOnce={sendImagesOnlyOnce} />
+                          <ImageContextBadge
+                            sendImagesOnlyOnce={message.metadata.sendImagesOnlyOnce ?? sendImagesOnlyOnce}
+                          />
                         </div>
                       )}
                     </Fragment>

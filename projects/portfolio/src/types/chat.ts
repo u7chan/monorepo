@@ -39,6 +39,28 @@ export const TextContentSchema = z.object({
 export type TextContent = z.infer<typeof TextContentSchema>
 
 // ============================================
+// /api/chat HTTP wire 型 — 送信時の変換先
+// ============================================
+
+/** /api/chat に送るメッセージの wire スキーマ（metadata・reasoningContent は含まない） */
+export const ApiChatMessageSchema = z.discriminatedUnion('role', [
+  z.object({
+    role: z.literal('user'),
+    content: z.union([z.string().min(1), z.array(z.union([TextContentSchema, ImageContentSchema]))]),
+  }),
+  z.object({
+    role: z.literal('assistant'),
+    content: z.string().min(1),
+  }),
+  z.object({
+    role: z.literal('system'),
+    content: z.string().min(1),
+  }),
+])
+
+export type ApiChatMessage = z.infer<typeof ApiChatMessageSchema>
+
+// ============================================
 // 共有ドメイン型 — UI state・会話保存の正本
 // ============================================
 
@@ -95,6 +117,7 @@ export const AssistantMetadataSchema = z
       .catch({}),
     generatedFiles: z.array(GeneratedCodeFileSchema).optional(),
     imageContext: ImageContextSummarySchema.optional(),
+    apiContextMessages: z.array(ApiChatMessageSchema).optional(),
   })
   .catch({ model: '', usage: {} })
 
@@ -147,28 +170,6 @@ export const ConversationListResponseSchema = z.object({
 })
 
 export type ConversationListResponse = z.infer<typeof ConversationListResponseSchema>
-
-// ============================================
-// /api/chat HTTP wire 型 — 送信時の変換先
-// ============================================
-
-/** /api/chat に送るメッセージの wire スキーマ（metadata・reasoningContent は含まない） */
-export const ApiChatMessageSchema = z.discriminatedUnion('role', [
-  z.object({
-    role: z.literal('user'),
-    content: z.union([z.string().min(1), z.array(z.union([TextContentSchema, ImageContentSchema]))]),
-  }),
-  z.object({
-    role: z.literal('assistant'),
-    content: z.string().min(1),
-  }),
-  z.object({
-    role: z.literal('system'),
-    content: z.string().min(1),
-  }),
-])
-
-export type ApiChatMessage = z.infer<typeof ApiChatMessageSchema>
 
 /** ドメイン Message → /api/chat wire メッセージへの変換 */
 export function toApiChatMessage(message: Message): ApiChatMessage {
