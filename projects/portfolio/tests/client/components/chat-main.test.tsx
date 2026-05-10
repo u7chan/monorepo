@@ -95,7 +95,7 @@ const currentConversation: Conversation = {
 }
 
 const settings: Settings = {
-  schemaVersion: '1.3.0',
+  schemaVersion: '1.4.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -109,7 +109,7 @@ const settings: Settings = {
   autoModel: false,
   markdownPreview: true,
   streamMode: true,
-  interactiveMode: true,
+  includeChatHistory: true,
   sendImagesOnlyOnce: true,
   sidebarOpen: true,
   templateModels: {},
@@ -217,7 +217,7 @@ describe('ChatMain', () => {
     })
   })
 
-  it('非インタラクティブモードの編集時は送信対象を編集中メッセージに絞る', async () => {
+  it('会話履歴を含めない編集時は送信対象を編集中メッセージに絞る', async () => {
     const conversation: Conversation = {
       ...currentConversation,
       messages: [
@@ -232,7 +232,7 @@ describe('ChatMain', () => {
 
     render(
       <ChatMain
-        settings={{ ...settings, interactiveMode: false }}
+        settings={{ ...settings, includeChatHistory: false }}
         currentConversation={conversation}
         onConversationChange={onConversationChange}
       />

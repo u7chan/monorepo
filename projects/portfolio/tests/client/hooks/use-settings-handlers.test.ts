@@ -23,7 +23,7 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const defaultSettings = {
-  schemaVersion: '1.3.0',
+  schemaVersion: '1.4.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -37,7 +37,7 @@ const defaultSettings = {
   autoModel: false,
   markdownPreview: true,
   streamMode: true,
-  interactiveMode: true,
+  includeChatHistory: true,
   sendImagesOnlyOnce: true,
   templateModels: {},
 }
@@ -134,6 +134,29 @@ describe('useSettingsHandlers', () => {
       expect(result.current.storage.streamMode).toBe(false)
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
       expect(stored.streamMode).toBe(false)
+    })
+
+    it('handleToggleIncludeChatHistory が状態を反転して localStorage に保存する', async () => {
+      const { useLocalStorageSettings, useSettingsHandlers } = await importHooks()
+
+      const { result } = renderHook(() => {
+        const storage = useLocalStorageSettings()
+        const handlers = useSettingsHandlers({
+          ...storage,
+          updateSetting: storage.updateSetting,
+        })
+        return { storage, handlers }
+      })
+
+      expect(result.current.storage.includeChatHistory).toBe(true)
+
+      act(() => {
+        result.current.handlers.handleToggleIncludeChatHistory()
+      })
+
+      expect(result.current.storage.includeChatHistory).toBe(false)
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      expect(stored.includeChatHistory).toBe(false)
     })
 
     it('handleToggleTemperature が状態を反転して localStorage に保存する', async () => {

@@ -73,7 +73,7 @@ describe('edit-message', () => {
   })
 
   describe('buildEditedSendMessages', () => {
-    it('インタラクティブモードでは編集済み履歴全体を送る', () => {
+    it('会話履歴を含める場合は編集済み履歴全体を送る', () => {
       const messages: Message[] = [
         createUserMessage('user-1', 'first'),
         createAssistantMessage('assistant-1', 'answer'),
@@ -83,7 +83,7 @@ describe('edit-message', () => {
       expect(buildEditedSendMessages(messages, 'user-2', true)).toEqual(messages)
     })
 
-    it('非インタラクティブモードでは編集中ユーザーメッセージだけを送る', () => {
+    it('会話履歴を含めない場合は編集中ユーザーメッセージだけを送る', () => {
       const messages: Message[] = [
         createUserMessage('user-1', 'first'),
         createAssistantMessage('assistant-1', 'answer'),
@@ -93,7 +93,7 @@ describe('edit-message', () => {
       expect(buildEditedSendMessages(messages, 'user-2', false)).toEqual([messages[2]])
     })
 
-    it('非インタラクティブモードでも system prefix だけが前にある場合は保持する', () => {
+    it('会話履歴を含めない場合でも system prefix だけが前にある場合は保持する', () => {
       const messages: Message[] = [createSystemMessage('system-1', 'prompt'), createUserMessage('user-1', 'first')]
 
       expect(buildEditedSendMessages(messages, 'user-1', false)).toEqual(messages)

@@ -31,7 +31,7 @@ describe('useChatForm', () => {
 
     const built = result.current.buildChatMessages({
       apiMode: 'chat_completions',
-      interactiveMode: true,
+      includeChatHistory: true,
       messages: [],
       model: 'gpt-test',
       streamMode: true,
@@ -64,7 +64,7 @@ describe('useChatForm', () => {
 
     const built = result.current.buildChatMessages({
       apiMode: 'chat_completions',
-      interactiveMode: true,
+      includeChatHistory: true,
       messages: [
         {
           id: 'previous-user',
@@ -112,7 +112,7 @@ describe('useChatForm', () => {
 
     const built = result.current.buildChatMessages({
       apiMode: 'chat_completions',
-      interactiveMode: true,
+      includeChatHistory: true,
       messages: [
         {
           id: 'previous-user',

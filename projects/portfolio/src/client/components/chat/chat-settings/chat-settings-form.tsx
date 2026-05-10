@@ -22,7 +22,7 @@ export function ChatSettingsForm() {
     fakeMode,
     markdownPreview,
     streamMode,
-    interactiveMode,
+    includeChatHistory,
     sendImagesOnlyOnce,
     handleChangeBaseURL,
     handleChangeApiKey,
@@ -31,7 +31,7 @@ export function ChatSettingsForm() {
     handleToggleFakeMode,
     handleToggleMarkdownPreview,
     handleToggleStreamMode,
-    handleToggleInteractiveMode,
+    handleToggleIncludeChatHistory,
     handleToggleSendImagesOnlyOnce,
   } = useChatSettingsContext()
 
@@ -151,12 +151,6 @@ export function ChatSettingsForm() {
             value={streamMode}
             onClick={handleToggleStreamMode}
           />
-          <ToggleInput
-            label='Interactive Mode'
-            labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-            value={interactiveMode}
-            onClick={handleToggleInteractiveMode}
-          />
         </div>
       </section>
 
@@ -164,6 +158,17 @@ export function ChatSettingsForm() {
       <section className='space-y-3'>
         <SectionHeading>Context Options</SectionHeading>
         <div className='space-y-2'>
+          <ToggleInput
+            label='Include chat history'
+            labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+            value={includeChatHistory}
+            onClick={handleToggleIncludeChatHistory}
+          />
+          <p className='text-xs text-gray-500 dark:text-gray-400'>
+            ON の場合、過去の会話履歴を API コンテキストに含めます。
+            <br />
+            OFF の場合、今回の入力のみを送信します。
+          </p>
           <ToggleInput
             label='Send attached images only once'
             labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'

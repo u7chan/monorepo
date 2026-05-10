@@ -120,7 +120,7 @@ export function ChatMain({
       }
       const params = buildChatMessages({
         apiMode: settings.apiMode,
-        interactiveMode: settings.interactiveMode,
+        includeChatHistory: settings.includeChatHistory,
         messages,
         model: form.model,
         streamMode: settings.streamMode,
@@ -221,7 +221,7 @@ export function ChatMain({
       settings.apiKey,
       settings.baseURL,
       settings.fakeMode,
-      settings.interactiveMode,
+      settings.includeChatHistory,
       settings.maxTokens,
       settings.model,
       settings.apiMode,
@@ -305,7 +305,7 @@ export function ChatMain({
       }
 
       const assistantMessageId = uuidv7()
-      const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.interactiveMode)
+      const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.includeChatHistory)
       const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       setMessages(editedMessages)
@@ -381,7 +381,7 @@ export function ChatMain({
       settings.apiMode,
       settings.baseURL,
       settings.fakeMode,
-      settings.interactiveMode,
+      settings.includeChatHistory,
       settings.maxTokens,
       settings.model,
       settings.reasoningEffort,
@@ -446,7 +446,7 @@ export function ChatMain({
                 disabled={loading}
                 rightBottom={
                   <SendButton
-                    color={settings.interactiveMode ? 'primary' : 'green'}
+                    color={settings.includeChatHistory ? 'primary' : 'green'}
                     loading={loading}
                     disabled={loading || !!stream || input.trim().length <= 0}
                     handleClickStop={cancelStream}
@@ -541,7 +541,7 @@ export function ChatMain({
               placeholder='質問してみよう！'
               rightBottom={
                 <SendButton
-                  color={settings.interactiveMode ? 'primary' : 'green'}
+                  color={settings.includeChatHistory ? 'primary' : 'green'}
                   loading={loading}
                   disabled={loading || !!stream || input.trim().length <= 0}
                   handleClickStop={cancelStream}

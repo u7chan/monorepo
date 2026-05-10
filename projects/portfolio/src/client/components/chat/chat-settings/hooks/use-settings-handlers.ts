@@ -14,7 +14,7 @@ interface UseSettingsHandlersDeps {
   setFakeMode: Dispatch<SetStateAction<boolean>>
   setMarkdownPreview: Dispatch<SetStateAction<boolean>>
   setStreamMode: Dispatch<SetStateAction<boolean>>
-  setInteractiveMode: Dispatch<SetStateAction<boolean>>
+  setIncludeChatHistory: Dispatch<SetStateAction<boolean>>
   setSendImagesOnlyOnce: Dispatch<SetStateAction<boolean>>
   setReasoningEffort: Dispatch<SetStateAction<ReasoningEffortLevel>>
   setReasoningEffortEnabled: Dispatch<SetStateAction<boolean>>
@@ -24,7 +24,7 @@ interface UseSettingsHandlersDeps {
   fakeMode: boolean
   markdownPreview: boolean
   streamMode: boolean
-  interactiveMode: boolean
+  includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   reasoningEffortEnabled: boolean
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => Settings
@@ -44,7 +44,7 @@ interface UseSettingsHandlersReturn {
   handleToggleFakeMode: () => void
   handleToggleMarkdownPreview: () => void
   handleToggleStreamMode: () => void
-  handleToggleInteractiveMode: () => void
+  handleToggleIncludeChatHistory: () => void
   handleToggleSendImagesOnlyOnce: () => void
   handleToggleReasoningEffort: () => void
 }
@@ -59,7 +59,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     setFakeMode,
     setMarkdownPreview,
     setStreamMode,
-    setInteractiveMode,
+    setIncludeChatHistory,
     setSendImagesOnlyOnce,
     setReasoningEffort,
     setReasoningEffortEnabled,
@@ -69,7 +69,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     fakeMode,
     markdownPreview,
     streamMode,
-    interactiveMode,
+    includeChatHistory,
     sendImagesOnlyOnce,
     reasoningEffortEnabled,
     updateSetting,
@@ -167,11 +167,11 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     updateSetting('streamMode', newValue)
   }, [streamMode, setStreamMode, updateSetting])
 
-  const handleToggleInteractiveMode = useCallback(() => {
-    const newValue = !interactiveMode
-    setInteractiveMode(newValue)
-    updateSetting('interactiveMode', newValue)
-  }, [interactiveMode, setInteractiveMode, updateSetting])
+  const handleToggleIncludeChatHistory = useCallback(() => {
+    const newValue = !includeChatHistory
+    setIncludeChatHistory(newValue)
+    updateSetting('includeChatHistory', newValue)
+  }, [includeChatHistory, setIncludeChatHistory, updateSetting])
 
   const handleToggleSendImagesOnlyOnce = useCallback(() => {
     const newValue = !sendImagesOnlyOnce
@@ -208,7 +208,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     handleToggleFakeMode,
     handleToggleMarkdownPreview,
     handleToggleStreamMode,
-    handleToggleInteractiveMode,
+    handleToggleIncludeChatHistory,
     handleToggleSendImagesOnlyOnce,
     handleToggleReasoningEffort,
   }

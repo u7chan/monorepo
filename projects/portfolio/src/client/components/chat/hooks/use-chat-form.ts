@@ -15,7 +15,7 @@ interface UseChatFormParams {
 
 interface BuildChatMessagesParams {
   apiMode: ApiMode
-  interactiveMode: boolean
+  includeChatHistory: boolean
   messages: Message[]
   model: string
   streamMode: boolean
@@ -90,7 +90,7 @@ export function useChatForm({ initTrigger, formRef, submitDisabled = false }: Us
 
   const buildChatMessages = ({
     apiMode,
-    interactiveMode,
+    includeChatHistory,
     messages,
     model,
     streamMode,
@@ -102,7 +102,7 @@ export function useChatForm({ initTrigger, formRef, submitDisabled = false }: Us
     if (templateInput) {
       return createTemplateMessage(templateInput, model, {
         apiMode,
-        interactiveMode,
+        includeChatHistory,
         messages,
         streamMode,
         sendImagesOnlyOnce,
@@ -114,7 +114,7 @@ export function useChatForm({ initTrigger, formRef, submitDisabled = false }: Us
 
     return createMessage(input.trim(), model, {
       apiMode,
-      interactiveMode,
+      includeChatHistory,
       messages,
       uploadImages,
       streamMode,
@@ -152,7 +152,7 @@ const createMessage = (
   model: string,
   {
     apiMode,
-    interactiveMode,
+    includeChatHistory,
     messages,
     uploadImages,
     streamMode,
@@ -162,7 +162,7 @@ const createMessage = (
     reasoningEffort,
   }: {
     apiMode: ApiMode
-    interactiveMode: boolean
+    includeChatHistory: boolean
     messages: Message[]
     uploadImages: string[]
     streamMode: boolean
@@ -198,7 +198,7 @@ const createMessage = (
   }
 
   const allMessages: Message[] = [...messages, draftUserMessage]
-  const sendMessages = interactiveMode ? allMessages : [draftUserMessage]
+  const sendMessages = includeChatHistory ? allMessages : [draftUserMessage]
   const imageContext = summarizeImageContext(sendMessages, draftUserMessage.id, sendImagesOnlyOnce)
   const apiMessages: ApiChatMessage[] = prepareApiMessages(sendMessages, draftUserMessage.id, sendImagesOnlyOnce)
 
@@ -215,7 +215,7 @@ const createTemplateMessage = (
   model: string,
   {
     apiMode,
-    interactiveMode,
+    includeChatHistory,
     messages,
     streamMode,
     sendImagesOnlyOnce,
@@ -224,7 +224,7 @@ const createTemplateMessage = (
     reasoningEffort,
   }: {
     apiMode: ApiMode
-    interactiveMode: boolean
+    includeChatHistory: boolean
     messages: Message[]
     streamMode: boolean
     sendImagesOnlyOnce: boolean
@@ -256,7 +256,7 @@ const createTemplateMessage = (
   const allMessages: Message[] =
     messages.length === 0 && templateInput ? [systemMessage, draftUserMessage] : [...messages, draftUserMessage]
 
-  const sendMessages: Message[] = interactiveMode ? allMessages : [systemMessage, draftUserMessage]
+  const sendMessages: Message[] = includeChatHistory ? allMessages : [systemMessage, draftUserMessage]
   const imageContext = summarizeImageContext(sendMessages, draftUserMessage.id, sendImagesOnlyOnce)
   const apiMessages: ApiChatMessage[] = prepareApiMessages(sendMessages, draftUserMessage.id, sendImagesOnlyOnce)
 
