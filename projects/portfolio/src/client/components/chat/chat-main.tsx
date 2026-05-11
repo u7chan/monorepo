@@ -1,29 +1,15 @@
-import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
-import { ChatInput } from '#/client/components/chat/chat-input'
+import { ChatComposer } from '#/client/components/chat/chat-composer'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
-import {
-  buildEditedHistory,
-  buildEditedSendMessages,
-  prepareApiMessages,
-  summarizeImageContext,
-} from '#/client/components/chat/edit-message'
+import { useChatActions } from '#/client/components/chat/hooks/use-chat-actions'
+import { useChatConversation } from '#/client/components/chat/hooks/use-chat-conversation'
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/components/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scroll'
-import { hasActiveChatSession, useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
-import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowDownIcon } from '#/client/components/svg/arrow-down-icon'
-import { ArrowUpIcon } from '#/client/components/svg/arrow-up-icon'
-import { StopIcon } from '#/client/components/svg/stop-icon'
-import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
-import type { Conversation, GeneratedCodeFile, Message } from '#/types'
-import type { ChatResponse } from '#/types/chat-api'
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { uuidv7 } from 'uuidv7'
-
-const CONVERSATION_TITLE_MAX_LENGTH = 10
+import type { Conversation } from '#/types'
+import { useCallback, useEffect, useRef } from 'react'
 
 interface Props {
   initTrigger?: number
@@ -46,78 +32,16 @@ export function ChatMain({
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const prevConversationIdRef = useRef<string | null>(null)
-  const sessionOwnedSnapshotRef = useRef<{ conversationId: string; messageIds: string[] } | null>(null)
-
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [isSavingConversation, setIsSavingConversation] = useState(false)
-  const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
-  const resumeStartedRef = useRef(false)
-  const markSessionOwnedSnapshot = useCallback((conversation: Pick<Conversation, 'id' | 'messages'>) => {
-    sessionOwnedSnapshotRef.current = {
-      conversationId: conversation.id,
-      messageIds: conversation.messages.map(({ id }) => id).filter((id): id is string => !!id),
-    }
-  }, [])
-  const handleSessionConversation = useCallback(
-    (conversation: Conversation, assistantMessageId: string) => {
-      markSessionOwnedSnapshot(conversation)
-      setConversationId(conversation.id)
-      setMessages(conversation.messages)
-      setStreamMessageId(assistantMessageId)
-    },
-    [markSessionOwnedSnapshot]
-  )
-  const buildAssistantMessage = useCallback(
-    (assistantMessageId: string, result: ChatResponse, responseTimeMs: number): Message => ({
-      id: assistantMessageId,
-      role: 'assistant' as const,
-      content: result.message.content,
-      reasoningContent: result.message.reasoningContent,
-      metadata: {
-        model: result.model,
-        apiMode: settings.apiMode,
-        finishReason: result.finishReason,
-        responseTimeMs,
-        usage: {
-          promptTokens: result.usage?.promptTokens || 0,
-          completionTokens: result.usage?.completionTokens || 0,
-          totalTokens: result.usage?.totalTokens || 0,
-          reasoningTokens: result.usage?.reasoningTokens,
-        },
-      },
-    }),
-    [settings.apiMode]
-  )
-  const handleSessionResult = useCallback(
-    ({
-      conversation,
-      assistantMessageId,
-      result,
-    }: {
-      conversation: Conversation
-      assistantMessageId: string
-      result: ChatResponse | null
-    }) => {
-      if (!result) return
-
-      const assistantMessage = buildAssistantMessage(assistantMessageId, result, 0)
-      const finalMessages = [...conversation.messages, assistantMessage]
-      markSessionOwnedSnapshot({
-        id: conversation.id,
-        messages: finalMessages,
-      })
-      setConversationId(conversation.id)
-      setMessages(finalMessages)
-      setStreamMessageId(null)
-    },
-    [buildAssistantMessage, markSessionOwnedSnapshot]
-  )
-  const { loading, stream, cancelStream, submitChatCompletion, resumeActiveChatCompletion } = useStreamProcessor({
+  const conversationState = useChatConversation({
+    initTrigger,
+    settings,
+    currentConversation,
     onSubmitting,
-    onSessionConversation: handleSessionConversation,
-    onSessionResult: handleSessionResult,
+    onConversationChange,
   })
+  const { conversationId, messages, isSavingConversation, streamMessageId, streamProcessor } = conversationState
+  const { loading, stream, cancelStream } = streamProcessor
+  const formState = useChatForm({ initTrigger, formRef, submitDisabled: loading || !!stream })
   const {
     input,
     uploadImages,
@@ -127,9 +51,7 @@ export function ChatMain({
     handleChangeInput,
     handleKeyDown,
     handleChangeComposition,
-    buildChatMessages,
-    resetAfterSubmit,
-  } = useChatForm({ initTrigger, formRef, submitDisabled: loading || !!stream })
+  } = formState
   const { copiedId, copyMessage } = useMessageCopy()
   const {
     scrollContainerRef,
@@ -144,221 +66,29 @@ export function ChatMain({
     stream,
     messages,
   })
-
-  useEffect(() => {
-    sessionOwnedSnapshotRef.current = null
-    setMessages([])
-    setConversationId(null)
-    setStreamMessageId(null)
-  }, [initTrigger])
-
-  useEffect(() => {
-    if (resumeStartedRef.current || !hasActiveChatSession()) {
-      return
-    }
-
-    resumeStartedRef.current = true
-    let mounted = true
-    void resumeActiveChatCompletion().then(async (resumed) => {
-      if (!mounted || !resumed?.conversation) return
-
-      const assistantMessage = resumed.result
-        ? buildAssistantMessage(resumed.assistantMessageId, resumed.result, resumed.responseTimeMs)
-        : null
-      const finalMessages = assistantMessage
-        ? [...resumed.conversation.messages, assistantMessage]
-        : resumed.conversation.messages
-
-      markSessionOwnedSnapshot({
-        id: resumed.conversation.id,
-        messages: finalMessages,
-      })
-      setConversationId(resumed.conversation.id)
-      setMessages(finalMessages)
-      setStreamMessageId(null)
-
-      if (assistantMessage) {
-        await onConversationChange?.({
-          ...resumed.conversation,
-          messages: finalMessages,
-        })
-      }
-    })
-
-    return () => {
-      mounted = false
-    }
-  }, [buildAssistantMessage, markSessionOwnedSnapshot, onConversationChange, resumeActiveChatCompletion])
-
-  // 選択された会話のメッセージを設定
-  useEffect(() => {
-    if (!currentConversation) {
-      return
-    }
-
-    const sessionOwnedSnapshot = sessionOwnedSnapshotRef.current
-    if (sessionOwnedSnapshot) {
-      if (currentConversation.id === sessionOwnedSnapshot.conversationId) {
-        const currentMessageIds = new Set(currentConversation.messages.map(({ id }) => id).filter(Boolean))
-        const hasCaughtUp = sessionOwnedSnapshot.messageIds.every((id) => currentMessageIds.has(id))
-        if (!hasCaughtUp) {
-          return
-        }
-      }
-      sessionOwnedSnapshotRef.current = null
-    }
-
-    // 会話が選択された時、そのメッセージをドメイン型のまま設定（変換不要）
-    setConversationId(currentConversation.id)
-    setMessages(currentConversation.messages)
-    setStreamMessageId(null)
-
-    // 会話IDが実際に変わったときだけスクロール（別タブから戻った際の誤動作防止）
-    if (prevConversationIdRef.current !== currentConversation.id) {
-      prevConversationIdRef.current = currentConversation.id
-      setTimeout(() => {
-        scrollToMessageEnd()
-      }, 0)
-    }
-  }, [currentConversation, scrollToMessageEnd])
-
-  const handleSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      const formData = new FormData(event.currentTarget)
-      const form = {
-        model: settings.fakeMode ? 'fakemode' : settings.model,
-        baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
-        apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
-        temperature: settings.temperatureEnabled ? settings.temperature : undefined,
-        maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
-        userInput: formData.get('userInput')?.toString() || '',
-      }
-      const params = buildChatMessages({
-        apiMode: settings.apiMode,
-        includeChatHistory: settings.includeChatHistory,
-        messages,
-        model: form.model,
-        streamMode: settings.streamMode,
-        sendImagesOnlyOnce: settings.sendImagesOnlyOnce,
-        temperature: form.temperature,
-        maxTokens: form.maxTokens,
-        reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-      })
-      if (!params) {
-        return
-      }
-
-      // 送信直後に user メッセージを state に追加（ドメイン型で保持）
-      // テンプレート初回送信時は systemMessage も先頭に含めて follow-up でも system prompt を維持する
-      const nextMessages: Message[] =
-        messages.length === 0
-          ? [...(params.systemMessage ? [params.systemMessage] : []), params.draftUserMessage]
-          : [...messages, params.draftUserMessage]
-      const assistantMessageId = uuidv7()
-      const currentConversationId = conversationId || uuidv7()
-      const draftConversation = {
-        id: currentConversationId,
-        title:
-          typeof params.draftUserMessage.content === 'string'
-            ? params.draftUserMessage.content.slice(0, CONVERSATION_TITLE_MAX_LENGTH)
-            : '',
-        messages: nextMessages,
-      }
-      markSessionOwnedSnapshot(draftConversation)
-      setConversationId(currentConversationId)
-      setMessages(nextMessages)
-      setStreamMessageId(assistantMessageId)
-      resetAfterSubmit()
-
-      submitChatCompletion({
-        header: {
-          apiKey: form.apiKey,
-          baseURL: form.baseURL,
-        },
-        apiMode: settings.apiMode,
-        model: params.model,
-        messages: params.apiMessages,
-        streamMode: settings.streamMode,
-        conversation: draftConversation,
-        assistantMessageId,
-        temperature: form.temperature,
-        maxTokens: form.maxTokens,
-        reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-      })
-        .then(async ({ result, responseTimeMs }) => {
-          const userContent = params.draftUserMessage.content
-
-          // assistant メッセージを state に追加（ドメイン型で保持）
-          const assistantMessage: Message | null = result
-            ? {
-                id: assistantMessageId,
-                role: 'assistant' as const,
-                content: result.message.content,
-                reasoningContent: result.message.reasoningContent,
-                metadata: {
-                  model: result.model,
-                  apiMode: settings.apiMode,
-                  finishReason: result.finishReason,
-                  responseTimeMs: responseTimeMs,
-                  usage: {
-                    promptTokens: result.usage?.promptTokens || 0,
-                    completionTokens: result.usage?.completionTokens || 0,
-                    totalTokens: result.usage?.totalTokens || 0,
-                    reasoningTokens: result.usage?.reasoningTokens,
-                  },
-                  imageContext: params.imageContext,
-                  apiContextMessages: params.apiMessages,
-                },
-              }
-            : null
-
-          const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
-          markSessionOwnedSnapshot({
-            id: currentConversationId,
-            messages: finalMessages,
-          })
-          setMessages(finalMessages)
-
-          // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
-          setIsSavingConversation(true)
-          try {
-            await onConversationChange?.({
-              id: currentConversationId,
-              title: typeof userContent === 'string' ? userContent.slice(0, CONVERSATION_TITLE_MAX_LENGTH) : '',
-              messages: finalMessages,
-            })
-          } finally {
-            setIsSavingConversation(false)
-          }
-        })
-        .finally(() => {
-          setStreamMessageId(null)
-        })
-    },
-    [
-      buildChatMessages,
-      conversationId,
-      messages,
-      markSessionOwnedSnapshot,
+  const { handleSubmit, handleSaveGeneratedFile, handleEditMessage, handleClickDeleteMessage } = useChatActions({
+    settings,
+    formState,
+    conversationState,
+    streamProcessor,
+    callbacks: {
+      canSaveGeneratedFile,
+      currentConversation,
       onConversationChange,
-      resetAfterSubmit,
-      settings.apiKey,
-      settings.baseURL,
-      settings.fakeMode,
-      settings.includeChatHistory,
-      settings.maxTokens,
-      settings.model,
-      settings.apiMode,
-      settings.reasoningEffort,
-      settings.reasoningEffortEnabled,
-      settings.sendImagesOnlyOnce,
-      settings.streamMode,
-      settings.temperature,
-      settings.temperatureEnabled,
-      submitChatCompletion,
-    ]
-  )
+      onDeleteMessages,
+    },
+  })
+
+  useEffect(() => {
+    if (!currentConversation || prevConversationIdRef.current === currentConversation.id) {
+      return
+    }
+
+    prevConversationIdRef.current = currentConversation.id
+    setTimeout(() => {
+      scrollToMessageEnd()
+    }, 0)
+  }, [currentConversation, scrollToMessageEnd])
 
   const handleTemplateSubmit = useCallback(
     (templateInput: TemplateInput) => {
@@ -366,190 +96,6 @@ export function ChatMain({
       formRef.current?.requestSubmit()
     },
     [setTemplateInput]
-  )
-
-  const handleSaveGeneratedFile = useCallback(
-    async (messageIndex: number, params: SaveGeneratedFileRequest): Promise<GeneratedCodeFile | null> => {
-      if (!canSaveGeneratedFile) {
-        return null
-      }
-
-      const target = messages[messageIndex]
-      if (!target || target.role !== 'assistant' || !target.id || !conversationId) {
-        return null
-      }
-
-      const res = await fetch('/api/conversations/messages/generated-files', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          messageId: target.id,
-          blockIndex: params.blockIndex,
-          language: params.language,
-          content: params.content,
-        }),
-      })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(err.error ?? `Request failed: ${res.status}`)
-      }
-      const payload = (await res.json()) as { file: GeneratedCodeFile; alreadyExisted?: boolean }
-
-      setMessages((prev) =>
-        prev.map((msg, idx) => {
-          if (idx !== messageIndex || msg.role !== 'assistant') {
-            return msg
-          }
-          const existingFiles = msg.metadata.generatedFiles ?? []
-          const withoutSame = existingFiles.filter((f) => f.blockIndex !== payload.file.blockIndex)
-          return {
-            ...msg,
-            metadata: {
-              ...msg.metadata,
-              generatedFiles: [...withoutSame, payload.file],
-            },
-          }
-        })
-      )
-      return payload.file
-    },
-    [canSaveGeneratedFile, conversationId, messages]
-  )
-
-  const handleEditMessage = useCallback(
-    async (index: number, nextText: string): Promise<void> => {
-      if (loading || stream || isSavingConversation) {
-        return
-      }
-
-      const editedMessages = buildEditedHistory(messages, index, nextText)
-      const editedUserMessage = editedMessages?.at(-1)
-      if (!editedMessages || !editedUserMessage || editedUserMessage.role !== 'user') {
-        return
-      }
-
-      const assistantMessageId = uuidv7()
-      const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.includeChatHistory)
-      const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
-      const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
-      const draftConversationId = conversationId || uuidv7()
-      const draftConversation = {
-        id: draftConversationId,
-        title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
-        messages: editedMessages,
-      }
-      markSessionOwnedSnapshot(draftConversation)
-      setConversationId(draftConversationId)
-      setMessages(editedMessages)
-      setStreamMessageId(assistantMessageId)
-
-      try {
-        const { result, responseTimeMs } = await submitChatCompletion({
-          header: {
-            apiKey: settings.fakeMode ? 'fakemode' : settings.apiKey,
-            baseURL: settings.fakeMode ? 'fakemode' : settings.baseURL,
-          },
-          apiMode: settings.apiMode,
-          model: settings.fakeMode ? 'fakemode' : settings.model,
-          messages: apiMessages,
-          streamMode: settings.streamMode,
-          conversation: draftConversation,
-          assistantMessageId,
-          temperature: settings.temperatureEnabled ? settings.temperature : undefined,
-          maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
-          reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
-        })
-
-        const assistantMessage: Message | null = result
-          ? {
-              id: assistantMessageId,
-              role: 'assistant' as const,
-              content: result.message.content,
-              reasoningContent: result.message.reasoningContent,
-              metadata: {
-                model: result.model,
-                apiMode: settings.apiMode,
-                finishReason: result.finishReason,
-                responseTimeMs,
-                usage: {
-                  promptTokens: result.usage?.promptTokens || 0,
-                  completionTokens: result.usage?.completionTokens || 0,
-                  totalTokens: result.usage?.totalTokens || 0,
-                  reasoningTokens: result.usage?.reasoningTokens,
-                },
-                imageContext,
-                apiContextMessages: apiMessages,
-              },
-            }
-          : null
-
-        const finalMessages = assistantMessage ? [...editedMessages, assistantMessage] : editedMessages
-        markSessionOwnedSnapshot({
-          id: draftConversationId,
-          messages: finalMessages,
-        })
-        setMessages(finalMessages)
-
-        setIsSavingConversation(true)
-        try {
-          await onConversationChange?.({
-            id: draftConversationId,
-            title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
-            messages: finalMessages,
-          })
-        } finally {
-          setIsSavingConversation(false)
-        }
-      } finally {
-        setStreamMessageId(null)
-      }
-    },
-    [
-      conversationId,
-      currentConversation?.title,
-      isSavingConversation,
-      loading,
-      markSessionOwnedSnapshot,
-      messages,
-      onConversationChange,
-      settings.apiKey,
-      settings.apiMode,
-      settings.baseURL,
-      settings.fakeMode,
-      settings.includeChatHistory,
-      settings.maxTokens,
-      settings.model,
-      settings.reasoningEffort,
-      settings.reasoningEffortEnabled,
-      settings.sendImagesOnlyOnce,
-      settings.streamMode,
-      settings.temperature,
-      settings.temperatureEnabled,
-      stream,
-      submitChatCompletion,
-    ]
-  )
-
-  const handleClickDeleteMessage = useCallback(
-    (index: number) => {
-      if (confirm('本当に削除しますか？')) {
-        let isConversationEmpty = false
-        setMessages((prevMessages) => {
-          const newMessages = [...prevMessages]
-          newMessages.splice(index, 1)
-          newMessages.splice(index, 1)
-          isConversationEmpty = newMessages.filter((m) => m.role !== 'system').length <= 0
-          return newMessages
-        })
-        const deleteMessageIds = [
-          currentConversation?.messages?.at(index)?.id,
-          currentConversation?.messages?.at(index + 1)?.id,
-        ].filter((value): value is string => value !== undefined)
-        onDeleteMessages?.(deleteMessageIds, isConversationEmpty)
-      }
-    },
-    [currentConversation?.messages, onDeleteMessages]
   )
 
   const emptyMessage = messages.filter((m) => m.role !== 'system').length === 0
@@ -574,44 +120,18 @@ export function ChatMain({
                   onSubmit={handleTemplateSubmit}
                 />
               </div>
-              <ChatInput
-                name='userInput'
+              <ChatComposer
                 value={input}
                 textAreaRows={textAreaRows}
                 placeholder={loading ? 'しばらくお待ちください' : '質問してみよう！'}
                 disabled={loading}
-                rightBottom={
-                  <SendButton
-                    color={settings.includeChatHistory ? 'primary' : 'green'}
-                    loading={loading}
-                    disabled={loading || !!stream || input.trim().length <= 0}
-                    handleClickStop={cancelStream}
-                  />
-                }
-                leftBottom={
-                  <FileImagePreview
-                    src={uploadImages}
-                    contextLabel={settings.sendImagesOnlyOnce ? 'この送信に含む' : '履歴でも継続'}
-                    onImageChange={handleUploadImageChange}
-                  >
-                    <FileImageInput
-                      fileInputButton={(onClick) => (
-                        <button
-                          type='button'
-                          onClick={onClick}
-                          disabled={loading || !!stream}
-                          className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:hover:bg-gray-700'
-                        >
-                          <UploadIcon size={20} className='fill-gray-500 group-disabled:fill-gray-300' />
-                          <div className='hidden sm:block mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
-                            画像アップロード
-                          </div>
-                        </button>
-                      )}
-                      onImageChange={handleUploadImageChange}
-                    />
-                  </FileImagePreview>
-                }
+                loading={loading}
+                streamActive={!!stream}
+                includeChatHistory={settings.includeChatHistory}
+                sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
+                uploadImages={uploadImages}
+                onCancelStream={cancelStream}
+                onImageChange={handleUploadImageChange}
                 onChangeInput={handleChangeInput}
                 onKeyDown={handleKeyDown}
                 onChangeComposition={handleChangeComposition}
@@ -670,43 +190,17 @@ export function ChatMain({
                 <ArrowDownIcon size={14} className='stroke-current' />
               </button>
             </div>
-            <ChatInput
-              name='userInput'
+            <ChatComposer
               value={input}
               textAreaRows={textAreaRows}
               placeholder='質問してみよう！'
-              rightBottom={
-                <SendButton
-                  color={settings.includeChatHistory ? 'primary' : 'green'}
-                  loading={loading}
-                  disabled={loading || !!stream || input.trim().length <= 0}
-                  handleClickStop={cancelStream}
-                />
-              }
-              leftBottom={
-                <FileImagePreview
-                  src={uploadImages}
-                  contextLabel={settings.sendImagesOnlyOnce ? 'この送信に含む' : '履歴でも継続'}
-                  onImageChange={handleUploadImageChange}
-                >
-                  <FileImageInput
-                    fileInputButton={(onClick) => (
-                      <button
-                        type='button'
-                        onClick={onClick}
-                        disabled={loading || !!stream}
-                        className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:hover:bg-gray-700'
-                      >
-                        <UploadIcon size={20} className='fill-gray-500 group-disabled:fill-gray-300' />
-                        <div className='hidden sm:block mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
-                          画像アップロード
-                        </div>
-                      </button>
-                    )}
-                    onImageChange={handleUploadImageChange}
-                  />
-                </FileImagePreview>
-              }
+              loading={loading}
+              streamActive={!!stream}
+              includeChatHistory={settings.includeChatHistory}
+              sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
+              uploadImages={uploadImages}
+              onCancelStream={cancelStream}
+              onImageChange={handleUploadImageChange}
               onChangeInput={handleChangeInput}
               onKeyDown={handleKeyDown}
               onChangeComposition={handleChangeComposition}
@@ -716,48 +210,5 @@ export function ChatMain({
         )}
       </div>
     </form>
-  )
-}
-
-interface SendButtonProps {
-  color?: 'primary' | 'blue' | 'green'
-  loading?: boolean
-  disabled?: boolean
-  handleClickStop?: () => void
-}
-
-function SendButton({ color = 'blue', loading, disabled, handleClickStop }: SendButtonProps) {
-  const classes = useMemo(() => {
-    switch (color) {
-      case 'primary':
-        return 'bg-primary-800 hover:bg-primary-700 disabled:hover:bg-primary-800'
-      case 'blue':
-        return 'bg-blue-400 hover:bg-blue-300 disabled:hover:bg-blue-400'
-      case 'green':
-        return 'bg-emerald-400 hover:bg-emerald-300 disabled:hover:bg-emerald-400'
-      default:
-        throw new Error(`Invalid color type: ${color}`)
-    }
-  }, [color])
-  return (
-    <>
-      {loading ? (
-        <button
-          type='button'
-          onClick={handleClickStop}
-          className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
-        >
-          <StopIcon className='fill-white' size={18} />
-        </button>
-      ) : (
-        <button
-          type='submit'
-          disabled={disabled}
-          className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
-        >
-          <ArrowUpIcon className='fill-white' size={22} />
-        </button>
-      )}
-    </>
   )
 }
