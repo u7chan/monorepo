@@ -51,6 +51,7 @@ const conversationsGetMock = vi.fn()
 const conversationsPostMock = vi.fn()
 const conversationsDeleteMock = vi.fn()
 const messagesDeleteMock = vi.fn()
+const clearActiveChatSessionMock = vi.fn()
 let hasActiveChatSessionMock = false
 
 let chatMainProps: Record<string, unknown> | null = null
@@ -116,6 +117,7 @@ vi.mock('#/client/components/chat/chat-main', () => ({
 }))
 
 vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
+  clearActiveChatSession: clearActiveChatSessionMock,
   hasActiveChatSession: () => hasActiveChatSessionMock,
 }))
 
@@ -228,7 +230,7 @@ describe('Chat page', () => {
     })
   })
 
-  it('初回保存では refetch 完了まで conversationId 付き URL へ遷移しない', async () => {
+  it('初回保存では refetch 完了を待たずに conversationId 付き URL へ遷移する', async () => {
     const deferred = createDeferred<{ data: typeof conversations }>()
     const refetchMock = vi.fn().mockReturnValue(deferred.promise)
     useQueryMock.mockReturnValue({
@@ -249,16 +251,17 @@ describe('Chat page', () => {
 
     const savePromise = onConversationChange?.(conversations[0])
 
-    expect(navigateMock).not.toHaveBeenCalled()
-
-    deferred.resolve({ data: conversations })
-    await savePromise
-
     expect(navigateMock).toHaveBeenCalledWith({
       to: '/chat',
       search: { conversationId: 'conversation-1' },
       replace: true,
     })
+    expect(clearActiveChatSessionMock).not.toHaveBeenCalled()
+
+    deferred.resolve({ data: conversations })
+    await savePromise
+
+    expect(clearActiveChatSessionMock).toHaveBeenCalledTimes(1)
   })
 
   it('会話履歴選択時は conversationId 付き URL へ遷移する', async () => {
@@ -311,5 +314,26 @@ describe('Chat page', () => {
 
     expect(chatMainProps).not.toBeNull()
     expect(view.queryByText('会話を読み込み中...')).toBeNull()
+  })
+
+  it('active session がある場合は DB 未反映の conversationId でも URL を消さない', async () => {
+    hasActiveChatSessionMock = true
+    useSearchMock.mockReturnValue({ conversationId: 'conversation-1' })
+    useQueryMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+
+    const { Chat } = await import('#/client/pages/chat')
+    render(<Chat />)
+
+    expect(chatMainProps).not.toBeNull()
+    expect(navigateMock).not.toHaveBeenCalledWith({
+      to: '/chat',
+      search: { conversationId: undefined },
+      replace: true,
+    })
   })
 })

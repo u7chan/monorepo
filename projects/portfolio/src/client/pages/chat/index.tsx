@@ -2,7 +2,7 @@ import { ChatLayout } from '#/client/components/chat/chat-layout'
 import { ChatMain } from '#/client/components/chat/chat-main'
 import { ChatSettings } from '#/client/components/chat/chat-settings'
 import { ConversationHistory } from '#/client/components/chat/conversation-history'
-import { hasActiveChatSession } from '#/client/components/chat/hooks/use-stream-processor'
+import { clearActiveChatSession, hasActiveChatSession } from '#/client/components/chat/hooks/use-stream-processor'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import { useChatPageState } from '#/client/pages/chat/use-chat-page-state'
 import { useMetaProps } from '#/client/pages/home'
@@ -84,7 +84,7 @@ export function Chat() {
       return
     }
 
-    if (query.isLoading) {
+    if (query.isLoading || hasActiveChatSession()) {
       return
     }
 
@@ -154,17 +154,15 @@ export function Chat() {
     if (!email) return
 
     try {
+      if (conversation.id !== selectedConversationId) {
+        navigateToConversation(conversation.id, shouldReplace)
+      }
+
       const res = await client.api.conversations.$post({ json: conversation })
       if (res.status === 200) {
         // 成功した場合は、会話履歴を再取得
-        const refetched = await query.refetch()
-
-        if (
-          conversation.id !== selectedConversationId &&
-          (refetched.data ?? []).some(({ id }) => id === conversation.id)
-        ) {
-          navigateToConversation(conversation.id, shouldReplace)
-        }
+        await query.refetch()
+        clearActiveChatSession()
       }
     } catch (error) {
       console.error('Error updating conversation:', error)

@@ -373,6 +373,7 @@ describe('useStreamProcessor', () => {
       },
     })
     expect(onSessionConversation).toHaveBeenCalledWith(conversation, 'message-assistant-1')
+    expect(sessionStorage.getItem('portfolio.chat.activeSession')).toContain('session-1')
     expect(chatSessionPostMock).toHaveBeenCalledWith(
       expect.objectContaining({
         header: {

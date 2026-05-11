@@ -12,6 +12,10 @@ export function hasActiveChatSession(): boolean {
   return readActiveSession() !== null
 }
 
+export function clearActiveChatSession(): void {
+  clearActiveSession()
+}
+
 interface SubmitChatCompletionParams {
   header: {
     apiKey: string
@@ -32,9 +36,10 @@ interface SubmitChatCompletionParams {
 interface UseStreamProcessorParams {
   onSubmitting?: (submitting: boolean) => void
   onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
+  onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
 }
 
-export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseStreamProcessorParams = {}) {
+export function useStreamProcessor({ onSubmitting, onSessionConversation, onSessionResult }: UseStreamProcessorParams = {}) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const activeSessionIdRef = useRef<string | null>(null)
@@ -88,6 +93,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
               maxTokens,
               reasoningEffort,
               onSessionConversation,
+              onSessionResult,
               onStream: (stream) => setStream(stream),
             })
           : await sendNonStreamCompletion({
@@ -110,7 +116,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
         onSubmitting?.(false)
       }
     },
-    [onSessionConversation, onSubmitting]
+    [onSessionConversation, onSessionResult, onSubmitting]
   )
 
   const resumeActiveChatCompletion = useCallback(async (): Promise<ResumeChatCompletionResult | null> => {
@@ -131,6 +137,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
         eventSourceRef,
         activeSessionIdRef,
         onSessionConversation,
+        onSessionResult,
         onStream: (stream) => setStream(stream),
       })
       if (!result.conversation) return null
@@ -147,7 +154,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
       setLoading(false)
       onSubmitting?.(false)
     }
-  }, [onSessionConversation, onSubmitting])
+  }, [onSessionConversation, onSessionResult, onSubmitting])
 
   return {
     loading,
@@ -226,6 +233,7 @@ const sendStreamCompletion = async (
     eventSourceRef: MutableRefObject<EventSource | null>
     activeSessionIdRef: MutableRefObject<string | null>
     onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
+    onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
     onStream?: (stream: ChatStreamState) => void
   }
 ): Promise<ChatResponse | null> => {
@@ -266,6 +274,7 @@ const sendStreamCompletion = async (
       eventSourceRef: req.eventSourceRef,
       activeSessionIdRef: req.activeSessionIdRef,
       onSessionConversation: req.onSessionConversation,
+      onSessionResult: req.onSessionResult,
       onStream: req.onStream,
     })
 
@@ -319,6 +328,7 @@ type ReceiveSessionEventsParams = {
   eventSourceRef: MutableRefObject<EventSource | null>
   activeSessionIdRef: MutableRefObject<string | null>
   onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
+  onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
   onStream?: (stream: ChatStreamState) => void
 }
 
@@ -329,6 +339,7 @@ const receiveSessionEvents = ({
   eventSourceRef,
   activeSessionIdRef,
   onSessionConversation,
+  onSessionResult,
   onStream,
 }: ReceiveSessionEventsParams): Promise<Omit<ResumeChatCompletionResult, 'responseTimeMs'>> =>
   new Promise((resolve, reject) => {
@@ -357,7 +368,6 @@ const receiveSessionEvents = ({
       settled = true
       cleanup()
       activeSessionIdRef.current = null
-      clearActiveSession()
       resolve({
         conversation: conversation as Conversation,
         assistantMessageId,
@@ -428,14 +438,21 @@ const receiveSessionEvents = ({
           return
         }
 
-        finish({
+        const result = {
           id,
           created,
           model,
           finishReason,
           message: accumulated,
           usage,
-        })
+        }
+        const sessionResult = {
+          conversation: conversation as Conversation,
+          assistantMessageId,
+          result,
+        }
+        onSessionResult?.(sessionResult)
+        finish(sessionResult.result)
       }
     }
 
