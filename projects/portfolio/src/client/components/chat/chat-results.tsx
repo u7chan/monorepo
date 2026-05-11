@@ -60,6 +60,7 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
 
   const { model, finishReason, responseTimeMs, usage, imageContext, apiContextMessages } = metadata
   const dumpApiContextMessages = apiContextMessages ?? buildApiContextDump(messages, imageContext)
+  const showImageContext = imageContext && (imageContext.sent > 0 || imageContext.historyOnly > 0)
 
   return (
     <div className='mt-2'>
@@ -90,7 +91,7 @@ function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
           <span>messages: ({messages.length})</span>
           <EyeIcon size={14} className='stroke-current' />
         </button>
-        {imageContext && (
+        {showImageContext && (
           <span className='rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-400 dark:bg-gray-700 dark:text-gray-400'>
             images: {imageContext.sent} sent / {imageContext.historyOnly} history-only
           </span>
