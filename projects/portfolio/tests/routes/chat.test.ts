@@ -11,6 +11,7 @@ const importSubject = async () => {
   const chatStubCompletionsMock = vi.fn()
   const chatStubStreamCompletionsMock = vi.fn()
   const getSignedCookieMock = vi.fn().mockResolvedValue('test@example.com')
+  const upsertConversationMock = vi.fn()
 
   vi.doMock('#/server/features/chat/chat', async () => {
     const actual = await vi.importActual<typeof import('#/server/features/chat/chat')>('#/server/features/chat/chat')
@@ -42,6 +43,11 @@ const importSubject = async () => {
       deleteCookie: vi.fn(),
     }
   })
+  vi.doMock('#/server/features/chat-conversations/repository', () => ({
+    chatConversationRepository: {
+      upsert: upsertConversationMock,
+    },
+  }))
 
   const { chatRoutes } = await import('#/server/routes/chat')
 
@@ -50,6 +56,8 @@ const importSubject = async () => {
     completionsMock,
     chatStubCompletionsMock,
     chatStubStreamCompletionsMock,
+    getSignedCookieMock,
+    upsertConversationMock,
     loggerMock,
   }
 }
@@ -57,6 +65,7 @@ const importSubject = async () => {
 describe('chatRoutes', () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.unstubAllEnvs()
     vi.useRealTimers()
   })
 
@@ -542,6 +551,178 @@ describe('chatRoutes', () => {
         error: "Invalid request body 'model'",
         code: 'VALIDATION_ERROR',
       })
+    })
+  })
+
+  describe('/api/chat/sessions', () => {
+    const conversation = {
+      id: 'conversation-1',
+      title: 'hello',
+      messages: [
+        {
+          id: 'message-user-1',
+          role: 'user',
+          content: 'hello',
+          metadata: {
+            model: 'gpt-test',
+          },
+        },
+      ],
+    }
+
+    const createStreamChunk = async function* () {
+      yield {
+        id: 'chunk-1',
+        object: 'chat.completion.chunk',
+        created: 1700000000,
+        model: 'gpt-test',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: 'hello',
+            },
+            finish_reason: null,
+          },
+        ],
+        usage: null,
+      }
+      yield {
+        id: 'chunk-2',
+        object: 'chat.completion.chunk',
+        created: 1700000000,
+        model: 'gpt-test',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+        usage: null,
+      }
+    }
+
+    const waitForCompletedSession = async (
+      chatRoutes: Awaited<ReturnType<typeof importSubject>>['chatRoutes'],
+      sessionId: string
+    ) => {
+      await vi.waitFor(async () => {
+        const res = await chatRoutes.request(`/api/chat/sessions/${sessionId}`)
+        const body = (await res.json()) as { session: { status: string } }
+        expect(body.session.status).toBe('completed')
+      })
+    }
+
+    it('session を作成し、SSE events で replay できる', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        [Symbol.asyncIterator]: createStreamChunk,
+      })
+
+      const startRes = await chatRoutes.request('/api/chat/sessions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          conversation,
+          assistantMessageId: 'message-assistant-1',
+          model: 'gpt-test',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      })
+
+      expect(startRes.status).toBe(200)
+      const { sessionId } = (await startRes.json()) as { sessionId: string }
+      await waitForCompletedSession(chatRoutes, sessionId)
+      const eventsRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}/events`)
+      const body = await eventsRes.text()
+
+      expect(eventsRes.headers.get('content-type')).toContain('text/event-stream')
+      expect(body).toContain('event: user_message')
+      expect(body).toContain('event: assistant_delta')
+      expect(body).toContain('event: assistant_finish')
+      expect(body).toContain('event: done')
+    })
+
+    it('ログイン時は terminal 後に会話を保存する', async () => {
+      vi.stubEnv('DATABASE_URL', 'postgres://example')
+      const { chatRoutes, completionsMock, upsertConversationMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        [Symbol.asyncIterator]: createStreamChunk,
+      })
+
+      const startRes = await chatRoutes.request('/api/chat/sessions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          conversation,
+          assistantMessageId: 'message-assistant-1',
+          model: 'gpt-test',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      })
+      const { sessionId } = (await startRes.json()) as { sessionId: string }
+
+      await waitForCompletedSession(chatRoutes, sessionId)
+      const eventsRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}/events`)
+      await eventsRes.text()
+
+      expect(upsertConversationMock).toHaveBeenCalledWith(
+        'postgres://example',
+        'test@example.com',
+        expect.objectContaining({
+          id: 'conversation-1',
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'message-assistant-1',
+              role: 'assistant',
+              content: 'hello',
+            }),
+          ]),
+        })
+      )
+    })
+
+    it('未ログイン時は terminal 後に会話を保存しない', async () => {
+      vi.stubEnv('DATABASE_URL', 'postgres://example')
+      const { chatRoutes, completionsMock, getSignedCookieMock, upsertConversationMock } = await importSubject()
+      getSignedCookieMock.mockResolvedValue(null)
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        [Symbol.asyncIterator]: createStreamChunk,
+      })
+
+      const startRes = await chatRoutes.request('/api/chat/sessions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          conversation,
+          assistantMessageId: 'message-assistant-1',
+          model: 'gpt-test',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      })
+      const { sessionId } = (await startRes.json()) as { sessionId: string }
+
+      await waitForCompletedSession(chatRoutes, sessionId)
+      const eventsRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}/events`)
+      await eventsRes.text()
+
+      expect(upsertConversationMock).not.toHaveBeenCalled()
     })
   })
 

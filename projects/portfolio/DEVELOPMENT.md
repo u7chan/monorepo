@@ -54,6 +54,12 @@ bun run test:coverage
 bun run typegen
 ```
 
+## Chat Session Config
+
+- `CHAT_CACHE_URL`: 将来の Redis 互換 Cache 接続先です。未設定時はプロセス内 InMemory Cache を使います。
+- `CHAT_SESSION_TTL_SECONDS`: terminal 後にチャットセッションを Cache に残す秒数です。未ログイン session はこの TTL 後に破棄されます。
+- `CHAT_DISCONNECT_GRACE_MS`: SSE 切断後、再接続を待って生成を継続する猶予時間です。猶予超過かつ購読者なしの場合は生成をキャンセルします。
+
 ### Build
 
 ```sh

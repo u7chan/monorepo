@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ApiChatMessageSchema, ApiModeSchema, ReasoningEffortSchema } from './chat'
+import { ApiChatMessageSchema, ApiModeSchema, ConversationSchema, ReasoningEffortSchema } from './chat'
 
 // ============================================
 // /api/chat, /api/chat/stream 公開コントラクト
@@ -90,6 +90,90 @@ export const ChatStreamEventSchema = z.discriminatedUnion('event', [
 ])
 
 export type ChatStreamEvent = z.infer<typeof ChatStreamEventSchema>
+
+// ============================================
+// セッション管理付きストリーム
+// ============================================
+
+export const ChatSessionStatusSchema = z.enum(['running', 'completed', 'cancelled', 'error'])
+
+export type ChatSessionStatus = z.infer<typeof ChatSessionStatusSchema>
+
+export const ChatSessionStartRequestSchema = ChatApiRequestSchema.extend({
+  conversation: ConversationSchema,
+  assistantMessageId: z.string().min(1),
+})
+
+export type ChatSessionStartRequest = z.infer<typeof ChatSessionStartRequestSchema>
+
+export const ChatSessionStartResponseSchema = z.object({
+  sessionId: z.string(),
+  status: ChatSessionStatusSchema,
+})
+
+export type ChatSessionStartResponse = z.infer<typeof ChatSessionStartResponseSchema>
+
+export const ChatSessionMetaSchema = z.object({
+  id: z.string(),
+  status: ChatSessionStatusSchema,
+  conversation: ConversationSchema,
+  assistantMessageId: z.string(),
+  apiMode: ApiModeSchema,
+  model: z.string(),
+  email: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  completedAt: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
+export type ChatSessionMeta = z.infer<typeof ChatSessionMetaSchema>
+
+const ChatSessionEventBaseSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  createdAt: z.string(),
+})
+
+export const ChatSessionEventSchema = z.discriminatedUnion('type', [
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('user_message'),
+    data: z.object({
+      conversation: ConversationSchema,
+      assistantMessageId: z.string(),
+    }),
+  }),
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('assistant_delta'),
+    data: ChatStreamDeltaEventSchema,
+  }),
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('assistant_finish'),
+    data: ChatStreamFinishEventSchema,
+  }),
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('usage'),
+    data: ChatStreamUsageEventSchema,
+  }),
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('done'),
+    data: z.object({}),
+  }),
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('cancelled'),
+    data: z.object({
+      reason: z.string(),
+    }),
+  }),
+  ChatSessionEventBaseSchema.extend({
+    type: z.literal('error'),
+    data: z.object({
+      message: z.string(),
+    }),
+  }),
+])
+
+export type ChatSessionEvent = z.infer<typeof ChatSessionEventSchema>
 
 // ============================================
 // 統一エラーレスポンス

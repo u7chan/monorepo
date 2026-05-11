@@ -16,6 +16,9 @@ export type Env = Partial<{
   FILE_SERVER_PUBLIC_URL: string
   FILE_SERVER_ADMIN_USERNAME: string
   FILE_SERVER_ADMIN_PASSWORD: string
+  CHAT_CACHE_URL: string
+  CHAT_SESSION_TTL_SECONDS: string
+  CHAT_DISCONNECT_GRACE_MS: string
 }>
 
 export type HonoEnv = {

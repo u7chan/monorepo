@@ -1,19 +1,25 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { chatSessionManager, isTerminalSessionEvent } from '#/server/features/chat-sessions/session-manager'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
 import { logger } from '#/server/lib/logger'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
-import { ChatApiRequestSchema, type ChatApiRequest } from '#/types/chat-api'
+import {
+  ChatApiRequestSchema,
+  ChatSessionStartRequestSchema,
+  type ChatApiRequest,
+  type ChatSessionEvent,
+} from '#/types/chat-api'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
 import type { HonoEnv } from './shared'
-import { getServerEnv } from './shared'
+import { getServerEnv, getSignedInEmail } from './shared'
 
 const ChatHeaderSchema = z.object({
   'api-key': z.string().min(1),
@@ -92,6 +98,21 @@ const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) =
   )
 })
 
+const chatSessionStartBodyValidator = sValidator('json', ChatSessionStartRequestSchema, (result, c) => {
+  if (result.success) return
+
+  const issue = result.error[0]
+  const fieldName = formatValidationPath(issue?.path)
+
+  return c.json(
+    {
+      error: `Invalid request body '${fieldName}'`,
+      code: 'VALIDATION_ERROR' as const,
+    },
+    400
+  )
+})
+
 function normalizeApiMode(apiMode: ApiMode | undefined): ApiMode {
   return apiMode ?? 'chat_completions'
 }
@@ -139,6 +160,27 @@ function buildChatRequestLog({
     },
     providerRequest,
   }
+}
+
+function getChatSessionTtlSeconds(c: Parameters<typeof getServerEnv>[0]): number {
+  const value = Number(getServerEnv(c).CHAT_SESSION_TTL_SECONDS)
+  return Number.isFinite(value) && value > 0 ? value : 60 * 30
+}
+
+function getChatDisconnectGraceMs(c: Parameters<typeof getServerEnv>[0]): number {
+  const value = Number(getServerEnv(c).CHAT_DISCONNECT_GRACE_MS)
+  return Number.isFinite(value) && value >= 0 ? value : 30_000
+}
+
+async function writeSessionEvent(
+  stream: Parameters<Parameters<typeof streamSSE>[1]>[0],
+  event: ChatSessionEvent
+): Promise<void> {
+  await stream.writeSSE({
+    id: event.id,
+    event: event.type,
+    data: JSON.stringify(event),
+  })
 }
 
 const streamStubCompletion = (
@@ -288,6 +330,132 @@ const chatRoutes = new Hono<HonoEnv>()
         await stream.writeSSE({ data: '[DONE]' })
       }
     })
+  })
+  .post('/api/chat/sessions', chatHeaderValidator, chatSessionStartBodyValidator, async (c) => {
+    const header = c.req.valid('header')
+    const req = c.req.valid('json')
+    const apiMode = normalizeApiMode(req.apiMode)
+    const requestLogger = c.var.logger ?? logger
+    const { DATABASE_URL } = getServerEnv(c)
+    const email = await getSignedInEmail(c)
+
+    requestLogger.debug(
+      {
+        request: buildChatRequestLog({
+          header,
+          req,
+          apiMode,
+          stream: true,
+          includeUsage: true,
+        }),
+      },
+      'Session chat request received'
+    )
+
+    const session = await chatSessionManager.startSession({
+      header,
+      req: {
+        ...req,
+        apiMode,
+      },
+      apiMode,
+      email,
+      databaseUrl: DATABASE_URL,
+      ttlSeconds: getChatSessionTtlSeconds(c),
+      disconnectGraceMs: getChatDisconnectGraceMs(c),
+    })
+
+    return c.json({ sessionId: session.id, status: session.status })
+  })
+  .get('/api/chat/sessions/:sessionId', async (c) => {
+    const sessionId = c.req.param('sessionId')
+    const session = await chatSessionManager.getSession(sessionId)
+
+    if (!session) {
+      return c.json({ error: 'Session not found', code: 'VALIDATION_ERROR' as const }, 404)
+    }
+
+    return c.json({ session })
+  })
+  .get('/api/chat/sessions/:sessionId/events', async (c) => {
+    const sessionId = c.req.param('sessionId')
+    const session = await chatSessionManager.getSession(sessionId)
+
+    if (!session) {
+      return c.json({ error: 'Session not found', code: 'VALIDATION_ERROR' as const }, 404)
+    }
+
+    const afterEventId = c.req.header('Last-Event-ID') || c.req.query('afterEventId') || undefined
+    const disconnectGraceMs = getChatDisconnectGraceMs(c)
+
+    return streamSSE(c, async (stream) => {
+      let closed = false
+      let unsubscribe: (() => void) | null = null
+
+      const close = () => {
+        if (closed) return
+        closed = true
+        unsubscribe?.()
+        chatSessionManager.scheduleDisconnectGrace(sessionId, disconnectGraceMs)
+      }
+
+      stream.onAbort(close)
+
+      let lastEventId = afterEventId
+      for (const event of await chatSessionManager.readEvents(sessionId, afterEventId)) {
+        await writeSessionEvent(stream, event)
+        lastEventId = event.id
+        if (isTerminalSessionEvent(event)) {
+          close()
+          return
+        }
+      }
+
+      if ((await chatSessionManager.getSession(sessionId))?.status !== 'running') {
+        close()
+        return
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        void chatSessionManager
+          .subscribe(sessionId, (event) => {
+            void writeSessionEvent(stream, event).then(() => {
+              lastEventId = event.id
+              if (isTerminalSessionEvent(event)) {
+                close()
+                resolve()
+              }
+            })
+          })
+          .then((nextUnsubscribe) => {
+            unsubscribe = nextUnsubscribe
+            void chatSessionManager.readEvents(sessionId, lastEventId).then(async (events) => {
+              for (const event of events) {
+                await writeSessionEvent(stream, event)
+                lastEventId = event.id
+                if (isTerminalSessionEvent(event)) {
+                  close()
+                  resolve()
+                  return
+                }
+              }
+            })
+          })
+          .catch(reject)
+      })
+
+      close()
+    })
+  })
+  .post('/api/chat/sessions/:sessionId/cancel', async (c) => {
+    const sessionId = c.req.param('sessionId')
+    const session = await chatSessionManager.cancelSession(sessionId, 'user_requested')
+
+    if (!session) {
+      return c.json({ error: 'Session not found', code: 'VALIDATION_ERROR' as const }, 404)
+    }
+
+    return c.json({ status: session.status })
   })
   // Stub endpoint (OpenAI 互換、変更なし)
   .post('/api/chat/completions', sValidator('json', StubChatRequestSchema), async (c) => {

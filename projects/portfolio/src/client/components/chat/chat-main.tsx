@@ -10,7 +10,7 @@ import {
 import { useChatForm } from '#/client/components/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/components/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/components/chat/hooks/use-message-scroll'
-import { useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
+import { hasActiveChatSession, useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
 import { PromptTemplate, type TemplateInput } from '#/client/components/chat/prompt-template'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowDownIcon } from '#/client/components/svg/arrow-down-icon'
@@ -19,6 +19,7 @@ import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { Conversation, GeneratedCodeFile, Message } from '#/types'
+import type { ChatResponse } from '#/types/chat-api'
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
 
@@ -45,13 +46,77 @@ export function ChatMain({
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const prevConversationIdRef = useRef<string | null>(null)
+  const sessionOwnedSnapshotRef = useRef<{ conversationId: string; messageIds: string[] } | null>(null)
 
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [isSavingConversation, setIsSavingConversation] = useState(false)
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
-  const { loading, stream, cancelStream, submitChatCompletion } = useStreamProcessor({
+  const resumeStartedRef = useRef(false)
+  const markSessionOwnedSnapshot = useCallback((conversation: Pick<Conversation, 'id' | 'messages'>) => {
+    sessionOwnedSnapshotRef.current = {
+      conversationId: conversation.id,
+      messageIds: conversation.messages.map(({ id }) => id).filter((id): id is string => !!id),
+    }
+  }, [])
+  const handleSessionConversation = useCallback(
+    (conversation: Conversation, assistantMessageId: string) => {
+      markSessionOwnedSnapshot(conversation)
+      setConversationId(conversation.id)
+      setMessages(conversation.messages)
+      setStreamMessageId(assistantMessageId)
+    },
+    [markSessionOwnedSnapshot]
+  )
+  const buildAssistantMessage = useCallback(
+    (assistantMessageId: string, result: ChatResponse, responseTimeMs: number): Message => ({
+      id: assistantMessageId,
+      role: 'assistant' as const,
+      content: result.message.content,
+      reasoningContent: result.message.reasoningContent,
+      metadata: {
+        model: result.model,
+        apiMode: settings.apiMode,
+        finishReason: result.finishReason,
+        responseTimeMs,
+        usage: {
+          promptTokens: result.usage?.promptTokens || 0,
+          completionTokens: result.usage?.completionTokens || 0,
+          totalTokens: result.usage?.totalTokens || 0,
+          reasoningTokens: result.usage?.reasoningTokens,
+        },
+      },
+    }),
+    [settings.apiMode]
+  )
+  const handleSessionResult = useCallback(
+    ({
+      conversation,
+      assistantMessageId,
+      result,
+    }: {
+      conversation: Conversation
+      assistantMessageId: string
+      result: ChatResponse | null
+    }) => {
+      if (!result) return
+
+      const assistantMessage = buildAssistantMessage(assistantMessageId, result, 0)
+      const finalMessages = [...conversation.messages, assistantMessage]
+      markSessionOwnedSnapshot({
+        id: conversation.id,
+        messages: finalMessages,
+      })
+      setConversationId(conversation.id)
+      setMessages(finalMessages)
+      setStreamMessageId(null)
+    },
+    [buildAssistantMessage, markSessionOwnedSnapshot]
+  )
+  const { loading, stream, cancelStream, submitChatCompletion, resumeActiveChatCompletion } = useStreamProcessor({
     onSubmitting,
+    onSessionConversation: handleSessionConversation,
+    onSessionResult: handleSessionResult,
   })
   const {
     input,
@@ -81,15 +146,66 @@ export function ChatMain({
   })
 
   useEffect(() => {
+    sessionOwnedSnapshotRef.current = null
     setMessages([])
     setConversationId(null)
     setStreamMessageId(null)
   }, [initTrigger])
 
+  useEffect(() => {
+    if (resumeStartedRef.current || !hasActiveChatSession()) {
+      return
+    }
+
+    resumeStartedRef.current = true
+    let mounted = true
+    void resumeActiveChatCompletion().then(async (resumed) => {
+      if (!mounted || !resumed?.conversation) return
+
+      const assistantMessage = resumed.result
+        ? buildAssistantMessage(resumed.assistantMessageId, resumed.result, resumed.responseTimeMs)
+        : null
+      const finalMessages = assistantMessage
+        ? [...resumed.conversation.messages, assistantMessage]
+        : resumed.conversation.messages
+
+      markSessionOwnedSnapshot({
+        id: resumed.conversation.id,
+        messages: finalMessages,
+      })
+      setConversationId(resumed.conversation.id)
+      setMessages(finalMessages)
+      setStreamMessageId(null)
+
+      if (assistantMessage) {
+        await onConversationChange?.({
+          ...resumed.conversation,
+          messages: finalMessages,
+        })
+      }
+    })
+
+    return () => {
+      mounted = false
+    }
+  }, [buildAssistantMessage, markSessionOwnedSnapshot, onConversationChange, resumeActiveChatCompletion])
+
   // 選択された会話のメッセージを設定
   useEffect(() => {
     if (!currentConversation) {
       return
+    }
+
+    const sessionOwnedSnapshot = sessionOwnedSnapshotRef.current
+    if (sessionOwnedSnapshot) {
+      if (currentConversation.id === sessionOwnedSnapshot.conversationId) {
+        const currentMessageIds = new Set(currentConversation.messages.map(({ id }) => id).filter(Boolean))
+        const hasCaughtUp = sessionOwnedSnapshot.messageIds.every((id) => currentMessageIds.has(id))
+        if (!hasCaughtUp) {
+          return
+        }
+      }
+      sessionOwnedSnapshotRef.current = null
     }
 
     // 会話が選択された時、そのメッセージをドメイン型のまま設定（変換不要）
@@ -140,6 +256,17 @@ export function ChatMain({
           ? [...(params.systemMessage ? [params.systemMessage] : []), params.draftUserMessage]
           : [...messages, params.draftUserMessage]
       const assistantMessageId = uuidv7()
+      const currentConversationId = conversationId || uuidv7()
+      const draftConversation = {
+        id: currentConversationId,
+        title:
+          typeof params.draftUserMessage.content === 'string'
+            ? params.draftUserMessage.content.slice(0, CONVERSATION_TITLE_MAX_LENGTH)
+            : '',
+        messages: nextMessages,
+      }
+      markSessionOwnedSnapshot(draftConversation)
+      setConversationId(currentConversationId)
       setMessages(nextMessages)
       setStreamMessageId(assistantMessageId)
       resetAfterSubmit()
@@ -153,6 +280,8 @@ export function ChatMain({
         model: params.model,
         messages: params.apiMessages,
         streamMode: settings.streamMode,
+        conversation: draftConversation,
+        assistantMessageId,
         temperature: form.temperature,
         maxTokens: form.maxTokens,
         reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
@@ -185,16 +314,11 @@ export function ChatMain({
             : null
 
           const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
+          markSessionOwnedSnapshot({
+            id: currentConversationId,
+            messages: finalMessages,
+          })
           setMessages(finalMessages)
-
-          // 会話IDが指定されていない場合は会話IDを新規作成
-          const currentConversationId =
-            conversationId ||
-            (() => {
-              const newConversationId = uuidv7()
-              setConversationId(newConversationId)
-              return newConversationId
-            })()
 
           // 親コンポーネントに更新されたメッセージを通知（ドメイン型をそのまま渡す）
           setIsSavingConversation(true)
@@ -216,6 +340,7 @@ export function ChatMain({
       buildChatMessages,
       conversationId,
       messages,
+      markSessionOwnedSnapshot,
       onConversationChange,
       resetAfterSubmit,
       settings.apiKey,
@@ -308,6 +433,14 @@ export function ChatMain({
       const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.includeChatHistory)
       const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
+      const draftConversationId = conversationId || uuidv7()
+      const draftConversation = {
+        id: draftConversationId,
+        title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
+        messages: editedMessages,
+      }
+      markSessionOwnedSnapshot(draftConversation)
+      setConversationId(draftConversationId)
       setMessages(editedMessages)
       setStreamMessageId(assistantMessageId)
 
@@ -321,6 +454,8 @@ export function ChatMain({
           model: settings.fakeMode ? 'fakemode' : settings.model,
           messages: apiMessages,
           streamMode: settings.streamMode,
+          conversation: draftConversation,
+          assistantMessageId,
           temperature: settings.temperatureEnabled ? settings.temperature : undefined,
           maxTokens: settings.maxTokens ? Number(settings.maxTokens) : undefined,
           reasoningEffort: settings.reasoningEffortEnabled ? settings.reasoningEffort : undefined,
@@ -350,16 +485,16 @@ export function ChatMain({
           : null
 
         const finalMessages = assistantMessage ? [...editedMessages, assistantMessage] : editedMessages
+        markSessionOwnedSnapshot({
+          id: draftConversationId,
+          messages: finalMessages,
+        })
         setMessages(finalMessages)
-
-        if (!conversationId) {
-          return
-        }
 
         setIsSavingConversation(true)
         try {
           await onConversationChange?.({
-            id: conversationId,
+            id: draftConversationId,
             title: currentConversation?.title ?? nextText.trim().slice(0, CONVERSATION_TITLE_MAX_LENGTH),
             messages: finalMessages,
           })
@@ -375,6 +510,7 @@ export function ChatMain({
       currentConversation?.title,
       isSavingConversation,
       loading,
+      markSessionOwnedSnapshot,
       messages,
       onConversationChange,
       settings.apiKey,
