@@ -39,7 +39,11 @@ interface UseStreamProcessorParams {
   onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
 }
 
-export function useStreamProcessor({ onSubmitting, onSessionConversation, onSessionResult }: UseStreamProcessorParams = {}) {
+export function useStreamProcessor({
+  onSubmitting,
+  onSessionConversation,
+  onSessionResult,
+}: UseStreamProcessorParams = {}) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const activeSessionIdRef = useRef<string | null>(null)

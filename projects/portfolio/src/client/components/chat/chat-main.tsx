@@ -59,12 +59,15 @@ export function ChatMain({
       messageIds: conversation.messages.map(({ id }) => id).filter((id): id is string => !!id),
     }
   }, [])
-  const handleSessionConversation = useCallback((conversation: Conversation, assistantMessageId: string) => {
-    markSessionOwnedSnapshot(conversation)
-    setConversationId(conversation.id)
-    setMessages(conversation.messages)
-    setStreamMessageId(assistantMessageId)
-  }, [markSessionOwnedSnapshot])
+  const handleSessionConversation = useCallback(
+    (conversation: Conversation, assistantMessageId: string) => {
+      markSessionOwnedSnapshot(conversation)
+      setConversationId(conversation.id)
+      setMessages(conversation.messages)
+      setStreamMessageId(assistantMessageId)
+    },
+    [markSessionOwnedSnapshot]
+  )
   const buildAssistantMessage = useCallback(
     (assistantMessageId: string, result: ChatResponse, responseTimeMs: number): Message => ({
       id: assistantMessageId,
