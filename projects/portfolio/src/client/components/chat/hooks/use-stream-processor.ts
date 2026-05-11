@@ -43,7 +43,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
 
   const cancelStream = useCallback(() => {
     if (activeSessionIdRef.current) {
-      void fetch(`/api/chat/sessions/${activeSessionIdRef.current}/cancel`, { method: 'POST' })
+      void cancelChatSession(activeSessionIdRef.current)
     }
     eventSourceRef.current?.close()
     eventSourceRef.current = null
@@ -110,7 +110,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
         onSubmitting?.(false)
       }
     },
-    [onSubmitting]
+    [onSessionConversation, onSubmitting]
   )
 
   const resumeActiveChatCompletion = useCallback(async (): Promise<ResumeChatCompletionResult | null> => {
@@ -118,6 +118,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
     if (!activeSession) return null
 
     setLoading(true)
+    abortControllerRef.current = new AbortController()
     onSubmitting?.(true)
     activeSessionIdRef.current = activeSession.sessionId
     const requestStartTime = Date.now()
@@ -126,6 +127,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
       const result = await receiveSessionEvents({
         sessionId: activeSession.sessionId,
         afterEventId: undefined,
+        abortSignal: abortControllerRef.current.signal,
         eventSourceRef,
         activeSessionIdRef,
         onSessionConversation,
@@ -138,6 +140,7 @@ export function useStreamProcessor({ onSubmitting, onSessionConversation }: UseS
         responseTimeMs: Date.now() - requestStartTime,
       }
     } finally {
+      abortControllerRef.current = null
       activeSessionIdRef.current = null
       eventSourceRef.current = null
       setStream(null)
@@ -231,25 +234,22 @@ const sendStreamCompletion = async (
   }
 
   try {
-    const res = await fetch('/api/chat/sessions', {
-      method: 'POST',
-      signal: req.abortController.signal,
-      headers: {
-        'content-type': 'application/json',
-        'api-key': req.header.apiKey,
-        'base-url': req.header.baseURL,
-      },
-      body: JSON.stringify({
-        conversation: req.conversation,
-        assistantMessageId: req.assistantMessageId,
-        messages: req.messages,
-        model: req.model,
-        apiMode: req.apiMode,
-        temperature: req.temperature,
-        maxTokens: req.maxTokens,
-        reasoningEffort: req.reasoningEffort,
-      }),
-    })
+    const res = await client.api.chat.sessions.$post(
+      {
+        header: buildChatHeaders(req.header),
+        json: {
+          conversation: req.conversation,
+          assistantMessageId: req.assistantMessageId,
+          messages: req.messages,
+          model: req.model,
+          apiMode: req.apiMode,
+          temperature: req.temperature,
+          maxTokens: req.maxTokens,
+          reasoningEffort: req.reasoningEffort,
+        },
+      } as never,
+      { init: { signal: req.abortController.signal } }
+    )
 
     if (!res.ok) {
       const error = (await res.json()) as { error?: string }
@@ -262,6 +262,7 @@ const sendStreamCompletion = async (
 
     const result = await receiveSessionEvents({
       sessionId: data.sessionId,
+      abortSignal: req.abortController.signal,
       eventSourceRef: req.eventSourceRef,
       activeSessionIdRef: req.activeSessionIdRef,
       onSessionConversation: req.onSessionConversation,
@@ -276,6 +277,27 @@ const sendStreamCompletion = async (
       throw error
     }
   }
+}
+
+const buildChatHeaders = ({ apiKey, baseURL }: SendCompletionParams['header']) => ({
+  'api-key': apiKey,
+  'base-url': baseURL,
+})
+
+async function cancelChatSession(sessionId: string): Promise<void> {
+  try {
+    await client.api.chat.sessions[':sessionId'].cancel.$post({
+      param: { sessionId },
+    } as never)
+  } catch {
+    // キャンセル時のネットワーク失敗は既存の AbortController 側でローカル停止する。
+  }
+}
+
+function buildChatSessionEventsUrl(sessionId: string, afterEventId?: string): string {
+  const url = new URL(`/api/chat/sessions/${encodeURIComponent(sessionId)}/events`, window.location.origin)
+  if (afterEventId) url.searchParams.set('afterEventId', afterEventId)
+  return url.toString()
 }
 
 type ActiveSession = {
@@ -293,6 +315,7 @@ type ResumeChatCompletionResult = {
 type ReceiveSessionEventsParams = {
   sessionId: string
   afterEventId?: string
+  abortSignal?: AbortSignal
   eventSourceRef: MutableRefObject<EventSource | null>
   activeSessionIdRef: MutableRefObject<string | null>
   onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
@@ -302,6 +325,7 @@ type ReceiveSessionEventsParams = {
 const receiveSessionEvents = ({
   sessionId,
   afterEventId,
+  abortSignal,
   eventSourceRef,
   activeSessionIdRef,
   onSessionConversation,
@@ -317,16 +341,21 @@ const receiveSessionEvents = ({
     let usage: ChatUsage | null = null
     let conversation: Conversation | null = null
     let assistantMessageId = ''
+    let settled = false
 
-    const url = new URL(`/api/chat/sessions/${sessionId}/events`, window.location.origin)
-    if (afterEventId) url.searchParams.set('afterEventId', afterEventId)
-
-    const eventSource = new EventSource(url.toString())
+    const eventSource = new EventSource(buildChatSessionEventsUrl(sessionId, afterEventId))
     eventSourceRef.current = eventSource
 
-    const finish = (result: ChatResponse | null) => {
+    const cleanup = () => {
       eventSource.close()
       eventSourceRef.current = null
+      abortSignal?.removeEventListener('abort', handleAbort)
+    }
+
+    const finish = (result: ChatResponse | null) => {
+      if (settled) return
+      settled = true
+      cleanup()
       activeSessionIdRef.current = null
       clearActiveSession()
       resolve({
@@ -335,6 +364,23 @@ const receiveSessionEvents = ({
         result,
       })
     }
+
+    const fail = (error: unknown) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    function handleAbort() {
+      finish(null)
+    }
+
+    if (abortSignal?.aborted) {
+      finish(null)
+      return
+    }
+    abortSignal?.addEventListener('abort', handleAbort, { once: true })
 
     const handleSessionEvent = (sessionEvent: ChatSessionEvent) => {
       saveActiveSession({ sessionId, lastEventId: sessionEvent.id })
@@ -397,8 +443,7 @@ const receiveSessionEvents = ({
       try {
         handleSessionEvent(ChatSessionEventSchema.parse(JSON.parse(message.data)))
       } catch (error) {
-        reject(error)
-        eventSource.close()
+        fail(error)
       }
     })
 
@@ -415,15 +460,13 @@ const receiveSessionEvents = ({
         try {
           handleSessionEvent(ChatSessionEventSchema.parse(JSON.parse(message.data)))
         } catch (error) {
-          reject(error)
-          eventSource.close()
+          fail(error)
         }
       })
     }
 
     eventSource.onerror = () => {
-      reject(new Error('Session event stream failed.'))
-      eventSource.close()
+      // EventSource は一時切断時も onerror 後に自動再接続するため、terminal event を待つ。
     }
   })
 
@@ -440,10 +483,7 @@ const sendLegacyStreamCompletion = async (
 
   const res = await client.api.chat.stream.$post(
     {
-      header: {
-        'api-key': req.header.apiKey,
-        'base-url': req.header.baseURL,
-      },
+      header: buildChatHeaders(req.header),
       json: {
         messages: req.messages,
         model: req.model,
