@@ -18,9 +18,9 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   return (
-    <div className={'flex h-screen overflow-hidden'}>
+    <div className='flex min-h-dvh overflow-hidden md:h-dvh'>
       {/* デスクトップサイドバー */}
-      <div className='hidden md:flex h-screen w-16 flex-col justify-between border-r bg-gray-100 px-2 py-4 dark:border-gray-700 dark:bg-gray-800'>
+      <div className='hidden h-dvh w-16 flex-col justify-between border-r bg-gray-100 px-2 py-4 dark:border-gray-700 dark:bg-gray-800 md:flex'>
         {/* メニューリスト */}
         <nav className='flex flex-col space-y-2'>
           {menuItems.map((menuItem) => (
@@ -84,9 +84,7 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
       )}
 
       {/* メインコンテンツ */}
-      <main className='min-w-0 flex-1 overflow-y-hidden bg-white md:overflow-y-auto dark:bg-gray-900 pt-14 md:pt-0'>
-        {children}
-      </main>
+      <main className='min-h-0 min-w-0 flex-1 overflow-y-auto bg-white pt-14 dark:bg-gray-900 md:pt-0'>{children}</main>
     </div>
   )
 }
