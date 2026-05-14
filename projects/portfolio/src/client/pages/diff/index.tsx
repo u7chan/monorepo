@@ -51,6 +51,38 @@ line 3`
 const defaultAfter = `line 1
 modified line 2
 line 3`
+const diffViewerStyles = {
+  diffContainer: {
+    pre: {
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+      fontSize: '13px',
+      lineHeight: '1.45',
+      fontVariantLigatures: 'none',
+      tabSize: 2,
+    },
+  },
+  contentText: {
+    fontSize: '13px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+    letterSpacing: '0',
+  },
+  codeFoldContent: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+  },
+  lineNumber: {
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+  },
+  marker: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+  },
+  wordDiff: {
+    display: 'inline',
+    padding: '0 1px',
+    borderRadius: 0,
+    lineHeight: 'inherit',
+  },
+}
 
 export function Diff() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -217,7 +249,7 @@ export function Diff() {
               newValue={afterCode}
               splitView={!isMobile}
               useDarkTheme={isDarkTheme}
-              styles={{ contentText: { fontSize: '12px' }, lineNumber: { fontSize: '12px' } }}
+              styles={diffViewerStyles}
             />
           </div>
         )}
