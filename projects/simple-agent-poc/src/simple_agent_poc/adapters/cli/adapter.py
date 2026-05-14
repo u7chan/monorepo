@@ -25,6 +25,12 @@ class IndicatorRunner(Protocol):
     ) -> RunAgentResponse: ...
 
 
+class WelcomeRenderer(Protocol):
+    """Render the CLI welcome banner."""
+
+    def __call__(self, agent_id: str = "default") -> None: ...
+
+
 class CLIAdapter:
     """Thin stdin/stdout adapter around the shared agent use case."""
 
@@ -36,7 +42,7 @@ class CLIAdapter:
         input_reader: Callable[[], str] = get_user_input,
         response_renderer: Callable[[RunAgentResponse], None] = show_agent_response,
         error_renderer: Callable[[Exception], None] = show_error,
-        welcome_renderer: Callable[[], None] = show_welcome,
+        welcome_renderer: WelcomeRenderer = show_welcome,
         exit_renderer: Callable[[], None] = show_exit_message,
         indicator_runner: IndicatorRunner = with_indicator,
     ) -> None:
@@ -52,7 +58,7 @@ class CLIAdapter:
 
     def run(self) -> None:
         """Start the interactive CLI loop."""
-        self._welcome_renderer()
+        self._welcome_renderer(self._agent_id)
 
         while True:
             try:
