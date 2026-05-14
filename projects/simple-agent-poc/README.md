@@ -104,7 +104,7 @@ agents:
     system_prompt: |
       You are an AI assistant.
       Current datetime: {current_datetime}
-    temperature: 0.2
+    temperature: null
     tools: []
 
   researcher:
@@ -112,7 +112,7 @@ agents:
     system_prompt: |
       You are a research-focused assistant.
       Current datetime: {current_datetime}
-    temperature: 0.1
+    temperature: null
     tools: []
 ```
 
@@ -120,7 +120,7 @@ The YAML file must contain `agents.default`. Each agent supports these fields:
 
 - `model`: required LiteLLM model name.
 - `system_prompt`: required prompt template. `{current_datetime}` is filled at session start.
-- `temperature`: optional numeric generation parameter.
+- `temperature`: optional numeric generation parameter. `null` or omission means it is not sent to the LLM API.
 - `tools`: optional list reserved for future tool-calling support.
 
 Validation happens at startup for production wiring, and per request for unknown `agent_id`

@@ -12,7 +12,7 @@ agents:
       5. Use the current temporal context when relevant to the user's query.
 
       Current datetime: {current_datetime}
-    temperature: 0.2
+    temperature: null
     tools: []
 
   researcher:
@@ -20,5 +20,5 @@ agents:
     system_prompt: |
       You are a research-focused assistant.
       Current datetime: {current_datetime}
-    temperature: 0.1
+    temperature: null
     tools: []

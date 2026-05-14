@@ -61,6 +61,21 @@ agents:
 
         assert registry.get("default").model == "gpt-4.1-nano"
 
+    def test_allows_null_temperature(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-5.4-mini",
+                        "system_prompt": "Prompt",
+                        "temperature": None,
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").temperature is None
+
     def test_rejects_missing_default_agent(self) -> None:
         with pytest.raises(ValidationError, match="default agent"):
             AgentDefinitionRegistry.from_mapping({"agents": {}})

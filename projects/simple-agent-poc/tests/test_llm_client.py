@@ -78,6 +78,27 @@ class TestLiteLLMClient:
         )
 
     @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_omits_null_temperature(self, mock_completion: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Hello, world!"
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 5
+        mock_response.usage.total_tokens = 15
+        mock_completion.return_value = mock_response
+
+        client = LiteLLMClient(model="gpt-5.4-mini", temperature=None)
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        client.complete(messages)
+
+        mock_completion.assert_called_once_with(
+            model="gpt-5.4-mini",
+            messages=messages,
+            stream=False,
+        )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_authentication_error(self, mock_completion: MagicMock) -> None:
         mock_completion.side_effect = LiteLLMAuthError(
             "Invalid API key",
