@@ -6,6 +6,7 @@ from simple_agent_poc.adapters.http.api import create_app
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.ports import LLMClient
 from simple_agent_poc.application.use_cases import RunAgentUseCase
+from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMResponse, Message
 
 
@@ -33,9 +34,26 @@ class StubLLMClient(LLMClient):
 def unused_use_case_factory() -> RunAgentUseCase:
     """Build a minimal use case for requests that should fail validation first."""
     return RunAgentUseCase(
-        llm_client=StubLLMClient(reply="unused"),
+        llm_client_factory=lambda _agent_definition: StubLLMClient(reply="unused"),
         session_store=InMemorySessionStore(),
-        system_prompt="System prompt",
+        agent_definitions=build_registry(),
+    )
+
+
+def build_registry() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "default-model",
+                    "system_prompt": "System prompt",
+                },
+                "researcher": {
+                    "model": "research-model",
+                    "system_prompt": "Research prompt",
+                },
+            }
+        }
     )
 
 
@@ -46,9 +64,9 @@ class TestAPI:
         llm_client = StubLLMClient(reply="Hello, user!")
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client=llm_client,
+                llm_client_factory=lambda _agent_definition: llm_client,
                 session_store=InMemorySessionStore(),
-                system_prompt="System prompt",
+                agent_definitions=build_registry(),
             )
         )
         client = TestClient(app)
@@ -85,9 +103,9 @@ class TestAPI:
 
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client=next(llm_clients),
+                llm_client_factory=lambda _agent_definition: next(llm_clients),
                 session_store=store,
-                system_prompt="System prompt",
+                agent_definitions=build_registry(),
             )
         )
         client = TestClient(app)
@@ -118,9 +136,9 @@ class TestAPI:
 
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client=next(llm_clients),
+                llm_client_factory=lambda _agent_definition: next(llm_clients),
                 session_store=store,
-                system_prompt="System prompt",
+                agent_definitions=build_registry(),
             )
         )
         client = TestClient(app)
@@ -139,9 +157,11 @@ class TestAPI:
     def test_chat_returns_404_for_unknown_session_header(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client=StubLLMClient(reply="unused"),
+                llm_client_factory=lambda _agent_definition: StubLLMClient(
+                    reply="unused"
+                ),
                 session_store=InMemorySessionStore(),
-                system_prompt="System prompt",
+                agent_definitions=build_registry(),
             )
         )
         client = TestClient(app)
@@ -158,9 +178,11 @@ class TestAPI:
     def test_chat_returns_400_for_conflicting_session_transports(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client=StubLLMClient(reply="unused"),
+                llm_client_factory=lambda _agent_definition: StubLLMClient(
+                    reply="unused"
+                ),
                 session_store=InMemorySessionStore(),
-                system_prompt="System prompt",
+                agent_definitions=build_registry(),
             )
         )
         client = TestClient(app)
@@ -177,4 +199,64 @@ class TestAPI:
                 "Conflicting session_id values were provided in the "
                 "Session-Id header and request body."
             )
+        }
+
+    def test_chat_uses_body_agent_id(self) -> None:
+        llm_client = StubLLMClient(reply="Research reply")
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client_factory=lambda _agent_definition: llm_client,
+                session_store=InMemorySessionStore(),
+                agent_definitions=build_registry(),
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/chat",
+            json={"message": "Hello", "agent_id": "researcher"},
+        )
+
+        assert response.status_code == 200
+        assert llm_client.calls[0] == [
+            {"role": "system", "content": "Research prompt"},
+            {"role": "user", "content": "Hello"},
+        ]
+
+    def test_chat_returns_400_for_unknown_agent_id(self) -> None:
+        app = create_app(use_case_factory=unused_use_case_factory)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/chat",
+            json={"message": "Hello", "agent_id": "missing"},
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Unknown agent_id: missing"}
+
+    def test_chat_returns_400_when_agent_changes_for_session(self) -> None:
+        store = InMemorySessionStore()
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client_factory=lambda _agent_definition: StubLLMClient(
+                    reply="Reply"
+                ),
+                session_store=store,
+                agent_definitions=build_registry(),
+            )
+        )
+        client = TestClient(app)
+
+        first_response = client.post("/api/chat", json={"message": "Hello"})
+        session_id = first_response.json()["session_id"]
+        second_response = client.post(
+            "/api/chat",
+            headers={"Session-Id": session_id},
+            json={"message": "Again", "agent_id": "researcher"},
+        )
+
+        assert second_response.status_code == 400
+        assert second_response.json() == {
+            "detail": "agent_id cannot be changed for an existing session"
         }

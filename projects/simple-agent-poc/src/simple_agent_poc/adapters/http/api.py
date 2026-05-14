@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from simple_agent_poc.application.dto import RunAgentRequest, RunAgentResponse
 from simple_agent_poc.application.use_cases import RunAgentUseCase
-from simple_agent_poc.core.types import SessionNotFoundError, Usage
+from simple_agent_poc.core.types import SessionNotFoundError, Usage, ValidationError
 from simple_agent_poc.entrypoints.bootstrap import create_run_agent_use_case_factory
 
 
@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
 
     message: str
     session_id: str | None = None
+    agent_id: str = "default"
 
     @field_validator("message")
     @classmethod
@@ -26,6 +27,14 @@ class ChatRequest(BaseModel):
         """Reject blank messages after trimming whitespace."""
         if not value:
             raise ValueError("message must not be blank")
+        return value
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_agent_id(cls, value: str) -> str:
+        """Reject blank agent ids after trimming whitespace."""
+        if not value:
+            raise ValueError("agent_id must not be blank")
         return value
 
 
@@ -100,11 +109,16 @@ def create_app(
                         header_session_id=session_id_header,
                         body_session_id=request.session_id,
                     ),
+                    agent_id=request.agent_id,
                 )
             )
         except SessionNotFoundError as error:
             raise HTTPException(
                 status_code=404, detail=error.display_message
+            ) from error
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=400, detail=error.display_message
             ) from error
 
         return ChatResponse.from_use_case_response(response)

@@ -10,13 +10,21 @@ class ConversationSession:
     """Conversation history identified by a session id."""
 
     session_id: str
+    agent_id: str = "default"
     messages: list[Message] = field(default_factory=list)
 
     @classmethod
-    def start(cls, *, session_id: str, system_prompt: str) -> "ConversationSession":
+    def start(
+        cls,
+        *,
+        session_id: str,
+        agent_id: str = "default",
+        system_prompt: str,
+    ) -> "ConversationSession":
         """Create a new session with its initial system prompt."""
         return cls(
             session_id=session_id,
+            agent_id=agent_id,
             messages=[{"role": "system", "content": system_prompt}],
         )
 

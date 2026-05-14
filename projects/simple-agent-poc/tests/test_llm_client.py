@@ -8,7 +8,11 @@ from litellm.exceptions import (
     RateLimitError as LiteLLMRateLimitError,
 )
 
-from simple_agent_poc.adapters.llm.litellm_client import LiteLLMClient
+from simple_agent_poc.adapters.llm.litellm_client import (
+    LiteLLMClient,
+    LiteLLMClientFactory,
+)
+from simple_agent_poc.core.agent_definition import AgentDefinition
 from simple_agent_poc.core.types import (
     AuthenticationError,
     LLMError,
@@ -21,8 +25,9 @@ class TestLiteLLMClient:
     """Tests for LiteLLMClient class."""
 
     def test_init(self) -> None:
-        client = LiteLLMClient(model="gpt-4")
+        client = LiteLLMClient(model="gpt-4", temperature=0.2)
         assert client.model == "gpt-4"
+        assert client.temperature == 0.2
 
     @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_success(self, mock_completion: MagicMock) -> None:
@@ -48,6 +53,28 @@ class TestLiteLLMClient:
             model="gpt-4",
             messages=messages,
             stream=False,
+        )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_passes_temperature(self, mock_completion: MagicMock) -> None:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Hello, world!"
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 5
+        mock_response.usage.total_tokens = 15
+        mock_completion.return_value = mock_response
+
+        client = LiteLLMClient(model="gpt-4", temperature=0.2)
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        client.complete(messages)
+
+        mock_completion.assert_called_once_with(
+            model="gpt-4",
+            messages=messages,
+            stream=False,
+            temperature=0.2,
         )
 
     @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
@@ -135,3 +162,17 @@ class TestLiteLLMClient:
             messages=messages,
             stream=False,
         )
+
+    def test_factory_uses_agent_definition(self) -> None:
+        factory = LiteLLMClientFactory()
+        agent_definition = AgentDefinition(
+            agent_id="researcher",
+            model="gpt-4",
+            system_prompt="Prompt",
+            temperature=0.1,
+        )
+
+        client = factory(agent_definition)
+
+        assert client.model == "gpt-4"
+        assert client.temperature == 0.1

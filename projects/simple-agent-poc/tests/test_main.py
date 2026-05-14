@@ -21,8 +21,22 @@ class TestBuildCLIAdapter:
             assert adapter is mock_cli_adapter.return_value
             mock_create_run_agent_use_case.assert_called_once_with()
             mock_cli_adapter.assert_called_once_with(
-                mock_create_run_agent_use_case.return_value
+                mock_create_run_agent_use_case.return_value,
+                agent_id="default",
             )
+
+    @patch("simple_agent_poc.entrypoints.main_cli.CLIAdapter")
+    def test_build_cli_adapter_passes_agent_id(
+        self,
+        mock_cli_adapter: MagicMock,
+    ) -> None:
+        with patch(
+            "simple_agent_poc.entrypoints.main_cli.bootstrap.create_run_agent_use_case"
+        ):
+            build_cli_adapter(agent_id="researcher")
+
+            mock_cli_adapter.assert_called_once()
+            assert mock_cli_adapter.call_args.kwargs["agent_id"] == "researcher"
 
 
 class TestMain:
@@ -32,7 +46,18 @@ class TestMain:
     def test_main_runs_built_adapter(self, mock_build_cli_adapter: MagicMock) -> None:
         adapter = mock_build_cli_adapter.return_value
 
-        main()
+        main([])
 
-        mock_build_cli_adapter.assert_called_once_with()
+        mock_build_cli_adapter.assert_called_once_with(agent_id="default")
+        adapter.run.assert_called_once_with()
+
+    @patch("simple_agent_poc.entrypoints.main_cli.build_cli_adapter")
+    def test_main_accepts_agent_argument(
+        self, mock_build_cli_adapter: MagicMock
+    ) -> None:
+        adapter = mock_build_cli_adapter.return_value
+
+        main(["--agent", "researcher"])
+
+        mock_build_cli_adapter.assert_called_once_with(agent_id="researcher")
         adapter.run.assert_called_once_with()

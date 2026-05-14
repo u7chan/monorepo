@@ -32,6 +32,7 @@ class CLIAdapter:
         self,
         run_agent: RunAgentUseCase,
         *,
+        agent_id: str = "default",
         input_reader: Callable[[], str] = get_user_input,
         response_renderer: Callable[[RunAgentResponse], None] = show_agent_response,
         error_renderer: Callable[[Exception], None] = show_error,
@@ -40,6 +41,7 @@ class CLIAdapter:
         indicator_runner: IndicatorRunner = with_indicator,
     ) -> None:
         self._run_agent = run_agent
+        self._agent_id = agent_id
         self._input_reader = input_reader
         self._response_renderer = response_renderer
         self._error_renderer = error_renderer
@@ -64,6 +66,7 @@ class CLIAdapter:
                         RunAgentRequest(
                             message=user_input,
                             session_id=self._session_id,
+                            agent_id=self._agent_id,
                         )
                     ),
                 )
