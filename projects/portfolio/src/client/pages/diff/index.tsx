@@ -51,6 +51,82 @@ line 3`
 const defaultAfter = `line 1
 modified line 2
 line 3`
+const diffViewerStyles = {
+  variables: {
+    light: {
+      diffViewerBackground: '#ffffff',
+      diffViewerColor: '#111827',
+      addedBackground: '#f2fbf5',
+      addedColor: '#111827',
+      removedBackground: '#fdf2f3',
+      removedColor: '#111827',
+      wordAddedBackground: '#cfeedd',
+      wordRemovedBackground: '#f5d3d8',
+      addedGutterBackground: '#ddf5e6',
+      removedGutterBackground: '#f8dfe3',
+      gutterBackground: '#f8fafc',
+      gutterBackgroundDark: '#f1f5f9',
+      highlightBackground: '#f6f1cf',
+      highlightGutterBackground: '#ede4ab',
+      diffViewerTitleBackground: '#f8fafc',
+      diffViewerTitleBorderColor: '#e5e7eb',
+    },
+    dark: {
+      diffViewerBackground: '#111827',
+      diffViewerColor: '#f3f4f6',
+      addedBackground: '#12372f',
+      addedColor: '#f9fafb',
+      removedBackground: '#4a252c',
+      removedColor: '#f9fafb',
+      wordAddedBackground: '#1b5a4c',
+      wordRemovedBackground: '#733b46',
+      addedGutterBackground: '#163f37',
+      removedGutterBackground: '#542b32',
+      gutterBackground: '#172033',
+      gutterBackgroundDark: '#1e293b',
+      highlightBackground: '#3d3620',
+      highlightGutterBackground: '#504726',
+      diffViewerTitleBackground: '#172033',
+      diffViewerTitleBorderColor: '#273449',
+      diffViewerTitleColor: '#d1d5db',
+      gutterColor: '#94a3b8',
+      addedGutterColor: '#cbd5e1',
+      removedGutterColor: '#cbd5e1',
+      codeFoldContentColor: '#d1d5db',
+      emptyLineBackground: '#0f172a',
+    },
+  },
+  diffContainer: {
+    pre: {
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+      fontSize: '13px',
+      lineHeight: '1.45',
+      fontVariantLigatures: 'none',
+      tabSize: 2,
+    },
+  },
+  contentText: {
+    fontSize: '13px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+    letterSpacing: '0',
+  },
+  codeFoldContent: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+  },
+  lineNumber: {
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+  },
+  marker: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+  },
+  wordDiff: {
+    display: 'inline',
+    padding: '0 1px',
+    borderRadius: 0,
+    lineHeight: 'inherit',
+  },
+}
 
 export function Diff() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -171,7 +247,8 @@ export function Diff() {
         <select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
-          className='px-3 py-2 rounded-sm bg-white border border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white'
+          disabled={mode === 'view'}
+          className='px-3 py-2 rounded-sm bg-white border border-gray-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:border-gray-600 dark:text-white'
         >
           <option value=''>text</option>
           {LANGUAGE_OPTIONS.map((lang) => (
@@ -183,10 +260,14 @@ export function Diff() {
       </div>
       <div className='flex-1 min-h-0'>
         {mode === 'edit' ? (
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-4 h-[calc(100dvh-120px)] min-h-[200px] md:min-h-[300px] border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
-            <div className='flex flex-col h-full min-h-0 border-r border-gray-200 dark:border-gray-700'>
-              <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>Before</h3>
-              <div className='flex-1 min-h-0 px-4 pb-4'>
+          <div className='grid grid-cols-1 md:grid-cols-2 h-[calc(100dvh-120px)] min-h-[200px] md:min-h-[300px] border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
+            <div className='flex flex-col h-full min-h-0 md:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'>
+              <div className='border-b border-gray-200 bg-slate-50 px-3 py-2.5 dark:border-gray-700 dark:bg-slate-800/70'>
+                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>
+                  Before
+                </h3>
+              </div>
+              <div className='flex-1 min-h-0'>
                 <Editor
                   value={beforeCode}
                   onChange={(value) => setBeforeCode(value || '')}
@@ -196,9 +277,13 @@ export function Diff() {
                 />
               </div>
             </div>
-            <div className='flex flex-col h-full min-h-0'>
-              <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>After</h3>
-              <div className='flex-1 min-h-0 px-4 pb-4'>
+            <div className='flex flex-col h-full min-h-0 bg-white dark:bg-gray-900'>
+              <div className='border-b border-gray-200 bg-slate-50 px-3 py-2.5 dark:border-gray-700 dark:bg-slate-800/70'>
+                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>
+                  After
+                </h3>
+              </div>
+              <div className='flex-1 min-h-0'>
                 <Editor
                   value={afterCode}
                   onChange={(value) => setAfterCode(value || '')}
@@ -215,9 +300,11 @@ export function Diff() {
               key={isDarkTheme ? 'diff-dark' : 'diff-light'}
               oldValue={beforeCode}
               newValue={afterCode}
+              leftTitle='Before'
+              rightTitle='After'
               splitView={!isMobile}
               useDarkTheme={isDarkTheme}
-              styles={{ contentText: { fontSize: '12px' }, lineNumber: { fontSize: '12px' } }}
+              styles={diffViewerStyles}
             />
           </div>
         )}
