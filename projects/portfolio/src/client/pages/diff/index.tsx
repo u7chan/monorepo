@@ -263,7 +263,9 @@ export function Diff() {
           <div className='grid grid-cols-1 md:grid-cols-2 h-[calc(100dvh-120px)] min-h-[200px] md:min-h-[300px] border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
             <div className='flex flex-col h-full min-h-0 md:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'>
               <div className='border-b border-gray-200 bg-slate-50 px-3 py-2.5 dark:border-gray-700 dark:bg-slate-800/70'>
-                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>Before</h3>
+                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>
+                  Before
+                </h3>
               </div>
               <div className='flex-1 min-h-0'>
                 <Editor
@@ -277,7 +279,9 @@ export function Diff() {
             </div>
             <div className='flex flex-col h-full min-h-0 bg-white dark:bg-gray-900'>
               <div className='border-b border-gray-200 bg-slate-50 px-3 py-2.5 dark:border-gray-700 dark:bg-slate-800/70'>
-                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>After</h3>
+                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>
+                  After
+                </h3>
               </div>
               <div className='flex-1 min-h-0'>
                 <Editor
