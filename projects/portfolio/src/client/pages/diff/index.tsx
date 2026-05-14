@@ -247,7 +247,8 @@ export function Diff() {
         <select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
-          className='px-3 py-2 rounded-sm bg-white border border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white'
+          disabled={mode === 'view'}
+          className='px-3 py-2 rounded-sm bg-white border border-gray-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:border-gray-600 dark:text-white'
         >
           <option value=''>text</option>
           {LANGUAGE_OPTIONS.map((lang) => (
@@ -259,10 +260,12 @@ export function Diff() {
       </div>
       <div className='flex-1 min-h-0'>
         {mode === 'edit' ? (
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-4 h-[calc(100dvh-120px)] min-h-[200px] md:min-h-[300px] border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
-            <div className='flex flex-col h-full min-h-0 border-r border-gray-200 dark:border-gray-700'>
-              <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>Before</h3>
-              <div className='flex-1 min-h-0 px-4 pb-4'>
+          <div className='grid grid-cols-1 md:grid-cols-2 h-[calc(100dvh-120px)] min-h-[200px] md:min-h-[300px] border rounded-xl border-gray-200 dark:border-gray-700 overflow-hidden'>
+            <div className='flex flex-col h-full min-h-0 md:border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'>
+              <div className='border-b border-gray-200 bg-slate-50 px-3 py-2.5 dark:border-gray-700 dark:bg-slate-800/70'>
+                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>Before</h3>
+              </div>
+              <div className='flex-1 min-h-0'>
                 <Editor
                   value={beforeCode}
                   onChange={(value) => setBeforeCode(value || '')}
@@ -272,9 +275,11 @@ export function Diff() {
                 />
               </div>
             </div>
-            <div className='flex flex-col h-full min-h-0'>
-              <h3 className='text-lg font-semibold mb-2 dark:text-white px-4 pt-4'>After</h3>
-              <div className='flex-1 min-h-0 px-4 pb-4'>
+            <div className='flex flex-col h-full min-h-0 bg-white dark:bg-gray-900'>
+              <div className='border-b border-gray-200 bg-slate-50 px-3 py-2.5 dark:border-gray-700 dark:bg-slate-800/70'>
+                <h3 className='font-mono text-[13px] leading-[1.45] font-normal text-gray-900 dark:text-gray-100'>After</h3>
+              </div>
+              <div className='flex-1 min-h-0'>
                 <Editor
                   value={afterCode}
                   onChange={(value) => setAfterCode(value || '')}
@@ -291,6 +296,8 @@ export function Diff() {
               key={isDarkTheme ? 'diff-dark' : 'diff-light'}
               oldValue={beforeCode}
               newValue={afterCode}
+              leftTitle='Before'
+              rightTitle='After'
               splitView={!isMobile}
               useDarkTheme={isDarkTheme}
               styles={diffViewerStyles}
