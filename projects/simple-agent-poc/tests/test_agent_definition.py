@@ -61,6 +61,26 @@ agents:
 
         assert registry.get("default").model == "gpt-4.1-nano"
 
+    def test_format_system_prompt_preserves_non_runtime_braces(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": (
+                            'Now: {current_datetime}\nJSON example: {"ok": true}'
+                        ),
+                    }
+                }
+            }
+        )
+
+        formatted = registry.get("default").format_system_prompt(
+            current_datetime="2026-05-14T00:00:00"
+        )
+
+        assert formatted == 'Now: 2026-05-14T00:00:00\nJSON example: {"ok": true}'
+
     def test_allows_null_temperature(self) -> None:
         registry = AgentDefinitionRegistry.from_mapping(
             {

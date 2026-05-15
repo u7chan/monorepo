@@ -25,7 +25,7 @@ class AgentDefinition:
 
     def format_system_prompt(self, *, current_datetime: str) -> str:
         """Format the system prompt with runtime context."""
-        return self.system_prompt.format(current_datetime=current_datetime)
+        return self.system_prompt.replace("{current_datetime}", current_datetime)
 
 
 @dataclass(frozen=True, slots=True)
