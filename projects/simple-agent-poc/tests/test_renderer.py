@@ -56,7 +56,7 @@ class TestShowWelcome:
     def test_show_welcome(self, mock_print: MagicMock) -> None:
         show_welcome()
 
-        assert mock_print.call_count == 5
+        assert mock_print.call_count == 6
         calls = [
             call.args[0] if call.args else "" for call in mock_print.call_args_list
         ]
@@ -64,6 +64,17 @@ class TestShowWelcome:
         assert "═" * 40 in non_empty_calls[0]
         assert "Welcome to Simple Agent POC" in non_empty_calls[1]
         assert "Ctrl+C" in non_empty_calls[2]
+        assert "AgentId: default" in non_empty_calls[3]
+
+    @patch("builtins.print")
+    def test_show_welcome_with_configured_agent_id(self, mock_print: MagicMock) -> None:
+        show_welcome("researcher")
+
+        calls = [
+            call.args[0] if call.args else "" for call in mock_print.call_args_list
+        ]
+        non_empty_calls = [call for call in calls if call]
+        assert "AgentId: researcher" in non_empty_calls[3]
 
 
 class TestGetUserInput:

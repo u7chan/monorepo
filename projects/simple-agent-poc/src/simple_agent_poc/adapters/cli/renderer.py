@@ -61,11 +61,12 @@ def show_error(error: Exception) -> None:
         print(f"⚠️  Error: An unexpected error occurred: {error}")
 
 
-def show_welcome() -> None:
+def show_welcome(agent_id: str = "default") -> None:
     """Display the welcome banner."""
     print("═" * 40)
     print("  ✨  Welcome to Simple Agent POC  ✨")
     print("     (Press Ctrl+C to exit)")
+    print(f"     AgentId: {agent_id}")
     print("═" * 40)
     print()
 

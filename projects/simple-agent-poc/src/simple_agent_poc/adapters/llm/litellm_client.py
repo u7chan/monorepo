@@ -9,6 +9,7 @@ from litellm.exceptions import (
 )
 
 from simple_agent_poc.application.ports import LLMClient
+from simple_agent_poc.core.agent_definition import AgentDefinition
 from simple_agent_poc.core.types import (
     AuthenticationError,
     LLMError,
@@ -21,16 +22,22 @@ from simple_agent_poc.core.types import (
 class LiteLLMClient(LLMClient):
     """LLM client implementation using LiteLLM."""
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, *, temperature: float | None = None) -> None:
         self.model = model
+        self.temperature = temperature
 
     def complete(self, messages: list[Message]) -> LLMResponse:
         start_time = time.perf_counter()
+        completion_params: dict[str, float] = {}
+        if self.temperature is not None:
+            completion_params["temperature"] = self.temperature
+
         try:
             response = completion(
                 model=self.model,
                 messages=messages,
                 stream=False,
+                **completion_params,
             )
         except LiteLLMAuthError as error:
             raise AuthenticationError(
@@ -69,3 +76,13 @@ class LiteLLMClient(LLMClient):
             "model": self.model,
             "response_time": elapsed,
         }
+
+
+class LiteLLMClientFactory:
+    """Create LiteLLM clients from agent definitions."""
+
+    def __call__(self, agent_definition: AgentDefinition) -> LiteLLMClient:
+        return LiteLLMClient(
+            model=agent_definition.model,
+            temperature=agent_definition.temperature,
+        )

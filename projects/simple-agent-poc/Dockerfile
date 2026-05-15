@@ -23,6 +23,7 @@ ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 
 # Copy source code and tests
+COPY agents.yaml ./
 COPY src/ src/
 COPY tests/ tests/
 

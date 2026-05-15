@@ -50,13 +50,69 @@ class TestCLIAdapter:
 
         adapter.run()
 
-        welcome_renderer.assert_called_once_with()
+        welcome_renderer.assert_called_once_with("default")
         run_agent.execute.assert_called_once()
         request = run_agent.execute.call_args.args[0]
         assert request.message == "Hello"
         assert request.session_id is None
+        assert request.agent_id == "default"
         response_renderer.assert_called_once_with(run_agent.execute.return_value)
         exit_renderer.assert_called_once_with()
+
+    def test_run_passes_configured_agent_id(self) -> None:
+        run_agent = MagicMock()
+        run_agent.execute.return_value = RunAgentResponse(
+            message="Hello, user!",
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+            },
+            model="gpt-4o-mini",
+            response_time=0.85,
+            session_id="session-1",
+        )
+        input_reader = MagicMock(side_effect=["Hello", EOFError()])
+
+        adapter = CLIAdapter(
+            run_agent,
+            agent_id="researcher",
+            input_reader=input_reader,
+            indicator_runner=passthrough_indicator,
+        )
+
+        adapter.run()
+
+        request = run_agent.execute.call_args.args[0]
+        assert request.agent_id == "researcher"
+
+    def test_run_passes_agent_id_to_welcome_renderer(self) -> None:
+        run_agent = MagicMock()
+        run_agent.execute.return_value = RunAgentResponse(
+            message="Hello, user!",
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+            },
+            model="gpt-4o-mini",
+            response_time=0.85,
+            session_id="session-1",
+        )
+        input_reader = MagicMock(side_effect=["Hello", EOFError()])
+        welcome_renderer = MagicMock()
+
+        adapter = CLIAdapter(
+            run_agent,
+            agent_id="researcher",
+            input_reader=input_reader,
+            welcome_renderer=welcome_renderer,
+            indicator_runner=passthrough_indicator,
+        )
+
+        adapter.run()
+
+        welcome_renderer.assert_called_once_with("researcher")
 
     def test_run_reuses_session_id_on_later_turns(self) -> None:
         run_agent = MagicMock()

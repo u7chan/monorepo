@@ -14,7 +14,17 @@ class TestConversationSession:
         )
 
         assert session.session_id == "session-1"
+        assert session.agent_id == "default"
         assert session.messages == [{"role": "system", "content": "System prompt"}]
+
+    def test_start_records_agent_id(self) -> None:
+        session = ConversationSession.start(
+            session_id="session-1",
+            agent_id="researcher",
+            system_prompt="System prompt",
+        )
+
+        assert session.agent_id == "researcher"
 
     def test_appends_messages_in_order(self) -> None:
         session = ConversationSession.start(

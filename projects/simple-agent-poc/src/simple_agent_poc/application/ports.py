@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from simple_agent_poc.core.agent_definition import AgentDefinition
 from simple_agent_poc.core.session import ConversationSession
 from simple_agent_poc.core.types import LLMResponse, Message
 
@@ -11,6 +12,13 @@ class LLMClient(Protocol):
 
     def complete(self, messages: list[Message]) -> LLMResponse:
         """Receive message history and return an LLM response."""
+
+
+class LLMClientFactory(Protocol):
+    """Factory for agent-specific LLM clients."""
+
+    def __call__(self, agent_definition: AgentDefinition, /) -> LLMClient:
+        """Create an LLM client for the selected agent."""
 
 
 class SessionStore(Protocol):

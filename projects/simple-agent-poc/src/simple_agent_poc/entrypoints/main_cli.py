@@ -1,19 +1,24 @@
 """CLI entry point wiring."""
 
+import argparse
+from collections.abc import Sequence
+
 from simple_agent_poc.adapters.cli.adapter import CLIAdapter
 from simple_agent_poc.entrypoints import bootstrap
 
-DEFAULT_MODEL = bootstrap.DEFAULT_MODEL
 
-
-def build_cli_adapter() -> CLIAdapter:
+def build_cli_adapter(*, agent_id: str = bootstrap.DEFAULT_AGENT_ID) -> CLIAdapter:
     """Create the CLI adapter with production dependencies."""
-    return CLIAdapter(bootstrap.create_run_agent_use_case())
+    return CLIAdapter(bootstrap.create_run_agent_use_case(), agent_id=agent_id)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     """Run the CLI entry point."""
-    adapter = build_cli_adapter()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--agent", default=bootstrap.DEFAULT_AGENT_ID)
+    args = parser.parse_args(argv)
+
+    adapter = build_cli_adapter(agent_id=args.agent)
     adapter.run()
 
 

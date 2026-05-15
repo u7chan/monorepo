@@ -11,6 +11,7 @@ class RunAgentRequest:
 
     message: str
     session_id: str | None = None
+    agent_id: str = "default"
 
 
 @dataclass(frozen=True, slots=True)
