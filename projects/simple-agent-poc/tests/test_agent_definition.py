@@ -186,3 +186,76 @@ agents:
 
         with pytest.raises(ValidationError, match="Unknown agent_id: missing"):
             registry.get("missing")
+
+    def test_allows_stream_true(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                        "stream": True,
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").stream is True
+
+    def test_allows_stream_false(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                        "stream": False,
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").stream is False
+
+    def test_stream_defaults_to_false(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").stream is False
+
+    def test_stream_defaults_to_false_when_null(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                        "stream": None,
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").stream is False
+
+    def test_rejects_non_bool_stream(self) -> None:
+        with pytest.raises(ValidationError, match="stream must be a boolean"):
+            AgentDefinitionRegistry.from_mapping(
+                {
+                    "agents": {
+                        "default": {
+                            "model": "gpt-4.1-nano",
+                            "system_prompt": "Prompt",
+                            "stream": "yes",
+                        }
+                    }
+                }
+            )

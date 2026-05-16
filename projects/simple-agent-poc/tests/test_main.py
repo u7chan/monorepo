@@ -13,16 +13,25 @@ class TestBuildCLIAdapter:
         self,
         mock_cli_adapter: MagicMock,
     ) -> None:
-        with patch(
-            "simple_agent_poc.entrypoints.main_cli.bootstrap.create_run_agent_use_case"
-        ) as mock_create_run_agent_use_case:
+        with (
+            patch(
+                "simple_agent_poc.entrypoints.main_cli.bootstrap.create_run_agent_use_case"
+            ) as mock_create_run_agent_use_case,
+            patch(
+                "simple_agent_poc.entrypoints.main_cli.bootstrap.create_agent_definition_registry"
+            ) as mock_create_registry,
+        ):
             adapter = build_cli_adapter()
 
             assert adapter is mock_cli_adapter.return_value
-            mock_create_run_agent_use_case.assert_called_once_with()
+            mock_create_registry.assert_called_once_with()
+            mock_create_run_agent_use_case.assert_called_once_with(
+                agent_definitions=mock_create_registry.return_value,
+            )
             mock_cli_adapter.assert_called_once_with(
                 mock_create_run_agent_use_case.return_value,
                 agent_id="default",
+                agent_definitions=mock_create_registry.return_value,
             )
 
     @patch("simple_agent_poc.entrypoints.main_cli.CLIAdapter")
@@ -30,8 +39,13 @@ class TestBuildCLIAdapter:
         self,
         mock_cli_adapter: MagicMock,
     ) -> None:
-        with patch(
-            "simple_agent_poc.entrypoints.main_cli.bootstrap.create_run_agent_use_case"
+        with (
+            patch(
+                "simple_agent_poc.entrypoints.main_cli.bootstrap.create_run_agent_use_case"
+            ),
+            patch(
+                "simple_agent_poc.entrypoints.main_cli.bootstrap.create_agent_definition_registry"
+            ),
         ):
             build_cli_adapter(agent_id="researcher")
 

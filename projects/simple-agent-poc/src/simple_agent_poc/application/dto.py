@@ -39,3 +39,20 @@ class RunAgentResponse:
             response_time=response["response_time"],
             session_id=session_id,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ContentDelta:
+    """Partial text emitted during streaming."""
+
+    delta: str
+
+
+@dataclass(frozen=True, slots=True)
+class StreamComplete:
+    """Metadata emitted when a stream finishes successfully."""
+
+    session_id: str
+    usage: Usage | None
+    model: str
+    response_time: float

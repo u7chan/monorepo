@@ -166,6 +166,6 @@ src/simple_agent_poc/
 ## Non-goals
 
 - Do not introduce every future layer immediately.
-- Do not redesign the runtime around async or streaming yet.
+- Do not redesign the runtime around async yet.
 - Do not change the CLI-first development workflow.
 - Do not couple future persistence work to FastAPI or terminal concerns.

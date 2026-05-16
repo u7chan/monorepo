@@ -9,7 +9,12 @@ from simple_agent_poc.entrypoints import bootstrap
 
 def build_cli_adapter(*, agent_id: str = bootstrap.DEFAULT_AGENT_ID) -> CLIAdapter:
     """Create the CLI adapter with production dependencies."""
-    return CLIAdapter(bootstrap.create_run_agent_use_case(), agent_id=agent_id)
+    agent_definitions = bootstrap.create_agent_definition_registry()
+    return CLIAdapter(
+        bootstrap.create_run_agent_use_case(agent_definitions=agent_definitions),
+        agent_id=agent_id,
+        agent_definitions=agent_definitions,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
