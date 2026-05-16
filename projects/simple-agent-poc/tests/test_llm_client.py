@@ -215,8 +215,8 @@ class TestLiteLLMResponsesClient:
         assert result["usage"]["total_tokens"] == 15
 
         mock_responses.assert_called_once_with(
+            input=messages,
             model="gpt-5.4-nano",
-            messages=messages,
             stream=False,
         )
 
@@ -236,8 +236,8 @@ class TestLiteLLMResponsesClient:
         client.complete(messages)
 
         mock_responses.assert_called_once_with(
+            input=messages,
             model="gpt-5.4-nano",
-            messages=messages,
             stream=False,
             temperature=0.2,
         )
@@ -258,8 +258,8 @@ class TestLiteLLMResponsesClient:
         client.complete(messages)
 
         mock_responses.assert_called_once_with(
+            input=messages,
             model="gpt-5.4-nano",
-            messages=messages,
             stream=False,
         )
 

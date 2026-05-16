@@ -93,8 +93,8 @@ class LiteLLMResponsesClient(LLMClient):
 
         try:
             response = responses(
+                input=messages,
                 model=self.model,
-                messages=messages,
                 stream=False,
                 **response_params,
             )
