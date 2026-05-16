@@ -2,14 +2,14 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, Literal, Mapping, cast
 
 import yaml
 
 from simple_agent_poc.core.types import ValidationError
 
 _ROOT_FIELDS = frozenset({"agents"})
-_AGENT_FIELDS = frozenset({"model", "system_prompt", "temperature", "tools"})
+_AGENT_FIELDS = frozenset({"model", "system_prompt", "temperature", "tools", "api_type"})
 _REQUIRED_AGENT_FIELDS = frozenset({"model", "system_prompt"})
 
 
@@ -22,6 +22,7 @@ class AgentDefinition:
     system_prompt: str
     temperature: float | None = None
     tools: list[dict[str, Any]] = field(default_factory=list)
+    api_type: Literal["completion", "responses"] = "completion"
 
     def format_system_prompt(self, *, current_datetime: str) -> str:
         """Format the system prompt with runtime context."""
@@ -102,6 +103,10 @@ def _build_agent_definition(
         f"agents.{agent_id}.temperature",
     )
     tools = _optional_tools(definition.get("tools"), f"agents.{agent_id}.tools")
+    api_type = _optional_api_type(
+        definition.get("api_type"),
+        f"agents.{agent_id}.api_type",
+    )
 
     return AgentDefinition(
         agent_id=agent_id,
@@ -109,6 +114,7 @@ def _build_agent_definition(
         system_prompt=system_prompt,
         temperature=temperature,
         tools=tools,
+        api_type=api_type,
     )
 
 
@@ -153,3 +159,16 @@ def _optional_tools(value: object, path: str) -> list[dict[str, Any]]:
     if not all(isinstance(item, dict) for item in value):
         raise ValidationError(f"{path} items must be mappings")
     return cast(list[dict[str, Any]], value)
+
+
+def _optional_api_type(
+    value: object,
+    path: str,
+) -> Literal["completion", "responses"]:
+    if value is None:
+        return "completion"
+    if value not in ("completion", "responses"):
+        raise ValidationError(
+            f"{path} must be one of: completion, responses"
+        )
+    return cast(Literal["completion", "responses"], value)

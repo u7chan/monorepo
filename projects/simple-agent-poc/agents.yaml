@@ -14,6 +14,7 @@ agents:
       Current datetime: {current_datetime}
     temperature: null
     tools: []
+    api_type: completion
 
   kansaiben:
     model: gpt-4.1-nano
@@ -23,3 +24,13 @@ agents:
       Current datetime: {current_datetime}
     temperature: null
     tools: []
+    api_type: completion
+
+  gpt54:
+    model: gpt-5.4-nano
+    system_prompt: |
+      You are an AI assistant built with the OpenAI Responses API.
+      Current datetime: {current_datetime}
+    temperature: null
+    tools: []
+    api_type: responses
