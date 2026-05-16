@@ -126,10 +126,10 @@ class LiteLLMResponsesClient(LLMClient):
 
         elapsed = time.perf_counter() - start_time
         return {
-            "content": response.choices[0].message.content,
+            "content": response.output_text,
             "usage": {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
+                "prompt_tokens": response.usage.input_tokens,
+                "completion_tokens": response.usage.output_tokens,
                 "total_tokens": response.usage.total_tokens,
             },
             "model": self.model,

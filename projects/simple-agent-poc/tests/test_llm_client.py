@@ -197,10 +197,9 @@ class TestLiteLLMResponsesClient:
     @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
     def test_complete_success(self, mock_responses: MagicMock) -> None:
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Hello, world!"
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 5
+        mock_response.output_text = "Hello, world!"
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
         mock_response.usage.total_tokens = 15
         mock_responses.return_value = mock_response
 
@@ -223,10 +222,9 @@ class TestLiteLLMResponsesClient:
     @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
     def test_complete_passes_temperature(self, mock_responses: MagicMock) -> None:
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Hello, world!"
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 5
+        mock_response.output_text = "Hello, world!"
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
         mock_response.usage.total_tokens = 15
         mock_responses.return_value = mock_response
 
@@ -245,10 +243,9 @@ class TestLiteLLMResponsesClient:
     @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
     def test_complete_omits_null_temperature(self, mock_responses: MagicMock) -> None:
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Hello, world!"
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 5
+        mock_response.output_text = "Hello, world!"
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
         mock_response.usage.total_tokens = 15
         mock_responses.return_value = mock_response
 
