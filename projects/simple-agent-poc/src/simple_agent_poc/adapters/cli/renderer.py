@@ -147,12 +147,15 @@ def show_streaming_response(
                     model = model.split("/")[-1]
 
                 usage = complete.usage
-                stats = (
-                    f"Model: {model} │ "
-                    f"Time: {time_str} │ "
-                    f"Tokens: {usage['prompt_tokens']} → {usage['completion_tokens']} "
-                    f"(total: {usage['total_tokens']})"
-                )
+                if usage is not None:
+                    stats = (
+                        f"Model: {model} │ "
+                        f"Time: {time_str} │ "
+                        f"Tokens: {usage['prompt_tokens']} → {usage['completion_tokens']} "
+                        f"(total: {usage['total_tokens']})"
+                    )
+                else:
+                    stats = f"Model: {model} │ Time: {time_str}"
                 print(f"  └─ {stats}")
 
         if complete is None:

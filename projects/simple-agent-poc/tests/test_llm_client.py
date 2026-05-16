@@ -383,12 +383,15 @@ class TestLiteLLMCompletionClientStream:
         chunk1 = MagicMock()
         chunk1.choices = [MagicMock()]
         chunk1.choices[0].delta.content = "Hello"
+        chunk1.usage = None
         chunk2 = MagicMock()
         chunk2.choices = [MagicMock()]
         chunk2.choices[0].delta.content = ", world!"
+        chunk2.usage = None
         empty_chunk = MagicMock()
         empty_chunk.choices = [MagicMock()]
         empty_chunk.choices[0].delta.content = ""
+        empty_chunk.usage = None
         mock_completion.return_value = [chunk1, chunk2, empty_chunk]
 
         client = LiteLLMCompletionClient(model="gpt-4")
@@ -404,7 +407,45 @@ class TestLiteLLMCompletionClientStream:
             model="gpt-4",
             messages=messages,
             stream=True,
+            stream_options={"include_usage": True},
         )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_yields_usage_from_last_chunk(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        usage_mock = MagicMock()
+        usage_mock.prompt_tokens = 10
+        usage_mock.completion_tokens = 5
+        usage_mock.total_tokens = 15
+
+        content_chunk = MagicMock()
+        content_chunk.choices = [MagicMock()]
+        content_chunk.choices[0].delta.content = "Hello"
+        content_chunk.usage = None
+
+        usage_chunk = MagicMock()
+        usage_chunk.choices = [MagicMock()]
+        usage_chunk.choices[0].delta.content = ""
+        usage_chunk.usage = usage_mock
+
+        mock_completion.return_value = [content_chunk, usage_chunk]
+
+        client = LiteLLMCompletionClient(model="gpt-4")
+        result = list(client.complete_stream([{"role": "user", "content": "Hi"}]))
+
+        assert result == [
+            {"content_delta": "Hello"},
+            {
+                "content_delta": None,
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            },
+        ]
 
     @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
     def test_complete_stream_passes_temperature(
@@ -422,6 +463,7 @@ class TestLiteLLMCompletionClientStream:
             model="gpt-4",
             messages=messages,
             stream=True,
+            stream_options={"include_usage": True},
             temperature=0.2,
         )
 
@@ -496,10 +538,13 @@ class TestLiteLLMResponsesClientStream:
     ) -> None:
         event1 = MagicMock()
         event1.delta = "Hello"
+        del event1.response
         event2 = MagicMock()
         event2.delta = ", world!"
+        del event2.response
         event3 = MagicMock()
         del event3.delta
+        del event3.response
         mock_responses.return_value = [event1, event2, event3]
 
         client = LiteLLMResponsesClient(model="gpt-5.4-nano")
@@ -516,6 +561,42 @@ class TestLiteLLMResponsesClientStream:
             model="gpt-5.4-nano",
             stream=True,
         )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_yields_usage_from_last_event(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        usage_mock = MagicMock()
+        usage_mock.input_tokens = 10
+        usage_mock.output_tokens = 5
+        usage_mock.total_tokens = 15
+
+        content_event = MagicMock()
+        content_event.delta = "Hello"
+        del content_event.response
+
+        usage_event = MagicMock()
+        del usage_event.delta
+        usage_event.response = MagicMock()
+        usage_event.response.usage = usage_mock
+
+        mock_responses.return_value = [content_event, usage_event]
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        result = list(client.complete_stream([{"role": "user", "content": "Hi"}]))
+
+        assert result == [
+            {"content_delta": "Hello"},
+            {
+                "content_delta": None,
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            },
+        ]
 
     @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
     def test_complete_stream_passes_temperature(

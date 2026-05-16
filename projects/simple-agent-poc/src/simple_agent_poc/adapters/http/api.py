@@ -132,7 +132,7 @@ def create_app(
         return ChatResponse.from_use_case_response(response)
 
     @app.post("/api/chat/stream")
-    async def chat_stream(
+    def chat_stream(
         request: ChatRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
         *,
@@ -141,15 +141,17 @@ def create_app(
             Header(alias="Session-Id"),
         ] = None,
     ):
-        async def event_stream():
+        session_id = resolve_session_id(
+            header_session_id=session_id_header,
+            body_session_id=request.session_id,
+        )
+
+        def event_stream():
             try:
                 for event in run_agent.execute_stream(
                     RunAgentRequest(
                         message=request.message,
-                        session_id=resolve_session_id(
-                            header_session_id=session_id_header,
-                            body_session_id=request.session_id,
-                        ),
+                        session_id=session_id,
                         agent_id=request.agent_id,
                     )
                 ):

@@ -53,6 +53,6 @@ class StreamComplete:
     """Metadata emitted when a stream finishes successfully."""
 
     session_id: str
-    usage: Usage
+    usage: Usage | None
     model: str
     response_time: float

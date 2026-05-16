@@ -1,6 +1,6 @@
 """Shared core types and domain errors."""
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class AgentError(Exception):
@@ -54,3 +54,4 @@ class LLMResponse(TypedDict):
 
 class LLMStreamChunk(TypedDict):
     content_delta: str | None
+    usage: NotRequired[Usage]

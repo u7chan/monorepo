@@ -89,6 +89,7 @@ class LiteLLMCompletionClient(LLMClient):
                 model=self.model,
                 messages=messages,
                 stream=True,
+                stream_options={"include_usage": True},
                 **completion_params,
             )
         except LiteLLMAuthError as error:
@@ -118,9 +119,18 @@ class LiteLLMCompletionClient(LLMClient):
             ) from error
 
         for chunk in response:
+            chunk_data: LLMStreamChunk = {"content_delta": None}
             delta = chunk.choices[0].delta.content
             if delta:
-                yield {"content_delta": delta}
+                chunk_data["content_delta"] = delta
+            if hasattr(chunk, "usage") and chunk.usage is not None:
+                chunk_data["usage"] = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
+            if chunk_data["content_delta"] is not None or "usage" in chunk_data:
+                yield chunk_data
 
 
 class LiteLLMResponsesClient(LLMClient):
@@ -220,8 +230,19 @@ class LiteLLMResponsesClient(LLMClient):
             ) from error
 
         for event in response:
+            chunk_data: LLMStreamChunk = {"content_delta": None}
             if hasattr(event, "delta") and event.delta:
-                yield {"content_delta": event.delta}
+                chunk_data["content_delta"] = event.delta
+            if hasattr(event, "response") and hasattr(event.response, "usage"):
+                usage_obj = event.response.usage
+                if usage_obj is not None:
+                    chunk_data["usage"] = {
+                        "prompt_tokens": usage_obj.input_tokens,
+                        "completion_tokens": usage_obj.output_tokens,
+                        "total_tokens": usage_obj.total_tokens,
+                    }
+            if chunk_data["content_delta"] is not None or "usage" in chunk_data:
+                yield chunk_data
 
 
 class LiteLLMClientFactory:

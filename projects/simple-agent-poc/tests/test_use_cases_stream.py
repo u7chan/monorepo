@@ -18,6 +18,7 @@ from simple_agent_poc.core.types import (
     LLMStreamChunk,
     Message,
     SessionNotFoundError,
+    Usage,
     ValidationError,
 )
 
@@ -294,3 +295,41 @@ class TestExecuteStream:
                     RunAgentRequest(message="Hello", agent_id="missing")
                 )
             )
+
+    def test_execute_stream_captures_usage_from_last_chunk(self) -> None:
+        usage_from_stream: Usage = {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        }
+        chunks: list[LLMStreamChunk] = [
+            {"content_delta": "Hello"},
+            {"content_delta": None, "usage": usage_from_stream},
+        ]
+        llm_client = StreamingStubLLMClient(chunks=chunks)
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(return_value=llm_client),
+            session_store=InMemorySessionStore(),
+            agent_definitions=build_registry(stream=True),
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        complete = events[-1]
+        assert isinstance(complete, StreamComplete)
+        assert complete.usage == usage_from_stream
+
+    def test_execute_stream_usage_is_none_when_not_provided(self) -> None:
+        chunks: list[LLMStreamChunk] = [{"content_delta": "Hello"}]
+        llm_client = StreamingStubLLMClient(chunks=chunks)
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(return_value=llm_client),
+            session_store=InMemorySessionStore(),
+            agent_definitions=build_registry(stream=True),
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        complete = events[-1]
+        assert isinstance(complete, StreamComplete)
+        assert complete.usage is None

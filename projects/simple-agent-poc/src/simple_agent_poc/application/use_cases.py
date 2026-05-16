@@ -77,20 +77,22 @@ class RunAgentUseCase:
         start_time = time.perf_counter()
         accumulated_text = ""
         model = agent_definition.model
-        usage: Usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         try:
+            usage_from_stream: Usage | None = None
             for chunk in llm_client.complete_stream(list(session.messages)):
                 delta = chunk.get("content_delta")
                 if delta:
                     accumulated_text += delta
                     yield ContentDelta(delta=delta)
+                if "usage" in chunk:
+                    usage_from_stream = chunk["usage"]
 
             session.append_assistant_message(accumulated_text)
             elapsed = time.perf_counter() - start_time
             yield StreamComplete(
                 session_id=session.session_id,
-                usage=usage,
+                usage=usage_from_stream,
                 model=model,
                 response_time=elapsed,
             )
