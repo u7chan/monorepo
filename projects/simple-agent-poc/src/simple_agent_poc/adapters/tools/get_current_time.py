@@ -10,7 +10,7 @@ TOOL_DEFINITION: ToolDefinition = {
     "type": "function",
     "function": {
         "name": "get_current_time",
-        "description": "現在の日時をISO 8601形式で返します。",
+        "description": "現在の日時をUTCのISO 8601形式で返します。",
         "parameters": {
             "type": "object",
             "properties": {},

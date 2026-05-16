@@ -29,7 +29,9 @@ TOOL_DEFINITION: ToolDefinition = {
 
 
 def execute(arguments: dict[str, Any]) -> str:
+    a = arguments.get("a", "")
+    b = arguments.get("b", "")
     return json.dumps(
-        {"result": arguments["a"] + arguments["b"]},
+        {"result": str(a) + str(b)},
         ensure_ascii=False,
     )

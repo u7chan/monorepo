@@ -2,7 +2,7 @@
 
 import time
 from collections.abc import Generator
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from simple_agent_poc.application.dto import (
@@ -29,6 +29,7 @@ from simple_agent_poc.core.types import (
     SessionNotFoundError,
     ToolCall,
     ToolCallDelta,
+    ToolDefinition,
     Usage,
     ValidationError,
 )
@@ -95,43 +96,45 @@ class RunAgentUseCase:
 
         tool_call_history: list[ToolCallRecord] = []
 
-        for _ in range(MAX_TOOL_ROUNDS):
-            response = llm_client.complete(list(session.messages), tools=tools)
+        try:
+            for _ in range(MAX_TOOL_ROUNDS):
+                response = llm_client.complete(list(session.messages), tools=tools)
 
-            tool_calls = response.get("tool_calls")
-            if not tool_calls:
-                session.append_assistant_message(response["content"])
-                self._session_store.save(session)
-                return RunAgentResponse.from_llm_response(
-                    response,
-                    session_id=session.session_id,
-                    tool_call_history=tool_call_history,
-                )
-
-            if self._tool_executor is None:
-                raise LLMError(
-                    "Tool call requested but no tool executor configured",
-                    display_message="Tool call requested but no tool executor configured.",
-                )
-            session.append_assistant_message(
-                response["content"] or "", tool_calls=tool_calls
-            )
-            for tc in tool_calls:
-                result = self._tool_executor.execute(tc)
-                session.append_tool_message(result, tool_call_id=tc["id"])
-                tool_call_history.append(
-                    ToolCallRecord(
-                        call_id=tc["id"],
-                        name=tc["function"]["name"],
-                        arguments=tc["function"]["arguments"],
-                        result=result,
+                tool_calls = response.get("tool_calls")
+                if not tool_calls:
+                    session.append_assistant_message(response["content"])
+                    return RunAgentResponse.from_llm_response(
+                        response,
+                        session_id=session.session_id,
+                        tool_call_history=tool_call_history,
                     )
-                )
 
-        raise LLMError(
-            "Exceeded maximum tool call rounds",
-            display_message="Exceeded maximum tool call rounds.",
-        )
+                if self._tool_executor is None:
+                    raise LLMError(
+                        "Tool call requested but no tool executor configured",
+                        display_message="Tool call requested but no tool executor configured.",
+                    )
+                session.append_assistant_message(
+                    response["content"] or "", tool_calls=tool_calls
+                )
+                for tc in tool_calls:
+                    result = self._tool_executor.execute(tc)
+                    session.append_tool_message(result, tool_call_id=tc["id"])
+                    tool_call_history.append(
+                        ToolCallRecord(
+                            call_id=tc["id"],
+                            name=tc["function"]["name"],
+                            arguments=tc["function"]["arguments"],
+                            result=result,
+                        )
+                    )
+
+            raise LLMError(
+                "Exceeded maximum tool call rounds",
+                display_message="Exceeded maximum tool call rounds.",
+            )
+        finally:
+            self._session_store.save(session)
 
     def execute_stream(
         self, request: RunAgentRequest
@@ -242,7 +245,7 @@ class RunAgentUseCase:
                 session_id=uuid4().hex,
                 agent_id=agent_definition.agent_id,
                 system_prompt=agent_definition.format_system_prompt(
-                    current_datetime=datetime.now().isoformat()
+                    current_datetime=datetime.now(timezone.utc).isoformat()
                 ),
             )
 
@@ -254,7 +257,7 @@ class RunAgentUseCase:
             )
         return session
 
-    def _resolve_tools(self, agent_definition: AgentDefinition) -> list | None:
+    def _resolve_tools(self, agent_definition: AgentDefinition) -> list[ToolDefinition] | None:
         if not self._tool_executor or not agent_definition.tools:
             return None
         return self._tool_executor.get_definitions(agent_definition.tools)
