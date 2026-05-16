@@ -217,6 +217,16 @@ class RunAgentUseCase:
                         None,
                     )
                     if ask_user_tc and self._is_api_context:
+                        for tc in tool_calls:
+                            if tc["function"]["name"] == "ask_user":
+                                continue
+                            result = self._tool_executor.execute(tc)
+                            session.append_tool_message(result, tool_call_id=tc["id"])
+                            yield ToolResultEvent(
+                                call_id=tc["id"],
+                                name=tc["function"]["name"],
+                                result=result,
+                            )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
                         self._session_store.save(session)
                         ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
@@ -285,6 +295,7 @@ class RunAgentUseCase:
         result = json.dumps({"answer": request.answer}, ensure_ascii=False)
         session.append_tool_message(result, tool_call_id=tc["id"])
         yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
+        resume_round = session.pending_round
         session.resume_with_answer()
 
         agent_definition = self._agent_definitions.get(session.agent_id)
@@ -295,7 +306,7 @@ class RunAgentUseCase:
         _accumulated_text = ""
 
         try:
-            for round_idx in range(session.pending_round + 1, MAX_TOOL_ROUNDS):
+            for round_idx in range(resume_round + 1, MAX_TOOL_ROUNDS):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
@@ -345,6 +356,16 @@ class RunAgentUseCase:
                         None,
                     )
                     if ask_user_tc and self._is_api_context:
+                        for tc in tool_calls:
+                            if tc["function"]["name"] == "ask_user":
+                                continue
+                            result = self._tool_executor.execute(tc)
+                            session.append_tool_message(result, tool_call_id=tc["id"])
+                            yield ToolResultEvent(
+                                call_id=tc["id"],
+                                name=tc["function"]["name"],
+                                result=result,
+                            )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
                         self._session_store.save(session)
                         ask_user_args = json.loads(ask_user_tc["function"]["arguments"])

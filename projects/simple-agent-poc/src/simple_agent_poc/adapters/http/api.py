@@ -199,6 +199,7 @@ def create_app(
                         yield f"event: tool_result\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
                     elif isinstance(event, SessionPaused):
                         yield f"event: paused\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                        yield "event: done\ndata: {}\n\n"
                         return
                     elif isinstance(event, StreamComplete):
                         yield f"event: complete\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
@@ -237,6 +238,7 @@ def create_app(
                         yield f"event: tool_result\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
                     elif isinstance(event, SessionPaused):
                         yield f"event: paused\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                        yield "event: done\ndata: {}\n\n"
                         return
                     elif isinstance(event, StreamComplete):
                         yield f"event: complete\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"

@@ -18,7 +18,6 @@ agents:
     tools:
       - get_current_time
       - concat
-      - ask_user
     api_type: completion
 
   kansaiben:
@@ -29,5 +28,8 @@ agents:
       なんでも関西弁で気軽に話しかけてや。
       Current datetime: {current_datetime}
     temperature: null
-    tools: []
+    tools:
+      - get_current_time
+      - concat
+      - ask_user
     api_type: responses
