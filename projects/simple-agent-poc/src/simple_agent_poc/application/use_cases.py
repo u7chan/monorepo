@@ -257,7 +257,9 @@ class RunAgentUseCase:
             )
         return session
 
-    def _resolve_tools(self, agent_definition: AgentDefinition) -> list[ToolDefinition] | None:
+    def _resolve_tools(
+        self, agent_definition: AgentDefinition
+    ) -> list[ToolDefinition] | None:
         if not self._tool_executor or not agent_definition.tools:
             return None
         return self._tool_executor.get_definitions(agent_definition.tools)
