@@ -199,7 +199,10 @@ class TestStreamPauseContinueAPI:
                     "index": 0,
                     "id": "call_001",
                     "type": "function",
-                    "function": {"name": "ask_user", "arguments": '{"question": "Your name?"}'},
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "Your name?"}',
+                    },
                 },
             },
         ]
@@ -237,7 +240,10 @@ class TestStreamPauseContinueAPI:
                     "index": 0,
                     "id": "call_001",
                     "type": "function",
-                    "function": {"name": "ask_user", "arguments": '{"question": "Your name?"}'},
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "Your name?"}',
+                    },
                 },
             },
         ]
@@ -250,7 +256,9 @@ class TestStreamPauseContinueAPI:
 
         def make_use_case(chunks):
             return RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(chunks=chunks),
+                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(
+                    chunks=chunks
+                ),
                 session_store=session_store,
                 agent_definitions=registry,
                 tool_executor=tool_executor,
@@ -283,7 +291,9 @@ class TestStreamPauseContinueAPI:
     def test_chat_continue_with_unknown_session_returns_error(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(chunks=[]),
+                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(
+                    chunks=[]
+                ),
                 session_store=InMemorySessionStore(),
                 agent_definitions=build_registry_with_ask_user(),
                 is_api_context=True,
@@ -304,6 +314,7 @@ class TestStreamPauseContinueAPI:
     def test_chat_continue_with_non_paused_session_returns_error(self) -> None:
         session_store = InMemorySessionStore()
         from simple_agent_poc.core.session import ConversationSession
+
         session = ConversationSession.start(
             session_id="active",
             system_prompt="System prompt",
@@ -314,7 +325,9 @@ class TestStreamPauseContinueAPI:
 
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(chunks=[]),
+                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(
+                    chunks=[]
+                ),
                 session_store=session_store,
                 agent_definitions=build_registry_with_ask_user(),
                 is_api_context=True,
@@ -335,7 +348,9 @@ class TestStreamPauseContinueAPI:
     def test_chat_continue_rejects_blank_answer(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(chunks=[]),
+                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(
+                    chunks=[]
+                ),
                 session_store=InMemorySessionStore(),
                 agent_definitions=build_registry_with_ask_user(),
                 is_api_context=True,

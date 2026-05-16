@@ -217,7 +217,9 @@ def create_app(
         request: ContinueRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
     ):
-        from simple_agent_poc.application.dto import ContinueRequest as AppContinueRequest
+        from simple_agent_poc.application.dto import (
+            ContinueRequest as AppContinueRequest,
+        )
 
         def event_stream():
             try:

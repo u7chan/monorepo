@@ -123,7 +123,9 @@ def show_exit_message() -> None:
 
 
 def show_streaming_response(
-    stream: Iterator[ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete],
+    stream: Iterator[
+        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete
+    ],
 ) -> StreamComplete:
     """Display a streaming response with live output."""
     indicator = LoadingIndicator()

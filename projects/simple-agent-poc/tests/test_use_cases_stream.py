@@ -405,7 +405,10 @@ class TestExecuteStreamPause:
                     "index": 0,
                     "id": "call_001",
                     "type": "function",
-                    "function": {"name": "ask_user", "arguments": '{"question": "What is your name?"}'},
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "What is your name?"}',
+                    },
                 },
             },
         ]
@@ -442,7 +445,10 @@ class TestExecuteStreamPause:
                     "index": 0,
                     "id": "call_001",
                     "type": "function",
-                    "function": {"name": "ask_user", "arguments": '{"question": "What?"}'},
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "What?"}',
+                    },
                 },
             },
         ]
@@ -496,7 +502,10 @@ class TestContinueStream:
                     "index": 0,
                     "id": "call_001",
                     "type": "function",
-                    "function": {"name": "ask_user", "arguments": '{"question": "Your name?"}'},
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "Your name?"}',
+                    },
                 },
             },
         ]
@@ -516,7 +525,9 @@ class TestContinueStream:
             is_api_context=True,
         )
 
-        first_events = list(first_use_case.execute_stream(RunAgentRequest(message="Hello")))
+        first_events = list(
+            first_use_case.execute_stream(RunAgentRequest(message="Hello"))
+        )
         paused = first_events[-1]
         assert isinstance(paused, SessionPaused)
 
@@ -568,6 +579,7 @@ class TestContinueStream:
     def test_continue_stream_with_non_paused_session_raises_error(self) -> None:
         store = InMemorySessionStore()
         from simple_agent_poc.core.session import ConversationSession
+
         session = ConversationSession.start(
             session_id="active-session",
             system_prompt="System prompt",

@@ -144,7 +144,9 @@ class RunAgentUseCase:
 
     def execute_stream(
         self, request: RunAgentRequest
-    ) -> Generator[ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete]:
+    ) -> Generator[
+        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete
+    ]:
         """Run the agent for a single user message with streaming ReAct loop."""
         if not request.message.strip():
             raise ValidationError("message must not be blank")
@@ -207,7 +209,11 @@ class RunAgentUseCase:
                     )
 
                     ask_user_tc = next(
-                        (tc for tc in tool_calls if tc["function"]["name"] == "ask_user"),
+                        (
+                            tc
+                            for tc in tool_calls
+                            if tc["function"]["name"] == "ask_user"
+                        ),
                         None,
                     )
                     if ask_user_tc and self._is_api_context:
@@ -257,7 +263,11 @@ class RunAgentUseCase:
 
     def continue_stream(
         self, request: ContinueRequest
-    ) -> Generator[ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete, None, None]:
+    ) -> Generator[
+        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
+        None,
+        None,
+    ]:
         """Resume a paused session with the user's answer."""
         session = self._session_store.get(request.session_id)
         if session is None:
@@ -327,7 +337,11 @@ class RunAgentUseCase:
                     )
 
                     ask_user_tc = next(
-                        (tc for tc in tool_calls if tc["function"]["name"] == "ask_user"),
+                        (
+                            tc
+                            for tc in tool_calls
+                            if tc["function"]["name"] == "ask_user"
+                        ),
                         None,
                     )
                     if ask_user_tc and self._is_api_context:
