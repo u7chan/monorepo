@@ -1,3 +1,4 @@
+import { asc, desc, eq } from 'drizzle-orm'
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import { buildFileServerPreviewUrl } from '#/server/features/chat-conversations/file-server-client'
@@ -11,7 +12,6 @@ import type {
   TextContent,
   UserMetadata,
 } from '#/types'
-import { asc, desc, eq } from 'drizzle-orm'
 
 /**
  * DB から読み出した content 文字列を deserialize する。

@@ -1,3 +1,4 @@
+import { and, eq } from 'drizzle-orm'
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import {
@@ -8,7 +9,6 @@ import {
 } from '#/server/features/chat-conversations/file-server-client'
 import { logger } from '#/server/lib/logger'
 import type { AssistantMetadata, GeneratedCodeFile } from '#/types'
-import { and, eq } from 'drizzle-orm'
 
 export type SaveGeneratedFileResult =
   | { ok: true; file: GeneratedCodeFile; alreadyExisted: boolean }

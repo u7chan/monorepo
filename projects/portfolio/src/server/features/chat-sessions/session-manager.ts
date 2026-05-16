@@ -1,3 +1,4 @@
+import { uuidv7 } from 'uuidv7'
 import { chatConversationRepository } from '#/server/features/chat-conversations/repository'
 import { chat } from '#/server/features/chat/chat'
 import { convertStreamChunks } from '#/server/features/chat/converter'
@@ -12,7 +13,6 @@ import type {
   ChatStreamEvent,
   ChatUsage,
 } from '#/types/chat-api'
-import { uuidv7 } from 'uuidv7'
 import type { CacheStore } from './cache-store'
 import { chatSessionStore } from './cache-store'
 

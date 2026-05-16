@@ -1,9 +1,9 @@
+import { memo, useState } from 'react'
 import { MessagesDumpViewer } from '#/client/components/chat/messages-dump-viewer'
 import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { EyeIcon } from '#/client/components/svg/eye-icon'
 import type { ApiChatMessage, AssistantMetadata, ImageContextSummary, Message, TextContent } from '#/types'
 import { isImageContentArray, toApiChatMessage } from '#/types'
-import { memo, useState } from 'react'
 
 interface ChatResultsProps {
   metadata: AssistantMetadata

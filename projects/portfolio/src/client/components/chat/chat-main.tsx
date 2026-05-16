@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef } from 'react'
 import { ChatComposer } from '#/client/components/chat/chat-composer'
 import { ChatMessageList } from '#/client/components/chat/chat-message-list'
 import { useChatActions } from '#/client/components/chat/hooks/use-chat-actions'
@@ -9,7 +10,6 @@ import { PromptTemplate, type TemplateInput } from '#/client/components/chat/pro
 import { ArrowDownIcon } from '#/client/components/svg/arrow-down-icon'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { Conversation } from '#/types'
-import { useCallback, useEffect, useRef } from 'react'
 
 interface Props {
   initTrigger?: number

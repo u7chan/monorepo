@@ -1,4 +1,5 @@
 import { PassThrough, Writable } from 'node:stream'
+import { describe, expect, it, vi } from 'vitest'
 import {
   passwordPrompt,
   passwordRequiredMessage,
@@ -6,7 +7,6 @@ import {
   readPasswordFromPrompt,
   readPasswordViaStdin,
 } from '#/db/seeders/read-password'
-import { describe, expect, it, vi } from 'vitest'
 
 describe('readPassword', () => {
   it('TTY ありでは対話入力を使う', async () => {

@@ -1,11 +1,11 @@
+import { createRootRoute, Outlet } from '@tanstack/react-router'
+import { Suspense, lazy } from 'react'
 import { AppLayout } from '#/client/components/app-layout'
 import { RouteLoading } from '#/client/components/route-loading'
 import { AboutIcon } from '#/client/components/svg/about-icon'
 import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { DashboardIcon } from '#/client/components/svg/dashboard-icon'
 import { DiffIcon } from '#/client/components/svg/diff-icon'
-import { createRootRoute, Outlet } from '@tanstack/react-router'
-import { Suspense, lazy } from 'react'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null // Render nothing in production

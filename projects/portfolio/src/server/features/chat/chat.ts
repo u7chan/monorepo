@@ -1,6 +1,6 @@
-import type { ApiChatMessage, ApiMode } from '#/types'
 import OpenAI from 'openai'
 import type * as ResponsesAPI from 'openai/resources/responses/responses'
+import type { ApiChatMessage, ApiMode } from '#/types'
 import type { Completions, ResponsesCompletion, ResponsesStreamChunk } from './transport'
 
 export type {

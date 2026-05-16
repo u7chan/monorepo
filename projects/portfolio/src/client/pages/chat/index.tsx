@@ -1,3 +1,6 @@
+import { useQuery } from '@tanstack/react-query'
+import { hc } from 'hono/client'
+import { useCallback, useEffect } from 'react'
 import { ChatLayout } from '#/client/components/chat/chat-layout'
 import { ChatMain } from '#/client/components/chat/chat-main'
 import { ChatSettings } from '#/client/components/chat/chat-settings'
@@ -9,9 +12,6 @@ import { useMetaProps } from '#/client/pages/home'
 import { Route } from '#/client/routes/chat'
 import type { AppType } from '#/server/app.d'
 import { ConversationListResponseSchema, type Conversation } from '#/types'
-import { useQuery } from '@tanstack/react-query'
-import { hc } from 'hono/client'
-import { useCallback, useEffect } from 'react'
 
 const client = hc<AppType>('/')
 

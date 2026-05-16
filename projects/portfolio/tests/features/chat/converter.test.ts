@@ -1,6 +1,6 @@
+import { describe, expect, it } from 'vitest'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, StreamCompletionChunk, StreamChunk } from '#/server/features/chat/transport'
-import { describe, expect, it } from 'vitest'
 
 describe('convertCompletion', () => {
   it('LiteLLM レスポンスを正規化できる', () => {

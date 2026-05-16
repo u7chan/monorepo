@@ -1,8 +1,8 @@
+import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
+import { uuidv7 } from 'uuidv7'
 import { prepareApiMessages, summarizeImageContext } from '#/client/components/chat/edit-message'
 import type { TemplateInput } from '#/client/components/chat/prompt-template'
 import type { ApiChatMessage, ApiMode, ImageContextSummary, Message, ReasoningEffort } from '#/types'
-import { type ChangeEvent, type KeyboardEvent, type RefObject, useEffect, useState } from 'react'
-import { uuidv7 } from 'uuidv7'
 
 const MIN_TEXT_LINE_COUNT = 2
 const MAX_TEXT_LINE_COUNT = 5

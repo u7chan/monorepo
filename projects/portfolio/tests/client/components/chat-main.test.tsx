@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import type { Settings } from '#/client/storage/remote-storage-settings'
-import type { AssistantMessage, Conversation, UserMessage } from '#/types'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Settings } from '#/client/storage/remote-storage-settings'
+import type { AssistantMessage, Conversation, UserMessage } from '#/types'
 
 const useMessageScrollMock = vi.fn()
 const scrollToMessageEndMock = vi.fn()

@@ -1,7 +1,7 @@
-import { readFromLocalStorage } from '#/client/storage/remote-storage-settings'
-import type { AppType } from '#/server/app'
 import { hc } from 'hono/client'
 import { useCallback, useEffect, useState } from 'react'
+import { readFromLocalStorage } from '#/client/storage/remote-storage-settings'
+import type { AppType } from '#/server/app'
 
 const client = hc<AppType>('/')
 const FETCH_TIMEOUT_MS = 10000

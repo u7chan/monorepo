@@ -1,3 +1,6 @@
+import { memo, type ReactNode, type RefObject, useCallback, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import {
   CodeBlockOpenStateContext,
@@ -13,9 +16,6 @@ import { ChatbotIcon } from '#/client/components/svg/chatbot-icon'
 import { ChatbotTypingIcon } from '#/client/components/svg/chatbot-typing-icon'
 import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
-import { memo, type ReactNode, type RefObject, useCallback, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 const markdownRemarkPlugins = [remarkGfm]
 const markdownComponents = {

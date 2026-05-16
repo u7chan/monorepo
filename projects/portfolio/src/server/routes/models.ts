@@ -1,7 +1,7 @@
-import { logger } from '#/server/lib/logger'
 import { Hono } from 'hono'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
+import { logger } from '#/server/lib/logger'
 import type { HonoEnv } from './shared'
 
 const ModelsHeaderSchema = z.object({

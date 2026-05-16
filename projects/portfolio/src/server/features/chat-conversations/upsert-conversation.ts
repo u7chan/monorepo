@@ -1,9 +1,9 @@
+import { eq } from 'drizzle-orm'
+import { uuidv7 } from 'uuidv7'
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import { logger } from '#/server/lib/logger'
 import type { Conversation } from '#/types'
-import { eq } from 'drizzle-orm'
-import { uuidv7 } from 'uuidv7'
 
 /**
  * content を DB 保存用に serialize する。

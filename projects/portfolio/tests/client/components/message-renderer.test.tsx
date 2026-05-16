@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { MessageRenderer } from '#/client/components/chat/message-renderer'
-import type { AssistantMessage, UserMessage } from '#/types'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MessageRenderer } from '#/client/components/chat/message-renderer'
+import type { AssistantMessage, UserMessage } from '#/types'
 
 vi.mock('react-syntax-highlighter', () => ({
   Prism: ({ children }: { children: string }) => <pre>{children}</pre>,

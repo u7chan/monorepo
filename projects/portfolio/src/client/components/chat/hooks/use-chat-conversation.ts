@@ -1,9 +1,9 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createAssistantMessage } from '#/client/components/chat/chat-message-factory'
 import { hasActiveChatSession, useStreamProcessor } from '#/client/components/chat/hooks/use-stream-processor'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { Conversation, Message } from '#/types'
 import type { ChatResponse } from '#/types/chat-api'
-import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseChatConversationParams {
   initTrigger?: number

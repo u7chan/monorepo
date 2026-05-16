@@ -1,5 +1,5 @@
-import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { useCallback, useState } from 'react'
+import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 
 export function useMessageCopy() {
   const [copiedId, setCopiedId] = useState('')

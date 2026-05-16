@@ -1,8 +1,8 @@
+import { useState } from 'react'
 import { DeleteIcon } from '#/client/components/svg/delete-icon'
 import { MessageIcon } from '#/client/components/svg/message-icon'
 import { NewChatIcon } from '#/client/components/svg/new-chat-icon'
 import type { Conversation } from '#/types'
-import { useState } from 'react'
 
 const conversationDateFormatter = new Intl.DateTimeFormat('ja-JP', {
   year: 'numeric',

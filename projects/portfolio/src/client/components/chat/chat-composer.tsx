@@ -1,9 +1,9 @@
+import { type ChangeEvent, type KeyboardEvent, useMemo } from 'react'
 import { ChatInput } from '#/client/components/chat/chat-input'
 import { FileImageInput, FileImagePreview } from '#/client/components/input/file-image-input'
 import { ArrowUpIcon } from '#/client/components/svg/arrow-up-icon'
 import { StopIcon } from '#/client/components/svg/stop-icon'
 import { UploadIcon } from '#/client/components/svg/upload-icon'
-import { type ChangeEvent, type KeyboardEvent, useMemo } from 'react'
 
 interface ChatComposerProps {
   name?: string

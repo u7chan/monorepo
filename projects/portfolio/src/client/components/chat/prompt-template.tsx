@@ -1,7 +1,7 @@
-import { useModelFetching } from '#/client/components/chat/chat-settings/hooks/use-model-fetching'
-import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { memo, useMemo, useState } from 'react'
+import { useModelFetching } from '#/client/components/chat/chat-settings/hooks/use-model-fetching'
+import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 
 interface PromptTemplate {
   id: string

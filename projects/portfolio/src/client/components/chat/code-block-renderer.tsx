@@ -1,13 +1,13 @@
+import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
+import { createContext, useContext, useState } from 'react'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { EyeIcon } from '#/client/components/svg/eye-icon'
 import { SparkleIcon } from '#/client/components/svg/sparkle-icon'
-import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, ReactNode } from 'react'
-import { createContext, useContext, useState } from 'react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
 export const StreamingCodeBlockContext = createContext<boolean>(false)
 
