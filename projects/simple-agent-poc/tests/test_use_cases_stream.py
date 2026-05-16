@@ -6,7 +6,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
-from simple_agent_poc.application.dto import ContentDelta, RunAgentRequest, StreamComplete
+from simple_agent_poc.application.dto import (
+    ContentDelta,
+    RunAgentRequest,
+    StreamComplete,
+)
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import (
@@ -114,7 +118,9 @@ class TestExecuteStream:
             def complete(self, messages: list[Message]) -> dict:
                 raise NotImplementedError
 
-            def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+            def complete_stream(
+                self, messages: list[Message]
+            ) -> Iterator[LLMStreamChunk]:
                 yield from self.chunks
                 raise RuntimeError("Connection lost")
 
@@ -143,7 +149,9 @@ class TestExecuteStream:
             def complete(self, messages: list[Message]) -> dict:
                 raise NotImplementedError
 
-            def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+            def complete_stream(
+                self, messages: list[Message]
+            ) -> Iterator[LLMStreamChunk]:
                 raise RuntimeError("Connection lost")
                 yield  # unreachable
 
@@ -168,12 +176,8 @@ class TestExecuteStream:
         }
 
     def test_execute_stream_reuses_existing_session(self) -> None:
-        first_client = StreamingStubLLMClient(
-            chunks=[{"content_delta": "First"}]
-        )
-        second_client = StreamingStubLLMClient(
-            chunks=[{"content_delta": "Second"}]
-        )
+        first_client = StreamingStubLLMClient(chunks=[{"content_delta": "First"}])
+        second_client = StreamingStubLLMClient(chunks=[{"content_delta": "Second"}])
         store = InMemorySessionStore()
         first_use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=first_client),
@@ -253,9 +257,7 @@ class TestExecuteStream:
             )
 
     def test_execute_stream_rejects_agent_change(self) -> None:
-        llm_client = StreamingStubLLMClient(
-            chunks=[{"content_delta": "First"}]
-        )
+        llm_client = StreamingStubLLMClient(chunks=[{"content_delta": "First"}])
         store = InMemorySessionStore()
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
@@ -263,9 +265,7 @@ class TestExecuteStream:
             agent_definitions=build_registry(stream=True),
         )
 
-        first_events = list(
-            use_case.execute_stream(RunAgentRequest(message="Hello"))
-        )
+        first_events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
         first_complete = first_events[-1]
         assert isinstance(first_complete, StreamComplete)
 
