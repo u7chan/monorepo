@@ -1,6 +1,7 @@
 """LLM client implementation."""
 
 import time
+import warnings
 from collections.abc import Iterator
 
 from litellm import completion, responses
@@ -18,6 +19,11 @@ from simple_agent_poc.core.types import (
     LLMStreamChunk,
     Message,
     RateLimitError,
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message="Pydantic serializ",
 )
 
 
