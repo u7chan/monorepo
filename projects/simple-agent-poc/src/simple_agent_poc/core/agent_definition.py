@@ -10,7 +10,7 @@ from simple_agent_poc.core.types import ValidationError
 
 _ROOT_FIELDS = frozenset({"agents"})
 _AGENT_FIELDS = frozenset(
-    {"model", "system_prompt", "temperature", "tools", "api_type"}
+    {"model", "system_prompt", "temperature", "tools", "api_type", "stream"}
 )
 _REQUIRED_AGENT_FIELDS = frozenset({"model", "system_prompt"})
 
@@ -25,6 +25,7 @@ class AgentDefinition:
     temperature: float | None = None
     tools: list[dict[str, Any]] = field(default_factory=list)
     api_type: Literal["completion", "responses"] = "completion"
+    stream: bool = False
 
     def format_system_prompt(self, *, current_datetime: str) -> str:
         """Format the system prompt with runtime context."""
@@ -109,6 +110,10 @@ def _build_agent_definition(
         definition.get("api_type"),
         f"agents.{agent_id}.api_type",
     )
+    stream = _optional_bool(
+        definition.get("stream"),
+        f"agents.{agent_id}.stream",
+    )
 
     return AgentDefinition(
         agent_id=agent_id,
@@ -117,6 +122,7 @@ def _build_agent_definition(
         temperature=temperature,
         tools=tools,
         api_type=api_type,
+        stream=stream,
     )
 
 
@@ -172,3 +178,11 @@ def _optional_api_type(
     if value not in ("completion", "responses"):
         raise ValidationError(f"{path} must be one of: completion, responses")
     return cast(Literal["completion", "responses"], value)
+
+
+def _optional_bool(value: object, path: str) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ValidationError(f"{path} must be a boolean")
+    return value

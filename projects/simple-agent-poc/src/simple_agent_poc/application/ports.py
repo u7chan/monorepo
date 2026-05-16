@@ -1,10 +1,11 @@
 """Application ports."""
 
+from collections.abc import Iterator
 from typing import Protocol
 
 from simple_agent_poc.core.agent_definition import AgentDefinition
 from simple_agent_poc.core.session import ConversationSession
-from simple_agent_poc.core.types import LLMResponse, Message
+from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
 
 
 class LLMClient(Protocol):
@@ -12,6 +13,9 @@ class LLMClient(Protocol):
 
     def complete(self, messages: list[Message]) -> LLMResponse:
         """Receive message history and return an LLM response."""
+
+    def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+        """Receive message history and yield streaming chunks."""
 
 
 class LLMClientFactory(Protocol):

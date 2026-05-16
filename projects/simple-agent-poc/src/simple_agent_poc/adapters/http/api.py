@@ -1,12 +1,20 @@
 """HTTP API adapter."""
 
+import json
+from dataclasses import asdict
 from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
+from starlette.responses import StreamingResponse
 
-from simple_agent_poc.application.dto import RunAgentRequest, RunAgentResponse
+from simple_agent_poc.application.dto import (
+    ContentDelta,
+    RunAgentRequest,
+    RunAgentResponse,
+    StreamComplete,
+)
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.types import SessionNotFoundError, Usage, ValidationError
 from simple_agent_poc.entrypoints.bootstrap import create_run_agent_use_case_factory
@@ -122,5 +130,41 @@ def create_app(
             ) from error
 
         return ChatResponse.from_use_case_response(response)
+
+    @app.post("/api/chat/stream")
+    async def chat_stream(
+        request: ChatRequest,
+        run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
+        *,
+        session_id_header: Annotated[
+            str | None,
+            Header(alias="Session-Id"),
+        ] = None,
+    ):
+        async def event_stream():
+            try:
+                for event in run_agent.execute_stream(
+                    RunAgentRequest(
+                        message=request.message,
+                        session_id=resolve_session_id(
+                            header_session_id=session_id_header,
+                            body_session_id=request.session_id,
+                        ),
+                        agent_id=request.agent_id,
+                    )
+                ):
+                    if isinstance(event, ContentDelta):
+                        yield f"event: delta\ndata: {json.dumps({'content': event.delta})}\n\n"
+                    elif isinstance(event, StreamComplete):
+                        yield f"event: complete\ndata: {json.dumps(asdict(event))}\n\n"
+                yield "event: done\ndata: {}\n\n"
+            except SessionNotFoundError as error:
+                yield f"event: error\ndata: {json.dumps({'detail': error.display_message})}\n\n"
+            except ValidationError as error:
+                yield f"event: error\ndata: {json.dumps({'detail': error.display_message})}\n\n"
+            except Exception as error:
+                yield f"event: error\ndata: {json.dumps({'detail': str(error)})}\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     return app

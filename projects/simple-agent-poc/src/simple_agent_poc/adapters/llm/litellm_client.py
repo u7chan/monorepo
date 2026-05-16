@@ -1,6 +1,7 @@
 """LLM client implementation."""
 
 import time
+from collections.abc import Iterator
 
 from litellm import completion, responses
 from litellm.exceptions import (
@@ -14,6 +15,7 @@ from simple_agent_poc.core.types import (
     AuthenticationError,
     LLMError,
     LLMResponse,
+    LLMStreamChunk,
     Message,
     RateLimitError,
 )
@@ -77,6 +79,49 @@ class LiteLLMCompletionClient(LLMClient):
             "response_time": elapsed,
         }
 
+    def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+        completion_params: dict[str, float] = {}
+        if self.temperature is not None:
+            completion_params["temperature"] = self.temperature
+
+        try:
+            response = completion(
+                model=self.model,
+                messages=messages,
+                stream=True,
+                **completion_params,
+            )
+        except LiteLLMAuthError as error:
+            raise AuthenticationError(
+                message=str(error),
+                display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
+            ) from error
+        except LiteLLMRateLimitError as error:
+            raise RateLimitError(
+                message=str(error),
+                display_message="Rate limit exceeded. Please wait a moment before trying again.",
+            ) from error
+        except Exception as error:
+            error_msg = str(error).lower()
+            if (
+                "authentication" in error_msg
+                or "api key" in error_msg
+                or "401" in error_msg
+            ):
+                raise AuthenticationError(
+                    message=str(error),
+                    display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
+                ) from error
+            raise LLMError(
+                message=str(error),
+                display_message=f"An error occurred while communicating with the LLM: {error}",
+            ) from error
+
+        for chunk in response:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield {"content_delta": delta}
+
 
 class LiteLLMResponsesClient(LLMClient):
     """LLM client using litellm.responses()."""
@@ -135,6 +180,48 @@ class LiteLLMResponsesClient(LLMClient):
             "model": self.model,
             "response_time": elapsed,
         }
+
+    def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+        response_params: dict[str, float] = {}
+        if self.temperature is not None:
+            response_params["temperature"] = self.temperature
+
+        try:
+            response = responses(
+                input=messages,
+                model=self.model,
+                stream=True,
+                **response_params,
+            )
+        except LiteLLMAuthError as error:
+            raise AuthenticationError(
+                message=str(error),
+                display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
+            ) from error
+        except LiteLLMRateLimitError as error:
+            raise RateLimitError(
+                message=str(error),
+                display_message="Rate limit exceeded. Please wait a moment before trying again.",
+            ) from error
+        except Exception as error:
+            error_msg = str(error).lower()
+            if (
+                "authentication" in error_msg
+                or "api key" in error_msg
+                or "401" in error_msg
+            ):
+                raise AuthenticationError(
+                    message=str(error),
+                    display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
+                ) from error
+            raise LLMError(
+                message=str(error),
+                display_message=f"An error occurred while communicating with the LLM: {error}",
+            ) from error
+
+        for event in response:
+            if hasattr(event, "delta") and event.delta:
+                yield {"content_delta": event.delta}
 
 
 class LiteLLMClientFactory:

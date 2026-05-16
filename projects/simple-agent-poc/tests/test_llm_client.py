@@ -370,3 +370,198 @@ class TestLiteLLMClientFactory:
         assert isinstance(client, LiteLLMResponsesClient)
         assert client.model == "gpt-5.4-nano"
         assert client.temperature is None
+
+
+class TestLiteLLMCompletionClientStream:
+    """Tests for complete_stream method of LiteLLMCompletionClient."""
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_yields_content_deltas(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        chunk1 = MagicMock()
+        chunk1.choices = [MagicMock()]
+        chunk1.choices[0].delta.content = "Hello"
+        chunk2 = MagicMock()
+        chunk2.choices = [MagicMock()]
+        chunk2.choices[0].delta.content = ", world!"
+        empty_chunk = MagicMock()
+        empty_chunk.choices = [MagicMock()]
+        empty_chunk.choices[0].delta.content = ""
+        mock_completion.return_value = [chunk1, chunk2, empty_chunk]
+
+        client = LiteLLMCompletionClient(model="gpt-4")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        result = list(client.complete_stream(messages))
+
+        assert result == [
+            {"content_delta": "Hello"},
+            {"content_delta": ", world!"},
+        ]
+        mock_completion.assert_called_once_with(
+            model="gpt-4",
+            messages=messages,
+            stream=True,
+        )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_passes_temperature(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        mock_completion.return_value = []
+
+        client = LiteLLMCompletionClient(model="gpt-4", temperature=0.2)
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        list(client.complete_stream(messages))
+
+        mock_completion.assert_called_once_with(
+            model="gpt-4",
+            messages=messages,
+            stream=True,
+            temperature=0.2,
+        )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_authentication_error(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        mock_completion.side_effect = LiteLLMAuthError(
+            "Invalid API key",
+            llm_provider="openai",
+            model="gpt-4",
+        )
+
+        client = LiteLLMCompletionClient(model="gpt-4")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        with pytest.raises(AuthenticationError):
+            list(client.complete_stream(messages))
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_rate_limit_error(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        mock_completion.side_effect = LiteLLMRateLimitError(
+            "Rate limit exceeded",
+            llm_provider="openai",
+            model="gpt-4",
+        )
+
+        client = LiteLLMCompletionClient(model="gpt-4")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        with pytest.raises(RateLimitError):
+            list(client.complete_stream(messages))
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_generic_error(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        mock_completion.side_effect = ValueError("Something went wrong")
+
+        client = LiteLLMCompletionClient(model="gpt-4")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        with pytest.raises(LLMError):
+            list(client.complete_stream(messages))
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.completion")
+    def test_complete_stream_auth_from_generic_exception(
+        self,
+        mock_completion: MagicMock,
+    ) -> None:
+        mock_completion.side_effect = Exception("401 unauthorized")
+
+        client = LiteLLMCompletionClient(model="gpt-4")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        with pytest.raises(AuthenticationError):
+            list(client.complete_stream(messages))
+
+
+class TestLiteLLMResponsesClientStream:
+    """Tests for complete_stream method of LiteLLMResponsesClient."""
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_yields_content_deltas(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        event1 = MagicMock()
+        event1.delta = "Hello"
+        event2 = MagicMock()
+        event2.delta = ", world!"
+        event3 = MagicMock()
+        del event3.delta
+        mock_responses.return_value = [event1, event2, event3]
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        result = list(client.complete_stream(messages))
+
+        assert result == [
+            {"content_delta": "Hello"},
+            {"content_delta": ", world!"},
+        ]
+        mock_responses.assert_called_once_with(
+            input=messages,
+            model="gpt-5.4-nano",
+            stream=True,
+        )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_passes_temperature(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        mock_responses.return_value = []
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano", temperature=0.2)
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        list(client.complete_stream(messages))
+
+        mock_responses.assert_called_once_with(
+            input=messages,
+            model="gpt-5.4-nano",
+            stream=True,
+            temperature=0.2,
+        )
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_authentication_error(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        mock_responses.side_effect = LiteLLMAuthError(
+            "Invalid API key",
+            llm_provider="openai",
+            model="gpt-5.4-nano",
+        )
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        with pytest.raises(AuthenticationError):
+            list(client.complete_stream(messages))
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_generic_error(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        mock_responses.side_effect = ValueError("Something went wrong")
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "Hi"}]
+
+        with pytest.raises(LLMError):
+            list(client.complete_stream(messages))

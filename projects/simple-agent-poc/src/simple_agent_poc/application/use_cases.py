@@ -1,9 +1,16 @@
 """Application use cases."""
 
+import time
+from collections.abc import Generator
 from datetime import datetime
 from uuid import uuid4
 
-from simple_agent_poc.application.dto import RunAgentRequest, RunAgentResponse
+from simple_agent_poc.application.dto import (
+    ContentDelta,
+    RunAgentRequest,
+    RunAgentResponse,
+    StreamComplete,
+)
 from simple_agent_poc.application.ports import LLMClientFactory, SessionStore
 from simple_agent_poc.core.agent_definition import (
     AgentDefinition,
@@ -49,6 +56,54 @@ class RunAgentUseCase:
         return RunAgentResponse.from_llm_response(
             response, session_id=session.session_id
         )
+
+    def execute_stream(
+        self, request: RunAgentRequest
+    ) -> Generator[ContentDelta | StreamComplete, None, None]:
+        """Run the agent for a single user message with streaming."""
+        if not request.message.strip():
+            raise ValidationError("message must not be blank")
+
+        agent_definition = self._agent_definitions.get(request.agent_id)
+        session = self._load_session(
+            request.session_id,
+            agent_definition=agent_definition,
+        )
+        if session.agent_id != agent_definition.agent_id:
+            raise ValidationError("agent_id cannot be changed for an existing session")
+        session.append_user_message(request.message)
+
+        llm_client = self._llm_client_factory(agent_definition)
+        start_time = time.perf_counter()
+        accumulated_text = ""
+        model = agent_definition.model
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+        try:
+            for chunk in llm_client.complete_stream(list(session.messages)):
+                delta = chunk.get("content_delta")
+                if delta:
+                    accumulated_text += delta
+                    yield ContentDelta(delta=delta)
+
+            session.append_assistant_message(accumulated_text)
+            elapsed = time.perf_counter() - start_time
+            yield StreamComplete(
+                session_id=session.session_id,
+                usage=usage,
+                model=model,
+                response_time=elapsed,
+            )
+        except Exception:
+            if accumulated_text:
+                session.append_assistant_message(
+                    f"{accumulated_text}\n\n[stream interrupted]"
+                )
+            else:
+                session.append_assistant_message("[stream interrupted]")
+            raise
+        finally:
+            self._session_store.save(session)
 
     def _load_session(
         self,

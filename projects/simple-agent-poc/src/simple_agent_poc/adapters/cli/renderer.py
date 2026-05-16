@@ -3,9 +3,14 @@
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from typing import Callable
 
-from simple_agent_poc.application.dto import RunAgentResponse
+from simple_agent_poc.application.dto import (
+    ContentDelta,
+    RunAgentResponse,
+    StreamComplete,
+)
 from simple_agent_poc.core.types import AgentError
 
 
@@ -104,3 +109,55 @@ def show_agent_response(response: RunAgentResponse) -> None:
 def show_exit_message() -> None:
     """Display the exit message."""
     print("\nExiting...")
+
+
+def show_streaming_response(
+    stream: Iterator[ContentDelta | StreamComplete],
+) -> StreamComplete:
+    """Display a streaming response with live output."""
+    indicator = LoadingIndicator()
+    indicator.start()
+    try:
+        complete: StreamComplete | None = None
+        started = False
+        for event in stream:
+            if isinstance(event, ContentDelta):
+                if not started:
+                    indicator.stop()
+                    sys.stdout.write("Agent: ")
+                    started = True
+                sys.stdout.write(event.delta)
+                sys.stdout.flush()
+            elif isinstance(event, StreamComplete):
+                complete = event
+                if not started:
+                    indicator.stop()
+                    sys.stdout.write("Agent: ")
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+
+                elapsed = complete.response_time
+                if elapsed < 1:
+                    time_str = f"{elapsed * 1000:.0f}ms"
+                else:
+                    time_str = f"{elapsed:.2f}s"
+
+                model = complete.model
+                if "/" in model:
+                    model = model.split("/")[-1]
+
+                usage = complete.usage
+                stats = (
+                    f"Model: {model} │ "
+                    f"Time: {time_str} │ "
+                    f"Tokens: {usage['prompt_tokens']} → {usage['completion_tokens']} "
+                    f"(total: {usage['total_tokens']})"
+                )
+                print(f"  └─ {stats}")
+
+        if complete is None:
+            raise RuntimeError("Stream ended without StreamComplete event")
+        return complete
+    except Exception:
+        indicator.stop()
+        raise

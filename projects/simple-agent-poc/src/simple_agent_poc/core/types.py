@@ -50,3 +50,7 @@ class LLMResponse(TypedDict):
     usage: Usage
     model: str
     response_time: float
+
+
+class LLMStreamChunk(TypedDict):
+    content_delta: str | None
