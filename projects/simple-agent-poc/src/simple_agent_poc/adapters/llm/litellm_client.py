@@ -80,6 +80,56 @@ def _item_attr(item, attr: str, default=None):
     return getattr(item, attr, default)
 
 
+def _transform_messages_for_responses(
+    messages: list[Message],
+) -> list[dict]:
+    result: list[dict] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "tool":
+            result.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": msg.get("tool_call_id", ""),
+                    "output": msg.get("content", ""),
+                }
+            )
+            continue
+
+        item: dict = {"role": role, "content": msg.get("content", "")}
+        result.append(item)
+
+        tool_calls = msg.get("tool_calls")
+        if tool_calls:
+            for tc in tool_calls:
+                result.append(
+                    {
+                        "type": "function_call",
+                        "call_id": tc.get("id", ""),
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                    }
+                )
+    return result
+
+
+def _transform_tools_for_responses(
+    tools: list[ToolDefinition],
+) -> list[dict]:
+    result: list[dict] = []
+    for tool in tools:
+        func = tool["function"]
+        result.append(
+            {
+                "type": tool["type"],
+                "name": func["name"],
+                "description": func["description"],
+                "parameters": func["parameters"],
+            }
+        )
+    return result
+
+
 def _parse_tool_calls_from_responses_output(output) -> list[ToolCall]:
     result: list[ToolCall] = []
     for item in output:
@@ -254,11 +304,11 @@ class LiteLLMResponsesClient(LLMClient):
         if self.temperature is not None:
             response_params["temperature"] = self.temperature
         if tools:
-            response_params["tools"] = tools
+            response_params["tools"] = _transform_tools_for_responses(tools)
 
         try:
             response = responses(
-                input=messages,
+                input=_transform_messages_for_responses(messages),
                 model=self.model,
                 stream=False,
                 **response_params,
@@ -317,11 +367,11 @@ class LiteLLMResponsesClient(LLMClient):
         if self.temperature is not None:
             response_params["temperature"] = self.temperature
         if tools:
-            response_params["tools"] = tools
+            response_params["tools"] = _transform_tools_for_responses(tools)
 
         try:
             response = responses(
-                input=messages,
+                input=_transform_messages_for_responses(messages),
                 model=self.model,
                 stream=True,
                 **response_params,
