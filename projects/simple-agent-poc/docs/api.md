@@ -70,7 +70,8 @@ Headers:
 
 | Status | Condition |
 |:---|:---|
-| `400` | `message` blank, `agent_id` blank, unknown `agent_id`, changing `agent_id` for existing session, conflicting session identifiers |
+| `422` | `message` blank, `agent_id` blank (Pydantic validation) |
+| `400` | unknown `agent_id`, changing `agent_id` for existing session, conflicting session identifiers |
 | `404` | `session_id` not found in the session store |
 
 ### `POST /api/chat/stream`

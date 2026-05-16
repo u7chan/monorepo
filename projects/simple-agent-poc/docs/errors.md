@@ -78,15 +78,18 @@ Raised when a requested `session_id` does not exist in the session store.
 
 ## HTTP Status Code Mapping
 
-| Exception | HTTP Status |
+Pydantic request body validation (blank `message` / `agent_id`) happens before domain logic and returns **422** by FastAPI default. Domain errors are caught in the endpoint handler:
+
+| Error Source | HTTP Status |
 |:---|:---|
+| Pydantic validation (blank `message`, blank `agent_id`) | 422 |
 | `ValidationError` | 400 |
 | `SessionNotFoundError` | 404 |
 | `AuthenticationError` | 500 (uncaught → FastAPI default) |
 | `RateLimitError` | 500 (uncaught → FastAPI default) |
 | `LLMError` | 500 (uncaught → FastAPI default) |
 
-The FastAPI adapter explicitly catches `SessionNotFoundError` → 404 and `ValidationError` → 400. All other exceptions propagate and FastAPI returns 500.
+The FastAPI adapter explicitly catches `SessionNotFoundError` → 404 and `ValidationError` → 400. Pydantic validation errors (blank fields) return 422 before reaching the handler. All other exceptions propagate and FastAPI returns 500.
 
 ```python
 # adapters/http/api.py
