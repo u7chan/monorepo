@@ -68,6 +68,35 @@ def _parse_tool_call_delta(raw_tool_calls) -> list[ToolCallDelta]:
     return result
 
 
+def _item_type(item) -> str | None:
+    if isinstance(item, dict):
+        return item.get("type")
+    return getattr(item, "type", None)
+
+
+def _item_attr(item, attr: str, default=None):
+    if isinstance(item, dict):
+        return item.get(attr, default)
+    return getattr(item, attr, default)
+
+
+def _parse_tool_calls_from_responses_output(output) -> list[ToolCall]:
+    result: list[ToolCall] = []
+    for item in output:
+        if _item_type(item) == "function_call":
+            result.append(
+                {
+                    "id": _item_attr(item, "call_id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": _item_attr(item, "name", ""),
+                        "arguments": _item_attr(item, "arguments", ""),
+                    },
+                }
+            )
+    return result
+
+
 class LiteLLMCompletionClient(LLMClient):
     """LLM client using litellm.completion()."""
 
@@ -261,8 +290,8 @@ class LiteLLMResponsesClient(LLMClient):
             ) from error
 
         elapsed = time.perf_counter() - start_time
-        return {
-            "content": response.output_text,
+        result: LLMResponse = {
+            "content": response.output_text or "",
             "usage": {
                 "prompt_tokens": response.usage.input_tokens,
                 "completion_tokens": response.usage.output_tokens,
@@ -271,6 +300,12 @@ class LiteLLMResponsesClient(LLMClient):
             "model": self.model,
             "response_time": elapsed,
         }
+        tool_calls = _parse_tool_calls_from_responses_output(
+            getattr(response, "output", [])
+        )
+        if tool_calls:
+            result["tool_calls"] = tool_calls
+        return result
 
     def complete_stream(
         self,
@@ -318,6 +353,36 @@ class LiteLLMResponsesClient(LLMClient):
             ) from error
 
         for event in response:
+            event_type = getattr(event, "type", None)
+
+            if event_type == "response.output_item.added":
+                item = getattr(event, "item", None)
+                if item is not None and _item_type(item) == "function_call":
+                    td: ToolCallDelta = {
+                        "index": getattr(event, "output_index", 0),
+                        "id": _item_attr(item, "call_id", None),
+                        "type": "function",
+                        "function": {
+                            "name": _item_attr(item, "name", None),
+                            "arguments": _item_attr(item, "arguments", None),
+                        },
+                    }
+                    yield {"content_delta": None, "tool_call_delta": td}
+                continue
+
+            if event_type == "response.function_call_arguments.delta":
+                td: ToolCallDelta = {
+                    "index": getattr(event, "output_index", 0),
+                    "id": getattr(event, "item_id", None),
+                    "type": "function",
+                    "function": {
+                        "name": None,
+                        "arguments": getattr(event, "delta", None),
+                    },
+                }
+                yield {"content_delta": None, "tool_call_delta": td}
+                continue
+
             chunk_data: LLMStreamChunk = {"content_delta": None}
             if hasattr(event, "delta") and event.delta:
                 chunk_data["content_delta"] = event.delta
