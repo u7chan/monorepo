@@ -15,6 +15,16 @@ class RunAgentRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCallRecord:
+    """A single tool call and its result recorded during agent execution."""
+
+    call_id: str
+    name: str
+    arguments: str
+    result: str
+
+
+@dataclass(frozen=True, slots=True)
 class RunAgentResponse:
     """Response DTO for reusable agent execution."""
 
@@ -23,6 +33,7 @@ class RunAgentResponse:
     model: str
     response_time: float
     session_id: str
+    tool_call_history: list[ToolCallRecord]
 
     @classmethod
     def from_llm_response(
@@ -30,6 +41,7 @@ class RunAgentResponse:
         response: LLMResponse,
         *,
         session_id: str,
+        tool_call_history: list[ToolCallRecord] | None = None,
     ) -> "RunAgentResponse":
         """Build the application DTO from a raw LLM response."""
         return cls(
@@ -38,6 +50,7 @@ class RunAgentResponse:
             model=response["model"],
             response_time=response["response_time"],
             session_id=session_id,
+            tool_call_history=tool_call_history or [],
         )
 
 

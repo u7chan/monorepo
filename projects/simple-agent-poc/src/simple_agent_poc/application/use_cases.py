@@ -11,6 +11,7 @@ from simple_agent_poc.application.dto import (
     RunAgentResponse,
     StreamComplete,
     ToolCallEvent,
+    ToolCallRecord,
     ToolResultEvent,
 )
 from simple_agent_poc.application.ports import (
@@ -92,6 +93,8 @@ class RunAgentUseCase:
         llm_client = self._llm_client_factory(agent_definition)
         tools = self._resolve_tools(agent_definition)
 
+        tool_call_history: list[ToolCallRecord] = []
+
         for _ in range(MAX_TOOL_ROUNDS):
             response = llm_client.complete(list(session.messages), tools=tools)
 
@@ -102,6 +105,7 @@ class RunAgentUseCase:
                 return RunAgentResponse.from_llm_response(
                     response,
                     session_id=session.session_id,
+                    tool_call_history=tool_call_history,
                 )
 
             if self._tool_executor is None:
@@ -115,6 +119,14 @@ class RunAgentUseCase:
             for tc in tool_calls:
                 result = self._tool_executor.execute(tc)
                 session.append_tool_message(result, tool_call_id=tc["id"])
+                tool_call_history.append(
+                    ToolCallRecord(
+                        call_id=tc["id"],
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                        result=result,
+                    )
+                )
 
         raise LLMError(
             "Exceeded maximum tool call rounds",

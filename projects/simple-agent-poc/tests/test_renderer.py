@@ -108,6 +108,7 @@ class TestShowAgentResponse:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            tool_call_history=[],
             session_id="session-1",
         )
         show_agent_response(response)

@@ -15,6 +15,7 @@ from simple_agent_poc.application.dto import (
     RunAgentResponse,
     StreamComplete,
     ToolCallEvent,
+    ToolCallRecord,
     ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
@@ -56,6 +57,7 @@ class ChatResponse(BaseModel):
     model: str
     response_time: float
     session_id: str
+    tool_calls: list[ToolCallRecord] = []
 
     @classmethod
     def from_use_case_response(cls, response: RunAgentResponse) -> "ChatResponse":
@@ -66,6 +68,7 @@ class ChatResponse(BaseModel):
             model=response.model,
             response_time=response.response_time,
             session_id=response.session_id,
+            tool_calls=response.tool_call_history,
         )
 
 

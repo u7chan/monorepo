@@ -85,7 +85,15 @@ def get_user_input() -> str:
 
 def show_agent_response(response: RunAgentResponse) -> None:
     """Display the agent's response."""
-    print(f"Agent: {response.message}")
+    if response.tool_call_history:
+        print("Agent: ")
+        for tc in response.tool_call_history:
+            print(f"  🔧 {tc.name}({tc.arguments})")
+            print(f"     → {tc.result}")
+        if response.message:
+            print(f"       {response.message}")
+    else:
+        print(f"Agent: {response.message}")
 
     elapsed = response.response_time
     if elapsed < 1:

@@ -105,6 +105,7 @@ class TestRunAgentUseCase:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            tool_call_history=[],
             session_id=response.session_id,
         )
         assert response.session_id
