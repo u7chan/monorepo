@@ -1,23 +1,29 @@
 """Tests for the HTTP API adapter."""
 
+from collections.abc import Iterator
+
 from fastapi.testclient import TestClient
 
 from simple_agent_poc.adapters.http.api import create_app
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
-from simple_agent_poc.application.ports import LLMClient
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
-from simple_agent_poc.core.types import LLMResponse, Message
+from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
 
 
-class StubLLMClient(LLMClient):
+class StubLLMClient:
     """Deterministic LLM stub for HTTP adapter tests."""
 
     def __init__(self, reply: str) -> None:
         self.reply = reply
         self.calls: list[list[Message]] = []
 
-    def complete(self, messages: list[Message]) -> LLMResponse:
+    def complete(
+        self,
+        messages: list[Message],
+        *,
+        tools=None,
+    ) -> LLMResponse:
         self.calls.append(list(messages))
         return {
             "content": self.reply,
@@ -29,6 +35,14 @@ class StubLLMClient(LLMClient):
             "model": "stub-model",
             "response_time": 0.1,
         }
+
+    def complete_stream(
+        self,
+        messages: list[Message],
+        *,
+        tools=None,
+    ) -> Iterator[LLMStreamChunk]:
+        raise NotImplementedError
 
 
 def unused_use_case_factory() -> RunAgentUseCase:
@@ -260,3 +274,39 @@ class TestAPI:
         assert second_response.json() == {
             "detail": "agent_id cannot be changed for an existing session"
         }
+
+
+class TestSSEEvents:
+    """Tests for SSE event format for tool_call and tool_result."""
+
+    def test_sse_format_tool_call(self) -> None:
+        import json
+        from dataclasses import asdict
+
+        from simple_agent_poc.application.dto import ToolCallEvent
+
+        event = ToolCallEvent(
+            call_id="call_001",
+            name="concat",
+            arguments='{"a":"hello","b":"world"}',
+        )
+        sse_line = f"event: tool_call\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+        assert "event: tool_call" in sse_line
+        assert "call_001" in sse_line
+        assert "concat" in sse_line
+
+    def test_sse_format_tool_result(self) -> None:
+        import json
+        from dataclasses import asdict
+
+        from simple_agent_poc.application.dto import ToolResultEvent
+
+        event = ToolResultEvent(
+            call_id="call_001",
+            name="concat",
+            result='{"result":"helloworld"}',
+        )
+        sse_line = f"event: tool_result\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+        assert "event: tool_result" in sse_line
+        assert "call_001" in sse_line
+        assert "helloworld" in sse_line

@@ -10,6 +10,8 @@ from simple_agent_poc.application.dto import (
     ContentDelta,
     RunAgentResponse,
     StreamComplete,
+    ToolCallEvent,
+    ToolResultEvent,
 )
 from simple_agent_poc.core.types import AgentError
 
@@ -112,7 +114,7 @@ def show_exit_message() -> None:
 
 
 def show_streaming_response(
-    stream: Iterator[ContentDelta | StreamComplete],
+    stream: Iterator[ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete],
 ) -> StreamComplete:
     """Display a streaming response with live output."""
     indicator = LoadingIndicator()
@@ -127,6 +129,20 @@ def show_streaming_response(
                     sys.stdout.write("Agent: ")
                     started = True
                 sys.stdout.write(event.delta)
+                sys.stdout.flush()
+            elif isinstance(event, ToolCallEvent):
+                if not started:
+                    indicator.stop()
+                    sys.stdout.write("Agent: ")
+                    started = True
+                sys.stdout.write(f"\n  🔧 {event.name}({event.arguments})")
+                sys.stdout.flush()
+            elif isinstance(event, ToolResultEvent):
+                if not started:
+                    indicator.stop()
+                    sys.stdout.write("Agent: ")
+                    started = True
+                sys.stdout.write(f"\n     → {event.result}")
                 sys.stdout.flush()
             elif isinstance(event, StreamComplete):
                 complete = event

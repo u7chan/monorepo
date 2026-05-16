@@ -30,10 +30,20 @@ class StreamingStubLLMClient:
         self.chunks = chunks
         self.calls: list[list[Message]] = []
 
-    def complete(self, messages: list[Message]) -> LLMResponse:
+    def complete(
+        self,
+        messages: list[Message],
+        *,
+        tools=None,
+    ) -> LLMResponse:
         raise NotImplementedError
 
-    def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+    def complete_stream(
+        self,
+        messages: list[Message],
+        *,
+        tools=None,
+    ) -> Iterator[LLMStreamChunk]:
         self.calls.append(list(messages))
         yield from self.chunks
 
@@ -117,11 +127,19 @@ class TestExecuteStream:
             def __init__(self) -> None:
                 self.chunks = chunks
 
-            def complete(self, messages: list[Message]) -> LLMResponse:
+            def complete(
+                self,
+                messages: list[Message],
+                *,
+                tools=None,
+            ) -> LLMResponse:
                 raise NotImplementedError
 
             def complete_stream(  # type: ignore[return-type]
-                self, messages: list[Message]
+                self,
+                messages: list[Message],
+                *,
+                tools=None,
             ) -> Iterator[LLMStreamChunk]:
                 yield from self.chunks
                 raise RuntimeError("Connection lost")
@@ -148,11 +166,19 @@ class TestExecuteStream:
 
     def test_execute_stream_saves_interrupted_marker_on_empty_error(self) -> None:
         class ErrorStreamingClient:
-            def complete(self, messages: list[Message]) -> LLMResponse:
+            def complete(
+                self,
+                messages: list[Message],
+                *,
+                tools=None,
+            ) -> LLMResponse:
                 raise NotImplementedError
 
             def complete_stream(  # type: ignore[return-type]
-                self, messages: list[Message]
+                self,
+                messages: list[Message],
+                *,
+                tools=None,
             ) -> Iterator[LLMStreamChunk]:
                 raise RuntimeError("Connection lost")
                 yield  # pragma: no cover

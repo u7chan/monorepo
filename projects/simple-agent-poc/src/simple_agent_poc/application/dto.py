@@ -56,3 +56,21 @@ class StreamComplete:
     usage: Usage | None
     model: str
     response_time: float
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallEvent:
+    """Emitted when the agent initiates a tool call."""
+
+    call_id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultEvent:
+    """Emitted when a tool execution completes."""
+
+    call_id: str
+    name: str
+    result: str
