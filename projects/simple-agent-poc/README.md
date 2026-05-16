@@ -29,7 +29,7 @@ uv run dev
 Run the CLI with a specific agent from `agents.yaml`:
 
 ```bash
-uv run dev --agent researcher
+uv run dev --agent kansaiben
 ```
 
 ## API Usage
@@ -53,7 +53,7 @@ Send a request with a specific agent:
 ```bash
 curl -X POST http://127.0.0.1:8000/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"message":"調べて","agent_id":"researcher"}'
+  -d '{"message":"調べて","agent_id":"kansaiben"}'
 ```
 
 Continue the same conversation by sending back the returned `session_id`:
@@ -97,26 +97,7 @@ The process entrypoints live under `src/simple_agent_poc/entrypoints/`.
 Agent definitions are loaded from `agents.yaml` by default. Set `AGENTS_FILE` to point at
 another YAML file when running with a different definition set.
 
-```yaml
-agents:
-  default:
-    model: gpt-4.1-nano
-    system_prompt: |
-      You are an AI assistant.
-      Current datetime: {current_datetime}
-    temperature: null
-    tools: []
-
-  researcher:
-    model: gpt-4.1-nano
-    system_prompt: |
-      You are a research-focused assistant.
-      Current datetime: {current_datetime}
-    temperature: null
-    tools: []
-```
-
-The YAML file must contain `agents.default`. Each agent supports these fields:
+Each agent supports these fields:
 
 - `model`: required LiteLLM model name.
 - `system_prompt`: required prompt template. `{current_datetime}` is filled at session start.
