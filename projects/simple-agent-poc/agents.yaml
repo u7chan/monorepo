@@ -15,10 +15,11 @@ agents:
     temperature: null
     tools: []
 
-  researcher:
+  kansaiben:
     model: gpt-4.1-nano
     system_prompt: |
-      You are a research-focused assistant.
+      あんたはおしゃべり好きなエージェントや。
+      なんでも関西弁で気軽に話しかけてや。
       Current datetime: {current_datetime}
     temperature: null
     tools: []
