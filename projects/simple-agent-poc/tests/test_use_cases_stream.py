@@ -8,8 +8,12 @@ import pytest
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
     ContentDelta,
+    ContinueRequest,
     RunAgentRequest,
+    SessionPaused,
     StreamComplete,
+    ToolCallEvent,
+    ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
@@ -18,8 +22,16 @@ from simple_agent_poc.core.types import (
     LLMStreamChunk,
     Message,
     SessionNotFoundError,
+    SessionNotPausedError,
     Usage,
     ValidationError,
+)
+from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+from simple_agent_poc.adapters.tools.ask_user import (
+    TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+)
+from simple_agent_poc.adapters.tools.ask_user import (
+    execute as ask_user_execute,
 )
 
 
@@ -359,3 +371,221 @@ class TestExecuteStream:
         complete = events[-1]
         assert isinstance(complete, StreamComplete)
         assert complete.usage is None
+
+
+def build_registry_with_ask_user(*, stream: bool = False) -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "default-model",
+                    "system_prompt": "System prompt",
+                    "stream": stream,
+                    "tools": ["ask_user"],
+                },
+            }
+        }
+    )
+
+
+def build_tool_executor_with_ask_user() -> BuiltinToolRegistry:
+    registry = BuiltinToolRegistry()
+    registry.register(ASK_USER_TOOL_DEF, ask_user_execute)
+    return registry
+
+
+class TestExecuteStreamPause:
+    """Tests for execute_stream pause on ask_user in API mode."""
+
+    def test_execute_stream_pauses_on_ask_user_in_api_mode(self) -> None:
+        chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {"name": "ask_user", "arguments": '{"question": "What is your name?"}'},
+                },
+            },
+        ]
+        llm_client = StreamingStubLLMClient(chunks=chunks)
+        store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(return_value=llm_client),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        assert len(events) == 2
+        assert isinstance(events[0], ToolCallEvent)
+        assert events[0].name == "ask_user"
+        assert isinstance(events[1], SessionPaused)
+        assert events[1].question == "What is your name?"
+
+        session = store.get(events[1].session_id)
+        assert session is not None
+        assert session.is_paused is True
+        assert session.pending_tool_call is not None
+        assert session.pending_tool_call["function"]["name"] == "ask_user"
+
+    def test_execute_stream_executes_ask_user_in_non_api_mode(self) -> None:
+        first_chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {"name": "ask_user", "arguments": '{"question": "What?"}'},
+                },
+            },
+        ]
+        second_chunks: list[LLMStreamChunk] = [
+            {"content_delta": "The answer is provided."},
+        ]
+        store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+
+        call_count = 0
+        chunks_per_call = [first_chunks, second_chunks]
+
+        class MultiCallStubClient:
+            def complete(self, messages, *, tools=None):
+                raise NotImplementedError
+
+            def complete_stream(self, messages, *, tools=None):
+                nonlocal call_count
+                chunks = chunks_per_call[min(call_count, len(chunks_per_call) - 1)]
+                call_count += 1
+                yield from chunks
+
+        use_case = RunAgentUseCase(
+            llm_client_factory=lambda _agent_definition: MultiCallStubClient(),  # type: ignore[arg-type]
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=False,
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        assert isinstance(events[0], ToolCallEvent)
+        assert events[0].name == "ask_user"
+        result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+        assert len(result_events) == 1
+        assert result_events[0].name == "ask_user"
+        paused_events = [e for e in events if isinstance(e, SessionPaused)]
+        assert len(paused_events) == 0
+        assert isinstance(events[-1], StreamComplete)
+
+
+class TestContinueStream:
+    """Tests for continue_stream."""
+
+    def test_continue_stream_resumes_paused_session(self) -> None:
+        first_chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {"name": "ask_user", "arguments": '{"question": "Your name?"}'},
+                },
+            },
+        ]
+        second_chunks: list[LLMStreamChunk] = [
+            {"content_delta": "Your name is Alice."},
+        ]
+        store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+
+        first_use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(
+                return_value=StreamingStubLLMClient(chunks=first_chunks)
+            ),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        first_events = list(first_use_case.execute_stream(RunAgentRequest(message="Hello")))
+        paused = first_events[-1]
+        assert isinstance(paused, SessionPaused)
+
+        second_use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(
+                return_value=StreamingStubLLMClient(chunks=second_chunks)
+            ),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        continue_events = list(
+            second_use_case.continue_stream(
+                ContinueRequest(session_id=paused.session_id, answer="Alice")
+            )
+        )
+
+        result_events = [e for e in continue_events if isinstance(e, ToolResultEvent)]
+        assert len(result_events) == 1
+        assert result_events[0].name == "ask_user"
+        assert result_events[0].call_id == paused.call_id
+
+        content_events = [e for e in continue_events if isinstance(e, ContentDelta)]
+        assert len(content_events) == 1
+
+        assert isinstance(continue_events[-1], StreamComplete)
+
+        session = store.get(paused.session_id)
+        assert session is not None
+        assert session.is_paused is False
+
+    def test_continue_stream_with_unknown_session_raises_error(self) -> None:
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(),
+            session_store=InMemorySessionStore(),
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            is_api_context=True,
+        )
+
+        with pytest.raises(SessionNotFoundError, match="Session not found"):
+            list(
+                use_case.continue_stream(
+                    ContinueRequest(session_id="missing", answer="no")
+                )
+            )
+
+    def test_continue_stream_with_non_paused_session_raises_error(self) -> None:
+        store = InMemorySessionStore()
+        from simple_agent_poc.core.session import ConversationSession
+        session = ConversationSession.start(
+            session_id="active-session",
+            system_prompt="System prompt",
+        )
+        session.append_user_message("Hello")
+        session.append_assistant_message("Hi")
+        store.save(session)
+
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            is_api_context=True,
+        )
+
+        with pytest.raises(SessionNotPausedError, match="not in a paused state"):
+            list(
+                use_case.continue_stream(
+                    ContinueRequest(session_id="active-session", answer="no")
+                )
+            )

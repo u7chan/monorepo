@@ -18,6 +18,7 @@ agents:
     tools:
       - get_current_time
       - concat
+      - ask_user
     api_type: completion
 
   kansaiben:

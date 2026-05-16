@@ -1,5 +1,6 @@
 """Application use cases."""
 
+import json
 import time
 from collections.abc import Generator
 from datetime import datetime, timezone
@@ -7,8 +8,10 @@ from uuid import uuid4
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
+    ContinueRequest,
     RunAgentRequest,
     RunAgentResponse,
+    SessionPaused,
     StreamComplete,
     ToolCallEvent,
     ToolCallRecord,
@@ -27,6 +30,7 @@ from simple_agent_poc.core.session import ConversationSession
 from simple_agent_poc.core.types import (
     LLMError,
     SessionNotFoundError,
+    SessionNotPausedError,
     ToolCall,
     ToolCallDelta,
     ToolDefinition,
@@ -71,11 +75,13 @@ class RunAgentUseCase:
         session_store: SessionStore,
         agent_definitions: AgentDefinitionRegistry,
         tool_executor: ToolExecutor | None = None,
+        is_api_context: bool = False,
     ) -> None:
         self._llm_client_factory = llm_client_factory
         self._session_store = session_store
         self._agent_definitions = agent_definitions
         self._tool_executor = tool_executor
+        self._is_api_context = is_api_context
 
     def execute(self, request: RunAgentRequest) -> RunAgentResponse:
         """Run the agent for a single user message with ReAct tool loop."""
@@ -138,7 +144,7 @@ class RunAgentUseCase:
 
     def execute_stream(
         self, request: RunAgentRequest
-    ) -> Generator[ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete]:
+    ) -> Generator[ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete]:
         """Run the agent for a single user message with streaming ReAct loop."""
         if not request.message.strip():
             raise ValidationError("message must not be blank")
@@ -199,6 +205,141 @@ class RunAgentUseCase:
                     session.append_assistant_message(
                         _accumulated_text, tool_calls=tool_calls
                     )
+
+                    ask_user_tc = next(
+                        (tc for tc in tool_calls if tc["function"]["name"] == "ask_user"),
+                        None,
+                    )
+                    if ask_user_tc and self._is_api_context:
+                        session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
+                        self._session_store.save(session)
+                        ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
+                        yield SessionPaused(
+                            session_id=session.session_id,
+                            call_id=ask_user_tc["id"],
+                            question=ask_user_args.get("question", ""),
+                        )
+                        return
+
+                    for tc in tool_calls:
+                        result = self._tool_executor.execute(tc)
+                        session.append_tool_message(result, tool_call_id=tc["id"])
+                        yield ToolResultEvent(
+                            call_id=tc["id"],
+                            name=tc["function"]["name"],
+                            result=result,
+                        )
+                else:
+                    session.append_assistant_message(_accumulated_text)
+                    elapsed = time.perf_counter() - _start_time
+                    yield StreamComplete(
+                        session_id=session.session_id,
+                        usage=usage_from_stream,
+                        model=model,
+                        response_time=elapsed,
+                    )
+                    return
+
+            raise LLMError(
+                "Exceeded maximum tool call rounds",
+                display_message="Exceeded maximum tool call rounds.",
+            )
+        except Exception:
+            if _accumulated_text:
+                session.append_assistant_message(
+                    f"{_accumulated_text}\n\n[stream interrupted]"
+                )
+            else:
+                session.append_assistant_message("[stream interrupted]")
+            raise
+        finally:
+            self._session_store.save(session)
+
+    def continue_stream(
+        self, request: ContinueRequest
+    ) -> Generator[ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete, None, None]:
+        """Resume a paused session with the user's answer."""
+        session = self._session_store.get(request.session_id)
+        if session is None:
+            raise SessionNotFoundError(
+                f"Session not found: {request.session_id}",
+                display_message="Session not found.",
+            )
+        if not session.is_paused or session.pending_tool_call is None:
+            raise SessionNotPausedError(
+                f"Session {request.session_id} is not in a paused state",
+                display_message="Session is not in a paused state.",
+            )
+
+        tc = session.pending_tool_call
+        result = json.dumps({"answer": request.answer}, ensure_ascii=False)
+        session.append_tool_message(result, tool_call_id=tc["id"])
+        yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
+        session.resume_with_answer()
+
+        agent_definition = self._agent_definitions.get(session.agent_id)
+        llm_client = self._llm_client_factory(agent_definition)
+        tools = self._resolve_tools(agent_definition)
+        model = agent_definition.model
+        _start_time = time.perf_counter()
+        _accumulated_text = ""
+
+        try:
+            for round_idx in range(session.pending_round + 1, MAX_TOOL_ROUNDS):
+                _accumulated_text = ""
+                accumulated_tool_calls: dict[int, ToolCall] = {}
+                usage_from_stream: Usage | None = None
+
+                for chunk in llm_client.complete_stream(
+                    list(session.messages), tools=tools
+                ):
+                    delta = chunk.get("content_delta")
+                    if delta:
+                        _accumulated_text += delta
+                        yield ContentDelta(delta=delta)
+
+                    td = chunk.get("tool_call_delta")
+                    if td is not None:
+                        _accumulate_tool_call_chunks(accumulated_tool_calls, td)
+
+                    if "usage" in chunk:
+                        usage_from_stream = chunk["usage"]
+
+                if accumulated_tool_calls:
+                    if self._tool_executor is None:
+                        raise LLMError(
+                            "Tool call requested but no tool executor configured",
+                            display_message="Tool call requested but no tool executor configured.",
+                        )
+                    tool_calls = [
+                        accumulated_tool_calls[i]
+                        for i in sorted(accumulated_tool_calls)
+                    ]
+                    for tc in tool_calls:
+                        yield ToolCallEvent(
+                            call_id=tc["id"],
+                            name=tc["function"]["name"],
+                            arguments=tc["function"]["arguments"],
+                        )
+
+                    session.append_assistant_message(
+                        _accumulated_text, tool_calls=tool_calls
+                    )
+
+                    ask_user_tc = next(
+                        (tc for tc in tool_calls if tc["function"]["name"] == "ask_user"),
+                        None,
+                    )
+                    if ask_user_tc and self._is_api_context:
+                        session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
+                        self._session_store.save(session)
+                        ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
+                        yield SessionPaused(
+                            session_id=session.session_id,
+                            call_id=ask_user_tc["id"],
+                            question=ask_user_args.get("question", ""),
+                        )
+                        return
 
                     for tc in tool_calls:
                         result = self._tool_executor.execute(tc)

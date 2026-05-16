@@ -12,6 +12,9 @@ class ConversationSession:
     session_id: str
     agent_id: str = "default"
     messages: list[Message] = field(default_factory=list)
+    is_paused: bool = False
+    pending_tool_call: ToolCall | None = None
+    pending_round: int = 0
 
     @classmethod
     def start(
@@ -53,3 +56,15 @@ class ConversationSession:
                 "tool_call_id": tool_call_id,
             }
         )
+
+    def pause_for_ask_user(self, tool_call: ToolCall, *, round_idx: int) -> None:
+        """Transition to paused state waiting for user answer."""
+        self.is_paused = True
+        self.pending_tool_call = tool_call
+        self.pending_round = round_idx
+
+    def resume_with_answer(self) -> None:
+        """Clear paused state after receiving user answer."""
+        self.is_paused = False
+        self.pending_tool_call = None
+        self.pending_round = 0

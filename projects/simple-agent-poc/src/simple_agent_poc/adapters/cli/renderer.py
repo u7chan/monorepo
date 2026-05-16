@@ -9,6 +9,7 @@ from typing import Callable
 from simple_agent_poc.application.dto import (
     ContentDelta,
     RunAgentResponse,
+    SessionPaused,
     StreamComplete,
     ToolCallEvent,
     ToolResultEvent,
@@ -122,7 +123,7 @@ def show_exit_message() -> None:
 
 
 def show_streaming_response(
-    stream: Iterator[ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete],
+    stream: Iterator[ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete],
 ) -> StreamComplete:
     """Display a streaming response with live output."""
     indicator = LoadingIndicator()
@@ -151,6 +152,10 @@ def show_streaming_response(
                     sys.stdout.write("Agent: ")
                     started = True
                 sys.stdout.write(f"\n     → {event.result}")
+                sys.stdout.flush()
+            elif isinstance(event, SessionPaused):
+                indicator.stop()
+                sys.stdout.write(f"\n  💬 ask_user: {event.question}\n")
                 sys.stdout.flush()
             elif isinstance(event, StreamComplete):
                 complete = event

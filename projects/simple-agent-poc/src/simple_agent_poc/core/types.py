@@ -31,6 +31,10 @@ class SessionNotFoundError(AgentError):
     """Raised when a requested session does not exist."""
 
 
+class SessionNotPausedError(AgentError):
+    """Raised when continue is requested on a session that is not paused."""
+
+
 MessageRole = Literal["system", "user", "assistant", "tool"]
 
 

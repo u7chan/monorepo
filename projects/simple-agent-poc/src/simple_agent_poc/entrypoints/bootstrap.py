@@ -17,6 +17,12 @@ from simple_agent_poc.adapters.tools.get_current_time import (
 from simple_agent_poc.adapters.tools.get_current_time import (
     execute as time_execute,
 )
+from simple_agent_poc.adapters.tools.ask_user import (
+    TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+)
+from simple_agent_poc.adapters.tools.ask_user import (
+    execute as ask_user_execute,
+)
 from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.ports import SessionStore, ToolExecutor
 from simple_agent_poc.application.use_cases import RunAgentUseCase
@@ -42,6 +48,7 @@ def create_default_tool_executor() -> BuiltinToolRegistry:
     registry = BuiltinToolRegistry()
     registry.register(TIME_TOOL_DEF, time_execute)
     registry.register(CONCAT_TOOL_DEF, concat_execute)
+    registry.register(ASK_USER_TOOL_DEF, ask_user_execute)
     return registry
 
 
@@ -50,6 +57,7 @@ def create_run_agent_use_case(
     session_store: SessionStore | None = None,
     agent_definitions: AgentDefinitionRegistry | None = None,
     tool_executor: ToolExecutor | None = None,
+    is_api_context: bool = False,
 ) -> RunAgentUseCase:
     """Create the shared use case with production dependencies."""
     return RunAgentUseCase(
@@ -57,6 +65,7 @@ def create_run_agent_use_case(
         session_store=session_store or InMemorySessionStore(),
         agent_definitions=agent_definitions or create_agent_definition_registry(),
         tool_executor=tool_executor or create_default_tool_executor(),
+        is_api_context=is_api_context,
     )
 
 
@@ -69,4 +78,5 @@ def create_run_agent_use_case_factory() -> Callable[[], RunAgentUseCase]:
         session_store=session_store,
         agent_definitions=agent_definitions,
         tool_executor=tool_executor,
+        is_api_context=True,
     )

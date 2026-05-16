@@ -87,3 +87,20 @@ class ToolResultEvent:
     call_id: str
     name: str
     result: str
+
+
+@dataclass(frozen=True, slots=True)
+class ContinueRequest:
+    """Request DTO for resuming a paused session."""
+
+    session_id: str
+    answer: str
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPaused:
+    """Pause notification emitted when ask_user is called in API mode."""
+
+    session_id: str
+    call_id: str
+    question: str
