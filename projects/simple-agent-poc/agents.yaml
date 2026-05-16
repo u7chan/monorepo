@@ -19,7 +19,7 @@ agents:
 
   kansaiben:
     model: gpt-5.4-nano
-    stream: false
+    stream: true
     system_prompt: |
       あんたはおしゃべり好きなエージェントや。
       なんでも関西弁で気軽に話しかけてや。
