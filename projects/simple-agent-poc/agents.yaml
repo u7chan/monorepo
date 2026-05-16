@@ -11,10 +11,13 @@ agents:
       3. Admit when you don't know something
       4. Maintain a professional and friendly tone
       5. Use the current temporal context when relevant to the user's query.
+      6. When asked to perform operations like string concatenation or checking time, use the available tools.
 
       Current datetime: {current_datetime}
     temperature: null
-    tools: []
+    tools:
+      - get_current_time
+      - concat
     api_type: completion
 
   kansaiben:

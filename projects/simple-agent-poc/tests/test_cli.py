@@ -32,6 +32,7 @@ class TestCLIAdapter:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            tool_call_history=[],
             session_id="session-1",
         )
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
@@ -70,6 +71,7 @@ class TestCLIAdapter:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            tool_call_history=[],
             session_id="session-1",
         )
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
@@ -97,6 +99,7 @@ class TestCLIAdapter:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            tool_call_history=[],
             session_id="session-1",
         )
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
@@ -122,6 +125,7 @@ class TestCLIAdapter:
                 usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
                 model="gpt-4o-mini",
                 response_time=0.1,
+                tool_call_history=[],
                 session_id="session-1",
             ),
             RunAgentResponse(
@@ -129,6 +133,7 @@ class TestCLIAdapter:
                 usage={"prompt_tokens": 2, "completion_tokens": 2, "total_tokens": 4},
                 model="gpt-4o-mini",
                 response_time=0.2,
+                tool_call_history=[],
                 session_id="session-1",
             ),
         ]
@@ -193,6 +198,7 @@ class TestCLIAdapter:
             },
             model="gpt-4o-mini",
             response_time=0.25,
+            tool_call_history=[],
             session_id="session-1",
         )
         run_agent.execute.side_effect = [RuntimeError("boom"), recovered_response]

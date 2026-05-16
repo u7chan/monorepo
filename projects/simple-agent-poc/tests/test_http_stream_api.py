@@ -18,10 +18,20 @@ class StreamingStubLLMClient:
     def __init__(self, chunks: list[LLMStreamChunk]) -> None:
         self.chunks = chunks
 
-    def complete(self, messages: list[Message]) -> LLMResponse:
+    def complete(
+        self,
+        messages: list[Message],
+        *,
+        tools=None,
+    ) -> LLMResponse:
         raise NotImplementedError
 
-    def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
+    def complete_stream(
+        self,
+        messages: list[Message],
+        *,
+        tools=None,
+    ) -> Iterator[LLMStreamChunk]:
         yield from self.chunks
 
 

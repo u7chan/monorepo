@@ -31,12 +31,25 @@ class SessionNotFoundError(AgentError):
     """Raised when a requested session does not exist."""
 
 
-MessageRole = Literal["system", "user", "assistant"]
+MessageRole = Literal["system", "user", "assistant", "tool"]
+
+
+class ToolCallFunction(TypedDict):
+    name: str
+    arguments: str
+
+
+class ToolCall(TypedDict):
+    id: str
+    type: Literal["function"]
+    function: ToolCallFunction
 
 
 class Message(TypedDict):
     role: MessageRole
     content: str
+    tool_calls: NotRequired[list[ToolCall]]
+    tool_call_id: NotRequired[str]
 
 
 class Usage(TypedDict):
@@ -45,13 +58,38 @@ class Usage(TypedDict):
     total_tokens: int
 
 
+class ToolFunctionDef(TypedDict):
+    name: str
+    description: str
+    parameters: dict
+
+
+class ToolDefinition(TypedDict):
+    type: Literal["function"]
+    function: ToolFunctionDef
+
+
 class LLMResponse(TypedDict):
     content: str
     usage: Usage
     model: str
     response_time: float
+    tool_calls: NotRequired[list[ToolCall]]
+
+
+class ToolCallFunctionDelta(TypedDict):
+    name: str | None
+    arguments: str | None
+
+
+class ToolCallDelta(TypedDict):
+    index: int
+    id: str | None
+    type: Literal["function"]
+    function: ToolCallFunctionDelta
 
 
 class LLMStreamChunk(TypedDict):
     content_delta: str | None
+    tool_call_delta: NotRequired[ToolCallDelta]
     usage: NotRequired[Usage]

@@ -8,6 +8,8 @@ from simple_agent_poc.application.dto import (
     RunAgentRequest,
     RunAgentResponse,
     StreamComplete,
+    ToolCallEvent,
+    ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.adapters.cli.renderer import (
@@ -37,7 +39,9 @@ class StreamingRenderer(Protocol):
 
     def __call__(
         self,
-        stream: Iterator[ContentDelta | StreamComplete],
+        stream: Iterator[
+            ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete
+        ],
     ) -> StreamComplete: ...
 
 

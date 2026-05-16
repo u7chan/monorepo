@@ -105,6 +105,7 @@ class TestRunAgentUseCase:
             },
             model="gpt-4o-mini",
             response_time=0.85,
+            tool_call_history=[],
             session_id=response.session_id,
         )
         assert response.session_id
@@ -112,7 +113,8 @@ class TestRunAgentUseCase:
             [
                 {"role": "system", "content": "System prompt"},
                 {"role": "user", "content": "Hello"},
-            ]
+            ],
+            tools=None,
         )
         llm_client_factory.assert_called_once()
         assert llm_client_factory.call_args.args[0].agent_id == "default"
@@ -154,7 +156,8 @@ class TestRunAgentUseCase:
             [
                 {"role": "system", "content": "Research prompt"},
                 {"role": "user", "content": "Hello"},
-            ]
+            ],
+            tools=None,
         )
 
     def test_execute_reuses_existing_session(self) -> None:
@@ -206,7 +209,8 @@ class TestRunAgentUseCase:
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "First reply"},
                 {"role": "user", "content": "Again"},
-            ]
+            ],
+            tools=None,
         )
 
     def test_execute_rejects_agent_change_for_existing_session(self) -> None:

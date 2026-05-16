@@ -23,7 +23,7 @@ class AgentDefinition:
     model: str
     system_prompt: str
     temperature: float | None = None
-    tools: list[dict[str, Any]] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     api_type: Literal["completion", "responses"] = "completion"
     stream: bool = False
 
@@ -159,14 +159,14 @@ def _optional_float(value: object, path: str) -> float | None:
     return float(value)
 
 
-def _optional_tools(value: object, path: str) -> list[dict[str, Any]]:
+def _optional_tools(value: object, path: str) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list):
         raise ValidationError(f"{path} must be a list")
-    if not all(isinstance(item, dict) for item in value):
-        raise ValidationError(f"{path} items must be mappings")
-    return cast(list[dict[str, Any]], value)
+    if not all(isinstance(item, str) for item in value):
+        raise ValidationError(f"{path} items must be strings")
+    return cast(list[str], value)
 
 
 def _optional_api_type(

@@ -305,6 +305,68 @@ class TestLiteLLMResponsesClient:
 
         assert "An error occurred" in exc_info.value.display_message
 
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_parses_tool_calls_from_output(
+        self, mock_responses: MagicMock
+    ) -> None:
+        tool_call_item = MagicMock()
+        tool_call_item.type = "function_call"
+        tool_call_item.call_id = "call_001"
+        tool_call_item.name = "concat"
+        tool_call_item.arguments = '{"a":"1","b":"2"}'
+        mock_response = MagicMock()
+        mock_response.output_text = ""
+        mock_response.usage.input_tokens = 20
+        mock_response.usage.output_tokens = 15
+        mock_response.usage.total_tokens = 35
+        mock_response.output = [tool_call_item]
+        mock_responses.return_value = mock_response
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "concat a and b"}]
+
+        result = client.complete(messages)
+
+        assert "tool_calls" in result
+        assert result["tool_calls"] == [
+            {
+                "id": "call_001",
+                "type": "function",
+                "function": {
+                    "name": "concat",
+                    "arguments": '{"a":"1","b":"2"}',
+                },
+            }
+        ]
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_parses_tool_calls_from_output_dict(
+        self, mock_responses: MagicMock
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.output_text = ""
+        mock_response.usage.input_tokens = 20
+        mock_response.usage.output_tokens = 15
+        mock_response.usage.total_tokens = 35
+        mock_response.output = [
+            {
+                "type": "function_call",
+                "call_id": "call_002",
+                "name": "get_current_time",
+                "arguments": "",
+            }
+        ]
+        mock_responses.return_value = mock_response
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "what time is it"}]
+
+        result = client.complete(messages)
+
+        assert "tool_calls" in result
+        assert result["tool_calls"][0]["id"] == "call_002"
+        assert result["tool_calls"][0]["function"]["name"] == "get_current_time"
+
 
 class TestLiteLLMClientFactory:
     """Tests for LiteLLMClientFactory class."""
@@ -646,3 +708,85 @@ class TestLiteLLMResponsesClientStream:
 
         with pytest.raises(LLMError):
             list(client.complete_stream(messages))
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_yields_tool_call_delta_from_output_item_added(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        item = MagicMock()
+        item.type = "function_call"
+        item.call_id = "call_001"
+        item.name = "concat"
+        item.arguments = ""
+        event = MagicMock()
+        event.type = "response.output_item.added"
+        event.output_index = 0
+        event.item = item
+        mock_responses.return_value = [event]
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "concat a b"}]
+        result = list(client.complete_stream(messages))
+
+        assert len(result) == 1
+        assert result[0]["content_delta"] is None
+        td = result[0]["tool_call_delta"]
+        assert td is not None
+        assert td["index"] == 0
+        assert td["id"] == "call_001"
+        assert td["function"]["name"] == "concat"
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_yields_tool_call_delta_from_arguments_delta(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        event = MagicMock()
+        event.type = "response.function_call_arguments.delta"
+        event.output_index = 0
+        event.item_id = "call_001"
+        event.delta = '{"a":"1"}'
+        mock_responses.return_value = [event]
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        messages: list[Message] = [{"role": "user", "content": "concat a b"}]
+        result = list(client.complete_stream(messages))
+
+        assert len(result) == 1
+        assert result[0]["content_delta"] is None
+        td = result[0]["tool_call_delta"]
+        assert td is not None
+        assert td["index"] == 0
+        assert td["id"] == "call_001"
+        assert td["function"]["name"] is None
+        assert td["function"]["arguments"] == '{"a":"1"}'
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_tool_call_and_text_interleaved(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        item = MagicMock()
+        item.type = "function_call"
+        item.call_id = "call_001"
+        item.name = "concat"
+        item.arguments = ""
+        tool_event = MagicMock()
+        tool_event.type = "response.output_item.added"
+        tool_event.output_index = 0
+        tool_event.item = item
+
+        text_event = MagicMock()
+        del text_event.response
+        text_event.type = "response.output_text.delta"
+        text_event.delta = "Hello"
+
+        mock_responses.return_value = [tool_event, text_event]
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        result = list(client.complete_stream([]))
+
+        assert len(result) == 2
+        assert result[0]["tool_call_delta"] is not None
+        assert result[1]["content_delta"] == "Hello"

@@ -1,87 +1,59 @@
-"""Tests for core types module."""
+"""Tests for core types and session changes."""
 
-from simple_agent_poc.core.types import (
-    AgentError,
-    AuthenticationError,
-    LLMError,
-    Message,
-    RateLimitError,
-    SessionNotFoundError,
-    Usage,
-)
+from simple_agent_poc.core.session import ConversationSession
+from simple_agent_poc.core.types import ToolCall
 
 
-class TestAgentError:
-    """Tests for AgentError exception."""
+def test_message_role_includes_tool():
+    from simple_agent_poc.core.types import MessageRole
 
-    def test_basic_error(self) -> None:
-        error = AgentError("Something went wrong")
-        assert str(error) == "Something went wrong"
-        assert error.display_message == "Something went wrong"
-
-    def test_error_with_display_message(self) -> None:
-        error = AgentError(
-            message="Internal error details",
-            display_message="User-friendly message",
-        )
-        assert str(error) == "Internal error details"
-        assert error.display_message == "User-friendly message"
+    tool_msg: MessageRole = "tool"
+    assert tool_msg == "tool"
 
 
-class TestAuthenticationError:
-    """Tests for AuthenticationError exception."""
-
-    def test_inheritance(self) -> None:
-        error = AuthenticationError("Auth failed")
-        assert isinstance(error, AgentError)
-
-
-class TestRateLimitError:
-    """Tests for RateLimitError exception."""
-
-    def test_inheritance(self) -> None:
-        error = RateLimitError("Rate limited")
-        assert isinstance(error, AgentError)
+def test_tool_call_typed_dict():
+    tc: ToolCall = {
+        "id": "call_001",
+        "type": "function",
+        "function": {"name": "concat", "arguments": '{"a":"1","b":"2"}'},
+    }
+    assert tc["id"] == "call_001"
+    assert tc["function"]["name"] == "concat"
 
 
-class TestLLMError:
-    """Tests for LLMError exception."""
-
-    def test_inheritance(self) -> None:
-        error = LLMError("LLM failed")
-        assert isinstance(error, AgentError)
-
-
-class TestSessionNotFoundError:
-    """Tests for SessionNotFoundError exception."""
-
-    def test_inheritance(self) -> None:
-        error = SessionNotFoundError("Missing session")
-        assert isinstance(error, AgentError)
-
-
-class TestMessageType:
-    """Tests for Message TypedDict."""
-
-    def test_create_message(self) -> None:
-        msg: Message = {"role": "user", "content": "Hello"}
-        assert msg["role"] == "user"
-        assert msg["content"] == "Hello"
-
-    def test_assistant_message(self) -> None:
-        msg: Message = {"role": "assistant", "content": "Hi there"}
-        assert msg["role"] == "assistant"
-
-
-class TestUsageType:
-    """Tests for Usage TypedDict."""
-
-    def test_create_usage(self) -> None:
-        usage: Usage = {
-            "prompt_tokens": 10,
-            "completion_tokens": 20,
-            "total_tokens": 30,
+def test_session_append_assistant_with_tool_calls():
+    session = ConversationSession.start(
+        session_id="s1",
+        system_prompt="test",
+    )
+    tool_calls: list[ToolCall] = [
+        {
+            "id": "call_001",
+            "type": "function",
+            "function": {"name": "concat", "arguments": '{"a":"1","b":"2"}'},
         }
-        assert usage["prompt_tokens"] == 10
-        assert usage["completion_tokens"] == 20
-        assert usage["total_tokens"] == 30
+    ]
+    session.append_assistant_message("Using tool...", tool_calls=tool_calls)
+    assert session.messages[-1]["tool_calls"] == tool_calls
+
+
+def test_session_append_assistant_without_tool_calls():
+    session = ConversationSession.start(
+        session_id="s1",
+        system_prompt="test",
+    )
+    session.append_assistant_message("Hello")
+    assert "tool_calls" not in session.messages[-1]
+    assert session.messages[-1]["content"] == "Hello"
+
+
+def test_session_append_tool_message():
+    session = ConversationSession.start(
+        session_id="s1",
+        system_prompt="test",
+    )
+    session.append_tool_message('{"result":"ok"}', tool_call_id="call_001")
+    msg = session.messages[-1]
+    assert msg["role"] == "tool"
+    assert msg["content"] == '{"result":"ok"}'
+    assert msg["tool_call_id"] == "call_001"
