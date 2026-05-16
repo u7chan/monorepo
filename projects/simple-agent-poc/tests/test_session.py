@@ -2,6 +2,7 @@
 
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.core.session import ConversationSession
+from simple_agent_poc.core.types import ToolCall
 
 
 class TestConversationSession:
@@ -60,3 +61,42 @@ class TestInMemorySessionStore:
         store = InMemorySessionStore()
 
         assert store.get("missing") is None
+
+
+class TestSessionPause:
+    """Tests for pause/resume functionality."""
+
+    def test_pause_for_ask_user_sets_state(self) -> None:
+        session = ConversationSession.start(
+            session_id="session-1",
+            system_prompt="System prompt",
+        )
+        tc: ToolCall = {
+            "id": "call_001",
+            "type": "function",
+            "function": {"name": "ask_user", "arguments": '{"question": "What?"}'},
+        }
+
+        session.pause_for_ask_user(tc, round_idx=2)
+
+        assert session.is_paused is True
+        assert session.pending_tool_call == tc
+        assert session.pending_round == 2
+
+    def test_resume_with_answer_clears_state(self) -> None:
+        session = ConversationSession.start(
+            session_id="session-1",
+            system_prompt="System prompt",
+        )
+        tc: ToolCall = {
+            "id": "call_001",
+            "type": "function",
+            "function": {"name": "ask_user", "arguments": '{"question": "What?"}'},
+        }
+        session.pause_for_ask_user(tc, round_idx=0)
+
+        session.resume_with_answer()
+
+        assert session.is_paused is False
+        assert session.pending_tool_call is None
+        assert session.pending_round == 0

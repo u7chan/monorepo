@@ -13,13 +13,19 @@ from simple_agent_poc.application.dto import (
     ContentDelta,
     RunAgentRequest,
     RunAgentResponse,
+    SessionPaused,
     StreamComplete,
     ToolCallEvent,
     ToolCallRecord,
     ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
-from simple_agent_poc.core.types import SessionNotFoundError, Usage, ValidationError
+from simple_agent_poc.core.types import (
+    SessionNotFoundError,
+    SessionNotPausedError,
+    Usage,
+    ValidationError,
+)
 from simple_agent_poc.entrypoints.bootstrap import create_run_agent_use_case_factory
 
 
@@ -70,6 +76,31 @@ class ChatResponse(BaseModel):
             session_id=response.session_id,
             tool_calls=response.tool_call_history,
         )
+
+
+class ContinueRequest(BaseModel):
+    """HTTP request schema for resuming a paused session."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    session_id: str
+    answer: str
+
+    @field_validator("session_id")
+    @classmethod
+    def validate_session_id(cls, value: str) -> str:
+        """Reject blank session ids after trimming whitespace."""
+        if not value:
+            raise ValueError("session_id must not be blank")
+        return value
+
+    @field_validator("answer")
+    @classmethod
+    def validate_answer(cls, value: str) -> str:
+        """Reject blank answers after trimming whitespace."""
+        if not value:
+            raise ValueError("answer must not be blank")
+        return value
 
 
 def resolve_session_id(
@@ -166,10 +197,55 @@ def create_app(
                         yield f"event: tool_call\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
                     elif isinstance(event, ToolResultEvent):
                         yield f"event: tool_result\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                    elif isinstance(event, SessionPaused):
+                        yield f"event: paused\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                        yield "event: done\ndata: {}\n\n"
+                        return
                     elif isinstance(event, StreamComplete):
                         yield f"event: complete\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
                 yield "event: done\ndata: {}\n\n"
             except SessionNotFoundError as error:
+                yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
+            except ValidationError as error:
+                yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
+            except Exception as error:
+                yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @app.post("/api/chat/continue")
+    def chat_continue(
+        request: ContinueRequest,
+        run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
+    ):
+        from simple_agent_poc.application.dto import (
+            ContinueRequest as AppContinueRequest,
+        )
+
+        def event_stream():
+            try:
+                for event in run_agent.continue_stream(
+                    AppContinueRequest(
+                        session_id=request.session_id,
+                        answer=request.answer,
+                    )
+                ):
+                    if isinstance(event, ContentDelta):
+                        yield f"event: delta\ndata: {json.dumps({'content': event.delta}, ensure_ascii=False)}\n\n"
+                    elif isinstance(event, ToolCallEvent):
+                        yield f"event: tool_call\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                    elif isinstance(event, ToolResultEvent):
+                        yield f"event: tool_result\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                    elif isinstance(event, SessionPaused):
+                        yield f"event: paused\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                        yield "event: done\ndata: {}\n\n"
+                        return
+                    elif isinstance(event, StreamComplete):
+                        yield f"event: complete\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
+                yield "event: done\ndata: {}\n\n"
+            except SessionNotFoundError as error:
+                yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
+            except SessionNotPausedError as error:
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
             except ValidationError as error:
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"

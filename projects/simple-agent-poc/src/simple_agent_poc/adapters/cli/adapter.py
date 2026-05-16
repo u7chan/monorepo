@@ -7,6 +7,7 @@ from simple_agent_poc.application.dto import (
     ContentDelta,
     RunAgentRequest,
     RunAgentResponse,
+    SessionPaused,
     StreamComplete,
     ToolCallEvent,
     ToolResultEvent,
@@ -40,7 +41,11 @@ class StreamingRenderer(Protocol):
     def __call__(
         self,
         stream: Iterator[
-            ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete
+            ContentDelta
+            | ToolCallEvent
+            | ToolResultEvent
+            | SessionPaused
+            | StreamComplete
         ],
     ) -> StreamComplete: ...
 
