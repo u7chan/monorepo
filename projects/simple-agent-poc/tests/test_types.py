@@ -6,6 +6,7 @@ from simple_agent_poc.core.types import ToolCall
 
 def test_message_role_includes_tool():
     from simple_agent_poc.core.types import MessageRole
+
     tool_msg: MessageRole = "tool"
     assert tool_msg == "tool"
 
@@ -25,11 +26,13 @@ def test_session_append_assistant_with_tool_calls():
         session_id="s1",
         system_prompt="test",
     )
-    tool_calls: list[ToolCall] = [{
-        "id": "call_001",
-        "type": "function",
-        "function": {"name": "concat", "arguments": '{"a":"1","b":"2"}'},
-    }]
+    tool_calls: list[ToolCall] = [
+        {
+            "id": "call_001",
+            "type": "function",
+            "function": {"name": "concat", "arguments": '{"a":"1","b":"2"}'},
+        }
+    ]
     session.append_assistant_message("Using tool...", tool_calls=tool_calls)
     assert session.messages[-1]["tool_calls"] == tool_calls
 

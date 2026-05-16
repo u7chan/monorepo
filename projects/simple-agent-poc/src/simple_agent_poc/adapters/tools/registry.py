@@ -34,7 +34,5 @@ class BuiltinToolRegistry(ToolExecutor):
 
     def get_definitions(self, tool_names: list[str], /) -> list[ToolDefinition]:
         return [
-            self._definitions[name]
-            for name in tool_names
-            if name in self._definitions
+            self._definitions[name] for name in tool_names if name in self._definitions
         ]

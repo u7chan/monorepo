@@ -33,14 +33,16 @@ warnings.filterwarnings(
 def _parse_tool_calls(raw_tool_calls) -> list[ToolCall]:
     result: list[ToolCall] = []
     for tc in raw_tool_calls:
-        result.append({
-            "id": tc.id,
-            "type": "function",
-            "function": {
-                "name": tc.function.name,
-                "arguments": tc.function.arguments,
-            },
-        })
+        result.append(
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+        )
     return result
 
 
@@ -130,9 +132,7 @@ class LiteLLMCompletionClient(LLMClient):
             "model": self.model,
             "response_time": elapsed,
         }
-        raw_tool_calls = getattr(
-            response.choices[0].message, "tool_calls", None
-        )
+        raw_tool_calls = getattr(response.choices[0].message, "tool_calls", None)
         if raw_tool_calls:
             result["tool_calls"] = _parse_tool_calls(raw_tool_calls)
         return result

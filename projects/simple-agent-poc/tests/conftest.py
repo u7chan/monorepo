@@ -17,27 +17,31 @@ from simple_agent_poc.core.types import ToolCall
 
 @pytest.fixture
 def default_agent_def():
-    return AgentDefinitionRegistry.from_mapping({
-        "agents": {
-            "default": {
-                "model": "test-model",
-                "system_prompt": "You are a helpful assistant.",
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant.",
+                },
             },
-        },
-    })
+        }
+    )
 
 
 @pytest.fixture
 def agent_def_with_tools():
-    return AgentDefinitionRegistry.from_mapping({
-        "agents": {
-            "default": {
-                "model": "test-model",
-                "system_prompt": "You are a helpful assistant with tools.",
-                "tools": ["get_current_time", "concat"],
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant with tools.",
+                    "tools": ["get_current_time", "concat"],
+                },
             },
-        },
-    })
+        }
+    )
 
 
 @pytest.fixture

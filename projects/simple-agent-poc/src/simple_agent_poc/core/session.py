@@ -46,8 +46,10 @@ class ConversationSession:
 
     def append_tool_message(self, content: str, *, tool_call_id: str) -> None:
         """Append a tool result message to the conversation."""
-        self.messages.append({
-            "role": "tool",
-            "content": content,
-            "tool_call_id": tool_call_id,
-        })
+        self.messages.append(
+            {
+                "role": "tool",
+                "content": content,
+                "tool_call_id": tool_call_id,
+            }
+        )

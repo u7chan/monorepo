@@ -39,7 +39,9 @@ class StreamingRenderer(Protocol):
 
     def __call__(
         self,
-        stream: Iterator[ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete],
+        stream: Iterator[
+            ContentDelta | ToolCallEvent | ToolResultEvent | StreamComplete
+        ],
     ) -> StreamComplete: ...
 
 

@@ -110,9 +110,7 @@ def _usage() -> Usage:
     return {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30}
 
 
-def test_execute_yields_final_response_without_tools(
-    default_agent_def, tool_registry
-):
+def test_execute_yields_final_response_without_tools(default_agent_def, tool_registry):
     """Without tools, the agent returns a normal text response."""
     fake_llm = FakeLLMClient(rounds=[])
 
@@ -129,15 +127,17 @@ def test_execute_yields_final_response_without_tools(
 
 def test_execute_with_tool_call(default_agent_def, tool_registry):
     """When the LLM returns a tool call, execute the tool and continue."""
-    fake_llm = FakeLLMClient(rounds=[
-        {  # Round 1: tool call
-            "content": "",
-            "usage": _usage(),
-            "model": "fake",
-            "response_time": 0.1,
-            "tool_calls": _concat_tool_call(),
-        },
-    ])
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {  # Round 1: tool call
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _concat_tool_call(),
+            },
+        ]
+    )
 
     use_case = RunAgentUseCase(
         llm_client_factory=FakeLLMClientFactory(fake_llm),
@@ -154,13 +154,15 @@ def test_execute_exceeds_max_tool_rounds(default_agent_def, tool_registry):
     """After MAX_TOOL_ROUNDS, an LLMError is raised."""
     rounds = []
     for _ in range(5):
-        rounds.append({
-            "content": "",
-            "usage": _usage(),
-            "model": "fake",
-            "response_time": 0.1,
-            "tool_calls": _concat_tool_call(),
-        })
+        rounds.append(
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _concat_tool_call(),
+            }
+        )
 
     fake_llm = FakeLLMClient(rounds=rounds)
     use_case = RunAgentUseCase(
@@ -208,22 +210,26 @@ def test_execute_stream_without_tools(default_agent_def, tool_registry):
 
 def test_execute_stream_with_tool_call(default_agent_def, tool_registry):
     """Streaming with a tool call yields ToolCallEvent and ToolResultEvent."""
-    fake_llm = FakeLLMClient(rounds=[
-        {
-            "content": "",
-            "usage": _usage(),
-            "model": "fake",
-            "response_time": 0.1,
-            "tool_calls": _concat_tool_call(),
-        },
-    ])
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _concat_tool_call(),
+            },
+        ]
+    )
     use_case = RunAgentUseCase(
         llm_client_factory=FakeLLMClientFactory(fake_llm),
         session_store=InMemorySessionStore(),
         agent_definitions=default_agent_def,
         tool_executor=tool_registry,
     )
-    events = list(use_case.execute_stream(RunAgentRequest(message="concat hello world")))
+    events = list(
+        use_case.execute_stream(RunAgentRequest(message="concat hello world"))
+    )
 
     tool_call_events = [e for e in events if isinstance(e, ToolCallEvent)]
     tool_result_events = [e for e in events if isinstance(e, ToolResultEvent)]

@@ -93,9 +93,7 @@ class RunAgentUseCase:
         tools = self._resolve_tools(agent_definition)
 
         for _ in range(MAX_TOOL_ROUNDS):
-            response = llm_client.complete(
-                list(session.messages), tools=tools
-            )
+            response = llm_client.complete(list(session.messages), tools=tools)
 
             tool_calls = response.get("tool_calls")
             if not tool_calls:
@@ -116,9 +114,7 @@ class RunAgentUseCase:
             )
             for tc in tool_calls:
                 result = self._tool_executor.execute(tc)
-                session.append_tool_message(
-                    result, tool_call_id=tc["id"]
-                )
+                session.append_tool_message(result, tool_call_id=tc["id"])
 
         raise LLMError(
             "Exceeded maximum tool call rounds",
@@ -191,9 +187,7 @@ class RunAgentUseCase:
 
                     for tc in tool_calls:
                         result = self._tool_executor.execute(tc)
-                        session.append_tool_message(
-                            result, tool_call_id=tc["id"]
-                        )
+                        session.append_tool_message(result, tool_call_id=tc["id"])
                         yield ToolResultEvent(
                             call_id=tc["id"],
                             name=tc["function"]["name"],
