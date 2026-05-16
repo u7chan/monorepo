@@ -17,7 +17,7 @@ from simple_agent_poc.core.agent_definition import (
     AgentDefinitionRegistry,
 )
 from simple_agent_poc.core.session import ConversationSession
-from simple_agent_poc.core.types import SessionNotFoundError, ValidationError
+from simple_agent_poc.core.types import SessionNotFoundError, Usage, ValidationError
 
 
 class RunAgentUseCase:
@@ -77,7 +77,7 @@ class RunAgentUseCase:
         start_time = time.perf_counter()
         accumulated_text = ""
         model = agent_definition.model
-        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        usage: Usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         try:
             for chunk in llm_client.complete_stream(list(session.messages)):

@@ -14,6 +14,7 @@ from simple_agent_poc.application.dto import (
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import (
+    LLMResponse,
     LLMStreamChunk,
     Message,
     SessionNotFoundError,
@@ -28,7 +29,7 @@ class StreamingStubLLMClient:
         self.chunks = chunks
         self.calls: list[list[Message]] = []
 
-    def complete(self, messages: list[Message]) -> dict:
+    def complete(self, messages: list[Message]) -> LLMResponse:
         raise NotImplementedError
 
     def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
@@ -115,10 +116,10 @@ class TestExecuteStream:
             def __init__(self) -> None:
                 self.chunks = chunks
 
-            def complete(self, messages: list[Message]) -> dict:
+            def complete(self, messages: list[Message]) -> LLMResponse:
                 raise NotImplementedError
 
-            def complete_stream(
+            def complete_stream(  # type: ignore[return-type]
                 self, messages: list[Message]
             ) -> Iterator[LLMStreamChunk]:
                 yield from self.chunks
@@ -146,14 +147,14 @@ class TestExecuteStream:
 
     def test_execute_stream_saves_interrupted_marker_on_empty_error(self) -> None:
         class ErrorStreamingClient:
-            def complete(self, messages: list[Message]) -> dict:
+            def complete(self, messages: list[Message]) -> LLMResponse:
                 raise NotImplementedError
 
-            def complete_stream(
+            def complete_stream(  # type: ignore[return-type]
                 self, messages: list[Message]
             ) -> Iterator[LLMStreamChunk]:
                 raise RuntimeError("Connection lost")
-                yield  # unreachable
+                yield  # pragma: no cover
 
         llm_client = ErrorStreamingClient()
         store = InMemorySessionStore()

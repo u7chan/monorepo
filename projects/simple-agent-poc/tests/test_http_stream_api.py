@@ -9,7 +9,7 @@ from simple_agent_poc.adapters.http.api import create_app
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
-from simple_agent_poc.core.types import LLMStreamChunk, Message
+from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
 
 
 class StreamingStubLLMClient:
@@ -18,7 +18,7 @@ class StreamingStubLLMClient:
     def __init__(self, chunks: list[LLMStreamChunk]) -> None:
         self.chunks = chunks
 
-    def complete(self, messages: list[Message]) -> dict:
+    def complete(self, messages: list[Message]) -> LLMResponse:
         raise NotImplementedError
 
     def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]:
