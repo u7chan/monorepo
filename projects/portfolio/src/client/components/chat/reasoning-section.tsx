@@ -1,5 +1,5 @@
-import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 import { useState } from 'react'
+import { ChevronRightIcon } from '#/client/components/svg/chevron-right-icon'
 
 interface ReasoningSectionProps {
   content: string

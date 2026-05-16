@@ -1,5 +1,5 @@
-import { CloseIcon } from '#/client/components/svg/close-icon'
 import type { ReactNode } from 'react'
+import { CloseIcon } from '#/client/components/svg/close-icon'
 
 interface Props {
   show: boolean

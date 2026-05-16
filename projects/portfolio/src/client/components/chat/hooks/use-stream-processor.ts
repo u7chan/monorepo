@@ -1,8 +1,8 @@
+import { hc } from 'hono/client'
+import { type MutableRefObject, useCallback, useRef, useState } from 'react'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ApiMode, Conversation } from '#/types'
 import { ChatSessionEventSchema, type ChatResponse, type ChatSessionEvent, type ChatUsage } from '#/types/chat-api'
-import { hc } from 'hono/client'
-import { type MutableRefObject, useCallback, useRef, useState } from 'react'
 import { type ChatStreamState, parseChatStreamEvent, updateChatStream } from './chat-response'
 
 const client = hc<AppType>('/')

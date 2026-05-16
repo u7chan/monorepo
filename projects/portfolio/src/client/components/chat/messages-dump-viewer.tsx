@@ -1,9 +1,9 @@
+import { useEffect, useState } from 'react'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CloseIcon } from '#/client/components/svg/close-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
 import { useLockBodyScroll } from '#/client/hooks/use-lock-body-scroll'
 import type { ApiChatMessage, Message } from '#/types'
-import { useEffect, useState } from 'react'
 
 interface MessagesDumpViewerProps {
   messages: Message[]

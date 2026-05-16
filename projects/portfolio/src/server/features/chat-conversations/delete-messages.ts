@@ -1,8 +1,8 @@
+import { and, eq, inArray } from 'drizzle-orm'
+import { UUID } from 'uuidv7'
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import { logger } from '#/server/lib/logger'
-import { and, eq, inArray } from 'drizzle-orm'
-import { UUID } from 'uuidv7'
 
 function isValidUUID(id: string): boolean {
   try {

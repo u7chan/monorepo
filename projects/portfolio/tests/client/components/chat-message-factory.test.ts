@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import {
   createAssistantMessage,
   createConversationTitle,
@@ -5,7 +6,6 @@ import {
 } from '#/client/components/chat/chat-message-factory'
 import type { Settings } from '#/client/storage/remote-storage-settings'
 import type { ChatResponse } from '#/types/chat-api'
-import { describe, expect, it } from 'vitest'
 
 const settings: Settings = {
   schemaVersion: '1.4.0',

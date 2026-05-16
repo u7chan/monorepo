@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { ChatComposer } from '#/client/components/chat/chat-composer'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ChatComposer } from '#/client/components/chat/chat-composer'
 
 vi.mock('#/client/components/input/file-image-input', () => ({
   FileImageInput: ({ fileInputButton }: { fileInputButton: (onClick: () => void) => React.ReactNode }) => (

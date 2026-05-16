@@ -1,5 +1,5 @@
-import { addUserUsage, parseAddUserArgs } from '#/db/seeders/add-user-args'
 import { describe, expect, it } from 'vitest'
+import { addUserUsage, parseAddUserArgs } from '#/db/seeders/add-user-args'
 
 describe('parseAddUserArgs', () => {
   it('email を受け取って返す', () => {

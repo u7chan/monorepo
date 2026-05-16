@@ -1,6 +1,6 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDatabase } from '#/db'
 import { addUser, ensureUserDoesNotExist, UserAlreadyExistsError } from '#/db/seeders/add-user-record'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('#/db', () => ({
   getDatabase: vi.fn(),

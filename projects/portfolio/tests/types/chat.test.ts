@@ -1,10 +1,10 @@
+import { describe, expect, it } from 'vitest'
 import {
   AssistantMetadataSchema,
   ConversationListResponseSchema,
   GeneratedCodeFileSchema,
   UserMetadataSchema,
 } from '#/types'
-import { describe, expect, it } from 'vitest'
 
 describe('chat types', () => {
   it('updatedAt を含む会話一覧レスポンスを正規化できる', () => {

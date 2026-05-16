@@ -1,7 +1,7 @@
+import { eq } from 'drizzle-orm'
 import { getDatabase } from '#/db'
 import { usersTable } from '#/db/schema'
 import { hashPassword, verifyPassword } from '#/server/features/auth/password-hash'
-import { eq } from 'drizzle-orm'
 
 export class AuthenticationError extends Error {
   constructor(message: string) {

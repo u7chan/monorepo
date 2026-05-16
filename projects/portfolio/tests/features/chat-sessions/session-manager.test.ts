@@ -1,5 +1,5 @@
-import type { ChatSessionStartRequest } from '#/types/chat-api'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ChatSessionStartRequest } from '#/types/chat-api'
 
 describe('ChatSessionManager', () => {
   beforeEach(() => {

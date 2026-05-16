@@ -1,5 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { sValidator } from '@hono/standard-validator'
+import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
+import { validator } from 'hono/validator'
+import { z } from 'zod'
 import { chatSessionManager, isTerminalSessionEvent } from '#/server/features/chat-sessions/session-manager'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
@@ -13,11 +18,6 @@ import {
   type ChatApiRequest,
   type ChatSessionEvent,
 } from '#/types/chat-api'
-import { sValidator } from '@hono/standard-validator'
-import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
-import { validator } from 'hono/validator'
-import { z } from 'zod'
 import type { HonoEnv } from './shared'
 import { getServerEnv, getSignedInEmail } from './shared'
 

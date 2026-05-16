@@ -1,8 +1,8 @@
+import { and, eq } from 'drizzle-orm'
 import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import { logger } from '#/server/lib/logger'
 import type { AssistantMetadata } from '#/types'
-import { and, eq } from 'drizzle-orm'
 
 export type UpdateMessageMetadataResult =
   | { ok: true; metadata: AssistantMetadata }

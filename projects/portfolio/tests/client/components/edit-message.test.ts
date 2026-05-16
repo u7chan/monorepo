@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import {
   buildEditedHistory,
   buildEditedSendMessages,
@@ -5,7 +6,6 @@ import {
   prepareApiMessages,
 } from '#/client/components/chat/edit-message'
 import type { AssistantMessage, Message, SystemMessage, UserMessage } from '#/types'
-import { describe, expect, it } from 'vitest'
 
 const createUserMessage = (id: string, content: UserMessage['content']): UserMessage => ({
   id,

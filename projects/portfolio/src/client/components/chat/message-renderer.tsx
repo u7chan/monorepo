@@ -1,3 +1,8 @@
+import { Fragment, memo, type ReactNode, useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkCjkFriendly from 'remark-cjk-friendly'
+import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
+import remarkGfm from 'remark-gfm'
 import {
   AssistantAwareCodeBlock,
   AssistantCodeBlockContext,
@@ -20,11 +25,6 @@ import { DeleteIcon } from '#/client/components/svg/delete-icon'
 import { EditIcon } from '#/client/components/svg/edit-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
 import { isImageContentArray } from '#/types'
-import { Fragment, memo, type ReactNode, useEffect, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkCjkFriendly from 'remark-cjk-friendly'
-import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
-import remarkGfm from 'remark-gfm'
 
 const markdownRemarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough]
 const markdownComponents = {

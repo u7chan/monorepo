@@ -1,5 +1,5 @@
-import { parseChatStreamEvent, updateChatStream } from '#/client/components/chat/hooks/chat-response'
 import { describe, expect, it } from 'vitest'
+import { parseChatStreamEvent, updateChatStream } from '#/client/components/chat/hooks/chat-response'
 
 describe('chat-response helpers', () => {
   it('delta イベントで content を蓄積できる', () => {

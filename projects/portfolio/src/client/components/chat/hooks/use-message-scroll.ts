@@ -1,6 +1,6 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatStreamState } from '#/client/components/chat/hooks/chat-response'
 import type { Message } from '#/types'
-import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseMessageScrollParams {
   loading: boolean

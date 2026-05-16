@@ -1,5 +1,5 @@
-import type { ChatSessionEvent, ChatSessionMeta } from '#/types/chat-api'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ChatSessionEvent, ChatSessionMeta } from '#/types/chat-api'
 
 describe('InMemoryChatSessionStore', () => {
   afterEach(() => {

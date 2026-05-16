@@ -1,10 +1,10 @@
+import { createContext, type HTMLAttributes, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import {
   CodeBlockGenerateButton,
   CodeBlockPreviewButton,
   CodeBlockRenderer,
 } from '#/client/components/chat/code-block-renderer'
 import type { GeneratedCodeFile } from '#/types'
-import { createContext, type HTMLAttributes, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 
 export type SaveGeneratedFileRequest = {
   blockIndex: number
