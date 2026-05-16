@@ -85,7 +85,7 @@ tools:
 
 - [ ] ツールコールのUI表示パターン（折りたたみ / インライン / etc.）
 - [ ] reasoning（思考過程）の扱い
-- [ ] `ask_user` の API モード実装方式（pause/resume 二相実行の詳細）
+- [x] `ask_user` の API モード実装方式（pause/resume 二相実行の詳細）
 - [ ] メッセージ型変換の詳細設計（portfolio `ApiChatMessage` ↔ simple-agent-poc `Message`）
 
 ## 実装フェーズ
@@ -103,13 +103,13 @@ tools:
 - [x] API/SSE 拡張 (tool_call/tool_result イベント)
 - [x] `get_current_time` + `concat` 実装
 
-### Phase 2: simple-agent-poc ask_user CLI (別Issue)
-- [ ] `generator.send()` パターンによるユーザー入力注入
-- [ ] CLI renderer 拡張
+### Phase 2: simple-agent-poc ask_user CLI (Issue #904) ✅
+- [x] `generator.send()` パターンによるユーザー入力注入
+- [x] CLI renderer 拡張
 
-### Phase 3: simple-agent-poc ask_user API (別Issue)
-- [ ] pause/resume 二相実行
-- [ ] `POST /api/chat/continue` エンドポイント
+### Phase 3: simple-agent-poc ask_user API (別Issue) ✅
+- [x] pause/resume 二相実行
+- [x] `POST /api/chat/continue` エンドポイント
 
 ### Phase 4: portfolio 側 結合
 - [ ] Hono adapter 実装 (SSE変換, メッセージ変換)

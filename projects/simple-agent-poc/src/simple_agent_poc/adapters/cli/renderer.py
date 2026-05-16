@@ -1,9 +1,10 @@
 """UI rendering functions for CLI output."""
 
+import json
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from typing import Callable
 
 from simple_agent_poc.application.dto import (
@@ -84,6 +85,12 @@ def get_user_input() -> str:
     return input("> ")
 
 
+def ask_user_question(question: str) -> str:
+    """Display an ask_user question and return the user's answer."""
+    print(f"\n  💬 ask_user: {question}")
+    return input("  Answer > ").strip()
+
+
 def show_agent_response(response: RunAgentResponse) -> None:
     """Display the agent's response."""
     if response.tool_call_history:
@@ -123,17 +130,39 @@ def show_exit_message() -> None:
 
 
 def show_streaming_response(
-    stream: Iterator[
-        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete
+    stream: Generator[
+        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
+        str | None,
+        None,
     ],
 ) -> StreamComplete:
-    """Display a streaming response with live output."""
+    """Display a streaming response with live output.
+
+    When an ask_user ToolCallEvent arrives, the generator pauses.
+    The user is prompted for input and ``generator.send(answer)``
+    resumes the generator with the answer.
+    """
     indicator = LoadingIndicator()
     indicator.start()
     try:
         complete: StreamComplete | None = None
         started = False
-        for event in stream:
+
+        event: (
+            ContentDelta
+            | ToolCallEvent
+            | ToolResultEvent
+            | SessionPaused
+            | StreamComplete
+            | None
+        ) = None
+
+        while complete is None:
+            try:
+                event = next(stream)
+            except StopIteration:
+                break
+
             if isinstance(event, ContentDelta):
                 if not started:
                     indicator.stop()
@@ -148,6 +177,18 @@ def show_streaming_response(
                     started = True
                 sys.stdout.write(f"\n  🔧 {event.name}({event.arguments})")
                 sys.stdout.flush()
+
+                if event.name == "ask_user":
+                    args = json.loads(event.arguments)
+                    answer = ask_user_question(args.get("question", ""))
+                    try:
+                        next_event = stream.send(answer)
+                    except StopIteration:
+                        break
+                    if isinstance(next_event, ToolResultEvent):
+                        sys.stdout.write(f"\n     → {next_event.result}")
+                        sys.stdout.flush()
+                    continue
             elif isinstance(event, ToolResultEvent):
                 if not started:
                     indicator.stop()

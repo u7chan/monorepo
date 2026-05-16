@@ -124,6 +124,11 @@ class RunAgentUseCase:
                     response["content"] or "", tool_calls=tool_calls
                 )
                 for tc in tool_calls:
+                    if tc["function"]["name"] == "ask_user":
+                        raise LLMError(
+                            "Tool call 'ask_user' is not supported in non-streaming mode.",
+                            display_message="ask_user はストリーミングモードでのみご利用いただけます。",
+                        )
                     result = self._tool_executor.execute(tc)
                     session.append_tool_message(result, tool_call_id=tc["id"])
                     tool_call_history.append(
@@ -145,9 +150,16 @@ class RunAgentUseCase:
     def execute_stream(
         self, request: RunAgentRequest
     ) -> Generator[
-        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete
+        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
+        str | None,
+        None,
     ]:
-        """Run the agent for a single user message with streaming ReAct loop."""
+        """Run the agent for a single user message with streaming ReAct loop.
+
+        When the LLM calls the ask_user tool and is_api_context is False,
+        the generator pauses via ``yield ToolCallEvent(...)``. The caller
+        must inject the user's answer by calling ``generator.send(answer)``.
+        """
         if not request.message.strip():
             raise ValidationError("message must not be blank")
 
@@ -197,16 +209,6 @@ class RunAgentUseCase:
                         accumulated_tool_calls[i]
                         for i in sorted(accumulated_tool_calls)
                     ]
-                    for tc in tool_calls:
-                        yield ToolCallEvent(
-                            call_id=tc["id"],
-                            name=tc["function"]["name"],
-                            arguments=tc["function"]["arguments"],
-                        )
-
-                    session.append_assistant_message(
-                        _accumulated_text, tool_calls=tool_calls
-                    )
 
                     ask_user_tc = next(
                         (
@@ -216,7 +218,17 @@ class RunAgentUseCase:
                         ),
                         None,
                     )
+                    session.append_assistant_message(
+                        _accumulated_text, tool_calls=tool_calls
+                    )
+
                     if ask_user_tc and self._is_api_context:
+                        for tc in tool_calls:
+                            yield ToolCallEvent(
+                                call_id=tc["id"],
+                                name=tc["function"]["name"],
+                                arguments=tc["function"]["arguments"],
+                            )
                         for tc in tool_calls:
                             if tc["function"]["name"] == "ask_user":
                                 continue
@@ -238,7 +250,23 @@ class RunAgentUseCase:
                         return
 
                     for tc in tool_calls:
-                        result = self._tool_executor.execute(tc)
+                        if tc["function"]["name"] == "ask_user":
+                            event = ToolCallEvent(
+                                call_id=tc["id"],
+                                name=tc["function"]["name"],
+                                arguments=tc["function"]["arguments"],
+                            )
+                            user_answer = yield event
+                            result = json.dumps(
+                                {"answer": user_answer or ""}, ensure_ascii=False
+                            )
+                        else:
+                            yield ToolCallEvent(
+                                call_id=tc["id"],
+                                name=tc["function"]["name"],
+                                arguments=tc["function"]["arguments"],
+                            )
+                            result = self._tool_executor.execute(tc)
                         session.append_tool_message(result, tool_call_id=tc["id"])
                         yield ToolResultEvent(
                             call_id=tc["id"],
