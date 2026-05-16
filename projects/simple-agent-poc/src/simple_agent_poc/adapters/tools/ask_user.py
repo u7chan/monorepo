@@ -25,4 +25,13 @@ TOOL_DEFINITION: ToolDefinition = {
 
 
 def execute(arguments: dict[str, Any]) -> str:
-    return json.dumps({"answer": ""}, ensure_ascii=False)
+    question = arguments.get("question", "")
+    return json.dumps(
+        {
+            "answer": (
+                f"このツールは API ストリーミングモードでのみ利用可能です。"
+                f"質問「{question}」には回答できませんでした。"
+            ),
+        },
+        ensure_ascii=False,
+    )
