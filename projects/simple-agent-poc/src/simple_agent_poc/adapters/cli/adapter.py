@@ -1,6 +1,6 @@
 """CLI adapter for the application flow."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from typing import Protocol
 
 from simple_agent_poc.application.dto import (
@@ -40,12 +40,14 @@ class StreamingRenderer(Protocol):
 
     def __call__(
         self,
-        stream: Iterator[
+        stream: Generator[
             ContentDelta
             | ToolCallEvent
             | ToolResultEvent
             | SessionPaused
-            | StreamComplete
+            | StreamComplete,
+            str | None,
+            None,
         ],
     ) -> StreamComplete: ...
 
