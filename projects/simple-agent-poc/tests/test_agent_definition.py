@@ -120,6 +120,53 @@ agents:
                 }
             )
 
+    def test_allows_api_type_completion(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                        "api_type": "completion",
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").api_type == "completion"
+
+    def test_allows_api_type_responses(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-5.4-nano",
+                        "system_prompt": "Prompt",
+                        "api_type": "responses",
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").api_type == "responses"
+
+    def test_rejects_invalid_api_type(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match="api_type must be one of: completion, responses",
+        ):
+            AgentDefinitionRegistry.from_mapping(
+                {
+                    "agents": {
+                        "default": {
+                            "model": "gpt-4.1-nano",
+                            "system_prompt": "Prompt",
+                            "api_type": "invalid",
+                        }
+                    }
+                }
+            )
+
     def test_rejects_invalid_types(self) -> None:
         with pytest.raises(ValidationError, match="temperature must be a number"):
             AgentDefinitionRegistry.from_mapping(
