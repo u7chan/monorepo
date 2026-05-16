@@ -9,7 +9,9 @@ import yaml
 from simple_agent_poc.core.types import ValidationError
 
 _ROOT_FIELDS = frozenset({"agents"})
-_AGENT_FIELDS = frozenset({"model", "system_prompt", "temperature", "tools", "api_type"})
+_AGENT_FIELDS = frozenset(
+    {"model", "system_prompt", "temperature", "tools", "api_type"}
+)
 _REQUIRED_AGENT_FIELDS = frozenset({"model", "system_prompt"})
 
 
@@ -168,7 +170,5 @@ def _optional_api_type(
     if value is None:
         return "completion"
     if value not in ("completion", "responses"):
-        raise ValidationError(
-            f"{path} must be one of: completion, responses"
-        )
+        raise ValidationError(f"{path} must be one of: completion, responses")
     return cast(Literal["completion", "responses"], value)
