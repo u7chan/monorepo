@@ -181,7 +181,6 @@ def show_streaming_response(
                 if event.name == "ask_user":
                     args = json.loads(event.arguments)
                     answer = ask_user_question(args.get("question", ""))
-                    indicator.start()
                     try:
                         next_event = stream.send(answer)
                     except StopIteration:
