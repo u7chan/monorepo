@@ -120,9 +120,10 @@ class LiteLLMCompletionClient(LLMClient):
 
         for chunk in response:
             chunk_data: LLMStreamChunk = {"content_delta": None}
-            delta = chunk.choices[0].delta.content
-            if delta:
-                chunk_data["content_delta"] = delta
+            if chunk.choices:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    chunk_data["content_delta"] = delta
             if hasattr(chunk, "usage") and chunk.usage is not None:
                 chunk_data["usage"] = {
                     "prompt_tokens": chunk.usage.prompt_tokens,
