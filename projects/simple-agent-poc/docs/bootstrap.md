@@ -14,6 +14,25 @@ Called once at module level. Required environment variables:
 - `OPENAI_API_KEY` — LLM provider API key
 - `OPENAI_BASE_URL` — LLM provider base URL (optional, used by LiteLLM)
 
+## Built-in Tool Executor
+
+```python
+def create_default_tool_executor() -> BuiltinToolRegistry:
+    """Create a tool registry with built-in tools."""
+    registry = BuiltinToolRegistry()
+    registry.register(TIME_TOOL_DEF, time_execute)
+    registry.register(CONCAT_TOOL_DEF, concat_execute)
+    registry.register(ASK_USER_TOOL_DEF, ask_user_execute)
+    return registry
+```
+
+Creates a `BuiltinToolRegistry` with the following built-in tools registered:
+- `get_current_time` — returns the current UTC datetime in ISO 8601 format
+- `concat` — concatenates two strings
+- `ask_user` — asks the user a question and returns their answer (interactive)
+
+Tool definitions are in `src/simple_agent_poc/adapters/tools/`. Each tool module exports a `TOOL_DEFINITION` constant and an `execute` function.
+
 ## Agent Definition Registry
 
 ```python
@@ -29,11 +48,19 @@ def create_agent_definition_registry() -> AgentDefinitionRegistry:
 ## RunAgentUseCase (Production)
 
 ```python
-def create_run_agent_use_case(*, session_store=None, agent_definitions=None) -> RunAgentUseCase:
+def create_run_agent_use_case(
+    *,
+    session_store=None,
+    agent_definitions=None,
+    tool_executor=None,
+    is_api_context: bool = False,
+) -> RunAgentUseCase:
     return RunAgentUseCase(
         llm_client_factory=LiteLLMClientFactory(),
         session_store=session_store or InMemorySessionStore(),
         agent_definitions=agent_definitions or create_agent_definition_registry(),
+        tool_executor=tool_executor or create_default_tool_executor(),
+        is_api_context=is_api_context,
     )
 ```
 
@@ -41,6 +68,8 @@ Creates the use case with production adapters:
 - `LiteLLMClientFactory()` for LLM calls
 - `InMemorySessionStore()` for session persistence
 - `AgentDefinitionRegistry` from YAML
+- `BuiltinToolRegistry` with default tools
+- `is_api_context=False` for CLI, `True` for HTTP API (controls `ask_user` behavior)
 
 ## RunAgentUseCase Factory (HTTP-optimized)
 
@@ -48,18 +77,21 @@ Creates the use case with production adapters:
 def create_run_agent_use_case_factory() -> Callable[[], RunAgentUseCase]:
     session_store = InMemorySessionStore()
     agent_definitions = create_agent_definition_registry()
+    tool_executor = create_default_tool_executor()
     return lambda: create_run_agent_use_case(
         session_store=session_store,
         agent_definitions=agent_definitions,
+        tool_executor=tool_executor,
+        is_api_context=True,
     )
 ```
 
 Creates a factory function that:
 - Shares a single `InMemorySessionStore` instance across all invocations.
 - Shares a single `AgentDefinitionRegistry` instance.
+- Shares a single `BuiltinToolRegistry` instance.
+- Sets `is_api_context=True` so `ask_user` uses pause/resume instead of `generator.send()`.
 - Returns a `lambda` for use with FastAPI's `Depends`.
-
-This ensures that HTTP requests against the same server process share the same in-memory sessions.
 
 ## Startup Sequences
 
@@ -69,6 +101,7 @@ This ensures that HTTP requests against the same server process share the same i
 main_cli.py
   → build_cli_adapter(agent_id)
     → bootstrap.create_agent_definition_registry()     # load YAML
+    → bootstrap.create_default_tool_executor()          # create tool registry
     → bootstrap.create_run_agent_use_case(...)          # wire use case (new session store)
     → CLIAdapter(use_case, agent_id, agent_definitions)
       → adapter.run()                                   # interactive loop
@@ -79,7 +112,7 @@ main_cli.py
 ```
 main_api.py
   → create_app()  (no factory arg)
-    → bootstrap.create_run_agent_use_case_factory()     # shared session store + registry
+    → bootstrap.create_run_agent_use_case_factory()     # shared session store + registry + tools
       → FastAPI app with get_run_agent_use_case() dependency
 
 Request handling:

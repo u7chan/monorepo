@@ -8,16 +8,18 @@ Source: `src/simple_agent_poc/application/ports.py`
 
 ```python
 class LLMClient(Protocol):
-    def complete(self, messages: list[Message]) -> LLMResponse: ...
-    def complete_stream(self, messages: list[Message]) -> Iterator[LLMStreamChunk]: ...
+    def complete(self, messages: list[Message], *, tools: list[ToolDefinition] | None = None) -> LLMResponse: ...
+    def complete_stream(self, messages: list[Message], *, tools: list[ToolDefinition] | None = None) -> Iterator[LLMStreamChunk]: ...
 
 class LLMClientFactory(Protocol):
     def __call__(self, agent_definition: AgentDefinition) -> LLMClient: ...
 ```
 
+The `tools` parameter carries tool definitions resolved from the agent's `tools` list. When `None` or empty, no tools are sent to the LLM.
+
 ## LiteLLMClientFactory
 
-Source: `src/simple_agent_poc/adapters/llm/litellm_client.py:255-267`
+Source: `src/simple_agent_poc/adapters/llm/litellm_client.py`
 
 ```python
 class LiteLLMClientFactory:
@@ -40,24 +42,31 @@ Uses `litellm.completion()` (OpenAI-compatible chat completions API).
 ### synchronous (`complete`)
 
 ```python
-response = completion(model=self.model, messages=messages, stream=False, **completion_params)
+response = completion(
+    model=self.model, messages=messages, tools=formatted_tools or None,
+    stream=False, **completion_params,
+)
 # returns response.choices[0].message.content
+# returns response.choices[0].message.tool_calls (if present)
 # returns response.usage (prompt_tokens, completion_tokens, total_tokens)
 ```
+
+Tool calls are parsed from `response.choices[0].message.tool_calls` into `list[ToolCall]`.
 
 ### streaming (`complete_stream`)
 
 ```python
 response = completion(
-    model=self.model, messages=messages, stream=True,
-    stream_options={"include_usage": True}, **completion_params
+    model=self.model, messages=messages, tools=formatted_tools or None,
+    stream=True, stream_options={"include_usage": True}, **completion_params,
 )
 for chunk in response:
-    # chunk.choices[0].delta.content  → content_delta
-    # chunk.usage                     → usage info (if present)
+    # chunk.choices[0].delta.content        → content_delta
+    # chunk.choices[0].delta.tool_calls     → tool_call_delta
+    # chunk.usage                           → usage info (if present)
 ```
 
-Usage info is included in the final chunk(s) via `stream_options={"include_usage": True}`.
+Tool call deltas are accumulated across chunks and assembled into full `ToolCall` objects. The delta format follows OpenAI's streaming tool call convention (incremental `index`, `id`, `function.name`, `function.arguments`).
 
 ## LiteLLMResponsesClient
 
@@ -67,22 +76,39 @@ Uses `litellm.responses()` (OpenAI Responses API).
 |:---|:---|
 | `responses` | `"responses"` |
 
+### Tool Format Transformation
+
+Responses API uses a different tool definition format than Completion API. Tools are transformed via `_transform_tools_for_responses()`:
+
+```python
+# Completion API format → Responses API format
+{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}
+# becomes
+{"type": "function_call", "name": ..., "description": ..., "parameters": ...}
+```
+
+Messages are also transformed via `_transform_messages_for_responses()` to convert `tool_calls` and `tool_call_id` fields into the Responses API's expected format.
+
 ### synchronous (`complete`)
 
 ```python
-response = responses(input=messages, model=self.model, stream=False, **response_params)
+response = responses(input=transformed_messages, tools=transformed_tools or None,
+                     model=self.model, stream=False, **response_params)
 # returns response.output_text
+# tool calls are parsed from response.output items
 # returns response.usage (input_tokens, output_tokens, total_tokens)
 ```
 
-Note: `litellm.responses()` takes `input=` (not `messages=`). The input format includes `role` and `content` keys.
+Note: `litellm.responses()` takes `input=` (not `messages=`). Tool calls are extracted from `response.output` items with `type == "function_call"`.
 
 ### streaming (`complete_stream`)
 
 ```python
-response = responses(input=messages, model=self.model, stream=True, **response_params)
+response = responses(input=transformed_messages, tools=transformed_tools or None,
+                     model=self.model, stream=True, **response_params)
 for event in response:
     # event.delta            → content_delta
+    # tool call deltas       → tool_call_delta (accumulated into full calls)
     # event.response.usage   → usage info (if present)
 ```
 

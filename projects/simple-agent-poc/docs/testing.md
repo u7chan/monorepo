@@ -16,15 +16,19 @@ All tests live under `tests/`:
 | `test_api.py` | HTTP API endpoint integration tests | 262 |
 | `test_application.py` | Use case tests | 272 |
 | `test_cli.py` | CLI adapter tests | 216 |
-| `test_http_stream_api.py` | HTTP SSE streaming tests | 151 |
+| `test_http_stream_api.py` | HTTP SSE streaming tests (incl. continue) | 205 |
 | `test_interfaces.py` | Protocol interface tests | 35 |
-| `test_llm_client.py` | LiteLLM client tests (largest) | 648 |
+| `test_llm_client.py` | LiteLLM client tests (incl. tool calls) | 648 |
 | `test_main.py` | Entry point tests | 77 |
 | `test_main_api.py` | API entry point tests | 22 |
-| `test_renderer.py` | CLI renderer tests | 151 |
-| `test_session.py` | Session entity tests | 62 |
+| `test_renderer.py` | CLI renderer tests (incl. ask_user) | 151 |
+| `test_session.py` | Session entity tests (incl. pause/resume) | 62 |
+| `test_tools.py` | Built-in tool tests | 57 |
 | `test_types.py` | Type definition tests | 87 |
-| `test_use_cases_stream.py` | Streaming use case tests | 335 |
+| `test_use_cases.py` | Tool call ReAct loop tests | 256 |
+| `test_use_cases_stream.py` | Streaming use case tests (incl. tool calls) | 335 |
+
+Line counts are approximate and change as tests are added. See the test files directly for current content.
 
 ## Running Tests
 
@@ -58,6 +62,7 @@ HTML output goes to `htmlcov/`.
 
 Tests mock external dependencies rather than making real LLM calls:
 - `LLMClient` is mocked in use case and adapter tests.
+- `ToolExecutor` is mocked in use case tests that test tool orchestration.
 - LiteLLM functions (`completion`, `responses`) are patched in `test_llm_client.py`.
 - `stdin`/`stdout` are mocked in CLI tests.
 
@@ -69,4 +74,4 @@ For end-to-end verification against a live LLM:
 uv run dev
 ```
 
-Interact with the agent via the CLI. Verify response quality and streaming behavior.
+Interact with the agent via the CLI. Verify response quality, tool call behavior, and streaming behavior.

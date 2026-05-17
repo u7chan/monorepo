@@ -7,9 +7,12 @@ Sessions track conversation history across multiple requests. Each session is ti
 ```python
 @dataclass(slots=True)
 class ConversationSession:
-    session_id: str          # UUID hex string
+    session_id: str              # UUID hex string
     agent_id: str = "default"
-    messages: list[Message]   # [system, user, assistant, user, ...]
+    messages: list[Message]      # [system, user, assistant, tool, user, ...]
+    is_paused: bool = False      # True when waiting for ask_user answer
+    pending_tool_call: ToolCall | None = None  # saved tool call during pause
+    pending_round: int = 0       # remaining ReAct rounds to resume
 ```
 
 Source: `src/simple_agent_poc/core/session.py`
@@ -18,8 +21,10 @@ Source: `src/simple_agent_poc/core/session.py`
 
 1. Session is created with the system prompt as the first message (`role: "system"`).
 2. Each user turn appends a `role: "user"` message.
-3. The LLM response appends a `role: "assistant"` message.
-4. This cycle repeats for the lifetime of the session.
+3. The LLM response appends a `role: "assistant"` message (may include `tool_calls`).
+4. If the LLM calls a tool, a `role: "tool"` message is appended with the result and `tool_call_id`.
+5. The ReAct loop may repeat steps 3-4 up to `MAX_TOOL_ROUNDS` times.
+6. This cycle continues for the lifetime of the session.
 
 ### Session Creation
 
@@ -29,6 +34,19 @@ Source: `src/simple_agent_poc/core/session.py`
 - One initial message: `{"role": "system", "content": system_prompt}`
 
 The system prompt is obtained from `AgentDefinition.format_system_prompt(current_datetime=...)`, which replaces the `{current_datetime}` placeholder.
+
+### Tool Messages
+
+`append_tool_message(result, *, tool_call_id)` appends a message with `role: "tool"` and `content: result`, linked to the tool call by `tool_call_id`.
+
+### Pause / Resume
+
+When `ask_user` is called in API mode, the session enters a paused state:
+
+- `pause_for_ask_user(tool_call, *, round_idx)` — sets `is_paused = True`, saves the `ToolCall` and current round count.
+- `resume_with_answer()` — clears paused state. The user's answer is injected as a tool result by the use case.
+
+Paused sessions are persisted via `SessionStore.save()`. The client resumes via `POST /api/chat/continue`. See [docs/api.md](api.md) and [docs/sse.md](sse.md) for the API flow.
 
 ## SessionStore
 
