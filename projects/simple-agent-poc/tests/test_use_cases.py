@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
     ContentDelta,
+    ContinueRequest,
     RunAgentRequest,
     StreamComplete,
     ToolCallEvent,
@@ -12,6 +13,7 @@ from simple_agent_poc.application.dto import (
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
+from simple_agent_poc.core.session import ConversationSession
 from simple_agent_poc.core.types import (
     LLMError,
     LLMResponse,
@@ -111,6 +113,23 @@ def _usage() -> Usage:
     return {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30}
 
 
+def _agent_definitions_with_max_tool_rounds(
+    max_tool_rounds: int,
+) -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant.",
+                    "tools": ["concat"],
+                    "max_tool_rounds": max_tool_rounds,
+                }
+            }
+        }
+    )
+
+
 def test_execute_yields_final_response_without_tools(default_agent_def, tool_registry):
     """Without tools, the agent returns a normal text response."""
     fake_llm = FakeLLMClient(rounds=[])
@@ -152,7 +171,7 @@ def test_execute_with_tool_call(default_agent_def, tool_registry):
 
 
 def test_execute_exceeds_max_tool_rounds(default_agent_def, tool_registry):
-    """After MAX_TOOL_ROUNDS, an LLMError is raised."""
+    """After max_tool_rounds (default 5), an LLMError is raised."""
     rounds = []
     for _ in range(5):
         rounds.append(
@@ -181,17 +200,7 @@ def test_execute_exceeds_max_tool_rounds(default_agent_def, tool_registry):
 
 def test_execute_uses_agent_max_tool_rounds(tool_registry):
     """The ReAct loop stops at the agent's configured max_tool_rounds."""
-    agent_definitions = AgentDefinitionRegistry.from_mapping(
-        {
-            "agents": {
-                "default": {
-                    "model": "test-model",
-                    "system_prompt": "You are a helpful assistant.",
-                    "max_tool_rounds": 3,
-                }
-            }
-        }
-    )
+    agent_definitions = _agent_definitions_with_max_tool_rounds(3)
     rounds = []
     for _ in range(3):
         rounds.append(
@@ -282,6 +291,87 @@ def test_execute_stream_with_tool_call(default_agent_def, tool_registry):
     assert len(tool_result_events) >= 1
     assert tool_result_events[0].name == "concat"
     assert "helloworld" in tool_result_events[0].result
+
+
+def test_execute_stream_uses_agent_max_tool_rounds(tool_registry):
+    """The streaming ReAct loop stops at the configured max_tool_rounds."""
+    agent_definitions = _agent_definitions_with_max_tool_rounds(3)
+    rounds = []
+    for _ in range(3):
+        rounds.append(
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _concat_tool_call(),
+            }
+        )
+
+    fake_llm = FakeLLMClient(rounds=rounds)
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=InMemorySessionStore(),
+        agent_definitions=agent_definitions,
+        tool_executor=tool_registry,
+    )
+
+    try:
+        list(use_case.execute_stream(RunAgentRequest(message="loop")))
+        assert False, "Expected LLMError"
+    except LLMError:
+        pass
+    assert fake_llm._call_count == 3
+
+
+def test_continue_stream_uses_agent_max_tool_rounds(tool_registry):
+    """The resumed streaming ReAct loop stops at the remaining max_tool_rounds."""
+    agent_definitions = _agent_definitions_with_max_tool_rounds(2)
+    store = InMemorySessionStore()
+    ask_user_tool_call: ToolCall = {
+        "id": "call_ask_user",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": '{"question": "Continue?"}',
+        },
+    }
+    session = ConversationSession.start(
+        session_id="paused-session",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_assistant_message("", tool_calls=[ask_user_tool_call])
+    session.pause_for_ask_user(ask_user_tool_call, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _concat_tool_call(),
+            }
+        ]
+    )
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=agent_definitions,
+        tool_executor=tool_registry,
+    )
+
+    try:
+        list(
+            use_case.continue_stream(
+                ContinueRequest(session_id="paused-session", answer="yes")
+            )
+        )
+        assert False, "Expected LLMError"
+    except LLMError:
+        pass
+    assert fake_llm._call_count == 1
 
 
 def test_execute_stream_final_complete(default_agent_def, tool_registry):
