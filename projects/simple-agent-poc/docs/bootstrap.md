@@ -18,7 +18,12 @@ Called once at module level. Required environment variables:
 
 ```python
 def create_default_tool_executor() -> BuiltinToolRegistry:
-    return BuiltinToolRegistry.with_default_tools()
+    """Create a tool registry with built-in tools."""
+    registry = BuiltinToolRegistry()
+    registry.register(TIME_TOOL_DEF, time_execute)
+    registry.register(CONCAT_TOOL_DEF, concat_execute)
+    registry.register(ASK_USER_TOOL_DEF, ask_user_execute)
+    return registry
 ```
 
 Creates a `BuiltinToolRegistry` with the following built-in tools registered:

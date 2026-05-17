@@ -216,8 +216,8 @@ Factory method: `start(*, session_id, agent_id, system_prompt)`.
 Methods:
 - `append_user_message(content)` / `append_assistant_message(content)` — append user/assistant messages
 - `append_tool_message(result, *, tool_call_id)` — append a tool result message (role: `"tool"`)
-- `pause_for_ask_user(tool_call)` — set `is_paused=True`, save the pending tool call
-- `resume_with_answer(answer)` — clear paused state
+- `pause_for_ask_user(tool_call, *, round_idx)` — set `is_paused=True`, save the pending tool call and round count
+- `resume_with_answer()` — clear paused state
 
 ### AgentDefinition
 
@@ -257,7 +257,7 @@ Source: `src/simple_agent_poc/application/ports.py`
 ```python
 class ToolExecutor(Protocol):
     def execute(self, tool_call: ToolCall) -> str: ...
-    def get_definitions(self) -> list[ToolDefinition]: ...
+    def get_definitions(self, tool_names: list[str], /) -> list[ToolDefinition]: ...
 ```
 
 Implemented by `BuiltinToolRegistry` in `src/simple_agent_poc/adapters/tools/registry.py`.
