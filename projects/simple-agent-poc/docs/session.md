@@ -23,7 +23,7 @@ Source: `src/simple_agent_poc/core/session.py`
 2. Each user turn appends a `role: "user"` message.
 3. The LLM response appends a `role: "assistant"` message (may include `tool_calls`).
 4. If the LLM calls a tool, a `role: "tool"` message is appended with the result and `tool_call_id`.
-5. The ReAct loop may repeat steps 3-4 up to `MAX_TOOL_ROUNDS` times.
+5. The ReAct loop may repeat steps 3-4 up to the agent definition's `max_tool_rounds` value (`5` by default).
 6. This cycle continues for the lifetime of the session.
 
 ### Session Creation

@@ -17,6 +17,12 @@ class LLMClientFactory(Protocol):
 
 The `tools` parameter carries tool definitions resolved from the agent's `tools` list. When `None` or empty, no tools are sent to the LLM.
 
+## Agent ReAct Loop
+
+`RunAgentUseCase` owns orchestration around the LLM client. For each user message, it sends the current session messages to the selected client, records the assistant response, executes requested tools, appends tool results, and calls the LLM again. This ReAct loop continues until the LLM returns a final text response without tool calls.
+
+The loop limit comes from the selected agent definition's `max_tool_rounds` field in `agents.yaml`. The default is `5`, and startup validation restricts configured values to integers from `1` to `20`. This keeps provider-specific LLM clients focused on API translation while agent-level behavior such as tool-loop depth remains in YAML and the application use case.
+
 ## LiteLLMClientFactory
 
 Source: `src/simple_agent_poc/adapters/llm/litellm_client.py`

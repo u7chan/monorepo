@@ -38,8 +38,6 @@ from simple_agent_poc.core.types import (
     ValidationError,
 )
 
-MAX_TOOL_ROUNDS = 5
-
 
 def _accumulate_tool_call_chunks(
     accumulated: dict[int, ToolCall],
@@ -103,7 +101,7 @@ class RunAgentUseCase:
         tool_call_history: list[ToolCallRecord] = []
 
         try:
-            for _ in range(MAX_TOOL_ROUNDS):
+            for _ in range(agent_definition.max_tool_rounds):
                 response = llm_client.complete(list(session.messages), tools=tools)
 
                 tool_calls = response.get("tool_calls")
@@ -179,7 +177,7 @@ class RunAgentUseCase:
         _accumulated_text = ""
 
         try:
-            for round_idx in range(MAX_TOOL_ROUNDS):
+            for round_idx in range(agent_definition.max_tool_rounds):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
@@ -334,7 +332,7 @@ class RunAgentUseCase:
         _accumulated_text = ""
 
         try:
-            for round_idx in range(resume_round + 1, MAX_TOOL_ROUNDS):
+            for round_idx in range(resume_round + 1, agent_definition.max_tool_rounds):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None

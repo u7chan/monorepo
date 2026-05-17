@@ -135,7 +135,7 @@ Source: `src/simple_agent_poc/application/use_cases.py`
    - If a tool call is `ask_user` in API mode → yields `SessionPaused`, saves session, and returns (SSE disconnects).
    - If a tool call is `ask_user` in CLI mode → yields `ToolCallEvent` and waits for `generator.send(answer)`.
    - If no tool calls → appends accumulated text as assistant message.
-   - Loops up to `MAX_TOOL_ROUNDS = 5` for multi-round tool calls.
+   - Loops up to the agent definition's `max_tool_rounds` value (`5` by default) for multi-round tool calls.
 8. Yields `StreamComplete(...)` with session metadata.
 9. In `finally`: saves the session to the session store.
 

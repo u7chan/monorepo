@@ -20,6 +20,7 @@ agents:
       - concat
       - ask_user
     api_type: completion
+    max_tool_rounds: 5
 
   kansaiben:
     model: gpt-5.4-nano
@@ -34,3 +35,4 @@ agents:
       - concat
       - ask_user
     api_type: responses
+    max_tool_rounds: 5

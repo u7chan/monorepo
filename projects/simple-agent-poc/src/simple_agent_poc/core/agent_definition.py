@@ -10,7 +10,15 @@ from simple_agent_poc.core.types import ValidationError
 
 _ROOT_FIELDS = frozenset({"agents"})
 _AGENT_FIELDS = frozenset(
-    {"model", "system_prompt", "temperature", "tools", "api_type", "stream"}
+    {
+        "model",
+        "system_prompt",
+        "temperature",
+        "tools",
+        "api_type",
+        "stream",
+        "max_tool_rounds",
+    }
 )
 _REQUIRED_AGENT_FIELDS = frozenset({"model", "system_prompt"})
 
@@ -26,6 +34,7 @@ class AgentDefinition:
     tools: list[str] = field(default_factory=list)
     api_type: Literal["completion", "responses"] = "completion"
     stream: bool = False
+    max_tool_rounds: int = 5
 
     def format_system_prompt(self, *, current_datetime: str) -> str:
         """Format the system prompt with runtime context."""
@@ -114,6 +123,13 @@ def _build_agent_definition(
         definition.get("stream"),
         f"agents.{agent_id}.stream",
     )
+    max_tool_rounds = _optional_int_min_max(
+        definition.get("max_tool_rounds"),
+        f"agents.{agent_id}.max_tool_rounds",
+        minimum=1,
+        maximum=20,
+        default=5,
+    )
 
     return AgentDefinition(
         agent_id=agent_id,
@@ -123,6 +139,7 @@ def _build_agent_definition(
         tools=tools,
         api_type=api_type,
         stream=stream,
+        max_tool_rounds=max_tool_rounds,
     )
 
 
@@ -185,4 +202,21 @@ def _optional_bool(value: object, path: str) -> bool:
         return False
     if not isinstance(value, bool):
         raise ValidationError(f"{path} must be a boolean")
+    return value
+
+
+def _optional_int_min_max(
+    value: object,
+    path: str,
+    *,
+    minimum: int,
+    maximum: int,
+    default: int,
+) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(f"{path} must be an integer")
+    if value < minimum or value > maximum:
+        raise ValidationError(f"{path} must be between {minimum} and {maximum}")
     return value
