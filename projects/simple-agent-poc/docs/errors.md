@@ -10,7 +10,8 @@ AgentError (base)
 ├── RateLimitError
 ├── LLMError
 ├── ValidationError
-└── SessionNotFoundError
+├── SessionNotFoundError
+└── SessionNotPausedError
 ```
 
 ### AgentError
@@ -76,6 +77,16 @@ Raised when a requested `session_id` does not exist in the session store.
 
 **Display message:** `"Session not found."`
 
+### SessionNotPausedError
+
+Raised when `POST /api/chat/continue` is called on a session that is not in paused state.
+
+**Trigger conditions:**
+- Session not found in the store
+- Session exists but `is_paused` is `False`
+
+**Display message:** `"Session is not paused."`
+
 ## HTTP Status Code Mapping
 
 Pydantic request body validation (blank `message` / `agent_id`) happens before domain logic and returns **422** by FastAPI default. Domain errors are caught in the endpoint handler:
@@ -85,6 +96,7 @@ Pydantic request body validation (blank `message` / `agent_id`) happens before d
 | Pydantic validation (blank `message`, blank `agent_id`) | 422 |
 | `ValidationError` | 400 |
 | `SessionNotFoundError` | 404 |
+| `SessionNotPausedError` | 400 |
 | `AuthenticationError` | 500 (uncaught → FastAPI default) |
 | `RateLimitError` | 500 (uncaught → FastAPI default) |
 | `LLMError` | 500 (uncaught → FastAPI default) |

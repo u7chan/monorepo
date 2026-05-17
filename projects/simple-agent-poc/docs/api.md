@@ -1,6 +1,6 @@
 # HTTP API
 
-The HTTP API provides two endpoints for synchronous and streaming agent execution.
+The HTTP API provides endpoints for synchronous and streaming agent execution, plus a pause/resume flow for interactive tool calls.
 
 ## Entry Point
 
@@ -21,7 +21,7 @@ Starts Uvicorn on `127.0.0.1:8000`. Source: `src/simple_agent_poc/entrypoints/ma
 
 ### `POST /api/chat`
 
-Synchronous (non-streaming) agent execution.
+Synchronous (non-streaming) agent execution. Supports tool calls via the ReAct loop.
 
 #### Request
 
@@ -54,7 +54,15 @@ Headers:
   },
   "model": "gpt-4.1-nano",
   "response_time": 1.234,
-  "session_id": "abc123..."
+  "session_id": "abc123...",
+  "tool_calls": [
+    {
+      "call_id": "call_abc123",
+      "name": "concat",
+      "arguments": "{\"a\":\"Hello\",\"b\":\"World\"}",
+      "result": "HelloWorld"
+    }
+  ]
 }
 ```
 
@@ -65,6 +73,7 @@ Headers:
 | `model` | `str` | Model name as configured |
 | `response_time` | `float` | Seconds from LLM call start to response receipt |
 | `session_id` | `str` | Session ID for continuing the conversation |
+| `tool_calls` | `list[ToolCallRecord]` | Tool calls made during execution with their results |
 
 #### Error Responses
 
@@ -76,7 +85,7 @@ Headers:
 
 ### `POST /api/chat/stream`
 
-Streaming agent execution via Server-Sent Events (SSE).
+Streaming agent execution via Server-Sent Events (SSE). Supports tool calls, and may disconnect with `paused` event when `ask_user` is called.
 
 #### Request
 
@@ -87,6 +96,39 @@ Same schema as `/api/chat`. Supports `Session-Id` header with the same `resolve_
 Media type: `text/event-stream`
 
 See [docs/sse.md](sse.md) for the full SSE event specification.
+
+### `POST /api/chat/continue`
+
+Resumes a paused session (after `ask_user` was called). Returns SSE events.
+
+#### Request
+
+```json
+{
+  "session_id": "abc123...",
+  "answer": "My preference is X"
+}
+```
+
+| Field | Type | Required | Description |
+|:---|:---|:---|:---|
+| `session_id` | `str` | yes | The session ID from the `paused` event |
+| `answer` | `str` | yes | User's answer to the `ask_user` question |
+
+#### Response
+
+Same SSE format as `/api/chat/stream`. The sequence is:
+1. `event: tool_result` — the answer injected as tool result
+2. `event: delta` ... — LLM response chunks (ReAct loop resumes)
+3. `event: complete` — stream finished
+4. `event: done` — end of stream
+
+#### Error Responses
+
+| Status | Condition |
+|:---|:---|
+| `400` | `session_id` not found, session is not paused, answer blank |
+| `422` | `session_id` or `answer` blank (Pydantic validation) |
 
 ## Session Resolution
 
