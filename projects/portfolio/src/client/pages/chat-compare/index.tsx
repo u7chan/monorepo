@@ -179,22 +179,26 @@ export function ChatCompare() {
           </div>
         }
         modelSelector={
-          <div className='shrink-0 border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800'>
+          <>
             <CompareSettings
               settings={settings}
               open={settingsOpen}
               onUpdate={updateSettings}
               onClose={() => setSettingsOpen(false)}
             />
-            <ModelCheckboxList
-              models={models}
-              selectedModels={selectedModels}
-              loading={canFetchModels && modelsQuery.isLoading}
-              error={modelsQuery.isError ? 'モデル一覧の取得に失敗しました' : null}
-              disabled={isSubmitting}
-              onChange={handleModelChange}
-            />
-          </div>
+            {settingsOpen && (
+              <div className='shrink-0 border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800'>
+                <ModelCheckboxList
+                  models={models}
+                  selectedModels={selectedModels}
+                  loading={canFetchModels && modelsQuery.isLoading}
+                  error={modelsQuery.isError ? 'モデル一覧の取得に失敗しました' : null}
+                  disabled={isSubmitting}
+                  onChange={handleModelChange}
+                />
+              </div>
+            )}
+          </>
         }
         columns={
           selectedModels.length === 0 ? (
