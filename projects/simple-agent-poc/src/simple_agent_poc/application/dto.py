@@ -104,3 +104,13 @@ class SessionPaused:
     session_id: str
     call_id: str
     question: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunAgentPaused:
+    """Pause result returned by sync execution when ask_user is called."""
+
+    session_id: str
+    call_id: str
+    question: str
+    tool_call_history: list[ToolCallRecord]

@@ -44,7 +44,7 @@ The adapter uses protocol-based dependency injection for testability. All render
 
 ### Interactive Loop
 
-The loop handles both sync and streaming modes. In streaming mode, the generator is used with `send()` to support interactive tool calls:
+The loop handles both sync and streaming modes:
 
 ```
 while True:
@@ -61,14 +61,34 @@ while True:
             if event is StreamComplete → show stats, capture session_id
     else:
         response = with_indicator("Thinking", lambda: use_case.execute(request))
+        while response is RunAgentPaused:
+            answer = ask_user_question(response.question)
+            response = with_indicator(
+                "Thinking",
+                lambda: use_case.continue_sync(ContinueRequest(
+                    session_id=response.session_id, answer=answer
+                ))
+            )
         show_agent_response(response)
 
     self._session_id = response.session_id
 ```
 
-### `generator.send()` Pattern (ask\_user)
+### Sync `ask_user` Loop (Non-Stream Mode)
 
-When the LLM calls `ask_user` in CLI mode, the `execute_stream()` generator yields a `ToolCallEvent` and **pauses**, waiting for the adapter to send the user's answer back:
+When `stream: false` (default), `execute()` returns `RunAgentResponse | RunAgentPaused`. If `RunAgentPaused` is returned:
+
+1. The indicator stops automatically (via `finally` in `with_indicator`).
+2. `ask_user_question(question)` displays the question and reads the user's answer from stdin.
+3. `continue_sync(ContinueRequest(session_id, answer))` is called with a new indicator.
+4. If `continue_sync` returns another `RunAgentPaused` (multiple `ask_user` in same batch), the loop repeats.
+5. When `RunAgentResponse` is finally returned, it is rendered via `show_agent_response()`.
+
+The user never needs to know the `session_id` — it is managed internally by the adapter.
+
+### `generator.send()` Pattern (Stream Mode, ask\_user)
+
+When the LLM calls `ask_user` in CLI streaming mode, the `execute_stream()` generator yields a `ToolCallEvent` and **pauses**, waiting for the adapter to send the user's answer back:
 
 1. Generator yields `ToolCallEvent(name="ask_user", arguments={"question": "..."})`.
 2. CLI renderer displays the question and prompts for input via `ask_user_question()`.
@@ -137,12 +157,12 @@ If no `StreamComplete` arrives at all, raises `RuntimeError`.
 ### ask_user_question(question)
 
 ```python
-def ask_user_question(self, question: str) -> str:
-    console.print(f"[bold yellow]? {question}[/bold yellow]")
+def ask_user_question(question: str) -> str:
+    print(f"\n  💬 ask_user: {question}")
     return input("  Answer > ").strip()
 ```
 
-Displays the `ask_user` question and reads the user's typed answer from stdin.
+Displays the `ask_user` question and reads the user's typed answer from stdin. Used by both sync and stream modes.
 
 ### show_error(error)
 
