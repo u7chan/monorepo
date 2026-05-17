@@ -1,0 +1,447 @@
+"""Development test page for chat, streaming, and ask_user resume."""
+
+TEST_PAGE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>simple-agent-poc - Test Page</title>
+<style>
+  :root { --bg: #18181b; --surface: #27272a; --border: #3f3f46; --text: #e4e4e7; --muted: #a1a1aa; --accent: #22c55e; --error: #ef4444; --tool: #3b82f6; --pause: #f59e0b; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: ui-monospace, 'Cascadia Code', monospace; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 14px; font-weight: 600; margin-right: auto; }
+  header label { font-size: 12px; color: var(--muted); }
+  header input, header select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 12px; }
+  header button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-family: inherit; font-size: 12px; cursor: pointer; }
+  header button:hover { background: var(--border); }
+  main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .logs { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 8px; gap: 8px; }
+  .log-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .log-section summary { font-size: 12px; color: var(--muted); cursor: pointer; padding: 4px 0; user-select: none; }
+  .log-section pre { flex: 1; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-family: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  footer { background: var(--surface); border-top: 1px solid var(--border); padding: 8px 12px; }
+  .input-row { display: flex; gap: 6px; }
+  .input-row input[type="text"] { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; font-size: 13px; }
+  .input-row button { background: var(--accent); color: #000; border: none; border-radius: 4px; padding: 6px 14px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .input-row button.stop { background: var(--error); color: #fff; }
+  .paused-bar { display: none; background: var(--pause); color: #000; padding: 8px 12px; font-size: 13px; font-weight: 600; }
+  .paused-bar.visible { display: flex; gap: 6px; align-items: center; }
+  .paused-bar input[type="text"] { flex: 1; background: rgba(0,0,0,.15); color: #000; border: 1px solid rgba(0,0,0,.2); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 13px; }
+  .paused-bar button { background: rgba(0,0,0,.2); color: #000; border: none; border-radius: 4px; padding: 4px 10px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .line-user { color: var(--muted); }
+  .line-assistant { color: var(--text); }
+  .line-tool { color: var(--tool); }
+  .line-paused { color: var(--pause); }
+  .line-error { color: var(--error); }
+  .line-system { color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>simple-agent-poc</h1>
+  <label>Mode
+    <select id="mode-select" onchange="onModeChange()">
+      <option value="stream">stream</option>
+      <option value="sync">sync</option>
+    </select>
+  </label>
+  <label>Agent
+    <input type="text" id="agent-id" value="default" size="10" onchange="onAgentIdChange()">
+  </label>
+  <label>Session
+    <input type="text" id="session-id" size="24" placeholder="(new)" onchange="onSessionIdChange()">
+  </label>
+  <button onclick="clearSession()">Clear</button>
+</header>
+<main>
+  <div class="logs">
+    <details class="log-section" open>
+      <summary>Conversation</summary>
+      <pre id="conv-log"></pre>
+    </details>
+    <details class="log-section">
+      <summary>Tool Calls</summary>
+      <pre id="tool-log"></pre>
+    </details>
+    <details class="log-section">
+      <summary>Raw</summary>
+      <pre id="raw-log"></pre>
+    </details>
+  </div>
+  <div class="paused-bar" id="paused-bar">
+    <span id="paused-question"></span>
+    <input type="text" id="paused-answer" placeholder="Type your answer..." onkeydown="if(event.key==='Enter')resumeFromPaused()">
+    <button onclick="resumeFromPaused()">Resume</button>
+    <button onclick="cancelPaused()">Cancel</button>
+  </div>
+</main>
+<footer>
+  <div class="input-row">
+    <input type="text" id="msg-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}">
+    <button id="send-btn" onclick="sendMessage()">Send</button>
+    <button id="stop-btn" class="stop" onclick="stopRequest()" style="display:none">Stop</button>
+  </div>
+</footer>
+<script>
+const state = {
+  mode: "stream",
+  agentId: "default",
+  sessionId: "",
+  awaitingAnswer: null,
+  abortController: null,
+};
+
+const el = (id) => document.getElementById(id);
+
+function onModeChange() {
+  state.mode = el("mode-select").value;
+  persist();
+}
+
+function onAgentIdChange() {
+  state.agentId = el("agent-id").value.trim() || "default";
+  persist();
+}
+
+function onSessionIdChange() {
+  state.sessionId = el("session-id").value.trim();
+  persist();
+}
+
+function setSessionId(id) {
+  state.sessionId = id;
+  el("session-id").value = id;
+  persist();
+}
+
+function persist() {
+  try {
+    localStorage.setItem("sap_test_ui", JSON.stringify({
+      mode: state.mode,
+      agentId: state.agentId,
+      sessionId: state.sessionId,
+    }));
+  } catch (_) {}
+}
+
+function restore() {
+  try {
+    const raw = localStorage.getItem("sap_test_ui");
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d.mode) { state.mode = d.mode; el("mode-select").value = d.mode; }
+    if (d.agentId) { state.agentId = d.agentId; el("agent-id").value = d.agentId; }
+    if (d.sessionId) { state.sessionId = d.sessionId; el("session-id").value = d.sessionId; }
+  } catch (_) {}
+}
+
+function clearSession() {
+  state.sessionId = "";
+  state.awaitingAnswer = null;
+  el("session-id").value = "";
+  el("conv-log").textContent = "";
+  el("tool-log").textContent = "";
+  el("raw-log").textContent = "";
+  el("paused-bar").classList.remove("visible");
+  el("paused-question").textContent = "";
+  el("paused-answer").value = "";
+  persist();
+}
+
+function appendLog(area, className, text) {
+  const pre = el(area);
+  const span = document.createElement("span");
+  if (className) span.className = className;
+  span.textContent = text;
+  pre.appendChild(span);
+  pre.scrollTop = pre.scrollHeight;
+}
+
+function appendLine(area, className, text) {
+  appendLog(area, className, text + "\\n");
+}
+
+function finishLogLine(node) {
+  if (node && !node.textContent.endsWith("\\n")) {
+    node.textContent += "\\n";
+  }
+}
+
+function appendJson(area, className, obj) {
+  appendLine(area, className, JSON.stringify(obj, null, 2));
+}
+
+function setSending(sending) {
+  const sendBtn = el("send-btn");
+  const stopBtn = el("stop-btn");
+  const msgInput = el("msg-input");
+  if (sending) {
+    sendBtn.style.display = "none";
+    stopBtn.style.display = "";
+    msgInput.disabled = true;
+  } else {
+    sendBtn.style.display = "";
+    stopBtn.style.display = "none";
+    msgInput.disabled = false;
+    msgInput.focus();
+  }
+}
+
+async function sendMessage() {
+  const message = el("msg-input").value.trim();
+  if (!message) return;
+  if (state.abortController) return;
+  el("msg-input").value = "";
+  appendLine("conv-log", "line-user", "You: " + message);
+  appendLine("raw-log", "line-system", "--- sending message ---");
+  if (state.mode === "stream") {
+    await sendStreamMessage(message);
+  } else {
+    await sendSyncMessage(message);
+  }
+}
+
+async function sendSyncMessage(message) {
+  const controller = new AbortController();
+  state.abortController = controller;
+  setSending(true);
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (state.sessionId) headers["Session-Id"] = state.sessionId;
+    const resp = await fetch("/api/chat", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, agent_id: state.agentId }),
+      signal: controller.signal,
+    });
+    appendJson("raw-log", "line-system", { status: resp.status });
+    if (!resp.ok) {
+      const err = await resp.json();
+      appendLine("conv-log", "line-error", "Error: " + (err.detail || resp.statusText));
+      appendJson("raw-log", "line-error", err);
+      return;
+    }
+    const data = await resp.json();
+    appendJson("raw-log", "line-system", data);
+    appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
+    if (data.tool_calls && data.tool_calls.length > 0) {
+      for (const tc of data.tool_calls) {
+        appendLine("conv-log", "line-tool", "  Tool: " + tc.name + "(" + tc.arguments + ") -> " + truncate(tc.result, 200));
+        appendJson("tool-log", "line-tool", tc);
+      }
+    }
+    if (data.session_id) setSessionId(data.session_id);
+    if (data.usage) {
+      appendLine("raw-log", "line-system", "usage: " + JSON.stringify(data.usage));
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      appendLine("conv-log", "line-error", "Error: " + e.message);
+    }
+  } finally {
+    state.abortController = null;
+    setSending(false);
+  }
+}
+
+async function sendStreamMessage(message) {
+  const controller = new AbortController();
+  state.abortController = controller;
+  setSending(true);
+  let assistantText = "";
+  const assistantSpan = document.createElement("span");
+  assistantSpan.className = "line-assistant";
+  assistantSpan.textContent = "Assistant: ";
+  el("conv-log").appendChild(assistantSpan);
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (state.sessionId) headers["Session-Id"] = state.sessionId;
+    const resp = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, agent_id: state.agentId }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      appendLine("conv-log", "line-error", "Error: " + err);
+      return;
+    }
+    await readSseStream(resp, (event) => {
+      if (event.type === "delta") {
+        const d = JSON.parse(event.data);
+        assistantText += d.content;
+        assistantSpan.textContent = "Assistant: " + assistantText;
+        el("conv-log").scrollTop = el("conv-log").scrollHeight;
+      } else if (event.type === "tool_call") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-tool", "  Tool: " + d.name + "(" + d.arguments + ")");
+        appendJson("tool-log", "line-tool", d);
+      } else if (event.type === "tool_result") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-tool", "  Result: " + truncate(d.result, 200));
+        appendJson("tool-log", "line-tool", d);
+      } else if (event.type === "paused") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
+        enterPausedState(d);
+      } else if (event.type === "complete") {
+        const d = JSON.parse(event.data);
+        if (d.session_id) setSessionId(d.session_id);
+        if (d.usage) {
+          appendLine("raw-log", "line-system", "usage: " + JSON.stringify(d.usage));
+        }
+      } else if (event.type === "error") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-error", "Error: " + (d.detail || "unknown error"));
+      }
+      appendLine("raw-log", "line-system", "[" + event.type + "] " + event.data);
+    });
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      appendLine("conv-log", "line-error", "Error: " + e.message);
+    }
+  } finally {
+    finishLogLine(assistantSpan);
+    state.abortController = null;
+    setSending(false);
+  }
+}
+
+function enterPausedState({ session_id: sessionId, question, call_id: callId }) {
+  state.awaitingAnswer = { sessionId, question, callId };
+  setSessionId(sessionId);
+  el("paused-question").textContent = "Q: " + question;
+  el("paused-answer").value = "";
+  el("paused-bar").classList.add("visible");
+  el("paused-answer").focus();
+}
+
+async function resumeFromPaused() {
+  const answer = el("paused-answer").value.trim();
+  if (!answer || !state.awaitingAnswer) return;
+  const { sessionId } = state.awaitingAnswer;
+  state.awaitingAnswer = null;
+  el("paused-bar").classList.remove("visible");
+  el("paused-question").textContent = "";
+  el("paused-answer").value = "";
+  appendLine("conv-log", "line-user", "You: " + answer);
+  appendLine("raw-log", "line-system", "--- continuing paused session ---");
+
+  const controller = new AbortController();
+  state.abortController = controller;
+  setSending(true);
+  let assistantText = "";
+  const assistantSpan = document.createElement("span");
+  assistantSpan.className = "line-assistant";
+  assistantSpan.textContent = "Assistant: ";
+  el("conv-log").appendChild(assistantSpan);
+  try {
+    const resp = await fetch("/api/chat/continue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, answer }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      appendLine("conv-log", "line-error", "Error: " + err);
+      return;
+    }
+    await readSseStream(resp, (event) => {
+      if (event.type === "delta") {
+        const d = JSON.parse(event.data);
+        assistantText += d.content;
+        assistantSpan.textContent = "Assistant: " + assistantText;
+        el("conv-log").scrollTop = el("conv-log").scrollHeight;
+      } else if (event.type === "tool_call") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-tool", "  Tool: " + d.name + "(" + d.arguments + ")");
+        appendJson("tool-log", "line-tool", d);
+      } else if (event.type === "tool_result") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-tool", "  Result: " + truncate(d.result, 200));
+        appendJson("tool-log", "line-tool", d);
+      } else if (event.type === "paused") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
+        enterPausedState(d);
+      } else if (event.type === "complete") {
+        const d = JSON.parse(event.data);
+        if (d.session_id) setSessionId(d.session_id);
+        if (d.usage) {
+          appendLine("raw-log", "line-system", "usage: " + JSON.stringify(d.usage));
+        }
+      } else if (event.type === "error") {
+        const d = JSON.parse(event.data);
+        appendLine("conv-log", "line-error", "Error: " + (d.detail || "unknown error"));
+      }
+      appendLine("raw-log", "line-system", "[" + event.type + "] " + event.data);
+    });
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      appendLine("conv-log", "line-error", "Error: " + e.message);
+    }
+  } finally {
+    finishLogLine(assistantSpan);
+    state.abortController = null;
+    setSending(false);
+  }
+}
+
+function cancelPaused() {
+  state.awaitingAnswer = null;
+  el("paused-bar").classList.remove("visible");
+  el("paused-question").textContent = "";
+  el("paused-answer").value = "";
+}
+
+function stopRequest() {
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+    appendLine("conv-log", "line-system", "[stopped by user]");
+    setSending(false);
+  }
+}
+
+async function readSseStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\\n");
+    buffer = lines.pop() || "";
+    let eventType = "";
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        try {
+          JSON.parse(data);
+          onEvent({ type: eventType, data });
+        } catch (_) {}
+        eventType = "";
+      }
+    }
+  }
+}
+
+function truncate(s, max) {
+  if (!s) return s;
+  return s.length > max ? s.slice(0, max) + "..." : s;
+}
+
+restore();
+el("msg-input").focus();
+</script>
+</body>
+</html>
+"""

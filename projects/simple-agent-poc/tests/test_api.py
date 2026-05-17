@@ -310,3 +310,14 @@ class TestSSEEvents:
         assert "event: tool_result" in sse_line
         assert "call_001" in sse_line
         assert "helloworld" in sse_line
+
+    def test_root_returns_html_test_page(self) -> None:
+        app = create_app()
+        client = TestClient(app)
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "<title>simple-agent-poc - Test Page</title>" in response.text
+        assert '<select id="mode-select"' in response.text
