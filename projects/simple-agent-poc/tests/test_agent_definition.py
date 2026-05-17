@@ -259,3 +259,81 @@ agents:
                     }
                 }
             )
+
+    @pytest.mark.parametrize("value", [1, 5, 20])
+    def test_allows_max_tool_rounds_in_range(self, value: int) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                        "max_tool_rounds": value,
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").max_tool_rounds == value
+
+    def test_max_tool_rounds_defaults_to_five(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").max_tool_rounds == 5
+
+    def test_max_tool_rounds_defaults_to_five_when_null(self) -> None:
+        registry = AgentDefinitionRegistry.from_mapping(
+            {
+                "agents": {
+                    "default": {
+                        "model": "gpt-4.1-nano",
+                        "system_prompt": "Prompt",
+                        "max_tool_rounds": None,
+                    }
+                }
+            }
+        )
+
+        assert registry.get("default").max_tool_rounds == 5
+
+    @pytest.mark.parametrize("value", [0, 21])
+    def test_rejects_max_tool_rounds_outside_range(self, value: int) -> None:
+        with pytest.raises(
+            ValidationError,
+            match="max_tool_rounds must be between 1 and 20",
+        ):
+            AgentDefinitionRegistry.from_mapping(
+                {
+                    "agents": {
+                        "default": {
+                            "model": "gpt-4.1-nano",
+                            "system_prompt": "Prompt",
+                            "max_tool_rounds": value,
+                        }
+                    }
+                }
+            )
+
+    @pytest.mark.parametrize("value", [True, "5", 5.0])
+    def test_rejects_non_int_max_tool_rounds(self, value: object) -> None:
+        with pytest.raises(ValidationError, match="max_tool_rounds must be an integer"):
+            AgentDefinitionRegistry.from_mapping(
+                {
+                    "agents": {
+                        "default": {
+                            "model": "gpt-4.1-nano",
+                            "system_prompt": "Prompt",
+                            "max_tool_rounds": value,
+                        }
+                    }
+                }
+            )

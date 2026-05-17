@@ -11,6 +11,7 @@ from simple_agent_poc.application.dto import (
     ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
+from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import (
     LLMError,
     LLMResponse,
@@ -176,6 +177,47 @@ def test_execute_exceeds_max_tool_rounds(default_agent_def, tool_registry):
         assert False, "Expected LLMError"
     except LLMError:
         pass
+
+
+def test_execute_uses_agent_max_tool_rounds(tool_registry):
+    """The ReAct loop stops at the agent's configured max_tool_rounds."""
+    agent_definitions = AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant.",
+                    "max_tool_rounds": 3,
+                }
+            }
+        }
+    )
+    rounds = []
+    for _ in range(3):
+        rounds.append(
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _concat_tool_call(),
+            }
+        )
+
+    fake_llm = FakeLLMClient(rounds=rounds)
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=InMemorySessionStore(),
+        agent_definitions=agent_definitions,
+        tool_executor=tool_registry,
+    )
+
+    try:
+        use_case.execute(RunAgentRequest(message="loop"))
+        assert False, "Expected LLMError"
+    except LLMError:
+        pass
+    assert fake_llm._call_count == 3
 
 
 def test_execute_blank_message_rejected(default_agent_def, tool_registry):

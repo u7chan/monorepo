@@ -41,6 +41,12 @@ The factory selects the client at construction time based on this field.
 
 When `true`, the CLI uses `execute_stream()` with live text output instead of a spinner + synchronous `execute()`. Has no effect on the HTTP API, which always uses streaming for `/api/chat/stream`.
 
+### `max_tool_rounds`
+
+Maximum number of ReAct tool-call rounds for one user message. When omitted or `null`, the default is `5`. The value must be an integer from `1` to `20`; booleans, strings, floats, and out-of-range integers are rejected at startup.
+
+Each round allows the LLM to respond once and optionally request tools. If every allowed round still produces tool calls, execution stops with `LLMError` instead of continuing indefinitely.
+
 ## Validation at Startup
 
 On application startup, `AgentDefinitionRegistry.from_yaml_file()` validates:
@@ -51,6 +57,7 @@ On application startup, `AgentDefinitionRegistry.from_yaml_file()` validates:
 - `api_type` must be `"completion"` or `"responses"`
 - Unknown fields at the root or agent level are rejected
 - `temperature` must be a number or null; `stream` must be a boolean
+- `max_tool_rounds` must be an integer from `1` to `20`, or null
 
 For the exact validation logic, see `agent_definition.py` and its `_optional_*` validators.
 
@@ -77,4 +84,5 @@ agents:
     tools:
       - concat
       - ask_user
+    max_tool_rounds: 5
 ```
