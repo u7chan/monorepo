@@ -156,7 +156,11 @@ def create_app(
     def get_run_agent_use_case() -> RunAgentUseCase:
         return factory()
 
-    @app.post("/api/chat/sync", response_model=SyncChatResponse)
+    @app.post(
+        "/api/chat/sync",
+        response_model=SyncChatResponse,
+        response_model_exclude_unset=True,
+    )
     def chat_sync(
         request: ChatRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
@@ -190,7 +194,11 @@ def create_app(
             return SyncChatResponse.from_paused(result)
         return SyncChatResponse.from_completed(result)
 
-    @app.post("/api/chat/sync/continue", response_model=SyncChatResponse)
+    @app.post(
+        "/api/chat/sync/continue",
+        response_model=SyncChatResponse,
+        response_model_exclude_unset=True,
+    )
     def chat_sync_continue(
         request: ResumeRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],

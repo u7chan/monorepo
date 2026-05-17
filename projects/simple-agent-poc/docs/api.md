@@ -136,7 +136,7 @@ Same discriminated shape as `/api/chat/sync` (either `"completed"` or `"paused"`
 | Status | Condition |
 |:---|:---|
 | `422` | `session_id` or `answer` blank (Pydantic validation) |
-| `400` | session is not paused, `session_id` not found |
+| `400` | session is not paused |
 | `404` | `session_id` not found |
 
 ### `POST /api/chat/stream`

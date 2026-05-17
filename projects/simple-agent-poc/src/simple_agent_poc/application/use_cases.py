@@ -126,61 +126,13 @@ class RunAgentUseCase:
             raise ValidationError("agent_id cannot be changed for an existing session")
         session.append_user_message(request.message)
 
-        llm_client = self._llm_client_factory(agent_definition)
-        tools = self._resolve_tools(agent_definition)
-
         tool_call_history: list[ToolCallRecord] = []
 
         try:
-            for round_idx in range(agent_definition.max_tool_rounds):
-                response = llm_client.complete(list(session.messages), tools=tools)
-
-                tool_calls = response.get("tool_calls")
-                if not tool_calls:
-                    session.append_assistant_message(response["content"])
-                    return RunAgentResponse.from_llm_response(
-                        response,
-                        session_id=session.session_id,
-                        tool_call_history=tool_call_history,
-                    )
-
-                if self._tool_executor is None:
-                    raise LLMError(
-                        "Tool call requested but no tool executor configured",
-                        display_message="Tool call requested but no tool executor configured.",
-                    )
-                session.append_assistant_message(
-                    response["content"] or "", tool_calls=tool_calls
-                )
-
-                ask_user_tcs = [
-                    tc for tc in tool_calls if tc["function"]["name"] == "ask_user"
-                ]
-                for tc in tool_calls:
-                    if tc["function"]["name"] == "ask_user":
-                        continue
-                    result = self._tool_executor.execute(tc)
-                    session.append_tool_message(result, tool_call_id=tc["id"])
-                    tool_call_history.append(
-                        ToolCallRecord(
-                            call_id=tc["id"],
-                            name=tc["function"]["name"],
-                            arguments=tc["function"]["arguments"],
-                            result=result,
-                        )
-                    )
-
-                if ask_user_tcs:
-                    return self._build_paused_result(
-                        session=session,
-                        ask_user_tc=ask_user_tcs[0],
-                        round_idx=round_idx,
-                        tool_call_history=tool_call_history,
-                    )
-
-            raise LLMError(
-                "Exceeded maximum tool call rounds",
-                display_message="Exceeded maximum tool call rounds.",
+            return self._run_react_loop(
+                session=session,
+                start_round=0,
+                tool_call_history=tool_call_history,
             )
         finally:
             self._session_store.save(session)
@@ -195,7 +147,7 @@ class RunAgentUseCase:
                 f"Session not found: {request.session_id}",
                 display_message="Session not found.",
             )
-        if not session.is_paused or session.pending_tool_call is None:
+        if not session.is_paused:
             raise SessionNotPausedError(
                 f"Session {request.session_id} is not in a paused state",
                 display_message="Session is not in a paused state.",
@@ -218,63 +170,76 @@ class RunAgentUseCase:
                 tool_call_history=tool_call_history,
             )
 
+        try:
+            return self._run_react_loop(
+                session=session,
+                start_round=resume_round + 1,
+                tool_call_history=tool_call_history,
+            )
+        finally:
+            self._session_store.save(session)
+
+    def _run_react_loop(
+        self,
+        *,
+        session: ConversationSession,
+        start_round: int,
+        tool_call_history: list[ToolCallRecord],
+    ) -> RunAgentResponse | RunAgentPaused:
         agent_definition = self._agent_definitions.get(session.agent_id)
         llm_client = self._llm_client_factory(agent_definition)
         tools = self._resolve_tools(agent_definition)
 
-        try:
-            for round_idx in range(resume_round + 1, agent_definition.max_tool_rounds):
-                response = llm_client.complete(list(session.messages), tools=tools)
+        for round_idx in range(start_round, agent_definition.max_tool_rounds):
+            response = llm_client.complete(list(session.messages), tools=tools)
 
-                tool_calls = response.get("tool_calls")
-                if not tool_calls:
-                    session.append_assistant_message(response["content"])
-                    return RunAgentResponse.from_llm_response(
-                        response,
-                        session_id=session.session_id,
-                        tool_call_history=tool_call_history,
-                    )
-
-                if self._tool_executor is None:
-                    raise LLMError(
-                        "Tool call requested but no tool executor configured",
-                        display_message="Tool call requested but no tool executor configured.",
-                    )
-                session.append_assistant_message(
-                    response["content"] or "", tool_calls=tool_calls
+            tool_calls = response.get("tool_calls")
+            if not tool_calls:
+                session.append_assistant_message(response["content"])
+                return RunAgentResponse.from_llm_response(
+                    response,
+                    session_id=session.session_id,
+                    tool_call_history=tool_call_history,
                 )
 
-                ask_user_tcs = [
-                    tc for tc in tool_calls if tc["function"]["name"] == "ask_user"
-                ]
-                for tc in tool_calls:
-                    if tc["function"]["name"] == "ask_user":
-                        continue
-                    result = self._tool_executor.execute(tc)
-                    session.append_tool_message(result, tool_call_id=tc["id"])
-                    tool_call_history.append(
-                        ToolCallRecord(
-                            call_id=tc["id"],
-                            name=tc["function"]["name"],
-                            arguments=tc["function"]["arguments"],
-                            result=result,
-                        )
-                    )
-
-                if ask_user_tcs:
-                    return self._build_paused_result(
-                        session=session,
-                        ask_user_tc=ask_user_tcs[0],
-                        round_idx=round_idx,
-                        tool_call_history=tool_call_history,
-                    )
-
-            raise LLMError(
-                "Exceeded maximum tool call rounds",
-                display_message="Exceeded maximum tool call rounds.",
+            if self._tool_executor is None:
+                raise LLMError(
+                    "Tool call requested but no tool executor configured",
+                    display_message="Tool call requested but no tool executor configured.",
+                )
+            session.append_assistant_message(
+                response["content"] or "", tool_calls=tool_calls
             )
-        finally:
-            self._session_store.save(session)
+
+            ask_user_tcs = [
+                tc for tc in tool_calls if tc["function"]["name"] == "ask_user"
+            ]
+            for tc in tool_calls:
+                if tc["function"]["name"] == "ask_user":
+                    continue
+                result = self._tool_executor.execute(tc)
+                session.append_tool_message(result, tool_call_id=tc["id"])
+                tool_call_history.append(
+                    ToolCallRecord(
+                        call_id=tc["id"],
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                        result=result,
+                    )
+                )
+
+            if ask_user_tcs:
+                return self._build_paused_result(
+                    session=session,
+                    ask_user_tc=ask_user_tcs[0],
+                    round_idx=round_idx,
+                    tool_call_history=tool_call_history,
+                )
+
+        raise LLMError(
+            "Exceeded maximum tool call rounds",
+            display_message="Exceeded maximum tool call rounds.",
+        )
 
     def execute_stream(
         self, request: RunAgentRequest
@@ -442,7 +407,7 @@ class RunAgentUseCase:
                 f"Session not found: {request.session_id}",
                 display_message="Session not found.",
             )
-        if not session.is_paused or session.pending_tool_call is None:
+        if not session.is_paused:
             raise SessionNotPausedError(
                 f"Session {request.session_id} is not in a paused state",
                 display_message="Session is not in a paused state.",
