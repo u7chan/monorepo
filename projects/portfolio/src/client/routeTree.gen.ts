@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DiffRouteImport } from './routes/diff'
+import { Route as ChatCompareRouteImport } from './routes/chat-compare'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
@@ -17,6 +18,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const DiffRoute = DiffRouteImport.update({
   id: '/diff',
   path: '/diff',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatCompareRoute = ChatCompareRouteImport.update({
+  id: '/chat-compare',
+  path: '/chat-compare',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
+  '/chat-compare': typeof ChatCompareRoute
   '/diff': typeof DiffRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
+  '/chat-compare': typeof ChatCompareRoute
   '/diff': typeof DiffRoute
 }
 export interface FileRoutesById {
@@ -52,20 +60,22 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
+  '/chat-compare': typeof ChatCompareRoute
   '/diff': typeof DiffRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/chat' | '/diff'
+  fullPaths: '/' | '/about' | '/chat' | '/chat-compare' | '/diff'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/chat' | '/diff'
-  id: '__root__' | '/' | '/about' | '/chat' | '/diff'
+  to: '/' | '/about' | '/chat' | '/chat-compare' | '/diff'
+  id: '__root__' | '/' | '/about' | '/chat' | '/chat-compare' | '/diff'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   ChatRoute: typeof ChatRoute
+  ChatCompareRoute: typeof ChatCompareRoute
   DiffRoute: typeof DiffRoute
 }
 
@@ -76,6 +86,13 @@ declare module '@tanstack/react-router' {
       path: '/diff'
       fullPath: '/diff'
       preLoaderRoute: typeof DiffRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat-compare': {
+      id: '/chat-compare'
+      path: '/chat-compare'
+      fullPath: '/chat-compare'
+      preLoaderRoute: typeof ChatCompareRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chat': {
@@ -106,6 +123,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   ChatRoute: ChatRoute,
+  ChatCompareRoute: ChatCompareRoute,
   DiffRoute: DiffRoute,
 }
 export const routeTree = rootRouteImport
