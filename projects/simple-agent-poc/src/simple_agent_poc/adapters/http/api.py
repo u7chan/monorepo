@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
-from starlette.responses import StreamingResponse
+from starlette.responses import HTMLResponse, StreamingResponse
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -26,6 +26,7 @@ from simple_agent_poc.core.types import (
     Usage,
     ValidationError,
 )
+from simple_agent_poc.adapters.http.test_page import TEST_PAGE_HTML
 from simple_agent_poc.entrypoints.bootstrap import create_run_agent_use_case_factory
 
 
@@ -253,5 +254,9 @@ def create_app(
                 yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @app.get("/", response_class=HTMLResponse)
+    def test_page() -> HTMLResponse:
+        return HTMLResponse(TEST_PAGE_HTML)
 
     return app
