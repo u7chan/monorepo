@@ -156,8 +156,9 @@ Source: `src/simple_agent_poc/application/use_cases.py`
 1. Loads the session by `session_id`. Returns error if not found or not paused.
 2. Injects the user's answer as a tool result message.
 3. Yields `ToolResultEvent` for the `ask_user` call.
-4. Resumes the ReAct loop with the remaining rounds.
-5. Yields `StreamComplete` on finish.
+4. If the same assistant message still has another unanswered `ask_user` tool call, pauses again and yields `SessionPaused` without calling the LLM.
+5. Otherwise, resumes the ReAct loop with the remaining rounds.
+6. Yields `StreamComplete` on finish.
 
 ## CLI Streaming
 

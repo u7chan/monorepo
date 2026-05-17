@@ -561,6 +561,86 @@ class TestContinueStream:
         assert session is not None
         assert session.is_paused is False
 
+    def test_continue_stream_pauses_on_next_unanswered_ask_user(self) -> None:
+        first_chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "First number?"}',
+                    },
+                },
+            },
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 1,
+                    "id": "call_002",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": '{"question": "Second number?"}',
+                    },
+                },
+            },
+        ]
+        store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+
+        first_use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(
+                return_value=StreamingStubLLMClient(chunks=first_chunks)
+            ),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        first_events = list(
+            first_use_case.execute_stream(RunAgentRequest(message="Add numbers"))
+        )
+        paused = first_events[-1]
+        assert isinstance(paused, SessionPaused)
+        assert paused.call_id == "call_001"
+
+        llm_client_factory = MagicMock()
+        second_use_case = RunAgentUseCase(
+            llm_client_factory=llm_client_factory,
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        continue_events = list(
+            second_use_case.continue_stream(
+                ContinueRequest(session_id=paused.session_id, answer="1")
+            )
+        )
+
+        assert continue_events[0] == ToolResultEvent(
+            call_id="call_001",
+            name="ask_user",
+            result='{"answer": "1"}',
+        )
+        assert continue_events[1] == SessionPaused(
+            session_id=paused.session_id,
+            call_id="call_002",
+            question="Second number?",
+        )
+        llm_client_factory.assert_not_called()
+
+        session = store.get(paused.session_id)
+        assert session is not None
+        assert session.is_paused is True
+        assert session.pending_tool_call is not None
+        assert session.pending_tool_call["id"] == "call_002"
+
     def test_continue_stream_with_unknown_session_raises_error(self) -> None:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),

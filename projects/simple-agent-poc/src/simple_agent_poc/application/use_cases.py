@@ -63,6 +63,32 @@ def _accumulate_tool_call_chunks(
         acc["function"]["arguments"] += fn_args
 
 
+def _find_next_unanswered_ask_user(
+    session: ConversationSession,
+) -> ToolCall | None:
+    """Find the next ask_user tool call in the latest unfinished tool batch."""
+    for idx in range(len(session.messages) - 1, -1, -1):
+        message = session.messages[idx]
+        tool_calls = message.get("tool_calls")
+        if message["role"] != "assistant" or not tool_calls:
+            continue
+
+        answered_tool_call_ids = {
+            msg["tool_call_id"]
+            for msg in session.messages[idx + 1 :]
+            if msg["role"] == "tool" and "tool_call_id" in msg
+        }
+        for tool_call in tool_calls:
+            if (
+                tool_call["id"] not in answered_tool_call_ids
+                and tool_call["function"]["name"] == "ask_user"
+            ):
+                return tool_call
+        return None
+
+    return None
+
+
 class RunAgentUseCase:
     """Reusable execution path for session-aware agent interactions."""
 
@@ -323,6 +349,18 @@ class RunAgentUseCase:
         yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
         resume_round = session.pending_round
         session.resume_with_answer()
+
+        next_ask_user_tc = _find_next_unanswered_ask_user(session)
+        if next_ask_user_tc is not None:
+            session.pause_for_ask_user(next_ask_user_tc, round_idx=resume_round)
+            self._session_store.save(session)
+            ask_user_args = json.loads(next_ask_user_tc["function"]["arguments"])
+            yield SessionPaused(
+                session_id=session.session_id,
+                call_id=next_ask_user_tc["id"],
+                question=ask_user_args.get("question", ""),
+            )
+            return
 
         agent_definition = self._agent_definitions.get(session.agent_id)
         llm_client = self._llm_client_factory(agent_definition)
