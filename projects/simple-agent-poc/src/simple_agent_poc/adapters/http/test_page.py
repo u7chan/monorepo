@@ -265,30 +265,30 @@ async function sendStreamMessage(message) {
       return;
     }
     await readSseStream(resp, (event) => {
-      if (event === "delta") {
+      if (event.type === "delta") {
         const d = JSON.parse(event.data);
         assistantText += d.content;
         assistantSpan.textContent = "Assistant: " + assistantText;
         el("conv-log").scrollTop = el("conv-log").scrollHeight;
-      } else if (event === "tool_call") {
+      } else if (event.type === "tool_call") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-tool", "  Tool: " + d.name + "(" + d.arguments + ")");
         appendJson("tool-log", "line-tool", d);
-      } else if (event === "tool_result") {
+      } else if (event.type === "tool_result") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-tool", "  Result: " + truncate(d.result, 200));
         appendJson("tool-log", "line-tool", d);
-      } else if (event === "paused") {
+      } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
         enterPausedState(d);
-      } else if (event === "complete") {
+      } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
         if (d.session_id) setSessionId(d.session_id);
         if (d.usage) {
           appendLine("raw-log", "line-system", "usage: " + JSON.stringify(d.usage));
         }
-      } else if (event === "error") {
+      } else if (event.type === "error") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-error", "Error: " + (d.detail || "unknown error"));
       }
@@ -304,7 +304,7 @@ async function sendStreamMessage(message) {
   }
 }
 
-function enterPausedState({ sessionId, question, callId }) {
+function enterPausedState({ session_id: sessionId, question, call_id: callId }) {
   state.awaitingAnswer = { sessionId, question, callId };
   setSessionId(sessionId);
   el("paused-question").textContent = "Q: " + question;
@@ -345,30 +345,30 @@ async function resumeFromPaused() {
       return;
     }
     await readSseStream(resp, (event) => {
-      if (event === "delta") {
+      if (event.type === "delta") {
         const d = JSON.parse(event.data);
         assistantText += d.content;
         assistantSpan.textContent = "Assistant: " + assistantText;
         el("conv-log").scrollTop = el("conv-log").scrollHeight;
-      } else if (event === "tool_call") {
+      } else if (event.type === "tool_call") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-tool", "  Tool: " + d.name + "(" + d.arguments + ")");
         appendJson("tool-log", "line-tool", d);
-      } else if (event === "tool_result") {
+      } else if (event.type === "tool_result") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-tool", "  Result: " + truncate(d.result, 200));
         appendJson("tool-log", "line-tool", d);
-      } else if (event === "paused") {
+      } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
         enterPausedState(d);
-      } else if (event === "complete") {
+      } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
         if (d.session_id) setSessionId(d.session_id);
         if (d.usage) {
           appendLine("raw-log", "line-system", "usage: " + JSON.stringify(d.usage));
         }
-      } else if (event === "error") {
+      } else if (event.type === "error") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-error", "Error: " + (d.detail || "unknown error"));
       }
