@@ -27,9 +27,6 @@ export function CompareColumn({ state }: CompareColumnProps) {
             {error}
           </div>
         )}
-        {status === 'idle' && !error && (
-          <p className='text-center text-gray-400 text-sm dark:text-gray-500'>応答を待っています...</p>
-        )}
         {(status === 'streaming' || status === 'done' || status === 'idle') && (
           <>
             {reasoningContent && (

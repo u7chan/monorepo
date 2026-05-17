@@ -4,7 +4,8 @@ import { StopIcon } from '#/client/components/svg/stop-icon'
 
 interface CompareComposerProps {
   value: string
-  disabled: boolean
+  inputDisabled: boolean
+  submitDisabled: boolean
   loading: boolean
   onChangeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
@@ -15,7 +16,8 @@ interface CompareComposerProps {
 
 export function CompareComposer({
   value,
-  disabled,
+  inputDisabled,
+  submitDisabled,
   loading,
   onChangeInput,
   onKeyDown,
@@ -37,14 +39,14 @@ export function CompareComposer({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Enter' && !event.shiftKey && !isComposing && !loading && value.trim().length > 0) {
+      if (event.key === 'Enter' && !event.shiftKey && !isComposing && !submitDisabled && value.trim().length > 0) {
         event.preventDefault()
         onSubmit()
         return
       }
       onKeyDown(event)
     },
-    [isComposing, loading, onSubmit, onKeyDown, value]
+    [isComposing, onSubmit, onKeyDown, submitDisabled, value]
   )
 
   return (
@@ -57,8 +59,8 @@ export function CompareComposer({
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
           rows={2}
-          placeholder={loading ? '応答を待っています...' : 'プロンプトを入力'}
-          disabled={disabled}
+          placeholder={loading ? '' : 'プロンプトを入力'}
+          disabled={inputDisabled}
           className='min-h-0 flex-1 resize-none overflow-y-auto rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-500'
         />
         {loading ? (
@@ -73,7 +75,7 @@ export function CompareComposer({
           <button
             type='button'
             onClick={onSubmit}
-            disabled={disabled || value.trim().length === 0}
+            disabled={submitDisabled || value.trim().length === 0}
             className='flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-800 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:cursor-default disabled:opacity-40 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700'
           >
             <ArrowUpIcon className='fill-white' size={22} />

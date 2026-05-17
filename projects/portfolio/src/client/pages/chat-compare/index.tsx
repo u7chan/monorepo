@@ -180,7 +180,7 @@ export function ChatCompare() {
       <CompareLayout
         header={
           <div className='flex shrink-0 items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-gray-800'>
-            <h1 className='font-semibold text-gray-800 text-sm dark:text-gray-200'>Model Compare</h1>
+            <h1 className='font-semibold text-gray-800 text-sm dark:text-gray-200'>Chat Compare</h1>
             <button
               type='button'
               onClick={() => setSettingsOpen((prev) => !prev)}
