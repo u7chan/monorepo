@@ -11,6 +11,7 @@ import { useCompareStream } from '#/client/components/chat-compare/hooks/use-com
 import { ModelChangeConfirmDialog } from '#/client/components/chat-compare/model-change-confirm-dialog'
 import { ModelCheckboxList } from '#/client/components/chat-compare/model-checkbox-list'
 import { GearIcon } from '#/client/components/svg/gear-icon'
+import { CloseIcon } from '#/client/components/svg/close-icon'
 import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
@@ -185,8 +186,17 @@ export function ChatCompare() {
               onClick={() => setSettingsOpen((prev) => !prev)}
               className='flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-gray-500 text-xs transition-colors hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700'
             >
-              <GearIcon size={14} />
-              Settings
+              {settingsOpen ? (
+                <>
+                  <CloseIcon size={14} />
+                  Close
+                </>
+              ) : (
+                <>
+                  <GearIcon size={14} />
+                  Settings
+                </>
+              )}
             </button>
           </div>
         }
@@ -243,7 +253,8 @@ export function ChatCompare() {
         composer={
           <CompareComposer
             value={input}
-            disabled={selectedModels.length === 0 || loading}
+            inputDisabled={loading}
+            submitDisabled={selectedModels.length === 0 || loading}
             loading={loading}
             onChangeInput={handleChangeInput}
             onKeyDown={handleKeyDown}
