@@ -1,5 +1,9 @@
-import type { ModelStreamState } from './hooks/use-compare-state'
+import { useCallback, useState } from 'react'
+import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
+import { CheckIcon } from '#/client/components/svg/check-icon'
+import { CopyIcon } from '#/client/components/svg/copy-icon'
 import type { ApiChatMessage, ImageContent, TextContent } from '#/types'
+import type { ModelStreamState } from './hooks/use-compare-state'
 
 interface CompareColumnProps {
   state: ModelStreamState
@@ -31,7 +35,53 @@ function renderMessageContent(content: ApiChatMessage['content']) {
   })
 }
 
-function CompareMessage({ message }: { message: ApiChatMessage }) {
+interface CopyMessageButtonProps {
+  copied: boolean
+  onClick: () => void
+}
+
+function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
+  return (
+    <button
+      type='button'
+      className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 disabled:cursor-default ${
+        copied
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
+      }`}
+      onClick={onClick}
+      disabled={copied}
+      aria-label={copied ? 'Copied' : 'Copy message'}
+    >
+      <span
+        aria-hidden='true'
+        className={`absolute transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+          copied ? '-translate-y-0.5 scale-90 opacity-0' : 'translate-y-0 scale-100 opacity-100'
+        }`}
+      >
+        <CopyIcon size={20} className='stroke-current' />
+      </span>
+      <span
+        aria-hidden='true'
+        className={`absolute transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+          copied ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-0.5 scale-90 opacity-0'
+        }`}
+      >
+        <CheckIcon size={20} className='stroke-current' />
+      </span>
+    </button>
+  )
+}
+
+function CompareMessage({
+  copied,
+  message,
+  onCopy,
+}: {
+  copied: boolean
+  message: ApiChatMessage
+  onCopy: () => void
+}) {
   if (message.role === 'system') {
     return null
   }
@@ -47,8 +97,15 @@ function CompareMessage({ message }: { message: ApiChatMessage }) {
   }
 
   return (
-    <div className='message mt-2 text-left'>
+    <div className='message group mt-2 text-left'>
       <p className='whitespace-pre-wrap break-all text-sm text-gray-900 dark:text-gray-100'>{message.content}</p>
+      <div
+        className={`mt-1 ml-1 flex items-center gap-1 transition-opacity duration-200 ease-out motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100 ${
+          copied ? 'opacity-100' : ''
+        }`}
+      >
+        <CopyMessageButton copied={copied} onClick={onCopy} />
+      </div>
     </div>
   )
 }
@@ -56,6 +113,18 @@ function CompareMessage({ message }: { message: ApiChatMessage }) {
 export function CompareColumn({ state }: CompareColumnProps) {
   const { model, status, messages, content, reasoningContent, usage, finishReason, responseTimeMs, error } = state
   const showMeta = status === 'done' && (finishReason || usage || responseTimeMs !== null)
+  const [copiedId, setCopiedId] = useState('')
+  const copyMessage = useCallback(async (message: string, index: number) => {
+    const id = `compare_${index}`
+    setCopiedId(id)
+    try {
+      await copyToClipboard(message)
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    } catch (error) {
+      alert(error)
+    }
+    setCopiedId('')
+  }, [])
 
   return (
     <div className='flex min-w-0 flex-1 flex-col overflow-hidden border-r border-gray-200 last:border-r-0 dark:border-gray-700'>
@@ -67,7 +136,16 @@ export function CompareColumn({ state }: CompareColumnProps) {
       </div>
       <div className='min-h-0 flex-1 overflow-y-auto px-3 py-2'>
         {messages.map((message, index) => (
-          <CompareMessage key={`${message.role}-${index}`} message={message} />
+          <CompareMessage
+            key={`${message.role}-${index}`}
+            copied={copiedId === `compare_${index}`}
+            message={message}
+            onCopy={() => {
+              if (message.role === 'assistant') {
+                void copyMessage(message.content, index)
+              }
+            }}
+          />
         ))}
         {error && (
           <div className='mt-2 rounded-md bg-red-50 p-2 text-red-600 text-sm dark:bg-red-900/30 dark:text-red-400'>
