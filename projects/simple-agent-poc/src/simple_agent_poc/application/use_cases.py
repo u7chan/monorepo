@@ -154,6 +154,8 @@ class RunAgentUseCase:
             )
 
         tc = session.pending_tool_call
+        if tc is None:
+            raise RuntimeError("Session is paused but no pending tool call found")
         result = json.dumps({"answer": request.answer}, ensure_ascii=False)
         session.append_tool_message(result, tool_call_id=tc["id"])
         resume_round = session.pending_round
@@ -414,6 +416,8 @@ class RunAgentUseCase:
             )
 
         tc = session.pending_tool_call
+        if tc is None:
+            raise RuntimeError("Session is paused but no pending tool call found")
         result = json.dumps({"answer": request.answer}, ensure_ascii=False)
         session.append_tool_message(result, tool_call_id=tc["id"])
         yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
