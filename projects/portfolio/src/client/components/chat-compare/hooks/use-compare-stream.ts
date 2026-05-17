@@ -34,11 +34,13 @@ export function useCompareStream() {
     async (
       settings: CompareSettings,
       modelStates: Record<string, ModelStreamState>,
+      selectedModels: string[],
       userMessage: ApiChatMessage,
       callbacks: StreamCallbacks
     ) => {
-      const models = Object.keys(modelStates)
-      if (models.length === 0) return
+      if (selectedModels.length === 0) return
+
+      const models = selectedModels
 
       const controller = new AbortController()
       abortControllerRef.current = controller

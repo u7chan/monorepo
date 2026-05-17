@@ -138,10 +138,11 @@ export function useCompareState() {
     }))
   }, [])
 
-  const appendUserMessageToAll = useCallback((userMessage: ApiChatMessage) => {
+  const appendUserMessageToAll = useCallback((selectedModels: string[], userMessage: ApiChatMessage) => {
     setModelStates((prev) => {
       const next = { ...prev }
-      for (const model of Object.keys(next)) {
+      for (const model of selectedModels) {
+        if (!next[model]) continue
         next[model] = {
           ...next[model],
           messages: [...next[model].messages, userMessage],

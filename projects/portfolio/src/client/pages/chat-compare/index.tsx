@@ -99,12 +99,12 @@ export function ChatCompare() {
     setInput('')
     setIsSubmitting(true)
 
-    appendUserMessageToAll(userMessage)
+    appendUserMessageToAll(models, userMessage)
     for (const model of models) {
       setModelStreaming(model)
     }
 
-    await submitCompare(settings, modelStates, userMessage, {
+    await submitCompare(settings, modelStates, models, userMessage, {
       onStreamContent: (model, content, reasoningContent) => {
         updateStreamingContent(model, content, reasoningContent)
       },
