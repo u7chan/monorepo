@@ -28,8 +28,11 @@ export function CompareSettings({ settings, open, onUpdate, onClose }: CompareSe
   if (!open) return null
 
   return (
-    <div className='border-y border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800'>
-      <div className='mx-auto flex max-w-(--breakpoint-lg) flex-wrap items-end gap-4'>
+    <div
+      className='border-y border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800'
+      onClick={onClose}
+    >
+      <div className='mx-auto flex max-w-(--breakpoint-lg) flex-wrap items-end gap-4' onClick={(e) => e.stopPropagation()}>
         <div className='flex min-w-0 flex-1 flex-col gap-1'>
           <label htmlFor='compare-base-url' className='text-xs text-gray-500 dark:text-gray-400'>
             Base URL
