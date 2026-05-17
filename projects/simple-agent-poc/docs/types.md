@@ -163,7 +163,31 @@ class ContinueRequest:
     answer: str
 ```
 
-Request DTO for `POST /api/chat/continue`. Contains the user's answer to an `ask_user` question.
+Request DTO for resuming a paused session. Contains the user's answer to an `ask_user` question.
+
+### RunAgentPaused
+
+```python
+@dataclass(frozen=True, slots=True)
+class RunAgentPaused:
+    session_id: str
+    call_id: str
+    question: str
+    tool_call_history: list[ToolCallRecord]
+```
+
+Returned by `RunAgentUseCase.execute()` and `RunAgentUseCase.continue_sync()` when the agent calls `ask_user` during synchronous execution. The caller should present the question, collect an answer, and resume via `continue_sync()`.
+
+### Sync Result Union
+
+The synchronous execution methods return a discriminated union:
+
+```python
+# execute() / continue_sync() return type:
+RunAgentResponse | RunAgentPaused
+```
+
+Callers check with `isinstance()` to determine whether the result is a completed response or requires user input.
 
 ## HTTP Schemas
 
@@ -180,19 +204,34 @@ class ChatRequest(BaseModel):
 
 Validators reject blank `message` and blank `agent_id` after stripping.
 
-### ChatResponse
+### SyncChatResponse
 
 ```python
-class ChatResponse(BaseModel):
-    message: str
-    usage: Usage
-    model: str
-    response_time: float
+class SyncChatResponse(BaseModel):
+    status: Literal["completed", "paused"]
     session_id: str
-    tool_calls: list[ToolCallRecord]
+    tool_calls: list[ToolCallRecord] = []
+    message: str = ""
+    usage: Usage | None = None
+    model: str = ""
+    response_time: float = 0.0
+    call_id: str = ""
+    question: str = ""
 ```
 
-Factory method: `from_use_case_response(response)`.
+Discriminated by `status`. When `"completed"`, `message`/`usage`/`model`/`response_time` are populated. When `"paused"`, `call_id`/`question` are populated.
+
+Factory methods: `from_completed(response)` / `from_paused(paused)`.
+
+### ResumeRequest
+
+```python
+class ResumeRequest(BaseModel):
+    session_id: str
+    answer: str
+```
+
+Used by both `/api/chat/sync/continue` and `/api/chat/stream/continue`. Validators reject blank `session_id` and blank `answer` after stripping.
 
 ## Entity
 

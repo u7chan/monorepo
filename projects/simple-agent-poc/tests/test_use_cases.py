@@ -6,7 +6,9 @@ from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionSto
 from simple_agent_poc.application.dto import (
     ContentDelta,
     ContinueRequest,
+    RunAgentPaused,
     RunAgentRequest,
+    RunAgentResponse,
     StreamComplete,
     ToolCallEvent,
     ToolResultEvent,
@@ -19,6 +21,8 @@ from simple_agent_poc.core.types import (
     LLMResponse,
     LLMStreamChunk,
     Message,
+    SessionNotFoundError,
+    SessionNotPausedError,
     ToolCall,
     ToolDefinition,
     Usage,
@@ -141,6 +145,7 @@ def test_execute_yields_final_response_without_tools(default_agent_def, tool_reg
         tool_executor=tool_registry,
     )
     response = use_case.execute(RunAgentRequest(message="hello"))
+    assert isinstance(response, RunAgentResponse)
     assert response.message == "Done."
     assert response.session_id
 
@@ -166,6 +171,7 @@ def test_execute_with_tool_call(default_agent_def, tool_registry):
         tool_executor=tool_registry,
     )
     response = use_case.execute(RunAgentRequest(message="concat hello world"))
+    assert isinstance(response, RunAgentResponse)
     assert "helloworld" in response.message.lower() or "Done" in response.message
     assert response.session_id
 
@@ -386,3 +392,238 @@ def test_execute_stream_final_complete(default_agent_def, tool_registry):
     events = list(use_case.execute_stream(RunAgentRequest(message="hello")))
     assert isinstance(events[-1], StreamComplete)
     assert events[-1].session_id
+
+
+# ---------------------------------------------------------------------------
+# Sync ask_user pause / resume
+# ---------------------------------------------------------------------------
+
+
+def _ask_user_tool_call() -> list[ToolCall]:
+    return [
+        {
+            "id": "call_ask_001",
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "arguments": '{"question": "What is your name?"}',
+            },
+        }
+    ]
+
+
+def _agent_definitions_with_ask_user() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant.",
+                    "tools": ["ask_user"],
+                },
+            }
+        }
+    )
+
+
+def test_execute_returns_paused_on_ask_user():
+    """Sync execute() returns RunAgentPaused when LLM calls ask_user."""
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": _ask_user_tool_call(),
+            },
+        ]
+    )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=InMemorySessionStore(),
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+    result = use_case.execute(RunAgentRequest(message="hello"))
+    assert isinstance(result, RunAgentPaused)
+    assert result.question == "What is your name?"
+    assert result.call_id == "call_ask_001"
+
+
+def test_continue_sync_resumes_and_completes():
+    """continue_sync() resumes a paused session and returns final response."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_001",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": '{"question": "What is your name?"}',
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-session",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-session", answer="Alice")
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    assert result.message == "Done."
+
+
+def test_continue_sync_pauses_on_next_unanswered_ask_user():
+    """continue_sync() returns RunAgentPaused when another ask_user is pending."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc_1: ToolCall = {
+        "id": "call_ask_001",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": '{"question": "First question?"}',
+        },
+    }
+    ask_user_tc_2: ToolCall = {
+        "id": "call_ask_002",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": '{"question": "Second question?"}',
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-session",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc_1, ask_user_tc_2])
+    session.pause_for_ask_user(ask_user_tc_1, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-session", answer="Answer 1")
+    )
+
+    assert isinstance(result, RunAgentPaused)
+    assert result.question == "Second question?"
+    assert result.call_id == "call_ask_002"
+
+
+def test_continue_sync_with_unknown_session_raises_error():
+    """continue_sync() raises SessionNotFoundError for unknown session."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(FakeLLMClient(rounds=[])),
+        session_store=InMemorySessionStore(),
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    try:
+        use_case.continue_sync(ContinueRequest(session_id="missing", answer="no"))
+        assert False, "Expected SessionNotFoundError"
+    except SessionNotFoundError:
+        pass
+
+
+def test_continue_sync_with_non_paused_session_raises_error():
+    """continue_sync() raises SessionNotPausedError when session is active."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="active-session",
+        system_prompt="System prompt",
+    )
+    session.append_user_message("Hello")
+    session.append_assistant_message("Hi")
+    store.save(session)
+
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(FakeLLMClient(rounds=[])),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    try:
+        use_case.continue_sync(
+            ContinueRequest(session_id="active-session", answer="no")
+        )
+        assert False, "Expected SessionNotPausedError"
+    except SessionNotPausedError:
+        pass

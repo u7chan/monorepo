@@ -85,10 +85,11 @@ class TestAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat", json={"message": "Hello"})
+        response = client.post("/api/chat/sync", json={"message": "Hello"})
 
         assert response.status_code == 200
         data = response.json()
+        assert data["status"] == "completed"
         assert data["message"] == "Hello, user!"
         assert data["model"] == "stub-model"
         assert data["session_id"]
@@ -97,7 +98,7 @@ class TestAPI:
         app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
-        response = client.post("/api/chat", json={})
+        response = client.post("/api/chat/sync", json={})
 
         assert response.status_code == 422
 
@@ -105,7 +106,7 @@ class TestAPI:
         app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
-        response = client.post("/api/chat", json={"message": "   "})
+        response = client.post("/api/chat/sync", json={"message": "   "})
 
         assert response.status_code == 422
 
@@ -124,10 +125,10 @@ class TestAPI:
         )
         client = TestClient(app)
 
-        first_response = client.post("/api/chat", json={"message": "Hello"})
+        first_response = client.post("/api/chat/sync", json={"message": "Hello"})
         session_id = first_response.json()["session_id"]
         second_response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             headers={"Session-Id": session_id},
             json={"message": "Again"},
         )
@@ -157,10 +158,10 @@ class TestAPI:
         )
         client = TestClient(app)
 
-        first_response = client.post("/api/chat", json={"message": "Hello"})
+        first_response = client.post("/api/chat/sync", json={"message": "Hello"})
         session_id = first_response.json()["session_id"]
         second_response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             json={"message": "Again", "session_id": session_id},
         )
 
@@ -181,7 +182,7 @@ class TestAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             headers={"Session-Id": "missing-session"},
             json={"message": "Hello"},
         )
@@ -202,7 +203,7 @@ class TestAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             headers={"Session-Id": "header-session"},
             json={"message": "Hello", "session_id": "body-session"},
         )
@@ -227,7 +228,7 @@ class TestAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             json={"message": "Hello", "agent_id": "researcher"},
         )
 
@@ -242,7 +243,7 @@ class TestAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             json={"message": "Hello", "agent_id": "missing"},
         )
 
@@ -262,10 +263,10 @@ class TestAPI:
         )
         client = TestClient(app)
 
-        first_response = client.post("/api/chat", json={"message": "Hello"})
+        first_response = client.post("/api/chat/sync", json={"message": "Hello"})
         session_id = first_response.json()["session_id"]
         second_response = client.post(
-            "/api/chat",
+            "/api/chat/sync",
             headers={"Session-Id": session_id},
             json={"message": "Again", "agent_id": "researcher"},
         )

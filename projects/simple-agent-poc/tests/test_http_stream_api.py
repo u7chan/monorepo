@@ -277,7 +277,7 @@ class TestStreamPauseContinueAPI:
         client2 = TestClient(app2)
 
         continue_resp = client2.post(
-            "/api/chat/continue",
+            "/api/chat/stream/continue",
             json={"session_id": session_id, "answer": "Alice"},
         )
 
@@ -351,7 +351,7 @@ class TestStreamPauseContinueAPI:
         client2 = TestClient(app2)
 
         continue_resp = client2.post(
-            "/api/chat/continue",
+            "/api/chat/stream/continue",
             json={"session_id": paused_data["session_id"], "answer": "1"},
         )
 
@@ -380,7 +380,7 @@ class TestStreamPauseContinueAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/continue",
+            "/api/chat/stream/continue",
             json={"session_id": "missing", "answer": "no"},
         )
 
@@ -414,7 +414,7 @@ class TestStreamPauseContinueAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/continue",
+            "/api/chat/stream/continue",
             json={"session_id": "active", "answer": "no"},
         )
 
@@ -437,7 +437,7 @@ class TestStreamPauseContinueAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/continue",
+            "/api/chat/stream/continue",
             json={"session_id": "abc", "answer": "   "},
         )
 

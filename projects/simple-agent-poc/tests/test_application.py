@@ -149,6 +149,7 @@ class TestRunAgentUseCase:
             RunAgentRequest(message="Hello", agent_id="researcher")
         )
 
+        assert isinstance(response, RunAgentResponse)
         assert response.model == "research-model"
         llm_client_factory.assert_called_once()
         assert llm_client_factory.call_args.args[0].agent_id == "researcher"

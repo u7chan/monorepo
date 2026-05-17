@@ -211,7 +211,7 @@ async function sendSyncMessage(message) {
   try {
     const headers = { "Content-Type": "application/json" };
     if (state.sessionId) headers["Session-Id"] = state.sessionId;
-    const resp = await fetch("/api/chat", {
+    const resp = await fetch("/api/chat/sync", {
       method: "POST",
       headers,
       body: JSON.stringify({ message, agent_id: state.agentId }),
@@ -226,6 +226,11 @@ async function sendSyncMessage(message) {
     }
     const data = await resp.json();
     appendJson("raw-log", "line-system", data);
+    if (data.status === "paused") {
+      appendLine("conv-log", "line-paused", "  [Paused] " + data.question);
+      enterPausedState({ session_id: data.session_id, question: data.question, call_id: data.call_id, mode: "sync" });
+      return;
+    }
     appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
     if (data.tool_calls && data.tool_calls.length > 0) {
       for (const tc of data.tool_calls) {
@@ -311,8 +316,8 @@ async function sendStreamMessage(message) {
   }
 }
 
-function enterPausedState({ session_id: sessionId, question, call_id: callId }) {
-  state.awaitingAnswer = { sessionId, question, callId };
+function enterPausedState({ session_id: sessionId, question, call_id: callId, mode = "stream" }) {
+  state.awaitingAnswer = { sessionId, question, callId, mode };
   setSessionId(sessionId);
   el("paused-question").textContent = "Q: " + question;
   el("paused-answer").value = "";
@@ -323,7 +328,7 @@ function enterPausedState({ session_id: sessionId, question, call_id: callId }) 
 async function resumeFromPaused() {
   const answer = el("paused-answer").value.trim();
   if (!answer || !state.awaitingAnswer) return;
-  const { sessionId } = state.awaitingAnswer;
+  const { sessionId, mode } = state.awaitingAnswer;
   state.awaitingAnswer = null;
   el("paused-bar").classList.remove("visible");
   el("paused-question").textContent = "";
@@ -331,6 +336,60 @@ async function resumeFromPaused() {
   appendLine("conv-log", "line-user", "You: " + answer);
   appendLine("raw-log", "line-system", "--- continuing paused session ---");
 
+  if (mode === "sync") {
+    await continueSync(sessionId, answer);
+  } else {
+    await continueStream(sessionId, answer);
+  }
+}
+
+async function continueSync(sessionId, answer) {
+  const controller = new AbortController();
+  state.abortController = controller;
+  setSending(true);
+  try {
+    const resp = await fetch("/api/chat/sync/continue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, answer }),
+      signal: controller.signal,
+    });
+    appendJson("raw-log", "line-system", { status: resp.status });
+    if (!resp.ok) {
+      const err = await resp.json();
+      appendLine("conv-log", "line-error", "Error: " + (err.detail || resp.statusText));
+      appendJson("raw-log", "line-error", err);
+      return;
+    }
+    const data = await resp.json();
+    appendJson("raw-log", "line-system", data);
+    if (data.status === "paused") {
+      appendLine("conv-log", "line-paused", "  [Paused] " + data.question);
+      enterPausedState({ session_id: data.session_id, question: data.question, call_id: data.call_id, mode: "sync" });
+      return;
+    }
+    appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
+    if (data.tool_calls && data.tool_calls.length > 0) {
+      for (const tc of data.tool_calls) {
+        appendLine("conv-log", "line-tool", "  Tool: " + tc.name + "(" + tc.arguments + ") -> " + truncate(tc.result, 200));
+        appendJson("tool-log", "line-tool", tc);
+      }
+    }
+    if (data.session_id) setSessionId(data.session_id);
+    if (data.usage) {
+      appendLine("raw-log", "line-system", "usage: " + JSON.stringify(data.usage));
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      appendLine("conv-log", "line-error", "Error: " + e.message);
+    }
+  } finally {
+    state.abortController = null;
+    setSending(false);
+  }
+}
+
+async function continueStream(sessionId, answer) {
   const controller = new AbortController();
   state.abortController = controller;
   setSending(true);
@@ -340,7 +399,7 @@ async function resumeFromPaused() {
   assistantSpan.textContent = "Assistant: ";
   el("conv-log").appendChild(assistantSpan);
   try {
-    const resp = await fetch("/api/chat/continue", {
+    const resp = await fetch("/api/chat/stream/continue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId, answer }),
@@ -368,7 +427,7 @@ async function resumeFromPaused() {
       } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
         appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
-        enterPausedState(d);
+        enterPausedState({ session_id: d.session_id, question: d.question, call_id: d.call_id, mode: "stream" });
       } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
         if (d.session_id) setSessionId(d.session_id);

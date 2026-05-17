@@ -6,13 +6,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from simple_agent_poc.adapters.cli.adapter import CLIAdapter
-from simple_agent_poc.application.dto import RunAgentResponse
+from simple_agent_poc.application.dto import RunAgentPaused, RunAgentResponse
 
 
 def passthrough_indicator(
     message: str,
-    operation: Callable[[], RunAgentResponse],
-) -> RunAgentResponse:
+    operation: Callable[[], RunAgentResponse | RunAgentPaused],
+) -> RunAgentResponse | RunAgentPaused:
     """Run the operation immediately for deterministic tests."""
     assert message == "Thinking"
     return operation()

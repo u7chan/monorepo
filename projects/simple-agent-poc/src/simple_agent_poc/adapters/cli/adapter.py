@@ -5,6 +5,8 @@ from typing import Protocol
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
+    ContinueRequest,
+    RunAgentPaused,
     RunAgentRequest,
     RunAgentResponse,
     SessionPaused,
@@ -14,6 +16,7 @@ from simple_agent_poc.application.dto import (
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.adapters.cli.renderer import (
+    ask_user_question,
     get_user_input,
     show_agent_response,
     show_error,
@@ -31,8 +34,8 @@ class IndicatorRunner(Protocol):
     def __call__(
         self,
         message: str,
-        operation: Callable[[], RunAgentResponse],
-    ) -> RunAgentResponse: ...
+        operation: Callable[[], RunAgentResponse | RunAgentPaused],
+    ) -> RunAgentResponse | RunAgentPaused: ...
 
 
 class StreamingRenderer(Protocol):
@@ -124,6 +127,20 @@ class CLIAdapter:
                             )
                         ),
                     )
+                    while isinstance(response, RunAgentPaused):
+                        answer = ask_user_question(response.question)
+                        paused_session_id = response.session_id
+                        response = self._indicator_runner(
+                            "Thinking",
+                            lambda sid=paused_session_id, ans=answer: (
+                                self._run_agent.continue_sync(
+                                    ContinueRequest(
+                                        session_id=sid,
+                                        answer=ans,
+                                    )
+                                )
+                            ),
+                        )
                     self._session_id = response.session_id
                     self._response_renderer(response)
             except KeyboardInterrupt:

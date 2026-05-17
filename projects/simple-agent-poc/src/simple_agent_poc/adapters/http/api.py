@@ -3,7 +3,7 @@
 import json
 from dataclasses import asdict
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -11,6 +11,8 @@ from starlette.responses import HTMLResponse, StreamingResponse
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
+    ContinueRequest,
+    RunAgentPaused,
     RunAgentRequest,
     RunAgentResponse,
     SessionPaused,
@@ -56,20 +58,27 @@ class ChatRequest(BaseModel):
         return value
 
 
-class ChatResponse(BaseModel):
-    """HTTP response schema for chat execution."""
+class SyncChatResponse(BaseModel):
+    """HTTP response schema for synchronous chat execution.
 
-    message: str
-    usage: Usage
-    model: str
-    response_time: float
+    Uses a ``status`` field to discriminate between completed and paused.
+    """
+
+    status: Literal["completed", "paused"]
     session_id: str
     tool_calls: list[ToolCallRecord] = []
+    message: str = ""
+    usage: Usage | None = None
+    model: str = ""
+    response_time: float = 0.0
+    call_id: str = ""
+    question: str = ""
 
     @classmethod
-    def from_use_case_response(cls, response: RunAgentResponse) -> "ChatResponse":
-        """Build the HTTP response payload from the application DTO."""
+    def from_completed(cls, response: RunAgentResponse) -> "SyncChatResponse":
+        """Build from a completed use case response."""
         return cls(
+            status="completed",
             message=response.message,
             usage=response.usage,
             model=response.model,
@@ -78,8 +87,19 @@ class ChatResponse(BaseModel):
             tool_calls=response.tool_call_history,
         )
 
+    @classmethod
+    def from_paused(cls, paused: RunAgentPaused) -> "SyncChatResponse":
+        """Build from a paused use case response."""
+        return cls(
+            status="paused",
+            session_id=paused.session_id,
+            call_id=paused.call_id,
+            question=paused.question,
+            tool_calls=paused.tool_call_history,
+        )
 
-class ContinueRequest(BaseModel):
+
+class ResumeRequest(BaseModel):
     """HTTP request schema for resuming a paused session."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -136,8 +156,12 @@ def create_app(
     def get_run_agent_use_case() -> RunAgentUseCase:
         return factory()
 
-    @app.post("/api/chat", response_model=ChatResponse)
-    def chat(
+    @app.post(
+        "/api/chat/sync",
+        response_model=SyncChatResponse,
+        response_model_exclude_unset=True,
+    )
+    def chat_sync(
         request: ChatRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
         *,
@@ -145,9 +169,9 @@ def create_app(
             str | None,
             Header(alias="Session-Id"),
         ] = None,
-    ) -> ChatResponse:
+    ) -> SyncChatResponse:
         try:
-            response = run_agent.execute(
+            result = run_agent.execute(
                 RunAgentRequest(
                     message=request.message,
                     session_id=resolve_session_id(
@@ -166,7 +190,42 @@ def create_app(
                 status_code=400, detail=error.display_message
             ) from error
 
-        return ChatResponse.from_use_case_response(response)
+        if isinstance(result, RunAgentPaused):
+            return SyncChatResponse.from_paused(result)
+        return SyncChatResponse.from_completed(result)
+
+    @app.post(
+        "/api/chat/sync/continue",
+        response_model=SyncChatResponse,
+        response_model_exclude_unset=True,
+    )
+    def chat_sync_continue(
+        request: ResumeRequest,
+        run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
+    ) -> SyncChatResponse:
+        try:
+            result = run_agent.continue_sync(
+                ContinueRequest(
+                    session_id=request.session_id,
+                    answer=request.answer,
+                )
+            )
+        except SessionNotFoundError as error:
+            raise HTTPException(
+                status_code=404, detail=error.display_message
+            ) from error
+        except SessionNotPausedError as error:
+            raise HTTPException(
+                status_code=400, detail=error.display_message
+            ) from error
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=400, detail=error.display_message
+            ) from error
+
+        if isinstance(result, RunAgentPaused):
+            return SyncChatResponse.from_paused(result)
+        return SyncChatResponse.from_completed(result)
 
     @app.post("/api/chat/stream")
     def chat_stream(
@@ -214,19 +273,15 @@ def create_app(
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    @app.post("/api/chat/continue")
-    def chat_continue(
-        request: ContinueRequest,
+    @app.post("/api/chat/stream/continue")
+    def chat_stream_continue(
+        request: ResumeRequest,
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
     ):
-        from simple_agent_poc.application.dto import (
-            ContinueRequest as AppContinueRequest,
-        )
-
         def event_stream():
             try:
                 for event in run_agent.continue_stream(
-                    AppContinueRequest(
+                    ContinueRequest(
                         session_id=request.session_id,
                         answer=request.answer,
                     )

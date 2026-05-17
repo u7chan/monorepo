@@ -9,6 +9,7 @@ from uuid import uuid4
 from simple_agent_poc.application.dto import (
     ContentDelta,
     ContinueRequest,
+    RunAgentPaused,
     RunAgentRequest,
     RunAgentResponse,
     SessionPaused,
@@ -107,8 +108,12 @@ class RunAgentUseCase:
         self._tool_executor = tool_executor
         self._is_api_context = is_api_context
 
-    def execute(self, request: RunAgentRequest) -> RunAgentResponse:
-        """Run the agent for a single user message with ReAct tool loop."""
+    def execute(self, request: RunAgentRequest) -> RunAgentResponse | RunAgentPaused:
+        """Run the agent for a single user message with ReAct tool loop.
+
+        Returns ``RunAgentPaused`` when an ``ask_user`` tool call is encountered,
+        so the caller can provide an answer via ``continue_sync()``.
+        """
         if not request.message.strip():
             raise ValidationError("message must not be blank")
 
@@ -121,55 +126,122 @@ class RunAgentUseCase:
             raise ValidationError("agent_id cannot be changed for an existing session")
         session.append_user_message(request.message)
 
-        llm_client = self._llm_client_factory(agent_definition)
-        tools = self._resolve_tools(agent_definition)
-
         tool_call_history: list[ToolCallRecord] = []
 
         try:
-            for _ in range(agent_definition.max_tool_rounds):
-                response = llm_client.complete(list(session.messages), tools=tools)
-
-                tool_calls = response.get("tool_calls")
-                if not tool_calls:
-                    session.append_assistant_message(response["content"])
-                    return RunAgentResponse.from_llm_response(
-                        response,
-                        session_id=session.session_id,
-                        tool_call_history=tool_call_history,
-                    )
-
-                if self._tool_executor is None:
-                    raise LLMError(
-                        "Tool call requested but no tool executor configured",
-                        display_message="Tool call requested but no tool executor configured.",
-                    )
-                session.append_assistant_message(
-                    response["content"] or "", tool_calls=tool_calls
-                )
-                for tc in tool_calls:
-                    if tc["function"]["name"] == "ask_user":
-                        raise LLMError(
-                            "Tool call 'ask_user' is not supported in non-streaming mode.",
-                            display_message="ask_user はストリーミングモードでのみご利用いただけます。",
-                        )
-                    result = self._tool_executor.execute(tc)
-                    session.append_tool_message(result, tool_call_id=tc["id"])
-                    tool_call_history.append(
-                        ToolCallRecord(
-                            call_id=tc["id"],
-                            name=tc["function"]["name"],
-                            arguments=tc["function"]["arguments"],
-                            result=result,
-                        )
-                    )
-
-            raise LLMError(
-                "Exceeded maximum tool call rounds",
-                display_message="Exceeded maximum tool call rounds.",
+            return self._run_react_loop(
+                session=session,
+                start_round=0,
+                tool_call_history=tool_call_history,
             )
         finally:
             self._session_store.save(session)
+
+    def continue_sync(
+        self, request: ContinueRequest
+    ) -> RunAgentResponse | RunAgentPaused:
+        """Resume a paused session synchronously with the user's answer."""
+        session = self._session_store.get(request.session_id)
+        if session is None:
+            raise SessionNotFoundError(
+                f"Session not found: {request.session_id}",
+                display_message="Session not found.",
+            )
+        if not session.is_paused:
+            raise SessionNotPausedError(
+                f"Session {request.session_id} is not in a paused state",
+                display_message="Session is not in a paused state.",
+            )
+
+        tc = session.pending_tool_call
+        if tc is None:
+            raise RuntimeError("Session is paused but no pending tool call found")
+        result = json.dumps({"answer": request.answer}, ensure_ascii=False)
+        session.append_tool_message(result, tool_call_id=tc["id"])
+        resume_round = session.pending_round
+        session.resume_with_answer()
+
+        tool_call_history: list[ToolCallRecord] = []
+
+        next_ask_user_tc = _find_next_unanswered_ask_user(session)
+        if next_ask_user_tc is not None:
+            return self._build_paused_result(
+                session=session,
+                ask_user_tc=next_ask_user_tc,
+                round_idx=resume_round,
+                tool_call_history=tool_call_history,
+            )
+
+        try:
+            return self._run_react_loop(
+                session=session,
+                start_round=resume_round + 1,
+                tool_call_history=tool_call_history,
+            )
+        finally:
+            self._session_store.save(session)
+
+    def _run_react_loop(
+        self,
+        *,
+        session: ConversationSession,
+        start_round: int,
+        tool_call_history: list[ToolCallRecord],
+    ) -> RunAgentResponse | RunAgentPaused:
+        agent_definition = self._agent_definitions.get(session.agent_id)
+        llm_client = self._llm_client_factory(agent_definition)
+        tools = self._resolve_tools(agent_definition)
+
+        for round_idx in range(start_round, agent_definition.max_tool_rounds):
+            response = llm_client.complete(list(session.messages), tools=tools)
+
+            tool_calls = response.get("tool_calls")
+            if not tool_calls:
+                session.append_assistant_message(response["content"])
+                return RunAgentResponse.from_llm_response(
+                    response,
+                    session_id=session.session_id,
+                    tool_call_history=tool_call_history,
+                )
+
+            if self._tool_executor is None:
+                raise LLMError(
+                    "Tool call requested but no tool executor configured",
+                    display_message="Tool call requested but no tool executor configured.",
+                )
+            session.append_assistant_message(
+                response["content"] or "", tool_calls=tool_calls
+            )
+
+            ask_user_tcs = [
+                tc for tc in tool_calls if tc["function"]["name"] == "ask_user"
+            ]
+            for tc in tool_calls:
+                if tc["function"]["name"] == "ask_user":
+                    continue
+                result = self._tool_executor.execute(tc)
+                session.append_tool_message(result, tool_call_id=tc["id"])
+                tool_call_history.append(
+                    ToolCallRecord(
+                        call_id=tc["id"],
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                        result=result,
+                    )
+                )
+
+            if ask_user_tcs:
+                return self._build_paused_result(
+                    session=session,
+                    ask_user_tc=ask_user_tcs[0],
+                    round_idx=round_idx,
+                    tool_call_history=tool_call_history,
+                )
+
+        raise LLMError(
+            "Exceeded maximum tool call rounds",
+            display_message="Exceeded maximum tool call rounds.",
+        )
 
     def execute_stream(
         self, request: RunAgentRequest
@@ -337,13 +409,15 @@ class RunAgentUseCase:
                 f"Session not found: {request.session_id}",
                 display_message="Session not found.",
             )
-        if not session.is_paused or session.pending_tool_call is None:
+        if not session.is_paused:
             raise SessionNotPausedError(
                 f"Session {request.session_id} is not in a paused state",
                 display_message="Session is not in a paused state.",
             )
 
         tc = session.pending_tool_call
+        if tc is None:
+            raise RuntimeError("Session is paused but no pending tool call found")
         result = json.dumps({"answer": request.answer}, ensure_ascii=False)
         session.append_tool_message(result, tool_call_id=tc["id"])
         yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
@@ -473,6 +547,23 @@ class RunAgentUseCase:
             raise
         finally:
             self._session_store.save(session)
+
+    def _build_paused_result(
+        self,
+        *,
+        session: ConversationSession,
+        ask_user_tc: ToolCall,
+        round_idx: int,
+        tool_call_history: list[ToolCallRecord],
+    ) -> RunAgentPaused:
+        session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
+        ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
+        return RunAgentPaused(
+            session_id=session.session_id,
+            call_id=ask_user_tc["id"],
+            question=ask_user_args.get("question", ""),
+            tool_call_history=tool_call_history,
+        )
 
     def _load_session(
         self,
