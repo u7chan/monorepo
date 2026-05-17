@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CompareColumn } from '#/client/components/chat-compare/compare-column'
 import { CompareComposer } from '#/client/components/chat-compare/compare-composer'
 import { CompareLayout } from '#/client/components/chat-compare/compare-layout'
@@ -39,6 +39,18 @@ export function ChatCompare() {
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pendingModelChange, setPendingModelChange] = useState<string[] | null>(null)
+  const modelSelectorRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!settingsOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelSelectorRef.current && !modelSelectorRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [settingsOpen])
 
   const canFetchModels = settings.baseURL.length > 0 && settings.apiKey.length > 0
 
@@ -179,7 +191,7 @@ export function ChatCompare() {
           </div>
         }
         modelSelector={
-          <>
+          <div ref={modelSelectorRef}>
             <CompareSettings
               settings={settings}
               open={settingsOpen}
@@ -198,7 +210,7 @@ export function ChatCompare() {
                 />
               </div>
             )}
-          </>
+          </div>
         }
         columns={
           selectedModels.length === 0 ? (

@@ -1,4 +1,4 @@
-import { type ChangeEvent, useCallback, useEffect, useRef } from 'react'
+import { type ChangeEvent, useCallback } from 'react'
 import type { ApiMode } from '#/types'
 import type { CompareSettings } from './hooks/use-compare-settings'
 
@@ -10,8 +10,6 @@ interface CompareSettingsProps {
 }
 
 export function CompareSettings({ settings, open, onUpdate, onClose }: CompareSettingsProps) {
-  const panelRef = useRef<HTMLDivElement>(null)
-
   const handleChange = useCallback(
     (field: keyof CompareSettings, value: string) => {
       onUpdate({ ...settings, [field]: value })
@@ -27,22 +25,10 @@ export function CompareSettings({ settings, open, onUpdate, onClose }: CompareSe
     [onUpdate, settings]
   )
 
-  useEffect(() => {
-    if (!open) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open, onClose])
-
   if (!open) return null
 
   return (
     <div
-      ref={panelRef}
       className='border-y border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800'
       onClick={onClose}
     >
