@@ -76,13 +76,6 @@ export function CompareSettings({ settings, open, onUpdate, onClose }: CompareSe
             <option value='responses'>Responses</option>
           </select>
         </div>
-        <button
-          type='button'
-          onClick={onClose}
-          className='flex shrink-0 cursor-pointer items-center rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500'
-        >
-          Close
-        </button>
       </div>
     </div>
   )
