@@ -108,9 +108,7 @@ class RunAgentUseCase:
         self._tool_executor = tool_executor
         self._is_api_context = is_api_context
 
-    def execute(
-        self, request: RunAgentRequest
-    ) -> RunAgentResponse | RunAgentPaused:
+    def execute(self, request: RunAgentRequest) -> RunAgentResponse | RunAgentPaused:
         """Run the agent for a single user message with ReAct tool loop.
 
         Returns ``RunAgentPaused`` when an ``ask_user`` tool call is encountered,
@@ -156,9 +154,7 @@ class RunAgentUseCase:
                 )
 
                 ask_user_tcs = [
-                    tc
-                    for tc in tool_calls
-                    if tc["function"]["name"] == "ask_user"
+                    tc for tc in tool_calls if tc["function"]["name"] == "ask_user"
                 ]
                 for tc in tool_calls:
                     if tc["function"]["name"] == "ask_user":
@@ -227,9 +223,7 @@ class RunAgentUseCase:
         tools = self._resolve_tools(agent_definition)
 
         try:
-            for round_idx in range(
-                resume_round + 1, agent_definition.max_tool_rounds
-            ):
+            for round_idx in range(resume_round + 1, agent_definition.max_tool_rounds):
                 response = llm_client.complete(list(session.messages), tools=tools)
 
                 tool_calls = response.get("tool_calls")
@@ -251,9 +245,7 @@ class RunAgentUseCase:
                 )
 
                 ask_user_tcs = [
-                    tc
-                    for tc in tool_calls
-                    if tc["function"]["name"] == "ask_user"
+                    tc for tc in tool_calls if tc["function"]["name"] == "ask_user"
                 ]
                 for tc in tool_calls:
                     if tc["function"]["name"] == "ask_user":

@@ -398,6 +398,7 @@ def test_execute_stream_final_complete(default_agent_def, tool_registry):
 # Sync ask_user pause / resume
 # ---------------------------------------------------------------------------
 
+
 def _ask_user_tool_call() -> list[ToolCall]:
     return [
         {
@@ -543,9 +544,7 @@ def test_continue_sync_pauses_on_next_unanswered_ask_user():
         system_prompt="You are a helpful assistant.",
     )
     session.append_user_message("hello")
-    session.append_assistant_message(
-        "", tool_calls=[ask_user_tc_1, ask_user_tc_2]
-    )
+    session.append_assistant_message("", tool_calls=[ask_user_tc_1, ask_user_tc_2])
     session.pause_for_ask_user(ask_user_tc_1, round_idx=0)
     store.save(session)
 
@@ -586,9 +585,7 @@ def test_continue_sync_with_unknown_session_raises_error():
     )
 
     try:
-        use_case.continue_sync(
-            ContinueRequest(session_id="missing", answer="no")
-        )
+        use_case.continue_sync(ContinueRequest(session_id="missing", answer="no"))
         assert False, "Expected SessionNotFoundError"
     except SessionNotFoundError:
         pass
