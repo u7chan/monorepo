@@ -10,8 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DiffRouteImport } from './routes/diff'
-import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ChatCompareRouteImport } from './routes/chat-compare'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -20,14 +20,14 @@ const DiffRoute = DiffRouteImport.update({
   path: '/diff',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatRoute = ChatRouteImport.update({
-  id: '/chat',
-  path: '/chat',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ChatCompareRoute = ChatCompareRouteImport.update({
   id: '/chat-compare',
   path: '/chat-compare',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -88,18 +88,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DiffRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/chat': {
-      id: '/chat'
-      path: '/chat'
-      fullPath: '/chat'
-      preLoaderRoute: typeof ChatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/chat-compare': {
       id: '/chat-compare'
       path: '/chat-compare'
       fullPath: '/chat-compare'
       preLoaderRoute: typeof ChatCompareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {

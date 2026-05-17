@@ -10,8 +10,8 @@ import { useCompareState } from '#/client/components/chat-compare/hooks/use-comp
 import { useCompareStream } from '#/client/components/chat-compare/hooks/use-compare-stream'
 import { ModelChangeConfirmDialog } from '#/client/components/chat-compare/model-change-confirm-dialog'
 import { ModelCheckboxList } from '#/client/components/chat-compare/model-checkbox-list'
-import { GearIcon } from '#/client/components/svg/gear-icon'
 import { CloseIcon } from '#/client/components/svg/close-icon'
+import { GearIcon } from '#/client/components/svg/gear-icon'
 import type { AppType } from '#/server/app.d'
 
 const client = hc<AppType>('/')
@@ -49,8 +49,8 @@ export function ChatCompare() {
         setSettingsOpen(false)
       }
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
   }, [settingsOpen])
 
   const canFetchModels = settings.baseURL.length > 0 && settings.apiKey.length > 0
