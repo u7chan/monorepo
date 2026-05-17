@@ -49,8 +49,8 @@ export function ChatCompare() {
         setSettingsOpen(false)
       }
     }
-    document.addEventListener('click', handleClickOutside)
-    return () => document.removeEventListener('click', handleClickOutside)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [settingsOpen])
 
   const canFetchModels = settings.baseURL.length > 0 && settings.apiKey.length > 0
@@ -183,6 +183,9 @@ export function ChatCompare() {
             <h1 className='font-semibold text-gray-800 text-sm dark:text-gray-200'>Chat Compare</h1>
             <button
               type='button'
+              onMouseDown={(e) => {
+                if (settingsOpen) e.stopPropagation()
+              }}
               onClick={() => setSettingsOpen((prev) => !prev)}
               className='flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-gray-500 text-xs transition-colors hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700'
             >
