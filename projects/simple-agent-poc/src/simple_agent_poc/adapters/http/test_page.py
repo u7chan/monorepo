@@ -164,6 +164,12 @@ function appendLine(area, className, text) {
   appendLog(area, className, text + "\\n");
 }
 
+function finishLogLine(node) {
+  if (node && !node.textContent.endsWith("\\n")) {
+    node.textContent += "\\n";
+  }
+}
+
 function appendJson(area, className, obj) {
   appendLine(area, className, JSON.stringify(obj, null, 2));
 }
@@ -299,6 +305,7 @@ async function sendStreamMessage(message) {
       appendLine("conv-log", "line-error", "Error: " + e.message);
     }
   } finally {
+    finishLogLine(assistantSpan);
     state.abortController = null;
     setSending(false);
   }
@@ -379,6 +386,7 @@ async function resumeFromPaused() {
       appendLine("conv-log", "line-error", "Error: " + e.message);
     }
   } finally {
+    finishLogLine(assistantSpan);
     state.abortController = null;
     setSending(false);
   }
