@@ -73,15 +73,7 @@ function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
   )
 }
 
-function CompareMessage({
-  copied,
-  message,
-  onCopy,
-}: {
-  copied: boolean
-  message: ApiChatMessage
-  onCopy: () => void
-}) {
+function CompareMessage({ copied, message, onCopy }: { copied: boolean; message: ApiChatMessage; onCopy: () => void }) {
   if (message.role === 'system') {
     return null
   }
