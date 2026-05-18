@@ -11,7 +11,10 @@ TOOL_DEFINITION: ToolDefinition = {
         "name": "ask_user",
         "description": (
             "ユーザーに質問し、テキスト入力で回答を得ます。"
-            "追加情報が必要な場合に使います。"
+            "追加情報が必要な場合にのみ使い、必要最小限の質問（1〜2個まで）に留めてください。"
+            "一度に1つの質問のみ送信してください（questions 配列の長さは必ず1にしてください）。"
+            "同じ内容を繰り返し質問しないでください。"
+            "十分な情報が得られたら、このツールを再度呼び出さずに最終回答を生成してください。"
             "type: choice の場合、選択肢は入力補助のためであり、"
             "ユーザーが選択肢にない自由な回答をしてもそのまま受け入れ、"
             "再度このツールで確認しないでください。"
@@ -21,7 +24,7 @@ TOOL_DEFINITION: ToolDefinition = {
             "properties": {
                 "questions": {
                     "type": "array",
-                    "description": "質問のリスト",
+                    "description": "質問のリスト（必ず1つのみ含めてください）",
                     "items": {
                         "type": "object",
                         "properties": {
