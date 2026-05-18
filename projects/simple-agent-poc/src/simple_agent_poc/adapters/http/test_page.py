@@ -219,6 +219,15 @@ async function sendMessage() {
   const message = el("msg-input").value.trim();
   if (!message) return;
   if (state.abortController) return;
+
+  // If paused, treat the typed message as the answer
+  if (state.awaitingAnswer) {
+    el("paused-answer").value = message;
+    el("msg-input").value = "";
+    await resumeFromPaused();
+    return;
+  }
+
   el("msg-input").value = "";
   appendLine("conv-log", "line-user", "You: " + message);
   appendLine("raw-log", "line-system", "--- sending message ---");
