@@ -103,8 +103,18 @@ function CompareMessage({ copied, message, onCopy }: { copied: boolean; message:
 }
 
 export function CompareColumn({ state }: CompareColumnProps) {
-  const { model, status, messages, content, reasoningContent, usage, finishReason, responseTimeMs, error, retryAttempt } =
-    state
+  const {
+    model,
+    status,
+    messages,
+    content,
+    reasoningContent,
+    usage,
+    finishReason,
+    responseTimeMs,
+    error,
+    retryAttempt,
+  } = state
   const showMeta = status === 'done' && (finishReason || usage || responseTimeMs !== null)
   const [copiedId, setCopiedId] = useState('')
   const copyMessage = useCallback(async (message: string, index: number) => {
@@ -128,7 +138,7 @@ export function CompareColumn({ state }: CompareColumnProps) {
         )}
         {status === 'retrying' && (
           <span className='ml-2 rounded-full bg-amber-100 px-2 py-0.5 align-middle font-medium text-[11px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'>
-            Retry {retryAttempt}/1
+            リトライ {retryAttempt}/1
           </span>
         )}
       </div>

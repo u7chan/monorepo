@@ -209,7 +209,10 @@ async function runModelStreamWithRetry(
         responseTimeMs: Date.now() - startTime,
         content: accumulated.content,
       })
+      return
     }
+
+    callbacks.onStreamError(model, buildIncompleteStreamError())
   } catch (error) {
     clearIdleTimer()
 
@@ -249,6 +252,10 @@ function buildTimeoutError(attempt: number): string {
   }
 
   return `${seconds}秒間応答がなかったため停止しました。`
+}
+
+function buildIncompleteStreamError(): string {
+  return 'ストリームが完了イベントなしで終了しました。'
 }
 
 function isAbortError(error: unknown): error is { name: string } {

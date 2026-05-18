@@ -26,4 +26,24 @@ describe('useCompareState', () => {
       })
     )
   })
+
+  it('setModelError は途中表示を保持して error 状態へ切り替える', () => {
+    const { result } = renderHook(() => useCompareState())
+
+    act(() => {
+      result.current.initModelStates(['openai/gpt-5.2'])
+      result.current.setModelStreaming('openai/gpt-5.2')
+      result.current.updateStreamingContent('openai/gpt-5.2', 'partial', 'thinking')
+      result.current.setModelError('openai/gpt-5.2', 'stream failed')
+    })
+
+    expect(result.current.modelStates['openai/gpt-5.2']).toEqual(
+      expect.objectContaining({
+        status: 'error',
+        content: 'partial',
+        reasoningContent: 'thinking',
+        error: 'stream failed',
+      })
+    )
+  })
 })

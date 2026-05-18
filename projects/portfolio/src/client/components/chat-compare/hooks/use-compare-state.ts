@@ -89,11 +89,6 @@ export function useCompareState() {
       [model]: {
         ...prev[model],
         status: 'error' as const,
-        content: '',
-        reasoningContent: '',
-        usage: null,
-        finishReason: null,
-        responseTimeMs: null,
         error,
       },
     }))

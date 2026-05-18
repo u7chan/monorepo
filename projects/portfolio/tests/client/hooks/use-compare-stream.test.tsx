@@ -128,8 +128,12 @@ describe('useCompareStream', () => {
       .mockResolvedValueOnce({
         ok: true,
         body: createReaderFromChunks([
-          encoder.encode('data: {"event":"delta","id":"chunk-1","created":1,"model":"openai/gpt-5.2","content":"retry"}\n'),
-          encoder.encode('data: {"event":"finish","id":"chunk-1","created":1,"model":"openai/gpt-5.2","finishReason":"stop"}\n'),
+          encoder.encode(
+            'data: {"event":"delta","id":"chunk-1","created":1,"model":"openai/gpt-5.2","content":"retry"}\n'
+          ),
+          encoder.encode(
+            'data: {"event":"finish","id":"chunk-1","created":1,"model":"openai/gpt-5.2","finishReason":"stop"}\n'
+          ),
           encoder.encode('data: [DONE]\n'),
         ]),
       })
@@ -217,27 +221,29 @@ describe('useCompareStream', () => {
     const encoder = new TextEncoder()
     const callbacks = createCallbacks()
 
-    chatStreamPostMock.mockImplementation((req: { json: { model: string } }, options: { init: { signal: AbortSignal } }) => {
-      if (req.json.model === 'openai/gpt-5.4-mini') {
+    chatStreamPostMock.mockImplementation(
+      (req: { json: { model: string } }, options: { init: { signal: AbortSignal } }) => {
+        if (req.json.model === 'openai/gpt-5.4-mini') {
+          return Promise.resolve({
+            ok: true,
+            body: createReaderFromChunks([
+              encoder.encode(
+                'data: {"event":"delta","id":"chunk-fast","created":1,"model":"openai/gpt-5.4-mini","content":"fast"}\n'
+              ),
+              encoder.encode(
+                'data: {"event":"finish","id":"chunk-fast","created":1,"model":"openai/gpt-5.4-mini","finishReason":"stop"}\n'
+              ),
+              encoder.encode('data: [DONE]\n'),
+            ]),
+          })
+        }
+
         return Promise.resolve({
           ok: true,
-          body: createReaderFromChunks([
-            encoder.encode(
-              'data: {"event":"delta","id":"chunk-fast","created":1,"model":"openai/gpt-5.4-mini","content":"fast"}\n'
-            ),
-            encoder.encode(
-              'data: {"event":"finish","id":"chunk-fast","created":1,"model":"openai/gpt-5.4-mini","finishReason":"stop"}\n'
-            ),
-            encoder.encode('data: [DONE]\n'),
-          ]),
+          body: createHangingBody(options.init.signal),
         })
       }
-
-      return Promise.resolve({
-        ok: true,
-        body: createHangingBody(options.init.signal),
-      })
-    })
+    )
 
     const { result } = renderHook(() => useCompareStream())
 
@@ -303,6 +309,41 @@ describe('useCompareStream', () => {
     expect(seenSignals).toHaveLength(2)
     expect(seenSignals.every((signal) => signal.aborted)).toBe(true)
     expect(callbacks.onStreamError).not.toHaveBeenCalled()
+    expect(callbacks.onStreamDone).not.toHaveBeenCalled()
+  })
+
+  it('finish イベントなしで完了した場合はエラーにする', async () => {
+    const { useCompareStream, chatStreamPostMock } = await importSubject()
+    const encoder = new TextEncoder()
+    const callbacks = createCallbacks()
+
+    chatStreamPostMock.mockResolvedValueOnce({
+      ok: true,
+      body: createReaderFromChunks([
+        encoder.encode(
+          'data: {"event":"delta","id":"chunk-1","created":1,"model":"openai/gpt-5.2","content":"partial"}\n'
+        ),
+        encoder.encode('data: [DONE]\n'),
+      ]),
+    })
+
+    const { result } = renderHook(() => useCompareStream())
+
+    await act(async () => {
+      await result.current.submitCompare(
+        settings,
+        { 'openai/gpt-5.2': modelStates['openai/gpt-5.2'] },
+        ['openai/gpt-5.2'],
+        userMessage,
+        callbacks
+      )
+    })
+
+    expect(callbacks.onStreamContent).toHaveBeenCalledWith('openai/gpt-5.2', 'partial', '')
+    expect(callbacks.onStreamError).toHaveBeenCalledWith(
+      'openai/gpt-5.2',
+      'ストリームが完了イベントなしで終了しました。'
+    )
     expect(callbacks.onStreamDone).not.toHaveBeenCalled()
   })
 })

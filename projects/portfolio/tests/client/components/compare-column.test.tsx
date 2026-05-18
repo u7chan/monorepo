@@ -23,7 +23,7 @@ describe('CompareColumn', () => {
       />
     )
 
-    expect(screen.getByText('Retry 1/1')).toBeTruthy()
+    expect(screen.getByText('リトライ 1/1')).toBeTruthy()
     expect(screen.getByText('60秒間応答がなかったため再試行しています。')).toBeTruthy()
   })
 
