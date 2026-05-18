@@ -1,5 +1,5 @@
 import { hc } from 'hono/client'
-import { useCallback, useRef } from 'react'
+import { type MutableRefObject, useCallback, useRef } from 'react'
 import { parseChatStreamEvent, updateChatStream } from '#/client/components/chat/hooks/chat-response'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ChatUsage } from '#/types'
@@ -7,6 +7,9 @@ import type { CompareSettings } from './use-compare-settings'
 import type { ModelStreamState } from './use-compare-state'
 
 const client = hc<AppType>('/')
+
+export const STREAM_IDLE_TIMEOUT_MS = 60_000
+export const STREAM_MAX_RETRY_ATTEMPTS = 1
 
 interface StreamCallbacks {
   onStreamContent: (model: string, content: string, reasoningContent: string) => void
@@ -20,14 +23,29 @@ interface StreamCallbacks {
     }
   ) => void
   onStreamError: (model: string, error: string) => void
+  onStreamRetry: (model: string, attempt: number) => void
+}
+
+interface ModelRuntime {
+  controller: AbortController
+  timerId: ReturnType<typeof setTimeout> | null
+  cancelled: boolean
+  timedOut: boolean
 }
 
 export function useCompareStream() {
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const runtimesRef = useRef<Map<string, ModelRuntime>>(new Map())
 
   const cancelAll = useCallback(() => {
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
+    for (const runtime of runtimesRef.current.values()) {
+      runtime.cancelled = true
+      if (runtime.timerId) {
+        clearTimeout(runtime.timerId)
+        runtime.timerId = null
+      }
+      runtime.controller.abort()
+    }
+    runtimesRef.current.clear()
   }, [])
 
   const submitCompare = useCallback(
@@ -40,41 +58,38 @@ export function useCompareStream() {
     ) => {
       if (selectedModels.length === 0) return
 
-      const models = selectedModels
-
-      const controller = new AbortController()
-      abortControllerRef.current = controller
+      cancelAll()
 
       const header = {
         'api-key': settings.apiKey,
         'base-url': settings.baseURL,
       }
 
-      const promises = models.map((model) =>
-        runModelStream(
+      const promises = selectedModels.map((model) =>
+        runModelStreamWithRetry(
           model,
           header,
           {
             apiMode: settings.apiMode,
             model,
-            messages: [...modelStates[model].messages, userMessage],
+            messages: [...(modelStates[model]?.messages ?? []), userMessage],
           },
-          controller.signal,
-          (content, reasoningContent) => callbacks.onStreamContent(model, content, reasoningContent),
-          (result) => callbacks.onStreamDone(model, result),
-          (error) => callbacks.onStreamError(model, error)
+          callbacks,
+          runtimesRef,
+          0
         )
       )
 
       await Promise.allSettled(promises)
+      runtimesRef.current.clear()
     },
-    []
+    [cancelAll]
   )
 
   return { submitCompare, cancelAll }
 }
 
-async function runModelStream(
+async function runModelStreamWithRetry(
   model: string,
   header: { 'api-key': string; 'base-url': string },
   body: {
@@ -82,12 +97,36 @@ async function runModelStream(
     model: string
     messages: ApiChatMessage[]
   },
-  signal: AbortSignal,
-  onContent: (content: string, reasoningContent: string) => void,
-  onDone: (result: { finishReason: string; usage: ChatUsage | null; responseTimeMs: number; content: string }) => void,
-  onError: (error: string) => void
+  callbacks: StreamCallbacks,
+  runtimesRef: MutableRefObject<Map<string, ModelRuntime>>,
+  attempt: number
 ): Promise<void> {
   const startTime = Date.now()
+  const controller = new AbortController()
+  const runtime: ModelRuntime = {
+    controller,
+    timerId: null,
+    cancelled: false,
+    timedOut: false,
+  }
+
+  const clearIdleTimer = () => {
+    if (runtime.timerId) {
+      clearTimeout(runtime.timerId)
+      runtime.timerId = null
+    }
+  }
+
+  const scheduleIdleTimer = () => {
+    clearIdleTimer()
+    runtime.timerId = setTimeout(() => {
+      runtime.timedOut = true
+      runtime.controller.abort()
+    }, STREAM_IDLE_TIMEOUT_MS)
+  }
+
+  runtimesRef.current.set(model, runtime)
+  scheduleIdleTimer()
 
   try {
     const res = await client.api.chat.stream.$post(
@@ -95,18 +134,20 @@ async function runModelStream(
         header,
         json: body,
       } as never,
-      { init: { signal } }
+      { init: { signal: runtime.controller.signal } }
     )
 
     if (!res.ok) {
+      clearIdleTimer()
       const errorData = (await res.json()) as { error?: string }
-      onError(errorData?.error || `HTTP ${res.status}`)
+      callbacks.onStreamError(model, errorData?.error || `HTTP ${res.status}`)
       return
     }
 
     const reader = res.body?.getReader()
     if (!reader) {
-      onError('Failed to get response reader')
+      clearIdleTimer()
+      callbacks.onStreamError(model, 'Failed to get response reader')
       return
     }
 
@@ -133,6 +174,7 @@ async function runModelStream(
 
         const jsonStr = line.replace(/^data:\s*/, '')
         if (jsonStr === '[DONE]') {
+          scheduleIdleTimer()
           running = false
           break
         }
@@ -140,9 +182,10 @@ async function runModelStream(
         try {
           const event = parseChatStreamEvent(jsonStr)
           accumulated = updateChatStream(accumulated, event)
+          scheduleIdleTimer()
 
           if (event.event === 'delta') {
-            onContent(accumulated.content, accumulated.reasoningContent)
+            callbacks.onStreamContent(model, accumulated.content, accumulated.reasoningContent)
           }
           if (event.event === 'finish') {
             finishReason = event.finishReason
@@ -157,17 +200,57 @@ async function runModelStream(
       }
     }
 
+    clearIdleTimer()
+
     if (receivedFinish) {
-      const responseTimeMs = Date.now() - startTime
-      onDone({
+      callbacks.onStreamDone(model, {
         finishReason,
         usage,
-        responseTimeMs,
+        responseTimeMs: Date.now() - startTime,
         content: accumulated.content,
       })
     }
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') return
-    onError(error instanceof Error ? error.message : 'Unknown error')
+    clearIdleTimer()
+
+    if (isAbortError(error)) {
+      if (runtime.cancelled) return
+
+      if (runtime.timedOut) {
+        if (attempt < STREAM_MAX_RETRY_ATTEMPTS) {
+          const nextAttempt = attempt + 1
+          callbacks.onStreamRetry(model, nextAttempt)
+          await runModelStreamWithRetry(model, header, body, callbacks, runtimesRef, nextAttempt)
+          return
+        }
+
+        callbacks.onStreamError(model, buildTimeoutError(attempt))
+        return
+      }
+
+      return
+    }
+
+    callbacks.onStreamError(model, error instanceof Error ? error.message : 'Unknown error')
+  } finally {
+    clearIdleTimer()
+
+    if (runtimesRef.current.get(model) === runtime) {
+      runtimesRef.current.delete(model)
+    }
   }
+}
+
+function buildTimeoutError(attempt: number): string {
+  const seconds = STREAM_IDLE_TIMEOUT_MS / 1000
+
+  if (attempt > 0) {
+    return `${seconds}秒間応答がなかったため停止しました。${attempt}回リトライしました。`
+  }
+
+  return `${seconds}秒間応答がなかったため停止しました。`
+}
+
+function isAbortError(error: unknown): error is { name: string } {
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
 }

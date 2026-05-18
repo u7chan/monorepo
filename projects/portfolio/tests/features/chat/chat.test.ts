@@ -40,6 +40,7 @@ describe('chat.completions', () => {
   it('OpenAI 呼び出しにリクエストを正しく変換する', async () => {
     const { chat, completionsCreateMock } = await importSubject()
     completionsCreateMock.mockResolvedValue({ id: 'completion-1' })
+    const signal = new AbortController().signal
 
     await chat.completions(
       {
@@ -55,20 +56,28 @@ describe('chat.completions', () => {
         reasoningEffort: 'high',
         stream: false,
         includeUsage: true,
+      },
+      {
+        signal,
       }
     )
 
-    expect(completionsCreateMock).toHaveBeenCalledWith({
-      model: 'gpt-4.1',
-      messages: [{ role: 'system', content: 'You are a tester.' }],
-      temperature: 0.4,
-      max_tokens: 256,
-      reasoning_effort: 'high',
-      stream: false,
-      stream_options: {
-        include_usage: true,
+    expect(completionsCreateMock).toHaveBeenCalledWith(
+      {
+        model: 'gpt-4.1',
+        messages: [{ role: 'system', content: 'You are a tester.' }],
+        temperature: 0.4,
+        max_tokens: 256,
+        reasoning_effort: 'high',
+        stream: false,
+        stream_options: {
+          include_usage: true,
+        },
       },
-    })
+      {
+        signal,
+      }
+    )
   })
 
   it('OpenAI クライアントに apiKey と baseURL が渡される', async () => {
@@ -99,6 +108,7 @@ describe('chat.completions', () => {
   it('responses モードでは assistant 履歴と画像入力を Responses input へ変換する', async () => {
     const { chat, responsesCreateMock } = await importSubject()
     responsesCreateMock.mockResolvedValue({ id: 'resp-1' })
+    const signal = new AbortController().signal
 
     await chat.completions(
       {
@@ -123,35 +133,43 @@ describe('chat.completions', () => {
         maxTokens: 256,
         reasoningEffort: 'high',
         stream: false,
+      },
+      {
+        signal,
       }
     )
 
-    expect(responsesCreateMock).toHaveBeenCalledWith({
-      model: 'gpt-4.1',
-      input: [
-        {
-          type: 'message',
-          role: 'system',
-          content: 'You are a tester.',
-        },
-        {
-          type: 'message',
-          role: 'user',
-          content: [
-            { type: 'input_text', text: 'describe this image' },
-            { type: 'input_image', image_url: 'data:image/png;base64,abc', detail: 'auto' },
-          ],
-        },
-        {
-          type: 'message',
-          role: 'assistant',
-          content: 'previous answer',
-        },
-      ],
-      temperature: 0.4,
-      max_output_tokens: 256,
-      reasoning: { effort: 'high' },
-      stream: false,
-    })
+    expect(responsesCreateMock).toHaveBeenCalledWith(
+      {
+        model: 'gpt-4.1',
+        input: [
+          {
+            type: 'message',
+            role: 'system',
+            content: 'You are a tester.',
+          },
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'describe this image' },
+              { type: 'input_image', image_url: 'data:image/png;base64,abc', detail: 'auto' },
+            ],
+          },
+          {
+            type: 'message',
+            role: 'assistant',
+            content: 'previous answer',
+          },
+        ],
+        temperature: 0.4,
+        max_output_tokens: 256,
+        reasoning: { effort: 'high' },
+        stream: false,
+      },
+      {
+        signal,
+      }
+    )
   })
 })

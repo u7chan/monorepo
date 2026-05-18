@@ -511,6 +511,39 @@ describe('chatRoutes', () => {
       expect(body).toContain('"event":"usage"')
     })
 
+    it('request signal を upstream 呼び出しへ伝播する', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        [Symbol.asyncIterator]: createStreamChunk,
+      })
+
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(completionsMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          model: 'gpt-test',
+          stream: true,
+        }),
+        {
+          signal: expect.any(AbortSignal),
+        }
+      )
+    })
+
     it('必須 header がない場合は 400 を返す', async () => {
       const { chatRoutes } = await importSubject()
 

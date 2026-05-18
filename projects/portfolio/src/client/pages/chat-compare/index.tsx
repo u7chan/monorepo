@@ -30,6 +30,7 @@ export function ChatCompare() {
     updateStreamingContent,
     setModelDone,
     setModelError,
+    setModelRetrying,
     resetModelStream,
     appendAssistantMessage,
     setModelStreaming,
@@ -118,26 +119,31 @@ export function ChatCompare() {
       setModelStreaming(model)
     }
 
-    await submitCompare(settings, modelStates, models, userMessage, {
-      onStreamContent: (model, content, reasoningContent) => {
-        updateStreamingContent(model, content, reasoningContent)
-      },
-      onStreamDone: (model, result) => {
-        setModelDone(model, {
-          finishReason: result.finishReason,
-          usage: result.usage,
-          responseTimeMs: result.responseTimeMs,
-        })
-        if (result.content) {
-          appendAssistantMessage(model, { role: 'assistant', content: result.content })
-        }
-      },
-      onStreamError: (model, error) => {
-        setModelError(model, error)
-      },
-    })
-
-    setIsSubmitting(false)
+    try {
+      await submitCompare(settings, modelStates, models, userMessage, {
+        onStreamContent: (model, content, reasoningContent) => {
+          updateStreamingContent(model, content, reasoningContent)
+        },
+        onStreamDone: (model, result) => {
+          setModelDone(model, {
+            finishReason: result.finishReason,
+            usage: result.usage,
+            responseTimeMs: result.responseTimeMs,
+          })
+          if (result.content) {
+            appendAssistantMessage(model, { role: 'assistant', content: result.content })
+          }
+        },
+        onStreamError: (model, error) => {
+          setModelError(model, error)
+        },
+        onStreamRetry: (model, attempt) => {
+          setModelRetrying(model, attempt)
+        },
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }, [
     appendAssistantMessage,
     appendUserMessageToAll,
@@ -147,6 +153,7 @@ export function ChatCompare() {
     selectedModels,
     setModelDone,
     setModelError,
+    setModelRetrying,
     setModelStreaming,
     setIsSubmitting,
     settings,
@@ -267,6 +274,7 @@ export function ChatCompare() {
                     finishReason: null,
                     responseTimeMs: null,
                     error: null,
+                    retryAttempt: 0,
                   }
                 }
               />

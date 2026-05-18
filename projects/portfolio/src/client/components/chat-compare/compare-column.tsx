@@ -103,7 +103,8 @@ function CompareMessage({ copied, message, onCopy }: { copied: boolean; message:
 }
 
 export function CompareColumn({ state }: CompareColumnProps) {
-  const { model, status, messages, content, reasoningContent, usage, finishReason, responseTimeMs, error } = state
+  const { model, status, messages, content, reasoningContent, usage, finishReason, responseTimeMs, error, retryAttempt } =
+    state
   const showMeta = status === 'done' && (finishReason || usage || responseTimeMs !== null)
   const [copiedId, setCopiedId] = useState('')
   const copyMessage = useCallback(async (message: string, index: number) => {
@@ -125,6 +126,11 @@ export function CompareColumn({ state }: CompareColumnProps) {
         {status === 'streaming' && (
           <span className='ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-primary-600 align-middle' />
         )}
+        {status === 'retrying' && (
+          <span className='ml-2 rounded-full bg-amber-100 px-2 py-0.5 align-middle font-medium text-[11px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'>
+            Retry {retryAttempt}/1
+          </span>
+        )}
       </div>
       <div className='min-h-0 flex-1 overflow-y-auto px-3 py-2'>
         {messages.map((message, index) => (
@@ -142,6 +148,11 @@ export function CompareColumn({ state }: CompareColumnProps) {
         {error && (
           <div className='mt-2 rounded-md bg-red-50 p-2 text-red-600 text-sm dark:bg-red-900/30 dark:text-red-400'>
             {error}
+          </div>
+        )}
+        {status === 'retrying' && (
+          <div className='mt-2 rounded-md bg-amber-50 p-2 text-amber-700 text-sm dark:bg-amber-900/20 dark:text-amber-300'>
+            60秒間応答がなかったため再試行しています。
           </div>
         )}
         {status === 'streaming' && (

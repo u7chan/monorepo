@@ -27,6 +27,9 @@ interface Chat {
       reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
       stream: boolean
       includeUsage?: boolean
+    },
+    requestOptions?: {
+      signal?: AbortSignal
     }
   ): Promise<Completions>
 }
@@ -58,6 +61,9 @@ export const chat: Chat = {
       reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
       stream: boolean
       includeUsage?: boolean
+    },
+    requestOptions?: {
+      signal?: AbortSignal
     }
   ): Promise<Completions> {
     const openai = new OpenAI({
@@ -66,29 +72,35 @@ export const chat: Chat = {
     })
 
     if (apiMode === 'responses') {
-      return (await openai.responses.create({
-        model,
-        input: convertToResponsesInput(messages),
-        temperature,
-        max_output_tokens: maxTokens,
-        reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
-        stream,
-      })) as ResponsesCompletion | ResponsesStreamChunk
+      return (await openai.responses.create(
+        {
+          model,
+          input: convertToResponsesInput(messages),
+          temperature,
+          max_output_tokens: maxTokens,
+          reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
+          stream,
+        },
+        requestOptions
+      )) as ResponsesCompletion | ResponsesStreamChunk
     }
 
-    const completion = await openai.chat.completions.create({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      reasoning_effort: reasoningEffort,
-      stream,
-      stream_options: includeUsage
-        ? {
-            include_usage: !!includeUsage,
-          }
-        : undefined,
-    })
+    const completion = await openai.chat.completions.create(
+      {
+        model,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        reasoning_effort: reasoningEffort,
+        stream,
+        stream_options: includeUsage
+          ? {
+              include_usage: !!includeUsage,
+            }
+          : undefined,
+      },
+      requestOptions
+    )
     return completion as Completions
   },
 }

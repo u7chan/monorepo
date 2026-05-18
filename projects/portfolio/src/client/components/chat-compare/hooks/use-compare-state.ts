@@ -3,7 +3,7 @@ import type { ApiChatMessage, ChatUsage } from '#/types'
 
 export interface ModelStreamState {
   model: string
-  status: 'idle' | 'streaming' | 'done' | 'error'
+  status: 'idle' | 'streaming' | 'retrying' | 'done' | 'error'
   messages: ApiChatMessage[]
   content: string
   reasoningContent: string
@@ -11,6 +11,7 @@ export interface ModelStreamState {
   finishReason: string | null
   responseTimeMs: number | null
   error: string | null
+  retryAttempt: number
 }
 
 function createModelStreamState(model: string): ModelStreamState {
@@ -24,6 +25,7 @@ function createModelStreamState(model: string): ModelStreamState {
     finishReason: null,
     responseTimeMs: null,
     error: null,
+    retryAttempt: 0,
   }
 }
 
@@ -87,7 +89,29 @@ export function useCompareState() {
       [model]: {
         ...prev[model],
         status: 'error' as const,
+        content: '',
+        reasoningContent: '',
+        usage: null,
+        finishReason: null,
+        responseTimeMs: null,
         error,
+      },
+    }))
+  }, [])
+
+  const setModelRetrying = useCallback((model: string, attempt: number) => {
+    setModelStates((prev) => ({
+      ...prev,
+      [model]: {
+        ...prev[model],
+        status: 'retrying' as const,
+        content: '',
+        reasoningContent: '',
+        usage: null,
+        finishReason: null,
+        responseTimeMs: null,
+        error: null,
+        retryAttempt: attempt,
       },
     }))
   }, [])
@@ -107,6 +131,7 @@ export function useCompareState() {
           finishReason: null,
           responseTimeMs: null,
           error: null,
+          retryAttempt: 0,
         },
       }
     })
@@ -134,6 +159,7 @@ export function useCompareState() {
         finishReason: null,
         responseTimeMs: null,
         error: null,
+        retryAttempt: 0,
       },
     }))
   }, [])
@@ -173,6 +199,7 @@ export function useCompareState() {
     updateStreamingContent,
     setModelDone,
     setModelError,
+    setModelRetrying,
     resetModelStream,
     appendAssistantMessage,
     setModelStreaming,

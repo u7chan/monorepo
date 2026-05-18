@@ -300,6 +300,9 @@ const chatRoutes = new Hono<HonoEnv>()
           reasoningEffort: req.reasoningEffort,
           stream: true,
           includeUsage: true,
+        },
+        {
+          signal: c.req.raw.signal,
         }
       )
     } catch (err) {
