@@ -320,8 +320,8 @@ def create_app(
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.get("/api/agents")
-    def list_agents() -> dict[str, list[str]]:
-        return {"agents": definitions.list_ids()}
+    def list_agents() -> dict[str, list[dict[str, str]]]:
+        return {"agents": definitions.list_agents()}
 
     @app.get("/", response_class=HTMLResponse)
     def test_page() -> HTMLResponse:
