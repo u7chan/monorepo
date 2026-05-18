@@ -1,8 +1,9 @@
 """Tests for RunAgentUseCase with tool calling (ReAct loop)."""
 
+import json
 from collections.abc import Iterator
 
-from tests.helpers import _questions_args
+from tests.helpers import _choice_questions_args, _questions_args
 
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
@@ -631,3 +632,261 @@ def test_continue_sync_with_non_paused_session_raises_error():
         assert False, "Expected SessionNotPausedError"
     except SessionNotPausedError:
         pass
+
+
+def test_continue_sync_choice_number_to_label():
+    """Number input for a choice question is converted to the option label."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_choice",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _choice_questions_args(),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-choice",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-choice", answer="1")
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    stored = store.get("paused-choice")
+    assert stored is not None
+    tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
+    answers = json.loads(tool_msg["content"])["answers"]
+    assert answers["Which database?"] == "PostgreSQL"
+
+
+def test_continue_sync_choice_multi_select():
+    """Comma-separated numbers for multiSelect are converted to joined labels."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_multi",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _choice_questions_args(multi_select=True),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-multi",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-multi", answer="2, 1")
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    stored = store.get("paused-multi")
+    assert stored is not None
+    tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
+    answers = json.loads(tool_msg["content"])["answers"]
+    assert answers["Which database?"] == "SQLite, PostgreSQL"
+
+
+def test_continue_sync_choice_free_text_fallback():
+    """Non-numeric input for a choice question is kept as free-form text."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_free",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _choice_questions_args(),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-free",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-free", answer="MySQL")
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    stored = store.get("paused-free")
+    assert stored is not None
+    tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
+    answers = json.loads(tool_msg["content"])["answers"]
+    assert answers["Which database?"] == "MySQL"
+
+
+def test_continue_sync_choice_single_select_comma_fallback():
+    """Comma-separated input for single-select choice falls back to free-form text."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_single_comma",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _choice_questions_args(),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-single-comma",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-single-comma", answer="1, 2")
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    stored = store.get("paused-single-comma")
+    assert stored is not None
+    tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
+    answers = json.loads(tool_msg["content"])["answers"]
+    assert answers["Which database?"] == "1, 2"
+
+
+def test_continue_stream_choice_number_to_label():
+    """Stream resume converts number input to label for choice questions."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_stream",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _choice_questions_args(),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-stream-choice",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+        is_api_context=True,
+    )
+
+    events = list(
+        use_case.continue_stream(
+            ContinueRequest(session_id="paused-stream-choice", answer="2")
+        )
+    )
+
+    assert isinstance(events[0], ToolResultEvent)
+    stored = store.get("paused-stream-choice")
+    assert stored is not None
+    tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
+    answers = json.loads(tool_msg["content"])["answers"]
+    assert answers["Which database?"] == "SQLite"

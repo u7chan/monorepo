@@ -12,6 +12,9 @@ TOOL_DEFINITION: ToolDefinition = {
         "description": (
             "ユーザーに質問し、テキスト入力で回答を得ます。"
             "追加情報が必要な場合に使います。"
+            "type: choice の場合、選択肢は入力補助のためであり、"
+            "ユーザーが選択肢にない自由な回答をしてもそのまま受け入れ、"
+            "再度このツールで確認しないでください。"
         ),
         "parameters": {
             "type": "object",
@@ -32,12 +35,34 @@ TOOL_DEFINITION: ToolDefinition = {
                             },
                             "type": {
                                 "type": "string",
-                                "enum": ["text"],
+                                "enum": ["text", "choice"],
                                 "description": "質問の種類",
                             },
                             "placeholder": {
                                 "type": "string",
                                 "description": "入力欄のプレースホルダー",
+                            },
+                            "options": {
+                                "type": "array",
+                                "description": "選択肢のリスト（type=choice の場合）",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {
+                                            "type": "string",
+                                            "description": "選択肢のラベル",
+                                        },
+                                        "description": {
+                                            "type": "string",
+                                            "description": "選択肢の説明",
+                                        },
+                                    },
+                                    "required": ["label"],
+                                },
+                            },
+                            "multiSelect": {
+                                "type": "boolean",
+                                "description": "複数選択を許可するか（type=choice の場合）",
                             },
                         },
                         "required": ["question", "type"],

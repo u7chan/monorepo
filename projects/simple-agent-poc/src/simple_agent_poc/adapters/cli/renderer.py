@@ -94,12 +94,30 @@ def ask_user_question(questions: list[dict]) -> str:
     q = questions[0]
     header = q.get("header", "")
     question_text = q.get("question", "")
+    q_type = q.get("type", "text")
     placeholder = q.get("placeholder", "")
+    options = q.get("options", [])
+    multi_select = q.get("multiSelect", False)
     label = f"[{header}] " if header else ""
-    prompt = f"  {label}{question_text}"
-    if placeholder:
-        prompt += f" ({placeholder})"
-    prompt += " > "
+
+    if q_type == "choice" and options:
+        print(f"  {label}{question_text}")
+        for idx, opt in enumerate(options, start=1):
+            desc = opt.get("description", "")
+            line = f"    {idx}. {opt['label']}"
+            if desc:
+                line += f" — {desc}"
+            print(line)
+        if multi_select:
+            prompt = "  選択（カンマ区切りで複数可）> "
+        else:
+            prompt = "  選択（番号または自由記述）> "
+    else:
+        prompt = f"  {label}{question_text}"
+        if placeholder:
+            prompt += f" ({placeholder})"
+        prompt += " > "
+
     return input(prompt).strip()
 
 

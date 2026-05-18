@@ -57,6 +57,19 @@ class ConversationSession:
             }
         )
 
+    def replace_tool_message(self, content: str, *, tool_call_id: str) -> None:
+        """Replace an existing tool result message in the conversation.
+
+        Used to overwrite a placeholder tool message inserted before
+        ``ask_user`` pauses with the real user answer on resume.
+        Falls back to appending if no placeholder exists.
+        """
+        for msg in self.messages:
+            if msg.get("role") == "tool" and msg.get("tool_call_id") == tool_call_id:
+                msg["content"] = content
+                return
+        self.append_tool_message(content, tool_call_id=tool_call_id)
+
     def pause_for_ask_user(self, tool_call: ToolCall, *, round_idx: int) -> None:
         """Transition to paused state waiting for user answer."""
         self.is_paused = True

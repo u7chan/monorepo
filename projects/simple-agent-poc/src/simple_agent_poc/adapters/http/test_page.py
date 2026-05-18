@@ -31,6 +31,10 @@ TEST_PAGE_HTML = """<!doctype html>
   .paused-bar.visible { display: flex; gap: 6px; align-items: center; }
   .paused-bar input[type="text"] { flex: 1; background: rgba(0,0,0,.15); color: #000; border: 1px solid rgba(0,0,0,.2); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 13px; }
   .paused-bar button { background: rgba(0,0,0,.2); color: #000; border: none; border-radius: 4px; padding: 4px 10px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .paused-choices { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; align-items: center; }
+  .paused-choice-btn { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-family: inherit; font-size: 12px; cursor: pointer; }
+  .paused-choice-btn:hover { background: var(--border); }
+  .paused-choice-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
   .line-user { color: var(--muted); }
   .line-assistant { color: var(--text); }
   .line-tool { color: var(--tool); }
@@ -75,7 +79,7 @@ TEST_PAGE_HTML = """<!doctype html>
   <div class="paused-bar" id="paused-bar">
     <span id="paused-question"></span>
     <input type="text" id="paused-answer" placeholder="Type your answer..." onkeydown="if(event.key==='Enter')resumeFromPaused()">
-    <button onclick="resumeFromPaused()">Resume</button>
+    <button id="paused-resume" onclick="resumeFromPaused()">Resume</button>
     <button onclick="cancelPaused()">Cancel</button>
   </div>
 </main>
@@ -215,6 +219,15 @@ async function sendMessage() {
   const message = el("msg-input").value.trim();
   if (!message) return;
   if (state.abortController) return;
+
+  // If paused, treat the typed message as the answer
+  if (state.awaitingAnswer) {
+    el("paused-answer").value = message;
+    el("msg-input").value = "";
+    await resumeFromPaused();
+    return;
+  }
+
   el("msg-input").value = "";
   appendLine("conv-log", "line-user", "You: " + message);
   appendLine("raw-log", "line-system", "--- sending message ---");
@@ -343,13 +356,67 @@ async function sendStreamMessage(message) {
 
 function enterPausedState({ session_id: sessionId, questions, call_id: callId, mode = "stream" }) {
   const qs = questions || [];
-  const questionText = qs.length > 0 ? qs[0].question : "";
+  const q = qs.length > 0 ? qs[0] : null;
+  const questionText = q ? q.question : "";
   state.awaitingAnswer = { sessionId, questions, callId, mode };
   setSessionId(sessionId);
   el("paused-question").textContent = "Q: " + questionText;
   el("paused-answer").value = "";
+
+  const oldChoices = el("paused-bar").querySelector(".paused-choices");
+  if (oldChoices) oldChoices.remove();
+  el("paused-answer").style.display = "";
+
   el("paused-bar").classList.add("visible");
-  el("paused-answer").focus();
+
+  const resumeBtn = el("paused-resume");
+  if (q && q.type === "choice" && q.options && q.options.length > 0) {
+    if (resumeBtn) resumeBtn.style.display = "none";
+    const choicesDiv = document.createElement("div");
+    choicesDiv.className = "paused-choices";
+    const isMulti = q.multiSelect === true;
+    const selected = new Set();
+
+    q.options.forEach((opt, idx) => {
+      const btn = document.createElement("button");
+      btn.className = "paused-choice-btn";
+      btn.textContent = (idx + 1) + ". " + opt.label;
+      if (opt.description) btn.title = opt.description;
+      btn.onclick = () => {
+        if (isMulti) {
+          if (selected.has(idx)) {
+            selected.delete(idx);
+            btn.classList.remove("selected");
+          } else {
+            selected.add(idx);
+            btn.classList.add("selected");
+          }
+        } else {
+          el("paused-answer").value = String(idx + 1);
+          resumeFromPaused();
+        }
+      };
+      choicesDiv.appendChild(btn);
+    });
+
+    if (isMulti) {
+      const submitBtn = document.createElement("button");
+      submitBtn.className = "paused-choice-btn";
+      submitBtn.textContent = "Submit";
+      submitBtn.onclick = () => {
+        const nums = Array.from(selected).sort((a, b) => a - b).map(i => i + 1).join(",");
+        el("paused-answer").value = nums;
+        resumeFromPaused();
+      };
+      choicesDiv.appendChild(submitBtn);
+    }
+
+    el("paused-bar").insertBefore(choicesDiv, el("paused-answer"));
+    el("paused-answer").style.display = "none";
+  } else {
+    if (resumeBtn) resumeBtn.style.display = "";
+    el("paused-answer").focus();
+  }
 }
 
 async function resumeFromPaused() {
@@ -360,6 +427,9 @@ async function resumeFromPaused() {
   el("paused-bar").classList.remove("visible");
   el("paused-question").textContent = "";
   el("paused-answer").value = "";
+  const oldChoices = el("paused-bar").querySelector(".paused-choices");
+  if (oldChoices) oldChoices.remove();
+  el("paused-answer").style.display = "";
   appendLine("conv-log", "line-user", "You: " + answer);
   appendLine("raw-log", "line-system", "--- continuing paused session ---");
 
@@ -487,6 +557,11 @@ function cancelPaused() {
   el("paused-bar").classList.remove("visible");
   el("paused-question").textContent = "";
   el("paused-answer").value = "";
+  const oldChoices = el("paused-bar").querySelector(".paused-choices");
+  if (oldChoices) oldChoices.remove();
+  el("paused-answer").style.display = "";
+  const resumeBtn = el("paused-resume");
+  if (resumeBtn) resumeBtn.style.display = "";
 }
 
 function stopRequest() {

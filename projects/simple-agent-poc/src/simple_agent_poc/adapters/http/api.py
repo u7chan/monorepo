@@ -285,13 +285,14 @@ def create_app(
         run_agent: Annotated[RunAgentUseCase, Depends(get_run_agent_use_case)],
     ):
         def event_stream():
+            generator = run_agent.continue_stream(
+                ContinueRequest(
+                    session_id=request.session_id,
+                    answer=request.answer,
+                )
+            )
             try:
-                for event in run_agent.continue_stream(
-                    ContinueRequest(
-                        session_id=request.session_id,
-                        answer=request.answer,
-                    )
-                ):
+                for event in generator:
                     if isinstance(event, ContentDelta):
                         yield f"event: delta\ndata: {json.dumps({'content': event.delta}, ensure_ascii=False)}\n\n"
                     elif isinstance(event, ToolCallEvent):
@@ -313,6 +314,8 @@ def create_app(
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
             except Exception as error:
                 yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
+            finally:
+                generator.close()
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 

@@ -151,7 +151,7 @@ These are yielded by `execute_stream()` and `continue_stream()` generators:
 | `ContentDelta(delta)` | Partial text chunk during streaming |
 | `ToolCallEvent(call_id, name, arguments)` | Agent has initiated a tool call |
 | `ToolResultEvent(call_id, name, result)` | Tool execution completed |
-| `SessionPaused(session_id, call_id, question)` | `ask_user` called in API mode; stream pauses |
+| `SessionPaused(session_id, call_id, questions)` | `ask_user` called in API mode; stream pauses |
 | `StreamComplete(session_id, usage, model, response_time)` | Stream finished successfully |
 
 ### ContinueRequest
@@ -172,11 +172,11 @@ Request DTO for resuming a paused session. Contains the user's answer to an `ask
 class RunAgentPaused:
     session_id: str
     call_id: str
-    question: str
+    questions: list[dict]
     tool_call_history: list[ToolCallRecord]
 ```
 
-Returned by `RunAgentUseCase.execute()` and `RunAgentUseCase.continue_sync()` when the agent calls `ask_user` during synchronous execution. The caller should present the question, collect an answer, and resume via `continue_sync()`.
+Returned by `RunAgentUseCase.execute()` and `RunAgentUseCase.continue_sync()` when the agent calls `ask_user` during synchronous execution. The caller should present the questions, collect an answer, and resume via `continue_sync()`. Each question item may include `type` (`"text"` or `"choice"`), `options`, and `multiSelect` for choice questions.
 
 ### Sync Result Union
 
@@ -216,10 +216,10 @@ class SyncChatResponse(BaseModel):
     model: str = ""
     response_time: float = 0.0
     call_id: str = ""
-    question: str = ""
+    questions: list[dict] = []
 ```
 
-Discriminated by `status`. When `"completed"`, `message`/`usage`/`model`/`response_time` are populated. When `"paused"`, `call_id`/`question` are populated.
+Discriminated by `status`. When `"completed"`, `message`/`usage`/`model`/`response_time` are populated. When `"paused"`, `call_id`/`questions` are populated. Each question item may include `type` (`"text"` or `"choice"`), `options` (list of `{label, description?}`), and `multiSelect` (boolean).
 
 Factory methods: `from_completed(response)` / `from_paused(paused)`.
 

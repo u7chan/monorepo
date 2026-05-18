@@ -90,6 +90,43 @@ def _find_next_unanswered_ask_user(
     return None
 
 
+def _build_ask_user_result(user_answer: str, questions: list[dict]) -> str:
+    """Build the ask_user tool result JSON from the user's raw answer.
+
+    For ``choice`` questions with ``options``, numeric inputs are mapped to
+    option labels.  Comma-separated numbers are supported when ``multiSelect``
+    is ``True``.  Non-numeric input falls back to free-form text.
+    """
+    if not questions:
+        return json.dumps({"answers": {}}, ensure_ascii=False)
+    q = questions[0]
+    question_text = q.get("question", "")
+    options = q.get("options", [])
+
+    if not options:
+        return json.dumps({"answers": {question_text: user_answer}}, ensure_ascii=False)
+
+    multi_select = q.get("multiSelect", False)
+    if multi_select:
+        parts = [p.strip() for p in user_answer.split(",") if p.strip()]
+    else:
+        parts = [user_answer.strip()] if user_answer.strip() else []
+
+    if all(p.isdigit() for p in parts):
+        labels: list[str] = []
+        for p in parts:
+            idx = int(p) - 1
+            if 0 <= idx < len(options):
+                labels.append(options[idx]["label"])
+        if labels:
+            return json.dumps(
+                {"answers": {question_text: ", ".join(labels)}},
+                ensure_ascii=False,
+            )
+
+    return json.dumps({"answers": {question_text: user_answer}}, ensure_ascii=False)
+
+
 class RunAgentUseCase:
     """Reusable execution path for session-aware agent interactions."""
 
@@ -158,11 +195,8 @@ class RunAgentUseCase:
             raise RuntimeError("Session is paused but no pending tool call found")
         pending_args = json.loads(tc["function"]["arguments"])
         questions = pending_args.get("questions", [])
-        question_text = questions[0]["question"] if questions else ""
-        result = json.dumps(
-            {"answers": {question_text: request.answer}}, ensure_ascii=False
-        )
-        session.append_tool_message(result, tool_call_id=tc["id"])
+        result = _build_ask_user_result(request.answer, questions)
+        session.replace_tool_message(result, tool_call_id=tc["id"])
         resume_round = session.pending_round
         session.resume_with_answer()
 
@@ -170,6 +204,7 @@ class RunAgentUseCase:
 
         next_ask_user_tc = _find_next_unanswered_ask_user(session)
         if next_ask_user_tc is not None:
+            session.append_tool_message("", tool_call_id=next_ask_user_tc["id"])
             return self._build_paused_result(
                 session=session,
                 ask_user_tc=next_ask_user_tc,
@@ -236,6 +271,9 @@ class RunAgentUseCase:
                 )
 
             if ask_user_tcs:
+                # Add a placeholder tool message so OpenAI's history validation
+                # is satisfied when the session resumes later.
+                session.append_tool_message("", tool_call_id=ask_user_tcs[0]["id"])
                 return self._build_paused_result(
                     session=session,
                     ask_user_tc=ask_user_tcs[0],
@@ -341,6 +379,7 @@ class RunAgentUseCase:
                                 result=result,
                             )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
+                        session.append_tool_message("", tool_call_id=ask_user_tc["id"])
                         self._session_store.save(session)
                         ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
                         yield SessionPaused(
@@ -360,12 +399,8 @@ class RunAgentUseCase:
                             user_answer = yield event
                             ask_user_args = json.loads(tc["function"]["arguments"])
                             questions = ask_user_args.get("questions", [])
-                            question_text = (
-                                questions[0]["question"] if questions else ""
-                            )
-                            result = json.dumps(
-                                {"answers": {question_text: user_answer or ""}},
-                                ensure_ascii=False,
+                            result = _build_ask_user_result(
+                                user_answer or "", questions
                             )
                         else:
                             yield ToolCallEvent(
@@ -431,11 +466,9 @@ class RunAgentUseCase:
             raise RuntimeError("Session is paused but no pending tool call found")
         pending_args = json.loads(tc["function"]["arguments"])
         questions = pending_args.get("questions", [])
-        question_text = questions[0]["question"] if questions else ""
-        result = json.dumps(
-            {"answers": {question_text: request.answer}}, ensure_ascii=False
-        )
-        session.append_tool_message(result, tool_call_id=tc["id"])
+        result = _build_ask_user_result(request.answer, questions)
+        session.replace_tool_message(result, tool_call_id=tc["id"])
+        self._session_store.save(session)
         yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
         resume_round = session.pending_round
         session.resume_with_answer()
@@ -443,6 +476,7 @@ class RunAgentUseCase:
         next_ask_user_tc = _find_next_unanswered_ask_user(session)
         if next_ask_user_tc is not None:
             session.pause_for_ask_user(next_ask_user_tc, round_idx=resume_round)
+            session.append_tool_message("", tool_call_id=next_ask_user_tc["id"])
             self._session_store.save(session)
             ask_user_args = json.loads(next_ask_user_tc["function"]["arguments"])
             yield SessionPaused(
