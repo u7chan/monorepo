@@ -196,7 +196,7 @@ class RunAgentUseCase:
         pending_args = json.loads(tc["function"]["arguments"])
         questions = pending_args.get("questions", [])
         result = _build_ask_user_result(request.answer, questions)
-        session.append_tool_message(result, tool_call_id=tc["id"])
+        session.replace_tool_message(result, tool_call_id=tc["id"])
         resume_round = session.pending_round
         session.resume_with_answer()
 
@@ -204,6 +204,7 @@ class RunAgentUseCase:
 
         next_ask_user_tc = _find_next_unanswered_ask_user(session)
         if next_ask_user_tc is not None:
+            session.append_tool_message("", tool_call_id=next_ask_user_tc["id"])
             return self._build_paused_result(
                 session=session,
                 ask_user_tc=next_ask_user_tc,
@@ -270,6 +271,9 @@ class RunAgentUseCase:
                 )
 
             if ask_user_tcs:
+                # Add a placeholder tool message so OpenAI's history validation
+                # is satisfied when the session resumes later.
+                session.append_tool_message("", tool_call_id=ask_user_tcs[0]["id"])
                 return self._build_paused_result(
                     session=session,
                     ask_user_tc=ask_user_tcs[0],
@@ -375,6 +379,7 @@ class RunAgentUseCase:
                                 result=result,
                             )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
+                        session.append_tool_message("", tool_call_id=ask_user_tc["id"])
                         self._session_store.save(session)
                         ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
                         yield SessionPaused(
@@ -462,7 +467,8 @@ class RunAgentUseCase:
         pending_args = json.loads(tc["function"]["arguments"])
         questions = pending_args.get("questions", [])
         result = _build_ask_user_result(request.answer, questions)
-        session.append_tool_message(result, tool_call_id=tc["id"])
+        session.replace_tool_message(result, tool_call_id=tc["id"])
+        self._session_store.save(session)
         yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
         resume_round = session.pending_round
         session.resume_with_answer()
@@ -470,6 +476,7 @@ class RunAgentUseCase:
         next_ask_user_tc = _find_next_unanswered_ask_user(session)
         if next_ask_user_tc is not None:
             session.pause_for_ask_user(next_ask_user_tc, round_idx=resume_round)
+            session.append_tool_message("", tool_call_id=next_ask_user_tc["id"])
             self._session_store.save(session)
             ask_user_args = json.loads(next_ask_user_tc["function"]["arguments"])
             yield SessionPaused(
