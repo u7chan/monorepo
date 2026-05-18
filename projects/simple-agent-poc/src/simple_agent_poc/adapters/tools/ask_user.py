@@ -32,12 +32,34 @@ TOOL_DEFINITION: ToolDefinition = {
                             },
                             "type": {
                                 "type": "string",
-                                "enum": ["text"],
+                                "enum": ["text", "choice"],
                                 "description": "質問の種類",
                             },
                             "placeholder": {
                                 "type": "string",
                                 "description": "入力欄のプレースホルダー",
+                            },
+                            "options": {
+                                "type": "array",
+                                "description": "選択肢のリスト（type=choice の場合）",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {
+                                            "type": "string",
+                                            "description": "選択肢のラベル",
+                                        },
+                                        "description": {
+                                            "type": "string",
+                                            "description": "選択肢の説明",
+                                        },
+                                    },
+                                    "required": ["label"],
+                                },
+                            },
+                            "multiSelect": {
+                                "type": "boolean",
+                                "description": "複数選択を許可するか（type=choice の場合）",
                             },
                         },
                         "required": ["question", "type"],

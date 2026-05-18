@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from simple_agent_poc.adapters.cli.renderer import (
+    ask_user_question,
     get_user_input,
     show_agent_response,
     show_error,
@@ -150,3 +151,81 @@ class TestWithIndicator:
             with_indicator("Loading", mock_op)
 
         mock_op.assert_called_once()
+
+
+class TestAskUserQuestion:
+    """Tests for ask_user_question rendering."""
+
+    @patch("builtins.input", return_value="Alice")
+    @patch("builtins.print")
+    def test_text_type_prompt(
+        self, mock_print: MagicMock, mock_input: MagicMock
+    ) -> None:
+        questions = [
+            {
+                "question": "What is your name?",
+                "header": "Name",
+                "type": "text",
+                "placeholder": "e.g. Alice",
+            }
+        ]
+        result = ask_user_question(questions)
+
+        assert result == "Alice"
+        mock_input.assert_called_once_with(
+            "  [Name] What is your name? (e.g. Alice) > "
+        )
+
+    @patch("builtins.input", return_value="1")
+    @patch("builtins.print")
+    def test_choice_single_select(
+        self, mock_print: MagicMock, mock_input: MagicMock
+    ) -> None:
+        questions = [
+            {
+                "question": "Which database?",
+                "header": "DB",
+                "type": "choice",
+                "options": [
+                    {"label": "PostgreSQL", "description": "OSS RDBMS"},
+                    {"label": "SQLite"},
+                ],
+                "multiSelect": False,
+            }
+        ]
+        result = ask_user_question(questions)
+
+        assert result == "1"
+        calls = [
+            call.args[0] if call.args else "" for call in mock_print.call_args_list
+        ]
+        assert "  [DB] Which database?" in calls
+        assert "    1. PostgreSQL — OSS RDBMS" in calls
+        assert "    2. SQLite" in calls
+        mock_input.assert_called_once_with("  選択（番号または自由記述）> ")
+
+    @patch("builtins.input", return_value="1, 2")
+    @patch("builtins.print")
+    def test_choice_multi_select(
+        self, mock_print: MagicMock, mock_input: MagicMock
+    ) -> None:
+        questions = [
+            {
+                "question": "Pick sections",
+                "type": "choice",
+                "options": [
+                    {"label": "Intro", "description": "Introduction"},
+                    {"label": "Conclusion"},
+                ],
+                "multiSelect": True,
+            }
+        ]
+        result = ask_user_question(questions)
+
+        assert result == "1, 2"
+        calls = [
+            call.args[0] if call.args else "" for call in mock_print.call_args_list
+        ]
+        assert "  Pick sections" in calls
+        assert "    1. Intro — Introduction" in calls
+        mock_input.assert_called_once_with("  選択（カンマ区切りで複数可）> ")

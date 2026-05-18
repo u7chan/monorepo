@@ -18,7 +18,7 @@ from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
 
-from tests.helpers import _questions_args
+from tests.helpers import _choice_questions_args, _questions_args
 
 
 class StreamingStubLLMClient:
@@ -444,3 +444,48 @@ class TestStreamPauseContinueAPI:
         )
 
         assert response.status_code == 422
+
+    def test_chat_stream_pause_includes_choice_options(self) -> None:
+        """Paused event for choice questions includes options and multiSelect."""
+        chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": _choice_questions_args(multi_select=True),
+                    },
+                },
+            },
+        ]
+        session_store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+        registry = build_registry_with_ask_user()
+        llm_client = StreamingStubLLMClient(chunks=chunks)
+
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client_factory=lambda _agent_definition: llm_client,
+                session_store=session_store,
+                agent_definitions=registry,
+                tool_executor=tool_executor,
+                is_api_context=True,
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/chat/stream", json={"message": "Hello"})
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        assert events[0]["event"] == "tool_call"
+        assert events[1]["event"] == "paused"
+        paused_data = json.loads(events[1]["data"])
+        question = paused_data["questions"][0]
+        assert question["type"] == "choice"
+        assert question["multiSelect"] is True
+        assert len(question["options"]) == 2
+        assert question["options"][0]["label"] == "PostgreSQL"

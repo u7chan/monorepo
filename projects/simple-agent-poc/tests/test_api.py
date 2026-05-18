@@ -6,9 +6,16 @@ from fastapi.testclient import TestClient
 
 from simple_agent_poc.adapters.http.api import create_app
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
+from simple_agent_poc.adapters.tools.ask_user import (
+    TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+)
+from simple_agent_poc.adapters.tools.ask_user import execute as ask_user_execute
+from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
+
+from tests.helpers import _choice_questions_args
 
 
 class StubLLMClient:
@@ -275,6 +282,79 @@ class TestAPI:
         assert second_response.json() == {
             "detail": "agent_id cannot be changed for an existing session"
         }
+
+    def test_chat_sync_pause_includes_choice_options(self) -> None:
+        """Sync paused response includes options and multiSelect for choice questions."""
+
+        class AskUserLLMStub:
+            def complete(
+                self,
+                messages: list[Message],
+                *,
+                tools=None,
+            ) -> LLMResponse:
+                return {
+                    "content": "",
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                    },
+                    "model": "stub-model",
+                    "response_time": 0.1,
+                    "tool_calls": [
+                        {
+                            "id": "call_001",
+                            "type": "function",
+                            "function": {
+                                "name": "ask_user",
+                                "arguments": _choice_questions_args(multi_select=True),
+                            },
+                        }
+                    ],
+                }
+
+            def complete_stream(
+                self,
+                messages: list[Message],
+                *,
+                tools=None,
+            ) -> Iterator[LLMStreamChunk]:
+                raise NotImplementedError
+
+        tool_executor = BuiltinToolRegistry()
+        tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+        app = create_app(
+            use_case_factory=lambda: RunAgentUseCase(
+                llm_client_factory=lambda _agent_definition: AskUserLLMStub(),
+                session_store=InMemorySessionStore(),
+                agent_definitions=AgentDefinitionRegistry.from_mapping(
+                    {
+                        "agents": {
+                            "default": {
+                                "model": "default-model",
+                                "system_prompt": "System prompt",
+                                "tools": ["ask_user"],
+                            }
+                        }
+                    }
+                ),
+                tool_executor=tool_executor,
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/chat/sync", json={"message": "Hello"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "paused"
+        question = data["questions"][0]
+        assert question["type"] == "choice"
+        assert question["multiSelect"] is True
+        assert len(question["options"]) == 2
+        assert question["options"][0]["label"] == "PostgreSQL"
 
 
 class TestSSEEvents:
