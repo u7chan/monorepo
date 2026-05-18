@@ -72,7 +72,7 @@ class SyncChatResponse(BaseModel):
     model: str = ""
     response_time: float = 0.0
     call_id: str = ""
-    question: str = ""
+    questions: list[dict] = []
 
     @classmethod
     def from_completed(cls, response: RunAgentResponse) -> "SyncChatResponse":
@@ -94,7 +94,7 @@ class SyncChatResponse(BaseModel):
             status="paused",
             session_id=paused.session_id,
             call_id=paused.call_id,
-            question=paused.question,
+            questions=paused.questions,
             tool_calls=paused.tool_call_history,
         )
 

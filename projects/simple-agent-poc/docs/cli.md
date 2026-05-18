@@ -62,7 +62,7 @@ while True:
     else:
         response = with_indicator("Thinking", lambda: use_case.execute(request))
         while response is RunAgentPaused:
-            answer = ask_user_question(response.question)
+            answer = ask_user_question(response.questions)
             response = with_indicator(
                 "Thinking",
                 lambda: use_case.continue_sync(ContinueRequest(
@@ -79,7 +79,7 @@ while True:
 When `stream: false` (default), `execute()` returns `RunAgentResponse | RunAgentPaused`. If `RunAgentPaused` is returned:
 
 1. The indicator stops automatically (via `finally` in `with_indicator`).
-2. `ask_user_question(question)` displays the question and reads the user's answer from stdin.
+2. `ask_user_question(questions)` displays the question and reads the user's answer from stdin.
 3. `continue_sync(ContinueRequest(session_id, answer))` is called with a new indicator.
 4. If `continue_sync` returns another `RunAgentPaused` (multiple `ask_user` in same batch), the loop repeats.
 5. When `RunAgentResponse` is finally returned, it is rendered via `show_agent_response()`.
@@ -144,7 +144,7 @@ Agent: <response.message>
 1. Starts `LoadingIndicator`.
 2. On `ContentDelta`: stops indicator, prints `"Agent: "`, writes delta text in-place.
 3. On `ToolCallEvent`: displays the tool call being made.
-4. **For `ask_user`**: calls `ask_user_question(question)` which displays the question and reads user input, then `generator.send(answer)` to resume the stream.
+4. **For `ask_user`**: calls `ask_user_question(questions)` which displays the question with header/placeholder and reads user input, then `generator.send(answer)` to resume the stream.
 5. On `ToolResultEvent`: displays the tool result.
 6. On `SessionPaused`: displays the pause notification (API mode only; not expected in CLI).
 7. On `StreamComplete`: prints newline, then stats line (same format as `show_agent_response`).
@@ -154,15 +154,25 @@ If no `ContentDelta` was received before `StreamComplete`, the indicator is stop
 
 If no `StreamComplete` arrives at all, raises `RuntimeError`.
 
-### ask_user_question(question)
+### ask_user_question(questions)
 
 ```python
-def ask_user_question(question: str) -> str:
-    print(f"\n  💬 ask_user: {question}")
-    return input("  Answer > ").strip()
+def ask_user_question(questions: list[dict]) -> str:
+    if not questions:
+        return ""
+    q = questions[0]
+    header = q.get("header", "")
+    question_text = q.get("question", "")
+    placeholder = q.get("placeholder", "")
+    label = f"[{header}] " if header else ""
+    prompt = f"  {label}{question_text}"
+    if placeholder:
+        prompt += f" ({placeholder})"
+    prompt += " > "
+    return input(prompt).strip()
 ```
 
-Displays the `ask_user` question and reads the user's typed answer from stdin. Used by both sync and stream modes.
+Displays the `ask_user` question and reads the user's typed answer from stdin. Phase 1 では `questions` 配列の最初の要素のみを処理する。`header` があれば `[Header]` 形式のラベルを表示し、`placeholder` があれば入力ヒントとして表示する。Used by both sync and stream modes.
 
 ### show_error(error)
 

@@ -18,6 +18,8 @@ from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
 
+from tests.helpers import _questions_args
+
 
 class StreamingStubLLMClient:
     """Stub LLM client for streaming HTTP tests."""
@@ -201,7 +203,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Your name?"}',
+                        "arguments": _questions_args(question_text="Your name?"),
                     },
                 },
             },
@@ -230,7 +232,7 @@ class TestStreamPauseContinueAPI:
         assert events[1]["event"] == "paused"
         paused_data = json.loads(events[1]["data"])
         assert "session_id" in paused_data
-        assert paused_data["question"] == "Your name?"
+        assert paused_data["questions"][0]["question"] == "Your name?"
 
     def test_chat_continue_resumes_session(self) -> None:
         first_chunks: list[LLMStreamChunk] = [
@@ -242,7 +244,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Your name?"}',
+                        "arguments": _questions_args(question_text="Your name?"),
                     },
                 },
             },
@@ -298,7 +300,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "First number?"}',
+                        "arguments": _questions_args(question_text="First number?"),
                     },
                 },
             },
@@ -310,7 +312,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Second number?"}',
+                        "arguments": _questions_args(question_text="Second number?"),
                     },
                 },
             },
@@ -363,7 +365,7 @@ class TestStreamPauseContinueAPI:
         assert continue_events[1]["event"] == "paused"
         next_paused_data = json.loads(continue_events[1]["data"])
         assert next_paused_data["call_id"] == "call_002"
-        assert next_paused_data["question"] == "Second number?"
+        assert next_paused_data["questions"][0]["question"] == "Second number?"
         assert continue_events[2]["event"] == "done"
 
     def test_chat_continue_with_unknown_session_returns_error(self) -> None:

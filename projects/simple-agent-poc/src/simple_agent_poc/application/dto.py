@@ -103,7 +103,7 @@ class SessionPaused:
 
     session_id: str
     call_id: str
-    question: str
+    questions: list[dict]
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,5 +112,5 @@ class RunAgentPaused:
 
     session_id: str
     call_id: str
-    question: str
+    questions: list[dict]
     tool_call_history: list[ToolCallRecord]

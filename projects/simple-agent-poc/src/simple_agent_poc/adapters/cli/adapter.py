@@ -128,7 +128,7 @@ class CLIAdapter:
                         ),
                     )
                     while isinstance(response, RunAgentPaused):
-                        answer = ask_user_question(response.question)
+                        answer = ask_user_question(response.questions)
                         paused_session_id = response.session_id
                         response = self._indicator_runner(
                             "Thinking",

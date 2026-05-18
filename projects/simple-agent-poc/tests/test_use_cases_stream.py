@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.helpers import _questions_args
+
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -407,7 +409,9 @@ class TestExecuteStreamPause:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "What is your name?"}',
+                        "arguments": _questions_args(
+                            question_text="What is your name?"
+                        ),
                     },
                 },
             },
@@ -429,7 +433,7 @@ class TestExecuteStreamPause:
         assert isinstance(events[0], ToolCallEvent)
         assert events[0].name == "ask_user"
         assert isinstance(events[1], SessionPaused)
-        assert events[1].question == "What is your name?"
+        assert events[1].questions[0]["question"] == "What is your name?"
 
         session = store.get(events[1].session_id)
         assert session is not None
@@ -447,7 +451,7 @@ class TestExecuteStreamPause:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "What?"}',
+                        "arguments": _questions_args(question_text="What?"),
                     },
                 },
             },
@@ -504,7 +508,7 @@ class TestContinueStream:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Your name?"}',
+                        "arguments": _questions_args(question_text="Your name?"),
                     },
                 },
             },
@@ -571,7 +575,7 @@ class TestContinueStream:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "First number?"}',
+                        "arguments": _questions_args(question_text="First number?"),
                     },
                 },
             },
@@ -583,7 +587,7 @@ class TestContinueStream:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Second number?"}',
+                        "arguments": _questions_args(question_text="Second number?"),
                     },
                 },
             },
@@ -626,12 +630,14 @@ class TestContinueStream:
         assert continue_events[0] == ToolResultEvent(
             call_id="call_001",
             name="ask_user",
-            result='{"answer": "1"}',
+            result='{"answers": {"First number?": "1"}}',
         )
         assert continue_events[1] == SessionPaused(
             session_id=paused.session_id,
             call_id="call_002",
-            question="Second number?",
+            questions=[
+                {"question": "Second number?", "header": "Name", "type": "text"}
+            ],
         )
         llm_client_factory.assert_not_called()
 

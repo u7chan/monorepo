@@ -227,8 +227,10 @@ async function sendSyncMessage(message) {
     const data = await resp.json();
     appendJson("raw-log", "line-system", data);
     if (data.status === "paused") {
-      appendLine("conv-log", "line-paused", "  [Paused] " + data.question);
-      enterPausedState({ session_id: data.session_id, question: data.question, call_id: data.call_id, mode: "sync" });
+      const qs = data.questions || [];
+      const firstQ = qs.length > 0 ? qs[0].question : "";
+      appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+      enterPausedState({ session_id: data.session_id, questions: qs, call_id: data.call_id, mode: "sync" });
       return;
     }
     appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
@@ -291,7 +293,9 @@ async function sendStreamMessage(message) {
         appendJson("tool-log", "line-tool", d);
       } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
-        appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
+        const qs = d.questions || [];
+        const firstQ = qs.length > 0 ? qs[0].question : "";
+        appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
         enterPausedState(d);
       } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
@@ -316,10 +320,12 @@ async function sendStreamMessage(message) {
   }
 }
 
-function enterPausedState({ session_id: sessionId, question, call_id: callId, mode = "stream" }) {
-  state.awaitingAnswer = { sessionId, question, callId, mode };
+function enterPausedState({ session_id: sessionId, questions, call_id: callId, mode = "stream" }) {
+  const qs = questions || [];
+  const questionText = qs.length > 0 ? qs[0].question : "";
+  state.awaitingAnswer = { sessionId, questions, callId, mode };
   setSessionId(sessionId);
-  el("paused-question").textContent = "Q: " + question;
+  el("paused-question").textContent = "Q: " + questionText;
   el("paused-answer").value = "";
   el("paused-bar").classList.add("visible");
   el("paused-answer").focus();
@@ -364,8 +370,10 @@ async function continueSync(sessionId, answer) {
     const data = await resp.json();
     appendJson("raw-log", "line-system", data);
     if (data.status === "paused") {
-      appendLine("conv-log", "line-paused", "  [Paused] " + data.question);
-      enterPausedState({ session_id: data.session_id, question: data.question, call_id: data.call_id, mode: "sync" });
+      const qs = data.questions || [];
+      const firstQ = qs.length > 0 ? qs[0].question : "";
+      appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+      enterPausedState({ session_id: data.session_id, questions: qs, call_id: data.call_id, mode: "sync" });
       return;
     }
     appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
@@ -426,8 +434,10 @@ async function continueStream(sessionId, answer) {
         appendJson("tool-log", "line-tool", d);
       } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
-        appendLine("conv-log", "line-paused", "  [Paused] " + d.question);
-        enterPausedState({ session_id: d.session_id, question: d.question, call_id: d.call_id, mode: "stream" });
+        const qs = d.questions || [];
+        const firstQ = qs.length > 0 ? qs[0].question : "";
+        appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+        enterPausedState({ session_id: d.session_id, questions: qs, call_id: d.call_id, mode: "stream" });
       } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
         if (d.session_id) setSessionId(d.session_id);
