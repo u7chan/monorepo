@@ -29,7 +29,11 @@ from simple_agent_poc.core.types import (
     ValidationError,
 )
 from simple_agent_poc.adapters.http.test_page import TEST_PAGE_HTML
-from simple_agent_poc.entrypoints.bootstrap import create_run_agent_use_case_factory
+from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
+from simple_agent_poc.entrypoints.bootstrap import (
+    create_agent_definition_registry,
+    create_run_agent_use_case_factory,
+)
 
 
 class ChatRequest(BaseModel):
@@ -148,10 +152,12 @@ def resolve_session_id(
 def create_app(
     *,
     use_case_factory: Callable[[], RunAgentUseCase] | None = None,
+    agent_definitions: AgentDefinitionRegistry | None = None,
 ) -> FastAPI:
     """Create the FastAPI application."""
     app = FastAPI(title="simple-agent-poc")
     factory = use_case_factory or create_run_agent_use_case_factory()
+    definitions = agent_definitions or create_agent_definition_registry()
 
     def get_run_agent_use_case() -> RunAgentUseCase:
         return factory()
@@ -309,6 +315,10 @@ def create_app(
                 yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @app.get("/api/agents")
+    def list_agents() -> dict[str, list[str]]:
+        return {"agents": definitions.list_ids()}
 
     @app.get("/", response_class=HTMLResponse)
     def test_page() -> HTMLResponse:

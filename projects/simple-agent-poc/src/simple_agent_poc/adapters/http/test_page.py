@@ -49,7 +49,8 @@ TEST_PAGE_HTML = """<!doctype html>
     </select>
   </label>
   <label>Agent
-    <input type="text" id="agent-id" value="default" size="10" onchange="onAgentIdChange()">
+    <select id="agent-id" onchange="onAgentIdChange()">
+    </select>
   </label>
   <label>Session
     <input type="text" id="session-id" size="24" placeholder="(new)" onchange="onSessionIdChange()">
@@ -102,7 +103,7 @@ function onModeChange() {
 }
 
 function onAgentIdChange() {
-  state.agentId = el("agent-id").value.trim() || "default";
+  state.agentId = el("agent-id").value;
   persist();
 }
 
@@ -122,7 +123,6 @@ function persist() {
     localStorage.setItem("sap_test_ui", JSON.stringify({
       mode: state.mode,
       agentId: state.agentId,
-      sessionId: state.sessionId,
     }));
   } catch (_) {}
 }
@@ -133,8 +133,29 @@ function restore() {
     if (!raw) return;
     const d = JSON.parse(raw);
     if (d.mode) { state.mode = d.mode; el("mode-select").value = d.mode; }
-    if (d.agentId) { state.agentId = d.agentId; el("agent-id").value = d.agentId; }
-    if (d.sessionId) { state.sessionId = d.sessionId; el("session-id").value = d.sessionId; }
+    if (d.agentId) { state.agentId = d.agentId; }
+  } catch (_) {}
+}
+
+async function fetchAgents() {
+  try {
+    const resp = await fetch("/api/agents");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const select = el("agent-id");
+    select.innerHTML = "";
+    for (const id of data.agents) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      select.appendChild(option);
+    }
+    if (state.agentId && data.agents.includes(state.agentId)) {
+      select.value = state.agentId;
+    } else if (data.agents.length > 0) {
+      select.value = data.agents[0];
+      state.agentId = data.agents[0];
+    }
   } catch (_) {}
 }
 
@@ -509,7 +530,7 @@ function truncate(s, max) {
 }
 
 restore();
-el("msg-input").focus();
+(async () => { await fetchAgents(); el("msg-input").focus(); })();
 </script>
 </body>
 </html>

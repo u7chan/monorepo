@@ -87,6 +87,10 @@ class AgentDefinitionRegistry:
         except KeyError as error:
             raise ValidationError(f"Unknown agent_id: {agent_id}") from error
 
+    def list_ids(self) -> list[str]:
+        """Return all registered agent ids."""
+        return list(self._definitions.keys())
+
 
 def _build_agent_definition(
     agent_id: object,
