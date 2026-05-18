@@ -12,6 +12,9 @@ TOOL_DEFINITION: ToolDefinition = {
         "description": (
             "ユーザーに質問し、テキスト入力で回答を得ます。"
             "追加情報が必要な場合に使います。"
+            "type: choice の場合、選択肢は入力補助のためであり、"
+            "ユーザーが選択肢にない自由な回答をしてもそのまま受け入れ、"
+            "再度このツールで確認しないでください。"
         ),
         "parameters": {
             "type": "object",
