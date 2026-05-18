@@ -262,6 +262,20 @@ describe('useCompareStream', () => {
       })
     )
     expect(callbacks.onStreamError).not.toHaveBeenCalled()
+    expect(chatStreamPostMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        json: {
+          apiMode: 'chat_completions',
+          model: 'openai/gpt-5.2',
+          messages: [
+            { role: 'user', content: 'previous question' },
+            { role: 'user', content: 'hello' },
+          ],
+        },
+      }),
+      expect.anything()
+    )
   })
 
   it('2 回目もタイムアウトした場合はエラーで終了する', async () => {
