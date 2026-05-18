@@ -106,7 +106,12 @@ def _build_ask_user_result(user_answer: str, questions: list[dict]) -> str:
     if not options:
         return json.dumps({"answers": {question_text: user_answer}}, ensure_ascii=False)
 
-    parts = [p.strip() for p in user_answer.split(",") if p.strip()]
+    multi_select = q.get("multiSelect", False)
+    if multi_select:
+        parts = [p.strip() for p in user_answer.split(",") if p.strip()]
+    else:
+        parts = [user_answer.strip()] if user_answer.strip() else []
+
     if all(p.isdigit() for p in parts):
         labels: list[str] = []
         for p in parts:

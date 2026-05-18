@@ -59,7 +59,7 @@ Emitted after a tool executes. Contains:
 
 ```text
 event: paused
-data: {"session_id": "abc123...", "call_id": "call_def456", "questions": [{"question": "What is your preference?", "header": "Preference", "type": "text"}]}
+data: {"session_id": "abc123...", "call_id": "call_def456", "questions": [{"question": "What is your preference?", "header": "Preference", "type": "text"}, {"question": "Which database?", "header": "Database", "type": "choice", "options": [{"label": "PostgreSQL", "description": "OSS RDBMS"}, {"label": "SQLite", "description": "Lightweight embedded DB"}], "multiSelect": false}]}
 ```
 
 Emitted when `ask_user` is called in API mode. The SSE stream disconnects after this event. The client must send the answer via `POST /api/chat/continue` to resume. Contains:
@@ -68,7 +68,7 @@ Emitted when `ask_user` is called in API mode. The SSE stream disconnects after 
 |:---|:---|:---|
 | `session_id` | `str` | Session ID to use for the continue request |
 | `call_id` | `str` | Tool call ID (for reference) |
-| `questions` | `list[dict]` | Question items from `ask_user`. Each has `question`, `header`, `type` (`"text"`), and optional `placeholder` |
+| `questions` | `list[dict]` | Question items from `ask_user`. Each has `question`, `header`, `type` (`"text"` or `"choice"`), optional `placeholder`, and for `type: "choice"` also `options` (list of `{label, description?}`) and `multiSelect` (boolean) |
 
 ### `complete` — Stream Finished
 

@@ -94,6 +94,16 @@ When the agent calls `ask_user` and needs user input:
       "header": "Name",
       "type": "text",
       "placeholder": "e.g. Alice"
+    },
+    {
+      "question": "Which database?",
+      "header": "Database",
+      "type": "choice",
+      "options": [
+        {"label": "PostgreSQL", "description": "OSS RDBMS"},
+        {"label": "SQLite", "description": "Lightweight embedded DB"}
+      ],
+      "multiSelect": false
     }
   ],
   "tool_calls": []
@@ -105,8 +115,10 @@ When the agent calls `ask_user` and needs user input:
 | `status` | `"paused"` | Discriminator for a paused response |
 | `session_id` | `str` | Session ID for continuing the conversation |
 | `call_id` | `str` | ID of the pending `ask_user` tool call |
-| `questions` | `list[dict]` | Question items from `ask_user` arguments. Each item has `question` (text), `header` (short label), `type` (`"text"` in Phase 1), and optional `placeholder` |
+| `questions` | `list[dict]` | Question items from `ask_user` arguments. Each item has `question`, `header`, `type` (`"text"` or `"choice"`), optional `placeholder`, and for `type: "choice"` also `options` and `multiSelect` |
 | `tool_calls` | `list[ToolCallRecord]` | Non-ask_user tool calls executed before pausing |
+
+**`type: "choice"`** の場合、各 `options` エントリは `label`（必須）と `description`（任意）を持つ。`multiSelect: true` の場合、クライアントはカンマ区切りで複数の選択番号を送信できる。
 
 #### Error Responses
 

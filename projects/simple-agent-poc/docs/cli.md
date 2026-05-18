@@ -163,16 +163,36 @@ def ask_user_question(questions: list[dict]) -> str:
     q = questions[0]
     header = q.get("header", "")
     question_text = q.get("question", "")
+    q_type = q.get("type", "text")
     placeholder = q.get("placeholder", "")
+    options = q.get("options", [])
+    multi_select = q.get("multiSelect", False)
     label = f"[{header}] " if header else ""
-    prompt = f"  {label}{question_text}"
-    if placeholder:
-        prompt += f" ({placeholder})"
-    prompt += " > "
+
+    if q_type == "choice" and options:
+        print(f"  {label}{question_text}")
+        for idx, opt in enumerate(options, start=1):
+            desc = opt.get("description", "")
+            line = f"    {idx}. {opt['label']}"
+            if desc:
+                line += f" — {desc}"
+            print(line)
+        if multi_select:
+            prompt = "  選択（カンマ区切りで複数可）> "
+        else:
+            prompt = "  選択（番号または自由記述）> "
+    else:
+        prompt = f"  {label}{question_text}"
+        if placeholder:
+            prompt += f" ({placeholder})"
+        prompt += " > "
+
     return input(prompt).strip()
 ```
 
-Displays the `ask_user` question and reads the user's typed answer from stdin. Phase 1 では `questions` 配列の最初の要素のみを処理する。`header` があれば `[Header]` 形式のラベルを表示し、`placeholder` があれば入力ヒントとして表示する。Used by both sync and stream modes.
+Displays the `ask_user` question and reads the user's typed answer from stdin. `questions` 配列の最初の要素のみを処理する。`header` があれば `[Header]` 形式のラベルを表示し、`placeholder` があれば入力ヒントとして表示する。
+
+**`type: "choice"`** の場合、選択肢を番号付きで表示する。`multiSelect: true` ならカンマ区切りで複数番号を入力でき、選択されたラベルが結合された値が LLM に渡される。`multiSelect: false`（デフォルト）では単一番号または自由記述が受け付けられる。Used by both sync and stream modes.
 
 ### show_error(error)
 
