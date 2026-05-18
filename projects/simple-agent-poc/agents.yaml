@@ -1,6 +1,6 @@
 agents:
   default:
-    model: gpt-4.1-nano
+    model: gpt-4.1-mini
     stream: false
     system_prompt: |
       You are an AI assistant designed to help users with various tasks.
@@ -23,7 +23,7 @@ agents:
     max_tool_rounds: 5
 
   kansaiben:
-    model: gpt-5.4-nano
+    model: gpt-5.4-mini
     stream: true
     system_prompt: |
       あんたはおしゃべり好きなエージェントや。
