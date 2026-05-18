@@ -41,6 +41,7 @@ TEST_PAGE_HTML = """<!doctype html>
   .line-paused { color: var(--pause); }
   .line-error { color: var(--error); }
   .line-system { color: var(--muted); font-style: italic; }
+  .model-badge { font-size: 11px; font-family: ui-monospace, 'Cascadia Code', monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; margin: 0 10px 0 4px; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -56,7 +57,7 @@ TEST_PAGE_HTML = """<!doctype html>
     <select id="agent-id" onchange="onAgentIdChange()">
     </select>
   </label>
-  <span id="agent-model" style="font-size:12px;color:var(--muted);margin-left:4px;"></span>
+  <span id="agent-model" class="model-badge"></span>
   <label>Session
     <input type="text" id="session-id" size="24" placeholder="(new)" onchange="onSessionIdChange()">
   </label>
