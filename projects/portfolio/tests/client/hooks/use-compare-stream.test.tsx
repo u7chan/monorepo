@@ -113,7 +113,30 @@ describe('useCompareStream', () => {
     },
   })
 
-  it('タイムアウトしたモデルだけ 1 回自動リトライして完了する', async () => {
+  const createBodyFromChunksThenHang = (chunks: Uint8Array[], signal: AbortSignal) => ({
+    getReader() {
+      let index = 0
+
+      return {
+        read: async () => {
+          if (index < chunks.length) {
+            return { done: false, value: chunks[index++] }
+          }
+
+          return new Promise<{ done: boolean; value?: Uint8Array }>((_resolve, reject) => {
+            const abort = () => reject(new DOMException('Aborted', 'AbortError'))
+            if (signal.aborted) {
+              abort()
+              return
+            }
+            signal.addEventListener('abort', abort, { once: true })
+          })
+        },
+      }
+    },
+  })
+
+  it('SSE 確立後に最初の chunk が来ない場合は 1 回自動リトライして完了する', async () => {
     const { useCompareStream, chatStreamPostMock, STREAM_IDLE_TIMEOUT_MS } = await importSubject()
     const encoder = new TextEncoder()
     const callbacks = createCallbacks()
@@ -178,6 +201,67 @@ describe('useCompareStream', () => {
       }),
       expect.anything()
     )
+  })
+
+  it('delta 受信後に次の chunk が来ない場合も 1 回自動リトライして完了する', async () => {
+    const { useCompareStream, chatStreamPostMock, STREAM_IDLE_TIMEOUT_MS } = await importSubject()
+    const encoder = new TextEncoder()
+    const callbacks = createCallbacks()
+
+    chatStreamPostMock
+      .mockImplementationOnce((_req: unknown, options: { init: { signal: AbortSignal } }) =>
+        Promise.resolve({
+          ok: true,
+          body: createBodyFromChunksThenHang(
+            [
+              encoder.encode(
+                'data: {"event":"delta","id":"chunk-1","created":1,"model":"openai/gpt-5.2","content":"partial"}\n'
+              ),
+            ],
+            options.init.signal
+          ),
+        })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        body: createReaderFromChunks([
+          encoder.encode(
+            'data: {"event":"delta","id":"chunk-2","created":1,"model":"openai/gpt-5.2","content":"retry"}\n'
+          ),
+          encoder.encode(
+            'data: {"event":"finish","id":"chunk-2","created":1,"model":"openai/gpt-5.2","finishReason":"stop"}\n'
+          ),
+          encoder.encode('data: [DONE]\n'),
+        ]),
+      })
+
+    const { result } = renderHook(() => useCompareStream())
+
+    let promise: Promise<void> | undefined
+    act(() => {
+      promise = result.current.submitCompare(
+        settings,
+        { 'openai/gpt-5.2': modelStates['openai/gpt-5.2'] },
+        ['openai/gpt-5.2'],
+        userMessage,
+        callbacks
+      )
+    })
+
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS)
+    await promise
+
+    expect(chatStreamPostMock).toHaveBeenCalledTimes(2)
+    expect(callbacks.onStreamContent).toHaveBeenCalledWith('openai/gpt-5.2', 'partial', '')
+    expect(callbacks.onStreamRetry).toHaveBeenCalledWith('openai/gpt-5.2', 1)
+    expect(callbacks.onStreamDone).toHaveBeenCalledWith(
+      'openai/gpt-5.2',
+      expect.objectContaining({
+        finishReason: 'stop',
+        content: 'retry',
+      })
+    )
+    expect(callbacks.onStreamError).not.toHaveBeenCalled()
   })
 
   it('2 回目もタイムアウトした場合はエラーで終了する', async () => {
