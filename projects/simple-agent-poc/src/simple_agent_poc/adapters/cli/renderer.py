@@ -85,10 +85,22 @@ def get_user_input() -> str:
     return input("> ")
 
 
-def ask_user_question(question: str) -> str:
-    """Display an ask_user question and return the user's answer."""
-    print(f"\n  💬 ask_user: {question}")
-    return input("  Answer > ").strip()
+def ask_user_question(questions: list[dict]) -> str:
+    """Display ask_user questions and return the user's answer.
+
+    Phase 1 では questions 配列の最初の要素のみ処理する。"""
+    if not questions:
+        return ""
+    q = questions[0]
+    header = q.get("header", "")
+    question_text = q.get("question", "")
+    placeholder = q.get("placeholder", "")
+    label = f"[{header}] " if header else ""
+    prompt = f"  {label}{question_text}"
+    if placeholder:
+        prompt += f" ({placeholder})"
+    prompt += " > "
+    return input(prompt).strip()
 
 
 def show_agent_response(response: RunAgentResponse) -> None:
@@ -180,7 +192,7 @@ def show_streaming_response(
 
                 if event.name == "ask_user":
                     args = json.loads(event.arguments)
-                    answer = ask_user_question(args.get("question", ""))
+                    answer = ask_user_question(args.get("questions", []))
                     try:
                         next_event = stream.send(answer)
                     except StopIteration:
@@ -198,8 +210,14 @@ def show_streaming_response(
                 sys.stdout.flush()
             elif isinstance(event, SessionPaused):
                 indicator.stop()
-                sys.stdout.write(f"\n  💬 ask_user: {event.question}\n")
-                sys.stdout.flush()
+                questions = event.questions
+                if questions:
+                    q = questions[0]
+                    header = q.get("header", "")
+                    question_text = q.get("question", "")
+                    label = f"[{header}] " if header else ""
+                    sys.stdout.write(f"\n  💬 ask_user: {label}{question_text}\n")
+                    sys.stdout.flush()
             elif isinstance(event, StreamComplete):
                 complete = event
                 if not started:

@@ -188,6 +188,20 @@ def build_tool_executor_with_ask_user() -> BuiltinToolRegistry:
     return registry
 
 
+def _questions_args(*, question_text: str = "Your name?") -> str:
+    return json.dumps(
+        {
+            "questions": [
+                {
+                    "question": question_text,
+                    "header": "Q",
+                    "type": "text",
+                }
+            ]
+        }
+    )
+
+
 class TestStreamPauseContinueAPI:
     """Tests for SSE pause/continue via HTTP."""
 
@@ -201,7 +215,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Your name?"}',
+                        "arguments": _questions_args(),
                     },
                 },
             },
@@ -230,7 +244,7 @@ class TestStreamPauseContinueAPI:
         assert events[1]["event"] == "paused"
         paused_data = json.loads(events[1]["data"])
         assert "session_id" in paused_data
-        assert paused_data["question"] == "Your name?"
+        assert paused_data["questions"][0]["question"] == "Your name?"
 
     def test_chat_continue_resumes_session(self) -> None:
         first_chunks: list[LLMStreamChunk] = [
@@ -242,7 +256,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Your name?"}',
+                        "arguments": _questions_args(),
                     },
                 },
             },
@@ -298,7 +312,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "First number?"}',
+                        "arguments": _questions_args(question_text="First number?"),
                     },
                 },
             },
@@ -310,7 +324,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": '{"question": "Second number?"}',
+                        "arguments": _questions_args(question_text="Second number?"),
                     },
                 },
             },
@@ -363,7 +377,7 @@ class TestStreamPauseContinueAPI:
         assert continue_events[1]["event"] == "paused"
         next_paused_data = json.loads(continue_events[1]["data"])
         assert next_paused_data["call_id"] == "call_002"
-        assert next_paused_data["question"] == "Second number?"
+        assert next_paused_data["questions"][0]["question"] == "Second number?"
         assert continue_events[2]["event"] == "done"
 
     def test_chat_continue_with_unknown_session_returns_error(self) -> None:

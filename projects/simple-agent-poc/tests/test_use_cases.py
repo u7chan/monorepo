@@ -339,7 +339,7 @@ def test_continue_stream_uses_agent_max_tool_rounds(tool_registry):
         "type": "function",
         "function": {
             "name": "ask_user",
-            "arguments": '{"question": "Continue?"}',
+            "arguments": _questions_args(question_text="Continue?"),
         },
     }
     session = ConversationSession.start(
@@ -399,6 +399,22 @@ def test_execute_stream_final_complete(default_agent_def, tool_registry):
 # ---------------------------------------------------------------------------
 
 
+def _questions_args(*, question_text: str = "What is your name?") -> str:
+    import json
+
+    return json.dumps(
+        {
+            "questions": [
+                {
+                    "question": question_text,
+                    "header": "Name",
+                    "type": "text",
+                }
+            ]
+        }
+    )
+
+
 def _ask_user_tool_call() -> list[ToolCall]:
     return [
         {
@@ -406,7 +422,7 @@ def _ask_user_tool_call() -> list[ToolCall]:
             "type": "function",
             "function": {
                 "name": "ask_user",
-                "arguments": '{"question": "What is your name?"}',
+                "arguments": _questions_args(),
             },
         }
     ]
@@ -458,7 +474,9 @@ def test_execute_returns_paused_on_ask_user():
     )
     result = use_case.execute(RunAgentRequest(message="hello"))
     assert isinstance(result, RunAgentPaused)
-    assert result.question == "What is your name?"
+    assert result.questions[0]["question"] == "What is your name?"
+    assert result.questions[0]["header"] == "Name"
+    assert result.questions[0]["type"] == "text"
     assert result.call_id == "call_ask_001"
 
 
@@ -480,7 +498,7 @@ def test_continue_sync_resumes_and_completes():
         "type": "function",
         "function": {
             "name": "ask_user",
-            "arguments": '{"question": "What is your name?"}',
+            "arguments": _questions_args(),
         },
     }
     store = InMemorySessionStore()
@@ -527,7 +545,7 @@ def test_continue_sync_pauses_on_next_unanswered_ask_user():
         "type": "function",
         "function": {
             "name": "ask_user",
-            "arguments": '{"question": "First question?"}',
+            "arguments": _questions_args(question_text="First question?"),
         },
     }
     ask_user_tc_2: ToolCall = {
@@ -535,7 +553,7 @@ def test_continue_sync_pauses_on_next_unanswered_ask_user():
         "type": "function",
         "function": {
             "name": "ask_user",
-            "arguments": '{"question": "Second question?"}',
+            "arguments": _questions_args(question_text="Second question?"),
         },
     }
     store = InMemorySessionStore()
@@ -560,7 +578,7 @@ def test_continue_sync_pauses_on_next_unanswered_ask_user():
     )
 
     assert isinstance(result, RunAgentPaused)
-    assert result.question == "Second question?"
+    assert result.questions[0]["question"] == "Second question?"
     assert result.call_id == "call_ask_002"
 
 
