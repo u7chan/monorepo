@@ -40,7 +40,7 @@ TOOL_DEFINITION: ToolDefinition = {
                                 "description": "入力欄のプレースホルダー",
                             },
                         },
-                        "required": ["question", "header", "type"],
+                        "required": ["question", "type"],
                     },
                 },
             },

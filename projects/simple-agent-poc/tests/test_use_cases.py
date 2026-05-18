@@ -2,6 +2,8 @@
 
 from collections.abc import Iterator
 
+from tests.helpers import _questions_args
+
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -397,22 +399,6 @@ def test_execute_stream_final_complete(default_agent_def, tool_registry):
 # ---------------------------------------------------------------------------
 # Sync ask_user pause / resume
 # ---------------------------------------------------------------------------
-
-
-def _questions_args(*, question_text: str = "What is your name?") -> str:
-    import json
-
-    return json.dumps(
-        {
-            "questions": [
-                {
-                    "question": question_text,
-                    "header": "Name",
-                    "type": "text",
-                }
-            ]
-        }
-    )
 
 
 def _ask_user_tool_call() -> list[ToolCall]:

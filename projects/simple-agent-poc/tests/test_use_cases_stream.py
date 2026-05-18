@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.helpers import _questions_args
+
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -394,22 +396,6 @@ def build_tool_executor_with_ask_user() -> BuiltinToolRegistry:
     return registry
 
 
-def _questions_args(*, question_text: str = "What is your name?") -> str:
-    import json
-
-    return json.dumps(
-        {
-            "questions": [
-                {
-                    "question": question_text,
-                    "header": "Q",
-                    "type": "text",
-                }
-            ]
-        }
-    )
-
-
 class TestExecuteStreamPause:
     """Tests for execute_stream pause on ask_user in API mode."""
 
@@ -649,7 +635,9 @@ class TestContinueStream:
         assert continue_events[1] == SessionPaused(
             session_id=paused.session_id,
             call_id="call_002",
-            questions=[{"question": "Second number?", "header": "Q", "type": "text"}],
+            questions=[
+                {"question": "Second number?", "header": "Name", "type": "text"}
+            ],
         )
         llm_client_factory.assert_not_called()
 

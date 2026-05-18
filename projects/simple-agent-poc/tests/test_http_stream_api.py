@@ -18,6 +18,8 @@ from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
 
+from tests.helpers import _questions_args
+
 
 class StreamingStubLLMClient:
     """Stub LLM client for streaming HTTP tests."""
@@ -188,20 +190,6 @@ def build_tool_executor_with_ask_user() -> BuiltinToolRegistry:
     return registry
 
 
-def _questions_args(*, question_text: str = "Your name?") -> str:
-    return json.dumps(
-        {
-            "questions": [
-                {
-                    "question": question_text,
-                    "header": "Q",
-                    "type": "text",
-                }
-            ]
-        }
-    )
-
-
 class TestStreamPauseContinueAPI:
     """Tests for SSE pause/continue via HTTP."""
 
@@ -215,7 +203,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": _questions_args(),
+                        "arguments": _questions_args(question_text="Your name?"),
                     },
                 },
             },
@@ -256,7 +244,7 @@ class TestStreamPauseContinueAPI:
                     "type": "function",
                     "function": {
                         "name": "ask_user",
-                        "arguments": _questions_args(),
+                        "arguments": _questions_args(question_text="Your name?"),
                     },
                 },
             },
