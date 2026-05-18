@@ -47,7 +47,7 @@ Own transport-specific integration details.
 - `src/simple_agent_poc/adapters/tools/registry.py` — `BuiltinToolRegistry`
 - `src/simple_agent_poc/adapters/tools/concat.py` — `concat` tool
 - `src/simple_agent_poc/adapters/tools/get_current_time.py` — `get_current_time` tool
-- `src/simple_agent_poc/adapters/tools/ask_user.py` — `ask_user` interactive tool
+- `src/simple_agent_poc/adapters/tools/ask_user.py` — `ask_user` interactive tool (Gemini CLI / Claude Code compatible `questions` array schema)
 
 Adapters call the application layer. They translate external inputs into DTOs and translate use case outputs into transport-specific output.
 

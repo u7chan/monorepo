@@ -88,7 +88,14 @@ When the agent calls `ask_user` and needs user input:
   "status": "paused",
   "session_id": "abc123...",
   "call_id": "call_001",
-  "question": "What is your name?",
+  "questions": [
+    {
+      "question": "What is your name?",
+      "header": "Name",
+      "type": "text",
+      "placeholder": "e.g. Alice"
+    }
+  ],
   "tool_calls": []
 }
 ```
@@ -98,7 +105,7 @@ When the agent calls `ask_user` and needs user input:
 | `status` | `"paused"` | Discriminator for a paused response |
 | `session_id` | `str` | Session ID for continuing the conversation |
 | `call_id` | `str` | ID of the pending `ask_user` tool call |
-| `question` | `str` | Question text from `ask_user` arguments |
+| `questions` | `list[dict]` | Question items from `ask_user` arguments. Each item has `question` (text), `header` (short label), `type` (`"text"` in Phase 1), and optional `placeholder` |
 | `tool_calls` | `list[ToolCallRecord]` | Non-ask_user tool calls executed before pausing |
 
 #### Error Responses
