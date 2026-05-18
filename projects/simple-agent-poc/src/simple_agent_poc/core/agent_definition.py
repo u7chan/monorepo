@@ -91,6 +91,13 @@ class AgentDefinitionRegistry:
         """Return all registered agent ids."""
         return list(self._definitions.keys())
 
+    def list_agents(self) -> list[dict[str, str]]:
+        """Return all registered agents with their model names."""
+        return [
+            {"id": agent.agent_id, "model": agent.model}
+            for agent in self._definitions.values()
+        ]
+
 
 def _build_agent_definition(
     agent_id: object,

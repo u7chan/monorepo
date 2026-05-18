@@ -56,6 +56,7 @@ TEST_PAGE_HTML = """<!doctype html>
     <select id="agent-id" onchange="onAgentIdChange()">
     </select>
   </label>
+  <span id="agent-model" style="font-size:12px;color:var(--muted);margin-left:4px;"></span>
   <label>Session
     <input type="text" id="session-id" size="24" placeholder="(new)" onchange="onSessionIdChange()">
   </label>
@@ -108,6 +109,12 @@ function onModeChange() {
 
 function onAgentIdChange() {
   state.agentId = el("agent-id").value;
+  const option = el("agent-id").selectedOptions[0];
+  if (option && option.dataset.model) {
+    el("agent-model").textContent = option.dataset.model;
+  } else {
+    el("agent-model").textContent = "";
+  }
   persist();
 }
 
@@ -148,18 +155,22 @@ async function fetchAgents() {
     const data = await resp.json();
     const select = el("agent-id");
     select.innerHTML = "";
-    for (const id of data.agents) {
+    const agentIds = [];
+    for (const agent of data.agents) {
       const option = document.createElement("option");
-      option.value = id;
-      option.textContent = id;
+      option.value = agent.id;
+      option.textContent = agent.id;
+      option.dataset.model = agent.model;
       select.appendChild(option);
+      agentIds.push(agent.id);
     }
-    if (state.agentId && data.agents.includes(state.agentId)) {
+    if (state.agentId && agentIds.includes(state.agentId)) {
       select.value = state.agentId;
-    } else if (data.agents.length > 0) {
-      select.value = data.agents[0];
-      state.agentId = data.agents[0];
+    } else if (agentIds.length > 0) {
+      select.value = agentIds[0];
+      state.agentId = agentIds[0];
     }
+    onAgentIdChange();
   } catch (_) {}
 }
 
