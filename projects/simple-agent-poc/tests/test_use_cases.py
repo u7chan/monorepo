@@ -1,9 +1,13 @@
 """Tests for RunAgentUseCase with tool calling (ReAct loop)."""
 
-import json
 from collections.abc import Iterator
 
-from tests.helpers import _choice_questions_args, _questions_args
+from tests.helpers import (
+    _batch_questions_args,
+    _choice_questions_args,
+    _over_limit_questions_args,
+    _questions_args,
+)
 
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
@@ -374,7 +378,7 @@ def test_continue_stream_uses_agent_max_tool_rounds(tool_registry):
     try:
         list(
             use_case.continue_stream(
-                ContinueRequest(session_id="paused-session", answer="yes")
+                ContinueRequest(session_id="paused-session", answers={"y": "yes"})
             )
         )
         assert False, "Expected LLMError"
@@ -423,6 +427,20 @@ def _agent_definitions_with_ask_user() -> AgentDefinitionRegistry:
                     "model": "test-model",
                     "system_prompt": "You are a helpful assistant.",
                     "tools": ["ask_user"],
+                },
+            }
+        }
+    )
+
+
+def _agent_definitions_with_ask_user_and_concat() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant.",
+                    "tools": ["ask_user", "concat"],
                 },
             }
         }
@@ -507,40 +525,67 @@ def test_continue_sync_resumes_and_completes():
     )
 
     result = use_case.continue_sync(
-        ContinueRequest(session_id="paused-session", answer="Alice")
+        ContinueRequest(
+            session_id="paused-session", answers={"What is your name?": "Alice"}
+        )
     )
 
     assert isinstance(result, RunAgentResponse)
     assert result.message == "Done."
 
 
-def test_continue_sync_pauses_on_next_unanswered_ask_user():
-    """continue_sync() returns RunAgentPaused when another ask_user is pending."""
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+def test_continue_sync_does_not_offer_ask_user_after_answer():
+    """After ask_user is answered, the same turn should continue without ask_user."""
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.concat import (
+        TOOL_DEFINITION as CONCAT_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.concat import execute as concat_execute
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+
+    class CapturingLLMClient:
+        def __init__(self) -> None:
+            self.calls_tools: list[list[str]] = []
+            self.calls_messages: list[list[Message]] = []
+
+        def complete(
+            self,
+            messages: list[Message],
+            *,
+            tools: list[ToolDefinition] | None = None,
+        ) -> LLMResponse:
+            self.calls_messages.append(messages)
+            self.calls_tools.append([tool["function"]["name"] for tool in tools or []])
+            return {
+                "content": "Aliceさん、こんにちは。",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+            }
+
+        def complete_stream(
+            self,
+            messages: list[Message],
+            *,
+            tools: list[ToolDefinition] | None = None,
+        ) -> Iterator[LLMStreamChunk]:
+            raise NotImplementedError
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+    tool_executor.register(CONCAT_TOOL_DEF, concat_execute)
 
-    ask_user_tc_1: ToolCall = {
+    ask_user_tc: ToolCall = {
         "id": "call_ask_001",
         "type": "function",
         "function": {
             "name": "ask_user",
-            "arguments": _questions_args(question_text="First question?"),
-        },
-    }
-    ask_user_tc_2: ToolCall = {
-        "id": "call_ask_002",
-        "type": "function",
-        "function": {
-            "name": "ask_user",
-            "arguments": _questions_args(question_text="Second question?"),
+            "arguments": _questions_args(),
         },
     }
     store = InMemorySessionStore()
@@ -549,24 +594,29 @@ def test_continue_sync_pauses_on_next_unanswered_ask_user():
         system_prompt="You are a helpful assistant.",
     )
     session.append_user_message("hello")
-    session.append_assistant_message("", tool_calls=[ask_user_tc_1, ask_user_tc_2])
-    session.pause_for_ask_user(ask_user_tc_1, round_idx=0)
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
     store.save(session)
 
-    fake_llm = FakeLLMClient(rounds=[])
+    fake_llm = CapturingLLMClient()
     use_case = RunAgentUseCase(
-        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        llm_client_factory=lambda _agent_definition: fake_llm,  # type: ignore[arg-type]
         session_store=store,
-        agent_definitions=_agent_definitions_with_ask_user(),
+        agent_definitions=_agent_definitions_with_ask_user_and_concat(),
         tool_executor=tool_executor,
     )
+
     result = use_case.continue_sync(
-        ContinueRequest(session_id="paused-session", answer="Answer 1")
+        ContinueRequest(
+            session_id="paused-session", answers={"What is your name?": "Alice"}
+        )
     )
 
-    assert isinstance(result, RunAgentPaused)
-    assert result.questions[0]["question"] == "Second question?"
-    assert result.call_id == "call_ask_002"
+    assert isinstance(result, RunAgentResponse)
+    assert fake_llm.calls_tools == [["concat"]]
+    assert fake_llm.calls_messages[0][-1]["role"] == "user"
+    assert "Do not call ask_user again" in fake_llm.calls_messages[0][-1]["content"]
+    assert "Alice" in fake_llm.calls_messages[0][-1]["content"]
 
 
 def test_continue_sync_with_unknown_session_raises_error():
@@ -590,7 +640,9 @@ def test_continue_sync_with_unknown_session_raises_error():
     )
 
     try:
-        use_case.continue_sync(ContinueRequest(session_id="missing", answer="no"))
+        use_case.continue_sync(
+            ContinueRequest(session_id="missing", answers={"q": "no"})
+        )
         assert False, "Expected SessionNotFoundError"
     except SessionNotFoundError:
         pass
@@ -627,7 +679,7 @@ def test_continue_sync_with_non_paused_session_raises_error():
 
     try:
         use_case.continue_sync(
-            ContinueRequest(session_id="active-session", answer="no")
+            ContinueRequest(session_id="active-session", answers={"q": "no"})
         )
         assert False, "Expected SessionNotPausedError"
     except SessionNotPausedError:
@@ -674,15 +726,17 @@ def test_continue_sync_choice_number_to_label():
     )
 
     result = use_case.continue_sync(
-        ContinueRequest(session_id="paused-choice", answer="1")
+        ContinueRequest(session_id="paused-choice", answers={"Which database?": "1"})
     )
 
     assert isinstance(result, RunAgentResponse)
     stored = store.get("paused-choice")
     assert stored is not None
     tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
-    answers = json.loads(tool_msg["content"])["answers"]
-    assert answers["Which database?"] == "PostgreSQL"
+    content = tool_msg["content"]
+    assert "--- ユーザーからの回答 ---" in content
+    assert "Which database? → PostgreSQL" in content
+    assert "（選択肢から選択）" in content
 
 
 def test_continue_sync_choice_multi_select():
@@ -725,15 +779,17 @@ def test_continue_sync_choice_multi_select():
     )
 
     result = use_case.continue_sync(
-        ContinueRequest(session_id="paused-multi", answer="2, 1")
+        ContinueRequest(session_id="paused-multi", answers={"Which database?": "2, 1"})
     )
 
     assert isinstance(result, RunAgentResponse)
     stored = store.get("paused-multi")
     assert stored is not None
     tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
-    answers = json.loads(tool_msg["content"])["answers"]
-    assert answers["Which database?"] == "SQLite, PostgreSQL"
+    content = tool_msg["content"]
+    assert "--- ユーザーからの回答 ---" in content
+    assert "Which database? → SQLite, PostgreSQL" in content
+    assert "（選択肢から選択）" in content
 
 
 def test_continue_sync_choice_free_text_fallback():
@@ -776,15 +832,17 @@ def test_continue_sync_choice_free_text_fallback():
     )
 
     result = use_case.continue_sync(
-        ContinueRequest(session_id="paused-free", answer="MySQL")
+        ContinueRequest(session_id="paused-free", answers={"Which database?": "MySQL"})
     )
 
     assert isinstance(result, RunAgentResponse)
     stored = store.get("paused-free")
     assert stored is not None
     tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
-    answers = json.loads(tool_msg["content"])["answers"]
-    assert answers["Which database?"] == "MySQL"
+    content = tool_msg["content"]
+    assert "--- ユーザーからの回答 ---" in content
+    assert "Which database? → MySQL" in content
+    assert "（選択肢から選択）" in content
 
 
 def test_continue_sync_choice_single_select_comma_fallback():
@@ -827,15 +885,19 @@ def test_continue_sync_choice_single_select_comma_fallback():
     )
 
     result = use_case.continue_sync(
-        ContinueRequest(session_id="paused-single-comma", answer="1, 2")
+        ContinueRequest(
+            session_id="paused-single-comma", answers={"Which database?": "1, 2"}
+        )
     )
 
     assert isinstance(result, RunAgentResponse)
     stored = store.get("paused-single-comma")
     assert stored is not None
     tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
-    answers = json.loads(tool_msg["content"])["answers"]
-    assert answers["Which database?"] == "1, 2"
+    content = tool_msg["content"]
+    assert "--- ユーザーからの回答 ---" in content
+    assert "Which database? → 1, 2" in content
+    assert "（選択肢から選択）" in content
 
 
 def test_continue_stream_choice_number_to_label():
@@ -880,7 +942,9 @@ def test_continue_stream_choice_number_to_label():
 
     events = list(
         use_case.continue_stream(
-            ContinueRequest(session_id="paused-stream-choice", answer="2")
+            ContinueRequest(
+                session_id="paused-stream-choice", answers={"Which database?": "2"}
+            )
         )
     )
 
@@ -888,5 +952,215 @@ def test_continue_stream_choice_number_to_label():
     stored = store.get("paused-stream-choice")
     assert stored is not None
     tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
-    answers = json.loads(tool_msg["content"])["answers"]
-    assert answers["Which database?"] == "SQLite"
+    content = tool_msg["content"]
+    assert "--- ユーザーからの回答 ---" in content
+    assert "Which database? → SQLite" in content
+    assert "（選択肢から選択）" in content
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: multi-question batch tests
+# ---------------------------------------------------------------------------
+
+
+def test_execute_multi_question_batch():
+    """A single ask_user call with 3 mixed-type questions pauses with all questions."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    batch_tc: list[ToolCall] = [
+        {
+            "id": "call_batch_001",
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "arguments": _batch_questions_args(),
+            },
+        }
+    ]
+
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": batch_tc,
+            },
+        ]
+    )
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=InMemorySessionStore(),
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+    result = use_case.execute(RunAgentRequest(message="hello"))
+    assert isinstance(result, RunAgentPaused)
+    assert len(result.questions) == 3
+    assert result.questions[0]["question"] == "プロジェクト名は？"
+    assert result.questions[1]["question"] == "どのデータベースを使いますか？"
+    assert result.questions[2]["question"] == "どの言語を使いますか？"
+
+
+def test_continue_sync_multi_question_batch():
+    """continue_sync with multiple answers completes the batch and resumes."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    batch_tc: ToolCall = {
+        "id": "call_batch_001",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _batch_questions_args(),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-batch",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[batch_tc])
+    session.pause_for_ask_user(batch_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = FakeLLMClient(rounds=[])
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+
+    answers = {
+        "プロジェクト名は？": "my-app",
+        "どのデータベースを使いますか？": "1",
+        "どの言語を使いますか？": "TypeScript",
+    }
+    result = use_case.continue_sync(
+        ContinueRequest(session_id="paused-batch", answers=answers)
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    stored = store.get("paused-batch")
+    assert stored is not None
+    tool_msg = [m for m in stored.messages if m["role"] == "tool"][-1]
+    content = tool_msg["content"]
+    assert "プロジェクト名は？ → my-app" in content
+    assert "どのデータベースを使いますか？ → PostgreSQL" in content
+    assert "どの言語を使いますか？ → TypeScript" in content
+
+
+def test_execute_over_max_questions_raises_error():
+    """A batch with more than 4 questions raises ValidationError."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    over_limit_tc: list[ToolCall] = [
+        {
+            "id": "call_over_001",
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "arguments": _over_limit_questions_args(),
+            },
+        }
+    ]
+
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": over_limit_tc,
+            },
+        ]
+    )
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=InMemorySessionStore(),
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+    try:
+        use_case.execute(RunAgentRequest(message="hello"))
+        assert False, "Expected ValidationError"
+    except ValidationError:
+        pass
+
+
+def test_execute_empty_questions_raises_error():
+    """An empty questions array raises ValidationError."""
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+    empty_tc: list[ToolCall] = [
+        {
+            "id": "call_empty_001",
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "arguments": '{"questions": []}',
+            },
+        }
+    ]
+
+    fake_llm = FakeLLMClient(
+        rounds=[
+            {
+                "content": "",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+                "tool_calls": empty_tc,
+            },
+        ]
+    )
+    use_case = RunAgentUseCase(
+        llm_client_factory=FakeLLMClientFactory(fake_llm),
+        session_store=InMemorySessionStore(),
+        agent_definitions=_agent_definitions_with_ask_user(),
+        tool_executor=tool_executor,
+    )
+    try:
+        use_case.execute(RunAgentRequest(message="hello"))
+        assert False, "Expected ValidationError"
+    except ValidationError:
+        pass

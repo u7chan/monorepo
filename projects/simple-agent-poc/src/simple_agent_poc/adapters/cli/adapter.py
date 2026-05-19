@@ -49,7 +49,7 @@ class StreamingRenderer(Protocol):
             | ToolResultEvent
             | SessionPaused
             | StreamComplete,
-            str | None,
+            dict[str, str] | None,
             None,
         ],
     ) -> StreamComplete: ...
@@ -128,15 +128,15 @@ class CLIAdapter:
                         ),
                     )
                     while isinstance(response, RunAgentPaused):
-                        answer = ask_user_question(response.questions)
+                        answers = ask_user_question(response.questions)
                         paused_session_id = response.session_id
                         response = self._indicator_runner(
                             "Thinking",
-                            lambda sid=paused_session_id, ans=answer: (
+                            lambda sid=paused_session_id, ans=answers: (
                                 self._run_agent.continue_sync(
                                     ContinueRequest(
                                         session_id=sid,
-                                        answer=ans,
+                                        answers=ans,
                                     )
                                 )
                             ),

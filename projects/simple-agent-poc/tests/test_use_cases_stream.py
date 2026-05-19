@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.helpers import _questions_args
+from tests.helpers import _batch_questions_args, _questions_args
 
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
@@ -28,6 +28,8 @@ from simple_agent_poc.core.types import (
     Usage,
     ValidationError,
 )
+from simple_agent_poc.adapters.tools.concat import TOOL_DEFINITION as CONCAT_TOOL_DEF
+from simple_agent_poc.adapters.tools.concat import execute as concat_execute
 from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.adapters.tools.ask_user import (
     TOOL_DEFINITION as ASK_USER_TOOL_DEF,
@@ -396,6 +398,27 @@ def build_tool_executor_with_ask_user() -> BuiltinToolRegistry:
     return registry
 
 
+def build_registry_with_ask_user_and_concat() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "default-model",
+                    "system_prompt": "System prompt",
+                    "stream": True,
+                    "tools": ["ask_user", "concat"],
+                },
+            }
+        }
+    )
+
+
+def build_tool_executor_with_ask_user_and_concat() -> BuiltinToolRegistry:
+    registry = build_tool_executor_with_ask_user()
+    registry.register(CONCAT_TOOL_DEF, concat_execute)
+    return registry
+
+
 class TestExecuteStreamPause:
     """Tests for execute_stream pause on ask_user in API mode."""
 
@@ -494,6 +517,63 @@ class TestExecuteStreamPause:
         assert len(paused_events) == 0
         assert isinstance(events[-1], StreamComplete)
 
+    def test_execute_stream_removes_ask_user_after_cli_answer(self) -> None:
+        first_chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": _questions_args(question_text="What?"),
+                    },
+                },
+            },
+        ]
+        second_chunks: list[LLMStreamChunk] = [
+            {"content_delta": "The answer is provided."},
+        ]
+        chunks_per_call = [first_chunks, second_chunks]
+
+        class CapturingClient:
+            def __init__(self) -> None:
+                self.call_count = 0
+                self.calls_tools: list[list[str]] = []
+                self.calls_messages: list[list[Message]] = []
+
+            def complete(self, messages, *, tools=None):
+                raise NotImplementedError
+
+            def complete_stream(self, messages, *, tools=None):
+                self.calls_messages.append(messages)
+                self.calls_tools.append(
+                    [tool["function"]["name"] for tool in tools or []]
+                )
+                chunks = chunks_per_call[min(self.call_count, len(chunks_per_call) - 1)]
+                self.call_count += 1
+                yield from chunks
+
+        llm_client = CapturingClient()
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(return_value=llm_client),
+            session_store=InMemorySessionStore(),
+            agent_definitions=build_registry_with_ask_user_and_concat(),
+            tool_executor=build_tool_executor_with_ask_user_and_concat(),
+            is_api_context=False,
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        assert isinstance(events[-1], StreamComplete)
+        assert llm_client.calls_tools == [["ask_user", "concat"], ["concat"]]
+        assert llm_client.calls_messages[1][-1]["role"] == "user"
+        assert (
+            "Do not call ask_user again" in llm_client.calls_messages[1][-1]["content"]
+        )
+        assert "ユーザーからの回答" in llm_client.calls_messages[1][-1]["content"]
+
 
 class TestContinueStream:
     """Tests for continue_stream."""
@@ -547,7 +627,9 @@ class TestContinueStream:
 
         continue_events = list(
             second_use_case.continue_stream(
-                ContinueRequest(session_id=paused.session_id, answer="Alice")
+                ContinueRequest(
+                    session_id=paused.session_id, answers={"Your name?": "Alice"}
+                )
             )
         )
 
@@ -565,88 +647,6 @@ class TestContinueStream:
         assert session is not None
         assert session.is_paused is False
 
-    def test_continue_stream_pauses_on_next_unanswered_ask_user(self) -> None:
-        first_chunks: list[LLMStreamChunk] = [
-            {
-                "content_delta": None,
-                "tool_call_delta": {
-                    "index": 0,
-                    "id": "call_001",
-                    "type": "function",
-                    "function": {
-                        "name": "ask_user",
-                        "arguments": _questions_args(question_text="First number?"),
-                    },
-                },
-            },
-            {
-                "content_delta": None,
-                "tool_call_delta": {
-                    "index": 1,
-                    "id": "call_002",
-                    "type": "function",
-                    "function": {
-                        "name": "ask_user",
-                        "arguments": _questions_args(question_text="Second number?"),
-                    },
-                },
-            },
-        ]
-        store = InMemorySessionStore()
-        tool_executor = build_tool_executor_with_ask_user()
-
-        first_use_case = RunAgentUseCase(
-            llm_client_factory=MagicMock(
-                return_value=StreamingStubLLMClient(chunks=first_chunks)
-            ),
-            session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
-            tool_executor=tool_executor,
-            is_api_context=True,
-        )
-
-        first_events = list(
-            first_use_case.execute_stream(RunAgentRequest(message="Add numbers"))
-        )
-        paused = first_events[-1]
-        assert isinstance(paused, SessionPaused)
-        assert paused.call_id == "call_001"
-
-        llm_client_factory = MagicMock()
-        second_use_case = RunAgentUseCase(
-            llm_client_factory=llm_client_factory,
-            session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
-            tool_executor=tool_executor,
-            is_api_context=True,
-        )
-
-        continue_events = list(
-            second_use_case.continue_stream(
-                ContinueRequest(session_id=paused.session_id, answer="1")
-            )
-        )
-
-        assert continue_events[0] == ToolResultEvent(
-            call_id="call_001",
-            name="ask_user",
-            result='{"answers": {"First number?": "1"}}',
-        )
-        assert continue_events[1] == SessionPaused(
-            session_id=paused.session_id,
-            call_id="call_002",
-            questions=[
-                {"question": "Second number?", "header": "Name", "type": "text"}
-            ],
-        )
-        llm_client_factory.assert_not_called()
-
-        session = store.get(paused.session_id)
-        assert session is not None
-        assert session.is_paused is True
-        assert session.pending_tool_call is not None
-        assert session.pending_tool_call["id"] == "call_002"
-
     def test_continue_stream_with_unknown_session_raises_error(self) -> None:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),
@@ -658,7 +658,7 @@ class TestContinueStream:
         with pytest.raises(SessionNotFoundError, match="Session not found"):
             list(
                 use_case.continue_stream(
-                    ContinueRequest(session_id="missing", answer="no")
+                    ContinueRequest(session_id="missing", answers={"q": "no"})
                 )
             )
 
@@ -684,6 +684,112 @@ class TestContinueStream:
         with pytest.raises(SessionNotPausedError, match="not in a paused state"):
             list(
                 use_case.continue_stream(
-                    ContinueRequest(session_id="active-session", answer="no")
+                    ContinueRequest(session_id="active-session", answers={"q": "no"})
                 )
             )
+
+
+class TestExecuteStreamBatch:
+    """Phase 3: multi-question batch tests for streaming."""
+
+    def test_execute_stream_pauses_with_batch_questions_in_api_mode(self) -> None:
+        chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_batch_001",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": _batch_questions_args(),
+                    },
+                },
+            },
+        ]
+        llm_client = StreamingStubLLMClient(chunks=chunks)
+        store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(return_value=llm_client),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        assert len(events) == 2
+        assert isinstance(events[0], ToolCallEvent)
+        assert events[0].name == "ask_user"
+        assert isinstance(events[1], SessionPaused)
+        assert len(events[1].questions) == 3
+        assert events[1].questions[0]["question"] == "プロジェクト名は？"
+        assert events[1].questions[1]["type"] == "choice"
+
+    def test_continue_stream_resumes_batch(self) -> None:
+        first_chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_batch_001",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": _batch_questions_args(),
+                    },
+                },
+            },
+        ]
+        second_chunks: list[LLMStreamChunk] = [
+            {"content_delta": "プロジェクト my-app を作成しました。"},
+        ]
+        store = InMemorySessionStore()
+        tool_executor = build_tool_executor_with_ask_user()
+
+        first_use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(
+                return_value=StreamingStubLLMClient(chunks=first_chunks)
+            ),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        first_events = list(
+            first_use_case.execute_stream(RunAgentRequest(message="プロジェクト作成"))
+        )
+        paused = first_events[-1]
+        assert isinstance(paused, SessionPaused)
+
+        second_use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(
+                return_value=StreamingStubLLMClient(chunks=second_chunks)
+            ),
+            session_store=store,
+            agent_definitions=build_registry_with_ask_user(stream=True),
+            tool_executor=tool_executor,
+            is_api_context=True,
+        )
+
+        answers = {
+            "プロジェクト名は？": "my-app",
+            "どのデータベースを使いますか？": "1",
+            "どの言語を使いますか？": "TypeScript",
+        }
+        continue_events = list(
+            second_use_case.continue_stream(
+                ContinueRequest(session_id=paused.session_id, answers=answers)
+            )
+        )
+
+        result_events = [e for e in continue_events if isinstance(e, ToolResultEvent)]
+        assert len(result_events) == 1
+        assert result_events[0].name == "ask_user"
+        assert "my-app" in result_events[0].result
+        assert "PostgreSQL" in result_events[0].result
+
+        assert isinstance(continue_events[-1], StreamComplete)

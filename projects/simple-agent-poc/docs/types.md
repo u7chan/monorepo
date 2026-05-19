@@ -160,10 +160,10 @@ These are yielded by `execute_stream()` and `continue_stream()` generators:
 @dataclass(frozen=True, slots=True)
 class ContinueRequest:
     session_id: str
-    answer: str
+    answers: dict[str, str]
 ```
 
-Request DTO for resuming a paused session. Contains the user's answer to an `ask_user` question.
+Request DTO for resuming a paused session. Contains the user's answers dict keyed by question text.
 
 ### RunAgentPaused
 
@@ -176,7 +176,7 @@ class RunAgentPaused:
     tool_call_history: list[ToolCallRecord]
 ```
 
-Returned by `RunAgentUseCase.execute()` and `RunAgentUseCase.continue_sync()` when the agent calls `ask_user` during synchronous execution. The caller should present the questions, collect an answer, and resume via `continue_sync()`. Each question item may include `type` (`"text"` or `"choice"`), `options`, and `multiSelect` for choice questions.
+Returned by `RunAgentUseCase.execute()` and `RunAgentUseCase.continue_sync()` when the agent calls `ask_user` during synchronous execution. The caller should present the questions, collect answers as a dict keyed by question text, and resume via `continue_sync()`. Each question item may include `type` (`"text"` or `"choice"`), `options`, and `multiSelect` for choice questions.
 
 ### Sync Result Union
 
@@ -228,10 +228,10 @@ Factory methods: `from_completed(response)` / `from_paused(paused)`.
 ```python
 class ResumeRequest(BaseModel):
     session_id: str
-    answer: str
+    answers: dict[str, str]
 ```
 
-Used by both `/api/chat/sync/continue` and `/api/chat/stream/continue`. Validators reject blank `session_id` and blank `answer` after stripping.
+Used by both `/api/chat/sync/continue` and `/api/chat/stream/continue`. Validators reject blank `session_id` and empty `answers` dict.
 
 ## Entity
 

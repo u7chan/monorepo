@@ -24,17 +24,26 @@ TEST_PAGE_HTML = """<!doctype html>
   footer { background: var(--surface); border-top: 1px solid var(--border); padding: 8px 12px; }
   .input-row { display: flex; gap: 6px; }
   .input-row input[type="text"] { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; font-size: 13px; }
+  .input-row input[type="text"]:disabled { opacity: 0.45; cursor: not-allowed; }
   .input-row button { background: var(--accent); color: #000; border: none; border-radius: 4px; padding: 6px 14px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
   .input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
   .input-row button.stop { background: var(--error); color: #fff; }
   .paused-bar { display: none; background: var(--pause); color: #000; padding: 8px 12px; font-size: 13px; font-weight: 600; }
-  .paused-bar.visible { display: flex; gap: 6px; align-items: center; }
+  .paused-bar.visible { display: flex; gap: 12px; align-items: center; }
   .paused-bar input[type="text"] { flex: 1; background: rgba(0,0,0,.15); color: #000; border: 1px solid rgba(0,0,0,.2); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 13px; }
-  .paused-bar button { background: rgba(0,0,0,.2); color: #000; border: none; border-radius: 4px; padding: 4px 10px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .paused-bar button { background: rgba(120,53,15,.24); color: #000; border: 1px solid rgba(120,53,15,.24); border-radius: 4px; min-height: 36px; padding: 4px 14px; font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1; cursor: pointer; transition: background .12s ease, border-color .12s ease, opacity .12s ease; }
+  .paused-bar button:hover:not(:disabled) { background: rgba(120,53,15,.38); border-color: rgba(120,53,15,.36); }
+  .paused-bar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .paused-choices { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; align-items: center; }
-  .paused-choice-btn { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-family: inherit; font-size: 12px; cursor: pointer; }
-  .paused-choice-btn:hover { background: var(--border); }
+  .paused-choice-btn { background: rgba(120,53,15,.28); color: #000; border: 1px solid rgba(120,53,15,.32); border-radius: 4px; min-height: 36px; padding: 4px 14px; font-family: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+  .paused-choice-btn:hover { background: rgba(120,53,15,.44); border-color: rgba(120,53,15,.44); }
   .paused-choice-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
+  .paused-choice-btn.selected:hover { background: #16a34a; border-color: #16a34a; }
+  .paused-questions-scroll { flex: 1; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .paused-q-row { display: flex; gap: 6px; align-items: center; }
+  .paused-q-label { font-size: 12px; color: #000; white-space: nowrap; min-width: fit-content; }
+  .paused-q-input { flex: 1; background: rgba(0,0,0,.15); color: #000; border: 1px solid rgba(0,0,0,.2); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 13px; }
+  .paused-actions { display: flex; gap: 6px; justify-content: flex-end; flex-shrink: 0; margin-left: auto; }
   .line-user { color: var(--muted); }
   .line-assistant { color: var(--text); }
   .line-tool { color: var(--tool); }
@@ -79,10 +88,11 @@ TEST_PAGE_HTML = """<!doctype html>
     </details>
   </div>
   <div class="paused-bar" id="paused-bar">
-    <span id="paused-question"></span>
-    <input type="text" id="paused-answer" placeholder="Type your answer..." onkeydown="if(event.key==='Enter')resumeFromPaused()">
-    <button id="paused-resume" onclick="resumeFromPaused()">Resume</button>
-    <button onclick="cancelPaused()">Cancel</button>
+    <div class="paused-questions-scroll" id="paused-questions"></div>
+    <div class="paused-actions">
+      <button id="paused-resume" onclick="resumeFromPaused()">Submit Answer</button>
+      <button onclick="cancelPaused()">Cancel</button>
+    </div>
   </div>
 </main>
 <footer>
@@ -183,8 +193,8 @@ function clearSession() {
   el("tool-log").textContent = "";
   el("raw-log").textContent = "";
   el("paused-bar").classList.remove("visible");
-  el("paused-question").textContent = "";
-  el("paused-answer").value = "";
+  el("paused-questions").innerHTML = "";
+  updateComposerState();
   persist();
 }
 
@@ -211,20 +221,31 @@ function appendJson(area, className, obj) {
   appendLine(area, className, JSON.stringify(obj, null, 2));
 }
 
-function setSending(sending) {
+function updateComposerState() {
   const sendBtn = el("send-btn");
   const stopBtn = el("stop-btn");
   const msgInput = el("msg-input");
-  if (sending) {
-    sendBtn.style.display = "none";
-    stopBtn.style.display = "";
-    msgInput.disabled = true;
-  } else {
-    sendBtn.style.display = "";
-    stopBtn.style.display = "none";
-    msgInput.disabled = false;
-    msgInput.focus();
-  }
+  const isSending = state.abortController !== null;
+  const isPaused = state.awaitingAnswer !== null;
+
+  sendBtn.style.display = isSending ? "none" : "";
+  stopBtn.style.display = isSending ? "" : "none";
+  msgInput.disabled = isSending || isPaused;
+  sendBtn.disabled = isPaused;
+
+  if (!msgInput.disabled) msgInput.focus();
+}
+
+function updatePausedSubmitState() {
+  const resumeBtn = el("paused-resume");
+  const qInputs = el("paused-questions").querySelectorAll(".paused-q-input");
+  const hasAnswer = Array.from(qInputs).some(input => input.value.trim());
+  resumeBtn.disabled = !hasAnswer;
+}
+
+function setSending(sending) {
+  if (!sending) state.abortController = null;
+  updateComposerState();
 }
 
 async function sendMessage() {
@@ -232,11 +253,18 @@ async function sendMessage() {
   if (!message) return;
   if (state.abortController) return;
 
-  // If paused, treat the typed message as the answer
+  // If paused, treat the typed message as the answer for first question
   if (state.awaitingAnswer) {
-    el("paused-answer").value = message;
-    el("msg-input").value = "";
-    await resumeFromPaused();
+    const qInputs = el("paused-questions").querySelectorAll(".paused-q-input");
+    if (qInputs.length === 1) {
+      qInputs[0].value = message;
+      el("msg-input").value = "";
+      await resumeFromPaused();
+    } else {
+      if (qInputs.length > 0) qInputs[0].value = message;
+      el("msg-input").value = "";
+      qInputs[0]?.focus();
+    }
     return;
   }
 
@@ -274,8 +302,8 @@ async function sendSyncMessage(message) {
     appendJson("raw-log", "line-system", data);
     if (data.status === "paused") {
       const qs = data.questions || [];
-      const firstQ = qs.length > 0 ? qs[0].question : "";
-      appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+      const labels = qs.map(q => q.question || "").join(", ");
+      appendLine("conv-log", "line-paused", "  [Paused] " + labels);
       enterPausedState({ session_id: data.session_id, questions: qs, call_id: data.call_id, mode: "sync" });
       return;
     }
@@ -340,8 +368,8 @@ async function sendStreamMessage(message) {
       } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
         const qs = d.questions || [];
-        const firstQ = qs.length > 0 ? qs[0].question : "";
-        appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+        const labels = qs.map(q => q.question || "").join(", ");
+        appendLine("conv-log", "line-paused", "  [Paused] " + labels);
         enterPausedState(d);
       } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
@@ -368,91 +396,129 @@ async function sendStreamMessage(message) {
 
 function enterPausedState({ session_id: sessionId, questions, call_id: callId, mode = "stream" }) {
   const qs = questions || [];
-  const q = qs.length > 0 ? qs[0] : null;
-  const questionText = q ? q.question : "";
-  state.awaitingAnswer = { sessionId, questions, callId, mode };
+  state.awaitingAnswer = { sessionId, questions: qs, callId, mode };
   setSessionId(sessionId);
-  el("paused-question").textContent = "Q: " + questionText;
-  el("paused-answer").value = "";
+  updateComposerState();
 
-  const oldChoices = el("paused-bar").querySelector(".paused-choices");
-  if (oldChoices) oldChoices.remove();
-  el("paused-answer").style.display = "";
+  const container = el("paused-questions");
+  container.innerHTML = "";
 
-  el("paused-bar").classList.add("visible");
+  qs.forEach((q, i) => {
+    const prefix = qs.length > 1 ? `(${i + 1}/${qs.length}) ` : "";
+    const header = q.header ? `[${q.header}] ` : "";
+    const questionText = q.question || "";
 
-  const resumeBtn = el("paused-resume");
-  if (q && q.type === "choice" && q.options && q.options.length > 0) {
-    if (resumeBtn) resumeBtn.style.display = "none";
-    const choicesDiv = document.createElement("div");
-    choicesDiv.className = "paused-choices";
-    const isMulti = q.multiSelect === true;
-    const selected = new Set();
+    const row = document.createElement("div");
+    row.className = "paused-q-row";
 
-    q.options.forEach((opt, idx) => {
-      const btn = document.createElement("button");
-      btn.className = "paused-choice-btn";
-      btn.textContent = (idx + 1) + ". " + opt.label;
-      if (opt.description) btn.title = opt.description;
-      btn.onclick = () => {
-        if (isMulti) {
-          if (selected.has(idx)) {
-            selected.delete(idx);
-            btn.classList.remove("selected");
+    const label = document.createElement("span");
+    label.className = "paused-q-label";
+    label.textContent = prefix + header + questionText;
+    if (q.description) label.title = q.description;
+    row.appendChild(label);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "paused-q-input";
+    input.dataset.question = questionText;
+    input.placeholder = q.placeholder || "Type your answer...";
+    input.oninput = updatePausedSubmitState;
+
+    if (q.type === "choice" && q.options && q.options.length > 0) {
+      const isMulti = q.multiSelect === true;
+      const selected = new Set();
+      const choicesDiv = document.createElement("div");
+      choicesDiv.className = "paused-choices";
+      const updateMultiAnswer = () => {
+        input.value = Array.from(selected).sort((a, b) => a - b).map(n => n + 1).join(",");
+        updatePausedSubmitState();
+      };
+
+      q.options.forEach((opt, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "paused-choice-btn";
+        btn.textContent = (idx + 1) + ". " + opt.label;
+        if (opt.description) btn.title = opt.description;
+        btn.onclick = () => {
+          if (isMulti) {
+            if (selected.has(idx)) {
+              selected.delete(idx);
+              btn.classList.remove("selected");
+            } else {
+              selected.add(idx);
+              btn.classList.add("selected");
+            }
+            updateMultiAnswer();
           } else {
-            selected.add(idx);
+            input.value = String(idx + 1);
+            row.querySelectorAll(".paused-choice-btn").forEach(b => b.classList.remove("selected"));
             btn.classList.add("selected");
+            updatePausedSubmitState();
           }
-        } else {
-          el("paused-answer").value = String(idx + 1);
-          resumeFromPaused();
-        }
-      };
-      choicesDiv.appendChild(btn);
-    });
+        };
+        choicesDiv.appendChild(btn);
+      });
 
-    if (isMulti) {
-      const submitBtn = document.createElement("button");
-      submitBtn.className = "paused-choice-btn";
-      submitBtn.textContent = "Submit";
-      submitBtn.onclick = () => {
-        const nums = Array.from(selected).sort((a, b) => a - b).map(i => i + 1).join(",");
-        el("paused-answer").value = nums;
-        resumeFromPaused();
-      };
-      choicesDiv.appendChild(submitBtn);
+      if (isMulti) {
+        const submitBtn = document.createElement("button");
+        submitBtn.className = "paused-choice-btn";
+        submitBtn.textContent = "Confirm";
+        submitBtn.onclick = () => {
+          updateMultiAnswer();
+        };
+        choicesDiv.appendChild(submitBtn);
+      }
+
+      row.appendChild(choicesDiv);
+      input.style.display = "none";
+    } else {
+      input.onkeydown = (e) => { if (e.key === "Enter") resumeFromPaused(); };
     }
 
-    el("paused-bar").insertBefore(choicesDiv, el("paused-answer"));
-    el("paused-answer").style.display = "none";
-  } else {
-    if (resumeBtn) resumeBtn.style.display = "";
-    el("paused-answer").focus();
-  }
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+
+  el("paused-bar").classList.add("visible");
+  updatePausedSubmitState();
+  const firstInput = container.querySelector(".paused-q-input");
+  if (firstInput) firstInput.focus();
 }
 
 async function resumeFromPaused() {
-  const answer = el("paused-answer").value.trim();
-  if (!answer || !state.awaitingAnswer) return;
-  const { sessionId, mode } = state.awaitingAnswer;
+  if (!state.awaitingAnswer) return;
+  const { sessionId, mode, questions } = state.awaitingAnswer;
+
+  const answers = {};
+  const qInputs = el("paused-questions").querySelectorAll(".paused-q-input");
+  let hasAnswer = false;
+  qInputs.forEach(input => {
+    const q = input.dataset.question || "";
+    const v = input.value.trim();
+    if (v) {
+      answers[q] = v;
+      hasAnswer = true;
+    }
+  });
+
+  if (!hasAnswer) return;
+
   state.awaitingAnswer = null;
   el("paused-bar").classList.remove("visible");
-  el("paused-question").textContent = "";
-  el("paused-answer").value = "";
-  const oldChoices = el("paused-bar").querySelector(".paused-choices");
-  if (oldChoices) oldChoices.remove();
-  el("paused-answer").style.display = "";
-  appendLine("conv-log", "line-user", "You: " + answer);
+  el("paused-questions").innerHTML = "";
+  updateComposerState();
+
+  appendLine("conv-log", "line-user", "You: " + JSON.stringify(answers));
   appendLine("raw-log", "line-system", "--- continuing paused session ---");
 
   if (mode === "sync") {
-    await continueSync(sessionId, answer);
+    await continueSync(sessionId, answers);
   } else {
-    await continueStream(sessionId, answer);
+    await continueStream(sessionId, answers);
   }
 }
 
-async function continueSync(sessionId, answer) {
+async function continueSync(sessionId, answers) {
   const controller = new AbortController();
   state.abortController = controller;
   setSending(true);
@@ -460,7 +526,7 @@ async function continueSync(sessionId, answer) {
     const resp = await fetch("/api/chat/sync/continue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, answer }),
+      body: JSON.stringify({ session_id: sessionId, answers }),
       signal: controller.signal,
     });
     appendJson("raw-log", "line-system", { status: resp.status });
@@ -474,8 +540,8 @@ async function continueSync(sessionId, answer) {
     appendJson("raw-log", "line-system", data);
     if (data.status === "paused") {
       const qs = data.questions || [];
-      const firstQ = qs.length > 0 ? qs[0].question : "";
-      appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+      const labels = qs.map(q => q.question || "").join(", ");
+      appendLine("conv-log", "line-paused", "  [Paused] " + labels);
       enterPausedState({ session_id: data.session_id, questions: qs, call_id: data.call_id, mode: "sync" });
       return;
     }
@@ -500,7 +566,7 @@ async function continueSync(sessionId, answer) {
   }
 }
 
-async function continueStream(sessionId, answer) {
+async function continueStream(sessionId, answers) {
   const controller = new AbortController();
   state.abortController = controller;
   setSending(true);
@@ -513,7 +579,7 @@ async function continueStream(sessionId, answer) {
     const resp = await fetch("/api/chat/stream/continue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, answer }),
+      body: JSON.stringify({ session_id: sessionId, answers }),
       signal: controller.signal,
     });
     if (!resp.ok) {
@@ -538,8 +604,8 @@ async function continueStream(sessionId, answer) {
       } else if (event.type === "paused") {
         const d = JSON.parse(event.data);
         const qs = d.questions || [];
-        const firstQ = qs.length > 0 ? qs[0].question : "";
-        appendLine("conv-log", "line-paused", "  [Paused] " + firstQ);
+        const labels = qs.map(q => q.question || "").join(", ");
+        appendLine("conv-log", "line-paused", "  [Paused] " + labels);
         enterPausedState({ session_id: d.session_id, questions: qs, call_id: d.call_id, mode: "stream" });
       } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
@@ -567,13 +633,8 @@ async function continueStream(sessionId, answer) {
 function cancelPaused() {
   state.awaitingAnswer = null;
   el("paused-bar").classList.remove("visible");
-  el("paused-question").textContent = "";
-  el("paused-answer").value = "";
-  const oldChoices = el("paused-bar").querySelector(".paused-choices");
-  if (oldChoices) oldChoices.remove();
-  el("paused-answer").style.display = "";
-  const resumeBtn = el("paused-resume");
-  if (resumeBtn) resumeBtn.style.display = "";
+  el("paused-questions").innerHTML = "";
+  updateComposerState();
 }
 
 function stopRequest() {

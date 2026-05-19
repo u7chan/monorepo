@@ -280,7 +280,7 @@ class TestStreamPauseContinueAPI:
 
         continue_resp = client2.post(
             "/api/chat/stream/continue",
-            json={"session_id": session_id, "answer": "Alice"},
+            json={"session_id": session_id, "answers": {"Your name?": "Alice"}},
         )
 
         assert continue_resp.status_code == 200
@@ -289,84 +289,6 @@ class TestStreamPauseContinueAPI:
         assert continue_events[1]["event"] == "delta"
         assert continue_events[2]["event"] == "complete"
         assert continue_events[3]["event"] == "done"
-
-    def test_chat_continue_pauses_on_next_unanswered_ask_user(self) -> None:
-        first_chunks: list[LLMStreamChunk] = [
-            {
-                "content_delta": None,
-                "tool_call_delta": {
-                    "index": 0,
-                    "id": "call_001",
-                    "type": "function",
-                    "function": {
-                        "name": "ask_user",
-                        "arguments": _questions_args(question_text="First number?"),
-                    },
-                },
-            },
-            {
-                "content_delta": None,
-                "tool_call_delta": {
-                    "index": 1,
-                    "id": "call_002",
-                    "type": "function",
-                    "function": {
-                        "name": "ask_user",
-                        "arguments": _questions_args(question_text="Second number?"),
-                    },
-                },
-            },
-        ]
-        session_store = InMemorySessionStore()
-        tool_executor = build_tool_executor_with_ask_user()
-        registry = build_registry_with_ask_user()
-
-        def fail_if_llm_is_called(_agent_definition):
-            raise AssertionError("LLM must not be called before all tool calls answer")
-
-        app = create_app(
-            use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(
-                    chunks=first_chunks
-                ),
-                session_store=session_store,
-                agent_definitions=registry,
-                tool_executor=tool_executor,
-                is_api_context=True,
-            )
-        )
-        client = TestClient(app)
-
-        stream_resp = client.post("/api/chat/stream", json={"message": "Add numbers"})
-        stream_events = parse_sse_events(stream_resp.text)
-        paused_data = json.loads(stream_events[2]["data"])
-
-        app2 = create_app(
-            use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=fail_if_llm_is_called,
-                session_store=session_store,
-                agent_definitions=registry,
-                tool_executor=tool_executor,
-                is_api_context=True,
-            )
-        )
-        client2 = TestClient(app2)
-
-        continue_resp = client2.post(
-            "/api/chat/stream/continue",
-            json={"session_id": paused_data["session_id"], "answer": "1"},
-        )
-
-        assert continue_resp.status_code == 200
-        continue_events = parse_sse_events(continue_resp.text)
-        assert continue_events[0]["event"] == "tool_result"
-        result_data = json.loads(continue_events[0]["data"])
-        assert result_data["call_id"] == "call_001"
-        assert continue_events[1]["event"] == "paused"
-        next_paused_data = json.loads(continue_events[1]["data"])
-        assert next_paused_data["call_id"] == "call_002"
-        assert next_paused_data["questions"][0]["question"] == "Second number?"
-        assert continue_events[2]["event"] == "done"
 
     def test_chat_continue_with_unknown_session_returns_error(self) -> None:
         app = create_app(
@@ -383,7 +305,7 @@ class TestStreamPauseContinueAPI:
 
         response = client.post(
             "/api/chat/stream/continue",
-            json={"session_id": "missing", "answer": "no"},
+            json={"session_id": "missing", "answers": {"q": "no"}},
         )
 
         assert response.status_code == 200
@@ -417,7 +339,7 @@ class TestStreamPauseContinueAPI:
 
         response = client.post(
             "/api/chat/stream/continue",
-            json={"session_id": "active", "answer": "no"},
+            json={"session_id": "active", "answers": {"q": "no"}},
         )
 
         assert response.status_code == 200
@@ -425,7 +347,7 @@ class TestStreamPauseContinueAPI:
         assert events[0]["event"] == "error"
         assert "paused" in json.loads(events[0]["data"])["detail"].lower()
 
-    def test_chat_continue_rejects_blank_answer(self) -> None:
+    def test_chat_continue_rejects_empty_answers(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
                 llm_client_factory=lambda _agent_definition: StreamingStubLLMClient(
@@ -440,7 +362,7 @@ class TestStreamPauseContinueAPI:
 
         response = client.post(
             "/api/chat/stream/continue",
-            json={"session_id": "abc", "answer": "   "},
+            json={"session_id": "abc", "answers": {}},
         )
 
         assert response.status_code == 422

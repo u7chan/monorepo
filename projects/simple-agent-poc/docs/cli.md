@@ -56,17 +56,17 @@ while True:
         for event in generator:
             if event is ContentDelta → show live text
             if event is ToolCallEvent → show tool call; for ask_user, prompt user
-                and send answer via generator.send(answer)
+                and send answers via generator.send(answers)
             if event is ToolResultEvent → show tool result
             if event is StreamComplete → show stats, capture session_id
     else:
         response = with_indicator("Thinking", lambda: use_case.execute(request))
         while response is RunAgentPaused:
-            answer = ask_user_question(response.questions)
+            answers = ask_user_question(response.questions)
             response = with_indicator(
                 "Thinking",
                 lambda: use_case.continue_sync(ContinueRequest(
-                    session_id=response.session_id, answer=answer
+                    session_id=response.session_id, answers=answers
                 ))
             )
         show_agent_response(response)
@@ -79,22 +79,22 @@ while True:
 When `stream: false` (default), `execute()` returns `RunAgentResponse | RunAgentPaused`. If `RunAgentPaused` is returned:
 
 1. The indicator stops automatically (via `finally` in `with_indicator`).
-2. `ask_user_question(questions)` displays the question and reads the user's answer from stdin.
-3. `continue_sync(ContinueRequest(session_id, answer))` is called with a new indicator.
-4. If `continue_sync` returns another `RunAgentPaused` (multiple `ask_user` in same batch), the loop repeats.
+2. `ask_user_question(questions)` displays all questions and reads the user's answers from stdin, returning a `dict[str, str]` keyed by question text.
+3. `continue_sync(ContinueRequest(session_id, answers))` is called with a new indicator.
+4. If `continue_sync` returns another `RunAgentPaused` (another `ask_user` in a subsequent round), the loop repeats.
 5. When `RunAgentResponse` is finally returned, it is rendered via `show_agent_response()`.
 
 The user never needs to know the `session_id` — it is managed internally by the adapter.
 
 ### `generator.send()` Pattern (Stream Mode, ask\_user)
 
-When the LLM calls `ask_user` in CLI streaming mode, the `execute_stream()` generator yields a `ToolCallEvent` and **pauses**, waiting for the adapter to send the user's answer back:
+When the LLM calls `ask_user` in CLI streaming mode, the `execute_stream()` generator yields a `ToolCallEvent` and **pauses**, waiting for the adapter to send the user's answers back:
 
 1. Generator yields `ToolCallEvent(name="ask_user", arguments={"question": "..."})`.
-2. CLI renderer displays the question and prompts for input via `ask_user_question()`.
-3. Adapter calls `generator.send(answer)` to inject the answer.
+2. CLI renderer displays the questions and prompts for input via `ask_user_question()`.
+3. Adapter calls `generator.send(answers)` to inject the answers dict.
 4. Generator yields `ToolResultEvent` with the result.
-5. LLM continues generating its response based on the answer.
+5. LLM continues generating its response based on the answers.
 
 This pattern works because CLI is a single-process event loop. For HTTP API, the pause/resume pattern is used instead (see [docs/sse.md](sse.md)).
 
@@ -144,7 +144,7 @@ Agent: <response.message>
 1. Starts `LoadingIndicator`.
 2. On `ContentDelta`: stops indicator, prints `"Agent: "`, writes delta text in-place.
 3. On `ToolCallEvent`: displays the tool call being made.
-4. **For `ask_user`**: calls `ask_user_question(questions)` which displays the question with header/placeholder and reads user input, then `generator.send(answer)` to resume the stream.
+4. **For `ask_user`**: calls `ask_user_question(questions)` which displays all questions with header/placeholder and reads user input as a dict, then `generator.send(answers)` to resume the stream.
 5. On `ToolResultEvent`: displays the tool result.
 6. On `SessionPaused`: displays the pause notification (API mode only; not expected in CLI).
 7. On `StreamComplete`: prints newline, then stats line (same format as `show_agent_response`).
@@ -157,40 +157,45 @@ If no `StreamComplete` arrives at all, raises `RuntimeError`.
 ### ask_user_question(questions)
 
 ```python
-def ask_user_question(questions: list[dict]) -> str:
-    if not questions:
-        return ""
-    q = questions[0]
-    header = q.get("header", "")
-    question_text = q.get("question", "")
-    q_type = q.get("type", "text")
-    placeholder = q.get("placeholder", "")
-    options = q.get("options", [])
-    multi_select = q.get("multiSelect", False)
-    label = f"[{header}] " if header else ""
+def ask_user_question(questions: list[dict]) -> dict[str, str]:
+    answers: dict[str, str] = {}
+    for i, q in enumerate(questions):
+        if len(questions) > 1:
+            print(f"  --- ({i + 1}/{len(questions)}) ---")
+        header = q.get("header", "")
+        question_text = q.get("question", "")
+        q_type = q.get("type", "text")
+        placeholder = q.get("placeholder", "")
+        options = q.get("options", [])
+        multi_select = q.get("multiSelect", False)
+        label = f"[{header}] " if header else ""
+        prefix = f"({i + 1}/{len(questions)}) " if len(questions) > 1 else ""
 
-    if q_type == "choice" and options:
-        print(f"  {label}{question_text}")
-        for idx, opt in enumerate(options, start=1):
-            desc = opt.get("description", "")
-            line = f"    {idx}. {opt['label']}"
-            if desc:
-                line += f" — {desc}"
-            print(line)
-        if multi_select:
-            prompt = "  選択（カンマ区切りで複数可）> "
+        if q_type == "choice" and options:
+            print(f"  {prefix}{label}{question_text}")
+            for idx, opt in enumerate(options, start=1):
+                desc = opt.get("description", "")
+                line = f"    {idx}. {opt['label']}"
+                if desc:
+                    line += f" — {desc}"
+                print(line)
+            if multi_select:
+                prompt = "  選択（カンマ区切りで複数可）> "
+            else:
+                prompt = "  選択（番号または自由記述）> "
         else:
-            prompt = "  選択（番号または自由記述）> "
-    else:
-        prompt = f"  {label}{question_text}"
-        if placeholder:
-            prompt += f" ({placeholder})"
-        prompt += " > "
+            prompt = f"  {prefix}{label}{question_text}"
+            if placeholder:
+                prompt += f" ({placeholder})"
+            prompt += " > "
 
-    return input(prompt).strip()
+        answer = input(prompt).strip()
+        if answer:
+            answers[question_text] = answer
+    return answers
 ```
 
-Displays the `ask_user` question and reads the user's typed answer from stdin. `questions` 配列の最初の要素のみを処理する。`header` があれば `[Header]` 形式のラベルを表示し、`placeholder` があれば入力ヒントとして表示する。
+Displays all `ask_user` questions and reads the user's typed answers from stdin. Returns a `dict[str, str]` mapping question text to answers. When there are multiple questions, sequential numbers `(N/M)` are shown. `header` is displayed as `[Header]` format, `placeholder` as input hint.
 
 **`type: "choice"`** の場合、選択肢を番号付きで表示する。`multiSelect: true` ならカンマ区切りで複数番号を入力でき、選択されたラベルが結合された値が LLM に渡される。`multiSelect: false`（デフォルト）では単一番号または自由記述が受け付けられる。Used by both sync and stream modes.
 

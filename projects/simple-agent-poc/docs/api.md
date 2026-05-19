@@ -137,24 +137,24 @@ Resumes a paused session synchronously. Returns the same discriminated shape as 
 ```json
 {
   "session_id": "abc123...",
-  "answer": "My name is Alice"
+  "answers": {"What is your name?": "My name is Alice"}
 }
 ```
 
 | Field | Type | Required | Description |
 |:---|:---|:---|:---|
 | `session_id` | `str` | yes | The session ID from the `paused` response |
-| `answer` | `str` | yes | User's answer to the `ask_user` question |
+| `answers` | `dict[str,str]` | yes | User's answers to the `ask_user` questions, keyed by question text |
 
 #### Response (200)
 
-Same discriminated shape as `/api/chat/sync` (either `"completed"` or `"paused"`). If multiple `ask_user` calls were in the same batch, a `"paused"` response is returned for each unanswered question without calling the LLM.
+Same discriminated shape as `/api/chat/sync` (either `"completed"` or `"paused"`). All `ask_user` tool calls in the same assistant response are answered together; the session will not pause again for unanswered calls in the same batch.
 
 #### Error Responses
 
 | Status | Condition |
 |:---|:---|
-| `422` | `session_id` or `answer` blank (Pydantic validation) |
+| `422` | `session_id` or `answers` blank/invalid (Pydantic validation) |
 | `400` | session is not paused |
 | `404` | `session_id` not found |
 
@@ -181,27 +181,24 @@ Resumes a paused session (after `ask_user` was called in streaming mode). Return
 ```json
 {
   "session_id": "abc123...",
-  "answer": "My preference is X"
+  "answers": {"Your preference?": "My preference is X"}
 }
 ```
 
 | Field | Type | Required | Description |
 |:---|:---|:---|:---|
 | `session_id` | `str` | yes | The session ID from the `paused` event |
-| `answer` | `str` | yes | User's answer to the `ask_user` question |
+| `answers` | `dict[str,str]` | yes | User's answers to the `ask_user` questions, keyed by question text |
 
 #### Response
 
 Same SSE format as `/api/chat/stream`. The sequence is:
-1. `event: tool_result` — the answer injected as tool result
+1. `event: tool_result` — the answers injected as tool results
 2. `event: delta` ... — LLM response chunks (ReAct loop resumes)
 3. `event: complete` — stream finished
 4. `event: done` — end of stream
 
-Or if another `ask_user` was in the same batch:
-1. `event: tool_result` — the answer injected as tool result
-2. `event: paused` — next `ask_user` pause notification
-3. `event: done` — end of stream
+If another `ask_user` is called during the resumed ReAct loop, `event: paused` is emitted again.
 
 #### Error Responses
 

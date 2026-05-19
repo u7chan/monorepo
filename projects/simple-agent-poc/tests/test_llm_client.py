@@ -745,7 +745,7 @@ class TestLiteLLMResponsesClientStream:
         event = MagicMock()
         event.type = "response.function_call_arguments.delta"
         event.output_index = 0
-        event.item_id = "call_001"
+        event.item_id = "fc_001"
         event.delta = '{"a":"1"}'
         mock_responses.return_value = [event]
 
@@ -758,9 +758,45 @@ class TestLiteLLMResponsesClientStream:
         td = result[0]["tool_call_delta"]
         assert td is not None
         assert td["index"] == 0
-        assert td["id"] == "call_001"
+        assert td["id"] is None
         assert td["function"]["name"] is None
         assert td["function"]["arguments"] == '{"a":"1"}'
+
+    @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
+    def test_complete_stream_preserves_call_id_across_arguments_delta(
+        self,
+        mock_responses: MagicMock,
+    ) -> None:
+        item = MagicMock()
+        item.type = "function_call"
+        item.call_id = "call_001"
+        item.name = "concat"
+        item.arguments = ""
+
+        added_event = MagicMock()
+        added_event.type = "response.output_item.added"
+        added_event.output_index = 0
+        added_event.item = item
+
+        delta_event = MagicMock()
+        delta_event.type = "response.function_call_arguments.delta"
+        delta_event.output_index = 0
+        delta_event.item_id = "fc_001"
+        delta_event.delta = '{"a":"1"}'
+
+        mock_responses.return_value = [added_event, delta_event]
+
+        client = LiteLLMResponsesClient(model="gpt-5.4-nano")
+        result = list(client.complete_stream([]))
+
+        assert len(result) == 2
+        first_delta = result[0]["tool_call_delta"]
+        second_delta = result[1]["tool_call_delta"]
+        assert first_delta is not None
+        assert second_delta is not None
+        assert first_delta["id"] == "call_001"
+        assert second_delta["id"] == "call_001"
+        assert second_delta["function"]["arguments"] == '{"a":"1"}'
 
     @patch("simple_agent_poc.adapters.llm.litellm_client.responses")
     def test_complete_stream_tool_call_and_text_interleaved(

@@ -30,6 +30,7 @@ from simple_agent_poc.core.agent_definition import (
 from simple_agent_poc.core.session import ConversationSession
 from simple_agent_poc.core.types import (
     LLMError,
+    Message,
     SessionNotFoundError,
     SessionNotPausedError,
     ToolCall,
@@ -64,67 +65,136 @@ def _accumulate_tool_call_chunks(
         acc["function"]["arguments"] += fn_args
 
 
-def _find_next_unanswered_ask_user(
-    session: ConversationSession,
-) -> ToolCall | None:
-    """Find the next ask_user tool call in the latest unfinished tool batch."""
-    for idx in range(len(session.messages) - 1, -1, -1):
-        message = session.messages[idx]
-        tool_calls = message.get("tool_calls")
-        if message["role"] != "assistant" or not tool_calls:
-            continue
-
-        answered_tool_call_ids = {
-            msg["tool_call_id"]
-            for msg in session.messages[idx + 1 :]
-            if msg["role"] == "tool" and "tool_call_id" in msg
-        }
-        for tool_call in tool_calls:
-            if (
-                tool_call["id"] not in answered_tool_call_ids
-                and tool_call["function"]["name"] == "ask_user"
-            ):
-                return tool_call
-        return None
-
-    return None
+_MAX_QUESTIONS = 4
+_ASK_USER_ANSWERED_REMINDER = (
+    "The ask_user tool result below contains the user's answers for this turn. "
+    "Use the provided tool result to complete the user's request now. "
+    "Do not call ask_user again, and do not ask the same question again in natural language."
+)
 
 
-def _build_ask_user_result(user_answer: str, questions: list[dict]) -> str:
-    """Build the ask_user tool result JSON from the user's raw answer.
+def _validate_questions(questions: list[dict]) -> None:
+    if not questions:
+        raise ValidationError(
+            "questions must not be empty",
+            display_message="questions must not be empty",
+        )
+    if len(questions) > _MAX_QUESTIONS:
+        raise ValidationError(
+            f"Too many questions: {len(questions)} (max {_MAX_QUESTIONS})",
+            display_message=f"Too many questions: {len(questions)} (max {_MAX_QUESTIONS})",
+        )
 
-    For ``choice`` questions with ``options``, numeric inputs are mapped to
-    option labels.  Comma-separated numbers are supported when ``multiSelect``
-    is ``True``.  Non-numeric input falls back to free-form text.
+
+def _build_ask_user_result(answers: dict[str, str], questions: list[dict]) -> str:
+    """Build the ask_user tool result as natural language text.
+
+    Each answer is matched to its question by question text key.
+    For ``choice`` questions, numeric inputs are mapped to option labels.
     """
     if not questions:
-        return json.dumps({"answers": {}}, ensure_ascii=False)
-    q = questions[0]
-    question_text = q.get("question", "")
-    options = q.get("options", [])
+        return "（ユーザーからの回答はありません）"
 
-    if not options:
-        return json.dumps({"answers": {question_text: user_answer}}, ensure_ascii=False)
+    lines = ["--- ユーザーからの回答 ---"]
+    for q in questions:
+        question_text = q.get("question", "")
+        raw_answer = answers.get(question_text, "（未回答）")
+        q_type = q.get("type", "text")
+        options = q.get("options", [])
+        multi_select = q.get("multiSelect", False)
 
-    multi_select = q.get("multiSelect", False)
-    if multi_select:
-        parts = [p.strip() for p in user_answer.split(",") if p.strip()]
-    else:
-        parts = [user_answer.strip()] if user_answer.strip() else []
+        display_answer = raw_answer
+        if q_type == "choice" and options:
+            if multi_select:
+                parts = [p.strip() for p in raw_answer.split(",") if p.strip()]
+                if parts and all(p.isdigit() for p in parts):
+                    labels = []
+                    for p in parts:
+                        idx = int(p) - 1
+                        if 0 <= idx < len(options):
+                            labels.append(options[idx]["label"])
+                    if labels:
+                        display_answer = ", ".join(labels)
+            elif raw_answer.strip().isdigit():
+                idx = int(raw_answer.strip()) - 1
+                if 0 <= idx < len(options):
+                    display_answer = options[idx]["label"]
+            lines.append(f"- {question_text} → {display_answer}（選択肢から選択）")
+        else:
+            lines.append(f"- {question_text} → {display_answer}")
+    return "\n".join(lines)
 
-    if all(p.isdigit() for p in parts):
-        labels: list[str] = []
-        for p in parts:
-            idx = int(p) - 1
-            if 0 <= idx < len(options):
-                labels.append(options[idx]["label"])
-        if labels:
-            return json.dumps(
-                {"answers": {question_text: ", ".join(labels)}},
-                ensure_ascii=False,
-            )
 
-    return json.dumps({"answers": {question_text: user_answer}}, ensure_ascii=False)
+def _tools_without_ask_user(
+    tools: list[ToolDefinition] | None,
+) -> list[ToolDefinition] | None:
+    if not tools:
+        return tools
+    filtered = [tool for tool in tools if tool["function"]["name"] != "ask_user"]
+    return filtered or None
+
+
+def _ask_user_tool_results(session: "ConversationSession") -> list[str]:
+    ask_user_call_ids: set[str] = set()
+    for msg in session.messages:
+        tool_calls = msg.get("tool_calls", [])
+        for tc in tool_calls:
+            if tc["function"]["name"] == "ask_user":
+                ask_user_call_ids.add(tc["id"])
+
+    return [
+        msg["content"]
+        for msg in session.messages
+        if msg.get("role") == "tool"
+        and msg.get("tool_call_id") in ask_user_call_ids
+        and msg["content"]
+    ]
+
+
+def _messages_for_llm(
+    session: "ConversationSession",
+    *,
+    ask_user_answered: bool,
+) -> list[Message]:
+    messages = list(session.messages)
+    if ask_user_answered:
+        tool_results = "\n\n".join(_ask_user_tool_results(session))
+        content = _ASK_USER_ANSWERED_REMINDER
+        if tool_results:
+            content = f"{content}\n\n{tool_results}"
+        messages.append({"role": "user", "content": content})
+    return messages
+
+
+def _replace_all_ask_user_placeholders(
+    session: "ConversationSession",
+    answers: dict[str, str],
+    pending_tc: ToolCall,
+) -> list[tuple[str, str]]:
+    """Replace all ask_user placeholder tool messages from the same assistant batch.
+
+    When multiple ask_user tool calls are aggregated into one pause, this
+    ensures every placeholder gets filled with its corresponding answers.
+    Returns a list of ``(call_id, result)`` tuples so callers can emit
+    ``ToolResultEvent`` for each replaced message.
+    """
+    results: list[tuple[str, str]] = []
+    for msg in reversed(session.messages):
+        maybe_tcs = msg.get("tool_calls")
+        if msg["role"] == "assistant" and maybe_tcs:
+            tc_ids = {t["id"] for t in maybe_tcs}
+            if pending_tc["id"] in tc_ids:
+                for atc in maybe_tcs:
+                    if atc["function"]["name"] == "ask_user":
+                        atc_args = json.loads(atc["function"]["arguments"])
+                        atc_questions = atc_args.get("questions", [])
+                        atc_result = _build_ask_user_result(answers, atc_questions)
+                        session.replace_tool_message(atc_result, tool_call_id=atc["id"])
+                        results.append((atc["id"], atc_result))
+                break
+    if not results:
+        raise RuntimeError("pending_tool_call not found in any assistant message")
+    return results
 
 
 class RunAgentUseCase:
@@ -177,7 +247,7 @@ class RunAgentUseCase:
     def continue_sync(
         self, request: ContinueRequest
     ) -> RunAgentResponse | RunAgentPaused:
-        """Resume a paused session synchronously with the user's answer."""
+        """Resume a paused session synchronously with the user's answers."""
         session = self._session_store.get(request.session_id)
         if session is None:
             raise SessionNotFoundError(
@@ -193,24 +263,13 @@ class RunAgentUseCase:
         tc = session.pending_tool_call
         if tc is None:
             raise RuntimeError("Session is paused but no pending tool call found")
-        pending_args = json.loads(tc["function"]["arguments"])
-        questions = pending_args.get("questions", [])
-        result = _build_ask_user_result(request.answer, questions)
-        session.replace_tool_message(result, tool_call_id=tc["id"])
+
+        _replace_all_ask_user_placeholders(session, request.answers, tc)
+
         resume_round = session.pending_round
         session.resume_with_answer()
 
         tool_call_history: list[ToolCallRecord] = []
-
-        next_ask_user_tc = _find_next_unanswered_ask_user(session)
-        if next_ask_user_tc is not None:
-            session.append_tool_message("", tool_call_id=next_ask_user_tc["id"])
-            return self._build_paused_result(
-                session=session,
-                ask_user_tc=next_ask_user_tc,
-                round_idx=resume_round,
-                tool_call_history=tool_call_history,
-            )
 
         try:
             return self._run_react_loop(
@@ -231,9 +290,14 @@ class RunAgentUseCase:
         agent_definition = self._agent_definitions.get(session.agent_id)
         llm_client = self._llm_client_factory(agent_definition)
         tools = self._resolve_tools(agent_definition)
+        ask_user_answered = start_round > 0
 
         for round_idx in range(start_round, agent_definition.max_tool_rounds):
-            response = llm_client.complete(list(session.messages), tools=tools)
+            round_tools = _tools_without_ask_user(tools) if ask_user_answered else tools
+            response = llm_client.complete(
+                _messages_for_llm(session, ask_user_answered=ask_user_answered),
+                tools=round_tools,
+            )
 
             tool_calls = response.get("tool_calls")
             if not tool_calls:
@@ -271,14 +335,22 @@ class RunAgentUseCase:
                 )
 
             if ask_user_tcs:
-                # Add a placeholder tool message so OpenAI's history validation
-                # is satisfied when the session resumes later.
-                session.append_tool_message("", tool_call_id=ask_user_tcs[0]["id"])
+                all_questions: list[dict] = []
+                for tc in ask_user_tcs:
+                    ask_user_args = json.loads(tc["function"]["arguments"])
+                    all_questions.extend(ask_user_args.get("questions", []))
+
+                _validate_questions(all_questions)
+
+                for tc in ask_user_tcs:
+                    session.append_tool_message("", tool_call_id=tc["id"])
+
                 return self._build_paused_result(
                     session=session,
                     ask_user_tc=ask_user_tcs[0],
                     round_idx=round_idx,
                     tool_call_history=tool_call_history,
+                    aggregated_questions=all_questions,
                 )
 
         raise LLMError(
@@ -290,7 +362,7 @@ class RunAgentUseCase:
         self, request: RunAgentRequest
     ) -> Generator[
         ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
-        str | None,
+        dict[str, str] | None,
         None,
     ]:
         """Run the agent for a single user message with streaming ReAct loop.
@@ -316,15 +388,23 @@ class RunAgentUseCase:
         model = agent_definition.model
         _start_time = time.perf_counter()
         _accumulated_text = ""
+        ask_user_answered = False
 
         try:
             for round_idx in range(agent_definition.max_tool_rounds):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
+                round_tools = (
+                    _tools_without_ask_user(tools) if ask_user_answered else tools
+                )
 
                 for chunk in llm_client.complete_stream(
-                    list(session.messages), tools=tools
+                    _messages_for_llm(
+                        session,
+                        ask_user_answered=ask_user_answered,
+                    ),
+                    tools=round_tools,
                 ):
                     delta = chunk.get("content_delta")
                     if delta:
@@ -362,6 +442,18 @@ class RunAgentUseCase:
                     )
 
                     if ask_user_tc and self._is_api_context:
+                        ask_user_tcs = [
+                            tc
+                            for tc in tool_calls
+                            if tc["function"]["name"] == "ask_user"
+                        ]
+                        all_questions: list[dict] = []
+                        for tc in ask_user_tcs:
+                            ask_user_args = json.loads(tc["function"]["arguments"])
+                            all_questions.extend(ask_user_args.get("questions", []))
+
+                        _validate_questions(all_questions)
+
                         for tc in tool_calls:
                             yield ToolCallEvent(
                                 call_id=tc["id"],
@@ -379,13 +471,13 @@ class RunAgentUseCase:
                                 result=result,
                             )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
-                        session.append_tool_message("", tool_call_id=ask_user_tc["id"])
+                        for tc in ask_user_tcs:
+                            session.append_tool_message("", tool_call_id=tc["id"])
                         self._session_store.save(session)
-                        ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
                         yield SessionPaused(
                             session_id=session.session_id,
                             call_id=ask_user_tc["id"],
-                            questions=ask_user_args.get("questions", []),
+                            questions=all_questions,
                         )
                         return
 
@@ -396,12 +488,13 @@ class RunAgentUseCase:
                                 name=tc["function"]["name"],
                                 arguments=tc["function"]["arguments"],
                             )
-                            user_answer = yield event
+                            user_answers = yield event
                             ask_user_args = json.loads(tc["function"]["arguments"])
                             questions = ask_user_args.get("questions", [])
                             result = _build_ask_user_result(
-                                user_answer or "", questions
+                                user_answers or {}, questions
                             )
+                            ask_user_answered = True
                         else:
                             yield ToolCallEvent(
                                 call_id=tc["id"],
@@ -448,7 +541,7 @@ class RunAgentUseCase:
         None,
         None,
     ]:
-        """Resume a paused session with the user's answer."""
+        """Resume a paused session with the user's answers."""
         session = self._session_store.get(request.session_id)
         if session is None:
             raise SessionNotFoundError(
@@ -464,27 +557,14 @@ class RunAgentUseCase:
         tc = session.pending_tool_call
         if tc is None:
             raise RuntimeError("Session is paused but no pending tool call found")
-        pending_args = json.loads(tc["function"]["arguments"])
-        questions = pending_args.get("questions", [])
-        result = _build_ask_user_result(request.answer, questions)
-        session.replace_tool_message(result, tool_call_id=tc["id"])
+
+        results = _replace_all_ask_user_placeholders(session, request.answers, tc)
         self._session_store.save(session)
-        yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
+        for call_id, result in results:
+            yield ToolResultEvent(call_id=call_id, name="ask_user", result=result)
+
         resume_round = session.pending_round
         session.resume_with_answer()
-
-        next_ask_user_tc = _find_next_unanswered_ask_user(session)
-        if next_ask_user_tc is not None:
-            session.pause_for_ask_user(next_ask_user_tc, round_idx=resume_round)
-            session.append_tool_message("", tool_call_id=next_ask_user_tc["id"])
-            self._session_store.save(session)
-            ask_user_args = json.loads(next_ask_user_tc["function"]["arguments"])
-            yield SessionPaused(
-                session_id=session.session_id,
-                call_id=next_ask_user_tc["id"],
-                questions=ask_user_args.get("questions", []),
-            )
-            return
 
         agent_definition = self._agent_definitions.get(session.agent_id)
         llm_client = self._llm_client_factory(agent_definition)
@@ -492,15 +572,23 @@ class RunAgentUseCase:
         model = agent_definition.model
         _start_time = time.perf_counter()
         _accumulated_text = ""
+        ask_user_answered = True
 
         try:
             for round_idx in range(resume_round + 1, agent_definition.max_tool_rounds):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
+                round_tools = (
+                    _tools_without_ask_user(tools) if ask_user_answered else tools
+                )
 
                 for chunk in llm_client.complete_stream(
-                    list(session.messages), tools=tools
+                    _messages_for_llm(
+                        session,
+                        ask_user_answered=ask_user_answered,
+                    ),
+                    tools=round_tools,
                 ):
                     delta = chunk.get("content_delta")
                     if delta:
@@ -544,6 +632,18 @@ class RunAgentUseCase:
                         None,
                     )
                     if ask_user_tc and self._is_api_context:
+                        ask_user_tcs = [
+                            tc
+                            for tc in tool_calls
+                            if tc["function"]["name"] == "ask_user"
+                        ]
+                        all_questions: list[dict] = []
+                        for tc in ask_user_tcs:
+                            ask_user_args = json.loads(tc["function"]["arguments"])
+                            all_questions.extend(ask_user_args.get("questions", []))
+
+                        _validate_questions(all_questions)
+
                         for tc in tool_calls:
                             if tc["function"]["name"] == "ask_user":
                                 continue
@@ -555,12 +655,13 @@ class RunAgentUseCase:
                                 result=result,
                             )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
+                        for tc in ask_user_tcs:
+                            session.append_tool_message("", tool_call_id=tc["id"])
                         self._session_store.save(session)
-                        ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
                         yield SessionPaused(
                             session_id=session.session_id,
                             call_id=ask_user_tc["id"],
-                            questions=ask_user_args.get("questions", []),
+                            questions=all_questions,
                         )
                         return
 
@@ -605,13 +706,18 @@ class RunAgentUseCase:
         ask_user_tc: ToolCall,
         round_idx: int,
         tool_call_history: list[ToolCallRecord],
+        aggregated_questions: list[dict] | None = None,
     ) -> RunAgentPaused:
         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
-        ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
+        if aggregated_questions is not None:
+            questions = aggregated_questions
+        else:
+            ask_user_args = json.loads(ask_user_tc["function"]["arguments"])
+            questions = ask_user_args.get("questions", [])
         return RunAgentPaused(
             session_id=session.session_id,
             call_id=ask_user_tc["id"],
-            questions=ask_user_args.get("questions", []),
+            questions=questions,
             tool_call_history=tool_call_history,
         )
 

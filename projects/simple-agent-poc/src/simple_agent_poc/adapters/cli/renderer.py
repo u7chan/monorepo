@@ -85,40 +85,49 @@ def get_user_input() -> str:
     return input("> ")
 
 
-def ask_user_question(questions: list[dict]) -> str:
-    """Display ask_user questions and return the user's answer.
+def ask_user_question(questions: list[dict]) -> dict[str, str]:
+    """Display ask_user questions sequentially and return all answers.
 
-    Phase 1 では questions 配列の最初の要素のみ処理する。"""
+    Supports up to 4 questions per batch.  Each question is displayed
+    one at a time and the user's answer is collected before moving on.
+    """
+    answers: dict[str, str] = {}
     if not questions:
-        return ""
-    q = questions[0]
-    header = q.get("header", "")
-    question_text = q.get("question", "")
-    q_type = q.get("type", "text")
-    placeholder = q.get("placeholder", "")
-    options = q.get("options", [])
-    multi_select = q.get("multiSelect", False)
-    label = f"[{header}] " if header else ""
+        return answers
 
-    if q_type == "choice" and options:
-        print(f"  {label}{question_text}")
-        for idx, opt in enumerate(options, start=1):
-            desc = opt.get("description", "")
-            line = f"    {idx}. {opt['label']}"
-            if desc:
-                line += f" — {desc}"
-            print(line)
-        if multi_select:
-            prompt = "  選択（カンマ区切りで複数可）> "
+    for i, q in enumerate(questions):
+        header = q.get("header", "")
+        question_text = q.get("question", "")
+        q_type = q.get("type", "text")
+        placeholder = q.get("placeholder", "")
+        options = q.get("options", [])
+        multi_select = q.get("multiSelect", False)
+        label = f"[{header}] " if header else ""
+
+        total = len(questions)
+        prefix = f"({i + 1}/{total}) " if total > 1 else ""
+
+        if q_type == "choice" and options:
+            print(f"  {prefix}{label}{question_text}")
+            for idx, opt in enumerate(options, start=1):
+                desc = opt.get("description", "")
+                line = f"    {idx}. {opt['label']}"
+                if desc:
+                    line += f" — {desc}"
+                print(line)
+            if multi_select:
+                prompt = "  選択（カンマ区切りで複数可）> "
+            else:
+                prompt = "  選択（番号または自由記述）> "
         else:
-            prompt = "  選択（番号または自由記述）> "
-    else:
-        prompt = f"  {label}{question_text}"
-        if placeholder:
-            prompt += f" ({placeholder})"
-        prompt += " > "
+            prompt = f"  {prefix}{label}{question_text}"
+            if placeholder:
+                prompt += f" ({placeholder})"
+            prompt += " > "
 
-    return input(prompt).strip()
+        answers[question_text] = input(prompt).strip()
+
+    return answers
 
 
 def show_agent_response(response: RunAgentResponse) -> None:
@@ -162,7 +171,7 @@ def show_exit_message() -> None:
 def show_streaming_response(
     stream: Generator[
         ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
-        str | None,
+        dict[str, str] | None,
         None,
     ],
 ) -> StreamComplete:
@@ -210,9 +219,9 @@ def show_streaming_response(
 
                 if event.name == "ask_user":
                     args = json.loads(event.arguments)
-                    answer = ask_user_question(args.get("questions", []))
+                    answers = ask_user_question(args.get("questions", []))
                     try:
-                        next_event = stream.send(answer)
+                        next_event = stream.send(answers)
                     except StopIteration:
                         break
                     if isinstance(next_event, ToolResultEvent):
