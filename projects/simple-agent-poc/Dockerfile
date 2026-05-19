@@ -12,8 +12,8 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
 COPY README.md ./
 
-# Install dependencies
-RUN uv sync --frozen --no-install-project
+# Install production dependencies only
+RUN uv sync --frozen --no-install-project --no-dev
 
 # ---- test stage (REQUIRED for CI) ----
 FROM base AS test
