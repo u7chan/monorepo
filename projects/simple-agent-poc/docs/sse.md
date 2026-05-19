@@ -62,7 +62,7 @@ event: paused
 data: {"session_id": "abc123...", "call_id": "call_def456", "questions": [{"question": "What is your preference?", "header": "Preference", "type": "text"}, {"question": "Which database?", "header": "Database", "type": "choice", "options": [{"label": "PostgreSQL", "description": "OSS RDBMS"}, {"label": "SQLite", "description": "Lightweight embedded DB"}], "multiSelect": false}]}
 ```
 
-Emitted when `ask_user` is called in API mode. The SSE stream disconnects after this event. The client must send the answer via `POST /api/chat/continue` to resume. Contains:
+Emitted when `ask_user` is called in API mode. The SSE stream disconnects after this event. The client must send the answers dict via `POST /api/chat/continue` to resume. Contains:
 
 | Field | Type | Description |
 |:---|:---|:---|
@@ -133,7 +133,7 @@ Source: `src/simple_agent_poc/application/use_cases.py`
 7. After the stream ends:
    - If tool calls were accumulated → executes each tool, yields `ToolCallEvent` / `ToolResultEvent`.
    - If a tool call is `ask_user` in API mode → yields `SessionPaused`, saves session, and returns (SSE disconnects).
-   - If a tool call is `ask_user` in CLI mode → yields `ToolCallEvent` and waits for `generator.send(answer)`.
+   - If a tool call is `ask_user` in CLI mode → yields `ToolCallEvent` and waits for `generator.send(answers)`.
    - If no tool calls → appends accumulated text as assistant message.
    - Loops up to the agent definition's `max_tool_rounds` value (`5` by default) for multi-round tool calls.
 8. Yields `StreamComplete(...)` with session metadata.
@@ -154,17 +154,16 @@ The `finally` block ensures the session is always persisted, even on failure.
 Source: `src/simple_agent_poc/application/use_cases.py`
 
 1. Loads the session by `session_id`. Returns error if not found or not paused.
-2. Injects the user's answer as a tool result message.
-3. Yields `ToolResultEvent` for the `ask_user` call.
-4. If the same assistant message still has another unanswered `ask_user` tool call, pauses again and yields `SessionPaused` without calling the LLM.
-5. Otherwise, resumes the ReAct loop with the remaining rounds.
-6. Yields `StreamComplete` on finish.
+2. Injects the user's answers as tool result messages for all pending `ask_user` tool calls.
+3. Yields `ToolResultEvent` for each `ask_user` call.
+4. Resumes the ReAct loop with the remaining rounds.
+5. Yields `StreamComplete` on finish.
 
 ## CLI Streaming
 
 In CLI mode, `show_streaming_response()` consumes the same `execute_stream()` generator:
 - Displays `ContentDelta` as live text on stdout.
-- On `ToolCallEvent`: displays the tool call, and for `ask_user` prompts for user input and injects via `generator.send(answer)`.
+- On `ToolCallEvent`: displays the tool call, and for `ask_user` prompts for user input and injects via `generator.send(answers)`.
 - On `ToolResultEvent`: displays the tool result.
 - On `StreamComplete`: prints a stats line (model, time, tokens).
 - See [docs/cli.md](cli.md) for details.

@@ -119,6 +119,37 @@ def _build_ask_user_result(answers: dict[str, str], questions: list[dict]) -> st
     return "\n".join(lines)
 
 
+def _replace_all_ask_user_placeholders(
+    session: "ConversationSession",
+    answers: dict[str, str],
+    pending_tc: ToolCall,
+) -> list[tuple[str, str]]:
+    """Replace all ask_user placeholder tool messages from the same assistant batch.
+
+    When multiple ask_user tool calls are aggregated into one pause, this
+    ensures every placeholder gets filled with its corresponding answers.
+    Returns a list of ``(call_id, result)`` tuples so callers can emit
+    ``ToolResultEvent`` for each replaced message.
+    """
+    results: list[tuple[str, str]] = []
+    for msg in reversed(session.messages):
+        maybe_tcs = msg.get("tool_calls")
+        if msg["role"] == "assistant" and maybe_tcs:
+            tc_ids = {t["id"] for t in maybe_tcs}
+            if pending_tc["id"] in tc_ids:
+                for atc in maybe_tcs:
+                    if atc["function"]["name"] == "ask_user":
+                        atc_args = json.loads(atc["function"]["arguments"])
+                        atc_questions = atc_args.get("questions", [])
+                        atc_result = _build_ask_user_result(answers, atc_questions)
+                        session.replace_tool_message(atc_result, tool_call_id=atc["id"])
+                        results.append((atc["id"], atc_result))
+                break
+    if not results:
+        raise RuntimeError("pending_tool_call not found in any assistant message")
+    return results
+
+
 class RunAgentUseCase:
     """Reusable execution path for session-aware agent interactions."""
 
@@ -185,10 +216,9 @@ class RunAgentUseCase:
         tc = session.pending_tool_call
         if tc is None:
             raise RuntimeError("Session is paused but no pending tool call found")
-        pending_args = json.loads(tc["function"]["arguments"])
-        questions = pending_args.get("questions", [])
-        result = _build_ask_user_result(request.answers, questions)
-        session.replace_tool_message(result, tool_call_id=tc["id"])
+
+        _replace_all_ask_user_placeholders(session, request.answers, tc)
+
         resume_round = session.pending_round
         session.resume_with_answer()
 
@@ -466,12 +496,12 @@ class RunAgentUseCase:
         tc = session.pending_tool_call
         if tc is None:
             raise RuntimeError("Session is paused but no pending tool call found")
-        pending_args = json.loads(tc["function"]["arguments"])
-        questions = pending_args.get("questions", [])
-        result = _build_ask_user_result(request.answers, questions)
-        session.replace_tool_message(result, tool_call_id=tc["id"])
+
+        results = _replace_all_ask_user_placeholders(session, request.answers, tc)
         self._session_store.save(session)
-        yield ToolResultEvent(call_id=tc["id"], name="ask_user", result=result)
+        for call_id, result in results:
+            yield ToolResultEvent(call_id=call_id, name="ask_user", result=result)
+
         resume_round = session.pending_round
         session.resume_with_answer()
 
