@@ -402,15 +402,20 @@ class LiteLLMResponsesClient(LLMClient):
                 display_message=f"An error occurred while communicating with the LLM: {error}",
             ) from error
 
+        call_ids_by_output_index: dict[int, str] = {}
         for event in response:
             event_type = getattr(event, "type", None)
 
             if event_type == "response.output_item.added":
                 item = getattr(event, "item", None)
                 if item is not None and _item_type(item) == "function_call":
+                    output_index = getattr(event, "output_index", 0)
+                    call_id = _item_attr(item, "call_id", None)
+                    if call_id:
+                        call_ids_by_output_index[output_index] = call_id
                     td: ToolCallDelta = {
-                        "index": getattr(event, "output_index", 0),
-                        "id": _item_attr(item, "call_id", None),
+                        "index": output_index,
+                        "id": call_id,
                         "type": "function",
                         "function": {
                             "name": _item_attr(item, "name", None),
@@ -421,9 +426,10 @@ class LiteLLMResponsesClient(LLMClient):
                 continue
 
             if event_type == "response.function_call_arguments.delta":
+                output_index = getattr(event, "output_index", 0)
                 td: ToolCallDelta = {
-                    "index": getattr(event, "output_index", 0),
-                    "id": getattr(event, "item_id", None),
+                    "index": output_index,
+                    "id": call_ids_by_output_index.get(output_index),
                     "type": "function",
                     "function": {
                         "name": None,

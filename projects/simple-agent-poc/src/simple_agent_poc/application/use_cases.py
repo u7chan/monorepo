@@ -30,6 +30,7 @@ from simple_agent_poc.core.agent_definition import (
 from simple_agent_poc.core.session import ConversationSession
 from simple_agent_poc.core.types import (
     LLMError,
+    Message,
     SessionNotFoundError,
     SessionNotPausedError,
     ToolCall,
@@ -65,6 +66,11 @@ def _accumulate_tool_call_chunks(
 
 
 _MAX_QUESTIONS = 4
+_ASK_USER_ANSWERED_REMINDER = (
+    "The ask_user tool result below contains the user's answers for this turn. "
+    "Use the provided tool result to complete the user's request now. "
+    "Do not call ask_user again, and do not ask the same question again in natural language."
+)
 
 
 def _validate_questions(questions: list[dict]) -> None:
@@ -117,6 +123,47 @@ def _build_ask_user_result(answers: dict[str, str], questions: list[dict]) -> st
         else:
             lines.append(f"- {question_text} → {display_answer}")
     return "\n".join(lines)
+
+
+def _tools_without_ask_user(
+    tools: list[ToolDefinition] | None,
+) -> list[ToolDefinition] | None:
+    if not tools:
+        return tools
+    filtered = [tool for tool in tools if tool["function"]["name"] != "ask_user"]
+    return filtered or None
+
+
+def _ask_user_tool_results(session: "ConversationSession") -> list[str]:
+    ask_user_call_ids: set[str] = set()
+    for msg in session.messages:
+        tool_calls = msg.get("tool_calls", [])
+        for tc in tool_calls:
+            if tc["function"]["name"] == "ask_user":
+                ask_user_call_ids.add(tc["id"])
+
+    return [
+        msg["content"]
+        for msg in session.messages
+        if msg.get("role") == "tool"
+        and msg.get("tool_call_id") in ask_user_call_ids
+        and msg["content"]
+    ]
+
+
+def _messages_for_llm(
+    session: "ConversationSession",
+    *,
+    ask_user_answered: bool,
+) -> list[Message]:
+    messages = list(session.messages)
+    if ask_user_answered:
+        tool_results = "\n\n".join(_ask_user_tool_results(session))
+        content = _ASK_USER_ANSWERED_REMINDER
+        if tool_results:
+            content = f"{content}\n\n{tool_results}"
+        messages.append({"role": "user", "content": content})
+    return messages
 
 
 def _replace_all_ask_user_placeholders(
@@ -243,9 +290,14 @@ class RunAgentUseCase:
         agent_definition = self._agent_definitions.get(session.agent_id)
         llm_client = self._llm_client_factory(agent_definition)
         tools = self._resolve_tools(agent_definition)
+        ask_user_answered = start_round > 0
 
         for round_idx in range(start_round, agent_definition.max_tool_rounds):
-            response = llm_client.complete(list(session.messages), tools=tools)
+            round_tools = _tools_without_ask_user(tools) if ask_user_answered else tools
+            response = llm_client.complete(
+                _messages_for_llm(session, ask_user_answered=ask_user_answered),
+                tools=round_tools,
+            )
 
             tool_calls = response.get("tool_calls")
             if not tool_calls:
@@ -336,15 +388,23 @@ class RunAgentUseCase:
         model = agent_definition.model
         _start_time = time.perf_counter()
         _accumulated_text = ""
+        ask_user_answered = False
 
         try:
             for round_idx in range(agent_definition.max_tool_rounds):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
+                round_tools = (
+                    _tools_without_ask_user(tools) if ask_user_answered else tools
+                )
 
                 for chunk in llm_client.complete_stream(
-                    list(session.messages), tools=tools
+                    _messages_for_llm(
+                        session,
+                        ask_user_answered=ask_user_answered,
+                    ),
+                    tools=round_tools,
                 ):
                     delta = chunk.get("content_delta")
                     if delta:
@@ -434,6 +494,7 @@ class RunAgentUseCase:
                             result = _build_ask_user_result(
                                 user_answers or {}, questions
                             )
+                            ask_user_answered = True
                         else:
                             yield ToolCallEvent(
                                 call_id=tc["id"],
@@ -511,15 +572,23 @@ class RunAgentUseCase:
         model = agent_definition.model
         _start_time = time.perf_counter()
         _accumulated_text = ""
+        ask_user_answered = True
 
         try:
             for round_idx in range(resume_round + 1, agent_definition.max_tool_rounds):
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
+                round_tools = (
+                    _tools_without_ask_user(tools) if ask_user_answered else tools
+                )
 
                 for chunk in llm_client.complete_stream(
-                    list(session.messages), tools=tools
+                    _messages_for_llm(
+                        session,
+                        ask_user_answered=ask_user_answered,
+                    ),
+                    tools=round_tools,
                 ):
                     delta = chunk.get("content_delta")
                     if delta:

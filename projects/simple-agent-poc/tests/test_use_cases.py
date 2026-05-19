@@ -433,6 +433,20 @@ def _agent_definitions_with_ask_user() -> AgentDefinitionRegistry:
     )
 
 
+def _agent_definitions_with_ask_user_and_concat() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "test-model",
+                    "system_prompt": "You are a helpful assistant.",
+                    "tools": ["ask_user", "concat"],
+                },
+            }
+        }
+    )
+
+
 def test_execute_returns_paused_on_ask_user():
     """Sync execute() returns RunAgentPaused when LLM calls ask_user."""
     fake_llm = FakeLLMClient(
@@ -518,6 +532,91 @@ def test_continue_sync_resumes_and_completes():
 
     assert isinstance(result, RunAgentResponse)
     assert result.message == "Done."
+
+
+def test_continue_sync_does_not_offer_ask_user_after_answer():
+    """After ask_user is answered, the same turn should continue without ask_user."""
+    from simple_agent_poc.adapters.tools.ask_user import (
+        TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.ask_user import (
+        execute as ask_user_execute,
+    )
+    from simple_agent_poc.adapters.tools.concat import (
+        TOOL_DEFINITION as CONCAT_TOOL_DEF,
+    )
+    from simple_agent_poc.adapters.tools.concat import execute as concat_execute
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
+
+    class CapturingLLMClient:
+        def __init__(self) -> None:
+            self.calls_tools: list[list[str]] = []
+            self.calls_messages: list[list[Message]] = []
+
+        def complete(
+            self,
+            messages: list[Message],
+            *,
+            tools: list[ToolDefinition] | None = None,
+        ) -> LLMResponse:
+            self.calls_messages.append(messages)
+            self.calls_tools.append([tool["function"]["name"] for tool in tools or []])
+            return {
+                "content": "Aliceさん、こんにちは。",
+                "usage": _usage(),
+                "model": "fake",
+                "response_time": 0.1,
+            }
+
+        def complete_stream(
+            self,
+            messages: list[Message],
+            *,
+            tools: list[ToolDefinition] | None = None,
+        ) -> Iterator[LLMStreamChunk]:
+            raise NotImplementedError
+
+    tool_executor = BuiltinToolRegistry()
+    tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+    tool_executor.register(CONCAT_TOOL_DEF, concat_execute)
+
+    ask_user_tc: ToolCall = {
+        "id": "call_ask_001",
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "arguments": _questions_args(),
+        },
+    }
+    store = InMemorySessionStore()
+    session = ConversationSession.start(
+        session_id="paused-session",
+        system_prompt="You are a helpful assistant.",
+    )
+    session.append_user_message("hello")
+    session.append_assistant_message("", tool_calls=[ask_user_tc])
+    session.pause_for_ask_user(ask_user_tc, round_idx=0)
+    store.save(session)
+
+    fake_llm = CapturingLLMClient()
+    use_case = RunAgentUseCase(
+        llm_client_factory=lambda _agent_definition: fake_llm,  # type: ignore[arg-type]
+        session_store=store,
+        agent_definitions=_agent_definitions_with_ask_user_and_concat(),
+        tool_executor=tool_executor,
+    )
+
+    result = use_case.continue_sync(
+        ContinueRequest(
+            session_id="paused-session", answers={"What is your name?": "Alice"}
+        )
+    )
+
+    assert isinstance(result, RunAgentResponse)
+    assert fake_llm.calls_tools == [["concat"]]
+    assert fake_llm.calls_messages[0][-1]["role"] == "user"
+    assert "Do not call ask_user again" in fake_llm.calls_messages[0][-1]["content"]
+    assert "Alice" in fake_llm.calls_messages[0][-1]["content"]
 
 
 def test_continue_sync_with_unknown_session_raises_error():

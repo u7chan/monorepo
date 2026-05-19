@@ -28,6 +28,8 @@ from simple_agent_poc.core.types import (
     Usage,
     ValidationError,
 )
+from simple_agent_poc.adapters.tools.concat import TOOL_DEFINITION as CONCAT_TOOL_DEF
+from simple_agent_poc.adapters.tools.concat import execute as concat_execute
 from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.adapters.tools.ask_user import (
     TOOL_DEFINITION as ASK_USER_TOOL_DEF,
@@ -396,6 +398,27 @@ def build_tool_executor_with_ask_user() -> BuiltinToolRegistry:
     return registry
 
 
+def build_registry_with_ask_user_and_concat() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "default-model",
+                    "system_prompt": "System prompt",
+                    "stream": True,
+                    "tools": ["ask_user", "concat"],
+                },
+            }
+        }
+    )
+
+
+def build_tool_executor_with_ask_user_and_concat() -> BuiltinToolRegistry:
+    registry = build_tool_executor_with_ask_user()
+    registry.register(CONCAT_TOOL_DEF, concat_execute)
+    return registry
+
+
 class TestExecuteStreamPause:
     """Tests for execute_stream pause on ask_user in API mode."""
 
@@ -493,6 +516,63 @@ class TestExecuteStreamPause:
         paused_events = [e for e in events if isinstance(e, SessionPaused)]
         assert len(paused_events) == 0
         assert isinstance(events[-1], StreamComplete)
+
+    def test_execute_stream_removes_ask_user_after_cli_answer(self) -> None:
+        first_chunks: list[LLMStreamChunk] = [
+            {
+                "content_delta": None,
+                "tool_call_delta": {
+                    "index": 0,
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": _questions_args(question_text="What?"),
+                    },
+                },
+            },
+        ]
+        second_chunks: list[LLMStreamChunk] = [
+            {"content_delta": "The answer is provided."},
+        ]
+        chunks_per_call = [first_chunks, second_chunks]
+
+        class CapturingClient:
+            def __init__(self) -> None:
+                self.call_count = 0
+                self.calls_tools: list[list[str]] = []
+                self.calls_messages: list[list[Message]] = []
+
+            def complete(self, messages, *, tools=None):
+                raise NotImplementedError
+
+            def complete_stream(self, messages, *, tools=None):
+                self.calls_messages.append(messages)
+                self.calls_tools.append(
+                    [tool["function"]["name"] for tool in tools or []]
+                )
+                chunks = chunks_per_call[min(self.call_count, len(chunks_per_call) - 1)]
+                self.call_count += 1
+                yield from chunks
+
+        llm_client = CapturingClient()
+        use_case = RunAgentUseCase(
+            llm_client_factory=MagicMock(return_value=llm_client),
+            session_store=InMemorySessionStore(),
+            agent_definitions=build_registry_with_ask_user_and_concat(),
+            tool_executor=build_tool_executor_with_ask_user_and_concat(),
+            is_api_context=False,
+        )
+
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
+
+        assert isinstance(events[-1], StreamComplete)
+        assert llm_client.calls_tools == [["ask_user", "concat"], ["concat"]]
+        assert llm_client.calls_messages[1][-1]["role"] == "user"
+        assert (
+            "Do not call ask_user again" in llm_client.calls_messages[1][-1]["content"]
+        )
+        assert "ユーザーからの回答" in llm_client.calls_messages[1][-1]["content"]
 
 
 class TestContinueStream:
