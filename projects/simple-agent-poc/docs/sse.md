@@ -1,6 +1,6 @@
 # SSE Streaming
 
-Server-Sent Events (SSE) provide real-time streaming of agent responses via the `/api/chat/stream` and `/api/chat/continue` endpoints. The `/api/chat/stream` endpoint uses `RunAgentUseCase.execute_stream()` and the `/api/chat/continue` endpoint uses `RunAgentUseCase.continue_stream()`. Both CLI and HTTP share the same underlying generators — only the SSE formatting differs.
+Server-Sent Events (SSE) provide real-time streaming of agent responses via the `/api/chat/stream` and `/api/chat/stream/continue` endpoints. The `/api/chat/stream` endpoint uses `RunAgentUseCase.execute_stream()` and the `/api/chat/stream/continue` endpoint uses `RunAgentUseCase.continue_stream()`. Both CLI and HTTP share the same underlying generators — only the SSE formatting differs.
 
 ## SSE Format
 
@@ -62,7 +62,7 @@ event: paused
 data: {"session_id": "abc123...", "call_id": "call_def456", "questions": [{"question": "What is your preference?", "header": "Preference", "type": "text"}, {"question": "Which database?", "header": "Database", "type": "choice", "options": [{"label": "PostgreSQL", "description": "OSS RDBMS"}, {"label": "SQLite", "description": "Lightweight embedded DB"}], "multiSelect": false}]}
 ```
 
-Emitted when `ask_user` is called in API mode. The SSE stream disconnects after this event. The client must send the answers dict via `POST /api/chat/continue` to resume. Contains:
+Emitted when `ask_user` is called in API mode. The SSE stream disconnects after this event. The client must send the answers dict via `POST /api/chat/stream/continue` to resume. Contains:
 
 | Field | Type | Description |
 |:---|:---|:---|

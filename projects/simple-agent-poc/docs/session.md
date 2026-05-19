@@ -46,7 +46,7 @@ When `ask_user` is called in API mode, the session enters a paused state:
 - `pause_for_ask_user(tool_call, *, round_idx)` — sets `is_paused = True`, saves the `ToolCall` and current round count.
 - `resume_with_answer()` — clears paused state. The user's answer is injected as a tool result by the use case.
 
-Paused sessions are persisted via `SessionStore.save()`. The client resumes via `POST /api/chat/continue`. See [docs/api.md](api.md) and [docs/sse.md](sse.md) for the API flow.
+Paused sessions are persisted via `SessionStore.save()`. The client resumes via `POST /api/chat/sync/continue` or `POST /api/chat/stream/continue`, depending on the mode. See [docs/api.md](api.md) and [docs/sse.md](sse.md) for the API flow.
 
 ## SessionStore
 

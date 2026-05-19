@@ -79,7 +79,7 @@ Raised when a requested `session_id` does not exist in the session store.
 
 ### SessionNotPausedError
 
-Raised when `POST /api/chat/continue` is called on a session that is not in paused state.
+Raised when `POST /api/chat/sync/continue` or `POST /api/chat/stream/continue` is called on a session that is not in paused state.
 
 **Trigger conditions:**
 - Session not found in the store

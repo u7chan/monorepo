@@ -98,7 +98,7 @@ AgentError (base)
 └── SessionNotPausedError
 ```
 
-`SessionNotPausedError` — raised when `POST /api/chat/continue` is called on a session that is not in paused state. See [docs/errors.md](errors.md).
+`SessionNotPausedError` — raised when `POST /api/chat/sync/continue` or `POST /api/chat/stream/continue` is called on a session that is not in paused state. See [docs/errors.md](errors.md).
 
 ## Application DTOs
 

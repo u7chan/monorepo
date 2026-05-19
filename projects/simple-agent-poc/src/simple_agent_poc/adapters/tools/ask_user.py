@@ -93,8 +93,8 @@ def execute(arguments: dict[str, Any]) -> str:
         {
             "answers": {
                 question_text: (
-                    "このツールは API ストリーミングモードでのみ利用可能です。"
-                    f"質問「{question_text}」には回答できませんでした。"
+                    f"質問「{question_text}」には自動で回答できません。"
+                    "ユーザーからの入力が必要です。"
                 ),
             },
         },
