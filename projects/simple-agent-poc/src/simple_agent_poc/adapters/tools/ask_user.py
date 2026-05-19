@@ -94,7 +94,7 @@ def execute(arguments: dict[str, Any]) -> str:
             "answers": {
                 question_text: (
                     f"質問「{question_text}」には自動で回答できません。"
-                    "対話モードでのみ利用可能です。"
+                    "ユーザーからの入力が必要です。"
                 ),
             },
         },
