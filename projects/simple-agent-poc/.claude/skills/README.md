@@ -13,5 +13,6 @@ All detailed documentation lives in `docs/`. Skills below are pointers into that
 ## Project Skills
 
 - [architecture/SKILL.md](./architecture/SKILL.md): pointer to [docs/architecture.md](../../docs/architecture.md)
+- [agent-cli-debug/SKILL.md](./agent-cli-debug/SKILL.md): CLI-first live debugging workflow for agent behavior.
 
 For other tasks, see [AGENTS.md](../../AGENTS.md) Task → Document Mapping table for the relevant `docs/` file.

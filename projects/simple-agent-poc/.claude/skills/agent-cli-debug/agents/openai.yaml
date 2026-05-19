@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent CLI Debug"
+  short_description: "Verify agent behavior through CLI runs"
+  default_prompt: "Use $agent-cli-debug to reproduce and debug agent behavior through the CLI before changing code."
