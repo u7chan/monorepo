@@ -39,7 +39,10 @@ Use the project CLI to reproduce agent behavior before changing code. This keeps
 6. Back the manual result with tests:
    - Add or update focused unit tests for the code path that caused the CLI behavior.
    - Run targeted tests first, then project checks when scope warrants:
-     `uv run ruff check .`, `uv run ruff format --check .`, `uv run ty check`, `uv run pytest`.
+     - `uv run ruff check .`
+     - `uv run ruff format --check .`
+     - `uv run ty check`
+     - `uv run pytest`
 
 ## CLI Session Notes
 
