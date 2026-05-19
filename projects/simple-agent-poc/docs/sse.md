@@ -1,6 +1,6 @@
 # SSE Streaming
 
-Server-Sent Events (SSE) provide real-time streaming of agent responses via the `/api/chat/stream` and `/api/chat/continue` endpoints. The `/api/chat/stream` endpoint uses `RunAgentUseCase.execute_stream()` and the `/api/chat/continue` endpoint uses `RunAgentUseCase.continue_stream()`. Both CLI and HTTP share the same underlying generators — only the SSE formatting differs.
+Server-Sent Events (SSE) provide real-time streaming of agent responses via the `/api/chat/stream` and `/api/chat/stream/continue` endpoints. The `/api/chat/stream` endpoint uses `RunAgentUseCase.execute_stream()` and the `/api/chat/continue` endpoint uses `RunAgentUseCase.continue_stream()`. Both CLI and HTTP share the same underlying generators — only the SSE formatting differs.
 
 ## SSE Format
 
