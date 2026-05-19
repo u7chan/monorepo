@@ -171,7 +171,7 @@ class TestAskUserQuestion:
         ]
         result = ask_user_question(questions)
 
-        assert result == "Alice"
+        assert result == {"What is your name?": "Alice"}
         mock_input.assert_called_once_with(
             "  [Name] What is your name? (e.g. Alice) > "
         )
@@ -195,7 +195,7 @@ class TestAskUserQuestion:
         ]
         result = ask_user_question(questions)
 
-        assert result == "1"
+        assert result == {"Which database?": "1"}
         calls = [
             call.args[0] if call.args else "" for call in mock_print.call_args_list
         ]
@@ -222,10 +222,48 @@ class TestAskUserQuestion:
         ]
         result = ask_user_question(questions)
 
-        assert result == "1, 2"
+        assert result == {"Pick sections": "1, 2"}
         calls = [
             call.args[0] if call.args else "" for call in mock_print.call_args_list
         ]
         assert "  Pick sections" in calls
         assert "    1. Intro — Introduction" in calls
         mock_input.assert_called_once_with("  選択（カンマ区切りで複数可）> ")
+
+    @patch("builtins.input", side_effect=["my-app", "1", "TypeScript"])
+    @patch("builtins.print")
+    def test_multi_question_batch(
+        self, mock_print: MagicMock, mock_input: MagicMock
+    ) -> None:
+        questions = [
+            {
+                "question": "プロジェクト名は？",
+                "header": "Project",
+                "type": "text",
+            },
+            {
+                "question": "どのDBを使う？",
+                "header": "DB",
+                "type": "choice",
+                "options": [
+                    {"label": "PostgreSQL", "description": "OSS RDBMS"},
+                    {"label": "SQLite"},
+                ],
+                "multiSelect": False,
+            },
+        ]
+        result = ask_user_question(questions)
+
+        assert result == {
+            "プロジェクト名は？": "my-app",
+            "どのDBを使う？": "1",
+        }
+        assert mock_input.call_count == 2
+        input_calls = [call.args[0] for call in mock_input.call_args_list]
+        calls = [
+            call.args[0] if call.args else "" for call in mock_print.call_args_list
+        ]
+        # text question: prefix in input prompt
+        # choice question: prefix in print line
+        assert any("(1/2)" in c for c in input_calls + calls)
+        assert any("(2/2)" in c for c in input_calls + calls)

@@ -109,7 +109,7 @@ class ResumeRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     session_id: str
-    answer: str
+    answers: dict[str, str]
 
     @field_validator("session_id")
     @classmethod
@@ -119,12 +119,12 @@ class ResumeRequest(BaseModel):
             raise ValueError("session_id must not be blank")
         return value
 
-    @field_validator("answer")
+    @field_validator("answers")
     @classmethod
-    def validate_answer(cls, value: str) -> str:
-        """Reject blank answers after trimming whitespace."""
+    def validate_answers(cls, value: dict[str, str]) -> dict[str, str]:
+        """Reject empty answers dict."""
         if not value:
-            raise ValueError("answer must not be blank")
+            raise ValueError("answers must not be empty")
         return value
 
 
@@ -213,7 +213,7 @@ def create_app(
             result = run_agent.continue_sync(
                 ContinueRequest(
                     session_id=request.session_id,
-                    answer=request.answer,
+                    answers=request.answers,
                 )
             )
         except SessionNotFoundError as error:
@@ -288,7 +288,7 @@ def create_app(
             generator = run_agent.continue_stream(
                 ContinueRequest(
                     session_id=request.session_id,
-                    answer=request.answer,
+                    answers=request.answers,
                 )
             )
             try:

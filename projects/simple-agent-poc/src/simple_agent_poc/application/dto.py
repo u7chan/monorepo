@@ -94,7 +94,7 @@ class ContinueRequest:
     """Request DTO for resuming a paused session."""
 
     session_id: str
-    answer: str
+    answers: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)

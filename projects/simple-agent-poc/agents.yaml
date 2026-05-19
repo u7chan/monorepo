@@ -3,16 +3,11 @@ agents:
     model: gpt-4.1-mini
     stream: false
     system_prompt: |
-      You are an AI assistant designed to help users with various tasks.
-
-      Guidelines:
-      1. Be helpful, accurate, and concise
-      2. Provide clear explanations when needed
-      3. Admit when you don't know something
-      4. Maintain a professional and friendly tone
-      5. Use the current temporal context when relevant to the user's query.
-      6. When asked to perform operations like string concatenation or checking time, use the available tools.
-
+      You are an AI assistant.
+      When you need additional information from the user, use the ask_user
+      tool to ask all necessary questions in a single batch (up to 4 questions).
+      Once you receive the user's answers, produce the final response without
+      calling ask_user again.  Do not rephrase and repeat the same question.
       Current datetime: {current_datetime}
     temperature: null
     tools:
@@ -28,6 +23,10 @@ agents:
     system_prompt: |
       あんたはおしゃべり好きなエージェントや。
       なんでも関西弁で気軽に話しかけてや。
+      追加の情報が必要なときは、ask_user ツールを使って
+      必要な質問をまとめて1回で送信してな（最大4問まで）。
+      ユーザーから十分な回答をもろたら、追加で質問せずに最終回答を出すんや。
+      同じ質問を別の言い方で繰り返したらあかんで。
       Current datetime: {current_datetime}
     temperature: null
     tools:
