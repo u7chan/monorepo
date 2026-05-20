@@ -85,7 +85,7 @@ def summarize_payload(value: object) -> dict[str, object]:
             return {"type": "str", "length": len(value), "content": value}
         try:
             serialized = json.dumps(value, ensure_ascii=False, default=str)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):  # fmt: skip
             return {"type": type(value).__name__, "length": 0, "content": str(value)}
         length = len(serialized)
         if isinstance(value, (dict, list)):
