@@ -22,7 +22,9 @@ from simple_agent_poc.core.types import (
     ToolCall,
     ToolCallDelta,
     ToolDefinition,
+    Usage,
 )
+from simple_agent_poc.observability import log_event, summarize_payload
 
 warnings.filterwarnings(
     "ignore",
@@ -160,6 +162,13 @@ class LiteLLMCompletionClient(LLMClient):
         *,
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
+        log_event(
+            "llm.request.start",
+            model=self.model,
+            api_type="completion",
+            stream=False,
+            message_count=len(messages),
+        )
         start_time = time.perf_counter()
         completion_params: dict[str, object] = {}
         if self.temperature is not None:
@@ -175,16 +184,28 @@ class LiteLLMCompletionClient(LLMClient):
                 **completion_params,
             )
         except LiteLLMAuthError as error:
+            log_event(
+                "llm.request.error",
+                error=summarize_payload(str(error)),
+            )
             raise AuthenticationError(
                 message=str(error),
                 display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
             ) from error
         except LiteLLMRateLimitError as error:
+            log_event(
+                "llm.request.error",
+                error=summarize_payload(str(error)),
+            )
             raise RateLimitError(
                 message=str(error),
                 display_message="Rate limit exceeded. Please wait a moment before trying again.",
             ) from error
         except Exception as error:
+            log_event(
+                "llm.request.error",
+                error=summarize_payload(str(error)),
+            )
             error_msg = str(error).lower()
             if (
                 "authentication" in error_msg
@@ -214,6 +235,16 @@ class LiteLLMCompletionClient(LLMClient):
         raw_tool_calls = getattr(response.choices[0].message, "tool_calls", None)
         if raw_tool_calls:
             result["tool_calls"] = _parse_tool_calls(raw_tool_calls)
+
+        log_event(
+            "llm.request.end",
+            model=self.model,
+            api_type="completion",
+            stream=False,
+            usage=result["usage"],
+            elapsed_ms=int(elapsed * 1000),
+            tool_call_count=len(result.get("tool_calls", [])),
+        )
         return result
 
     def complete_stream(
@@ -222,6 +253,14 @@ class LiteLLMCompletionClient(LLMClient):
         *,
         tools: list[ToolDefinition] | None = None,
     ) -> Iterator[LLMStreamChunk]:
+        log_event(
+            "llm.stream.start",
+            model=self.model,
+            api_type="completion",
+            stream=True,
+            message_count=len(messages),
+        )
+        start_time = time.perf_counter()
         completion_params: dict[str, object] = {}
         if self.temperature is not None:
             completion_params["temperature"] = self.temperature
@@ -237,16 +276,28 @@ class LiteLLMCompletionClient(LLMClient):
                 **completion_params,
             )
         except LiteLLMAuthError as error:
+            log_event(
+                "llm.stream.error",
+                error=summarize_payload(str(error)),
+            )
             raise AuthenticationError(
                 message=str(error),
                 display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
             ) from error
         except LiteLLMRateLimitError as error:
+            log_event(
+                "llm.stream.error",
+                error=summarize_payload(str(error)),
+            )
             raise RateLimitError(
                 message=str(error),
                 display_message="Rate limit exceeded. Please wait a moment before trying again.",
             ) from error
         except Exception as error:
+            log_event(
+                "llm.stream.error",
+                error=summarize_payload(str(error)),
+            )
             error_msg = str(error).lower()
             if (
                 "authentication" in error_msg
@@ -262,6 +313,9 @@ class LiteLLMCompletionClient(LLMClient):
                 display_message=f"An error occurred while communicating with the LLM: {error}",
             ) from error
 
+        last_usage: Usage | None = None
+        tool_call_count = 0
+        seen_call_ids: set[str] = set()
         for chunk in response:
             chunk_data: LLMStreamChunk = {"content_delta": None}
             if chunk.choices:
@@ -275,6 +329,10 @@ class LiteLLMCompletionClient(LLMClient):
                             "content_delta": None,
                             "tool_call_delta": td,
                         }
+                        call_id = td.get("id")
+                        if call_id and call_id not in seen_call_ids:
+                            seen_call_ids.add(call_id)
+                            tool_call_count += 1
                         yield tc_chunk
             if hasattr(chunk, "usage") and chunk.usage is not None:
                 chunk_data["usage"] = {
@@ -282,8 +340,20 @@ class LiteLLMCompletionClient(LLMClient):
                     "completion_tokens": chunk.usage.completion_tokens,
                     "total_tokens": chunk.usage.total_tokens,
                 }
+                last_usage = chunk_data["usage"]
             if chunk_data["content_delta"] is not None or "usage" in chunk_data:
                 yield chunk_data
+
+        elapsed = time.perf_counter() - start_time
+        log_event(
+            "llm.stream.end",
+            model=self.model,
+            api_type="completion",
+            stream=True,
+            usage=last_usage,
+            elapsed_ms=int(elapsed * 1000),
+            tool_call_count=tool_call_count,
+        )
 
 
 class LiteLLMResponsesClient(LLMClient):
@@ -299,6 +369,13 @@ class LiteLLMResponsesClient(LLMClient):
         *,
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
+        log_event(
+            "llm.request.start",
+            model=self.model,
+            api_type="responses",
+            stream=False,
+            message_count=len(messages),
+        )
         start_time = time.perf_counter()
         response_params: dict[str, object] = {}
         if self.temperature is not None:
@@ -314,16 +391,28 @@ class LiteLLMResponsesClient(LLMClient):
                 **response_params,
             )
         except LiteLLMAuthError as error:
+            log_event(
+                "llm.request.error",
+                error=summarize_payload(str(error)),
+            )
             raise AuthenticationError(
                 message=str(error),
                 display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
             ) from error
         except LiteLLMRateLimitError as error:
+            log_event(
+                "llm.request.error",
+                error=summarize_payload(str(error)),
+            )
             raise RateLimitError(
                 message=str(error),
                 display_message="Rate limit exceeded. Please wait a moment before trying again.",
             ) from error
         except Exception as error:
+            log_event(
+                "llm.request.error",
+                error=summarize_payload(str(error)),
+            )
             error_msg = str(error).lower()
             if (
                 "authentication" in error_msg
@@ -355,6 +444,16 @@ class LiteLLMResponsesClient(LLMClient):
         )
         if tool_calls:
             result["tool_calls"] = tool_calls
+
+        log_event(
+            "llm.request.end",
+            model=self.model,
+            api_type="responses",
+            stream=False,
+            usage=result["usage"],
+            elapsed_ms=int(elapsed * 1000),
+            tool_call_count=len(result.get("tool_calls", [])),
+        )
         return result
 
     def complete_stream(
@@ -363,6 +462,14 @@ class LiteLLMResponsesClient(LLMClient):
         *,
         tools: list[ToolDefinition] | None = None,
     ) -> Iterator[LLMStreamChunk]:
+        log_event(
+            "llm.stream.start",
+            model=self.model,
+            api_type="responses",
+            stream=True,
+            message_count=len(messages),
+        )
+        start_time = time.perf_counter()
         response_params: dict[str, object] = {}
         if self.temperature is not None:
             response_params["temperature"] = self.temperature
@@ -377,16 +484,28 @@ class LiteLLMResponsesClient(LLMClient):
                 **response_params,
             )
         except LiteLLMAuthError as error:
+            log_event(
+                "llm.stream.error",
+                error=summarize_payload(str(error)),
+            )
             raise AuthenticationError(
                 message=str(error),
                 display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
             ) from error
         except LiteLLMRateLimitError as error:
+            log_event(
+                "llm.stream.error",
+                error=summarize_payload(str(error)),
+            )
             raise RateLimitError(
                 message=str(error),
                 display_message="Rate limit exceeded. Please wait a moment before trying again.",
             ) from error
         except Exception as error:
+            log_event(
+                "llm.stream.error",
+                error=summarize_payload(str(error)),
+            )
             error_msg = str(error).lower()
             if (
                 "authentication" in error_msg
@@ -403,6 +522,8 @@ class LiteLLMResponsesClient(LLMClient):
             ) from error
 
         call_ids_by_output_index: dict[int, str] = {}
+        last_usage: Usage | None = None
+        tool_call_count = 0
         for event in response:
             event_type = getattr(event, "type", None)
 
@@ -413,6 +534,7 @@ class LiteLLMResponsesClient(LLMClient):
                     call_id = _item_attr(item, "call_id", None)
                     if call_id:
                         call_ids_by_output_index[output_index] = call_id
+                        tool_call_count += 1
                     td: ToolCallDelta = {
                         "index": output_index,
                         "id": call_id,
@@ -450,8 +572,20 @@ class LiteLLMResponsesClient(LLMClient):
                         "completion_tokens": usage_obj.output_tokens,
                         "total_tokens": usage_obj.total_tokens,
                     }
+                    last_usage = chunk_data["usage"]
             if chunk_data["content_delta"] is not None or "usage" in chunk_data:
                 yield chunk_data
+
+        elapsed = time.perf_counter() - start_time
+        log_event(
+            "llm.stream.end",
+            model=self.model,
+            api_type="responses",
+            stream=True,
+            usage=last_usage,
+            elapsed_ms=int(elapsed * 1000),
+            tool_call_count=tool_call_count,
+        )
 
 
 class LiteLLMClientFactory:

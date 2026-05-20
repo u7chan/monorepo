@@ -71,3 +71,8 @@ api = "simple_agent_poc.entrypoints.main_api:main"
 ```
 
 These are invoked via `uv run dev` and `uv run api`.
+
+## Debug Logging
+
+Both CLI and API write JSONL debug logs to `logs/agent-debug.jsonl` by default.
+See [docs/logging.md](logging.md) for configuration, event schema, and payload policies.

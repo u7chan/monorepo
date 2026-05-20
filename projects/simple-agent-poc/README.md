@@ -51,5 +51,6 @@ Detailed specifications:
 - [Bootstrap / DI](docs/bootstrap.md)
 - [Type Reference](docs/types.md)
 - [Error Handling](docs/errors.md)
+- [Debug Logging](docs/logging.md)
 - [Development Guide](docs/development.md)
 - [Testing Guide](docs/testing.md)

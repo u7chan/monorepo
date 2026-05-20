@@ -27,11 +27,13 @@ from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.ports import SessionStore, ToolExecutor
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
+from simple_agent_poc.observability import configure_logging
 
 logging.getLogger("litellm").setLevel(logging.CRITICAL)
 logging.getLogger("litellm").addHandler(logging.NullHandler())
 
 load_dotenv()
+configure_logging()
 
 DEFAULT_AGENT_ID = "default"
 DEFAULT_AGENTS_FILE = Path("agents.yaml")
