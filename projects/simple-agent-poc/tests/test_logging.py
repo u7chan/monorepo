@@ -581,7 +581,6 @@ def test_agent_run_error_event(logging_use_case, temp_log_path, default_agent_de
 
         def complete_stream(self, messages, *, tools=None):
             raise LLMError("Simulated error.", display_message="Error.")
-            yield
 
     llm_client = _ErrorClient()
     use_case = logging_use_case(llm_client)

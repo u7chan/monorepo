@@ -177,12 +177,9 @@ class _JSONLFormatter(logging.Formatter):
         obj["mode"] = _mode.get() or None
 
         # Everything else that was passed via ``extra``
-        for attr in dir(record):
-            if attr.startswith("_"):
-                continue
+        for attr, val in record.__dict__.items():
             if attr in _LOG_RECORD_ATTRS:
                 continue
-            val = getattr(record, attr, None)
             if val is not None:
                 obj[attr] = val
 
@@ -207,7 +204,12 @@ def configure_logging() -> None:
 
     _enabled = os.environ.get("SIMPLE_AGENT_LOG_ENABLED", "true").lower() != "false"
     _payload_policy = os.environ.get("SIMPLE_AGENT_LOG_PAYLOADS", "summary")
-    _max_field_chars = int(os.environ.get("SIMPLE_AGENT_LOG_MAX_FIELD_CHARS", "500"))
+    try:
+        _max_field_chars = int(
+            os.environ.get("SIMPLE_AGENT_LOG_MAX_FIELD_CHARS", "500")
+        )
+    except ValueError:
+        _max_field_chars = 500
 
     if not _enabled:
         return

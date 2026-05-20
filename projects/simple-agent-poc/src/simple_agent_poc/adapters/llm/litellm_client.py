@@ -315,6 +315,7 @@ class LiteLLMCompletionClient(LLMClient):
 
         last_usage: Usage | None = None
         tool_call_count = 0
+        seen_call_ids: set[str] = set()
         for chunk in response:
             chunk_data: LLMStreamChunk = {"content_delta": None}
             if chunk.choices:
@@ -328,7 +329,9 @@ class LiteLLMCompletionClient(LLMClient):
                             "content_delta": None,
                             "tool_call_delta": td,
                         }
-                        if td.get("id"):
+                        call_id = td.get("id")
+                        if call_id and call_id not in seen_call_ids:
+                            seen_call_ids.add(call_id)
                             tool_call_count += 1
                         yield tc_chunk
             if hasattr(chunk, "usage") and chunk.usage is not None:
