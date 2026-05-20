@@ -6,6 +6,12 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from simple_agent_poc.observability import (
+    bind_log_context,
+    log_event,
+    summarize_payload,
+)
+
 from simple_agent_poc.application.dto import (
     ContentDelta,
     ContinueRequest,
@@ -224,32 +230,64 @@ class RunAgentUseCase:
         if not request.message.strip():
             raise ValidationError("message must not be blank")
 
+        run_id = uuid4().hex
         agent_definition = self._agent_definitions.get(request.agent_id)
+        mode = "api" if self._is_api_context else "cli"
+        bind_log_context(
+            run_id=run_id,
+            agent_id=agent_definition.agent_id,
+            mode=mode,
+        )
         session = self._load_session(
             request.session_id,
             agent_definition=agent_definition,
         )
+        bind_log_context(session_id=session.session_id)
         if session.agent_id != agent_definition.agent_id:
             raise ValidationError("agent_id cannot be changed for an existing session")
         session.append_user_message(request.message)
 
+        log_event(
+            "agent.run.start",
+            run_id=run_id,
+            model=agent_definition.model,
+            api_type=agent_definition.api_type,
+            stream=False,
+        )
+
         tool_call_history: list[ToolCallRecord] = []
 
         try:
-            return self._run_react_loop(
+            result = self._run_react_loop(
                 session=session,
                 start_round=0,
                 tool_call_history=tool_call_history,
             )
+            if isinstance(result, RunAgentResponse):
+                log_event(
+                    "agent.run.end",
+                    run_id=run_id,
+                    usage=result.usage if result.usage else None,
+                    model=result.model,
+                    elapsed_ms=int(result.response_time * 1000),
+                )
+            return result
+        except Exception as exc:
+            log_event("agent.run.error", error=summarize_payload(str(exc)))
+            raise
         finally:
             self._session_store.save(session)
+            log_event("session.saved")
 
     def continue_sync(
         self, request: ContinueRequest
     ) -> RunAgentResponse | RunAgentPaused:
         """Resume a paused session synchronously with the user's answers."""
+        run_id = uuid4().hex
+
         session = self._session_store.get(request.session_id)
         if session is None:
+            log_event("session.not_found", session_id=request.session_id)
             raise SessionNotFoundError(
                 f"Session not found: {request.session_id}",
                 display_message="Session not found.",
@@ -264,21 +302,52 @@ class RunAgentUseCase:
         if tc is None:
             raise RuntimeError("Session is paused but no pending tool call found")
 
+        bind_log_context(
+            run_id=run_id,
+            session_id=session.session_id,
+            agent_id=session.agent_id,
+            mode="api" if self._is_api_context else "cli",
+        )
+        log_event("ask_user.resume", run_id=run_id, tool_call_id=tc["id"])
+
         _replace_all_ask_user_placeholders(session, request.answers, tc)
+        log_event("ask_user.answered", tool_call_id=tc["id"])
 
         resume_round = session.pending_round
         session.resume_with_answer()
 
+        agent_definition = self._agent_definitions.get(session.agent_id)
+        log_event(
+            "agent.run.start",
+            run_id=run_id,
+            model=agent_definition.model,
+            api_type=agent_definition.api_type,
+            stream=False,
+        )
+
         tool_call_history: list[ToolCallRecord] = []
 
         try:
-            return self._run_react_loop(
+            result = self._run_react_loop(
                 session=session,
                 start_round=resume_round + 1,
                 tool_call_history=tool_call_history,
             )
+            if isinstance(result, RunAgentResponse):
+                log_event(
+                    "agent.run.end",
+                    run_id=run_id,
+                    usage=result.usage if result.usage else None,
+                    model=result.model,
+                    elapsed_ms=int(result.response_time * 1000),
+                )
+            return result
+        except Exception as exc:
+            log_event("agent.run.error", error=summarize_payload(str(exc)))
+            raise
         finally:
             self._session_store.save(session)
+            log_event("session.saved")
 
     def _run_react_loop(
         self,
@@ -293,7 +362,11 @@ class RunAgentUseCase:
         ask_user_answered = start_round > 0
 
         for round_idx in range(start_round, agent_definition.max_tool_rounds):
+            log_event("react.round.start", round=round_idx)
             round_tools = _tools_without_ask_user(tools) if ask_user_answered else tools
+            message_count = len(
+                _messages_for_llm(session, ask_user_answered=ask_user_answered)
+            )
             response = llm_client.complete(
                 _messages_for_llm(session, ask_user_answered=ask_user_answered),
                 tools=round_tools,
@@ -302,6 +375,13 @@ class RunAgentUseCase:
             tool_calls = response.get("tool_calls")
             if not tool_calls:
                 session.append_assistant_message(response["content"])
+                log_event(
+                    "react.round.end",
+                    round=round_idx,
+                    usage=response.get("usage"),
+                    message_count=message_count,
+                    elapsed_ms=int(response["response_time"] * 1000),
+                )
                 return RunAgentResponse.from_llm_response(
                     response,
                     session_id=session.session_id,
@@ -323,7 +403,30 @@ class RunAgentUseCase:
             for tc in tool_calls:
                 if tc["function"]["name"] == "ask_user":
                     continue
-                result = self._tool_executor.execute(tc)
+                log_event(
+                    "tool.call.start",
+                    tool_call_id=tc["id"],
+                    tool_name=tc["function"]["name"],
+                    round=round_idx,
+                )
+                try:
+                    result = self._tool_executor.execute(tc)
+                except Exception as exc:
+                    log_event(
+                        "tool.call.error",
+                        tool_call_id=tc["id"],
+                        tool_name=tc["function"]["name"],
+                        round=round_idx,
+                        error=summarize_payload(str(exc)),
+                    )
+                    raise
+                log_event(
+                    "tool.call.end",
+                    tool_call_id=tc["id"],
+                    tool_name=tc["function"]["name"],
+                    round=round_idx,
+                    payload=summarize_payload(result),
+                )
                 session.append_tool_message(result, tool_call_id=tc["id"])
                 tool_call_history.append(
                     ToolCallRecord(
@@ -345,6 +448,11 @@ class RunAgentUseCase:
                 for tc in ask_user_tcs:
                     session.append_tool_message("", tool_call_id=tc["id"])
 
+                log_event(
+                    "ask_user.pause",
+                    tool_call_id=ask_user_tcs[0]["id"],
+                    round=round_idx,
+                )
                 return self._build_paused_result(
                     session=session,
                     ask_user_tc=ask_user_tcs[0],
@@ -353,6 +461,15 @@ class RunAgentUseCase:
                     aggregated_questions=all_questions,
                 )
 
+            log_event(
+                "react.round.end",
+                round=round_idx,
+                usage=response.get("usage"),
+                message_count=message_count,
+                elapsed_ms=int(response["response_time"] * 1000),
+            )
+
+        log_event("react.max_rounds_exceeded")
         raise LLMError(
             "Exceeded maximum tool call rounds",
             display_message="Exceeded maximum tool call rounds.",
@@ -374,14 +491,30 @@ class RunAgentUseCase:
         if not request.message.strip():
             raise ValidationError("message must not be blank")
 
+        run_id = uuid4().hex
         agent_definition = self._agent_definitions.get(request.agent_id)
+        mode = "api" if self._is_api_context else "cli"
+        bind_log_context(
+            run_id=run_id,
+            agent_id=agent_definition.agent_id,
+            mode=mode,
+        )
         session = self._load_session(
             request.session_id,
             agent_definition=agent_definition,
         )
+        bind_log_context(session_id=session.session_id)
         if session.agent_id != agent_definition.agent_id:
             raise ValidationError("agent_id cannot be changed for an existing session")
         session.append_user_message(request.message)
+
+        log_event(
+            "agent.run.start",
+            run_id=run_id,
+            model=agent_definition.model,
+            api_type=agent_definition.api_type,
+            stream=True,
+        )
 
         llm_client = self._llm_client_factory(agent_definition)
         tools = self._resolve_tools(agent_definition)
@@ -392,11 +525,18 @@ class RunAgentUseCase:
 
         try:
             for round_idx in range(agent_definition.max_tool_rounds):
+                log_event("react.round.start", round=round_idx)
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
                 round_tools = (
                     _tools_without_ask_user(tools) if ask_user_answered else tools
+                )
+                message_count = len(
+                    _messages_for_llm(
+                        session,
+                        ask_user_answered=ask_user_answered,
+                    )
                 )
 
                 for chunk in llm_client.complete_stream(
@@ -463,17 +603,46 @@ class RunAgentUseCase:
                         for tc in tool_calls:
                             if tc["function"]["name"] == "ask_user":
                                 continue
-                            result = self._tool_executor.execute(tc)
+                            log_event(
+                                "tool.call.start",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                            )
+                            try:
+                                result = self._tool_executor.execute(tc)
+                            except Exception as exc:
+                                log_event(
+                                    "tool.call.error",
+                                    tool_call_id=tc["id"],
+                                    tool_name=tc["function"]["name"],
+                                    round=round_idx,
+                                    error=summarize_payload(str(exc)),
+                                )
+                                raise
+                            log_event(
+                                "tool.call.end",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                                payload=summarize_payload(result),
+                            )
                             session.append_tool_message(result, tool_call_id=tc["id"])
                             yield ToolResultEvent(
                                 call_id=tc["id"],
                                 name=tc["function"]["name"],
                                 result=result,
                             )
+                        log_event(
+                            "ask_user.pause",
+                            tool_call_id=ask_user_tc["id"],
+                            round=round_idx,
+                        )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
                         for tc in ask_user_tcs:
                             session.append_tool_message("", tool_call_id=tc["id"])
                         self._session_store.save(session)
+                        log_event("session.saved")
                         yield SessionPaused(
                             session_id=session.session_id,
                             call_id=ask_user_tc["id"],
@@ -495,22 +664,71 @@ class RunAgentUseCase:
                                 user_answers or {}, questions
                             )
                             ask_user_answered = True
+                            log_event(
+                                "ask_user.answered",
+                                tool_call_id=tc["id"],
+                                round=round_idx,
+                            )
                         else:
+                            log_event(
+                                "tool.call.start",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                            )
                             yield ToolCallEvent(
                                 call_id=tc["id"],
                                 name=tc["function"]["name"],
                                 arguments=tc["function"]["arguments"],
                             )
-                            result = self._tool_executor.execute(tc)
+                            try:
+                                result = self._tool_executor.execute(tc)
+                            except Exception as exc:
+                                log_event(
+                                    "tool.call.error",
+                                    tool_call_id=tc["id"],
+                                    tool_name=tc["function"]["name"],
+                                    round=round_idx,
+                                    error=summarize_payload(str(exc)),
+                                )
+                                raise
+                            log_event(
+                                "tool.call.end",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                                payload=summarize_payload(result),
+                            )
                         session.append_tool_message(result, tool_call_id=tc["id"])
                         yield ToolResultEvent(
                             call_id=tc["id"],
                             name=tc["function"]["name"],
                             result=result,
                         )
+                    log_event(
+                        "react.round.end",
+                        round=round_idx,
+                        usage=usage_from_stream,
+                        message_count=message_count,
+                        stream=True,
+                    )
                 else:
                     session.append_assistant_message(_accumulated_text)
                     elapsed = time.perf_counter() - _start_time
+                    log_event(
+                        "react.round.end",
+                        round=round_idx,
+                        usage=usage_from_stream,
+                        message_count=message_count,
+                        stream=True,
+                    )
+                    log_event(
+                        "agent.run.end",
+                        run_id=run_id,
+                        usage=usage_from_stream,
+                        model=model,
+                        elapsed_ms=int(elapsed * 1000),
+                    )
                     yield StreamComplete(
                         session_id=session.session_id,
                         usage=usage_from_stream,
@@ -519,11 +737,13 @@ class RunAgentUseCase:
                     )
                     return
 
+            log_event("react.max_rounds_exceeded")
             raise LLMError(
                 "Exceeded maximum tool call rounds",
                 display_message="Exceeded maximum tool call rounds.",
             )
-        except Exception:
+        except Exception as exc:
+            log_event("agent.run.error", error=summarize_payload(str(exc)))
             if _accumulated_text:
                 session.append_assistant_message(
                     f"{_accumulated_text}\n\n[stream interrupted]"
@@ -533,6 +753,7 @@ class RunAgentUseCase:
             raise
         finally:
             self._session_store.save(session)
+            log_event("session.saved")
 
     def continue_stream(
         self, request: ContinueRequest
@@ -542,8 +763,11 @@ class RunAgentUseCase:
         None,
     ]:
         """Resume a paused session with the user's answers."""
+        run_id = uuid4().hex
+
         session = self._session_store.get(request.session_id)
         if session is None:
+            log_event("session.not_found", session_id=request.session_id)
             raise SessionNotFoundError(
                 f"Session not found: {request.session_id}",
                 display_message="Session not found.",
@@ -558,8 +782,18 @@ class RunAgentUseCase:
         if tc is None:
             raise RuntimeError("Session is paused but no pending tool call found")
 
+        bind_log_context(
+            run_id=run_id,
+            session_id=session.session_id,
+            agent_id=session.agent_id,
+            mode="api" if self._is_api_context else "cli",
+        )
+        log_event("ask_user.resume", run_id=run_id, tool_call_id=tc["id"])
+
         results = _replace_all_ask_user_placeholders(session, request.answers, tc)
+        log_event("ask_user.answered", tool_call_id=tc["id"])
         self._session_store.save(session)
+        log_event("session.saved")
         for call_id, result in results:
             yield ToolResultEvent(call_id=call_id, name="ask_user", result=result)
 
@@ -567,6 +801,14 @@ class RunAgentUseCase:
         session.resume_with_answer()
 
         agent_definition = self._agent_definitions.get(session.agent_id)
+        log_event(
+            "agent.run.start",
+            run_id=run_id,
+            model=agent_definition.model,
+            api_type=agent_definition.api_type,
+            stream=True,
+        )
+
         llm_client = self._llm_client_factory(agent_definition)
         tools = self._resolve_tools(agent_definition)
         model = agent_definition.model
@@ -576,11 +818,18 @@ class RunAgentUseCase:
 
         try:
             for round_idx in range(resume_round + 1, agent_definition.max_tool_rounds):
+                log_event("react.round.start", round=round_idx)
                 _accumulated_text = ""
                 accumulated_tool_calls: dict[int, ToolCall] = {}
                 usage_from_stream: Usage | None = None
                 round_tools = (
                     _tools_without_ask_user(tools) if ask_user_answered else tools
+                )
+                message_count = len(
+                    _messages_for_llm(
+                        session,
+                        ask_user_answered=ask_user_answered,
+                    )
                 )
 
                 for chunk in llm_client.complete_stream(
@@ -647,17 +896,46 @@ class RunAgentUseCase:
                         for tc in tool_calls:
                             if tc["function"]["name"] == "ask_user":
                                 continue
-                            result = self._tool_executor.execute(tc)
+                            log_event(
+                                "tool.call.start",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                            )
+                            try:
+                                result = self._tool_executor.execute(tc)
+                            except Exception as exc:
+                                log_event(
+                                    "tool.call.error",
+                                    tool_call_id=tc["id"],
+                                    tool_name=tc["function"]["name"],
+                                    round=round_idx,
+                                    error=summarize_payload(str(exc)),
+                                )
+                                raise
+                            log_event(
+                                "tool.call.end",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                                payload=summarize_payload(result),
+                            )
                             session.append_tool_message(result, tool_call_id=tc["id"])
                             yield ToolResultEvent(
                                 call_id=tc["id"],
                                 name=tc["function"]["name"],
                                 result=result,
                             )
+                        log_event(
+                            "ask_user.pause",
+                            tool_call_id=ask_user_tc["id"],
+                            round=round_idx,
+                        )
                         session.pause_for_ask_user(ask_user_tc, round_idx=round_idx)
                         for tc in ask_user_tcs:
                             session.append_tool_message("", tool_call_id=tc["id"])
                         self._session_store.save(session)
+                        log_event("session.saved")
                         yield SessionPaused(
                             session_id=session.session_id,
                             call_id=ask_user_tc["id"],
@@ -666,16 +944,60 @@ class RunAgentUseCase:
                         return
 
                     for tc in tool_calls:
-                        result = self._tool_executor.execute(tc)
+                        log_event(
+                            "tool.call.start",
+                            tool_call_id=tc["id"],
+                            tool_name=tc["function"]["name"],
+                            round=round_idx,
+                        )
+                        try:
+                            result = self._tool_executor.execute(tc)
+                        except Exception as exc:
+                            log_event(
+                                "tool.call.error",
+                                tool_call_id=tc["id"],
+                                tool_name=tc["function"]["name"],
+                                round=round_idx,
+                                error=summarize_payload(str(exc)),
+                            )
+                            raise
+                        log_event(
+                            "tool.call.end",
+                            tool_call_id=tc["id"],
+                            tool_name=tc["function"]["name"],
+                            round=round_idx,
+                            payload=summarize_payload(result),
+                        )
                         session.append_tool_message(result, tool_call_id=tc["id"])
                         yield ToolResultEvent(
                             call_id=tc["id"],
                             name=tc["function"]["name"],
                             result=result,
                         )
+                    log_event(
+                        "react.round.end",
+                        round=round_idx,
+                        usage=usage_from_stream,
+                        message_count=message_count,
+                        stream=True,
+                    )
                 else:
                     session.append_assistant_message(_accumulated_text)
                     elapsed = time.perf_counter() - _start_time
+                    log_event(
+                        "react.round.end",
+                        round=round_idx,
+                        usage=usage_from_stream,
+                        message_count=message_count,
+                        stream=True,
+                    )
+                    log_event(
+                        "agent.run.end",
+                        run_id=run_id,
+                        usage=usage_from_stream,
+                        model=model,
+                        elapsed_ms=int(elapsed * 1000),
+                    )
                     yield StreamComplete(
                         session_id=session.session_id,
                         usage=usage_from_stream,
@@ -684,11 +1006,13 @@ class RunAgentUseCase:
                     )
                     return
 
+            log_event("react.max_rounds_exceeded")
             raise LLMError(
                 "Exceeded maximum tool call rounds",
                 display_message="Exceeded maximum tool call rounds.",
             )
-        except Exception:
+        except Exception as exc:
+            log_event("agent.run.error", error=summarize_payload(str(exc)))
             if _accumulated_text:
                 session.append_assistant_message(
                     f"{_accumulated_text}\n\n[stream interrupted]"
@@ -698,6 +1022,7 @@ class RunAgentUseCase:
             raise
         finally:
             self._session_store.save(session)
+            log_event("session.saved")
 
     def _build_paused_result(
         self,
@@ -728,20 +1053,25 @@ class RunAgentUseCase:
         agent_definition: AgentDefinition,
     ) -> ConversationSession:
         if session_id is None:
-            return ConversationSession.start(
-                session_id=uuid4().hex,
+            new_id = uuid4().hex
+            session = ConversationSession.start(
+                session_id=new_id,
                 agent_id=agent_definition.agent_id,
                 system_prompt=agent_definition.format_system_prompt(
                     current_datetime=datetime.now(timezone.utc).isoformat()
                 ),
             )
+            log_event("session.created", session_id=new_id)
+            return session
 
         session = self._session_store.get(session_id)
         if session is None:
+            log_event("session.not_found", session_id=session_id)
             raise SessionNotFoundError(
                 f"Session not found: {session_id}",
                 display_message="Session not found.",
             )
+        log_event("session.loaded", session_id=session_id)
         return session
 
     def _resolve_tools(

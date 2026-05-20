@@ -34,6 +34,7 @@ from simple_agent_poc.entrypoints.bootstrap import (
     create_agent_definition_registry,
     create_run_agent_use_case_factory,
 )
+from simple_agent_poc.observability import log_event, summarize_payload
 
 
 class ChatRequest(BaseModel):
@@ -188,10 +189,12 @@ def create_app(
                 )
             )
         except SessionNotFoundError as error:
+            log_event("http.request.error", error=summarize_payload(str(error)))
             raise HTTPException(
                 status_code=404, detail=error.display_message
             ) from error
         except ValidationError as error:
+            log_event("http.request.error", error=summarize_payload(str(error)))
             raise HTTPException(
                 status_code=400, detail=error.display_message
             ) from error
@@ -217,14 +220,17 @@ def create_app(
                 )
             )
         except SessionNotFoundError as error:
+            log_event("http.request.error", error=summarize_payload(str(error)))
             raise HTTPException(
                 status_code=404, detail=error.display_message
             ) from error
         except SessionNotPausedError as error:
+            log_event("http.request.error", error=summarize_payload(str(error)))
             raise HTTPException(
                 status_code=400, detail=error.display_message
             ) from error
         except ValidationError as error:
+            log_event("http.request.error", error=summarize_payload(str(error)))
             raise HTTPException(
                 status_code=400, detail=error.display_message
             ) from error
@@ -271,10 +277,13 @@ def create_app(
                         yield f"event: complete\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
                 yield "event: done\ndata: {}\n\n"
             except SessionNotFoundError as error:
+                log_event("http.request.error", error=summarize_payload(str(error)))
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
             except ValidationError as error:
+                log_event("http.request.error", error=summarize_payload(str(error)))
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
             except Exception as error:
+                log_event("http.request.error", error=summarize_payload(str(error)))
                 yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

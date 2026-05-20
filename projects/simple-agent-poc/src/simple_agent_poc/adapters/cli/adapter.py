@@ -26,6 +26,7 @@ from simple_agent_poc.adapters.cli.renderer import (
     with_indicator,
 )
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
+from simple_agent_poc.observability import log_event, summarize_payload
 
 
 class IndicatorRunner(Protocol):
@@ -150,4 +151,5 @@ class CLIAdapter:
                 self._exit_renderer()
                 break
             except Exception as error:
+                log_event("cli.turn.error", error=summarize_payload(str(error)))
                 self._error_renderer(error)
