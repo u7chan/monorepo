@@ -46,7 +46,7 @@ Each log line is a JSON object:
   "round": 0,
   "model": "gpt-4.1-mini",
   "api_type": "completion",
-  "stream": false,
+  "stream": true,
   "tool_call_id": null,
   "tool_name": null,
   "elapsed_ms": 1234,
@@ -72,7 +72,7 @@ Search the JSONL file by:
 | Key | Purpose |
 |:---|:---|
 | `session_id` | Track all turns within one conversation. |
-| `run_id` | Track one invocation of `execute()` / `execute_stream()`. |
+| `run_id` | Track one invocation of `execute_stream()` or `continue_stream()`. |
 | `agent_id` | Filter runs for a specific agent definition. |
 | `round` | Identify which ReAct round an event occurred in. |
 | `tool_call_id` | Trace a specific tool call through start/end/result. |
@@ -152,9 +152,6 @@ most issues.
 
 | Event | Description |
 |:---|:---|
-| `llm.request.start` | A synchronous LLM request begins. |
-| `llm.request.end` | A synchronous LLM request completes. |
-| `llm.request.error` | A synchronous LLM request fails. |
 | `llm.stream.start` | A streaming LLM request begins. |
 | `llm.stream.end` | A streaming LLM request completes. |
 | `llm.stream.error` | A streaming LLM request fails. |

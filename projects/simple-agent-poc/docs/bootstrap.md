@@ -117,5 +117,5 @@ main_api.py
 
 Request handling:
   Depends(get_run_agent_use_case) → factory() → RunAgentUseCase
-    → use_case.execute(request) or execute_stream(request)
+    → use_case.execute_stream(request)
 ```

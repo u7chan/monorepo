@@ -62,7 +62,6 @@ Raised for input validation failures.
 - Blank `agent_id` in request
 - `agent_id` not found in the registry
 - Changing `agent_id` for an existing session
-- Conflicting `session_id` values (header vs body)
 - YAML file parsing errors
 - Malformed agent definitions (missing required fields, wrong types, unknown fields)
 
@@ -79,36 +78,35 @@ Raised when a requested `session_id` does not exist in the session store.
 
 ### SessionNotPausedError
 
-Raised when `POST /api/chat/sync/continue` or `POST /api/chat/stream/continue` is called on a session that is not in paused state.
+Raised when `POST /api/chat/continue` is called on a session that is not in paused state.
 
 **Trigger conditions:**
 - Session not found in the store
 - Session exists but `is_paused` is `False`
 
-**Display message:** `"Session is not paused."`
+**Display message:** `"Session is not in a paused state."`
 
-## HTTP Status Code Mapping
+## HTTP and SSE Mapping
 
-Pydantic request body validation (blank `message` / `agent_id`) happens before domain logic and returns **422** by FastAPI default. Domain errors are caught in the endpoint handler:
+Both chat endpoints return `text/event-stream` for normal execution. Request schema validation happens before streaming starts and returns a normal FastAPI HTTP response. Runtime errors from the agent flow are emitted as SSE `error` events.
 
-| Error Source | HTTP Status |
+| Error Source | Transport |
 |:---|:---|
-| Pydantic validation (blank `message`, blank `agent_id`) | 422 |
-| `ValidationError` | 400 |
-| `SessionNotFoundError` | 404 |
-| `SessionNotPausedError` | 400 |
-| `AuthenticationError` | 500 (uncaught → FastAPI default) |
-| `RateLimitError` | 500 (uncaught → FastAPI default) |
-| `LLMError` | 500 (uncaught → FastAPI default) |
+| Pydantic validation (blank `message`, blank `agent_id`, blank `session_id`, empty `answers`) | HTTP 422 |
+| Conflicting `Session-Id` header and body `session_id` | HTTP 400 |
+| `ValidationError` inside execution | SSE `error` event |
+| `SessionNotFoundError` inside execution | SSE `error` event |
+| `SessionNotPausedError` inside resume execution | SSE `error` event |
+| `AuthenticationError`, `RateLimitError`, `LLMError`, or other exceptions | SSE `error` event |
 
-The FastAPI adapter explicitly catches `SessionNotFoundError` → 404 and `ValidationError` → 400. Pydantic validation errors (blank fields) return 422 before reaching the handler. All other exceptions propagate and FastAPI returns 500.
+`resolve_session_id()` raises `HTTPException(400)` before `StreamingResponse` is created when the header and body session IDs conflict.
 
 ```python
-# adapters/http/api.py
-except SessionNotFoundError as error:
-    raise HTTPException(status_code=404, detail=error.display_message)
-except ValidationError as error:
-    raise HTTPException(status_code=400, detail=error.display_message)
+# adapters/http/api.py:resolve_session_id
+raise HTTPException(
+    status_code=400,
+    detail="Conflicting session_id values were provided...",
+)
 ```
 
 ## CLI Error Display

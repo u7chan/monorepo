@@ -21,7 +21,7 @@ uv run api                 # HTTP API on 127.0.0.1:8000
 ## API Usage
 
 ```bash
-# Synchronous chat
+# Streaming chat (SSE)
 curl -X POST http://127.0.0.1:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message":"Hello"}'
@@ -32,10 +32,10 @@ curl -X POST http://127.0.0.1:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message":"Continue"}'
 
-# Streaming chat (SSE)
-curl -X POST http://127.0.0.1:8000/api/chat/stream \
+# Resume after an ask_user pause
+curl -X POST http://127.0.0.1:8000/api/chat/continue \
   -H "Content-Type: application/json" \
-  -d '{"message":"Hello"}'
+  -d '{"session_id":"<session-id>","answers":{"Question text":"Answer"}}'
 ```
 
 ## Documentation

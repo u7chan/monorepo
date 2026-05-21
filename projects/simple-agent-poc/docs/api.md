@@ -1,6 +1,6 @@
 # HTTP API
 
-The HTTP API provides endpoints for synchronous and streaming agent execution, plus a pause/resume flow for interactive tool calls.
+The HTTP API provides streaming-only agent execution over Server-Sent Events (SSE), plus a pause/resume flow for interactive `ask_user` tool calls.
 
 ## Entry Point
 
@@ -12,16 +12,17 @@ Starts Uvicorn on `127.0.0.1:8000`. Source: `src/simple_agent_poc/entrypoints/ma
 
 ## Application Factory
 
-`create_app(use_case_factory)` in `src/simple_agent_poc/adapters/http/api.py` creates the FastAPI application:
+`create_app(use_case_factory, agent_definitions)` in `src/simple_agent_poc/adapters/http/api.py` creates the FastAPI application:
 
-- If no factory is provided, calls `bootstrap.create_run_agent_use_case_factory()` which creates a shared `InMemorySessionStore` instance with a `lambda` factory.
-- A FastAPI dependency `get_run_agent_use_case()` provides a fresh `RunAgentUseCase` per request (with the shared session store).
+- If no use case factory is provided, calls `bootstrap.create_run_agent_use_case_factory()` which creates a shared `InMemorySessionStore` instance with a `lambda` factory.
+- If no agent definition registry is provided, calls `bootstrap.create_agent_definition_registry()` for `/api/agents`.
+- A FastAPI dependency `get_run_agent_use_case()` provides a fresh `RunAgentUseCase` per request, while sharing the session store.
 
 ## Endpoints
 
-### `POST /api/chat/sync`
+### `POST /api/chat`
 
-Synchronous (non-streaming) agent execution. Supports tool calls via the ReAct loop and `ask_user` pause/resume.
+Streaming agent execution via SSE. Supports tool calls, conversation continuation, and `ask_user` pauses.
 
 #### Request
 
@@ -35,102 +36,53 @@ Synchronous (non-streaming) agent execution. Supports tool calls via the ReAct l
 
 | Field | Type | Required | Default | Description |
 |:---|:---|:---|:---|:---|
-| `message` | `str` | yes | — | User message. Must not be blank after trimming. |
+| `message` | `str` | yes | - | User message. Must not be blank after trimming. |
 | `session_id` | `str \| null` | no | `null` | Resume an existing conversation. |
 | `agent_id` | `str` | no | `"default"` | Agent to use. Must not be blank. |
 
 Headers:
-- `Session-Id: <session_id>` (optional) — Primary session transport. Takes priority over body `session_id`.
+- `Session-Id: <session_id>` (optional) - Primary session transport. Takes priority over body `session_id`.
 
-#### Response (200) — completed
+#### Response
 
-When the agent finishes normally:
+Media type: `text/event-stream`
 
-```json
-{
-  "status": "completed",
-  "message": "Hello! How can I help?",
-  "usage": {
-    "prompt_tokens": 50,
-    "completion_tokens": 20,
-    "total_tokens": 70
-  },
-  "model": "gpt-4.1-nano",
-  "response_time": 1.234,
-  "session_id": "abc123...",
-  "tool_calls": [
-    {
-      "call_id": "call_abc123",
-      "name": "concat",
-      "arguments": "{\"a\":\"Hello\",\"b\":\"World\"}",
-      "result": "HelloWorld"
-    }
-  ]
-}
-```
+See [docs/sse.md](sse.md) for the full SSE event specification.
 
-| Field | Type | Description |
-|:---|:---|:---|
-| `status` | `"completed"` | Discriminator for a completed response |
-| `message` | `str` | Agent's full response text |
-| `usage` | `Usage?` | Token usage: `prompt_tokens`, `completion_tokens`, `total_tokens` |
-| `model` | `str` | Model name as configured |
-| `response_time` | `float` | Seconds from LLM call start to response receipt |
-| `session_id` | `str` | Session ID for continuing the conversation |
-| `tool_calls` | `list[ToolCallRecord]` | Tool calls made during execution with their results |
+Normal completion emits:
 
-#### Response (200) — paused
+1. `event: delta` zero or more times for text chunks
+2. `event: tool_call` and `event: tool_result` when tools are used
+3. `event: complete` with `session_id`, `usage`, `model`, and `response_time`
+4. `event: done`
 
-When the agent calls `ask_user` and needs user input:
+When `ask_user` is called in API mode, the stream emits tool events, then:
 
-```json
-{
-  "status": "paused",
-  "session_id": "abc123...",
-  "call_id": "call_001",
-  "questions": [
-    {
-      "question": "What is your name?",
-      "header": "Name",
-      "type": "text",
-      "placeholder": "e.g. Alice"
-    },
-    {
-      "question": "Which database?",
-      "header": "Database",
-      "type": "choice",
-      "options": [
-        {"label": "PostgreSQL", "description": "OSS RDBMS"},
-        {"label": "SQLite", "description": "Lightweight embedded DB"}
-      ],
-      "multiSelect": false
-    }
-  ],
-  "tool_calls": []
-}
-```
+1. `event: paused` with `session_id`, `call_id`, and `questions`
+2. `event: done`
 
-| Field | Type | Description |
-|:---|:---|:---|
-| `status` | `"paused"` | Discriminator for a paused response |
-| `session_id` | `str` | Session ID for continuing the conversation |
-| `call_id` | `str` | ID of the pending `ask_user` tool call |
-| `questions` | `list[dict]` | Question items from `ask_user` arguments. Each item has `question`, `header`, `type` (`"text"` or `"choice"`), optional `placeholder`, and for `type: "choice"` also `options` and `multiSelect` |
-| `tool_calls` | `list[ToolCallRecord]` | Non-ask_user tool calls executed before pausing |
-
-**`type: "choice"`** の場合、各 `options` エントリは `label`（必須）と `description`（任意）を持つ。`multiSelect: true` の場合、クライアントはカンマ区切りで複数の選択番号を送信できる。
+The client must call `POST /api/chat/continue` with the returned `session_id` and answers.
 
 #### Error Responses
+
+Request body validation errors return normal FastAPI HTTP errors before the stream starts:
 
 | Status | Condition |
 |:---|:---|
 | `422` | `message` blank, `agent_id` blank (Pydantic validation) |
-| `400` | unknown `agent_id`, changing `agent_id` for existing session, conflicting session identifiers |
-| `404` | `session_id` not found in the session store |
+| `400` | conflicting `session_id` values between `Session-Id` header and request body |
 
-### `POST /api/chat/sync/continue`
+Runtime errors are delivered as SSE `error` events:
 
-Resumes a paused session synchronously. Returns the same discriminated shape as `/api/chat/sync`.
+| Error | Detail |
+|:---|:---|
+| `ValidationError` | unknown `agent_id`, changing `agent_id` for existing session |
+| `SessionNotFoundError` | `session_id` not found in the session store |
+| Other exceptions | string form of the exception |
+
+### `POST /api/chat/continue`
+
+Resumes a paused session after an `ask_user` event. Returns SSE events.
 
 #### Request
 
@@ -143,66 +95,49 @@ Resumes a paused session synchronously. Returns the same discriminated shape as 
 
 | Field | Type | Required | Description |
 |:---|:---|:---|:---|
-| `session_id` | `str` | yes | The session ID from the `paused` response |
-| `answers` | `dict[str,str]` | yes | User's answers to the `ask_user` questions, keyed by question text |
-
-#### Response (200)
-
-Same discriminated shape as `/api/chat/sync` (either `"completed"` or `"paused"`). All `ask_user` tool calls in the same assistant response are answered together; the session will not pause again for unanswered calls in the same batch.
-
-#### Error Responses
-
-| Status | Condition |
-|:---|:---|
-| `422` | `session_id` or `answers` blank/invalid (Pydantic validation) |
-| `400` | session is not paused |
-| `404` | `session_id` not found |
-
-### `POST /api/chat/stream`
-
-Streaming agent execution via Server-Sent Events (SSE). Supports tool calls, and may disconnect with `paused` event when `ask_user` is called.
-
-#### Request
-
-Same schema as `/api/chat/sync`. Supports `Session-Id` header with the same `resolve_session_id()` logic.
-
-#### Response
-
-Media type: `text/event-stream`
-
-See [docs/sse.md](sse.md) for the full SSE event specification.
-
-### `POST /api/chat/stream/continue`
-
-Resumes a paused session (after `ask_user` was called in streaming mode). Returns SSE events.
-
-#### Request
-
-```json
-{
-  "session_id": "abc123...",
-  "answers": {"Your preference?": "My preference is X"}
-}
-```
-
-| Field | Type | Required | Description |
-|:---|:---|:---|:---|
 | `session_id` | `str` | yes | The session ID from the `paused` event |
 | `answers` | `dict[str,str]` | yes | User's answers to the `ask_user` questions, keyed by question text |
 
 #### Response
 
-Same SSE format as `/api/chat/stream`. The sequence is:
-1. `event: tool_result` — the answers injected as tool results
-2. `event: delta` ... — LLM response chunks (ReAct loop resumes)
-3. `event: complete` — stream finished
-4. `event: done` — end of stream
+Media type: `text/event-stream`
 
-If another `ask_user` is called during the resumed ReAct loop, `event: paused` is emitted again.
+The first events are `tool_result` events for the supplied `ask_user` answers. The resumed ReAct loop then continues with `delta`, `tool_call`, `tool_result`, `complete`, and `done` events as needed.
+
+If another `ask_user` call occurs during the resumed loop, the endpoint emits another `paused` event and then `done`.
 
 #### Error Responses
 
-Errors are delivered as SSE `error` events within the stream.
+Request body validation errors return normal FastAPI HTTP errors before the stream starts:
+
+| Status | Condition |
+|:---|:---|
+| `422` | `session_id` blank or `answers` empty/invalid |
+
+Runtime errors are delivered as SSE `error` events:
+
+| Error | Detail |
+|:---|:---|
+| `SessionNotFoundError` | session does not exist |
+| `SessionNotPausedError` | session exists but is not paused |
+| `ValidationError` | invalid resume request |
+| Other exceptions | string form of the exception |
+
+### `GET /api/agents`
+
+Returns the available agent definitions.
+
+```json
+{
+  "agents": [
+    {"id": "default", "model": "gpt-4.1-nano"}
+  ]
+}
+```
+
+### `GET /`
+
+Returns the development test page as HTML.
 
 ## Session Resolution
 

@@ -45,11 +45,13 @@ Streaming deltas for incremental tool call construction. The LLM emits these chu
 
 ```python
 class Message(TypedDict):
-    role: MessageRole            # "system" | "user" | "assistant" | "tool"
+    role: MessageRole
     content: str
-    tool_calls: NotRequired[list[ToolCall]]   # present on assistant messages that call tools
-    tool_call_id: NotRequired[str]            # present on tool messages, links to the call
+    tool_calls: NotRequired[list[ToolCall]]
+    tool_call_id: NotRequired[str]
 ```
+
+`tool_calls` is present on assistant messages that call tools. `tool_call_id` is present on tool messages and links the result to the original call.
 
 ### Usage
 
@@ -60,19 +62,6 @@ class Usage(TypedDict):
     total_tokens: int
 ```
 
-### LLMResponse
-
-```python
-class LLMResponse(TypedDict):
-    content: str
-    usage: Usage
-    model: str
-    response_time: float
-    tool_calls: NotRequired[list[ToolCall]]
-```
-
-`content` may be empty when the LLM returns only tool calls. `tool_calls` is present when the LLM requests tool execution.
-
 ### LLMStreamChunk
 
 ```python
@@ -82,9 +71,9 @@ class LLMStreamChunk(TypedDict):
     usage: NotRequired[Usage]
 ```
 
-- `content_delta`: Incremental text. `None` when the chunk contains only tool call or usage info.
-- `tool_call_delta`: Present during streaming tool call construction.
-- `usage`: Token usage. Only present in final chunks that include usage metadata.
+- `content_delta`: incremental text. `None` when the chunk contains only tool call or usage info.
+- `tool_call_delta`: present during streaming tool call construction.
+- `usage`: token usage. Only present in final chunks that include usage metadata.
 
 ### Domain Errors
 
@@ -98,7 +87,7 @@ AgentError (base)
 └── SessionNotPausedError
 ```
 
-`SessionNotPausedError` — raised when `POST /api/chat/sync/continue` or `POST /api/chat/stream/continue` is called on a session that is not in paused state. See [docs/errors.md](errors.md).
+`SessionNotPausedError` is raised when `POST /api/chat/continue` is called on a session that is not in paused state. See [docs/errors.md](errors.md).
 
 ## Application DTOs
 
@@ -113,34 +102,6 @@ class RunAgentRequest:
     session_id: str | None = None
     agent_id: str = "default"
 ```
-
-### ToolCallRecord
-
-```python
-@dataclass(frozen=True, slots=True)
-class ToolCallRecord:
-    call_id: str
-    name: str
-    arguments: str
-    result: str
-```
-
-A single tool call and its result. Collected during agent execution and included in the final response.
-
-### RunAgentResponse
-
-```python
-@dataclass(frozen=True, slots=True)
-class RunAgentResponse:
-    message: str
-    usage: Usage
-    model: str
-    response_time: float
-    session_id: str
-    tool_call_history: list[ToolCallRecord]
-```
-
-Factory method: `from_llm_response(response, *, session_id, tool_call_history=None)`.
 
 ### Stream Events
 
@@ -165,30 +126,6 @@ class ContinueRequest:
 
 Request DTO for resuming a paused session. Contains the user's answers dict keyed by question text.
 
-### RunAgentPaused
-
-```python
-@dataclass(frozen=True, slots=True)
-class RunAgentPaused:
-    session_id: str
-    call_id: str
-    questions: list[dict]
-    tool_call_history: list[ToolCallRecord]
-```
-
-Returned by `RunAgentUseCase.execute()` and `RunAgentUseCase.continue_sync()` when the agent calls `ask_user` during synchronous execution. The caller should present the questions, collect answers as a dict keyed by question text, and resume via `continue_sync()`. Each question item may include `type` (`"text"` or `"choice"`), `options`, and `multiSelect` for choice questions.
-
-### Sync Result Union
-
-The synchronous execution methods return a discriminated union:
-
-```python
-# execute() / continue_sync() return type:
-RunAgentResponse | RunAgentPaused
-```
-
-Callers check with `isinstance()` to determine whether the result is a completed response or requires user input.
-
 ## HTTP Schemas
 
 Source: `src/simple_agent_poc/adapters/http/api.py`
@@ -204,25 +141,6 @@ class ChatRequest(BaseModel):
 
 Validators reject blank `message` and blank `agent_id` after stripping.
 
-### SyncChatResponse
-
-```python
-class SyncChatResponse(BaseModel):
-    status: Literal["completed", "paused"]
-    session_id: str
-    tool_calls: list[ToolCallRecord] = []
-    message: str = ""
-    usage: Usage | None = None
-    model: str = ""
-    response_time: float = 0.0
-    call_id: str = ""
-    questions: list[dict] = []
-```
-
-Discriminated by `status`. When `"completed"`, `message`/`usage`/`model`/`response_time` are populated. When `"paused"`, `call_id`/`questions` are populated. Each question item may include `type` (`"text"` or `"choice"`), `options` (list of `{label, description?}`), and `multiSelect` (boolean).
-
-Factory methods: `from_completed(response)` / `from_paused(paused)`.
-
 ### ResumeRequest
 
 ```python
@@ -231,7 +149,7 @@ class ResumeRequest(BaseModel):
     answers: dict[str, str]
 ```
 
-Used by both `/api/chat/sync/continue` and `/api/chat/stream/continue`. Validators reject blank `session_id` and empty `answers` dict.
+Used by `POST /api/chat/continue`. Validators reject blank `session_id` and empty `answers` dict.
 
 ## Entity
 
@@ -253,10 +171,11 @@ class ConversationSession:
 Factory method: `start(*, session_id, agent_id, system_prompt)`.
 
 Methods:
-- `append_user_message(content)` / `append_assistant_message(content)` — append user/assistant messages
-- `append_tool_message(result, *, tool_call_id)` — append a tool result message (role: `"tool"`)
-- `pause_for_ask_user(tool_call, *, round_idx)` — set `is_paused=True`, save the pending tool call and round count
-- `resume_with_answer()` — clear paused state
+- `append_user_message(content)` / `append_assistant_message(content)` - append user/assistant messages
+- `append_tool_message(result, *, tool_call_id)` - append a tool result message (role: `"tool"`)
+- `replace_tool_message(result, *, tool_call_id)` - replace a pending placeholder tool message
+- `pause_for_ask_user(tool_call, *, round_idx)` - set `is_paused=True`, save the pending tool call and round count
+- `resume_with_answer()` - clear paused state
 
 ### AgentDefinition
 
@@ -271,10 +190,10 @@ class AgentDefinition:
     temperature: float | None = None
     tools: list[str] = field(default_factory=list)
     api_type: Literal["completion", "responses"] = "completion"
-    stream: bool = False
+    max_tool_rounds: int = 5
 ```
 
-Method: `format_system_prompt(*, current_datetime)` — replaces `{current_datetime}` placeholder.
+Method: `format_system_prompt(*, current_datetime)` replaces the `{current_datetime}` placeholder.
 
 ### AgentDefinitionRegistry
 
@@ -285,7 +204,7 @@ class AgentDefinitionRegistry:
 ```
 
 Factory methods: `from_yaml_file(path)`, `from_mapping(data)`.
-Query method: `get(agent_id)`.
+Query methods: `get(agent_id)`, `list_ids()`, `list_agents()`.
 
 ## Ports (Protocols)
 
@@ -295,7 +214,7 @@ Source: `src/simple_agent_poc/application/ports.py`
 
 ```python
 class ToolExecutor(Protocol):
-    def execute(self, tool_call: ToolCall) -> str: ...
+    def execute(self, tool_call: ToolCall, /) -> str: ...
     def get_definitions(self, tool_names: list[str], /) -> list[ToolDefinition]: ...
 ```
 
@@ -305,8 +224,12 @@ Implemented by `BuiltinToolRegistry` in `src/simple_agent_poc/adapters/tools/reg
 
 ```python
 class LLMClient(Protocol):
-    def complete(self, messages: list[Message], *, tools: list[ToolDefinition] | None = None) -> LLMResponse: ...
-    def complete_stream(self, messages: list[Message], *, tools: list[ToolDefinition] | None = None) -> Iterator[LLMStreamChunk]: ...
+    def complete_stream(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[ToolDefinition] | None = None,
+    ) -> Iterator[LLMStreamChunk]: ...
 ```
 
 ### LLMClientFactory / SessionStore
