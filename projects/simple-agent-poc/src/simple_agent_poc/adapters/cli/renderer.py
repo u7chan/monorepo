@@ -135,8 +135,9 @@ def show_agent_response(response: RunAgentResponse) -> None:
     if response.tool_call_history:
         print("Agent: ")
         for tc in response.tool_call_history:
+            result_text = tc.result.replace("\n", "\n     → ")
             print(f"  🔧 {tc.name}({tc.arguments})")
-            print(f"     → {tc.result}")
+            print(f"     → {result_text}")
         if response.message:
             print(f"       {response.message}")
     else:
@@ -225,7 +226,8 @@ def show_streaming_response(
                     except StopIteration:
                         break
                     if isinstance(next_event, ToolResultEvent):
-                        sys.stdout.write(f"\n     → {next_event.result}")
+                        result_text = next_event.result.replace("\n", "\n     → ")
+                        sys.stdout.write(f"\n     → {result_text}")
                         sys.stdout.flush()
                     continue
             elif isinstance(event, ToolResultEvent):
@@ -233,7 +235,8 @@ def show_streaming_response(
                     indicator.stop()
                     sys.stdout.write("Agent: ")
                     started = True
-                sys.stdout.write(f"\n     → {event.result}")
+                result_text = event.result.replace("\n", "\n     → ")
+                sys.stdout.write(f"\n     → {result_text}")
                 sys.stdout.flush()
             elif isinstance(event, SessionPaused):
                 indicator.stop()
