@@ -16,7 +16,7 @@ from simple_agent_poc.adapters.tools.ask_user import (
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
-from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
+from simple_agent_poc.core.types import LLMStreamChunk, Message
 
 from tests.helpers import _choice_questions_args, _questions_args
 
@@ -26,14 +26,6 @@ class StreamingStubLLMClient:
 
     def __init__(self, chunks: list[LLMStreamChunk]) -> None:
         self.chunks = chunks
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools=None,
-    ) -> LLMResponse:
-        raise NotImplementedError
 
     def complete_stream(
         self,
@@ -93,7 +85,7 @@ class TestStreamAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/stream", json={"message": "Hello"})
+        response = client.post("/api/chat", json={"message": "Hello"})
 
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
@@ -122,7 +114,7 @@ class TestStreamAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/stream", json={"message": "   "})
+        response = client.post("/api/chat", json={"message": "   "})
 
         assert response.status_code == 422
 
@@ -139,7 +131,7 @@ class TestStreamAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/stream",
+            "/api/chat",
             json={"message": "Hello", "agent_id": "missing"},
         )
 
@@ -161,7 +153,7 @@ class TestStreamAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/stream", json={"message": "Hello"})
+        response = client.post("/api/chat", json={"message": "Hello"})
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)
@@ -224,7 +216,7 @@ class TestStreamPauseContinueAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/stream", json={"message": "Hello"})
+        response = client.post("/api/chat", json={"message": "Hello"})
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)
@@ -270,7 +262,7 @@ class TestStreamPauseContinueAPI:
         app = create_app(use_case_factory=lambda: make_use_case(first_chunks))
         client = TestClient(app)
 
-        stream_resp = client.post("/api/chat/stream", json={"message": "Hello"})
+        stream_resp = client.post("/api/chat", json={"message": "Hello"})
         stream_events = parse_sse_events(stream_resp.text)
         paused_data = json.loads(stream_events[1]["data"])
         session_id = paused_data["session_id"]
@@ -279,7 +271,7 @@ class TestStreamPauseContinueAPI:
         client2 = TestClient(app2)
 
         continue_resp = client2.post(
-            "/api/chat/stream/continue",
+            "/api/chat/continue",
             json={"session_id": session_id, "answers": {"Your name?": "Alice"}},
         )
 
@@ -304,7 +296,7 @@ class TestStreamPauseContinueAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/stream/continue",
+            "/api/chat/continue",
             json={"session_id": "missing", "answers": {"q": "no"}},
         )
 
@@ -338,7 +330,7 @@ class TestStreamPauseContinueAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/stream/continue",
+            "/api/chat/continue",
             json={"session_id": "active", "answers": {"q": "no"}},
         )
 
@@ -361,7 +353,7 @@ class TestStreamPauseContinueAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/stream/continue",
+            "/api/chat/continue",
             json={"session_id": "abc", "answers": {}},
         )
 
@@ -399,7 +391,7 @@ class TestStreamPauseContinueAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/stream", json={"message": "Hello"})
+        response = client.post("/api/chat", json={"message": "Hello"})
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)

@@ -73,14 +73,6 @@ class ToolDefinition(TypedDict):
     function: ToolFunctionDef
 
 
-class LLMResponse(TypedDict):
-    content: str
-    usage: Usage
-    model: str
-    response_time: float
-    tool_calls: NotRequired[list[ToolCall]]
-
-
 class ToolCallFunctionDelta(TypedDict):
     name: str | None
     arguments: str | None

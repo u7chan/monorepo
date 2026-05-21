@@ -7,26 +7,25 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
+from typing import cast
+
 import pytest
 
 import simple_agent_poc.observability as obs
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
-    ContinueRequest,
-    RunAgentPaused,
     RunAgentRequest,
-    RunAgentResponse,
     StreamComplete,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.types import (
     LLMError,
-    LLMResponse,
     LLMStreamChunk,
     Message,
     SessionNotFoundError,
     ToolCall,
     ToolDefinition,
+    Usage,
 )
 
 
@@ -36,7 +35,6 @@ from simple_agent_poc.core.types import (
 
 
 def _reset_observability_state() -> None:
-    """Reset global state of the observability module between tests."""
     obs._enabled = True
     obs._payload_policy = "summary"
     obs._max_field_chars = 500
@@ -50,7 +48,6 @@ def _reset_observability_state() -> None:
 
 
 def _read_jsonl(path: Path) -> list[dict]:
-    """Read JSONL file and return list of parsed dicts."""
     events: list[dict] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -279,41 +276,29 @@ def test_max_field_chars_from_env(monkeypatch, temp_log_path):
 
 
 # ---------------------------------------------------------------------------
-# Integration: RunAgentUseCase emits events (sync)
+# Integration: RunAgentUseCase emits events (stream)
 # ---------------------------------------------------------------------------
 
 
-def _make_llm_response(
+def _make_response_dict(
     content: str = "Hello!",
     tool_calls: list | None = None,
-) -> LLMResponse:
-    return LLMResponse(
-        content=content,
-        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        model="test-model",
-        response_time=0.05,
-        tool_calls=tool_calls or [],
-    )
+) -> dict:
+    return {
+        "content": content,
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "model": "test-model",
+        "response_time": 0.05,
+        "tool_calls": tool_calls or [],
+    }
 
 
 class _RecordingLLMClient:
-    """LLM client stub that returns predefined responses."""
+    """LLM client stub that returns streaming responses."""
 
-    def __init__(self, responses: list[LLMResponse]) -> None:
+    def __init__(self, responses: list[dict]) -> None:
         self._responses = responses
         self._idx = 0
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: list[ToolDefinition] | None = None,
-    ) -> LLMResponse:
-        if self._idx < len(self._responses):
-            resp = self._responses[self._idx]
-            self._idx += 1
-            return resp
-        return _make_llm_response("Default response.")
 
     def complete_stream(
         self,
@@ -339,18 +324,24 @@ class _RecordingLLMClient:
                             },
                         },
                     )
-            yield LLMStreamChunk(content_delta=None, usage=resp.get("usage"))
+            yield LLMStreamChunk(
+                content_delta=None,
+                usage=cast(Usage, resp.get("usage")),
+            )
         else:
             yield LLMStreamChunk(content_delta="Default response.")
             yield LLMStreamChunk(
                 content_delta=None,
-                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                usage={
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
             )
 
 
 @pytest.fixture
 def logging_use_case(monkeypatch, temp_log_path, default_agent_def, tool_registry):
-    """Create a RunAgentUseCase wired with JSONL log file."""
     _reset_observability_state()
     monkeypatch.setenv("SIMPLE_AGENT_LOG_ENABLED", "true")
     monkeypatch.setenv("SIMPLE_AGENT_LOG_FILE", str(temp_log_path))
@@ -371,12 +362,16 @@ def logging_use_case(monkeypatch, temp_log_path, default_agent_def, tool_registr
     return make_use_case
 
 
-def test_sync_run_emits_core_events(logging_use_case, temp_log_path, default_agent_def):
-    """A minimal sync run emits agent.run.start, session.created, react.round.*, agent.run.end."""
-    llm_client = _RecordingLLMClient([_make_llm_response(content="Hi there.")])
+def test_stream_run_emits_core_events(
+    logging_use_case, temp_log_path, default_agent_def
+):
+    """A streaming run emits agent.run.start, session.created, react.round.*, agent.run.end."""
+    llm_client = _RecordingLLMClient([_make_response_dict(content="Hi there.")])
     use_case = logging_use_case(llm_client)
 
-    result = use_case.execute(RunAgentRequest(message="Hello", agent_id="default"))
+    dto_events = list(
+        use_case.execute_stream(RunAgentRequest(message="Hello", agent_id="default"))
+    )
 
     events = _read_jsonl(temp_log_path)
     event_names = [e["event"] for e in events]
@@ -388,13 +383,12 @@ def test_sync_run_emits_core_events(logging_use_case, temp_log_path, default_age
     assert "agent.run.end" in event_names
     assert "session.saved" in event_names
 
-    assert isinstance(result, RunAgentResponse)
-    assert result.message == "Hi there."
+    assert isinstance(dto_events[-1], StreamComplete)
 
 
-def test_sync_run_with_tool_calls(logging_use_case, temp_log_path, default_agent_def):
+def test_stream_run_with_tool_calls(logging_use_case, temp_log_path, default_agent_def):
     """Tool calls produce tool.call.start, tool.call.end events."""
-    tool_response = _make_llm_response(
+    tool_response = _make_response_dict(
         content="Processing...",
         tool_calls=[
             ToolCall(
@@ -404,167 +398,28 @@ def test_sync_run_with_tool_calls(logging_use_case, temp_log_path, default_agent
             )
         ],
     )
-    final_response = _make_llm_response(content="Result: xy")
-
-    llm_client = _RecordingLLMClient([tool_response, final_response])
-    use_case = logging_use_case(llm_client)
-
-    use_case.execute(RunAgentRequest(message="concat x y", agent_id="default"))
-
-    events = _read_jsonl(temp_log_path)
-    event_names = [e["event"] for e in events]
-
-    assert "tool.call.start" in event_names
-    assert "tool.call.end" in event_names
-
-    tool_end = next(e for e in events if e["event"] == "tool.call.end")
-    assert tool_end["tool_call_id"] == "call_t1"
-    assert tool_end["tool_name"] == "concat"
-    assert "payload" in tool_end
-
-
-def test_sync_run_ask_user_pause(logging_use_case, temp_log_path, default_agent_def):
-    """ask_user triggers ask_user.pause event."""
-    ask_user_response = _make_llm_response(
-        content="Please confirm:",
-        tool_calls=[
-            ToolCall(
-                id="call_ask",
-                type="function",
-                function={
-                    "name": "ask_user",
-                    "arguments": json.dumps(
-                        {"questions": [{"question": "OK?", "type": "text"}]},
-                        ensure_ascii=False,
-                    ),
-                },
-            )
-        ],
-    )
-
-    llm_client = _RecordingLLMClient([ask_user_response])
-    use_case = logging_use_case(llm_client)
-
-    result = use_case.execute(
-        RunAgentRequest(message="Should I proceed?", agent_id="default")
-    )
-
-    events = _read_jsonl(temp_log_path)
-    event_names = [e["event"] for e in events]
-
-    assert "ask_user.pause" in event_names
-    assert isinstance(result, RunAgentPaused)
-    pause_event = next(e for e in events if e["event"] == "ask_user.pause")
-    assert pause_event["tool_call_id"] == "call_ask"
-
-
-def test_sync_run_ask_user_resume(
-    logging_use_case, temp_log_path, default_agent_def, tool_registry
-):
-    """Resume after ask_user emits ask_user.resume and ask_user.answered."""
-    ask_user_response = _make_llm_response(
-        content="Please confirm:",
-        tool_calls=[
-            ToolCall(
-                id="call_ask",
-                type="function",
-                function={
-                    "name": "ask_user",
-                    "arguments": json.dumps(
-                        {"questions": [{"question": "OK?", "type": "text"}]},
-                        ensure_ascii=False,
-                    ),
-                },
-            )
-        ],
-    )
-    final_response = _make_llm_response(content="Confirmed: Yes")
-
-    store = InMemorySessionStore()
-    llm_client = _RecordingLLMClient([ask_user_response, final_response])
-
-    use_case = RunAgentUseCase(
-        llm_client_factory=lambda _: llm_client,
-        session_store=store,
-        agent_definitions=default_agent_def,
-        tool_executor=tool_registry,
-        is_api_context=False,
-    )
-
-    result = use_case.execute(
-        RunAgentRequest(message="Should I proceed?", agent_id="default")
-    )
-    assert isinstance(result, RunAgentPaused)
-
-    result2 = use_case.continue_sync(
-        ContinueRequest(session_id=result.session_id, answers={"OK?": "yes"})
-    )
-
-    events = _read_jsonl(temp_log_path)
-    event_names = [e["event"] for e in events]
-
-    assert "ask_user.pause" in event_names
-    assert "ask_user.resume" in event_names
-    assert "ask_user.answered" in event_names
-    assert isinstance(result2, RunAgentResponse)
-
-
-# ---------------------------------------------------------------------------
-# Integration: stream
-# ---------------------------------------------------------------------------
-
-
-def test_stream_run_emits_events(logging_use_case, temp_log_path, default_agent_def):
-    """Streaming run emits agent.run.start, react.round.*, agent.run.end."""
-    llm_client = _RecordingLLMClient([_make_llm_response(content="Streaming hi.")])
-    use_case = logging_use_case(llm_client)
-
-    events_gen = use_case.execute_stream(
-        RunAgentRequest(message="Hello", agent_id="default")
-    )
-    dto_events = list(events_gen)
-
-    log_events = _read_jsonl(temp_log_path)
-    event_names = [e["event"] for e in log_events]
-
-    assert "agent.run.start" in event_names
-    assert "react.round.start" in event_names
-    assert "react.round.end" in event_names
-    assert "agent.run.end" in event_names
-
-    # Last DTO event should be StreamComplete
-    assert isinstance(dto_events[-1], StreamComplete)
-
-
-def test_stream_run_with_tool_calls(logging_use_case, temp_log_path, default_agent_def):
-    """Streaming tool calls produce tool events."""
-    tool_response = _make_llm_response(
-        content="Processing...",
-        tool_calls=[
-            ToolCall(
-                id="call_st1",
-                type="function",
-                function={"name": "concat", "arguments": '{"a":"a","b":"b"}'},
-            )
-        ],
-    )
-    final_response = _make_llm_response(content="Result: ab")
+    final_response = _make_response_dict(content="Result: xy")
 
     llm_client = _RecordingLLMClient([tool_response, final_response])
     use_case = logging_use_case(llm_client)
 
     dto_events = list(
         use_case.execute_stream(
-            RunAgentRequest(message="concat a b", agent_id="default")
+            RunAgentRequest(message="concat x y", agent_id="default")
         )
     )
 
-    log_events = _read_jsonl(temp_log_path)
-    event_names = [e["event"] for e in log_events]
+    events = _read_jsonl(temp_log_path)
+    event_names = [e["event"] for e in events]
 
     assert "tool.call.start" in event_names
     assert "tool.call.end" in event_names
     assert isinstance(dto_events[-1], StreamComplete)
+
+    tool_end = next(e for e in events if e["event"] == "tool.call.end")
+    assert tool_end["tool_call_id"] == "call_t1"
+    assert tool_end["tool_name"] == "concat"
+    assert "payload" in tool_end
 
 
 # ---------------------------------------------------------------------------
@@ -576,9 +431,6 @@ def test_agent_run_error_event(logging_use_case, temp_log_path, default_agent_de
     """Agent run error emits agent.run.error."""
 
     class _ErrorClient:
-        def complete(self, messages, *, tools=None):
-            raise LLMError("Simulated error.", display_message="Error.")
-
         def complete_stream(self, messages, *, tools=None):
             raise LLMError("Simulated error.", display_message="Error.")
 
@@ -586,7 +438,11 @@ def test_agent_run_error_event(logging_use_case, temp_log_path, default_agent_de
     use_case = logging_use_case(llm_client)
 
     with pytest.raises(LLMError):
-        use_case.execute(RunAgentRequest(message="Trigger error", agent_id="default"))
+        list(
+            use_case.execute_stream(
+                RunAgentRequest(message="Trigger error", agent_id="default")
+            )
+        )
 
     events = _read_jsonl(temp_log_path)
     event_names = [e["event"] for e in events]
@@ -599,7 +455,7 @@ def test_agent_run_error_event(logging_use_case, temp_log_path, default_agent_de
 
 def test_react_max_rounds_exceeded(logging_use_case, temp_log_path, default_agent_def):
     """Max rounds exceeded emits react.max_rounds_exceeded."""
-    tool_response = _make_llm_response(
+    tool_response = _make_response_dict(
         content="looping...",
         tool_calls=[
             ToolCall(
@@ -614,7 +470,11 @@ def test_react_max_rounds_exceeded(logging_use_case, temp_log_path, default_agen
     use_case = logging_use_case(llm_client)
 
     with pytest.raises(LLMError):
-        use_case.execute(RunAgentRequest(message="loop forever", agent_id="default"))
+        list(
+            use_case.execute_stream(
+                RunAgentRequest(message="loop forever", agent_id="default")
+            )
+        )
 
     events = _read_jsonl(temp_log_path)
     event_names = [e["event"] for e in events]
@@ -624,7 +484,7 @@ def test_react_max_rounds_exceeded(logging_use_case, temp_log_path, default_agen
 def test_session_not_found_event(logging_use_case, temp_log_path, default_agent_def):
     """session.not_found is logged when a non-existent session is requested."""
     store = InMemorySessionStore()
-    llm_client = _RecordingLLMClient([_make_llm_response("Hi.")])
+    llm_client = _RecordingLLMClient([_make_response_dict("Hi.")])
     use_case = RunAgentUseCase(
         llm_client_factory=lambda _: llm_client,
         session_store=store,
@@ -634,9 +494,13 @@ def test_session_not_found_event(logging_use_case, temp_log_path, default_agent_
     )
 
     with pytest.raises(SessionNotFoundError):
-        use_case.execute(
-            RunAgentRequest(
-                message="Hello", agent_id="default", session_id="nonexistent"
+        list(
+            use_case.execute_stream(
+                RunAgentRequest(
+                    message="Hello",
+                    agent_id="default",
+                    session_id="nonexistent",
+                )
             )
         )
 
@@ -652,21 +516,17 @@ def test_session_not_found_event(logging_use_case, temp_log_path, default_agent_
 
 def test_run_id_correlation(logging_use_case, temp_log_path, default_agent_def):
     """Events within one run share the same run_id."""
-    llm_client = _RecordingLLMClient([_make_llm_response("First.")])
+    llm_client = _RecordingLLMClient([_make_response_dict("First.")])
 
-    # Bind context externally to capture run_id
     ctx_store = {}
 
     class _ContextCapturingClient:
-        def complete(self, messages, *, tools=None):
-            ctx_store["captured_run_id"] = obs._run_id.get()
-            return llm_client.complete(messages, tools=tools)
-
         def complete_stream(self, messages, *, tools=None):
-            return llm_client.complete_stream(messages, tools=tools)
+            ctx_store["captured_run_id"] = obs._run_id.get()
+            yield from llm_client.complete_stream(messages, tools=tools)
 
     use_case = logging_use_case(_ContextCapturingClient())
-    use_case.execute(RunAgentRequest(message="Test", agent_id="default"))
+    list(use_case.execute_stream(RunAgentRequest(message="Test", agent_id="default")))
 
     events = _read_jsonl(temp_log_path)
     run_ids = {e["run_id"] for e in events}
@@ -680,7 +540,6 @@ def test_run_id_correlation(logging_use_case, temp_log_path, default_agent_def):
 
 
 def test_cli_turn_error_event(monkeypatch, temp_log_path):
-    """CLI error handler emits cli.turn.error."""
     _reset_observability_state()
     monkeypatch.setenv("SIMPLE_AGENT_LOG_ENABLED", "true")
     monkeypatch.setenv("SIMPLE_AGENT_LOG_FILE", str(temp_log_path))
@@ -694,7 +553,6 @@ def test_cli_turn_error_event(monkeypatch, temp_log_path):
 
 
 def test_http_request_error_event(monkeypatch, temp_log_path):
-    """HTTP error handler emits http.request.error."""
     _reset_observability_state()
     monkeypatch.setenv("SIMPLE_AGENT_LOG_ENABLED", "true")
     monkeypatch.setenv("SIMPLE_AGENT_LOG_FILE", str(temp_log_path))
@@ -711,12 +569,11 @@ def test_http_request_error_event(monkeypatch, temp_log_path):
 
 
 # ---------------------------------------------------------------------------
-# LLM request/stream events
+# LLM stream events
 # ---------------------------------------------------------------------------
 
 
 def test_llm_stream_events(monkeypatch, temp_log_path):
-    """llm.stream.* events are emitted by the LLM client."""
     _reset_observability_state()
     monkeypatch.setenv("SIMPLE_AGENT_LOG_ENABLED", "true")
     monkeypatch.setenv("SIMPLE_AGENT_LOG_FILE", str(temp_log_path))
@@ -735,7 +592,11 @@ def test_llm_stream_events(monkeypatch, temp_log_path):
         model="gpt-4.1-mini",
         api_type="completion",
         stream=True,
-        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        },
         elapsed_ms=1234,
         tool_call_count=0,
     )
@@ -745,36 +606,4 @@ def test_llm_stream_events(monkeypatch, temp_log_path):
     assert events[0]["model"] == "gpt-4.1-mini"
     assert events[0]["stream"] is True
     assert events[1]["event"] == "llm.stream.end"
-    assert events[1]["usage"]["total_tokens"] == 15
-
-
-def test_llm_request_events(monkeypatch, temp_log_path):
-    """llm.request.* events are emitted by the LLM client."""
-    _reset_observability_state()
-    monkeypatch.setenv("SIMPLE_AGENT_LOG_ENABLED", "true")
-    monkeypatch.setenv("SIMPLE_AGENT_LOG_FILE", str(temp_log_path))
-    obs.configure_logging()
-
-    obs.bind_log_context(run_id="r1", session_id="s1", agent_id="default", mode="cli")
-    obs.log_event(
-        "llm.request.start",
-        model="gpt-4.1-mini",
-        api_type="completion",
-        stream=False,
-        message_count=2,
-    )
-    obs.log_event(
-        "llm.request.end",
-        model="gpt-4.1-mini",
-        api_type="completion",
-        stream=False,
-        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        elapsed_ms=567,
-        tool_call_count=0,
-    )
-
-    events = _read_jsonl(temp_log_path)
-    assert events[0]["event"] == "llm.request.start"
-    assert events[0]["stream"] is False
-    assert events[1]["event"] == "llm.request.end"
     assert events[1]["usage"]["total_tokens"] == 15

@@ -31,7 +31,6 @@ class TestBuildCLIAdapter:
             mock_cli_adapter.assert_called_once_with(
                 mock_create_run_agent_use_case.return_value,
                 agent_id="default",
-                agent_definitions=mock_create_registry.return_value,
             )
 
     @patch("simple_agent_poc.entrypoints.main_cli.CLIAdapter")

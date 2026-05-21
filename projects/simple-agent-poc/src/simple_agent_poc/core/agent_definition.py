@@ -16,7 +16,6 @@ _AGENT_FIELDS = frozenset(
         "temperature",
         "tools",
         "api_type",
-        "stream",
         "max_tool_rounds",
     }
 )
@@ -33,7 +32,6 @@ class AgentDefinition:
     temperature: float | None = None
     tools: list[str] = field(default_factory=list)
     api_type: Literal["completion", "responses"] = "completion"
-    stream: bool = False
     max_tool_rounds: int = 5
 
     def format_system_prompt(self, *, current_datetime: str) -> str:
@@ -130,10 +128,6 @@ def _build_agent_definition(
         definition.get("api_type"),
         f"agents.{agent_id}.api_type",
     )
-    stream = _optional_bool(
-        definition.get("stream"),
-        f"agents.{agent_id}.stream",
-    )
     max_tool_rounds = _optional_int_min_max(
         definition.get("max_tool_rounds"),
         f"agents.{agent_id}.max_tool_rounds",
@@ -149,7 +143,6 @@ def _build_agent_definition(
         temperature=temperature,
         tools=tools,
         api_type=api_type,
-        stream=stream,
         max_tool_rounds=max_tool_rounds,
     )
 
@@ -206,14 +199,6 @@ def _optional_api_type(
     if value not in ("completion", "responses"):
         raise ValidationError(f"{path} must be one of: completion, responses")
     return cast(Literal["completion", "responses"], value)
-
-
-def _optional_bool(value: object, path: str) -> bool:
-    if value is None:
-        return False
-    if not isinstance(value, bool):
-        raise ValidationError(f"{path} must be a boolean")
-    return value
 
 
 def _optional_int_min_max(
