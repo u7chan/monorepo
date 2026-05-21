@@ -163,9 +163,7 @@ class TestRunAgentUseCase:
             agent_definitions=self.build_registry(),
         )
 
-        events = list(
-            use_case.execute_stream(RunAgentRequest(message="Hello"))
-        )
+        events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
         assert isinstance(events[-1], StreamComplete)
         session_id = events[-1].session_id
 

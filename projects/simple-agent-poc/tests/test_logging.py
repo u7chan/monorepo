@@ -7,8 +7,6 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
-from typing import cast
-
 import pytest
 
 import simple_agent_poc.observability as obs
