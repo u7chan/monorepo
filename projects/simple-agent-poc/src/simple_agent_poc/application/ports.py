@@ -6,7 +6,6 @@ from typing import Protocol
 from simple_agent_poc.core.agent_definition import AgentDefinition
 from simple_agent_poc.core.session import ConversationSession
 from simple_agent_poc.core.types import (
-    LLMResponse,
     LLMStreamChunk,
     Message,
     ToolCall,
@@ -26,14 +25,6 @@ class ToolExecutor(Protocol):
 
 class LLMClient(Protocol):
     """Interface for LLM clients."""
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: list[ToolDefinition] | None = None,
-    ) -> LLMResponse:
-        """Receive message history and return an LLM response."""
 
     def complete_stream(
         self,

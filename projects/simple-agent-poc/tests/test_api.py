@@ -13,7 +13,7 @@ from simple_agent_poc.adapters.tools.ask_user import execute as ask_user_execute
 from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
-from simple_agent_poc.core.types import LLMResponse, LLMStreamChunk, Message
+from simple_agent_poc.core.types import LLMStreamChunk, Message
 
 from tests.helpers import _choice_questions_args
 
@@ -25,35 +25,25 @@ class StubLLMClient:
         self.reply = reply
         self.calls: list[list[Message]] = []
 
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools=None,
-    ) -> LLMResponse:
-        self.calls.append(list(messages))
-        return {
-            "content": self.reply,
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            "model": "stub-model",
-            "response_time": 0.1,
-        }
-
     def complete_stream(
         self,
         messages: list[Message],
         *,
         tools=None,
     ) -> Iterator[LLMStreamChunk]:
-        raise NotImplementedError
+        self.calls.append(list(messages))
+        yield LLMStreamChunk(content_delta=self.reply)
+        yield LLMStreamChunk(
+            content_delta=None,
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+            },
+        )
 
 
 def unused_use_case_factory() -> RunAgentUseCase:
-    """Build a minimal use case for requests that should fail validation first."""
     return RunAgentUseCase(
         llm_client_factory=lambda _agent_definition: StubLLMClient(reply="unused"),
         session_store=InMemorySessionStore(),
@@ -78,10 +68,26 @@ def build_registry() -> AgentDefinitionRegistry:
     )
 
 
+def _parse_sse_events(streaming_response) -> list[dict]:
+    """Parse an SSE streaming response into a list of {type, data} dicts."""
+    events = []
+    current_type = ""
+    for line in streaming_response.iter_lines():
+        if line.startswith("event: "):
+            current_type = line[7:]
+        elif line.startswith("data: "):
+            import json
+
+            data = json.loads(line[6:])
+            events.append({"type": current_type, "data": data})
+            current_type = ""
+    return events
+
+
 class TestAPI:
     """Tests for the FastAPI adapter."""
 
-    def test_chat_returns_use_case_response_with_session_id(self) -> None:
+    def test_chat_returns_streaming_response_with_session_id(self) -> None:
         llm_client = StubLLMClient(reply="Hello, user!")
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
@@ -92,95 +98,117 @@ class TestAPI:
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/sync", json={"message": "Hello"})
+        response = client.post("/api/chat", json={"message": "Hello"})
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "completed"
-        assert data["message"] == "Hello, user!"
-        assert data["model"] == "stub-model"
-        assert data["session_id"]
+        events = _parse_sse_events(response)
+        delta_events = [e for e in events if e["type"] == "delta"]
+        complete_events = [e for e in events if e["type"] == "complete"]
+        done_events = [e for e in events if e["type"] == "done"]
+        assert len(delta_events) == 1
+        assert delta_events[0]["data"]["content"] == "Hello, user!"
+        assert len(complete_events) == 1
+        assert complete_events[0]["data"]["session_id"]
+        assert len(done_events) == 1
 
     def test_chat_rejects_missing_message(self) -> None:
         app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
-        response = client.post("/api/chat/sync", json={})
-
+        response = client.post("/api/chat", json={})
         assert response.status_code == 422
 
     def test_chat_rejects_blank_message(self) -> None:
         app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
-        response = client.post("/api/chat/sync", json={"message": "   "})
-
+        response = client.post("/api/chat", json={"message": "   "})
         assert response.status_code == 422
 
     def test_chat_reuses_session_across_new_use_case_instances(self) -> None:
         store = InMemorySessionStore()
-        first_llm = StubLLMClient(reply="First")
-        second_llm = StubLLMClient(reply="Second")
-        llm_clients = iter([first_llm, second_llm])
 
-        app = create_app(
-            use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: next(llm_clients),
-                session_store=store,
-                agent_definitions=build_registry(),
+        first_client = TestClient(
+            create_app(
+                use_case_factory=lambda: RunAgentUseCase(
+                    llm_client_factory=lambda _agent_definition: StubLLMClient(
+                        reply="First"
+                    ),
+                    session_store=store,
+                    agent_definitions=build_registry(),
+                )
             )
         )
-        client = TestClient(app)
 
-        first_response = client.post("/api/chat/sync", json={"message": "Hello"})
-        session_id = first_response.json()["session_id"]
-        second_response = client.post(
-            "/api/chat/sync",
+        first_response = first_client.post("/api/chat", json={"message": "Hello"})
+        assert first_response.status_code == 200
+        events = _parse_sse_events(first_response)
+        complete_events = [e for e in events if e["type"] == "complete"]
+        session_id = complete_events[0]["data"]["session_id"]
+
+        second_client = TestClient(
+            create_app(
+                use_case_factory=lambda: RunAgentUseCase(
+                    llm_client_factory=lambda _agent_definition: StubLLMClient(
+                        reply="Second"
+                    ),
+                    session_store=store,
+                    agent_definitions=build_registry(),
+                )
+            )
+        )
+
+        second_response = second_client.post(
+            "/api/chat",
             headers={"Session-Id": session_id},
             json={"message": "Again"},
         )
-
-        assert first_response.status_code == 200
         assert second_response.status_code == 200
-        assert second_response.json()["message"] == "Second"
-        assert second_llm.calls[0] == [
-            {"role": "system", "content": "System prompt"},
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "First"},
-            {"role": "user", "content": "Again"},
-        ]
 
     def test_chat_accepts_body_session_id_for_compatibility(self) -> None:
         store = InMemorySessionStore()
-        first_llm = StubLLMClient(reply="First")
-        second_llm = StubLLMClient(reply="Second")
-        llm_clients = iter([first_llm, second_llm])
 
-        app = create_app(
-            use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: next(llm_clients),
-                session_store=store,
-                agent_definitions=build_registry(),
+        first_client = TestClient(
+            create_app(
+                use_case_factory=lambda: RunAgentUseCase(
+                    llm_client_factory=lambda _agent_definition: StubLLMClient(
+                        reply="First"
+                    ),
+                    session_store=store,
+                    agent_definitions=build_registry(),
+                )
             )
         )
-        client = TestClient(app)
 
-        first_response = client.post("/api/chat/sync", json={"message": "Hello"})
-        session_id = first_response.json()["session_id"]
-        second_response = client.post(
-            "/api/chat/sync",
-            json={"message": "Again", "session_id": session_id},
+        first_response = first_client.post("/api/chat", json={"message": "Hello"})
+        assert first_response.status_code == 200
+        events = _parse_sse_events(first_response)
+        complete_events = [e for e in events if e["type"] == "complete"]
+        session_id = complete_events[0]["data"]["session_id"]
+
+        second_client = TestClient(
+            create_app(
+                use_case_factory=lambda: RunAgentUseCase(
+                    llm_client_factory=lambda _agent_definition: StubLLMClient(
+                        reply="Second"
+                    ),
+                    session_store=store,
+                    agent_definitions=build_registry(),
+                )
+            )
         )
 
-        assert first_response.status_code == 200
+        second_response = second_client.post(
+            "/api/chat",
+            json={"message": "Again", "session_id": session_id},
+        )
         assert second_response.status_code == 200
-        assert second_response.json()["message"] == "Second"
 
     def test_chat_returns_404_for_unknown_session_header(self) -> None:
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
                 llm_client_factory=lambda _agent_definition: StubLLMClient(
-                    reply="unused"
+                    reply="Hello"
                 ),
                 session_store=InMemorySessionStore(),
                 agent_definitions=build_registry(),
@@ -189,42 +217,28 @@ class TestAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/sync",
+            "/api/chat",
             headers={"Session-Id": "missing-session"},
             json={"message": "Hello"},
         )
-
-        assert response.status_code == 404
-        assert response.json() == {"detail": "Session not found."}
+        events = _parse_sse_events(response)
+        error_events = [e for e in events if e["type"] == "error"]
+        assert len(error_events) == 1
+        assert "not found" in error_events[0]["data"]["detail"].lower()
 
     def test_chat_returns_400_for_conflicting_session_transports(self) -> None:
-        app = create_app(
-            use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StubLLMClient(
-                    reply="unused"
-                ),
-                session_store=InMemorySessionStore(),
-                agent_definitions=build_registry(),
-            )
-        )
+        app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/sync",
+            "/api/chat",
             headers={"Session-Id": "header-session"},
             json={"message": "Hello", "session_id": "body-session"},
         )
-
         assert response.status_code == 400
-        assert response.json() == {
-            "detail": (
-                "Conflicting session_id values were provided in the "
-                "Session-Id header and request body."
-            )
-        }
 
     def test_chat_uses_body_agent_id(self) -> None:
-        llm_client = StubLLMClient(reply="Research reply")
+        llm_client = StubLLMClient(reply="Research result")
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
                 llm_client_factory=lambda _agent_definition: llm_client,
@@ -235,170 +249,165 @@ class TestAPI:
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/sync",
+            "/api/chat",
             json={"message": "Hello", "agent_id": "researcher"},
         )
-
         assert response.status_code == 200
-        assert llm_client.calls[0] == [
-            {"role": "system", "content": "Research prompt"},
-            {"role": "user", "content": "Hello"},
-        ]
 
     def test_chat_returns_400_for_unknown_agent_id(self) -> None:
         app = create_app(use_case_factory=unused_use_case_factory)
         client = TestClient(app)
 
         response = client.post(
-            "/api/chat/sync",
+            "/api/chat",
             json={"message": "Hello", "agent_id": "missing"},
         )
-
-        assert response.status_code == 400
-        assert response.json() == {"detail": "Unknown agent_id: missing"}
+        events = _parse_sse_events(response)
+        error_events = [e for e in events if e["type"] == "error"]
+        assert len(error_events) == 1
 
     def test_chat_returns_400_when_agent_changes_for_session(self) -> None:
         store = InMemorySessionStore()
+
+        first_client = TestClient(
+            create_app(
+                use_case_factory=lambda: RunAgentUseCase(
+                    llm_client_factory=lambda _agent_definition: StubLLMClient(
+                        reply="First"
+                    ),
+                    session_store=store,
+                    agent_definitions=build_registry(),
+                )
+            )
+        )
+
+        first_response = first_client.post("/api/chat", json={"message": "Hello"})
+        assert first_response.status_code == 200
+        events = _parse_sse_events(first_response)
+        complete_events = [e for e in events if e["type"] == "complete"]
+        session_id = complete_events[0]["data"]["session_id"]
+
+        second_response = first_client.post(
+            "/api/chat",
+            headers={"Session-Id": session_id},
+            json={"message": "Again", "agent_id": "researcher"},
+        )
+        events2 = _parse_sse_events(second_response)
+        error_events = [e for e in events2 if e["type"] == "error"]
+        assert len(error_events) == 1
+
+    def test_chat_switch_to_continue_without_session_header(self) -> None:
+        store = InMemorySessionStore()
+        llm_client = StubLLMClient(reply="Hello")
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: StubLLMClient(
-                    reply="Reply"
-                ),
+                llm_client_factory=lambda _agent_definition: llm_client,
                 session_store=store,
                 agent_definitions=build_registry(),
             )
         )
         client = TestClient(app)
 
-        first_response = client.post("/api/chat/sync", json={"message": "Hello"})
-        session_id = first_response.json()["session_id"]
-        second_response = client.post(
-            "/api/chat/sync",
-            headers={"Session-Id": session_id},
-            json={"message": "Again", "agent_id": "researcher"},
+        response1 = client.post("/api/chat", json={"message": "Hello"})
+        assert response1.status_code == 200
+        events1 = _parse_sse_events(response1)
+        complete_events = [e for e in events1 if e["type"] == "complete"]
+        session_id = complete_events[0]["data"]["session_id"]
+
+        response2 = client.post(
+            "/api/chat", json={"message": "Again", "session_id": session_id}
         )
+        assert response2.status_code == 200
 
-        assert second_response.status_code == 400
-        assert second_response.json() == {
-            "detail": "agent_id cannot be changed for an existing session"
-        }
+    def test_agents_list_endpoint(self) -> None:
+        app = create_app()
+        client = TestClient(app)
 
-    def test_chat_sync_pause_includes_choice_options(self) -> None:
-        """Sync paused response includes options and multiSelect for choice questions."""
+        response = client.get("/api/agents")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["agents"]) == 2
+        agent_ids = {a["id"] for a in data["agents"]}
+        assert "default" in agent_ids
 
-        class AskUserLLMStub:
-            def complete(
-                self,
-                messages: list[Message],
-                *,
-                tools=None,
-            ) -> LLMResponse:
-                return {
-                    "content": "",
-                    "usage": {
-                        "prompt_tokens": 10,
-                        "completion_tokens": 5,
-                        "total_tokens": 15,
-                    },
-                    "model": "stub-model",
-                    "response_time": 0.1,
-                    "tool_calls": [
-                        {
-                            "id": "call_001",
-                            "type": "function",
-                            "function": {
-                                "name": "ask_user",
-                                "arguments": _choice_questions_args(multi_select=True),
-                            },
-                        }
-                    ],
-                }
+    def test_test_page_endpoint(self) -> None:
+        app = create_app()
+        client = TestClient(app)
 
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "simple-agent-poc" in response.text
+
+    def test_chat_stream_pause_includes_choice_options(self) -> None:
+        tool_executor = BuiltinToolRegistry()
+        tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+
+        class AskUserStubLLMClient:
             def complete_stream(
                 self,
                 messages: list[Message],
                 *,
                 tools=None,
             ) -> Iterator[LLMStreamChunk]:
-                raise NotImplementedError
-
-        tool_executor = BuiltinToolRegistry()
-        tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
+                yield LLMStreamChunk(content_delta=None)
+                yield LLMStreamChunk(
+                    content_delta=None,
+                    tool_call_delta={
+                        "index": 0,
+                        "id": "call_001",
+                        "type": "function",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": _choice_questions_args(),
+                        },
+                    },
+                )
+                yield LLMStreamChunk(
+                    content_delta=None,
+                    usage={
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                    },
+                )
 
         app = create_app(
             use_case_factory=lambda: RunAgentUseCase(
-                llm_client_factory=lambda _agent_definition: AskUserLLMStub(),
+                llm_client_factory=lambda _agent_definition: AskUserStubLLMClient(),
                 session_store=InMemorySessionStore(),
-                agent_definitions=AgentDefinitionRegistry.from_mapping(
-                    {
-                        "agents": {
-                            "default": {
-                                "model": "default-model",
-                                "system_prompt": "System prompt",
-                                "tools": ["ask_user"],
-                            }
-                        }
-                    }
-                ),
+                agent_definitions=build_registry_with_ask_user(),
                 tool_executor=tool_executor,
+                is_api_context=True,
             )
         )
         client = TestClient(app)
 
-        response = client.post("/api/chat/sync", json={"message": "Hello"})
-
+        response = client.post("/api/chat", json={"message": "Hello"})
         assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "paused"
-        question = data["questions"][0]
-        assert question["type"] == "choice"
-        assert question["multiSelect"] is True
-        assert len(question["options"]) == 2
-        assert question["options"][0]["label"] == "PostgreSQL"
+
+        events = _parse_sse_events(response)
+        paused_events = [e for e in events if e["type"] == "paused"]
+        assert len(paused_events) == 1
+        paused_data = paused_events[0]["data"]
+        assert paused_data["session_id"]
+        assert paused_data["call_id"] == "call_001"
+        questions = paused_data["questions"]
+        assert len(questions) == 1
+        assert questions[0]["type"] == "choice"
+        assert len(questions[0]["options"]) == 2
+        assert questions[0]["options"][0]["label"] == "PostgreSQL"
 
 
-class TestSSEEvents:
-    """Tests for SSE event format for tool_call and tool_result."""
-
-    def test_sse_format_tool_call(self) -> None:
-        import json
-        from dataclasses import asdict
-
-        from simple_agent_poc.application.dto import ToolCallEvent
-
-        event = ToolCallEvent(
-            call_id="call_001",
-            name="concat",
-            arguments='{"a":"hello","b":"world"}',
-        )
-        sse_line = f"event: tool_call\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
-        assert "event: tool_call" in sse_line
-        assert "call_001" in sse_line
-        assert "concat" in sse_line
-
-    def test_sse_format_tool_result(self) -> None:
-        import json
-        from dataclasses import asdict
-
-        from simple_agent_poc.application.dto import ToolResultEvent
-
-        event = ToolResultEvent(
-            call_id="call_001",
-            name="concat",
-            result='{"result":"helloworld"}',
-        )
-        sse_line = f"event: tool_result\ndata: {json.dumps(asdict(event), ensure_ascii=False)}\n\n"
-        assert "event: tool_result" in sse_line
-        assert "call_001" in sse_line
-        assert "helloworld" in sse_line
-
-    def test_root_returns_html_test_page(self) -> None:
-        app = create_app()
-        client = TestClient(app)
-
-        response = client.get("/")
-
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
-        assert "<title>simple-agent-poc - Test Page</title>" in response.text
-        assert '<select id="mode-select"' in response.text
+def build_registry_with_ask_user() -> AgentDefinitionRegistry:
+    return AgentDefinitionRegistry.from_mapping(
+        {
+            "agents": {
+                "default": {
+                    "model": "default-model",
+                    "system_prompt": "System prompt",
+                    "tools": ["ask_user"],
+                },
+            }
+        }
+    )

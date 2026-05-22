@@ -41,7 +41,7 @@ Own transport-specific integration details.
 **Files:**
 - `src/simple_agent_poc/adapters/cli/adapter.py` — `CLIAdapter` (stdin/stdout interactive loop, `generator.send()` for interactive tools)
 - `src/simple_agent_poc/adapters/cli/renderer.py` — spinner, streaming display, tool call display, `ask_user_question()`
-- `src/simple_agent_poc/adapters/http/api.py` — FastAPI app (`/api/chat/sync`, `/api/chat/sync/continue`, `/api/chat/stream`, `/api/chat/stream/continue`)
+- `src/simple_agent_poc/adapters/http/api.py` — FastAPI app (`/api/chat`, `/api/chat/continue`, `/api/agents`, `/`)
 - `src/simple_agent_poc/adapters/llm/litellm_client.py` — `LiteLLMCompletionClient`, `LiteLLMResponsesClient`, `LiteLLMClientFactory`, tool format transformation
 - `src/simple_agent_poc/adapters/session_store/in_memory.py` — `InMemorySessionStore`
 - `src/simple_agent_poc/adapters/tools/registry.py` — `BuiltinToolRegistry`

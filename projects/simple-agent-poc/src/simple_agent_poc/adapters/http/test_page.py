@@ -56,12 +56,6 @@ TEST_PAGE_HTML = """<!doctype html>
 <body>
 <header>
   <h1>simple-agent-poc</h1>
-  <label>Mode
-    <select id="mode-select" onchange="onModeChange()">
-      <option value="stream">stream</option>
-      <option value="sync">sync</option>
-    </select>
-  </label>
   <label>Agent
     <select id="agent-id" onchange="onAgentIdChange()">
     </select>
@@ -104,7 +98,6 @@ TEST_PAGE_HTML = """<!doctype html>
 </footer>
 <script>
 const state = {
-  mode: "stream",
   agentId: "default",
   sessionId: "",
   awaitingAnswer: null,
@@ -112,11 +105,6 @@ const state = {
 };
 
 const el = (id) => document.getElementById(id);
-
-function onModeChange() {
-  state.mode = el("mode-select").value;
-  persist();
-}
 
 function onAgentIdChange() {
   state.agentId = el("agent-id").value;
@@ -143,7 +131,6 @@ function setSessionId(id) {
 function persist() {
   try {
     localStorage.setItem("sap_test_ui", JSON.stringify({
-      mode: state.mode,
       agentId: state.agentId,
     }));
   } catch (_) {}
@@ -154,7 +141,6 @@ function restore() {
     const raw = localStorage.getItem("sap_test_ui");
     if (!raw) return;
     const d = JSON.parse(raw);
-    if (d.mode) { state.mode = d.mode; el("mode-select").value = d.mode; }
     if (d.agentId) { state.agentId = d.agentId; }
   } catch (_) {}
 }
@@ -271,61 +257,7 @@ async function sendMessage() {
   el("msg-input").value = "";
   appendLine("conv-log", "line-user", "You: " + message);
   appendLine("raw-log", "line-system", "--- sending message ---");
-  if (state.mode === "stream") {
-    await sendStreamMessage(message);
-  } else {
-    await sendSyncMessage(message);
-  }
-}
-
-async function sendSyncMessage(message) {
-  const controller = new AbortController();
-  state.abortController = controller;
-  setSending(true);
-  try {
-    const headers = { "Content-Type": "application/json" };
-    if (state.sessionId) headers["Session-Id"] = state.sessionId;
-    const resp = await fetch("/api/chat/sync", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ message, agent_id: state.agentId }),
-      signal: controller.signal,
-    });
-    appendJson("raw-log", "line-system", { status: resp.status });
-    if (!resp.ok) {
-      const err = await resp.json();
-      appendLine("conv-log", "line-error", "Error: " + (err.detail || resp.statusText));
-      appendJson("raw-log", "line-error", err);
-      return;
-    }
-    const data = await resp.json();
-    appendJson("raw-log", "line-system", data);
-    if (data.status === "paused") {
-      const qs = data.questions || [];
-      const labels = qs.map(q => q.question || "").join(", ");
-      appendLine("conv-log", "line-paused", "  [Paused] " + labels);
-      enterPausedState({ session_id: data.session_id, questions: qs, call_id: data.call_id, mode: "sync" });
-      return;
-    }
-    appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
-    if (data.tool_calls && data.tool_calls.length > 0) {
-      for (const tc of data.tool_calls) {
-        appendLine("conv-log", "line-tool", "  Tool: " + tc.name + "(" + tc.arguments + ") -> " + truncate(tc.result, 200));
-        appendJson("tool-log", "line-tool", tc);
-      }
-    }
-    if (data.session_id) setSessionId(data.session_id);
-    if (data.usage) {
-      appendLine("raw-log", "line-system", "usage: " + JSON.stringify(data.usage));
-    }
-  } catch (e) {
-    if (e.name !== "AbortError") {
-      appendLine("conv-log", "line-error", "Error: " + e.message);
-    }
-  } finally {
-    state.abortController = null;
-    setSending(false);
-  }
+  await sendStreamMessage(message);
 }
 
 async function sendStreamMessage(message) {
@@ -340,7 +272,7 @@ async function sendStreamMessage(message) {
   try {
     const headers = { "Content-Type": "application/json" };
     if (state.sessionId) headers["Session-Id"] = state.sessionId;
-    const resp = await fetch("/api/chat/stream", {
+    const resp = await fetch("/api/chat", {
       method: "POST",
       headers,
       body: JSON.stringify({ message, agent_id: state.agentId }),
@@ -394,9 +326,9 @@ async function sendStreamMessage(message) {
   }
 }
 
-function enterPausedState({ session_id: sessionId, questions, call_id: callId, mode = "stream" }) {
+function enterPausedState({ session_id: sessionId, questions, call_id: callId }) {
   const qs = questions || [];
-  state.awaitingAnswer = { sessionId, questions: qs, callId, mode };
+  state.awaitingAnswer = { sessionId, questions: qs, callId };
   setSessionId(sessionId);
   updateComposerState();
 
@@ -487,7 +419,7 @@ function enterPausedState({ session_id: sessionId, questions, call_id: callId, m
 
 async function resumeFromPaused() {
   if (!state.awaitingAnswer) return;
-  const { sessionId, mode, questions } = state.awaitingAnswer;
+  const { sessionId, questions } = state.awaitingAnswer;
 
   const answers = {};
   const qInputs = el("paused-questions").querySelectorAll(".paused-q-input");
@@ -511,59 +443,7 @@ async function resumeFromPaused() {
   appendLine("conv-log", "line-user", "You: " + JSON.stringify(answers));
   appendLine("raw-log", "line-system", "--- continuing paused session ---");
 
-  if (mode === "sync") {
-    await continueSync(sessionId, answers);
-  } else {
-    await continueStream(sessionId, answers);
-  }
-}
-
-async function continueSync(sessionId, answers) {
-  const controller = new AbortController();
-  state.abortController = controller;
-  setSending(true);
-  try {
-    const resp = await fetch("/api/chat/sync/continue", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, answers }),
-      signal: controller.signal,
-    });
-    appendJson("raw-log", "line-system", { status: resp.status });
-    if (!resp.ok) {
-      const err = await resp.json();
-      appendLine("conv-log", "line-error", "Error: " + (err.detail || resp.statusText));
-      appendJson("raw-log", "line-error", err);
-      return;
-    }
-    const data = await resp.json();
-    appendJson("raw-log", "line-system", data);
-    if (data.status === "paused") {
-      const qs = data.questions || [];
-      const labels = qs.map(q => q.question || "").join(", ");
-      appendLine("conv-log", "line-paused", "  [Paused] " + labels);
-      enterPausedState({ session_id: data.session_id, questions: qs, call_id: data.call_id, mode: "sync" });
-      return;
-    }
-    appendLine("conv-log", "line-assistant", "Assistant: " + data.message);
-    if (data.tool_calls && data.tool_calls.length > 0) {
-      for (const tc of data.tool_calls) {
-        appendLine("conv-log", "line-tool", "  Tool: " + tc.name + "(" + tc.arguments + ") -> " + truncate(tc.result, 200));
-        appendJson("tool-log", "line-tool", tc);
-      }
-    }
-    if (data.session_id) setSessionId(data.session_id);
-    if (data.usage) {
-      appendLine("raw-log", "line-system", "usage: " + JSON.stringify(data.usage));
-    }
-  } catch (e) {
-    if (e.name !== "AbortError") {
-      appendLine("conv-log", "line-error", "Error: " + e.message);
-    }
-  } finally {
-    state.abortController = null;
-    setSending(false);
-  }
+  await continueStream(sessionId, answers);
 }
 
 async function continueStream(sessionId, answers) {
@@ -576,7 +456,7 @@ async function continueStream(sessionId, answers) {
   assistantSpan.textContent = "Assistant: ";
   el("conv-log").appendChild(assistantSpan);
   try {
-    const resp = await fetch("/api/chat/stream/continue", {
+    const resp = await fetch("/api/chat/continue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId, answers }),
@@ -606,7 +486,7 @@ async function continueStream(sessionId, answers) {
         const qs = d.questions || [];
         const labels = qs.map(q => q.question || "").join(", ");
         appendLine("conv-log", "line-paused", "  [Paused] " + labels);
-        enterPausedState({ session_id: d.session_id, questions: qs, call_id: d.call_id, mode: "stream" });
+        enterPausedState({ session_id: d.session_id, questions: qs, call_id: d.call_id });
       } else if (event.type === "complete") {
         const d = JSON.parse(event.data);
         if (d.session_id) setSessionId(d.session_id);

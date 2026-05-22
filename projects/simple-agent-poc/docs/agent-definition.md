@@ -37,10 +37,6 @@ Tool names are resolved to `ToolDefinition` objects at request time and passed t
 
 The factory selects the client at construction time based on this field.
 
-### `stream`
-
-When `true`, the CLI uses `execute_stream()` with live text output instead of a spinner + synchronous `execute()`. Has no effect on the HTTP API, which always uses streaming for `/api/chat/stream`.
-
 ### `max_tool_rounds`
 
 Maximum number of ReAct tool-call rounds for one user message. When omitted or `null`, the default is `5`. The value must be an integer from `1` to `20`; booleans, strings, floats, and out-of-range integers are rejected at startup.
@@ -56,7 +52,7 @@ On application startup, `AgentDefinitionRegistry.from_yaml_file()` validates:
 - `tools` must be a list of strings or null
 - `api_type` must be `"completion"` or `"responses"`
 - Unknown fields at the root or agent level are rejected
-- `temperature` must be a number or null; `stream` must be a boolean
+- `temperature` must be a number or null
 - `max_tool_rounds` must be an integer from `1` to `20`, or null
 
 For the exact validation logic, see `agent_definition.py` and its `_optional_*` validators.

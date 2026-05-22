@@ -46,7 +46,7 @@ When `ask_user` is called in API mode, the session enters a paused state:
 - `pause_for_ask_user(tool_call, *, round_idx)` — sets `is_paused = True`, saves the `ToolCall` and current round count.
 - `resume_with_answer()` — clears paused state. The user's answer is injected as a tool result by the use case.
 
-Paused sessions are persisted via `SessionStore.save()`. The client resumes via `POST /api/chat/sync/continue` or `POST /api/chat/stream/continue`, depending on the mode. See [docs/api.md](api.md) and [docs/sse.md](sse.md) for the API flow.
+Paused sessions are persisted via `SessionStore.save()`. HTTP clients resume via `POST /api/chat/continue`. See [docs/api.md](api.md) and [docs/sse.md](sse.md) for the API flow.
 
 ## SessionStore
 
@@ -69,7 +69,7 @@ Default implementation in `src/simple_agent_poc/adapters/session_store/in_memory
 
 ### CLI
 
-The `CLIAdapter` tracks the current `session_id` in its `_session_id` field. After each call to `execute()` or `execute_stream()`, it updates `_session_id` from the response's `session_id` field.
+The `CLIAdapter` tracks the current `session_id` in its `_session_id` field. After each `execute_stream()` call completes, it updates `_session_id` from the `StreamComplete.session_id` field.
 
 ### HTTP
 

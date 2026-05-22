@@ -1,6 +1,6 @@
 # CLI Mode
 
-The interactive CLI provides a `stdin`/`stdout` loop for chatting with agents. It supports both synchronous execution and streaming, including interactive tool calls like `ask_user`.
+The interactive CLI provides a `stdin`/`stdout` loop for chatting with agents. Execution is streaming-only and supports interactive tool calls like `ask_user`.
 
 ## Entry Point
 
@@ -15,17 +15,17 @@ Source: `src/simple_agent_poc/entrypoints/main_cli.py`
 
 1. `main_cli.py:main()` parses `--agent` argument.
 2. `build_cli_adapter(agent_id=...)` wires dependencies:
-   - `bootstrap.create_agent_definition_registry()` → loads `agents.yaml`
-   - `bootstrap.create_default_tool_executor()` → creates built-in tool registry
-   - `bootstrap.create_run_agent_use_case(agent_definitions=..., tool_executor=...)` → creates the use case
-3. `CLIAdapter(use_case, agent_id, agent_definitions)` is constructed.
+   - `bootstrap.create_agent_definition_registry()` loads `agents.yaml`
+   - `bootstrap.create_default_tool_executor()` creates the built-in tool registry
+   - `bootstrap.create_run_agent_use_case(agent_definitions=..., tool_executor=...)` creates the use case
+3. `CLIAdapter(use_case, agent_id)` is constructed.
 4. `adapter.run()` starts the interactive loop.
 
 ## CLIAdapter
 
 Source: `src/simple_agent_poc/adapters/cli/adapter.py`
 
-The adapter uses protocol-based dependency injection for testability. All renderers and readers can be swapped via constructor arguments.
+The adapter uses protocol-based dependency injection for testability. Renderers and readers can be swapped via constructor arguments.
 
 ### Constructor Parameters
 
@@ -33,64 +33,36 @@ The adapter uses protocol-based dependency injection for testability. All render
 |:---|:---|:---|:---|
 | `run_agent` | `RunAgentUseCase` | required | Shared agent execution use case |
 | `agent_id` | `str` | `"default"` | Active agent ID |
-| `agent_definitions` | `AgentDefinitionRegistry` | `None` | For checking `stream` flag |
 | `input_reader` | `Callable[[], str]` | `get_user_input` | Reads a line from stdin |
-| `response_renderer` | `Callable[[RunAgentResponse], None]` | `show_agent_response` | Displays sync response |
 | `streaming_renderer` | `StreamingRenderer` | `show_streaming_response` | Handles live text output |
 | `error_renderer` | `Callable[[Exception], None]` | `show_error` | Displays error messages |
 | `welcome_renderer` | `WelcomeRenderer` | `show_welcome` | Displays banner |
 | `exit_renderer` | `Callable[[], None]` | `show_exit_message` | Exit message |
-| `indicator_runner` | `IndicatorRunner` | `with_indicator` | Spinner wrapper |
 
 ### Interactive Loop
 
-The loop handles both sync and streaming modes:
+The loop always uses `execute_stream()`:
 
-```
+```text
 while True:
     input = get_user_input()
-    if blank → continue
+    if blank -> continue
 
-    if agent.stream:
-        generator = use_case.execute_stream(request)
-        for event in generator:
-            if event is ContentDelta → show live text
-            if event is ToolCallEvent → show tool call; for ask_user, prompt user
-                and send answers via generator.send(answers)
-            if event is ToolResultEvent → show tool result
-            if event is StreamComplete → show stats, capture session_id
-    else:
-        response = with_indicator("Thinking", lambda: use_case.execute(request))
-        while response is RunAgentPaused:
-            answers = ask_user_question(response.questions)
-            response = with_indicator(
-                "Thinking",
-                lambda: use_case.continue_sync(ContinueRequest(
-                    session_id=response.session_id, answers=answers
-                ))
-            )
-        show_agent_response(response)
-
-    self._session_id = response.session_id
+    complete = show_streaming_response(
+        use_case.execute_stream(RunAgentRequest(
+            message=input,
+            session_id=self._session_id,
+            agent_id=self._agent_id,
+        ))
+    )
+    self._session_id = complete.session_id
 ```
 
-### Sync `ask_user` Loop (Non-Stream Mode)
+### `generator.send()` Pattern (ask_user)
 
-When `stream: false` (default), `execute()` returns `RunAgentResponse | RunAgentPaused`. If `RunAgentPaused` is returned:
+When the LLM calls `ask_user` in CLI mode, the `execute_stream()` generator yields a `ToolCallEvent` and pauses, waiting for the adapter to send the user's answers back:
 
-1. The indicator stops automatically (via `finally` in `with_indicator`).
-2. `ask_user_question(questions)` displays all questions and reads the user's answers from stdin, returning a `dict[str, str]` keyed by question text.
-3. `continue_sync(ContinueRequest(session_id, answers))` is called with a new indicator.
-4. If `continue_sync` returns another `RunAgentPaused` (another `ask_user` in a subsequent round), the loop repeats.
-5. When `RunAgentResponse` is finally returned, it is rendered via `show_agent_response()`.
-
-The user never needs to know the `session_id` — it is managed internally by the adapter.
-
-### `generator.send()` Pattern (Stream Mode, ask\_user)
-
-When the LLM calls `ask_user` in CLI streaming mode, the `execute_stream()` generator yields a `ToolCallEvent` and **pauses**, waiting for the adapter to send the user's answers back:
-
-1. Generator yields `ToolCallEvent(name="ask_user", arguments={"question": "..."})`.
+1. Generator yields `ToolCallEvent(name="ask_user", arguments=...)`.
 2. CLI renderer displays the questions and prompts for input via `ask_user_question()`.
 3. Adapter calls `generator.send(answers)` to inject the answers dict.
 4. Generator yields `ToolResultEvent` with the result.
@@ -100,9 +72,9 @@ This pattern works because CLI is a single-process event loop. For HTTP API, the
 
 ### Exit Conditions
 
-- `KeyboardInterrupt` (Ctrl+C) → calls `show_exit_message()`, breaks loop
-- `EOFError` (Ctrl+D) → calls `show_exit_message()`, breaks loop
-- Other `Exception` → calls `show_error(error)`, loop continues
+- `KeyboardInterrupt` (Ctrl+C): calls `show_exit_message()`, breaks loop
+- `EOFError` (Ctrl+D): calls `show_exit_message()`, breaks loop
+- Other `Exception`: calls `show_error(error)`, loop continues
 
 ## Renderer
 
@@ -112,101 +84,47 @@ Source: `src/simple_agent_poc/adapters/cli/renderer.py`
 
 Braille spinner animation running in a background thread.
 
-- Spinner chars: `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏`
 - Frame interval: 80ms
 - Output: `\r<char> <message>...`
 - On stop: clears the line with spaces
 
 ### show_welcome(agent_id)
 
-```
-════════════════════════════════════════
-  ✨  Welcome to Simple Agent POC  ✨
-     (Press Ctrl+C to exit)
-     AgentId: <agent_id>
-════════════════════════════════════════
-```
-
-### show_agent_response(response)
-
-```
-Agent: <response.message>
-  └─ Model: <short_name> │ Time: <X.Xs> │ Tokens: <N> → <M> (total: <T>)
-```
-
-- Model name: displays only the part after `/` if present
-- Time: `< 1s` shown in ms, else in seconds with 2 decimal places
-- Tokens: `prompt_tokens → completion_tokens (total: total_tokens)`
-- If `response.tool_call_history` is non-empty, each tool call and its result is displayed
+Displays the welcome banner and selected agent ID.
 
 ### show_streaming_response(stream)
 
 1. Starts `LoadingIndicator`.
 2. On `ContentDelta`: stops indicator, prints `"Agent: "`, writes delta text in-place.
 3. On `ToolCallEvent`: displays the tool call being made.
-4. **For `ask_user`**: calls `ask_user_question(questions)` which displays all questions with header/placeholder and reads user input as a dict, then `generator.send(answers)` to resume the stream.
+4. For `ask_user`: calls `ask_user_question(questions)` and sends the answers back with `generator.send(answers)`.
 5. On `ToolResultEvent`: displays the tool result.
-6. On `SessionPaused`: displays the pause notification (API mode only; not expected in CLI).
-7. On `StreamComplete`: prints newline, then stats line (same format as `show_agent_response`).
+6. On `SessionPaused`: displays a pause notification. This is API-mode behavior and is not expected in normal CLI execution.
+7. On `StreamComplete`: prints a stats line with model, time, and tokens when usage is available.
 8. Returns the `StreamComplete` event.
 
-If no `ContentDelta` was received before `StreamComplete`, the indicator is stopped and `"Agent: "` is printed before the stats.
-
-If no `StreamComplete` arrives at all, raises `RuntimeError`.
+If no `ContentDelta` was received before `StreamComplete`, the indicator is stopped and `"Agent: "` is printed before the stats. If no `StreamComplete` arrives, raises `RuntimeError`.
 
 ### ask_user_question(questions)
 
-```python
-def ask_user_question(questions: list[dict]) -> dict[str, str]:
-    answers: dict[str, str] = {}
-    for i, q in enumerate(questions):
-        if len(questions) > 1:
-            print(f"  --- ({i + 1}/{len(questions)}) ---")
-        header = q.get("header", "")
-        question_text = q.get("question", "")
-        q_type = q.get("type", "text")
-        placeholder = q.get("placeholder", "")
-        options = q.get("options", [])
-        multi_select = q.get("multiSelect", False)
-        label = f"[{header}] " if header else ""
-        prefix = f"({i + 1}/{len(questions)}) " if len(questions) > 1 else ""
+Displays all `ask_user` questions and reads the user's typed answers from stdin. Returns a `dict[str, str]` mapping question text to answers.
 
-        if q_type == "choice" and options:
-            print(f"  {prefix}{label}{question_text}")
-            for idx, opt in enumerate(options, start=1):
-                desc = opt.get("description", "")
-                line = f"    {idx}. {opt['label']}"
-                if desc:
-                    line += f" — {desc}"
-                print(line)
-            if multi_select:
-                prompt = "  選択（カンマ区切りで複数可）> "
-            else:
-                prompt = "  選択（番号または自由記述）> "
-        else:
-            prompt = f"  {prefix}{label}{question_text}"
-            if placeholder:
-                prompt += f" ({placeholder})"
-            prompt += " > "
+Question items may include:
 
-        answer = input(prompt).strip()
-        if answer:
-            answers[question_text] = answer
-    return answers
-```
-
-Displays all `ask_user` questions and reads the user's typed answers from stdin. Returns a `dict[str, str]` mapping question text to answers. When there are multiple questions, sequential numbers `(N/M)` are shown. `header` is displayed as `[Header]` format, `placeholder` as input hint.
-
-**`type: "choice"`** の場合、選択肢を番号付きで表示する。`multiSelect: true` ならカンマ区切りで複数番号を入力でき、選択されたラベルが結合された値が LLM に渡される。`multiSelect: false`（デフォルト）では単一番号または自由記述が受け付けられる。Used by both sync and stream modes.
+| Field | Description |
+|:---|:---|
+| `question` | Question text, also used as the answer key |
+| `header` | Optional label displayed before the question |
+| `type` | `"text"` or `"choice"` |
+| `placeholder` | Optional hint for text input |
+| `options` | Choice entries with `label` and optional `description` |
+| `multiSelect` | When `true`, comma-separated choice numbers are accepted |
 
 ### show_error(error)
 
-- `AgentError` subclasses: prints `"⚠️  Error: {error.display_message}"`
-- Other exceptions: prints `"⚠️  Error: An unexpected error occurred: {error}"`
+- `AgentError` subclasses: prints the domain `display_message`
+- Other exceptions: prints an unexpected error message
 
 ### with_indicator(message, operation)
 
-Wraps a synchronous operation with a `LoadingIndicator`:
-1. `indicator.start()` (background spinner starts)
-2. `operation()` executes
-3. `indicator.stop()` in `finally` (spinner stops, line cleared)
+Utility for running an operation with `LoadingIndicator`. It remains available in the renderer module but is not used by the streaming-only CLI loop.

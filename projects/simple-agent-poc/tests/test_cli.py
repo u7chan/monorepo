@@ -1,21 +1,24 @@
 """Tests for the CLI adapter."""
 
-from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
 
 from simple_agent_poc.adapters.cli.adapter import CLIAdapter
-from simple_agent_poc.application.dto import RunAgentPaused, RunAgentResponse
+from simple_agent_poc.application.dto import StreamComplete
 
 
-def passthrough_indicator(
-    message: str,
-    operation: Callable[[], RunAgentResponse | RunAgentPaused],
-) -> RunAgentResponse | RunAgentPaused:
-    """Run the operation immediately for deterministic tests."""
-    assert message == "Thinking"
-    return operation()
+def _stream_complete(session_id: str = "session-1") -> StreamComplete:
+    return StreamComplete(
+        session_id=session_id,
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        },
+        model="gpt-4o-mini",
+        response_time=0.85,
+    )
 
 
 class TestCLIAdapter:
@@ -23,85 +26,53 @@ class TestCLIAdapter:
 
     def test_run_delegates_to_use_case_and_renders_response(self) -> None:
         run_agent = MagicMock()
-        run_agent.execute.return_value = RunAgentResponse(
-            message="Hello, user!",
-            usage={
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            model="gpt-4o-mini",
-            response_time=0.85,
-            tool_call_history=[],
-            session_id="session-1",
-        )
+        run_agent.execute_stream.return_value = iter([])
+        streaming_renderer = MagicMock(return_value=_stream_complete())
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
-        response_renderer = MagicMock()
         welcome_renderer = MagicMock()
         exit_renderer = MagicMock()
 
         adapter = CLIAdapter(
             run_agent,
             input_reader=input_reader,
-            response_renderer=response_renderer,
+            streaming_renderer=streaming_renderer,
             welcome_renderer=welcome_renderer,
             exit_renderer=exit_renderer,
-            indicator_runner=passthrough_indicator,
         )
 
         adapter.run()
 
         welcome_renderer.assert_called_once_with("default")
-        run_agent.execute.assert_called_once()
-        request = run_agent.execute.call_args.args[0]
+        run_agent.execute_stream.assert_called_once()
+        request = run_agent.execute_stream.call_args.args[0]
         assert request.message == "Hello"
         assert request.session_id is None
         assert request.agent_id == "default"
-        response_renderer.assert_called_once_with(run_agent.execute.return_value)
+        streaming_renderer.assert_called_once()
         exit_renderer.assert_called_once_with()
 
     def test_run_passes_configured_agent_id(self) -> None:
         run_agent = MagicMock()
-        run_agent.execute.return_value = RunAgentResponse(
-            message="Hello, user!",
-            usage={
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            model="gpt-4o-mini",
-            response_time=0.85,
-            tool_call_history=[],
-            session_id="session-1",
-        )
+        run_agent.execute_stream.return_value = iter([])
+        streaming_renderer = MagicMock(return_value=_stream_complete())
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
 
         adapter = CLIAdapter(
             run_agent,
             agent_id="researcher",
             input_reader=input_reader,
-            indicator_runner=passthrough_indicator,
+            streaming_renderer=streaming_renderer,
         )
 
         adapter.run()
 
-        request = run_agent.execute.call_args.args[0]
+        request = run_agent.execute_stream.call_args.args[0]
         assert request.agent_id == "researcher"
 
     def test_run_passes_agent_id_to_welcome_renderer(self) -> None:
         run_agent = MagicMock()
-        run_agent.execute.return_value = RunAgentResponse(
-            message="Hello, user!",
-            usage={
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            model="gpt-4o-mini",
-            response_time=0.85,
-            tool_call_history=[],
-            session_id="session-1",
-        )
+        run_agent.execute_stream.return_value = iter([])
+        streaming_renderer = MagicMock(return_value=_stream_complete())
         input_reader = MagicMock(side_effect=["Hello", EOFError()])
         welcome_renderer = MagicMock()
 
@@ -109,8 +80,8 @@ class TestCLIAdapter:
             run_agent,
             agent_id="researcher",
             input_reader=input_reader,
+            streaming_renderer=streaming_renderer,
             welcome_renderer=welcome_renderer,
-            indicator_runner=passthrough_indicator,
         )
 
         adapter.run()
@@ -119,36 +90,25 @@ class TestCLIAdapter:
 
     def test_run_reuses_session_id_on_later_turns(self) -> None:
         run_agent = MagicMock()
-        run_agent.execute.side_effect = [
-            RunAgentResponse(
-                message="First",
-                usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-                model="gpt-4o-mini",
-                response_time=0.1,
-                tool_call_history=[],
-                session_id="session-1",
-            ),
-            RunAgentResponse(
-                message="Second",
-                usage={"prompt_tokens": 2, "completion_tokens": 2, "total_tokens": 4},
-                model="gpt-4o-mini",
-                response_time=0.2,
-                tool_call_history=[],
-                session_id="session-1",
-            ),
-        ]
+        run_agent.execute_stream.return_value = iter([])
+        streaming_renderer = MagicMock(
+            side_effect=[
+                _stream_complete("session-1"),
+                _stream_complete("session-1"),
+            ]
+        )
         input_reader = MagicMock(side_effect=["Hello", "Again", EOFError()])
 
         adapter = CLIAdapter(
             run_agent,
             input_reader=input_reader,
-            indicator_runner=passthrough_indicator,
+            streaming_renderer=streaming_renderer,
         )
 
         adapter.run()
 
-        first_request = run_agent.execute.call_args_list[0].args[0]
-        second_request = run_agent.execute.call_args_list[1].args[0]
+        first_request = run_agent.execute_stream.call_args_list[0].args[0]
+        second_request = run_agent.execute_stream.call_args_list[1].args[0]
         assert first_request.session_id is None
         assert second_request.session_id == "session-1"
 
@@ -159,12 +119,11 @@ class TestCLIAdapter:
         adapter = CLIAdapter(
             run_agent,
             input_reader=input_reader,
-            indicator_runner=passthrough_indicator,
         )
 
         adapter.run()
 
-        run_agent.execute.assert_not_called()
+        run_agent.execute_stream.assert_not_called()
 
     @pytest.mark.parametrize("interrupt", [KeyboardInterrupt(), EOFError()])
     def test_run_exits_cleanly_on_terminal_interrupts(
@@ -179,44 +138,35 @@ class TestCLIAdapter:
             run_agent,
             input_reader=input_reader,
             exit_renderer=exit_renderer,
-            indicator_runner=passthrough_indicator,
         )
 
         adapter.run()
 
-        run_agent.execute.assert_not_called()
+        run_agent.execute_stream.assert_not_called()
         exit_renderer.assert_called_once_with()
 
     def test_run_shows_errors_and_continues(self) -> None:
         run_agent = MagicMock()
-        recovered_response = RunAgentResponse(
-            message="Recovered",
-            usage={
-                "prompt_tokens": 2,
-                "completion_tokens": 1,
-                "total_tokens": 3,
-            },
-            model="gpt-4o-mini",
-            response_time=0.25,
-            tool_call_history=[],
-            session_id="session-1",
-        )
-        run_agent.execute.side_effect = [RuntimeError("boom"), recovered_response]
+        run_agent.execute_stream.side_effect = [
+            RuntimeError("boom"),
+            iter([]),
+        ]
+        recovered = _stream_complete("session-1")
+        streaming_renderer = MagicMock(side_effect=[recovered])
+
         input_reader = MagicMock(side_effect=["Hello", "Retry", EOFError()])
         error_renderer = MagicMock()
-        response_renderer = MagicMock()
 
         adapter = CLIAdapter(
             run_agent,
             input_reader=input_reader,
             error_renderer=error_renderer,
-            response_renderer=response_renderer,
-            indicator_runner=passthrough_indicator,
+            streaming_renderer=streaming_renderer,
         )
 
         adapter.run()
 
         error_renderer.assert_called_once()
         assert isinstance(error_renderer.call_args.args[0], RuntimeError)
-        assert run_agent.execute.call_count == 2
-        response_renderer.assert_called_once_with(recovered_response)
+        assert run_agent.execute_stream.call_count == 2
+        assert streaming_renderer.call_count == 1

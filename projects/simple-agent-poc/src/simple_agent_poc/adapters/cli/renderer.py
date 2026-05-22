@@ -9,7 +9,6 @@ from typing import Callable
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
-    RunAgentResponse,
     SessionPaused,
     StreamComplete,
     ToolCallEvent,
@@ -128,40 +127,6 @@ def ask_user_question(questions: list[dict]) -> dict[str, str]:
         answers[question_text] = input(prompt).strip()
 
     return answers
-
-
-def show_agent_response(response: RunAgentResponse) -> None:
-    """Display the agent's response."""
-    if response.tool_call_history:
-        print("Agent: ")
-        for tc in response.tool_call_history:
-            result_text = tc.result.replace("\n", "\n     → ")
-            print(f"  🔧 {tc.name}({tc.arguments})")
-            print(f"     → {result_text}")
-        if response.message:
-            print(f"       {response.message}")
-    else:
-        print(f"Agent: {response.message}")
-
-    elapsed = response.response_time
-    if elapsed < 1:
-        time_str = f"{elapsed * 1000:.0f}ms"
-    else:
-        time_str = f"{elapsed:.2f}s"
-
-    model = response.model
-    if "/" in model:
-        model = model.split("/")[-1]
-
-    usage = response.usage
-    stats = (
-        f"Model: {model} │ "
-        f"Time: {time_str} │ "
-        f"Tokens: {usage['prompt_tokens']} → {usage['completion_tokens']} "
-        f"(total: {usage['total_tokens']})"
-    )
-
-    print(f"  └─ {stats}")
 
 
 def show_exit_message() -> None:

@@ -2,18 +2,14 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from simple_agent_poc.adapters.cli.renderer import (
     ask_user_question,
     get_user_input,
-    show_agent_response,
     show_error,
     show_exit_message,
     show_welcome,
-    with_indicator,
 )
-from simple_agent_poc.application.dto import RunAgentResponse
 from simple_agent_poc.core.types import AgentError, AuthenticationError
 
 
@@ -95,34 +91,6 @@ class TestGetUserInput:
         assert result == ""
 
 
-class TestShowAgentResponse:
-    """Tests for show_agent_response function."""
-
-    @patch("builtins.print")
-    def test_show_response(self, mock_print: MagicMock) -> None:
-        response = RunAgentResponse(
-            message="Hello, user!",
-            usage={
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-            model="gpt-4o-mini",
-            response_time=0.85,
-            tool_call_history=[],
-            session_id="session-1",
-        )
-        show_agent_response(response)
-
-        assert mock_print.call_count == 2
-        calls = [call.args[0] for call in mock_print.call_args_list]
-        assert calls[0] == "Agent: Hello, user!"
-        assert "gpt-4o-mini" in calls[1]
-        assert "850ms" in calls[1] or "0.85s" in calls[1]
-        assert "10 → 5" in calls[1]
-        assert "total: 15" in calls[1]
-
-
 class TestShowExitMessage:
     """Tests for show_exit_message function."""
 
@@ -131,26 +99,6 @@ class TestShowExitMessage:
         show_exit_message()
 
         mock_print.assert_called_once_with("\nExiting...")
-
-
-class TestWithIndicator:
-    """Tests for with_indicator function."""
-
-    def test_executes_operation_and_returns_result(self) -> None:
-        mock_op = MagicMock(return_value="test_result")
-
-        result = with_indicator("Loading", mock_op)
-
-        assert result == "test_result"
-        mock_op.assert_called_once()
-
-    def test_propagates_exception_and_stops_indicator(self) -> None:
-        mock_op = MagicMock(side_effect=ValueError("test error"))
-
-        with pytest.raises(ValueError, match="test error"):
-            with_indicator("Loading", mock_op)
-
-        mock_op.assert_called_once()
 
 
 class TestAskUserQuestion:

@@ -15,7 +15,6 @@ from simple_agent_poc.core.agent_definition import AgentDefinition
 from simple_agent_poc.core.types import (
     AuthenticationError,
     LLMError,
-    LLMResponse,
     LLMStreamChunk,
     Message,
     RateLimitError,
@@ -156,97 +155,6 @@ class LiteLLMCompletionClient(LLMClient):
         self.model = model
         self.temperature = temperature
 
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: list[ToolDefinition] | None = None,
-    ) -> LLMResponse:
-        log_event(
-            "llm.request.start",
-            model=self.model,
-            api_type="completion",
-            stream=False,
-            message_count=len(messages),
-        )
-        start_time = time.perf_counter()
-        completion_params: dict[str, object] = {}
-        if self.temperature is not None:
-            completion_params["temperature"] = self.temperature
-        if tools:
-            completion_params["tools"] = tools
-
-        try:
-            response = completion(
-                model=self.model,
-                messages=messages,
-                stream=False,
-                **completion_params,
-            )
-        except LiteLLMAuthError as error:
-            log_event(
-                "llm.request.error",
-                error=summarize_payload(str(error)),
-            )
-            raise AuthenticationError(
-                message=str(error),
-                display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
-            ) from error
-        except LiteLLMRateLimitError as error:
-            log_event(
-                "llm.request.error",
-                error=summarize_payload(str(error)),
-            )
-            raise RateLimitError(
-                message=str(error),
-                display_message="Rate limit exceeded. Please wait a moment before trying again.",
-            ) from error
-        except Exception as error:
-            log_event(
-                "llm.request.error",
-                error=summarize_payload(str(error)),
-            )
-            error_msg = str(error).lower()
-            if (
-                "authentication" in error_msg
-                or "api key" in error_msg
-                or "401" in error_msg
-            ):
-                raise AuthenticationError(
-                    message=str(error),
-                    display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
-                ) from error
-            raise LLMError(
-                message=str(error),
-                display_message=f"An error occurred while communicating with the LLM: {error}",
-            ) from error
-
-        elapsed = time.perf_counter() - start_time
-        result: LLMResponse = {
-            "content": response.choices[0].message.content or "",
-            "usage": {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            },
-            "model": self.model,
-            "response_time": elapsed,
-        }
-        raw_tool_calls = getattr(response.choices[0].message, "tool_calls", None)
-        if raw_tool_calls:
-            result["tool_calls"] = _parse_tool_calls(raw_tool_calls)
-
-        log_event(
-            "llm.request.end",
-            model=self.model,
-            api_type="completion",
-            stream=False,
-            usage=result["usage"],
-            elapsed_ms=int(elapsed * 1000),
-            tool_call_count=len(result.get("tool_calls", [])),
-        )
-        return result
-
     def complete_stream(
         self,
         messages: list[Message],
@@ -362,99 +270,6 @@ class LiteLLMResponsesClient(LLMClient):
     def __init__(self, model: str, *, temperature: float | None = None) -> None:
         self.model = model
         self.temperature = temperature
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools: list[ToolDefinition] | None = None,
-    ) -> LLMResponse:
-        log_event(
-            "llm.request.start",
-            model=self.model,
-            api_type="responses",
-            stream=False,
-            message_count=len(messages),
-        )
-        start_time = time.perf_counter()
-        response_params: dict[str, object] = {}
-        if self.temperature is not None:
-            response_params["temperature"] = self.temperature
-        if tools:
-            response_params["tools"] = _transform_tools_for_responses(tools)
-
-        try:
-            response = responses(
-                input=_transform_messages_for_responses(messages),
-                model=self.model,
-                stream=False,
-                **response_params,
-            )
-        except LiteLLMAuthError as error:
-            log_event(
-                "llm.request.error",
-                error=summarize_payload(str(error)),
-            )
-            raise AuthenticationError(
-                message=str(error),
-                display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
-            ) from error
-        except LiteLLMRateLimitError as error:
-            log_event(
-                "llm.request.error",
-                error=summarize_payload(str(error)),
-            )
-            raise RateLimitError(
-                message=str(error),
-                display_message="Rate limit exceeded. Please wait a moment before trying again.",
-            ) from error
-        except Exception as error:
-            log_event(
-                "llm.request.error",
-                error=summarize_payload(str(error)),
-            )
-            error_msg = str(error).lower()
-            if (
-                "authentication" in error_msg
-                or "api key" in error_msg
-                or "401" in error_msg
-            ):
-                raise AuthenticationError(
-                    message=str(error),
-                    display_message="Authentication failed: Invalid API key. Please check your API_KEY setting.",
-                ) from error
-            raise LLMError(
-                message=str(error),
-                display_message=f"An error occurred while communicating with the LLM: {error}",
-            ) from error
-
-        elapsed = time.perf_counter() - start_time
-        result: LLMResponse = {
-            "content": response.output_text or "",
-            "usage": {
-                "prompt_tokens": response.usage.input_tokens,
-                "completion_tokens": response.usage.output_tokens,
-                "total_tokens": response.usage.total_tokens,
-            },
-            "model": self.model,
-            "response_time": elapsed,
-        }
-        tool_calls = _parse_tool_calls_from_responses_output(
-            getattr(response, "output", [])
-        )
-        if tool_calls:
-            result["tool_calls"] = tool_calls
-
-        log_event(
-            "llm.request.end",
-            model=self.model,
-            api_type="responses",
-            stream=False,
-            usage=result["usage"],
-            elapsed_ms=int(elapsed * 1000),
-            tool_call_count=len(result.get("tool_calls", [])),
-        )
-        return result
 
     def complete_stream(
         self,

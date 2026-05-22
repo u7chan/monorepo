@@ -20,7 +20,6 @@ from simple_agent_poc.application.dto import (
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import (
-    LLMResponse,
     LLMStreamChunk,
     Message,
     SessionNotFoundError,
@@ -46,14 +45,6 @@ class StreamingStubLLMClient:
         self.chunks = chunks
         self.calls: list[list[Message]] = []
 
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tools=None,
-    ) -> LLMResponse:
-        raise NotImplementedError
-
     def complete_stream(
         self,
         messages: list[Message],
@@ -64,19 +55,17 @@ class StreamingStubLLMClient:
         yield from self.chunks
 
 
-def build_registry(*, stream: bool = False) -> AgentDefinitionRegistry:
+def build_registry() -> AgentDefinitionRegistry:
     return AgentDefinitionRegistry.from_mapping(
         {
             "agents": {
                 "default": {
                     "model": "default-model",
                     "system_prompt": "System prompt",
-                    "stream": stream,
                 },
                 "researcher": {
                     "model": "research-model",
                     "system_prompt": "Research prompt",
-                    "stream": stream,
                 },
             }
         }
@@ -96,7 +85,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
@@ -119,7 +108,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
@@ -143,14 +132,6 @@ class TestExecuteStream:
             def __init__(self) -> None:
                 self.chunks = chunks
 
-            def complete(
-                self,
-                messages: list[Message],
-                *,
-                tools=None,
-            ) -> LLMResponse:
-                raise NotImplementedError
-
             def complete_stream(  # type: ignore[return-type]
                 self,
                 messages: list[Message],
@@ -165,7 +146,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         request = RunAgentRequest(message="Hello")
@@ -182,14 +163,6 @@ class TestExecuteStream:
 
     def test_execute_stream_saves_interrupted_marker_on_empty_error(self) -> None:
         class ErrorStreamingClient:
-            def complete(
-                self,
-                messages: list[Message],
-                *,
-                tools=None,
-            ) -> LLMResponse:
-                raise NotImplementedError
-
             def complete_stream(  # type: ignore[return-type]
                 self,
                 messages: list[Message],
@@ -204,7 +177,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         request = RunAgentRequest(message="Hello")
@@ -226,12 +199,12 @@ class TestExecuteStream:
         first_use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=first_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
         second_use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=second_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         first_events = list(
@@ -264,7 +237,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=llm_client_factory,
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         list(
@@ -280,7 +253,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         with pytest.raises(ValidationError, match="message must not be blank"):
@@ -290,7 +263,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         with pytest.raises(SessionNotFoundError, match="Session not found"):
@@ -306,7 +279,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         first_events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
@@ -328,7 +301,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         with pytest.raises(ValidationError, match="Unknown agent_id: missing"):
@@ -352,7 +325,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
@@ -367,7 +340,7 @@ class TestExecuteStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry(stream=True),
+            agent_definitions=build_registry(),
         )
 
         events = list(use_case.execute_stream(RunAgentRequest(message="Hello")))
@@ -377,14 +350,13 @@ class TestExecuteStream:
         assert complete.usage is None
 
 
-def build_registry_with_ask_user(*, stream: bool = False) -> AgentDefinitionRegistry:
+def build_registry_with_ask_user() -> AgentDefinitionRegistry:
     return AgentDefinitionRegistry.from_mapping(
         {
             "agents": {
                 "default": {
                     "model": "default-model",
                     "system_prompt": "System prompt",
-                    "stream": stream,
                     "tools": ["ask_user"],
                 },
             }
@@ -405,7 +377,6 @@ def build_registry_with_ask_user_and_concat() -> AgentDefinitionRegistry:
                 "default": {
                     "model": "default-model",
                     "system_prompt": "System prompt",
-                    "stream": True,
                     "tools": ["ask_user", "concat"],
                 },
             }
@@ -445,7 +416,7 @@ class TestExecuteStreamPause:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=True,
         )
@@ -489,9 +460,6 @@ class TestExecuteStreamPause:
         chunks_per_call = [first_chunks, second_chunks]
 
         class MultiCallStubClient:
-            def complete(self, messages, *, tools=None):
-                raise NotImplementedError
-
             def complete_stream(self, messages, *, tools=None):
                 nonlocal call_count
                 chunks = chunks_per_call[min(call_count, len(chunks_per_call) - 1)]
@@ -501,7 +469,7 @@ class TestExecuteStreamPause:
         use_case = RunAgentUseCase(
             llm_client_factory=lambda _agent_definition: MultiCallStubClient(),  # type: ignore[arg-type]
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=False,
         )
@@ -542,9 +510,6 @@ class TestExecuteStreamPause:
                 self.call_count = 0
                 self.calls_tools: list[list[str]] = []
                 self.calls_messages: list[list[Message]] = []
-
-            def complete(self, messages, *, tools=None):
-                raise NotImplementedError
 
             def complete_stream(self, messages, *, tools=None):
                 self.calls_messages.append(messages)
@@ -604,7 +569,7 @@ class TestContinueStream:
                 return_value=StreamingStubLLMClient(chunks=first_chunks)
             ),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=True,
         )
@@ -620,7 +585,7 @@ class TestContinueStream:
                 return_value=StreamingStubLLMClient(chunks=second_chunks)
             ),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=True,
         )
@@ -651,7 +616,7 @@ class TestContinueStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),
             session_store=InMemorySessionStore(),
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             is_api_context=True,
         )
 
@@ -677,7 +642,7 @@ class TestContinueStream:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             is_api_context=True,
         )
 
@@ -713,7 +678,7 @@ class TestExecuteStreamBatch:
         use_case = RunAgentUseCase(
             llm_client_factory=MagicMock(return_value=llm_client),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=True,
         )
@@ -754,7 +719,7 @@ class TestExecuteStreamBatch:
                 return_value=StreamingStubLLMClient(chunks=first_chunks)
             ),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=True,
         )
@@ -770,7 +735,7 @@ class TestExecuteStreamBatch:
                 return_value=StreamingStubLLMClient(chunks=second_chunks)
             ),
             session_store=store,
-            agent_definitions=build_registry_with_ask_user(stream=True),
+            agent_definitions=build_registry_with_ask_user(),
             tool_executor=tool_executor,
             is_api_context=True,
         )
