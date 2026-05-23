@@ -3,7 +3,16 @@ import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { createRoot } from 'react-dom/client'
 import { routeTree } from './routeTree.gen'
 
-const router = createRouter({ routeTree })
+let augmentedRouteTree = routeTree
+
+if (import.meta.env.DEV) {
+  const module = (await new Function(
+    "return import('./routes/_debug.svg-catalog')"
+  )()) as typeof import('./routes/_debug.svg-catalog')
+  augmentedRouteTree = routeTree.addChildren([module.Route]) as any
+}
+
+const router = createRouter({ routeTree: augmentedRouteTree })
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
