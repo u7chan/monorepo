@@ -85,7 +85,10 @@ function SvgCatalog() {
       </div>
       <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
         {icons.map(({ fileName, componentName, Component }) => (
-          <div key={componentName} className='flex flex-col items-center gap-2 rounded border border-gray-200 p-4 text-gray-900 dark:border-gray-700 dark:text-white'>
+          <div
+            key={componentName}
+            className='flex flex-col items-center gap-2 rounded border border-gray-200 p-4 text-gray-900 dark:border-gray-700 dark:text-white'
+          >
             <Component size={32} />
             <span className='text-xs text-gray-500'>{componentName}</span>
             <span className='text-[10px] text-gray-400'>{fileName}</span>

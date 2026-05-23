@@ -3,15 +3,10 @@ import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { createRoot } from 'react-dom/client'
 import { routeTree } from './routeTree.gen'
 
-const debugRoute = import.meta.env.DEV
-  ? (await import('./routes/_debug.svg-catalog')).Route
-  : null
+const debugRoute = import.meta.env.DEV ? (await import('./routes/_debug.svg-catalog')).Route : null
 
 const augmentedRouteTree = debugRoute
-  ? routeTree.addChildren([
-      ...(Array.isArray(routeTree.children) ? routeTree.children : []),
-      debugRoute,
-    ])
+  ? routeTree.addChildren([...(Array.isArray(routeTree.children) ? routeTree.children : []), debugRoute])
   : routeTree
 
 const router = createRouter({ routeTree: augmentedRouteTree })
