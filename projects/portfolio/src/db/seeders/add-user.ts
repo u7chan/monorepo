@@ -1,4 +1,4 @@
-import { hashPassword } from '../../server/features/auth/password-hash'
+import { hashPassword } from '#/server/features/auth/password-hash'
 import { parseAddUserArgs } from './add-user-args'
 import { addUser, ensureUserDoesNotExist } from './add-user-record'
 import { readPassword } from './read-password'

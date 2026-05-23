@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { uuidv7 } from 'uuidv7'
-import { getDatabase } from '../'
-import { usersTable } from '../schema'
+import { getDatabase } from '#/db'
+import { usersTable } from '#/db/schema'
 
 export interface AddUserInput {
   databaseUrl: string

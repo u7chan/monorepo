@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory'
-import type { HonoEnv } from '../routes/shared'
-import { getSignedInEmail } from '../routes/shared'
+import type { HonoEnv } from '#/server/routes/shared'
+import { getSignedInEmail } from '#/server/routes/shared'
 
 export const requireAuth = createMiddleware<HonoEnv>(async (c, next) => {
   const email = await getSignedInEmail(c)
