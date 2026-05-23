@@ -1,5 +1,5 @@
-import { ToggleInput } from '#/client/components/input/toggle-input'
 import { useChatSettingsContext } from '#/client/components/chat/chat-settings/chat-settings-context'
+import { ToggleInput } from '#/client/components/input/toggle-input'
 
 export function TemperatureSlider() {
   const { temperature, temperatureEnabled, handleChangeTemperature, handleToggleTemperature } = useChatSettingsContext()
