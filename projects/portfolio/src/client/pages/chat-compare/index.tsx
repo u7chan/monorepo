@@ -24,19 +24,19 @@ export function ChatCompare() {
     setSelectedModels,
     modelStates,
     isSubmitting,
-    setIsSubmitting,
     hasConversation,
     initModelStates,
     updateStreamingContent,
     setModelDone,
     setModelError,
-    resetModelStream,
+    setModelCancelled,
+    setModelRetrying,
     appendAssistantMessage,
     setModelStreaming,
     appendUserMessageToAll,
     resetAllConversations,
   } = useCompareState()
-  const { submitCompare, cancelAll } = useCompareStream()
+  const { submitCompare, submitModel, cancelModel, cancelAll } = useCompareStream()
 
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -103,7 +103,7 @@ export function ChatCompare() {
     setPendingModelChange(null)
   }, [])
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(() => {
     const trimmed = input.trim()
     if (trimmed.length === 0 || selectedModels.length === 0 || isSubmitting) return
 
@@ -111,14 +111,12 @@ export function ChatCompare() {
     const userMessage = { role: 'user' as const, content: trimmed }
 
     setInput('')
-    setIsSubmitting(true)
-
     appendUserMessageToAll(models, userMessage)
     for (const model of models) {
       setModelStreaming(model)
     }
 
-    await submitCompare(settings, modelStates, models, userMessage, {
+    submitCompare(settings, modelStates, models, userMessage, {
       onStreamContent: (model, content, reasoningContent) => {
         updateStreamingContent(model, content, reasoningContent)
       },
@@ -136,8 +134,6 @@ export function ChatCompare() {
         setModelError(model, error)
       },
     })
-
-    setIsSubmitting(false)
   }, [
     appendAssistantMessage,
     appendUserMessageToAll,
@@ -148,7 +144,6 @@ export function ChatCompare() {
     setModelDone,
     setModelError,
     setModelStreaming,
-    setIsSubmitting,
     settings,
     submitCompare,
     updateStreamingContent,
@@ -156,11 +151,63 @@ export function ChatCompare() {
 
   const handleCancel = useCallback(() => {
     cancelAll()
-    setIsSubmitting(false)
     for (const model of selectedModels) {
-      resetModelStream(model)
+      const state = modelStates[model]
+      if (state && (state.status === 'streaming' || state.status === 'retrying')) {
+        setModelCancelled(model)
+      }
     }
-  }, [cancelAll, resetModelStream, selectedModels, setIsSubmitting])
+  }, [cancelAll, modelStates, selectedModels, setModelCancelled])
+
+  const handleCancelModel = useCallback(
+    (model: string) => {
+      cancelModel(model)
+      setModelCancelled(model)
+    },
+    [cancelModel, setModelCancelled]
+  )
+
+  const handleRetryModel = useCallback(
+    (model: string) => {
+      const state = modelStates[model]
+      if (!state) return
+
+      setModelRetrying(model)
+
+      void submitModel({
+        settings,
+        modelState: state,
+        callbacks: {
+          onStreamContent: (content, reasoningContent) => {
+            updateStreamingContent(model, content, reasoningContent)
+          },
+          onStreamDone: (result) => {
+            setModelDone(model, {
+              finishReason: result.finishReason,
+              usage: result.usage,
+              responseTimeMs: result.responseTimeMs,
+            })
+            if (result.content) {
+              appendAssistantMessage(model, { role: 'assistant', content: result.content })
+            }
+          },
+          onStreamError: (error) => {
+            setModelError(model, error)
+          },
+        },
+      })
+    },
+    [
+      modelStates,
+      setModelRetrying,
+      submitModel,
+      settings,
+      updateStreamingContent,
+      setModelDone,
+      appendAssistantMessage,
+      setModelError,
+    ]
+  )
 
   const handleChangeInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
@@ -269,6 +316,8 @@ export function ChatCompare() {
                     error: null,
                   }
                 }
+                onCancelModel={handleCancelModel}
+                onRetryModel={handleRetryModel}
               />
             ))
           )

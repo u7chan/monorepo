@@ -2,11 +2,15 @@ import { useCallback, useState } from 'react'
 import { copyToClipboard } from '#/client/components/chat/copy-to-clipboard'
 import { CheckIcon } from '#/client/components/svg/check-icon'
 import { CopyIcon } from '#/client/components/svg/copy-icon'
+import { RefreshIcon } from '#/client/components/svg/refresh-icon'
+import { StopIcon } from '#/client/components/svg/stop-icon'
 import type { ApiChatMessage, ImageContent, TextContent } from '#/types'
 import type { ModelStreamState } from './hooks/use-compare-state'
 
 interface CompareColumnProps {
   state: ModelStreamState
+  onCancelModel?: (model: string) => void
+  onRetryModel?: (model: string) => void
 }
 
 function formatResponseTime(ms: number): string {
@@ -102,7 +106,7 @@ function CompareMessage({ copied, message, onCopy }: { copied: boolean; message:
   )
 }
 
-export function CompareColumn({ state }: CompareColumnProps) {
+export function CompareColumn({ state, onCancelModel, onRetryModel }: CompareColumnProps) {
   const { model, status, messages, content, reasoningContent, usage, finishReason, responseTimeMs, error } = state
   const showMeta = status === 'done' && (finishReason || usage || responseTimeMs !== null)
   const [copiedId, setCopiedId] = useState('')
@@ -118,13 +122,40 @@ export function CompareColumn({ state }: CompareColumnProps) {
     setCopiedId('')
   }, [])
 
+  const isActive = status === 'streaming' || status === 'retrying'
+  const isStopped = status === 'error' || status === 'cancelled'
+
   return (
     <div className='flex min-w-0 flex-1 flex-col overflow-hidden border-r border-gray-200 last:border-r-0 dark:border-gray-700'>
-      <div className='shrink-0 overflow-hidden text-ellipsis whitespace-nowrap border-b border-gray-200 px-3 py-2 text-center font-medium text-sm dark:border-gray-700 dark:text-gray-200'>
-        {model}
-        {status === 'streaming' && (
-          <span className='ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-primary-600 align-middle' />
-        )}
+      <div className='flex shrink-0 items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700'>
+        <span className='overflow-hidden text-ellipsis whitespace-nowrap font-medium text-sm dark:text-gray-200'>
+          {model}
+          {isActive && (
+            <span className='ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-primary-600 align-middle' />
+          )}
+        </span>
+        <span className='flex shrink-0 items-center gap-1'>
+          {isActive && onCancelModel && (
+            <button
+              type='button'
+              onClick={() => onCancelModel(model)}
+              aria-label={`Stop ${model}`}
+              className='flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-white'
+            >
+              <StopIcon size={14} className='fill-current' />
+            </button>
+          )}
+          {isStopped && onRetryModel && (
+            <button
+              type='button'
+              onClick={() => onRetryModel(model)}
+              aria-label={`Retry ${model}`}
+              className='flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-white'
+            >
+              <RefreshIcon size={14} className='fill-current' />
+            </button>
+          )}
+        </span>
       </div>
       <div className='min-h-0 flex-1 overflow-y-auto px-3 py-2'>
         {messages.map((message, index) => (
@@ -144,7 +175,7 @@ export function CompareColumn({ state }: CompareColumnProps) {
             {error}
           </div>
         )}
-        {status === 'streaming' && (
+        {isActive && (
           <>
             {reasoningContent && (
               <details className='mt-2 mb-2'>
