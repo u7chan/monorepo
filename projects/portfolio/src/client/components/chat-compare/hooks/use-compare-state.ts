@@ -1,9 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ApiChatMessage, ChatUsage } from '#/types'
+
+export type ModelStreamStatus = 'idle' | 'streaming' | 'retrying' | 'done' | 'error' | 'cancelled'
 
 export interface ModelStreamState {
   model: string
-  status: 'idle' | 'streaming' | 'done' | 'error'
+  status: ModelStreamStatus
   messages: ApiChatMessage[]
   content: string
   reasoningContent: string
@@ -30,9 +32,16 @@ function createModelStreamState(model: string): ModelStreamState {
 export function useCompareState() {
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [modelStates, setModelStates] = useState<Record<string, ModelStreamState>>({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const hasConversation = selectedModels.some((model) => (modelStates[model]?.messages.length ?? 0) > 0)
+
+  const isSubmitting = useMemo(
+    () =>
+      selectedModels.some(
+        (model) => modelStates[model]?.status === 'streaming' || modelStates[model]?.status === 'retrying'
+      ),
+    [selectedModels, modelStates]
+  )
 
   const initModelStates = useCallback((models: string[]) => {
     setModelStates((prev) => {
@@ -88,6 +97,33 @@ export function useCompareState() {
         ...prev[model],
         status: 'error' as const,
         error,
+      },
+    }))
+  }, [])
+
+  const setModelCancelled = useCallback((model: string) => {
+    setModelStates((prev) => ({
+      ...prev,
+      [model]: {
+        ...prev[model],
+        status: 'cancelled' as const,
+        error: 'Cancelled by user',
+      },
+    }))
+  }, [])
+
+  const setModelRetrying = useCallback((model: string) => {
+    setModelStates((prev) => ({
+      ...prev,
+      [model]: {
+        ...prev[model],
+        status: 'retrying' as const,
+        content: '',
+        reasoningContent: '',
+        usage: null,
+        finishReason: null,
+        responseTimeMs: null,
+        error: null,
       },
     }))
   }, [])
@@ -167,12 +203,13 @@ export function useCompareState() {
     setSelectedModels,
     modelStates,
     isSubmitting,
-    setIsSubmitting,
     hasConversation,
     initModelStates,
     updateStreamingContent,
     setModelDone,
     setModelError,
+    setModelCancelled,
+    setModelRetrying,
     resetModelStream,
     appendAssistantMessage,
     setModelStreaming,
