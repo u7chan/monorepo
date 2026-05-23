@@ -1,67 +1,69 @@
 // @vitest-environment jsdom
 
 import { renderHook, act } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('hono/client', () => {
-  const createMockClient = () => ({
-    api: {
-      chat: {
-        stream: {
-          $post: vi.fn(),
-        },
-      },
-    },
-  })
-  return {
-    hc: vi.fn(() => createMockClient()),
-  }
-})
+const mock$post = vi.fn()
+
+vi.mock('hono/client', () => ({
+  hc: vi.fn(() => ({
+    api: { chat: { stream: { $post: mock$post } } },
+  })),
+}))
 
 describe('useCompareStream', () => {
+  let abortSpy: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     vi.resetModules()
+    mock$post.mockReset()
+    mock$post.mockReturnValue(new Promise<{ ok: false; json: () => Promise<Record<string, unknown>> }>(() => {}))
+    abortSpy = vi.spyOn(AbortController.prototype, 'abort')
   })
+
+  afterEach(() => {
+    abortSpy.mockRestore()
+  })
+
+  const settings = {
+    schemaVersion: '1.0.0',
+    baseURL: 'http://localhost',
+    apiKey: 'test-key',
+    apiMode: 'chat_completions' as const,
+  }
 
   it('cancelModel は対象モデルの AbortController のみ abort する', async () => {
     const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
 
     const { result } = renderHook(() => useCompareStream())
 
-    const settings = {
-      schemaVersion: '1.0.0',
-      baseURL: 'http://localhost',
-      apiKey: 'test-key',
-      apiMode: 'chat_completions' as const,
-    }
-
-    const modelState = {
-      model: 'model-a',
-      status: 'idle' as const,
-      messages: [],
-      content: '',
-      reasoningContent: '',
-      usage: null,
-      finishReason: null,
-      responseTimeMs: null,
-      error: null,
-    }
-
-    const userMessage = { role: 'user' as const, content: 'test' }
-
     act(() => {
-      result.current.submitCompare(settings, { 'model-a': modelState }, ['model-a'], userMessage, {
-        onStreamContent: vi.fn(),
-        onStreamDone: vi.fn(),
-        onStreamError: vi.fn(),
-      })
+      result.current.submitCompare(
+        settings,
+        {
+          'model-a': {
+            model: 'model-a',
+            status: 'idle' as const,
+            messages: [],
+            content: '',
+            reasoningContent: '',
+            usage: null,
+            finishReason: null,
+            responseTimeMs: null,
+            error: null,
+          },
+        },
+        ['model-a'],
+        { role: 'user' as const, content: 'test' },
+        { onStreamContent: vi.fn(), onStreamDone: vi.fn(), onStreamError: vi.fn() }
+      )
     })
 
     act(() => {
       result.current.cancelModel('model-a')
     })
 
-    expect(result.current).toBeDefined()
+    expect(abortSpy).toHaveBeenCalled()
   })
 
   it('cancelAll は全モデルの AbortController を abort する', async () => {
@@ -69,50 +71,36 @@ describe('useCompareStream', () => {
 
     const { result } = renderHook(() => useCompareStream())
 
-    const settings = {
-      schemaVersion: '1.0.0',
-      baseURL: 'http://localhost',
-      apiKey: 'test-key',
-      apiMode: 'chat_completions' as const,
-    }
-
-    const modelStateA = {
-      model: 'model-a',
-      status: 'idle' as const,
-      messages: [],
-      content: '',
-      reasoningContent: '',
-      usage: null,
-      finishReason: null,
-      responseTimeMs: null,
-      error: null,
-    }
-
-    const modelStateB = {
-      model: 'model-b',
-      status: 'idle' as const,
-      messages: [],
-      content: '',
-      reasoningContent: '',
-      usage: null,
-      finishReason: null,
-      responseTimeMs: null,
-      error: null,
-    }
-
-    const userMessage = { role: 'user' as const, content: 'test' }
-
     act(() => {
       result.current.submitCompare(
         settings,
-        { 'model-a': modelStateA, 'model-b': modelStateB },
-        ['model-a', 'model-b'],
-        userMessage,
         {
-          onStreamContent: vi.fn(),
-          onStreamDone: vi.fn(),
-          onStreamError: vi.fn(),
-        }
+          'model-a': {
+            model: 'model-a',
+            status: 'idle' as const,
+            messages: [],
+            content: '',
+            reasoningContent: '',
+            usage: null,
+            finishReason: null,
+            responseTimeMs: null,
+            error: null,
+          },
+          'model-b': {
+            model: 'model-b',
+            status: 'idle' as const,
+            messages: [],
+            content: '',
+            reasoningContent: '',
+            usage: null,
+            finishReason: null,
+            responseTimeMs: null,
+            error: null,
+          },
+        },
+        ['model-a', 'model-b'],
+        { role: 'user' as const, content: 'test' },
+        { onStreamContent: vi.fn(), onStreamDone: vi.fn(), onStreamError: vi.fn() }
       )
     })
 
@@ -120,20 +108,16 @@ describe('useCompareStream', () => {
       result.current.cancelAll()
     })
 
-    expect(result.current).toBeDefined()
+    expect(abortSpy).toHaveBeenCalledTimes(2)
   })
 
-  it('submitModel は指定モデルだけ stream を開始する', async () => {
+  it('submitModel は正しい引数で stream API を呼び出す', async () => {
+    mock$post.mockReset()
+    mock$post.mockReturnValue(new Promise(() => {}))
+
     const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
 
     const { result } = renderHook(() => useCompareStream())
-
-    const settings = {
-      schemaVersion: '1.0.0',
-      baseURL: 'http://localhost',
-      apiKey: 'test-key',
-      apiMode: 'chat_completions' as const,
-    }
 
     const modelState = {
       model: 'model-a',
@@ -153,10 +137,58 @@ describe('useCompareStream', () => {
       onStreamError: vi.fn(),
     }
 
-    await act(async () => {
-      await result.current.submitModel({ settings, modelState, callbacks })
+    act(() => {
+      result.current.submitModel({ settings, modelState, callbacks })
     })
 
-    expect(result.current).toBeDefined()
+    expect(mock$post).toHaveBeenCalledOnce()
+    const callArgs = mock$post.mock.calls[0]
+
+    const requestArg = callArgs[0] as { json: { model: string; messages: typeof modelState.messages } }
+    expect(requestArg.json.model).toBe('model-a')
+    expect(requestArg.json.messages).toEqual([{ role: 'user', content: 'hello' }])
+
+    const headers = requestArg as unknown as { header: Record<string, string> }
+    expect(headers.header['api-key']).toBe('test-key')
+    expect(headers.header['base-url']).toBe('http://localhost')
+  })
+
+  it('submitModel は既存の controller がある場合に abort してから新しい controller をセットする', async () => {
+    mock$post.mockReset()
+    mock$post.mockReturnValue(new Promise(() => {}))
+
+    const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
+
+    const { result } = renderHook(() => useCompareStream())
+
+    const modelState = {
+      model: 'model-a',
+      status: 'retrying' as const,
+      messages: [{ role: 'user' as const, content: 'hello' }],
+      content: '',
+      reasoningContent: '',
+      usage: null,
+      finishReason: null,
+      responseTimeMs: null,
+      error: null,
+    }
+
+    const callbacks = {
+      onStreamContent: vi.fn(),
+      onStreamDone: vi.fn(),
+      onStreamError: vi.fn(),
+    }
+
+    act(() => {
+      result.current.submitModel({ settings, modelState, callbacks })
+    })
+
+    const callsAfterFirst = abortSpy.mock.calls.length
+
+    act(() => {
+      result.current.submitModel({ settings, modelState, callbacks })
+    })
+
+    expect(abortSpy).toHaveBeenCalledTimes(callsAfterFirst + 1)
   })
 })

@@ -99,6 +99,9 @@ export function useCompareStream() {
     const { settings, modelState, userMessage, callbacks } = args
     const { model } = modelState
 
+    controllerMapRef.current.get(model)?.abort()
+    controllerMapRef.current.delete(model)
+
     const controller = new AbortController()
     controllerMapRef.current.set(model, controller)
 
@@ -139,6 +142,15 @@ async function runModelStream(
   onError: (error: string) => void
 ): Promise<void> {
   const startTime = Date.now()
+  let timedOut = false
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+
+  const clearIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer)
+      idleTimer = undefined
+    }
+  }
 
   try {
     const res = await client.api.chat.stream.$post(
@@ -168,15 +180,6 @@ async function runModelStream(
     let usage: ChatUsage | null = null
     let receivedFinish = false
     let running = true
-    let timedOut = false
-    let idleTimer: ReturnType<typeof setTimeout> | undefined
-
-    const clearIdleTimer = () => {
-      if (idleTimer) {
-        clearTimeout(idleTimer)
-        idleTimer = undefined
-      }
-    }
 
     const startIdleTimer = () => {
       clearIdleTimer()
@@ -251,6 +254,7 @@ async function runModelStream(
       onError('Stream ended without finish reason')
     }
   } catch (error) {
+    clearIdleTimer()
     if (error instanceof Error && error.name === 'AbortError') return
     onError(error instanceof Error ? error.message : 'Unknown error')
   }
