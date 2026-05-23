@@ -1,6 +1,6 @@
+import type { ChatSettingsContextValue } from '#/client/components/chat/chat-settings/chat-settings-context'
 import { useLockBodyScroll } from '#/client/hooks/use-lock-body-scroll'
 import type { Settings } from '#/client/storage/remote-storage-settings'
-import type { ChatSettingsContextValue } from '../chat-settings-context'
 import { useLocalStorageSettings } from './use-local-storage-settings'
 import { useModelFetching } from './use-model-fetching'
 import { useSettingsHandlers } from './use-settings-handlers'

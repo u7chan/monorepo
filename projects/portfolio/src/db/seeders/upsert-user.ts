@@ -1,6 +1,6 @@
 import { uuidv7 } from 'uuidv7'
-import { getDatabase } from '../'
-import { usersTable } from '../schema'
+import { getDatabase } from '#/db'
+import { usersTable } from '#/db/schema'
 
 export interface UpsertUserInput {
   databaseUrl: string

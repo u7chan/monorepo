@@ -1,5 +1,5 @@
+import { useChatSettingsContext } from '#/client/components/chat/chat-settings/chat-settings-context'
 import { ToggleInput } from '#/client/components/input/toggle-input'
-import { useChatSettingsContext } from '../chat-settings-context'
 
 export function ReasoningEffort() {
   const { reasoningEffort, reasoningEffortEnabled, handleChangeReasoningEffort, handleToggleReasoningEffort } =

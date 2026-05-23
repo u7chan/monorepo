@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { renderToString } from 'react-dom/server'
-import { formatDurationLabel } from '../features/cookie/cookie'
+import { formatDurationLabel } from '#/server/features/cookie/cookie'
 import type { HonoEnv } from './shared'
 import { getServerEnv, getSignedInEmail } from './shared'
 
