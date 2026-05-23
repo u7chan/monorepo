@@ -132,6 +132,15 @@ printf 'replace-with-password\n' | bun run db:user:add -- --email test@example.c
 
 同じメールアドレスが既に存在する場合、このコマンドは失敗します。
 
+## Debug Pages
+
+### SVG Icon Catalog
+
+`/debug/svg-catalog` は開発時専用のデバッグページです。`src/client/components/svg/` 以下の SVG アイコンコンポーネントを一覧で確認でき、ダークモード切り替えも可能です。
+
+- `bun run dev` でのみ有効です。本番ビルドには含まれません。
+- ナビゲーションの「SVGs」リンク、または <http://localhost:3000/debug/svg-catalog> にアクセスしてください。
+
 ## Authentication Notes
 
 - サインイン時は `users.password_hash` を使ってパスワードを検証します
