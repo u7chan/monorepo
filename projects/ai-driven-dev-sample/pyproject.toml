@@ -1,0 +1,21 @@
+[project]
+name = "ai-driven-dev-sample"
+version = "0.1.0"
+description = "A small FastAPI memo search API sample for AI-driven development lessons."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]>=0.115.12",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.3.5",
+]
+
+[tool.fastapi]
+entrypoint = "src.main:app"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
