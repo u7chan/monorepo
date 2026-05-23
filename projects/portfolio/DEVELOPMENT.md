@@ -139,7 +139,7 @@ printf 'replace-with-password\n' | bun run db:user:add -- --email test@example.c
 `/debug/svg-catalog` は開発時専用のデバッグページです。`src/client/components/svg/` 以下の SVG アイコンコンポーネントを一覧で確認でき、ダークモード切り替えも可能です。
 
 - `bun run dev` でのみ有効です。本番ビルドには含まれません。
-- ナビゲーションの「SVG Catalog」リンク、または <http://localhost:3000/debug/svg-catalog> にアクセスしてください。
+- ナビゲーションの「SVGs」リンク、または <http://localhost:3000/debug/svg-catalog> にアクセスしてください。
 
 ## Authentication Notes
 
