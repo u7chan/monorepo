@@ -74,18 +74,18 @@ function SvgCatalog() {
   return (
     <div className='p-4'>
       <div className='mb-4 flex items-center justify-between'>
-        <h1 className='text-xl font-bold'>SVG Icon Catalog</h1>
+        <h1 className='text-xl font-bold text-gray-900 dark:text-white'>SVG Icon Catalog</h1>
         <button
           type='button'
           onClick={toggleDark}
-          className='rounded border px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800'
+          className='rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800'
         >
           {isDark ? 'Light Mode' : 'Dark Mode'}
         </button>
       </div>
       <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
         {icons.map(({ fileName, componentName, Component }) => (
-          <div key={componentName} className='flex flex-col items-center gap-2 rounded border p-4'>
+          <div key={componentName} className='flex flex-col items-center gap-2 rounded border border-gray-200 p-4 text-gray-900 dark:border-gray-700 dark:text-white'>
             <Component size={32} />
             <span className='text-xs text-gray-500'>{componentName}</span>
             <span className='text-[10px] text-gray-400'>{fileName}</span>

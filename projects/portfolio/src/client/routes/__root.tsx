@@ -33,7 +33,7 @@ function Root() {
 
   if (import.meta.env.DEV) {
     menuItems.push({
-      label: 'SVG Catalog',
+      label: 'SVGs',
       icon: <SparkleIcon size={20} />,
       to: '/debug/svg-catalog' as any,
     })
