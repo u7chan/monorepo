@@ -1,0 +1,10 @@
+name: Get License Check Targets
+description: Get manifest-root targets that need OSS license checks.
+
+runs:
+  using: composite
+  steps:
+    - name: Get License Check Targets
+      shell: bash
+      run: |
+        ${{ github.action_path }}/get-license-check-targets.sh

@@ -1,0 +1,25 @@
+{
+  "allowed": [
+    "MIT",
+    "Apache-2.0",
+    "BSD-*",
+    "ISC",
+    "0BSD",
+    "Unlicense",
+    "Python-2.0",
+    "BlueOak-*"
+  ],
+  "review": [
+    "LGPL-*",
+    "MPL-*",
+    "EPL-*",
+    "CDDL-*"
+  ],
+  "denied": [
+    "AGPL-*",
+    "GPL-*",
+    "SSPL-*",
+    "Commons Clause"
+  ],
+  "overrides": []
+}

@@ -35,6 +35,28 @@ jobs:
       - name: Get Changed Directories
         uses: ./.github/actions/get-changed-directories
 
+      - name: Get License Check Targets
+        uses: ./.github/actions/get-license-check-targets
+
+      - name: Set up Bun for License Check
+        if: env.LICENSE_CHECK_TARGETS != ''
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up uv for License Check
+        if: env.LICENSE_CHECK_TARGETS != ''
+        uses: astral-sh/setup-uv@v6
+
+      - name: Validate License Check
+        if: env.LICENSE_CHECK_VALIDATION_REQUIRED == 'true'
+        run: |
+          ./scripts/check-licenses --validate-policy
+          python -m unittest discover scripts/tests -p 'test_check_licenses.py'
+
+      - name: Check OSS Licenses
+        if: env.LICENSE_CHECK_TARGETS != ''
+        run: |
+          ./scripts/check-licenses --changed-targets-file license_check_targets.txt
+
       - name: Get Changed Projects
         uses: ./.github/actions/get-changed-projects
 
