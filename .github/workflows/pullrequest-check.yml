@@ -44,7 +44,7 @@ jobs:
 
       - name: Set up uv for License Check
         if: env.LICENSE_CHECK_TARGETS != ''
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v6
 
       - name: Validate License Check
         if: env.LICENSE_CHECK_VALIDATION_REQUIRED == 'true'
