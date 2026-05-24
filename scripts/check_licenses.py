@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from email.parser import Parser
 from pathlib import Path
@@ -83,20 +84,19 @@ def validate_policy(policy: dict) -> list[str]:
     overrides = policy.get("overrides")
     if not isinstance(overrides, list):
         errors.append("overrides must be a list")
-        return errors
-
-    for index, override in enumerate(overrides):
-        prefix = f"overrides[{index}]"
-        if not isinstance(override, dict):
-            errors.append(f"{prefix} must be an object")
-            continue
-        for key in ("ecosystem", "name", "status", "reason", "reviewed_at"):
-            if not override.get(key):
-                errors.append(f"{prefix}.{key} is required")
-        if override.get("status") not in ("allowed", "review", "denied"):
-            errors.append(f"{prefix}.status must be one of allowed, review, denied")
-        if "version" in override and not isinstance(override["version"], str):
-            errors.append(f"{prefix}.version must be a string")
+    else:
+        for index, override in enumerate(overrides):
+            prefix = f"overrides[{index}]"
+            if not isinstance(override, dict):
+                errors.append(f"{prefix} must be an object")
+                continue
+            for key in ("ecosystem", "name", "status", "reason", "reviewed_at"):
+                if not override.get(key):
+                    errors.append(f"{prefix}.{key} is required")
+            if override.get("status") not in ("allowed", "review", "denied"):
+                errors.append(f"{prefix}.status must be one of allowed, review, denied")
+            if "version" in override and not isinstance(override["version"], str):
+                errors.append(f"{prefix}.version must be a string")
 
     return errors
 
@@ -403,6 +403,7 @@ def collect_python_packages(target: Path) -> tuple[list[PackageInfo], CheckItem 
     with tempfile.TemporaryDirectory(prefix="license-check-python-") as tmp:
         workdir = Path(tmp) / "target"
         copy_target(target, workdir)
+        python_version = select_python_version(target)
         command = [
             "uv",
             "sync",
@@ -411,7 +412,7 @@ def collect_python_packages(target: Path) -> tuple[list[PackageInfo], CheckItem 
             "--no-install-project",
             "--no-install-workspace",
             "--python",
-            "3.13",
+            python_version,
             "--no-progress",
             "--color",
             "never",
@@ -438,6 +439,52 @@ def collect_python_packages(target: Path) -> tuple[list[PackageInfo], CheckItem 
         return scan_python_metadata(workdir / ".venv"), None
 
 
+def select_python_version(target: Path) -> str:
+    requires_python = read_requires_python(target / "pyproject.toml")
+    if requires_python and requires_python_requires_at_least(requires_python, 3, 14):
+        return "3.14"
+    if requires_python and requires_python_excludes(requires_python, 3, 13):
+        return "3.12"
+    return "3.13"
+
+
+def read_requires_python(pyproject_path: Path) -> str | None:
+    try:
+        with pyproject_path.open("rb") as file:
+            data = tomllib.load(file)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    value = data.get("project", {}).get("requires-python")
+    return value if isinstance(value, str) else None
+
+
+def requires_python_requires_at_least(requires_python: str, major: int, minor: int) -> bool:
+    target = (major, minor)
+    for operator, version in parse_python_specifiers(requires_python):
+        if operator in (">=", ">", "==", "~=") and version >= target:
+            return True
+    return False
+
+
+def requires_python_excludes(requires_python: str, major: int, minor: int) -> bool:
+    target = (major, minor)
+    for operator, version in parse_python_specifiers(requires_python):
+        if operator == "<" and target >= version:
+            return True
+        if operator == "<=" and target > version:
+            return True
+        if operator == "==" and target != version:
+            return True
+    return False
+
+
+def parse_python_specifiers(requires_python: str) -> list[tuple[str, tuple[int, int]]]:
+    specifiers: list[tuple[str, tuple[int, int]]] = []
+    for operator, major, minor in re.findall(r"(<=|>=|==|~=|<|>)\s*(\d+)\.(\d+)", requires_python):
+        specifiers.append((operator, (int(major), int(minor))))
+    return specifiers
+
+
 def scan_python_metadata(venv: Path) -> list[PackageInfo]:
     packages: list[PackageInfo] = []
     metadata_files = sorted(venv.glob("lib/python*/site-packages/*.dist-info/METADATA"))
@@ -458,7 +505,6 @@ def scan_python_metadata(venv: Path) -> list[PackageInfo]:
 
 
 def license_from_classifiers(classifiers: Iterable[str]) -> str | None:
-    classifier_text = " | ".join(classifiers)
     mapping = {
         "MIT License": "MIT",
         "Apache Software License": "Apache-2.0",
@@ -470,9 +516,10 @@ def license_from_classifiers(classifiers: Iterable[str]) -> str | None:
         "GNU Affero General Public License": "AGPL-*",
         "Eclipse Public License": "EPL-*",
     }
-    for marker, spdx in mapping.items():
-        if marker in classifier_text:
-            return spdx
+    for classifier in classifiers:
+        for marker, spdx in mapping.items():
+            if marker in classifier:
+                return spdx
     return None
 
 

@@ -59,7 +59,7 @@ python -m unittest discover scripts/tests -p 'test_check_licenses.py'
 - `npm`
 - `uv`
 
-`scripts/check_licenses.py` 自体は Python 標準ライブラリのみで動きます。Python target の dependency install では `uv sync --python 3.13` を使います。
+`scripts/check_licenses.py` 自体は Python 標準ライブラリのみで動きます。Python target の dependency install では、`pyproject.toml` の `requires-python` を見て `uv sync --python <version>` の interpreter を選びます。
 
 ## 結果の読み方
 
