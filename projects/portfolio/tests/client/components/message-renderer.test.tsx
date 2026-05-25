@@ -35,41 +35,6 @@ function createAssistantMessage(
 }
 
 describe('MessageRenderer', () => {
-  describe('Markdown セキュリティ', () => {
-    it('危険な HTML を DOM として描画しない', () => {
-      const { container } = render(
-        <MessageRenderer
-          message={createAssistantMessage('<script>alert("xss")</script><img src=x onerror=alert(1)>')}
-          index={0}
-          messages={[]}
-          conversationId='conversation-1'
-          markdownPreview={true}
-          copied={false}
-          onCopyMessage={vi.fn()}
-        />
-      )
-
-      expect(container.querySelector('script')).toBeNull()
-      expect(container.querySelector('img')).toBeNull()
-    })
-
-    it('Markdown link に rel を付与する', () => {
-      render(
-        <MessageRenderer
-          message={createAssistantMessage('[example](https://example.com)')}
-          index={0}
-          messages={[]}
-          conversationId='conversation-1'
-          markdownPreview={true}
-          copied={false}
-          onCopyMessage={vi.fn()}
-        />
-      )
-
-      expect(screen.getByRole('link', { name: 'example' }).getAttribute('rel')).toBe('noopener noreferrer')
-    })
-  })
-
   describe('ユーザーメッセージ編集', () => {
     const userMessage: UserMessage = {
       id: 'user-1',
@@ -334,6 +299,41 @@ describe('MessageRenderer', () => {
         'http://files.example.com/public/portfolio/c1/message-1-block-0.html'
       )
       expect(screen.queryByRole('button', { name: 'Generate preview' })).toBeNull()
+    })
+  })
+
+  describe('Markdown セキュリティ', () => {
+    it('危険な HTML を DOM として描画しない', () => {
+      const { container } = render(
+        <MessageRenderer
+          message={createAssistantMessage('<script>alert("xss")</script><img src=x onerror=alert(1)>')}
+          index={0}
+          messages={[]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+        />
+      )
+
+      expect(container.querySelector('script')).toBeNull()
+      expect(container.querySelector('img')).toBeNull()
+    })
+
+    it('Markdown link に rel を付与する', () => {
+      render(
+        <MessageRenderer
+          message={createAssistantMessage('[example](https://example.com)')}
+          index={0}
+          messages={[]}
+          conversationId='conversation-1'
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+        />
+      )
+
+      expect(screen.getByRole('link', { name: 'example' }).getAttribute('rel')).toBe('noopener noreferrer')
     })
   })
 })
