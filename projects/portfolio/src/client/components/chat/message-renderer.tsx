@@ -1,5 +1,6 @@
 import { Fragment, memo, type ReactNode, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough'
 import remarkGfm from 'remark-gfm'
@@ -27,6 +28,7 @@ import type { GeneratedCodeFile, Message } from '#/types'
 import { isImageContentArray } from '#/types'
 
 const markdownRemarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough]
+const markdownRehypePlugins = [rehypeSanitize]
 const markdownComponents = {
   a: MarkdownLink,
   code: AssistantAwareCodeBlock,
@@ -305,7 +307,11 @@ function MessageRendererComponent({
           : null
       }
     >
-      <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
+      <ReactMarkdown
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins}
+        components={markdownComponents}
+      >
         {message.content}
       </ReactMarkdown>
     </CodeBlockOpenStateContext.Provider>

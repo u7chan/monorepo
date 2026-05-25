@@ -34,6 +34,7 @@ describe('formatDurationLabel', () => {
 describe('cookie.createOptions', () => {
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllEnvs()
   })
 
   it('cookie 用の options を作成する', () => {
@@ -50,5 +51,13 @@ describe('cookie.createOptions', () => {
       sameSite: 'Strict',
     })
     expect(options.expires.toISOString()).toBe('2026-03-17T00:00:00.000Z')
+  })
+
+  it('production では secure を有効にする', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    const options = cookie.createOptions('1d')
+
+    expect(options.secure).toBe(true)
   })
 })

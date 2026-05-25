@@ -1,5 +1,6 @@
 import { memo, type ReactNode, type RefObject, useCallback, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import type { SaveGeneratedFileRequest } from '#/client/components/chat/assistant-code-block'
 import {
@@ -18,6 +19,7 @@ import { SpinnerIcon } from '#/client/components/svg/spinner-icon'
 import type { GeneratedCodeFile, Message } from '#/types'
 
 const markdownRemarkPlugins = [remarkGfm]
+const markdownRehypePlugins = [rehypeSanitize]
 const markdownComponents = {
   a: MarkdownLink,
   code: CodeBlockRenderer,
@@ -126,7 +128,11 @@ export function ChatMessageList({
                       }
                     >
                       <StreamingCodeBlockContext.Provider value={true}>
-                        <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={markdownComponents}>
+                        <ReactMarkdown
+                          remarkPlugins={markdownRemarkPlugins}
+                          rehypePlugins={markdownRehypePlugins}
+                          components={markdownComponents}
+                        >
                           {stream.content}
                         </ReactMarkdown>
                       </StreamingCodeBlockContext.Provider>

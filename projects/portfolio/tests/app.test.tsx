@@ -40,6 +40,16 @@ const importSubject = async () => {
   }
 }
 
+const expectSecurityHeaders = (res: Response) => {
+  expect(res.headers.get('Content-Security-Policy')).toBe(
+    "default-src 'self'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-src 'self'"
+  )
+  expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  expect(res.headers.get('X-Frame-Options')).toBe('DENY')
+  expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin')
+  expect(res.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()')
+}
+
 describe('app', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -53,6 +63,7 @@ describe('app', () => {
     expect(res.status).toBe(401)
     expect(requestId).toEqual(expect.any(String))
     await expect(res.json()).resolves.toEqual({ error: 'auth failed' })
+    expectSecurityHeaders(res)
     expect(logger.child).toHaveBeenCalledWith({ requestId })
     expect(logger.warn).toHaveBeenCalledTimes(1)
   })
@@ -63,6 +74,15 @@ describe('app', () => {
 
     expect(res.status).toBe(500)
     await expect(res.json()).resolves.toEqual({ error: 'boom' })
+    expectSecurityHeaders(res)
     expect(logger.error).toHaveBeenCalledTimes(1)
+  })
+
+  it('正常レスポンスにセキュリティヘッダーを付与する', async () => {
+    const { app } = await importSubject()
+    const res = await app.request('/auth-ok')
+
+    expect(res.status).toBe(200)
+    expectSecurityHeaders(res)
   })
 })

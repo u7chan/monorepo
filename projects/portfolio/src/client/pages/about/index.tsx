@@ -1,4 +1,5 @@
 import Markdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 
 const source = `
@@ -48,7 +49,9 @@ export function About() {
     <div className='min-h-full bg-white px-4 py-6 dark:bg-gray-900 md:px-8 md:py-8'>
       <div className='mx-auto max-w-3xl'>
         <div className='prose prose-sm max-w-none text-gray-700 prose-headings:text-gray-900 prose-strong:text-gray-900 prose-a:text-blue-700 prose-code:text-gray-800 prose-pre:bg-gray-950 md:prose-base dark:prose-invert dark:text-gray-200 dark:prose-headings:text-white dark:prose-strong:text-white dark:prose-a:text-blue-300 dark:prose-code:text-gray-100'>
-          <Markdown remarkPlugins={[remarkGfm]}>{source}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+            {source}
+          </Markdown>
         </div>
       </div>
     </div>
