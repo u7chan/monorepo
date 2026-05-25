@@ -15,7 +15,7 @@ export const cookie: Cookie = {
     const cookieExpiresSec = parseDurationToSeconds(duration)
     return {
       path: '/',
-      secure: false, // httpのため
+      secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       maxAge: cookieExpiresSec,
       expires: new Date(Date.now() + cookieExpiresSec * 1000),

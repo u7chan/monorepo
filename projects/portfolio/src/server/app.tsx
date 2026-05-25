@@ -1,5 +1,6 @@
 import { structuredLogger } from '@hono/structured-logger'
 import { Hono } from 'hono'
+import type { MiddlewareHandler } from 'hono'
 import { requestId } from 'hono/request-id'
 import type pino from 'pino'
 import { logger } from './lib/logger'
@@ -10,8 +11,26 @@ import { htmlRoutes } from './routes/html'
 import { modelsRoutes } from './routes/models'
 import type { HonoEnv } from './routes/shared'
 
+const securityHeaders = {
+  'Content-Security-Policy':
+    "base-uri 'self'; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-src 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), display-capture=()',
+} as const
+
+const applySecurityHeaders: MiddlewareHandler<HonoEnv> = async (c, next) => {
+  await next()
+
+  for (const [name, value] of Object.entries(securityHeaders)) {
+    c.header(name, value)
+  }
+}
+
 const app = new Hono<HonoEnv>()
   .use(requestId())
+  .use(applySecurityHeaders)
   .use(
     structuredLogger<pino.Logger>({
       createLogger: (c) => logger.child({ requestId: c.var.requestId }),
