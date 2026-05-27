@@ -23,14 +23,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           # PRのベースブランチとの差分取得に必要な履歴深度
           # 50コミットあれば通常のPRの変更はカバーできる
           fetch-depth: 50
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch base branch for comparison
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
+            fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
 
       - name: Get Changed Directories
         uses: ./.github/actions/get-changed-directories

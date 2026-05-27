@@ -11,8 +11,9 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
+          persist-credentials: false
           fetch-depth: 2 # 最新の2つのコミットをフェッチ
 
       - name: Get changed directories
