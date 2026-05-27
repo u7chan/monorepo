@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import { requestId } from 'hono/request-id'
 import type pino from 'pino'
+import { getErrorMessage } from './lib/error-message'
 import { logger } from './lib/logger'
 import { AuthenticationError, authRoutes } from './routes/auth'
 import { chatRoutes } from './routes/chat'
@@ -84,10 +85,10 @@ const app = new Hono<HonoEnv>()
   )
   .onError((err, c) => {
     if (err instanceof AuthenticationError) {
-      return c.json({ error: err.message }, 401)
+      return c.json({ error: getErrorMessage(err, 'Authentication error') }, 401)
     }
 
-    return c.json({ error: err.message }, 500)
+    return c.json({ error: getErrorMessage(err, 'Internal Server Error') }, 500)
   })
 const routes = app
   .route('/', authRoutes)

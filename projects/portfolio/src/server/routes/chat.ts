@@ -10,6 +10,7 @@ import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
+import { getErrorMessage } from '#/server/lib/error-message'
 import { logger } from '#/server/lib/logger'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
 import {
@@ -258,10 +259,7 @@ const chatRoutes = new Hono<HonoEnv>()
       return c.json(response)
     } catch (err) {
       requestLogger.error({ err }, 'Upstream chat completion failed')
-      return c.json(
-        { error: err instanceof Error ? err.message : 'Upstream error', code: 'UPSTREAM_ERROR' as const },
-        502
-      )
+      return c.json({ error: getErrorMessage(err, 'Upstream error'), code: 'UPSTREAM_ERROR' as const }, 502)
     }
   })
   // SSE ストリーム専用
@@ -304,10 +302,7 @@ const chatRoutes = new Hono<HonoEnv>()
       )
     } catch (err) {
       requestLogger.error({ err }, 'Upstream stream chat failed')
-      return c.json(
-        { error: err instanceof Error ? err.message : 'Upstream error', code: 'UPSTREAM_ERROR' as const },
-        502
-      )
+      return c.json({ error: getErrorMessage(err, 'Upstream error'), code: 'UPSTREAM_ERROR' as const }, 502)
     }
 
     const streamCompletion = completion as StreamChunk | ResponsesStreamChunk

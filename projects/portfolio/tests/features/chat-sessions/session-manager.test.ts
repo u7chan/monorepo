@@ -174,6 +174,65 @@ describe('ChatSessionManager', () => {
     expect(isTerminalSessionEvent(events.at(-1)!)).toBe(true)
   })
 
+  it('production では upstream エラーの詳細を error event に出さない', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const { manager, completionsMock } = await importSubject()
+    completionsMock.mockRejectedValue(new Error('Connection refused'))
+
+    const session = await manager.startSession({
+      header: {
+        'api-key': 'api-key',
+        'base-url': 'https://example.com',
+      },
+      req: request,
+      apiMode: 'chat_completions',
+      email: null,
+      databaseUrl: undefined,
+      ttlSeconds: 1800,
+      disconnectGraceMs: 30000,
+    })
+
+    await vi.waitFor(async () => {
+      await expect(manager.getSession(session.id)).resolves.toMatchObject({
+        status: 'error',
+        error: 'Upstream error',
+      })
+    })
+
+    const events = await manager.readEvents(session.id)
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      data: {
+        message: 'Upstream error',
+      },
+    })
+  })
+
+  it('development では upstream エラーの詳細を error event に残す', async () => {
+    const { manager, completionsMock } = await importSubject()
+    completionsMock.mockRejectedValue(new Error('Connection refused'))
+
+    const session = await manager.startSession({
+      header: {
+        'api-key': 'api-key',
+        'base-url': 'https://example.com',
+      },
+      req: request,
+      apiMode: 'chat_completions',
+      email: null,
+      databaseUrl: undefined,
+      ttlSeconds: 1800,
+      disconnectGraceMs: 30000,
+    })
+
+    await vi.waitFor(async () => {
+      await expect(manager.getSession(session.id)).resolves.toMatchObject({
+        status: 'error',
+        error: 'Connection refused',
+      })
+    })
+  })
+
   it('event log を assistant message へ fold する', async () => {
     const { foldSessionEvents } = await importSubject()
 
