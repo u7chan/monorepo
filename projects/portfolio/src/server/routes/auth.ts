@@ -4,6 +4,7 @@ import { deleteCookie, setSignedCookie } from 'hono/cookie'
 import { z } from 'zod'
 import { AuthenticationError, auth } from '#/server/features/auth/auth'
 import { cookie } from '#/server/features/cookie/cookie'
+import { signinRateLimit } from '#/server/middleware/rate-limit'
 import type { HonoEnv } from './shared'
 import { getServerEnv } from './shared'
 
@@ -13,7 +14,7 @@ const SignInBodySchema = z.object({
 })
 
 const authRoutes = new Hono<HonoEnv>()
-  .post('/api/signin', sValidator('json', SignInBodySchema), async (c) => {
+  .post('/api/signin', sValidator('json', SignInBodySchema), signinRateLimit, async (c) => {
     const { email, password } = c.req.valid('json')
     const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = getServerEnv(c)
 
