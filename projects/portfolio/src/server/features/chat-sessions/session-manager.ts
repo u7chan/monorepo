@@ -3,6 +3,7 @@ import { chatConversationRepository } from '#/server/features/chat-conversations
 import { chat } from '#/server/features/chat/chat'
 import { convertStreamChunks } from '#/server/features/chat/converter'
 import type { ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
+import { getErrorMessage } from '#/server/lib/error-message'
 import { logger } from '#/server/lib/logger'
 import type { ApiMode, AssistantMessage, Conversation } from '#/types'
 import type {
@@ -165,7 +166,7 @@ export class ChatSessionManager {
 
       logger.error({ err, sessionId }, 'Session chat generation failed')
       await this.finishSession(sessionId, 'error', {
-        message: err instanceof Error ? err.message : 'Upstream error',
+        message: getErrorMessage(err, 'Upstream error'),
       })
       await this.persistIfSignedIn(sessionId, params.databaseUrl, params.ttlSeconds)
     } finally {

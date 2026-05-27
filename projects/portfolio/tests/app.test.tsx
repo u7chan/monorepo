@@ -80,6 +80,24 @@ describe('app', () => {
     expect(logger.error).toHaveBeenCalledTimes(1)
   })
 
+  it('production では AuthenticationError の詳細を隠す', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const { app } = await importSubject()
+    const res = await app.request('/auth-error')
+
+    expect(res.status).toBe(401)
+    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
+  })
+
+  it('production ではその他の Error の詳細を隠す', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const { app } = await importSubject()
+    const res = await app.request('/unknown-error')
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({ error: 'Internal Server Error' })
+  })
+
   it('正常レスポンスにセキュリティヘッダーを付与する', async () => {
     const { app } = await importSubject()
     const res = await app.request('/auth-ok')

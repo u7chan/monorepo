@@ -382,6 +382,31 @@ describe('chatRoutes', () => {
         code: 'UPSTREAM_ERROR',
       })
     })
+
+    it('production の upstream エラー時は詳細を隠す', async () => {
+      vi.stubEnv('NODE_ENV', 'production')
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockRejectedValue(new Error('Connection refused'))
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(502)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Upstream error',
+        code: 'UPSTREAM_ERROR',
+      })
+    })
   })
 
   describe('POST /api/chat/stream', () => {
@@ -550,6 +575,31 @@ describe('chatRoutes', () => {
       await expect(res.json()).resolves.toEqual({
         error: "Invalid request body 'model'",
         code: 'VALIDATION_ERROR',
+      })
+    })
+
+    it('production の upstream エラー時は詳細を隠す', async () => {
+      vi.stubEnv('NODE_ENV', 'production')
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockRejectedValue(new Error('Connection refused'))
+
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(502)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Upstream error',
+        code: 'UPSTREAM_ERROR',
       })
     })
   })
