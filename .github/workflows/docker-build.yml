@@ -32,6 +32,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
+          persist-credentials: false
           # プッシュイベントでは直前のコミットとの差分で十分
           # 2コミット分の履歴で変更検出が可能
           fetch-depth: 2
