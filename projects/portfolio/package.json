@@ -45,7 +45,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@hono/vite-dev-server": "^0.25.3",
+    "@hono/vite-dev-server": "^0.26.0",
     "@tailwindcss/postcss": "^4.3.0",
     "@tanstack/react-router-devtools": "^1.167.0",
     "@tanstack/router-plugin": "^1.168.11",
