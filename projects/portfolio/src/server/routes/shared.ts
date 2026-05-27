@@ -1,3 +1,4 @@
+import type { HttpBindings } from '@hono/node-server'
 import type { Context } from 'hono'
 import { env } from 'hono/adapter'
 import { deleteCookie, getSignedCookie } from 'hono/cookie'
@@ -22,7 +23,7 @@ export type Env = Partial<{
 }>
 
 export type HonoEnv = {
-  Bindings: Env
+  Bindings: Env & Partial<HttpBindings> & { server?: Partial<HttpBindings> }
   Variables: {
     email: string
     logger: pino.Logger

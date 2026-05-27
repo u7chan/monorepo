@@ -1,3 +1,5 @@
+import { getConnInfo } from '@hono/node-server/conninfo'
+import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { AuthenticationError } from '#/server/features/auth/auth'
 import type { HonoEnv } from '#/server/routes/shared'
@@ -21,8 +23,8 @@ const isUnrefableTimer = (
   return typeof timer === 'object' && timer !== null && 'unref' in timer
 }
 
-const getClientIp = (headers: { header(name: string): string | undefined }) => {
-  return headers.header('x-forwarded-for') ?? headers.header('x-real-ip') ?? 'unknown'
+const getClientIp = (c: Context<HonoEnv>) => {
+  return getConnInfo(c).remote.address ?? 'unknown'
 }
 
 const isBlocked = (entry: RateLimitEntry | undefined, now: number) => {
@@ -75,7 +77,7 @@ export const resetSigninRateLimit = () => {
 }
 
 export const signinRateLimit = createMiddleware<HonoEnv>(async (c, next) => {
-  const ip = getClientIp(c.req)
+  const ip = getClientIp(c)
   const now = Date.now()
   const entry = store.get(ip)
 

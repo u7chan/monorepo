@@ -1,3 +1,4 @@
+import type { HttpBindings } from '@hono/node-server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { loginMock, logoutMock, setSignedCookieMock, deleteCookieMock } = vi.hoisted(() => ({
@@ -44,16 +45,20 @@ describe('authRoutes', () => {
     vi.stubEnv('COOKIE_NAME', 'session')
     vi.stubEnv('COOKIE_EXPIRES', '1d')
 
-    const res = await authRoutes.request('/api/signin', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
+    const res = await authRoutes.request(
+      '/api/signin',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'test@example.com',
+          password: 'testexample',
+        }),
       },
-      body: JSON.stringify({
-        email: 'test@example.com',
-        password: 'testexample',
-      }),
-    })
+      createNodeEnv('192.0.2.10')
+    )
 
     expect(res.status).toBe(200)
     expect(loginMock).toHaveBeenCalledWith('postgres://db', 'test@example.com', 'testexample')
@@ -128,6 +133,20 @@ describe('authRoutes', () => {
       }
     })
 
+    it('x-forwarded-for が変わっても接続元 IP でブロックする', async () => {
+      loginMock.mockRejectedValue(new AuthenticationError('認証に失敗しました'))
+
+      for (let i = 0; i < 5; i += 1) {
+        const res = await requestSignin('192.0.2.5', `198.51.100.${i}`)
+
+        expect(res.status).toBe(401)
+      }
+
+      const res = await requestSignin('192.0.2.5', '198.51.100.99')
+
+      expect(res.status).toBe(429)
+    })
+
     it('ブロックは IP ごとに独立し、1 分経過後に解除される', async () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
@@ -151,16 +170,32 @@ describe('authRoutes', () => {
   })
 })
 
-const requestSignin = (ip: string) => {
-  return app.request('/api/signin', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-forwarded-for': ip,
+const requestSignin = (ip: string, forwardedFor?: string) => {
+  return app.request(
+    '/api/signin',
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
+      },
+      body: JSON.stringify({
+        email: 'test@example.com',
+        password: 'testexample',
+      }),
     },
-    body: JSON.stringify({
-      email: 'test@example.com',
-      password: 'testexample',
-    }),
-  })
+    createNodeEnv(ip)
+  )
+}
+
+const createNodeEnv = (remoteAddress: string): Partial<HttpBindings> => {
+  return {
+    incoming: {
+      socket: {
+        remoteAddress,
+        remotePort: 12345,
+        remoteFamily: 'IPv4',
+      },
+    } as HttpBindings['incoming'],
+  }
 }
