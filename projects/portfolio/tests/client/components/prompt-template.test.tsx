@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { type ReactNode, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
@@ -63,6 +65,18 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
   }
 }
 
+const createQueryClientWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+  return ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children)
+}
+
 describe('PromptTemplate', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -96,7 +110,7 @@ describe('PromptTemplate', () => {
     const onSubmit = vi.fn()
     const { PromptTemplate } = await import('#/client/components/chat/prompt-template')
 
-    render(<PromptTemplate autoModel={false} onSubmit={onSubmit} />)
+    render(<PromptTemplate autoModel={false} onSubmit={onSubmit} />, { wrapper: createQueryClientWrapper() })
 
     const input = await screen.findByPlaceholderText('変更内容')
     fireEvent.change(input, { target: { value: 'add prompt templates' } })
@@ -117,7 +131,7 @@ describe('PromptTemplate', () => {
     })
     const { PromptTemplate } = await import('#/client/components/chat/prompt-template')
 
-    render(<PromptTemplate autoModel={false} />)
+    render(<PromptTemplate autoModel={false} />, { wrapper: createQueryClientWrapper() })
 
     await waitFor(() => {
       expect(screen.queryByText('コミットメッセージを作成')).toBeNull()
@@ -128,7 +142,7 @@ describe('PromptTemplate', () => {
     promptTemplatesGetMock.mockRejectedValue(new Error('network error'))
     const { PromptTemplate } = await import('#/client/components/chat/prompt-template')
 
-    render(<PromptTemplate autoModel={false} />)
+    render(<PromptTemplate autoModel={false} />, { wrapper: createQueryClientWrapper() })
 
     await waitFor(() => {
       expect(screen.queryByText('コミットメッセージを作成')).toBeNull()
