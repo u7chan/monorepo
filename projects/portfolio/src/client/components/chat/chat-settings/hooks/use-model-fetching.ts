@@ -51,10 +51,11 @@ interface UseModelFetchingReturn {
 export function useModelFetching(options: UseModelFetchingOptions): UseModelFetchingReturn {
   const { autoModel } = options
 
+  const { baseURL, apiKey } = readFromLocalStorage()
+
   const query = useQuery({
-    queryKey: ['chat-models'],
+    queryKey: ['chat-models', baseURL, apiKey],
     queryFn: async () => {
-      const { baseURL, apiKey } = readFromLocalStorage()
       return fetchModelsWithTimeout(baseURL, apiKey)
     },
     enabled: autoModel,
