@@ -12,7 +12,7 @@ export function ToggleInput({ label, labelClassName, value, disabled, onClick }:
       ? 'cursor-not-allowed bg-primary-200 dark:bg-primary-900/40'
       : 'cursor-not-allowed bg-gray-200 dark:bg-gray-700'
     : value
-      ? 'cursor-pointer bg-primary-800 dark:bg-primary-600'
+      ? 'cursor-pointer bg-primary-800 dark:bg-primary-500'
       : 'cursor-pointer bg-gray-400 dark:bg-gray-600'
 
   const thumbClassName = disabled ? 'bg-gray-50 shadow-sm dark:bg-gray-300' : 'bg-white shadow-md dark:bg-gray-200'
