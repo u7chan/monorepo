@@ -115,10 +115,11 @@ function AssistantSavableCodeBlock({
   }
 
   const handlePreview = async () => {
-    const previewWindow = window.open('', '_blank', 'noopener,noreferrer')
+    const previewWindow = window.open('about:blank', '_blank')
     if (!previewWindow) {
       return
     }
+    previewWindow.opener = null
 
     setSaving(true)
     setError(null)

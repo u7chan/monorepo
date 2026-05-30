@@ -304,6 +304,7 @@ describe('MessageRenderer', () => {
     it('認証済みの既存プレビューは force 指定で保存し直して戻り値の URL を開く', async () => {
       const previewWindow = {
         location: { href: '' },
+        opener: window,
         close: vi.fn(),
       }
       const openMock = vi.spyOn(window, 'open').mockReturnValue(previewWindow as unknown as Window)
@@ -353,7 +354,8 @@ describe('MessageRenderer', () => {
           })
         )
       })
-      expect(openMock).toHaveBeenCalledWith('', '_blank', 'noopener,noreferrer')
+      expect(openMock).toHaveBeenCalledWith('about:blank', '_blank')
+      expect(previewWindow.opener).toBeNull()
       expect(previewWindow.location.href).toBe('http://files.example.com/public/portfolio/c1/message-1-block-0.html')
       expect(previewWindow.close).not.toHaveBeenCalled()
 
