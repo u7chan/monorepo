@@ -1,6 +1,7 @@
+import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
 import type { ChangeEvent, KeyboardEvent } from 'react'
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { useModelFetching } from '#/client/components/chat/chat-settings/hooks/use-model-fetching'
 import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
@@ -42,41 +43,26 @@ interface Props {
 
 function PromptTemplateComponent({ autoModel, placeholder, onSubmit }: Props) {
   const [composing, setComposition] = useState(false)
-  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([])
+
+  const promptTemplatesQuery = useQuery({
+    queryKey: ['prompt-templates'],
+    queryFn: async () => {
+      const response = await client.api['prompt-templates'].$get()
+      if (!response.ok) {
+        return []
+      }
+      const { data } = await response.json()
+      return data
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+  const promptTemplates = promptTemplatesQuery.data ?? []
 
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
   const [templateModels, setTemplateModels] = useState(defaultSettings.templateModels || {})
   const { fetchedModels, isLoadingModels, fetchError } = useModelFetching({ autoModel })
-
-  useEffect(() => {
-    let ignore = false
-
-    client.api['prompt-templates']
-      .$get()
-      .then(async (response) => {
-        if (!response.ok) {
-          return { data: [] }
-        }
-
-        return response.json()
-      })
-      .then(({ data }) => {
-        if (!ignore) {
-          setPromptTemplates(data)
-        }
-      })
-      .catch(() => {
-        if (!ignore) {
-          setPromptTemplates([])
-        }
-      })
-
-    return () => {
-      ignore = true
-    }
-  }, [])
 
   const handleChangeComposition = (composition: boolean) => {
     setComposition(composition)

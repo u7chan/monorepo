@@ -1,5 +1,5 @@
+import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
-import { useCallback, useEffect, useState } from 'react'
 import { readFromLocalStorage } from '#/client/storage/remote-storage-settings'
 import type { AppType } from '#/server/app'
 
@@ -51,35 +51,21 @@ interface UseModelFetchingReturn {
 export function useModelFetching(options: UseModelFetchingOptions): UseModelFetchingReturn {
   const { autoModel } = options
 
-  const [fetchedModels, setFetchedModels] = useState<string[]>([])
-  const [isLoadingModels, setIsLoadingModels] = useState(false)
-  const [fetchError, setFetchError] = useState<string | null>(null)
+  const { baseURL, apiKey } = readFromLocalStorage()
 
-  useEffect(() => {
-    if (autoModel) {
-      setIsLoadingModels(true)
-      setFetchError(null)
-      const { baseURL, apiKey } = readFromLocalStorage()
-      fetchModelsWithTimeout(baseURL, apiKey).then(({ models, error }) => {
-        setFetchedModels(models)
-        setFetchError(error)
-        setIsLoadingModels(false)
-      })
-    }
-  }, [autoModel])
+  const query = useQuery({
+    queryKey: ['chat-models', baseURL, apiKey],
+    queryFn: async () => {
+      return fetchModelsWithTimeout(baseURL, apiKey)
+    },
+    enabled: autoModel,
+    staleTime: 5 * 60 * 1000,
+  })
 
-  const refetchModels = useCallback(() => {
-    if (autoModel) {
-      setIsLoadingModels(true)
-      setFetchError(null)
-      const { baseURL, apiKey } = readFromLocalStorage()
-      fetchModelsWithTimeout(baseURL, apiKey).then(({ models, error }) => {
-        setFetchedModels(models)
-        setFetchError(error)
-        setIsLoadingModels(false)
-      })
-    }
-  }, [autoModel])
-
-  return { fetchedModels, isLoadingModels, fetchError, refetchModels }
+  return {
+    fetchedModels: query.data?.models ?? [],
+    isLoadingModels: query.isLoading,
+    fetchError: query.data?.error ?? null,
+    refetchModels: query.refetch,
+  }
 }
