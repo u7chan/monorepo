@@ -1,8 +1,14 @@
 @import 'tailwindcss';
-/* @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP&display=swap'); */
-@import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400&display=swap');
 
 @config "../../tailwind.config.ts";
+
+@font-face {
+  font-family: 'M PLUS Rounded 1c';
+  src: url('/fonts/m-plus-rounded-1c-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 /*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
@@ -43,7 +49,6 @@
 }
 
 body {
-  /* font-family: "Noto Sans JP", sans-serif; */
   font-family: 'M PLUS Rounded 1c', sans-serif;
   font-weight: 400;
 }
