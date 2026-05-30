@@ -58,7 +58,7 @@ describe('useChatPageState', () => {
   })
 
   const importHook = async () => {
-    const mod = await import('#/client/pages/chat/use-chat-page-state')
+    const mod = await import('#/client/features/chat/hooks/use-chat-page-state')
     return mod.useChatPageState
   }
 

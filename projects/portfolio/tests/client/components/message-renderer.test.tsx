@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MessageRenderer } from '#/client/components/chat/message-renderer'
+import { MessageRenderer } from '#/client/features/chat/components/message-renderer'
 import type { AssistantMessage, UserMessage } from '#/types'
 
 vi.mock('react-syntax-highlighter', () => ({

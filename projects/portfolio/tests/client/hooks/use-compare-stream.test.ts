@@ -33,7 +33,7 @@ describe('useCompareStream', () => {
   }
 
   it('cancelModel は対象モデルの AbortController のみ abort する', async () => {
-    const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
+    const { useCompareStream } = await import('#/client/features/chat-compare/hooks/use-compare-stream')
 
     const { result } = renderHook(() => useCompareStream())
 
@@ -67,7 +67,7 @@ describe('useCompareStream', () => {
   })
 
   it('cancelAll は全モデルの AbortController を abort する', async () => {
-    const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
+    const { useCompareStream } = await import('#/client/features/chat-compare/hooks/use-compare-stream')
 
     const { result } = renderHook(() => useCompareStream())
 
@@ -115,7 +115,7 @@ describe('useCompareStream', () => {
     mock$post.mockReset()
     mock$post.mockReturnValue(new Promise(() => {}))
 
-    const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
+    const { useCompareStream } = await import('#/client/features/chat-compare/hooks/use-compare-stream')
 
     const { result } = renderHook(() => useCompareStream())
 
@@ -157,7 +157,7 @@ describe('useCompareStream', () => {
     mock$post.mockReset()
     mock$post.mockReturnValue(new Promise(() => {}))
 
-    const { useCompareStream } = await import('#/client/components/chat-compare/hooks/use-compare-stream')
+    const { useCompareStream } = await import('#/client/features/chat-compare/hooks/use-compare-stream')
 
     const { result } = renderHook(() => useCompareStream())
 

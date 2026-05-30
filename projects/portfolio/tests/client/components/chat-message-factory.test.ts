@@ -3,8 +3,8 @@ import {
   createAssistantMessage,
   createConversationTitle,
   resolveChatRequestSettings,
-} from '#/client/components/chat/chat-message-factory'
-import type { Settings } from '#/client/storage/remote-storage-settings'
+} from '#/client/features/chat/lib/chat-message-factory'
+import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { ChatResponse } from '#/types/chat-api'
 
 const settings: Settings = {

@@ -30,7 +30,7 @@ describe('remote-storage-settings', () => {
   })
 
   it('localStorage が空ならデフォルト設定を返す', async () => {
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
 
     const settings = readFromLocalStorage()
 
@@ -67,7 +67,7 @@ describe('remote-storage-settings', () => {
       })
     )
 
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
 
@@ -100,7 +100,7 @@ describe('remote-storage-settings', () => {
       })
     )
 
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
 
     expect(settings.schemaVersion).toBe('1.4.0')
@@ -120,7 +120,7 @@ describe('remote-storage-settings', () => {
       })
     )
 
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
 
     expect('mcpServerURLs' in settings).toBe(false)
@@ -136,7 +136,7 @@ describe('remote-storage-settings', () => {
       })
     )
 
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
 
@@ -158,7 +158,7 @@ describe('remote-storage-settings', () => {
       })
     )
 
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
 
@@ -179,7 +179,7 @@ describe('remote-storage-settings', () => {
       })
     )
 
-    const { readFromLocalStorage } = await import('#/client/storage/remote-storage-settings')
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
 
     expect(settings.apiMode).toBe('responses')

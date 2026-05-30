@@ -2,9 +2,9 @@
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ChatComposer } from '#/client/components/chat/chat-composer'
+import { ChatComposer } from '#/client/features/chat/components/chat-composer'
 
-vi.mock('#/client/components/input/file-image-input', () => ({
+vi.mock('#/client/shared/components/input/file-image-input', () => ({
   FileImageInput: ({ fileInputButton }: { fileInputButton: (onClick: () => void) => React.ReactNode }) => (
     <div data-testid='file-image-input'>{fileInputButton(vi.fn())}</div>
   ),

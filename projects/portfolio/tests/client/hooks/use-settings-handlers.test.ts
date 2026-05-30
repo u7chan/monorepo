@@ -55,8 +55,9 @@ describe('useSettingsHandlers', () => {
 
   const importHooks = async () => {
     const { useLocalStorageSettings } =
-      await import('#/client/components/chat/chat-settings/hooks/use-local-storage-settings')
-    const { useSettingsHandlers } = await import('#/client/components/chat/chat-settings/hooks/use-settings-handlers')
+      await import('#/client/features/chat/components/chat-settings/hooks/use-local-storage-settings')
+    const { useSettingsHandlers } =
+      await import('#/client/features/chat/components/chat-settings/hooks/use-settings-handlers')
     return { useLocalStorageSettings, useSettingsHandlers }
   }
 

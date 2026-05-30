@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Settings } from '#/client/storage/remote-storage-settings'
+import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { AssistantMessage, Conversation, UserMessage } from '#/types'
 
 const useMessageScrollMock = vi.fn()
@@ -13,18 +13,18 @@ let hasActiveChatSessionMock = false
 let streamProcessorParams: Record<string, unknown> | null = null
 let chatMessageListProps: Record<string, unknown> | null = null
 
-vi.mock('#/client/components/chat/chat-input', () => ({
+vi.mock('#/client/features/chat/components/chat-input', () => ({
   ChatInput: () => <div data-testid='chat-input' />,
 }))
 
-vi.mock('#/client/components/chat/chat-message-list', () => ({
+vi.mock('#/client/features/chat/components/chat-message-list', () => ({
   ChatMessageList: (props: Record<string, unknown>) => {
     chatMessageListProps = props
     return <div data-testid='chat-message-list' />
   },
 }))
 
-vi.mock('#/client/components/chat/hooks/use-chat-form', () => ({
+vi.mock('#/client/features/chat/hooks/use-chat-form', () => ({
   useChatForm: () => ({
     input: '',
     uploadImages: [],
@@ -39,18 +39,18 @@ vi.mock('#/client/components/chat/hooks/use-chat-form', () => ({
   }),
 }))
 
-vi.mock('#/client/components/chat/hooks/use-message-copy', () => ({
+vi.mock('#/client/features/chat/hooks/use-message-copy', () => ({
   useMessageCopy: () => ({
     copiedId: '',
     copyMessage: vi.fn(),
   }),
 }))
 
-vi.mock('#/client/components/chat/hooks/use-message-scroll', () => ({
+vi.mock('#/client/features/chat/hooks/use-message-scroll', () => ({
   useMessageScroll: (...args: unknown[]) => useMessageScrollMock(...args),
 }))
 
-vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
+vi.mock('#/client/features/chat/hooks/use-stream-processor', () => ({
   hasActiveChatSession: () => hasActiveChatSessionMock,
   useStreamProcessor: (params: Record<string, unknown>) => {
     streamProcessorParams = params
@@ -64,11 +64,11 @@ vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
   },
 }))
 
-vi.mock('#/client/components/chat/prompt-template', () => ({
+vi.mock('#/client/features/chat/components/prompt-template', () => ({
   PromptTemplate: () => <div data-testid='prompt-template' />,
 }))
 
-vi.mock('#/client/components/input/file-image-input', () => ({
+vi.mock('#/client/shared/components/input/file-image-input', () => ({
   FileImageInput: ({ fileInputButton }: { fileInputButton: (onClick: () => void) => React.ReactNode }) => (
     <div>{fileInputButton(vi.fn())}</div>
   ),
@@ -184,7 +184,7 @@ describe('ChatMain', () => {
       responseTimeMs: 123,
     })
     const onConversationChange = vi.fn()
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(
       <ChatMain
@@ -218,7 +218,7 @@ describe('ChatMain', () => {
       title: '会話',
       messages: [createUserMessage('message-1', '送信済み質問')],
     }
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(<ChatMain settings={settings} />)
 
@@ -241,7 +241,7 @@ describe('ChatMain', () => {
       title: '会話',
       messages: [createUserMessage('message-1', '送信済み質問')],
     }
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(<ChatMain settings={settings} />)
 
@@ -297,7 +297,7 @@ describe('ChatMain', () => {
       title: '会話',
       messages: [...currentConversation.messages, createUserMessage('message-3', '続きの質問')],
     }
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     const view = render(<ChatMain settings={settings} currentConversation={null} />)
 
@@ -332,7 +332,7 @@ describe('ChatMain', () => {
       title: '別会話',
       messages: [createUserMessage('message-5', '別の質問')],
     }
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     const view = render(<ChatMain settings={settings} currentConversation={null} />)
 
@@ -356,7 +356,7 @@ describe('ChatMain', () => {
   })
 
   it('最下端に吸着している間は最新へ移動ボタンを表示しない', async () => {
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(<ChatMain settings={settings} currentConversation={currentConversation} />)
 
@@ -376,7 +376,7 @@ describe('ChatMain', () => {
       scrollToMessageEnd: scrollToMessageEndMock,
     })
 
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(<ChatMain settings={settings} currentConversation={currentConversation} />)
 
@@ -388,7 +388,7 @@ describe('ChatMain', () => {
 
   it('ユーザーメッセージ編集時は後続履歴を切り捨てて再生成結果を保存する', async () => {
     const onConversationChange = vi.fn()
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(
       <ChatMain
@@ -434,7 +434,7 @@ describe('ChatMain', () => {
       ],
     }
     const onConversationChange = vi.fn()
-    const { ChatMain } = await import('#/client/components/chat/chat-main')
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
     render(
       <ChatMain

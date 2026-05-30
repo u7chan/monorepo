@@ -1,0 +1,136 @@
+import { createContext, type HTMLAttributes, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import {
+  CodeBlockGenerateButton,
+  CodeBlockPreviewButton,
+  CodeBlockRenderer,
+} from '#/client/features/chat/components/code-block-renderer'
+import type { GeneratedCodeFile } from '#/types'
+
+export type SaveGeneratedFileRequest = {
+  blockIndex: number
+  language: string
+  content: string
+}
+
+export interface AssistantCodeBlockContextValue {
+  messageId: string | null
+  conversationId: string | null
+  generatedFiles: GeneratedCodeFile[]
+  cursor: { current: number }
+  disabled?: boolean
+  canSaveGeneratedFile?: boolean
+  onSave: (params: SaveGeneratedFileRequest) => Promise<GeneratedCodeFile | null>
+}
+
+export const AssistantCodeBlockContext = createContext<AssistantCodeBlockContextValue | null>(null)
+
+const SUPPORTED_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'svg'])
+
+function isSupportedLanguage(language: string | undefined): boolean {
+  if (!language) {
+    return false
+  }
+  return SUPPORTED_LANGUAGES.has(language.toLowerCase())
+}
+
+type AssistantAwareCodeBlockProps = HTMLAttributes<HTMLElement> & {
+  children?: ReactNode | string
+}
+
+export function AssistantAwareCodeBlock({ className, children, ...rest }: AssistantAwareCodeBlockProps) {
+  const detectedLanguage = className?.split('-')[1]
+  const code = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : ''
+  const isBlock = detectedLanguage !== undefined || (typeof children === 'string' && code.includes('\n'))
+
+  if (!isBlock) {
+    return (
+      <CodeBlockRenderer className={className} {...rest}>
+        {children}
+      </CodeBlockRenderer>
+    )
+  }
+
+  return (
+    <AssistantSavableCodeBlock className={className} detectedLanguage={detectedLanguage} code={code} {...rest}>
+      {children}
+    </AssistantSavableCodeBlock>
+  )
+}
+
+type AssistantSavableCodeBlockProps = HTMLAttributes<HTMLElement> & {
+  children?: ReactNode | string
+  detectedLanguage?: string
+  code: string
+}
+
+function AssistantSavableCodeBlock({
+  className,
+  children,
+  detectedLanguage,
+  code,
+  ...rest
+}: AssistantSavableCodeBlockProps) {
+  const ctx = useContext(AssistantCodeBlockContext)
+
+  // 保存可能な context が無い場合（stream 中や user メッセージなど）は通常描画のみ
+  if (!ctx || !ctx.messageId || !ctx.conversationId) {
+    return (
+      <CodeBlockRenderer className={className} {...rest}>
+        {children}
+      </CodeBlockRenderer>
+    )
+  }
+
+  // render のたびに cursor を進めることで fenced code block に順序 index を割り当てる
+  const blockIndex = ctx.cursor.current
+  ctx.cursor.current += 1
+
+  const existing = ctx.generatedFiles.find((f) => f.blockIndex === blockIndex)
+  const supported = isSupportedLanguage(detectedLanguage)
+  const previewHref = existing ? existing.previewUrl || existing.publicPath : undefined
+  const canShowSaveAction = supported && !existing && ctx.canSaveGeneratedFile
+
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const awaitingPreviewRef = useRef(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    awaitingPreviewRef.current = true
+    try {
+      await ctx.onSave({
+        blockIndex,
+        language: detectedLanguage ?? '',
+        content: code,
+      })
+    } catch (err) {
+      awaitingPreviewRef.current = false
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    if (previewHref && awaitingPreviewRef.current) {
+      window.open(previewHref, '_blank', 'noopener,noreferrer')
+      awaitingPreviewRef.current = false
+    }
+  }, [previewHref])
+
+  const actions = previewHref ? (
+    <CodeBlockPreviewButton href={previewHref} />
+  ) : canShowSaveAction ? (
+    <CodeBlockGenerateButton onClick={handleSave} pending={saving} disabled={ctx.disabled} />
+  ) : undefined
+
+  return (
+    <div>
+      <CodeBlockRenderer className={className} actions={actions} {...rest}>
+        {children}
+      </CodeBlockRenderer>
+      {error && <div className='mt-1 text-red-500 text-xs'>{error}</div>}
+    </div>
+  )
+}

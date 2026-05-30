@@ -16,7 +16,7 @@ vi.mock('hono/client', () => ({
   }),
 }))
 
-import { Home } from '#/client/pages/home'
+import { Home } from '#/client/features/home/page'
 
 describe('Home page', () => {
   it('ログイン済みの場合はログイン有効期限を表示する', () => {

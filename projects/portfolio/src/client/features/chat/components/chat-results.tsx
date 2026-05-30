@@ -1,0 +1,157 @@
+import { memo, useState } from 'react'
+import { MessagesDumpViewer } from '#/client/features/chat/components/messages-dump-viewer'
+import { ChevronRightIcon } from '#/client/shared/icons/chevron-right-icon'
+import { EyeIcon } from '#/client/shared/icons/eye-icon'
+import type { ApiChatMessage, AssistantMetadata, ImageContextSummary, Message, TextContent } from '#/types'
+import { isImageContentArray, toApiChatMessage } from '#/types'
+
+interface ChatResultsProps {
+  metadata: AssistantMetadata
+  messages: Message[]
+}
+
+function formatResponseTime(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`
+  }
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+const badgeClass = 'flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-gray-700 dark:text-gray-300'
+const usageBadgeClass = `${badgeClass} max-w-full flex-wrap gap-x-1 gap-y-0.5`
+const usageItemClass = 'inline-flex items-center gap-0.5'
+
+function buildApiContextDump(messages: Message[], imageContext?: ImageContextSummary): ApiChatMessage[] | undefined {
+  if (!imageContext) {
+    return undefined
+  }
+
+  const requestMessages = messages.at(-1)?.role === 'assistant' ? messages.slice(0, -1) : messages
+  const currentUserMessageId = requestMessages.findLast((message) => message.role === 'user')?.id
+
+  if (imageContext.policy === 'full_history') {
+    return requestMessages.map(toApiChatMessage)
+  }
+
+  return requestMessages.map((message) => toApiChatMessage(stripHistoryImages(message, currentUserMessageId)))
+}
+
+function stripHistoryImages(message: Message, currentUserMessageId: string | undefined): Message {
+  if (message.role !== 'user' || message.id === currentUserMessageId || !isImageContentArray(message.content)) {
+    return message
+  }
+
+  const textContent = message.content.filter((content): content is TextContent => content.type === 'text')
+  const nonEmptyTextContent = textContent.filter((content) => content.text.trim().length > 0)
+
+  return {
+    ...message,
+    content: nonEmptyTextContent.length > 0 ? nonEmptyTextContent : '[image omitted from context]',
+  }
+}
+
+function ChatResultsComponent({ metadata, messages }: ChatResultsProps) {
+  const [open, setOpen] = useState(false)
+  const [dumpOpen, setDumpOpen] = useState(false)
+
+  if (!metadata.model) {
+    return null
+  }
+
+  const { model, finishReason, responseTimeMs, usage, imageContext, apiContextMessages } = metadata
+  const dumpApiContextMessages = apiContextMessages ?? buildApiContextDump(messages, imageContext)
+  const showImageContext = imageContext && (imageContext.sent > 0 || imageContext.historyOnly > 0)
+
+  return (
+    <div className='mt-2'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <button
+          type='button'
+          className='flex cursor-pointer flex-wrap items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+        >
+          <span>{model}</span>
+          {responseTimeMs !== undefined && (
+            <>
+              <span>/</span>
+              <span>{formatResponseTime(responseTimeMs)}</span>
+            </>
+          )}
+          <span className={`ml-0.5 inline-flex transition-transform duration-200 ${open ? '-rotate-90' : 'rotate-90'}`}>
+            <ChevronRightIcon />
+          </span>
+        </button>
+        <button
+          type='button'
+          className='flex cursor-pointer items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+          onClick={() => setDumpOpen(true)}
+          aria-label='Open messages dump viewer'
+        >
+          <span>messages: ({messages.length})</span>
+          <EyeIcon size={14} className='stroke-current' />
+        </button>
+        {showImageContext && (
+          <span className='rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-400 dark:bg-gray-700 dark:text-gray-400'>
+            images: {imageContext.sent} sent / {imageContext.historyOnly} history-only
+          </span>
+        )}
+      </div>
+      <div
+        aria-hidden={!open}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
+          open ? 'mt-1 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className='min-h-0'>
+          <div
+            className={`flex flex-wrap gap-1 transition-transform duration-200 ease-out motion-reduce:transition-none ${
+              open ? 'translate-y-0' : '-translate-y-1'
+            }`}
+          >
+            {finishReason && (
+              <div className={badgeClass}>
+                <span className='mr-1'>finish_reason:</span>
+                <span>{finishReason}</span>
+              </div>
+            )}
+            <div className={usageBadgeClass}>
+              <span className='mr-1'>usage:</span>
+              <span className={usageItemClass}>
+                <span>input:</span>
+                <span>{usage.promptTokens ?? '--'}</span>
+              </span>
+              <span className='text-gray-400 dark:text-gray-500'>/</span>
+              <span className={usageItemClass}>
+                <span>output:</span>
+                <span>{usage.completionTokens ?? '--'}</span>
+              </span>
+              <span className='text-gray-400 dark:text-gray-500'>/</span>
+              <span className={usageItemClass}>
+                <span>total:</span>
+                <span>{usage.totalTokens ?? '--'}</span>
+              </span>
+              {usage.reasoningTokens !== undefined && (
+                <>
+                  <span className='text-gray-400 dark:text-gray-500'>/</span>
+                  <span className={usageItemClass}>
+                    <span>reasoning:</span>
+                    <span>{usage.reasoningTokens}</span>
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <MessagesDumpViewer
+        messages={messages}
+        apiContextMessages={dumpApiContextMessages}
+        open={dumpOpen}
+        onClose={() => setDumpOpen(false)}
+      />
+    </div>
+  )
+}
+
+export const ChatResults = memo(ChatResultsComponent)

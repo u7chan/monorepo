@@ -41,7 +41,7 @@ describe('useStreamProcessor', () => {
       }),
     }))
 
-    const mod = await import('#/client/components/chat/hooks/use-stream-processor')
+    const mod = await import('#/client/features/chat/hooks/use-stream-processor')
 
     return {
       useStreamProcessor: mod.useStreamProcessor,

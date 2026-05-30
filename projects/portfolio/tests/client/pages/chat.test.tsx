@@ -77,7 +77,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: (...args: unknown[]) => useQueryMock(...args),
 }))
 
-vi.mock('#/client/pages/home', () => ({
+vi.mock('#/client/shared/hooks/use-meta-props', () => ({
   useMetaProps: () => useMetaPropsMock(),
 }))
 
@@ -96,7 +96,7 @@ vi.mock('hono/client', () => ({
   }),
 }))
 
-vi.mock('#/client/components/chat/chat-layout', () => ({
+vi.mock('#/client/features/chat/components/chat-layout', () => ({
   ChatLayout: ({ children, conversations }: { children: ReactNode; conversations?: ReactNode }) => (
     <div>
       {conversations}
@@ -105,23 +105,23 @@ vi.mock('#/client/components/chat/chat-layout', () => ({
   ),
 }))
 
-vi.mock('#/client/components/chat/chat-settings', () => ({
+vi.mock('#/client/features/chat/components/chat-settings', () => ({
   ChatSettings: () => null,
 }))
 
-vi.mock('#/client/components/chat/chat-main', () => ({
+vi.mock('#/client/features/chat/components/chat-main', () => ({
   ChatMain: (props: Record<string, unknown>) => {
     chatMainProps = props
     return null
   },
 }))
 
-vi.mock('#/client/components/chat/hooks/use-stream-processor', () => ({
+vi.mock('#/client/features/chat/hooks/use-stream-processor', () => ({
   clearActiveChatSession: clearActiveChatSessionMock,
   hasActiveChatSession: () => hasActiveChatSessionMock,
 }))
 
-vi.mock('#/client/components/chat/conversation-history', () => ({
+vi.mock('#/client/features/chat/components/conversation-history', () => ({
   ConversationHistory: (props: Record<string, unknown>) => {
     conversationHistoryProps = props
     return null
@@ -181,7 +181,7 @@ describe('Chat page', () => {
   it('URL の conversationId に対応する会話を ChatMain に渡す', async () => {
     useSearchMock.mockReturnValue({ conversationId: 'conversation-1' })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     render(<Chat />)
 
     expect(chatMainProps?.currentConversation).toEqual(conversations[0])
@@ -190,7 +190,7 @@ describe('Chat page', () => {
   it('無効な conversationId は /chat に replace で正規化する', async () => {
     useSearchMock.mockReturnValue({ conversationId: 'missing-conversation' })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     render(<Chat />)
 
     await waitFor(() => {
@@ -211,7 +211,7 @@ describe('Chat page', () => {
       refetch: refetchMock,
     })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     render(<Chat />)
 
     const onConversationChange = chatMainProps?.onConversationChange as
@@ -240,7 +240,7 @@ describe('Chat page', () => {
       refetch: refetchMock,
     })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     render(<Chat />)
 
     const onConversationChange = chatMainProps?.onConversationChange as
@@ -265,7 +265,7 @@ describe('Chat page', () => {
   })
 
   it('会話履歴選択時は conversationId 付き URL へ遷移する', async () => {
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     render(<Chat />)
 
     const onSelectConversation = conversationHistoryProps?.onSelectConversation as
@@ -292,7 +292,7 @@ describe('Chat page', () => {
       refetch: vi.fn(),
     })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     const view = render(<Chat />)
 
     expect(chatMainProps).toBeNull()
@@ -309,7 +309,7 @@ describe('Chat page', () => {
       refetch: vi.fn(),
     })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     const view = render(<Chat />)
 
     expect(chatMainProps).not.toBeNull()
@@ -326,7 +326,7 @@ describe('Chat page', () => {
       refetch: vi.fn(),
     })
 
-    const { Chat } = await import('#/client/pages/chat')
+    const { Chat } = await import('#/client/features/chat/page')
     render(<Chat />)
 
     expect(chatMainProps).not.toBeNull()

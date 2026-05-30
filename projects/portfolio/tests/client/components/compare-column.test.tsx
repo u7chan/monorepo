@@ -2,8 +2,8 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CompareColumn } from '#/client/components/chat-compare/compare-column'
-import type { ModelStreamState } from '#/client/components/chat-compare/hooks/use-compare-state'
+import { CompareColumn } from '#/client/features/chat-compare/components/compare-column'
+import type { ModelStreamState } from '#/client/features/chat-compare/hooks/use-compare-state'
 
 function createModelState(overrides: Partial<ModelStreamState> = {}): ModelStreamState {
   return {

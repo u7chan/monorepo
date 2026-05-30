@@ -19,7 +19,7 @@ vi.mock('hono/client', () => ({
   }),
 }))
 
-vi.mock('#/client/components/chat/chat-settings/hooks/use-model-fetching', () => ({
+vi.mock('#/client/features/chat/components/chat-settings/hooks/use-model-fetching', () => ({
   useModelFetching: () => ({
     fetchedModels: [],
     isLoadingModels: false,
@@ -108,7 +108,7 @@ describe('PromptTemplate', () => {
 
   it('APIから取得したテンプレートを表示して送信する', async () => {
     const onSubmit = vi.fn()
-    const { PromptTemplate } = await import('#/client/components/chat/prompt-template')
+    const { PromptTemplate } = await import('#/client/features/chat/components/prompt-template')
 
     render(<PromptTemplate autoModel={false} onSubmit={onSubmit} />, { wrapper: createQueryClientWrapper() })
 
@@ -129,7 +129,7 @@ describe('PromptTemplate', () => {
       ok: true,
       json: async () => ({ data: [] }),
     })
-    const { PromptTemplate } = await import('#/client/components/chat/prompt-template')
+    const { PromptTemplate } = await import('#/client/features/chat/components/prompt-template')
 
     render(<PromptTemplate autoModel={false} />, { wrapper: createQueryClientWrapper() })
 
@@ -140,7 +140,7 @@ describe('PromptTemplate', () => {
 
   it('取得失敗時はテンプレート欄を表示しない', async () => {
     promptTemplatesGetMock.mockRejectedValue(new Error('network error'))
-    const { PromptTemplate } = await import('#/client/components/chat/prompt-template')
+    const { PromptTemplate } = await import('#/client/features/chat/components/prompt-template')
 
     render(<PromptTemplate autoModel={false} />, { wrapper: createQueryClientWrapper() })
 
