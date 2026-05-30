@@ -183,6 +183,7 @@ export function useChatActions({
           blockIndex: params.blockIndex,
           language: params.language,
           content: params.content,
+          force: params.force,
         }),
       })
       if (!res.ok) {

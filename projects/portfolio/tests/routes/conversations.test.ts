@@ -237,11 +237,16 @@ describe('conversationsRoutes', () => {
         blockIndex: 0,
         language: 'html',
         content: '<p/>',
+        force: true,
       }),
     })
 
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ file, alreadyExisted: false })
+    const lastSaveCall = repositoryMock.saveGeneratedFile.mock.calls.at(-1)
+    expect(lastSaveCall?.[0]).toBe('postgres://db')
+    expect(lastSaveCall?.[1]).toBe('test@example.com')
+    expect(lastSaveCall?.[2]).toEqual(expect.objectContaining({ force: true }))
   })
 
   it('DELETE /messages は複数 query を repository.deleteMessages に渡す', async () => {

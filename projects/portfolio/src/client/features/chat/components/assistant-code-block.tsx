@@ -2,6 +2,7 @@ import { createContext, type HTMLAttributes, type ReactNode, useContext, useEffe
 import {
   CodeBlockGenerateButton,
   CodeBlockPreviewButton,
+  CodeBlockPreviewLink,
   CodeBlockRenderer,
 } from '#/client/features/chat/components/code-block-renderer'
 import type { GeneratedCodeFile } from '#/types'
@@ -10,6 +11,7 @@ export type SaveGeneratedFileRequest = {
   blockIndex: number
   language: string
   content: string
+  force?: boolean
 }
 
 export interface AssistantCodeBlockContextValue {
@@ -112,6 +114,35 @@ function AssistantSavableCodeBlock({
     }
   }
 
+  const handlePreview = async () => {
+    const previewWindow = window.open('about:blank', '_blank')
+    if (!previewWindow) {
+      return
+    }
+    previewWindow.opener = null
+
+    setSaving(true)
+    setError(null)
+    try {
+      const file = await ctx.onSave({
+        blockIndex,
+        language: detectedLanguage ?? '',
+        content: code,
+        force: true,
+      })
+      if (file?.previewUrl) {
+        previewWindow.location.href = file.previewUrl
+      } else {
+        previewWindow.close()
+      }
+    } catch (err) {
+      previewWindow.close()
+      setError(err instanceof Error ? err.message : 'Failed to preview')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (previewHref && awaitingPreviewRef.current) {
       window.open(previewHref, '_blank', 'noopener,noreferrer')
@@ -120,7 +151,11 @@ function AssistantSavableCodeBlock({
   }, [previewHref])
 
   const actions = previewHref ? (
-    <CodeBlockPreviewButton href={previewHref} />
+    ctx.canSaveGeneratedFile ? (
+      <CodeBlockPreviewButton onClick={handlePreview} pending={saving} disabled={ctx.disabled} />
+    ) : (
+      <CodeBlockPreviewLink href={previewHref} />
+    )
   ) : canShowSaveAction ? (
     <CodeBlockGenerateButton onClick={handleSave} pending={saving} disabled={ctx.disabled} />
   ) : undefined

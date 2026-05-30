@@ -49,6 +49,7 @@ interface ChatConversationRepository {
       blockIndex: number
       language: string
       content: string
+      force?: boolean
     },
     fileServerConfig: FileServerConfig | null
   ): Promise<SaveGeneratedFileResult>

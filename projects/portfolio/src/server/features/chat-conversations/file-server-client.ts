@@ -42,6 +42,11 @@ export function buildFileServerPreviewUrl(publicBaseUrl: string, publicPath: str
   return `${publicBaseUrl}${publicPath}`
 }
 
+export async function checkFileExists(publicBaseUrl: string, publicPath: string): Promise<boolean> {
+  const res = await fetch(buildFileServerPreviewUrl(publicBaseUrl, publicPath), { method: 'HEAD' })
+  return res.ok
+}
+
 /**
  * file-server の設定を env から解決する。
  * 現時点では固定 admin credentials を使うが、将来 portfolio user と
