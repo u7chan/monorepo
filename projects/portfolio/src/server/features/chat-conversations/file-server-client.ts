@@ -43,13 +43,8 @@ export function buildFileServerPreviewUrl(publicBaseUrl: string, publicPath: str
 }
 
 export async function checkFileExists(publicBaseUrl: string, publicPath: string): Promise<boolean> {
-  try {
-    const res = await fetch(buildFileServerPreviewUrl(publicBaseUrl, publicPath), { method: 'HEAD' })
-    return res.ok
-  } catch (error) {
-    logger.warn({ err: error, publicPath }, 'file-server file existence check failed')
-    return false
-  }
+  const res = await fetch(buildFileServerPreviewUrl(publicBaseUrl, publicPath), { method: 'HEAD' })
+  return res.ok
 }
 
 /**

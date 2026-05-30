@@ -118,9 +118,12 @@ export async function saveGeneratedFile(
     return { ok: true, file: existing, alreadyExisted: true }
   }
   if (existing && params.force) {
-    const exists = await checkFileExists(fileServerConfig.publicBaseUrl, existing.publicPath)
+    const exists = await checkExistingFileExists(fileServerConfig, existing)
     if (exists) {
       return { ok: true, file: existing, alreadyExisted: true }
+    }
+    if (exists === null) {
+      return { ok: false, reason: 'file-server-unavailable' }
     }
   }
 
@@ -163,6 +166,18 @@ export async function saveGeneratedFile(
   await db.update(messagesTable).set({ metadata: mergedMetadata }).where(eq(messagesTable.id, params.messageId))
 
   return { ok: true, file, alreadyExisted: false }
+}
+
+async function checkExistingFileExists(
+  fileServerConfig: FileServerConfig,
+  existing: GeneratedCodeFile
+): Promise<boolean | null> {
+  try {
+    return await checkFileExists(fileServerConfig.publicBaseUrl, existing.publicPath)
+  } catch (error) {
+    logger.warn({ err: error, publicPath: existing.publicPath }, 'file-server file existence check failed')
+    return null
+  }
 }
 
 export type { AssistantMetadata }

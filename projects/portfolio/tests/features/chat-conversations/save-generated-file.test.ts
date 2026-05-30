@@ -10,6 +10,7 @@ const importSubject = async (params: {
     conversationUserId: string
   }
   fileExists?: boolean
+  fileExistsError?: Error
 }) => {
   mockLogger()
   const updateSets: unknown[] = []
@@ -47,7 +48,9 @@ const importSubject = async (params: {
 
   const loginToFileServer = vi.fn().mockResolvedValue('session-value')
   const uploadFileToFileServer = vi.fn().mockResolvedValue(undefined)
-  const checkFileExists = vi.fn().mockResolvedValue(params.fileExists ?? true)
+  const checkFileExists = params.fileExistsError
+    ? vi.fn().mockRejectedValue(params.fileExistsError)
+    : vi.fn().mockResolvedValue(params.fileExists ?? true)
   vi.doMock('#/server/features/chat-conversations/file-server-client', () => ({
     buildFileServerPreviewUrl: vi.fn((publicBaseUrl: string, publicPath: string) => `${publicBaseUrl}${publicPath}`),
     checkFileExists,
@@ -270,6 +273,43 @@ describe('saveGeneratedFile', () => {
         ],
       },
     })
+  })
+
+  it('force 指定の存在確認に失敗したら upload せず file-server-unavailable を返す', async () => {
+    const existing = {
+      blockIndex: 0,
+      language: 'html',
+      fileName: 'm1-block-0.html',
+      publicPath: '/public/portfolio/c1/m1-block-0.html',
+      previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-0.html',
+      contentType: 'text/html; charset=utf-8',
+      createdAt: '2026-04-19T00:00:00.000Z',
+    }
+    const { saveGeneratedFile, checkFileExists, uploadFileToFileServer } = await importSubject({
+      users: [{ id: 'u1', email: 'x@example.com' }],
+      ownedRow: {
+        messageId: 'm1',
+        role: 'assistant',
+        metadata: { generatedFiles: [existing] },
+        conversationUserId: 'u1',
+      },
+      fileExistsError: new Error('connection refused'),
+    })
+
+    const result = await saveGeneratedFile(
+      'postgres://db',
+      'x@example.com',
+      { conversationId: 'c1', messageId: 'm1', blockIndex: 0, language: 'html', content: '<p/>', force: true },
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
+    )
+
+    expect(result).toEqual({ ok: false, reason: 'file-server-unavailable' })
+    expect(checkFileExists).toHaveBeenCalledWith('http://files.example.com', existing.publicPath)
+    expect(uploadFileToFileServer).not.toHaveBeenCalled()
   })
 
   it('新規保存時は login+upload して metadata.generatedFiles を更新する', async () => {
