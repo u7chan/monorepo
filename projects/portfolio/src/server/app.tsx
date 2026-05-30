@@ -10,6 +10,7 @@ import { chatRoutes } from './routes/chat'
 import { conversationsRoutes } from './routes/conversations'
 import { htmlRoutes } from './routes/html'
 import { modelsRoutes } from './routes/models'
+import { promptTemplatesRoutes } from './routes/prompt-templates'
 import type { HonoEnv } from './routes/shared'
 
 const securityHeaders = {
@@ -95,6 +96,7 @@ const routes = app
   .route('/', chatRoutes)
   .route('/', conversationsRoutes)
   .route('/', modelsRoutes)
+  .route('/', promptTemplatesRoutes)
   .route('/', htmlRoutes)
 
 export type AppType = typeof routes
