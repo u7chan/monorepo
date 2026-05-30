@@ -49,7 +49,7 @@ describe('useLocalStorageSettings', () => {
   })
 
   const importHook = async () => {
-    const mod = await import('#/client/components/chat/chat-settings/hooks/use-local-storage-settings')
+    const mod = await import('#/client/features/chat/components/chat-settings/hooks/use-local-storage-settings')
     return mod.useLocalStorageSettings
   }
 

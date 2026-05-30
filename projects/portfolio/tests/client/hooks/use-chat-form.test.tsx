@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 describe('useChatForm', () => {
   const importSubject = async () => {
-    const { useChatForm } = await import('#/client/components/chat/hooks/use-chat-form')
+    const { useChatForm } = await import('#/client/features/chat/hooks/use-chat-form')
     return { useChatForm }
   }
 

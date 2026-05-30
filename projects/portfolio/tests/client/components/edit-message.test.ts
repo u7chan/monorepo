@@ -4,7 +4,7 @@ import {
   buildEditedSendMessages,
   getUserMessageText,
   prepareApiMessages,
-} from '#/client/components/chat/edit-message'
+} from '#/client/features/chat/lib/edit-message'
 import type { AssistantMessage, Message, SystemMessage, UserMessage } from '#/types'
 
 const createUserMessage = (id: string, content: UserMessage['content']): UserMessage => ({

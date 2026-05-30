@@ -34,7 +34,7 @@ describe('useMessageScroll', () => {
   })
 
   const importSubject = async () => {
-    const { useMessageScroll } = await import('#/client/components/chat/hooks/use-message-scroll')
+    const { useMessageScroll } = await import('#/client/features/chat/hooks/use-message-scroll')
     return { useMessageScroll }
   }
 

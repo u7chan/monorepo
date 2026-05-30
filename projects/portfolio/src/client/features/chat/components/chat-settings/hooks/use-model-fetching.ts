@@ -1,0 +1,71 @@
+import { useQuery } from '@tanstack/react-query'
+import { hc } from 'hono/client'
+import { readFromLocalStorage } from '#/client/shared/storage/remote-storage-settings'
+import type { AppType } from '#/server/app'
+
+const client = hc<AppType>('/')
+const FETCH_TIMEOUT_MS = 10000
+
+async function fetchModelsWithTimeout(
+  baseURL: string,
+  apiKey: string
+): Promise<{ models: string[]; error: string | null }> {
+  const fetchPromise = client.api['fetch-models'].$get({
+    header: {
+      'api-key': apiKey,
+      'base-url': baseURL,
+    },
+  })
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Timeout')), FETCH_TIMEOUT_MS)
+  })
+
+  try {
+    const response = await Promise.race([fetchPromise, timeoutPromise])
+    if (response.ok) {
+      const models = await response.json()
+      return { models, error: null }
+    }
+    return { models: [], error: 'Failed to fetch models' }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Timeout') {
+      return { models: [], error: 'Request timed out' }
+    }
+    console.error('Failed to fetch models:', error)
+    return { models: [], error: 'Failed to fetch models' }
+  }
+}
+
+interface UseModelFetchingOptions {
+  autoModel: boolean
+}
+
+interface UseModelFetchingReturn {
+  fetchedModels: string[]
+  isLoadingModels: boolean
+  fetchError: string | null
+  refetchModels: () => void
+}
+
+export function useModelFetching(options: UseModelFetchingOptions): UseModelFetchingReturn {
+  const { autoModel } = options
+
+  const { baseURL, apiKey } = readFromLocalStorage()
+
+  const query = useQuery({
+    queryKey: ['chat-models', baseURL, apiKey],
+    queryFn: async () => {
+      return fetchModelsWithTimeout(baseURL, apiKey)
+    },
+    enabled: autoModel,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  return {
+    fetchedModels: query.data?.models ?? [],
+    isLoadingModels: query.isLoading,
+    fetchError: query.data?.error ?? null,
+    refetchModels: query.refetch,
+  }
+}

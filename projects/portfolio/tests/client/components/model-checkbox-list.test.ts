@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupModelsByProvider } from '#/client/components/chat-compare/model-checkbox-list'
+import { groupModelsByProvider } from '#/client/features/chat-compare/components/model-checkbox-list'
 
 describe('groupModelsByProvider', () => {
   it('provider ごとにモデルを分類し、表示名から provider を省く', () => {

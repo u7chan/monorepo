@@ -2,7 +2,7 @@
 
 import { renderHook, act } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { useCompareState } from '#/client/components/chat-compare/hooks/use-compare-state'
+import { useCompareState } from '#/client/features/chat-compare/hooks/use-compare-state'
 
 describe('useCompareState', () => {
   describe('setModelCancelled', () => {

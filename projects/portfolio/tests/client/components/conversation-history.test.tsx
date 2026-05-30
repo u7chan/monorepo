@@ -2,7 +2,7 @@
 
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ConversationHistory } from '#/client/components/chat/conversation-history'
+import { ConversationHistory } from '#/client/features/chat/components/conversation-history'
 
 describe('ConversationHistory', () => {
   it('updatedAt がある会話は日付とメッセージ数アイコンを表示する', () => {

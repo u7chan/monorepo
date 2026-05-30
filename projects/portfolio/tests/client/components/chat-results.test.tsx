@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ChatResults } from '#/client/components/chat/chat-results'
+import { ChatResults } from '#/client/features/chat/components/chat-results'
 import type { AssistantMetadata, Message } from '#/types'
 
 afterEach(() => {

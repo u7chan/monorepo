@@ -2,7 +2,7 @@ import { createRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { Route as RootRoute } from './__root'
 
-const modules = import.meta.glob('../components/svg/*-icon.tsx', { eager: true })
+const modules = import.meta.glob('../shared/icons/*-icon.tsx', { eager: true })
 
 interface IconEntry {
   fileName: string
