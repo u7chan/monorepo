@@ -1,7 +1,11 @@
+import { hc } from 'hono/client'
 import type { ChangeEvent, KeyboardEvent } from 'react'
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { useModelFetching } from '#/client/components/chat/chat-settings/hooks/use-model-fetching'
 import { readFromLocalStorage, saveToLocalStorage } from '#/client/storage/remote-storage-settings'
+import type { AppType } from '#/server/app'
+
+const client = hc<AppType>('/')
 
 interface PromptTemplate {
   id: string
@@ -10,53 +14,6 @@ interface PromptTemplate {
   placeholder: string
   prompt: string
 }
-
-const promptTemplates: PromptTemplate[] = [
-  {
-    id: 'translate_en',
-    inputType: 'textarea',
-    title: '🇺🇸 英語へ翻訳',
-    placeholder: '例: これを英語で言うと？',
-    prompt: `
-You are an English translation assistant.
-Please accurately and naturally translate the user's input text from Japanese into English.
-Use the very last user input in the system prompt.`.trim(),
-  },
-  {
-    id: 'translate_ja',
-    inputType: 'textarea',
-    title: '🇯🇵 日本語へ翻訳',
-    placeholder: '例: How do you say this in Japanese?',
-    prompt: `
-You are a Japanese translation assistant.
-Please accurately and naturally translate the user's input text into Japanese.
-Use the very last user input in the system prompt.`.trim(),
-  },
-  {
-    id: 'commit_message',
-    inputType: 'text',
-    title: '📝 コミットメッセージを作成',
-    placeholder: '例: ユーザー登録機能を追加',
-    prompt: `
-You are a Assistant to create commit messages.
-Summarizes the input and produces an English sentence of appropriate length for the commit message.
-Please enclose the English sentences in triple backtick code blocks when outputting.
-Be sure to translate the output English into Japanese again with a new line and output it in “Japanese”.
-Use the very last user input in the system prompt.`.trim(),
-  },
-  {
-    id: 'text_summarization',
-    inputType: 'textarea',
-    title: '✍️ 文章を校正',
-    placeholder: '例: 入力した文章を校正します',
-    prompt: `
-You are an expert proofreader.
-Please carefully edit the following text for spelling, grammar, punctuation, and sentence structure errors.
-Correct any awkward or unnatural phrasing and improve clarity while preserving the original meaning and intent.
-Provide the revised, polished version of the entire text.
-Use the very last user input in the system prompt.`.trim(),
-  },
-] as const
 
 export interface TemplateInput {
   model: string
@@ -85,12 +42,41 @@ interface Props {
 
 function PromptTemplateComponent({ autoModel, placeholder, onSubmit }: Props) {
   const [composing, setComposition] = useState(false)
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([])
 
   const defaultSettings = useMemo(() => {
     return readFromLocalStorage()
   }, [])
   const [templateModels, setTemplateModels] = useState(defaultSettings.templateModels || {})
   const { fetchedModels, isLoadingModels, fetchError } = useModelFetching({ autoModel })
+
+  useEffect(() => {
+    let ignore = false
+
+    client.api['prompt-templates']
+      .$get()
+      .then(async (response) => {
+        if (!response.ok) {
+          return { data: [] }
+        }
+
+        return response.json()
+      })
+      .then(({ data }) => {
+        if (!ignore) {
+          setPromptTemplates(data)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setPromptTemplates([])
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   const handleChangeComposition = (composition: boolean) => {
     setComposition(composition)
@@ -176,12 +162,16 @@ function PromptTemplateComponent({ autoModel, placeholder, onSubmit }: Props) {
     )
   }
 
+  if (promptTemplates.length === 0) {
+    return null
+  }
+
   return (
     <div>
       <div className='grid grid-cols-1 gap-3 p-4 md:grid-cols-2'>
         {promptTemplates.map((template) => (
           <div
-            key={template.title}
+            key={template.id}
             className='rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-600 dark:bg-gray-800'
           >
             <div className='mb-2 flex items-center justify-between'>

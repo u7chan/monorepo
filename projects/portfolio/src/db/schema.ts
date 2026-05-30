@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm'
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 // ユーザー
 export const usersTable = pgTable('users', {
@@ -31,6 +31,19 @@ export const messagesTable = pgTable('messages', {
   reasoningContent: text('reasoning_content').notNull(),
   metadata: jsonb('metadata').notNull().default({}),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull(),
+})
+
+// 共通プロンプトテンプレート
+export const promptTemplatesTable = pgTable('prompt_templates', {
+  id: text('id').primaryKey(),
+  inputType: text('input_type').notNull(),
+  title: text('title').notNull(),
+  placeholder: text('placeholder').notNull(),
+  prompt: text('prompt').notNull(),
+  displayOrder: integer('display_order').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull(),
 })
 
 // リレーション

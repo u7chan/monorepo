@@ -132,6 +132,20 @@ printf 'replace-with-password\n' | bun run db:user:add -- --email test@example.c
 
 同じメールアドレスが既に存在する場合、このコマンドは失敗します。
 
+### Seed Prompt Templates
+
+```sh
+bun run db:prompt-templates:seed
+```
+
+Seed結果はDB側から確認できます。
+
+```sql
+select id, display_order, enabled
+from prompt_templates
+order by display_order, id;
+```
+
 ## Debug Pages
 
 ### SVG Icon Catalog
