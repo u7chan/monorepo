@@ -9,6 +9,7 @@ const importSubject = async (params: {
     metadata: unknown
     conversationUserId: string
   }
+  fileExists?: boolean
 }) => {
   mockLogger()
   const updateSets: unknown[] = []
@@ -46,15 +47,17 @@ const importSubject = async (params: {
 
   const loginToFileServer = vi.fn().mockResolvedValue('session-value')
   const uploadFileToFileServer = vi.fn().mockResolvedValue(undefined)
+  const checkFileExists = vi.fn().mockResolvedValue(params.fileExists ?? true)
   vi.doMock('#/server/features/chat-conversations/file-server-client', () => ({
     buildFileServerPreviewUrl: vi.fn((publicBaseUrl: string, publicPath: string) => `${publicBaseUrl}${publicPath}`),
+    checkFileExists,
     loginToFileServer,
     uploadFileToFileServer,
   }))
 
   const { saveGeneratedFile, resolveExtension } =
     await import('#/server/features/chat-conversations/save-generated-file')
-  return { saveGeneratedFile, resolveExtension, updateSets, loginToFileServer, uploadFileToFileServer }
+  return { saveGeneratedFile, resolveExtension, updateSets, checkFileExists, loginToFileServer, uploadFileToFileServer }
 }
 
 describe('saveGeneratedFile', () => {
@@ -170,6 +173,103 @@ describe('saveGeneratedFile', () => {
 
     expect(result).toEqual({ ok: true, file: existing, alreadyExisted: true })
     expect(uploadFileToFileServer).not.toHaveBeenCalled()
+  })
+
+  it('force 指定でも既存ファイルが存在すれば upload しない', async () => {
+    const existing = {
+      blockIndex: 0,
+      language: 'html',
+      fileName: 'm1-block-0.html',
+      publicPath: '/public/portfolio/c1/m1-block-0.html',
+      previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-0.html',
+      contentType: 'text/html; charset=utf-8',
+      createdAt: '2026-04-19T00:00:00.000Z',
+    }
+    const { saveGeneratedFile, checkFileExists, uploadFileToFileServer } = await importSubject({
+      users: [{ id: 'u1', email: 'x@example.com' }],
+      ownedRow: {
+        messageId: 'm1',
+        role: 'assistant',
+        metadata: { generatedFiles: [existing] },
+        conversationUserId: 'u1',
+      },
+      fileExists: true,
+    })
+
+    const result = await saveGeneratedFile(
+      'postgres://db',
+      'x@example.com',
+      { conversationId: 'c1', messageId: 'm1', blockIndex: 0, language: 'html', content: '<p/>', force: true },
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
+    )
+
+    expect(result).toEqual({ ok: true, file: existing, alreadyExisted: true })
+    expect(checkFileExists).toHaveBeenCalledWith('http://files.example.com', existing.publicPath)
+    expect(uploadFileToFileServer).not.toHaveBeenCalled()
+  })
+
+  it('force 指定で既存ファイルが不在なら再 upload して同一 blockIndex を置換する', async () => {
+    const existing = {
+      blockIndex: 0,
+      language: 'html',
+      fileName: 'm1-block-0.html',
+      publicPath: '/public/portfolio/c1/m1-block-0.html',
+      previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-0.html',
+      contentType: 'text/html; charset=utf-8',
+      createdAt: '2026-04-19T00:00:00.000Z',
+    }
+    const other = {
+      blockIndex: 1,
+      language: 'svg',
+      fileName: 'm1-block-1.svg',
+      publicPath: '/public/portfolio/c1/m1-block-1.svg',
+      previewUrl: 'http://files.example.com/public/portfolio/c1/m1-block-1.svg',
+      contentType: 'image/svg+xml; charset=utf-8',
+      createdAt: '2026-04-19T00:00:00.000Z',
+    }
+    const { saveGeneratedFile, updateSets, uploadFileToFileServer } = await importSubject({
+      users: [{ id: 'u1', email: 'x@example.com' }],
+      ownedRow: {
+        messageId: 'm1',
+        role: 'assistant',
+        metadata: { generatedFiles: [existing, other] },
+        conversationUserId: 'u1',
+      },
+      fileExists: false,
+    })
+
+    const result = await saveGeneratedFile(
+      'postgres://db',
+      'x@example.com',
+      { conversationId: 'c1', messageId: 'm1', blockIndex: 0, language: 'html', content: '<p>new</p>', force: true },
+      {
+        baseUrl: 'http://fs',
+        publicBaseUrl: 'http://files.example.com',
+        credentials: { username: 'admin', password: 'p' },
+      }
+    )
+
+    expect(result).toMatchObject({ ok: true, alreadyExisted: false })
+    expect(uploadFileToFileServer).toHaveBeenCalledWith(
+      expect.anything(),
+      'session-value',
+      expect.objectContaining({ fileName: 'm1-block-0.html', content: '<p>new</p>' })
+    )
+    expect(updateSets[0]).toMatchObject({
+      metadata: {
+        generatedFiles: [
+          other,
+          expect.objectContaining({
+            blockIndex: 0,
+            publicPath: '/public/portfolio/c1/m1-block-0.html',
+          }),
+        ],
+      },
+    })
   })
 
   it('新規保存時は login+upload して metadata.generatedFiles を更新する', async () => {

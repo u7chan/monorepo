@@ -45,6 +45,7 @@ const SaveGeneratedFileBodySchema = z.object({
   blockIndex: z.number().int().nonnegative(),
   language: z.string().min(1),
   content: z.string().min(1),
+  force: z.boolean().optional(),
 })
 
 const conversationsRoutes = new Hono<HonoEnv>()
@@ -132,6 +133,7 @@ const conversationsRoutes = new Hono<HonoEnv>()
           blockIndex: body.blockIndex,
           language: body.language,
           content: body.content,
+          force: body.force,
         },
         fileServerConfig
       )

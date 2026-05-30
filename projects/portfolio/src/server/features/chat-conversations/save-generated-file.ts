@@ -3,6 +3,7 @@ import { getDatabase } from '#/db'
 import { conversationsTable, messagesTable, usersTable } from '#/db/schema'
 import {
   buildFileServerPreviewUrl,
+  checkFileExists,
   type FileServerConfig,
   loginToFileServer,
   uploadFileToFileServer,
@@ -29,6 +30,7 @@ interface SaveGeneratedFileParams {
   blockIndex: number
   language: string
   content: string
+  force?: boolean
 }
 
 const LANGUAGE_EXTENSION_MAP: Record<string, { ext: string; contentType: string }> = {
@@ -110,10 +112,16 @@ export async function saveGeneratedFile(
     ? (existingMetadata.generatedFiles as GeneratedCodeFile[])
     : []
 
-  // 既に同じ blockIndex で保存済みなら再 upload せずそのまま返す
+  // force 指定時は file-server 側の実体が残っている場合だけ既存 file を返す
   const existing = existingFiles.find((f) => f.blockIndex === params.blockIndex)
-  if (existing) {
+  if (existing && !params.force) {
     return { ok: true, file: existing, alreadyExisted: true }
+  }
+  if (existing && params.force) {
+    const exists = await checkFileExists(fileServerConfig.publicBaseUrl, existing.publicPath)
+    if (exists) {
+      return { ok: true, file: existing, alreadyExisted: true }
+    }
   }
 
   const fileName = `${params.messageId}-block-${params.blockIndex}.${extension.ext}`
@@ -145,7 +153,8 @@ export async function saveGeneratedFile(
     createdAt,
   }
 
-  const mergedFiles = [...existingFiles, file]
+  const otherFiles = existingFiles.filter((f) => f.blockIndex !== params.blockIndex)
+  const mergedFiles = [...otherFiles, file]
   const mergedMetadata: Record<string, unknown> = {
     ...existingMetadata,
     generatedFiles: mergedFiles,

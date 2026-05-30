@@ -114,10 +114,37 @@ type CodeBlockRendererProps = HTMLAttributes<HTMLElement> & {
 }
 
 export interface CodeBlockPreviewButtonProps {
+  onClick: () => void
+  pending?: boolean
+  disabled?: boolean
+}
+
+export function CodeBlockPreviewButton({ onClick, pending, disabled }: CodeBlockPreviewButtonProps) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      disabled={pending || disabled}
+      aria-label={pending ? 'Checking preview' : 'Preview code block'}
+      className='relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+    >
+      {pending ? (
+        <svg viewBox='0 0 24 24' aria-hidden='true' fill='none' className='h-[18px] w-[18px] animate-spin'>
+          <circle cx='12' cy='12' r='9' strokeWidth='2.5' className='stroke-current opacity-25' />
+          <path d='M21 12a9 9 0 0 0-9-9' strokeWidth='2.5' strokeLinecap='round' className='stroke-current' />
+        </svg>
+      ) : (
+        <EyeIcon size={18} className='stroke-current' />
+      )}
+    </button>
+  )
+}
+
+export interface CodeBlockPreviewLinkProps {
   href: string
 }
 
-export function CodeBlockPreviewButton({ href }: CodeBlockPreviewButtonProps) {
+export function CodeBlockPreviewLink({ href }: CodeBlockPreviewLinkProps) {
   return (
     <a
       href={href}

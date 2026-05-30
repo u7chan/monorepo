@@ -300,6 +300,65 @@ describe('MessageRenderer', () => {
       )
       expect(screen.queryByRole('button', { name: 'Generate preview' })).toBeNull()
     })
+
+    it('認証済みの既存プレビューは force 指定で保存し直して戻り値の URL を開く', async () => {
+      const previewWindow = {
+        location: { href: '' },
+        close: vi.fn(),
+      }
+      const openMock = vi.spyOn(window, 'open').mockReturnValue(previewWindow as unknown as Window)
+      const onSaveGeneratedFile = vi.fn().mockResolvedValue({
+        blockIndex: 0,
+        language: 'html',
+        fileName: 'message-1-block-0.html',
+        publicPath: '/public/portfolio/c1/message-1-block-0.html',
+        previewUrl: 'http://files.example.com/public/portfolio/c1/message-1-block-0.html',
+        contentType: 'text/html; charset=utf-8',
+        createdAt: '2026-04-19T00:00:00.000Z',
+      })
+
+      render(
+        <MessageRenderer
+          message={createAssistantMessage('```html\n<div>Hello</div>\n```', [
+            {
+              blockIndex: 0,
+              language: 'html',
+              fileName: 'message-1-block-0.html',
+              publicPath: '/public/portfolio/c1/message-1-block-0.html',
+              previewUrl: 'http://files.example.com/public/portfolio/c1/message-1-block-0.html',
+              contentType: 'text/html; charset=utf-8',
+              createdAt: '2026-04-19T00:00:00.000Z',
+            },
+          ])}
+          index={0}
+          messages={[]}
+          conversationId='conversation-1'
+          canSaveGeneratedFile={true}
+          markdownPreview={true}
+          copied={false}
+          onCopyMessage={vi.fn()}
+          onSaveGeneratedFile={onSaveGeneratedFile}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview code block' }))
+
+      await waitFor(() => {
+        expect(onSaveGeneratedFile).toHaveBeenCalledWith(
+          0,
+          expect.objectContaining({
+            blockIndex: 0,
+            language: 'html',
+            force: true,
+          })
+        )
+      })
+      expect(openMock).toHaveBeenCalledWith('', '_blank', 'noopener,noreferrer')
+      expect(previewWindow.location.href).toBe('http://files.example.com/public/portfolio/c1/message-1-block-0.html')
+      expect(previewWindow.close).not.toHaveBeenCalled()
+
+      openMock.mockRestore()
+    })
   })
 
   describe('Markdown セキュリティ', () => {
