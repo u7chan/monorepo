@@ -24,12 +24,12 @@ docker build --target test -t execution-worker:test .
 docker build --target final -t execution-worker:local .
 
 # compose up
-docker compose up --build execution-worker
+EXECUTION_WORKER_PORT=3100 docker compose up --build execution-worker
 ```
 
 ## Smoke Test
 
-PR作成時は必ず以下を実行し、結果をPR本文のVerificationセクションに記録すること。
+Dockerfile / compose / runtime 起動に関わる変更では、可能な場合は以下を実行し、結果をPR本文のVerificationセクションに記録すること。環境上実行不可の場合はその理由をPR本文に記録すること。
 
 ```bash
 # build & up
