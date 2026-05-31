@@ -13,6 +13,8 @@ load_dotenv()  # loads .env into os.environ
 Called once at module level. Required environment variables:
 - `OPENAI_API_KEY` — LLM provider API key
 - `OPENAI_BASE_URL` — LLM provider base URL (optional, used by LiteLLM)
+- `EXECUTION_WORKER_URL` — execution-worker base URL (optional; enables the `execute_javascript` tool)
+- `EXECUTION_WORKER_TIMEOUT_MS` — app-api to execution-worker request timeout in milliseconds (optional, default `5000`)
 
 ## Built-in Tool Executor
 
@@ -30,6 +32,7 @@ Creates a `BuiltinToolRegistry` with the following built-in tools registered:
 - `get_current_time` — returns the current UTC datetime in ISO 8601 format
 - `concat` — concatenates two strings
 - `ask_user` — asks the user a question and returns their answer (interactive)
+- `execute_javascript` — runs JavaScript through execution-worker, only when `EXECUTION_WORKER_URL` is set
 
 Tool definitions are in `src/simple_agent_poc/adapters/tools/`. Each tool module exports a `TOOL_DEFINITION` constant and an `execute` function.
 

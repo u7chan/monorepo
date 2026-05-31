@@ -13,6 +13,7 @@ agents:
       - get_current_time
       - concat
       - ask_user
+      - execute_javascript
     api_type: completion
     max_tool_rounds: 5
 
@@ -31,5 +32,6 @@ agents:
       - get_current_time
       - concat
       - ask_user
+      - execute_javascript
     api_type: responses
     max_tool_rounds: 5

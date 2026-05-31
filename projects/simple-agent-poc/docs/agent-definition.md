@@ -24,7 +24,7 @@ When `null` or omitted, the temperature parameter is **not sent** to the LLM API
 
 ### `tools`
 
-A list of tool names as strings (e.g. `[get_current_time, concat, ask_user]`). Each name must correspond to a built-in tool registered in `BuiltinToolRegistry` (see `src/simple_agent_poc/adapters/tools/registry.py`).
+A list of tool names as strings (e.g. `[get_current_time, concat, ask_user, execute_javascript]`). Each name must correspond to a built-in tool registered in `BuiltinToolRegistry` (see `src/simple_agent_poc/adapters/tools/registry.py`).
 
 Tool names are resolved to `ToolDefinition` objects at request time and passed to the LLM. The LLM may decide to call any of the listed tools during execution.
 

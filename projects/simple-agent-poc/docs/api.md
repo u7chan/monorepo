@@ -155,3 +155,21 @@ def resolve_session_id(*, header_session_id, body_session_id):
 ## Dependency Injection
 
 The FastAPI app uses `Depends(get_run_agent_use_case)` to inject `RunAgentUseCase` into endpoint handlers. The factory is created once at app startup via `create_run_agent_use_case_factory()`, ensuring the same `InMemorySessionStore` instance is shared across all requests.
+
+## execution-worker Integration
+
+When `EXECUTION_WORKER_URL` is set, bootstrap registers an `execute_javascript`
+tool that calls the JavaScript execution-worker `POST /execute` endpoint.
+Add `execute_javascript` to an agent definition's `tools` list to expose it to
+that agent.
+
+Environment variables:
+
+| Name | Required | Default | Description |
+|:---|:---|:---|:---|
+| `EXECUTION_WORKER_URL` | no | unset | Base URL for execution-worker, for example `http://127.0.0.1:3000`. If unset, the tool is not registered. |
+| `EXECUTION_WORKER_TIMEOUT_MS` | no | `5000` | HTTP request timeout for app-api to worker calls. |
+
+The app-api client preserves worker error codes and maps worker failures into
+categories: `validation`, `payload_too_large`, `concurrency_limit`,
+`execution_error`, `timeout`, and `upstream_unavailable`.
