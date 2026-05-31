@@ -25,6 +25,12 @@ while read -r target; do
   # 空行をスキップ
   [[ -z "$target" ]] && continue
 
+  # projects/poc/** はDocker自動ビルド対象外
+  if [[ "$target" == projects/poc/* ]] || [[ "$target" == projects/poc ]]; then
+    echo "Poc project (skip Docker auto build): $target"
+    continue
+  fi
+
   if [[ -f "$target/Dockerfile" ]]; then
     echo "Dockerfile found: $target"
 

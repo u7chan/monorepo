@@ -8,6 +8,18 @@ set -e
 # 対象ディレクトリを定義
 TARGET_DIRS=("projects")
 
+# プロジェクトルート判定用のマーカーファイル
+PROJECT_MARKERS=(
+  "package.json"
+  "pyproject.toml"
+  "Dockerfile"
+  "go.mod"
+  "Cargo.toml"
+  "Makefile"
+  "docker-compose.yaml"
+  "docker-compose.yml"
+)
+
 # 関数: diff_with_renames
 # 引数:
 #   $1 - 比較したい最初のリファレンス（例: HEAD）
@@ -22,6 +34,40 @@ diff_with_renames() {
    git diff --name-only $1 $2 || true | grep -vFf <(git diff --name-only --diff-filter=R $1 $2 || true)
  }
 
+# 関数: find_project_root
+# 引数:
+#   $1 - 変更ファイルのパス
+# 機能:
+#   ファイルの親ディレクトリから上方へ辿り、プロジェクトルートを探索する。
+#   projects/<name> 直下のマーカーが存在する場合はそれを優先する。
+#   それ以外の場合は最寄りのマーカーを含むディレクトリを返す。
+find_project_root() {
+  local file="$1"
+  local dir
+  dir="$(dirname "$file")"
+  local first_found=""
+
+  while [[ "$dir" != "." && "$dir" != "/" && "$dir" != "" ]]; do
+    for marker in "${PROJECT_MARKERS[@]}"; do
+      if [[ -f "$dir/$marker" ]]; then
+        if [[ -z "$first_found" ]]; then
+          first_found="$dir"
+        fi
+        # projects/<name> の直下マーカーを優先
+        if [[ "$dir" == projects/* ]] && [[ "$dir" != */*/* ]]; then
+          echo "$dir"
+          return 0
+        fi
+      fi
+    done
+    dir="$(dirname "$dir")"
+  done
+
+  if [[ -n "$first_found" ]]; then
+    echo "$first_found"
+  fi
+}
+
 # GitHub Actions環境での比較対象を決定
 if [ -n "$GITHUB_BASE_REF" ]; then
   # プルリクエストの場合、ベースブランチとの比較
@@ -35,25 +81,18 @@ echo "> diff with $BASE_REF"
 diff_with_renames HEAD "$BASE_REF"
 echo ""
 
-# 対象ディレクトリの配列をAWKに渡すための文字列を作成
-TARGET_DIRS_STR=$(printf "%s," "${TARGET_DIRS[@]}")
-TARGET_DIRS_STR=${TARGET_DIRS_STR%,}  # 末尾のカンマを削除
-
-# 最新のコミットとベースリファレンスの差分を取得
-# 対象ディレクトリ配下のファイルのディレクトリ名を取得
-diff_with_renames HEAD "$BASE_REF" | \
-awk -F/ -v target_dirs="$TARGET_DIRS_STR" '
-  BEGIN {
-    # 対象ディレクトリを動的に配列として定義
-    split(target_dirs, dirs_array, ",")
-    for (i in dirs_array) {
-      dirs[dirs_array[i]] = 1
-    }
-  }
-  $1 in dirs { print $1 "/" $2 }
-' | \
-# 重複を取り除く
-sort -u > changed_dirs.txt
+# 変更ファイルからプロジェクトルートを探索
+{
+  while IFS= read -r file; do
+    for target_dir in "${TARGET_DIRS[@]}"; do
+      prefix="$target_dir/"
+      if [[ "$file" == "$prefix"* ]]; then
+        find_project_root "$file"
+        break
+      fi
+    done
+  done < <(diff_with_renames HEAD "$BASE_REF")
+} | sort -u > changed_dirs.txt
 
 echo "> changes"
 cat changed_dirs.txt

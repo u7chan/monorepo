@@ -100,16 +100,30 @@ rm changed_dirs.txt build_projects.txt
 
 1. `changed_dirs.txt` ファイルの存在確認
 2. ファイルから各ディレクトリパスを読み取り
-3. 各ディレクトリに `Dockerfile` が存在するかチェック
-4. Dockerfileが存在するプロジェクトをカンマ区切りで結合
-5. GitHub Actions環境の場合は `$GITHUB_ENV` に `BUILD_PROJECT` として設定
-6. ローカルテスト用に `build_projects.txt` ファイルに出力
+3. `projects/poc/**` 配下のプロジェクトはDocker自動ビルド対象外としてスキップ
+4. 各ディレクトリに `Dockerfile` が存在するかチェック
+5. Dockerfileが存在するプロジェクトをカンマ区切りで結合
+6. GitHub Actions環境の場合は `$GITHUB_ENV` に `BUILD_PROJECT` として設定
+7. ローカルテスト用に `build_projects.txt` ファイルに出力
 
 ## 対象ディレクトリ
 
 このアクションは `get-changed-directories` アクションで検出された以下のディレクトリ配下の変更を対象とします：
 
 - `projects/` - 各種プロジェクト
+
+### 自動ビルド除外
+
+`projects/poc/` 配下のプロジェクトはDocker自動ビルド対象外です。PoC（Proof of Concept）プロジェクトは手動ビルドのみで扱います。
+
+```
+# PoCプロジェクト（自動ビルド対象外）
+projects/poc/backend-sse-chat-poc    -> スキップ（"Poc project ..." と表示）
+
+# 通常プロジェクト（自動ビルド対象）
+projects/chatbot-ui                  -> DockerfileがあればBUILD_PROJECTに含める
+projects/labs/tanstack-start-example -> DockerfileがあればBUILD_PROJECTに含める
+```
 
 ## エラーハンドリング
 
