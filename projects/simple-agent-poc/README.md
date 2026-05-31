@@ -18,6 +18,18 @@ uv run dev --agent kansaiben
 uv run api                 # HTTP API on 127.0.0.1:8000
 ```
 
+## execution-worker Integration
+
+Set these values when an agent definition should use the `execute_javascript`
+tool backed by the JavaScript execution-worker:
+
+```bash
+EXECUTION_WORKER_URL="http://127.0.0.1:3000"
+EXECUTION_WORKER_TIMEOUT_MS="5000"
+```
+
+The tool is registered only when `EXECUTION_WORKER_URL` is set.
+
 ## API Usage
 
 ```bash
