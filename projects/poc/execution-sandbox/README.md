@@ -4,8 +4,8 @@ Phase 1 JavaScript worker for the AI Agent Execution Sandbox.
 
 This service executes short JavaScript snippets through `POST /execute` with a fresh
 QuickJS Runtime and Context per request. It intentionally exposes only JavaScript in
-Phase 1; Python/Pyodide, queues, streaming output, runtime pooling, Docker packaging,
-and `app-api` integration are tracked as follow-up work.
+Phase 1; Python/Pyodide, queues, streaming output, runtime pooling, and `app-api`
+integration are tracked as follow-up work.
 
 ## Local commands
 
@@ -17,6 +17,50 @@ bun run dev
 ```
 
 The dev server listens on `PORT` or `3000` by default.
+
+## Docker and compose
+
+Build the CI test stage:
+
+```bash
+docker build --target test -t execution-worker:test .
+```
+
+Build the runtime image:
+
+```bash
+docker build --target final -t execution-worker:local .
+```
+
+Start the worker with compose:
+
+```bash
+docker compose up --build execution-worker
+```
+
+The compose service exposes the worker on `EXECUTION_WORKER_PORT` or `3000` by
+default. It includes a container healthcheck for `GET /healthz`.
+
+Verify health:
+
+```bash
+curl http://localhost:3000/healthz
+```
+
+Run a smoke execution request:
+
+```bash
+curl -s http://localhost:3000/execute \
+  -H 'content-type: application/json' \
+  -d '{
+    "language": "javascript",
+    "code": "async function main(input) { console.log(\"run\"); return input.values.reduce((a, b) => a + b, 0); }",
+    "input": { "values": [1, 2, 3] }
+  }'
+```
+
+Phase 1 compose intentionally starts only `execution-worker`; Redis, queue/retry,
+worker scale-out, and runtime pooling are not included.
 
 ## Endpoints
 
