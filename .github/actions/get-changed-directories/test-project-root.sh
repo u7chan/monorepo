@@ -25,16 +25,26 @@ find_project_root() {
   local file="$1"
   local dir
   dir="$(dirname "$file")"
+  local first_found=""
 
   while [[ "$dir" != "." && "$dir" != "/" && "$dir" != "" ]]; do
     for marker in "${PROJECT_MARKERS[@]}"; do
       if [[ -f "$dir/$marker" ]]; then
-        echo "$dir"
-        return 0
+        if [[ -z "$first_found" ]]; then
+          first_found="$dir"
+        fi
+        if [[ "$dir" == projects/* ]] && [[ "$dir" != */*/* ]]; then
+          echo "$dir"
+          return 0
+        fi
       fi
     done
     dir="$(dirname "$dir")"
   done
+
+  if [[ -n "$first_found" ]]; then
+    echo "$first_found"
+  fi
 }
 
 assert() {
@@ -156,6 +166,42 @@ touch "projects/container-app/Dockerfile"
 assert "projects/container-app/src/index.ts -> projects/container-app" \
   "projects/container-app" \
   "$(find_project_root "projects/container-app/src/index.ts")"
+
+# --------------------------------------------------
+# Test 10: 複合プロジェクト (edit-vid 想定)
+#           frontend に package.json, 親には pyproject.toml + Dockerfile
+# --------------------------------------------------
+echo "[Test 10] Composite project (sub-package + parent, prefer parent)"
+mkdir -p "projects/edit-vid/frontend/src"
+touch "projects/edit-vid/Dockerfile"
+touch "projects/edit-vid/pyproject.toml"
+touch "projects/edit-vid/frontend/package.json"
+assert "projects/edit-vid/frontend/src/App.tsx -> projects/edit-vid (skip frontend)" \
+  "projects/edit-vid" \
+  "$(find_project_root "projects/edit-vid/frontend/src/App.tsx")"
+
+# --------------------------------------------------
+# Test 11: .devcontainer 内の Dockerfile を誤検出しない
+# --------------------------------------------------
+echo "[Test 11] .devcontainer/Dockerfile should not override project root"
+mkdir -p "projects/hono-node-server/.devcontainer"
+mkdir -p "projects/hono-node-server/src"
+touch "projects/hono-node-server/package.json"
+touch "projects/hono-node-server/.devcontainer/Dockerfile"
+assert "projects/hono-node-server/.devcontainer/devcontainer.json -> projects/hono-node-server" \
+  "projects/hono-node-server" \
+  "$(find_project_root "projects/hono-node-server/.devcontainer/devcontainer.json")"
+
+# --------------------------------------------------
+# Test 12: labs 直下に marker がなくてもサブ階層が正しく検出される
+#          (labs 自体は marker なし)
+# --------------------------------------------------
+echo "[Test 12] Labs category without own marker still detects sub-project"
+mkdir -p "projects/labs/sub-proj/src"
+touch "projects/labs/sub-proj/package.json"
+assert "projects/labs/sub-proj/src/index.ts -> projects/labs/sub-proj" \
+  "projects/labs/sub-proj" \
+  "$(find_project_root "projects/labs/sub-proj/src/index.ts")"
 
 echo ""
 echo "=== Results ==="

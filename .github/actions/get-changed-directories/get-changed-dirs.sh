@@ -38,22 +38,34 @@ diff_with_renames() {
 # 引数:
 #   $1 - 変更ファイルのパス
 # 機能:
-#   ファイルの親ディレクトリから上方へ辿り、最初に見つかった
-#   プロジェクトマーカーファイルを含むディレクトリを出力する
+#   ファイルの親ディレクトリから上方へ辿り、プロジェクトルートを探索する。
+#   projects/<name> 直下のマーカーが存在する場合はそれを優先する。
+#   それ以外の場合は最寄りのマーカーを含むディレクトリを返す。
 find_project_root() {
   local file="$1"
   local dir
   dir="$(dirname "$file")"
+  local first_found=""
 
   while [[ "$dir" != "." && "$dir" != "/" && "$dir" != "" ]]; do
     for marker in "${PROJECT_MARKERS[@]}"; do
       if [[ -f "$dir/$marker" ]]; then
-        echo "$dir"
-        return 0
+        if [[ -z "$first_found" ]]; then
+          first_found="$dir"
+        fi
+        # projects/<name> の直下マーカーを優先
+        if [[ "$dir" == projects/* ]] && [[ "$dir" != */*/* ]]; then
+          echo "$dir"
+          return 0
+        fi
       fi
     done
     dir="$(dirname "$dir")"
   done
+
+  if [[ -n "$first_found" ]]; then
+    echo "$first_found"
+  fi
 }
 
 # GitHub Actions環境での比較対象を決定
