@@ -108,6 +108,19 @@ def test_resolve_execution_worker_config_rejects_invalid_timeout() -> None:
         )
 
 
+@pytest.mark.parametrize("timeout_ms", ["0", "-1"])
+def test_resolve_execution_worker_config_rejects_non_positive_timeout(
+    timeout_ms: str,
+) -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        resolve_execution_worker_config(
+            {
+                "EXECUTION_WORKER_URL": "http://worker.local",
+                "EXECUTION_WORKER_TIMEOUT_MS": timeout_ms,
+            }
+        )
+
+
 def test_create_default_tool_executor_registers_execute_javascript_when_configured(
     monkeypatch,
 ) -> None:

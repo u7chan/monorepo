@@ -67,6 +67,7 @@ class _Response(Protocol):
 
 
 _UrlOpen = Callable[..., _Response]
+_JSON_PARSE_ERRORS = (UnicodeDecodeError, json.JSONDecodeError)
 
 
 class ExecutionWorkerClient:
@@ -161,7 +162,7 @@ class ExecutionWorkerClient:
 def _parse_json_object(body: bytes) -> dict[str, Any] | None:
     try:
         parsed = json.loads(body.decode("utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except _JSON_PARSE_ERRORS:
         return None
     if not isinstance(parsed, dict):
         return None
