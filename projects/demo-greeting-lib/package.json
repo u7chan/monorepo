@@ -1,5 +1,5 @@
 {
-  "name": "example-lib-b",
+  "name": "demo-greeting-lib",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

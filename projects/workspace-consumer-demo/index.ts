@@ -1,5 +1,5 @@
-import { getHelloMessage } from "example-lib-a";
-import { calculate } from "example-lib-b";
+import { getHelloMessage } from "demo-greeting-lib";
+import { calculate } from "demo-math-lib";
 
 function main() {
   console.log(getHelloMessage());

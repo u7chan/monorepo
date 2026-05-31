@@ -1,3 +1,3 @@
-# example-lib-b
+# demo-math-lib
 
 Example library project

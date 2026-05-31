@@ -1,4 +1,4 @@
-# use-package-example
+# workspace-consumer-demo
 
 To install dependencies:
 
