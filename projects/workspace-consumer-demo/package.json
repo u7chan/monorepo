@@ -1,5 +1,5 @@
 {
-  "name": "use-package-example",
+  "name": "workspace-consumer-demo",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -7,8 +7,8 @@
     "dev": "bun run --watch index.ts"
   },
   "dependencies": {
-    "example-lib-a": "workspace:../../packages/example-lib-a",
-    "example-lib-b": "workspace:../../packages/example-lib-b"
+    "demo-greeting-lib": "workspace:../demo-greeting-lib",
+    "demo-math-lib": "workspace:../demo-math-lib"
   },
   "devDependencies": {
     "@types/bun": "latest"

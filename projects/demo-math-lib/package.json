@@ -1,5 +1,5 @@
 {
-  "name": "example-lib-a",
+  "name": "demo-math-lib",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

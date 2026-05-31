@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { calculate } from "../src/index";
 
-describe("example-lib-b", () => {
+describe("demo-math-lib", () => {
   describe("calculate", () => {
     test("1 + 2 = 3", () => {
       expect(calculate(1, 2)).toBe(3);
