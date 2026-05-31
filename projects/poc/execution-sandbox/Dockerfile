@@ -24,7 +24,7 @@ COPY tsconfig.json ./
 RUN bun run typecheck && \
     bun test
 
-FROM base AS builder
+FROM base AS production-deps
 
 ENV NODE_ENV=production
 
@@ -36,16 +36,15 @@ COPY tsconfig.json ./
 FROM base AS final
 
 ARG COMMIT_HASH
-ENV APP_VERSION=${COMMIT_HASH}
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV NODE_ENV=production
 ENV PORT=3000
 
 RUN adduser -D -s /sbin/nologin execution
 
-COPY --from=builder --chown=execution:execution /app/node_modules ./node_modules
-COPY --from=builder --chown=execution:execution /app/src ./src
-COPY --from=builder --chown=execution:execution /app/tsconfig.json ./tsconfig.json
+COPY --from=production-deps --chown=execution:execution /app/node_modules ./node_modules
+COPY --from=production-deps --chown=execution:execution /app/src ./src
+COPY --from=production-deps --chown=execution:execution /app/tsconfig.json ./tsconfig.json
 
 USER execution
 

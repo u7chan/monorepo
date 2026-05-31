@@ -77,9 +77,10 @@ export function createExecutionApp(options: ExecutionAppOptions = {}) {
 }
 
 const { app } = createExecutionApp();
+const hostname = Bun.env.HOST;
 
 export default {
-  hostname: Bun.env.HOST ?? "0.0.0.0",
+  ...(hostname ? { hostname } : {}),
   port: Number(Bun.env.PORT ?? 3000),
   fetch: app.fetch,
 };
