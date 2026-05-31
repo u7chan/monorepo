@@ -1,0 +1,17 @@
+{
+  "name": "execution-sandbox-poc",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/server.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.8.5",
+    "quickjs-emscripten": "^0.32.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.18",
+    "typescript": "^5.8.3"
+  }
+}
