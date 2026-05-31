@@ -118,7 +118,7 @@ Checklist:
 
 ### Example 1: CI-Only Project (Library/Test Tool)
 
-Reference: `projects/cicd-ci-sample/Dockerfile`
+Reference: `projects/samples/cicd-ci-sample/Dockerfile`
 
     # CI専用 - testステージのみ
     FROM alpine:3.21 AS base
@@ -138,7 +138,7 @@ Reference: `projects/cicd-ci-sample/Dockerfile`
 
 ### Example 2: Full CI/CD Project (Application)
 
-Reference: `projects/cicd-cd-sample/Dockerfile`
+Reference: `projects/samples/cicd-cd-sample/Dockerfile`
 
     # CD用 - マルチステージビルド
     FROM alpine:3.21 AS base
@@ -177,5 +177,5 @@ Reference: `projects/cicd-cd-sample/Dockerfile`
 ## References
 
 - `docs/about-cicd.md` - CI/CD documentation
-- `projects/cicd-ci-sample/` - CI-only sample project
-- `projects/cicd-cd-sample/` - CD sample project
+- `projects/samples/cicd-ci-sample/` - CI-only sample project
+- `projects/samples/cicd-cd-sample/` - CD sample project
