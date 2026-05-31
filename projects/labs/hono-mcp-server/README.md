@@ -54,7 +54,7 @@ MCPクライアント設定 (Streamable HTTP):
 1. VSCodeでプロジェクトを開く
 
    ```bash
-   cd projects/hono-mcp-server
+   cd projects/labs/hono-mcp-server
    code .
    ```
 
