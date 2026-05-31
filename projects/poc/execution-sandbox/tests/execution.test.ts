@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LIMITS, type ExecuteResponse } from "../src/sandbox";
+import { LIMITS, validateExecuteRequest, type ExecuteResponse } from "../src/sandbox";
 import { createExecutionApp } from "../src/server";
 
 const javascriptHeaders = {
@@ -103,6 +103,22 @@ describe("execution sandbox spike", () => {
       throw new Error("expected error");
     }
     expect(response.body.error.code).toBe("RESULT_SERIALIZATION_ERROR");
+  });
+
+  test("rejects a non-async main function", async () => {
+    const { app } = createExecutionApp();
+    const response = await postExecute(app, {
+      language: "javascript",
+      input: null,
+      code: "function main() { return 1; }",
+    });
+
+    expect(response.httpStatus).toBe(200);
+    expect(response.body.status).toBe("error");
+    if (response.body.status !== "error") {
+      throw new Error("expected error");
+    }
+    expect(response.body.error.code).toBe("MAIN_FUNCTION_NOT_ASYNC");
   });
 
   test("does not leak global state between executions", async () => {
@@ -217,6 +233,36 @@ describe("execution sandbox spike", () => {
       code: "x".repeat(LIMITS.codeSizeMaxBytes + 1),
     });
     expect(tooLarge.httpStatus).toBe(413);
+  });
+
+  test("validates non-JSON-serializable input before execution", () => {
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+
+    const circularResult = validateExecuteRequest({
+      language: "javascript",
+      input: circular,
+      code: "async function main() { return 1; }",
+    });
+    expect(circularResult.ok).toBe(false);
+    if (circularResult.ok) {
+      throw new Error("expected validation error");
+    }
+    expect(circularResult.result.httpStatus).toBe(400);
+    expect(circularResult.result.body.status).toBe("error");
+    if (circularResult.result.body.status !== "error") {
+      throw new Error("expected error body");
+    }
+    expect(circularResult.result.body.error.details).toContain(
+      "input is not JSON serializable",
+    );
+
+    const bigintResult = validateExecuteRequest({
+      language: "javascript",
+      input: 1n,
+      code: "async function main() { return 1; }",
+    });
+    expect(bigintResult.ok).toBe(false);
   });
 });
 

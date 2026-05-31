@@ -74,10 +74,11 @@ The host flow is:
 5. Install only `console.log`, `console.error`, and `console.warn`.
 6. Set the request input as a QuickJS global.
 7. Evaluate user code and require `main` to be a function.
-8. Call `main(input)`, execute QuickJS pending jobs, and await the returned promise.
-9. Serialize the result with `JSON.stringify` inside QuickJS.
-10. Dispose the result handles, context, and runtime.
-11. Release the concurrency slot in `finally`.
+8. Require `main.constructor.name` to be `AsyncFunction`.
+9. Call `main(input)`, execute QuickJS pending jobs, and await the returned promise.
+10. Serialize the result with `JSON.stringify` inside QuickJS.
+11. Dispose the result handles, context, and runtime.
+12. Release the concurrency slot in `finally`.
 
 ## Spike Results
 
@@ -87,9 +88,11 @@ The host flow is:
 | HTTP E2E timeout response | Passed. `POST /execute` returns HTTP 200 with `status: "error"` and `error.code: "TIMEOUT"`. |
 | Runtime/context cleanup | Passed. The test confirms the active slot count returns to 0 after timeout and a following request succeeds. |
 | `async function main(input)` invocation | Passed. The test defines, calls, awaits, and serializes the returned value. |
+| Non-async `main` rejection | Passed. Synchronous `function main()` returns `MAIN_FUNCTION_NOT_ASYNC`. |
 | stdout/stderr capture | Passed. `console.log` maps to stdout; `console.error` and `console.warn` map to stderr. |
 | stdout + stderr 64KB limit | Passed. Exceeding the combined limit returns `OUTPUT_LIMIT_EXCEEDED`. |
 | Result serialization error | Passed. Circular results return `RESULT_SERIALIZATION_ERROR`. Functions and `undefined` are also treated as non-serializable. |
+| Input serialization validation | Passed. Circular and `BigInt` inputs are rejected as `VALIDATION_ERROR` before execution. |
 | State reset between executions | Passed. A global set by one request is absent in the next request. |
 | Host API exposure | Passed. `Bun`, `process`, `require`, `fetch`, and `WebSocket` are not exposed. |
 | `MAX_CONCURRENCY=2` | Passed. The third concurrent HTTP request returns 429 with no `Retry-After` header. |
@@ -215,7 +218,7 @@ Observed result:
 
 ```text
 bun --version -> 1.3.10
-bun test -> 8 pass, 0 fail
+bun test -> 10 pass, 0 fail
 bun run typecheck -> passed
 ```
 

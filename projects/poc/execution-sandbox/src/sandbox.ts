@@ -1,6 +1,5 @@
 import {
   getQuickJS,
-  shouldInterruptAfterDeadline,
   type QuickJSContext,
   type QuickJSHandle,
 } from "quickjs-emscripten";
@@ -13,6 +12,8 @@ export const LIMITS = {
   outputSizeMaxBytes: 64 * 1024,
   maxConcurrency: 2,
 } as const;
+
+const textEncoder = new TextEncoder();
 
 export type ExecuteRequest = {
   language: "javascript";
@@ -46,6 +47,7 @@ export type ExecuteErrorResponse = {
       | "OUTPUT_LIMIT_EXCEEDED"
       | "RESULT_SERIALIZATION_ERROR"
       | "MAIN_FUNCTION_NOT_FOUND"
+      | "MAIN_FUNCTION_NOT_ASYNC"
       | "EXECUTION_ERROR";
     message: string;
     details?: string[];
@@ -69,13 +71,12 @@ class OutputCapture {
   stderr = "";
   private usedBytes = 0;
   private limitExceeded = false;
-  private readonly encoder = new TextEncoder();
 
   constructor(private readonly maxBytes: number) {}
 
   write(stream: "stdout" | "stderr", values: unknown[]) {
     const line = `${values.map(formatConsoleValue).join(" ")}\n`;
-    const bytes = this.encoder.encode(line).byteLength;
+    const bytes = textEncoder.encode(line).byteLength;
     if (this.usedBytes + bytes > this.maxBytes) {
       this.limitExceeded = true;
       throw new Error("Output limit exceeded");
@@ -149,8 +150,13 @@ export function validateExecuteRequest(payload: unknown): ValidationResult {
 
   const code = data.code as string;
   const input = data.input ?? null;
-  const codeBytes = new TextEncoder().encode(code).byteLength;
-  const inputBytes = new TextEncoder().encode(JSON.stringify(input)).byteLength;
+  const serializedInput = stringifyJsonValue(input);
+  if (!serializedInput.ok) {
+    return validationError(["input is not JSON serializable"]);
+  }
+
+  const codeBytes = textEncoder.encode(code).byteLength;
+  const inputBytes = textEncoder.encode(serializedInput.value).byteLength;
   if (codeBytes > LIMITS.codeSizeMaxBytes || inputBytes > LIMITS.inputSizeMaxBytes) {
     return {
       ok: false,
@@ -188,26 +194,34 @@ export async function executeJavaScript(
 ): Promise<ExecuteHttpResult> {
   const startedAt = performance.now();
   const output = new OutputCapture(LIMITS.outputSizeMaxBytes);
-  const deadline = Date.now() + appliedTimeoutMs;
   const QuickJS = await getQuickJS();
   const runtime = QuickJS.newRuntime();
   const context = runtime.newContext();
   let executionHandle: QuickJSHandle | undefined;
   let resolvedHandle: QuickJSHandle | undefined;
   let jsonHandle: QuickJSHandle | undefined;
+  let deadline = Date.now() + appliedTimeoutMs;
 
   runtime.setMemoryLimit(64 * 1024 * 1024);
   runtime.setMaxStackSize(1024 * 1024);
-  const deadlineInterrupt = shouldInterruptAfterDeadline(deadline);
-  runtime.setInterruptHandler((rt) => output.isLimitExceeded() || deadlineInterrupt(rt));
+  runtime.setInterruptHandler(() => output.isLimitExceeded() || Date.now() > deadline);
 
   try {
     installConsole(context, output);
+    deadline = Date.now() + appliedTimeoutMs;
+    const serializedInput = stringifyJsonValue(request.input ?? null);
+    if (!serializedInput.ok) {
+      return executionError("EXECUTION_ERROR", "Input is not JSON serializable", {
+        output,
+        startedAt,
+        appliedTimeoutMs,
+      });
+    }
 
     context
       .unwrapResult(
         context.evalCode(
-          `globalThis.__sandboxInput = ${JSON.stringify(request.input ?? null)}; undefined;`,
+          `globalThis.__sandboxInput = ${serializedInput.value}; undefined;`,
           "sandbox-input.js",
         ),
       )
@@ -226,6 +240,20 @@ export async function executeJavaScript(
       });
     }
 
+    const mainConstructorName = context.unwrapResult(
+      context.evalCode("main.constructor.name", "main-async-check.js"),
+    );
+    const hasAsyncMain = context.getString(mainConstructorName) === "AsyncFunction";
+    mainConstructorName.dispose();
+    if (!hasAsyncMain) {
+      return executionError("MAIN_FUNCTION_NOT_ASYNC", "main(input) must be an async function", {
+        output,
+        startedAt,
+        appliedTimeoutMs,
+      });
+    }
+
+    deadline = Date.now() + appliedTimeoutMs;
     executionHandle = context.unwrapResult(
       context.evalCode("main(globalThis.__sandboxInput)", "main-call.js"),
     );
@@ -363,6 +391,18 @@ function validationError(details: string[]): ValidationResult {
       },
     },
   };
+}
+
+function stringifyJsonValue(value: unknown): { ok: true; value: string } | { ok: false } {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      return { ok: false };
+    }
+    return { ok: true, value: serialized };
+  } catch {
+    return { ok: false };
+  }
 }
 
 function executionError(
