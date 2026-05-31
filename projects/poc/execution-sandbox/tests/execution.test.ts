@@ -19,7 +19,7 @@ describe("execution-worker", () => {
   });
 
   test("executes async function main(input), captures console, and clamps timeout", async () => {
-    const { app } = createExecutionApp();
+    const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
       timeoutMs: 10_000,
@@ -42,6 +42,7 @@ describe("execution-worker", () => {
     expect(response.body.stdout).toBe("received 3\n");
     expect(response.body.stderr).toBe("");
     expect(response.body.appliedTimeoutMs).toBe(LIMITS.timeoutMaxMs);
+    expect(getActiveExecutions()).toBe(0);
   });
 
   test("returns HTTP 200 TIMEOUT for a synchronous infinite loop and releases the slot", async () => {
@@ -73,8 +74,8 @@ describe("execution-worker", () => {
     expect(nextResponse.body.status).toBe("success");
   });
 
-  test("returns OUTPUT_LIMIT_EXCEEDED when stdout and stderr exceed 64KB", async () => {
-    const { app } = createExecutionApp();
+  test("returns OUTPUT_LIMIT_EXCEEDED and releases the slot when output exceeds 64KB", async () => {
+    const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
       input: null,
@@ -92,10 +93,12 @@ describe("execution-worker", () => {
       throw new Error("expected error");
     }
     expect(response.body.error.code).toBe("OUTPUT_LIMIT_EXCEEDED");
+    expect(getActiveExecutions()).toBe(0);
+    await expectWorkerRecovered(app);
   });
 
   test("returns RESULT_SERIALIZATION_ERROR for circular results", async () => {
-    const { app } = createExecutionApp();
+    const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
       input: null,
@@ -114,10 +117,12 @@ describe("execution-worker", () => {
       throw new Error("expected error");
     }
     expect(response.body.error.code).toBe("RESULT_SERIALIZATION_ERROR");
+    expect(getActiveExecutions()).toBe(0);
+    await expectWorkerRecovered(app);
   });
 
-  test("returns MAIN_FUNCTION_NOT_FOUND when main is missing", async () => {
-    const { app } = createExecutionApp();
+  test("returns MAIN_FUNCTION_NOT_FOUND and releases the slot when main is missing", async () => {
+    const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
       input: null,
@@ -130,10 +135,12 @@ describe("execution-worker", () => {
       throw new Error("expected error");
     }
     expect(response.body.error.code).toBe("MAIN_FUNCTION_NOT_FOUND");
+    expect(getActiveExecutions()).toBe(0);
+    await expectWorkerRecovered(app);
   });
 
-  test("rejects a non-async main function", async () => {
-    const { app } = createExecutionApp();
+  test("rejects a non-async main function and releases the slot", async () => {
+    const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
       input: null,
@@ -146,10 +153,12 @@ describe("execution-worker", () => {
       throw new Error("expected error");
     }
     expect(response.body.error.code).toBe("MAIN_FUNCTION_NOT_ASYNC");
+    expect(getActiveExecutions()).toBe(0);
+    await expectWorkerRecovered(app);
   });
 
   test("preserves captured stderr separately from execution errors", async () => {
-    const { app } = createExecutionApp();
+    const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
       input: null,
@@ -169,6 +178,8 @@ describe("execution-worker", () => {
     expect(response.body.error.code).toBe("EXECUTION_ERROR");
     expect(response.body.stderr).toBe("before failure\n");
     expect(response.body.error.message).toContain("boom");
+    expect(getActiveExecutions()).toBe(0);
+    await expectWorkerRecovered(app);
   });
 
   test("does not leak global state between executions", async () => {
@@ -201,7 +212,7 @@ describe("execution-worker", () => {
     expect(response.body.result).toBe("undefined");
   });
 
-  test("does not expose Bun, Node process, filesystem, subprocess, or network APIs", async () => {
+  test("does not expose Bun, Node process, filesystem, subprocess, environment, or network APIs", async () => {
     const { app } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
@@ -213,7 +224,13 @@ describe("execution-worker", () => {
             process: typeof process,
             require: typeof require,
             fetch: typeof fetch,
-            WebSocket: typeof WebSocket
+            WebSocket: typeof WebSocket,
+            Deno: typeof Deno,
+            Worker: typeof Worker,
+            importScripts: typeof importScripts,
+            env: typeof process === "undefined" ? "unavailable" : process.env.HOME,
+            escapeProcess: typeof globalThis.constructor.constructor("return this")().process,
+            escapeBun: typeof globalThis.constructor.constructor("return this")().Bun
           };
         }
       `,
@@ -229,6 +246,12 @@ describe("execution-worker", () => {
       require: "undefined",
       fetch: "undefined",
       WebSocket: "undefined",
+      Deno: "undefined",
+      Worker: "undefined",
+      importScripts: "undefined",
+      env: "unavailable",
+      escapeProcess: "undefined",
+      escapeBun: "undefined",
     });
   });
 
@@ -381,6 +404,21 @@ async function postRaw(
     httpStatus: response.status,
     body: (await response.json()) as ExecuteResponse,
   };
+}
+
+async function expectWorkerRecovered(app: ReturnType<typeof createExecutionApp>["app"]) {
+  const response = await postExecute(app, {
+    language: "javascript",
+    input: null,
+    code: "async function main() { return 'ready'; }",
+  });
+
+  expect(response.httpStatus).toBe(200);
+  expect(response.body.status).toBe("success");
+  if (response.body.status !== "success") {
+    throw new Error("expected success");
+  }
+  expect(response.body.result).toBe("ready");
 }
 
 async function waitUntil(predicate: () => boolean) {
