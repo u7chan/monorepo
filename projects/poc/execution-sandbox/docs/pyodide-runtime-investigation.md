@@ -52,7 +52,7 @@ platform: linux x64
 | Fresh worker initialization | Passed. Worker initialization took about 2.4s to 3.6s in local runs. |
 | Basic execution | Passed. Python summed `[1, 2, 3]` and returned JSON `{"sum": 6}`. |
 | stdout/stderr capture | Passed. `pyodide.setStdout()` captured `received 3\n`; `pyodide.setStderr()` captured `warning\n`. |
-| Timeout/cancellation | Passed for synchronous Python code when using a worker interrupt buffer. `while True: pass` raised `KeyboardInterrupt` at about 1.0s execution time with a 1000ms timeout. |
+| Timeout/cancellation | Passed for synchronous Python code when using a worker interrupt buffer. `while True: pass` produced a JS `PythonError` at about 1.0s execution time with a 1000ms timeout, and the traceback identifies the Python exception as `KeyboardInterrupt`. |
 | Virtual FS reset | Passed only with a fresh worker per execution. Reusing one Pyodide instance leaks `/tmp` files unless explicitly reset. |
 | Global state reset | Passed only with a fresh worker per execution. Reusing one Pyodide instance leaks Python globals unless explicitly reset. |
 | Import control | Not provided as a sandbox policy by Pyodide. Built-in imports such as `math` are available by default, so a production runtime needs an explicit allowlist/enforcement layer. |
@@ -91,6 +91,9 @@ Python/Pyodide fit:
   initialization cost separately from execution duration.
 - Use `SharedArrayBuffer` and `pyodide.setInterruptBuffer()` for synchronous
   Python cancellation.
+- Normalize Pyodide errors before returning them. In local runs, timeout
+  interruption surfaced as JS `PythonError` with Python `KeyboardInterrupt` in
+  the traceback rather than as a JS `KeyboardInterrupt` name.
 - Prefer fresh worker per execution for the first production spike. Pooling can
   be considered later only with reset tests for globals, `/tmp`, loaded modules,
   stream handlers, and interrupt state.
