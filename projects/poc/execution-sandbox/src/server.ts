@@ -6,7 +6,7 @@ import {
   validateExecuteRequest,
 } from "./sandbox";
 
-const SERVICE_NAME = "execution-worker";
+export const SERVICE_NAME = "execution-worker";
 
 export type ExecutionAppOptions = {
   beforeExecute?: () => void | Promise<void>;

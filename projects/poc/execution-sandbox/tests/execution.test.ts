@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { LIMITS, validateExecuteRequest, type ExecuteResponse } from "../src/sandbox";
-import { createExecutionApp } from "../src/server";
+import { SERVICE_NAME, createExecutionApp } from "../src/server";
 
 const javascriptHeaders = {
   "content-type": "application/json",
@@ -14,7 +14,7 @@ describe("execution-worker", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       status: "ok",
-      service: "execution-worker",
+      service: SERVICE_NAME,
     });
   });
 
