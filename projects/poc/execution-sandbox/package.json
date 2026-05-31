@@ -1,5 +1,5 @@
 {
-  "name": "execution-sandbox-poc",
+  "name": "execution-worker",
   "type": "module",
   "scripts": {
     "dev": "bun run --hot src/server.ts",

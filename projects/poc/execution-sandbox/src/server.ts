@@ -6,6 +6,8 @@ import {
   validateExecuteRequest,
 } from "./sandbox";
 
+const SERVICE_NAME = "execution-worker";
+
 export type ExecutionAppOptions = {
   beforeExecute?: () => void | Promise<void>;
 };
@@ -13,6 +15,13 @@ export type ExecutionAppOptions = {
 export function createExecutionApp(options: ExecutionAppOptions = {}) {
   const app = new Hono();
   const limiter = new ConcurrencyLimiter(LIMITS.maxConcurrency);
+
+  app.get("/healthz", (c) =>
+    c.json({
+      status: "ok",
+      service: SERVICE_NAME,
+    }),
+  );
 
   app.post("/execute", async (c) => {
     let payload: unknown;
