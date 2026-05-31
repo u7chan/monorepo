@@ -3,6 +3,8 @@
 Parent: #986
 Issue: #993
 
+Python/Pyodide Phase 2 investigation: `docs/pyodide-runtime-investigation.md`
+
 ## Decision
 
 Phase 1 should use TypeScript + Bun + Hono with `quickjs-emscripten` for

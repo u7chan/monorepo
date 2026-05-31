@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --hot src/server.ts",
+    "spike:pyodide": "bun run scripts/pyodide-spike.mjs",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -12,6 +13,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.18",
+    "pyodide": "^0.29.4",
     "typescript": "^5.8.3"
   }
 }
