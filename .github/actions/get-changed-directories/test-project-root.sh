@@ -193,13 +193,13 @@ assert "projects/edit-vid/frontend/src/App.tsx -> projects/edit-vid (skip fronte
 # Test 11: .devcontainer 内の Dockerfile を誤検出しない
 # --------------------------------------------------
 echo "[Test 11] .devcontainer/Dockerfile should not override project root"
-mkdir -p "projects/hono-node-server/.devcontainer"
-mkdir -p "projects/hono-node-server/src"
-touch "projects/hono-node-server/package.json"
-touch "projects/hono-node-server/.devcontainer/Dockerfile"
-assert "projects/hono-node-server/.devcontainer/devcontainer.json -> projects/hono-node-server" \
-  "projects/hono-node-server" \
-  "$(find_project_root "projects/hono-node-server/.devcontainer/devcontainer.json")"
+mkdir -p "projects/samples/hono-node-server/.devcontainer"
+mkdir -p "projects/samples/hono-node-server/src"
+touch "projects/samples/hono-node-server/package.json"
+touch "projects/samples/hono-node-server/.devcontainer/Dockerfile"
+assert "projects/samples/hono-node-server/.devcontainer/devcontainer.json -> projects/samples/hono-node-server" \
+  "projects/samples/hono-node-server" \
+  "$(find_project_root "projects/samples/hono-node-server/.devcontainer/devcontainer.json")"
 
 # --------------------------------------------------
 # Test 12: labs 直下に marker がなくてもサブ階層が正しく検出される

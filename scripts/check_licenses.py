@@ -445,7 +445,7 @@ def select_python_version(target: Path) -> str:
         pinned_version = version_file.read_text(encoding="utf-8").strip()
     except OSError:
         pinned_version = ""
-    if re.fullmatch(r"\d+\.\d+", pinned_version):
+    if re.fullmatch(r"\d+\.\d+(?:\.\d+)?", pinned_version):
         return pinned_version
 
     requires_python = read_requires_python(target / "pyproject.toml")
