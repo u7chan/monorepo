@@ -13,6 +13,7 @@ integration are tracked as follow-up work.
 bun install
 bun test
 bun run typecheck
+bun run spike:pyodide
 bun run dev
 ```
 
@@ -136,4 +137,6 @@ subprocess: disabled by omission
 thread/background execution from sandbox: disabled by omission
 ```
 
-The runtime selection notes and spike results live in `docs/runtime-selection.md`.
+The JavaScript runtime selection notes live in `docs/runtime-selection.md`.
+The Python/Pyodide Phase 2 investigation lives in
+`docs/pyodide-runtime-investigation.md`.
