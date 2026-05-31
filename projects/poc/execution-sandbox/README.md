@@ -1,12 +1,95 @@
-# Execution Sandbox PoC
+# Execution Worker
 
-Spike for selecting the JavaScript runtime path for the AI Agent Execution Sandbox.
+Phase 1 JavaScript worker for the AI Agent Execution Sandbox.
+
+This service executes short JavaScript snippets through `POST /execute` with a fresh
+QuickJS Runtime and Context per request. It intentionally exposes only JavaScript in
+Phase 1; Python/Pyodide, queues, streaming output, runtime pooling, Docker packaging,
+and `app-api` integration are tracked as follow-up work.
+
+## Local commands
 
 ```bash
 bun install
 bun test
 bun run typecheck
 bun run dev
+```
+
+The dev server listens on `PORT` or `3000` by default.
+
+## Endpoints
+
+### `GET /healthz`
+
+Returns service readiness metadata.
+
+```json
+{
+  "status": "ok",
+  "service": "execution-worker"
+}
+```
+
+### `POST /execute`
+
+Runs an `async function main(input)` in a disposable QuickJS context.
+
+```json
+{
+  "language": "javascript",
+  "code": "async function main(input) { console.log('run'); return input.values.reduce((a, b) => a + b, 0); }",
+  "input": {
+    "values": [1, 2, 3]
+  },
+  "timeoutMs": 5000
+}
+```
+
+Success responses use HTTP 200.
+
+```json
+{
+  "status": "success",
+  "stdout": "run\n",
+  "stderr": "",
+  "result": 6,
+  "durationMs": 42,
+  "appliedTimeoutMs": 3000
+}
+```
+
+Execution errors also use HTTP 200 and include a stable error code. Validation,
+payload, and concurrency errors use HTTP 400, 413, and 429 respectively.
+
+```json
+{
+  "status": "error",
+  "stdout": "",
+  "stderr": "",
+  "result": null,
+  "durationMs": 50,
+  "appliedTimeoutMs": 50,
+  "error": {
+    "code": "TIMEOUT",
+    "message": "Execution timed out"
+  }
+}
+```
+
+## Limits
+
+```text
+timeout default: 1000ms
+timeout max: 3000ms
+code size max: 32KB
+input size max: 1MB
+stdout + stderr combined max: 64KB
+MAX_CONCURRENCY: 2
+network: disabled by omission
+host filesystem access: disabled by omission
+subprocess: disabled by omission
+thread/background execution from sandbox: disabled by omission
 ```
 
 The runtime selection notes and spike results live in `docs/runtime-selection.md`.

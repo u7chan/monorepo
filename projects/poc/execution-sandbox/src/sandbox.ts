@@ -419,7 +419,7 @@ function executionError(
     body: {
       status: "error",
       stdout: context.output.stdout,
-      stderr: message,
+      stderr: context.output.stderr,
       result: null,
       durationMs: elapsed(context.startedAt),
       appliedTimeoutMs: context.appliedTimeoutMs,

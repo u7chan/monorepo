@@ -1,12 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { LIMITS, validateExecuteRequest, type ExecuteResponse } from "../src/sandbox";
-import { createExecutionApp } from "../src/server";
+import { SERVICE_NAME, createExecutionApp } from "../src/server";
 
 const javascriptHeaders = {
   "content-type": "application/json",
 };
 
-describe("execution sandbox spike", () => {
+describe("execution-worker", () => {
+  test("exposes a health endpoint for service readiness checks", async () => {
+    const { app } = createExecutionApp();
+    const response = await app.request("/healthz");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "ok",
+      service: SERVICE_NAME,
+    });
+  });
+
   test("executes async function main(input), captures console, and clamps timeout", async () => {
     const { app } = createExecutionApp();
     const response = await postExecute(app, {
@@ -105,6 +116,22 @@ describe("execution sandbox spike", () => {
     expect(response.body.error.code).toBe("RESULT_SERIALIZATION_ERROR");
   });
 
+  test("returns MAIN_FUNCTION_NOT_FOUND when main is missing", async () => {
+    const { app } = createExecutionApp();
+    const response = await postExecute(app, {
+      language: "javascript",
+      input: null,
+      code: "const value = 1;",
+    });
+
+    expect(response.httpStatus).toBe(200);
+    expect(response.body.status).toBe("error");
+    if (response.body.status !== "error") {
+      throw new Error("expected error");
+    }
+    expect(response.body.error.code).toBe("MAIN_FUNCTION_NOT_FOUND");
+  });
+
   test("rejects a non-async main function", async () => {
     const { app } = createExecutionApp();
     const response = await postExecute(app, {
@@ -119,6 +146,29 @@ describe("execution sandbox spike", () => {
       throw new Error("expected error");
     }
     expect(response.body.error.code).toBe("MAIN_FUNCTION_NOT_ASYNC");
+  });
+
+  test("preserves captured stderr separately from execution errors", async () => {
+    const { app } = createExecutionApp();
+    const response = await postExecute(app, {
+      language: "javascript",
+      input: null,
+      code: `
+        async function main() {
+          console.error("before failure");
+          throw new Error("boom");
+        }
+      `,
+    });
+
+    expect(response.httpStatus).toBe(200);
+    expect(response.body.status).toBe("error");
+    if (response.body.status !== "error") {
+      throw new Error("expected error");
+    }
+    expect(response.body.error.code).toBe("EXECUTION_ERROR");
+    expect(response.body.stderr).toBe("before failure\n");
+    expect(response.body.error.message).toContain("boom");
   });
 
   test("does not leak global state between executions", async () => {
@@ -217,8 +267,28 @@ describe("execution sandbox spike", () => {
     expect(getActiveExecutions()).toBe(0);
   });
 
-  test("validates timeoutMs and payload size", async () => {
+  test("validates JSON body, language, timeoutMs, and payload size", async () => {
     const { app } = createExecutionApp();
+    const invalidJson = await postRaw(app, "{");
+    expect(invalidJson.httpStatus).toBe(400);
+    expect(invalidJson.body.status).toBe("error");
+    if (invalidJson.body.status !== "error") {
+      throw new Error("expected error");
+    }
+    expect(invalidJson.body.error.code).toBe("VALIDATION_ERROR");
+
+    const unsupportedLanguage = await postExecute(app, {
+      language: "python",
+      input: null,
+      code: "async function main() { return 1; }",
+    });
+    expect(unsupportedLanguage.httpStatus).toBe(400);
+    expect(unsupportedLanguage.body.status).toBe("error");
+    if (unsupportedLanguage.body.status !== "error") {
+      throw new Error("expected error");
+    }
+    expect(unsupportedLanguage.body.error.code).toBe("VALIDATION_ERROR");
+
     const invalidTimeout = await postExecute(app, {
       language: "javascript",
       timeoutMs: 0,
@@ -233,6 +303,13 @@ describe("execution sandbox spike", () => {
       code: "x".repeat(LIMITS.codeSizeMaxBytes + 1),
     });
     expect(tooLarge.httpStatus).toBe(413);
+
+    const tooLargeInput = await postExecute(app, {
+      language: "javascript",
+      input: "x".repeat(LIMITS.inputSizeMaxBytes + 1),
+      code: "async function main(input) { return input.length; }",
+    });
+    expect(tooLargeInput.httpStatus).toBe(413);
   });
 
   test("validates non-JSON-serializable input before execution", () => {
@@ -278,6 +355,26 @@ async function postExecute(
     method: "POST",
     headers: javascriptHeaders,
     body: JSON.stringify(body),
+  });
+  return {
+    response,
+    httpStatus: response.status,
+    body: (await response.json()) as ExecuteResponse,
+  };
+}
+
+async function postRaw(
+  app: ReturnType<typeof createExecutionApp>["app"],
+  body: string,
+): Promise<{
+  response: Response;
+  httpStatus: number;
+  body: ExecuteResponse;
+}> {
+  const response = await app.request("/execute", {
+    method: "POST",
+    headers: javascriptHeaders,
+    body,
   });
   return {
     response,

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "execution-sandbox-poc",
+      "name": "execution-worker",
       "dependencies": {
         "hono": "^4.8.5",
         "quickjs-emscripten": "^0.32.0",
