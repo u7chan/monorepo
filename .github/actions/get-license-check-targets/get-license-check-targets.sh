@@ -27,7 +27,9 @@ else
 fi
 
 diff_with_renames() {
-  git diff --name-only "$1" "$2" || true
+  # 比較順は HEAD -> BASE のため、name-status の2列目が現在のパスになる。
+  { git diff --diff-filter=R --name-status "$1" "$2" || true; } | awk '$1 ~ /^R/ {print $2}'
+  { git diff --diff-filter=ACMTUXBD --name-only "$1" "$2" || true; }
 }
 
 is_manifest_file() {

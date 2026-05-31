@@ -155,6 +155,13 @@ class PythonVersionSelectionTest(unittest.TestCase):
             self.write_pyproject(target, ">=3.12")
             self.assertEqual(check_licenses.select_python_version(target), "3.13")
 
+    def test_python_version_file_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            self.write_pyproject(target, ">=3.12")
+            (target / ".python-version").write_text("3.12\n", encoding="utf-8")
+            self.assertEqual(check_licenses.select_python_version(target), "3.12")
+
     def test_python_upper_bound_excluding_313_selects_312(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
