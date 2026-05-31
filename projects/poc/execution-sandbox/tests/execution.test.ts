@@ -97,7 +97,7 @@ describe("execution-worker", () => {
     await expectWorkerRecovered(app);
   });
 
-  test("returns RESULT_SERIALIZATION_ERROR for circular results", async () => {
+  test("returns RESULT_SERIALIZATION_ERROR for circular results and recovers", async () => {
     const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
@@ -157,7 +157,7 @@ describe("execution-worker", () => {
     await expectWorkerRecovered(app);
   });
 
-  test("preserves captured stderr separately from execution errors", async () => {
+  test("preserves captured stderr, releases the slot, and recovers after execution errors", async () => {
     const { app, getActiveExecutions } = createExecutionApp();
     const response = await postExecute(app, {
       language: "javascript",
