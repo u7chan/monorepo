@@ -1,0 +1,26 @@
+services:
+  execution-worker:
+    build:
+      context: .
+      target: final
+      args:
+        COMMIT_HASH: local
+    ports:
+      - "${EXECUTION_WORKER_PORT:-3000}:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      NODE_ENV: production
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const response = await fetch('http://127.0.0.1:3000/healthz'); process.exit(response.ok ? 0 : 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
