@@ -21,6 +21,15 @@ PROJECT_MARKERS=(
   "docker-compose.yml"
 )
 
+is_project_root_dir() {
+  local dir="$1"
+  [[ "$dir" == projects/* && "$dir" != */*/* ]] && return 0
+  [[ "$dir" == projects/labs/* && "$dir" != projects/labs/*/* ]] && return 0
+  [[ "$dir" == projects/poc/* && "$dir" != projects/poc/*/* ]] && return 0
+  [[ "$dir" == projects/samples/* && "$dir" != projects/samples/*/* ]] && return 0
+  return 1
+}
+
 find_project_root() {
   local file="$1"
   local dir
@@ -33,7 +42,7 @@ find_project_root() {
         if [[ -z "$first_found" ]]; then
           first_found="$dir"
         fi
-        if [[ "$dir" == projects/* ]] && [[ "$dir" != */*/* ]]; then
+        if is_project_root_dir "$dir"; then
           echo "$dir"
           return 0
         fi
@@ -202,6 +211,18 @@ touch "projects/labs/sub-proj/package.json"
 assert "projects/labs/sub-proj/src/index.ts -> projects/labs/sub-proj" \
   "projects/labs/sub-proj" \
   "$(find_project_root "projects/labs/sub-proj/src/index.ts")"
+
+# --------------------------------------------------
+# Test 13: サブ階層プロジェクトでも .devcontainer/Dockerfile は
+#          project root を上書きしない
+# --------------------------------------------------
+echo "[Test 13] Nested .devcontainer/Dockerfile should not override project root"
+mkdir -p "projects/samples/hono-node-server/.devcontainer"
+touch "projects/samples/hono-node-server/package.json"
+touch "projects/samples/hono-node-server/.devcontainer/Dockerfile"
+assert "projects/samples/hono-node-server/.devcontainer/Dockerfile -> projects/samples/hono-node-server" \
+  "projects/samples/hono-node-server" \
+  "$(find_project_root "projects/samples/hono-node-server/.devcontainer/Dockerfile")"
 
 echo ""
 echo "=== Results ==="

@@ -28,11 +28,19 @@ PROJECT_MARKERS=(
 #   2つのリファレンス間の差分で、リネーム（移動）されたファイルの
 #   移動後のパスと、それ以外の変更ファイルを区別して出力します。
 diff_with_renames() {
-   # リネームされたファイルの移動後のパスを取得
-   git diff --diff-filter=R --name-status $1 $2 || true | awk '$1 ~ /^R/ {print $2}'
-   # その他の差分
-   git diff --name-only $1 $2 || true | grep -vFf <(git diff --name-only --diff-filter=R $1 $2 || true)
- }
+  # 比較順は HEAD -> BASE のため、name-status の2列目が現在のパスになる。
+  { git diff --diff-filter=R --name-status "$1" "$2" || true; } | awk '$1 ~ /^R/ {print $2}'
+  { git diff --diff-filter=ACMTUXB --name-only "$1" "$2" || true; }
+}
+
+is_project_root_dir() {
+  local dir="$1"
+  [[ "$dir" == projects/* && "$dir" != */*/* ]] && return 0
+  [[ "$dir" == projects/labs/* && "$dir" != projects/labs/*/* ]] && return 0
+  [[ "$dir" == projects/poc/* && "$dir" != projects/poc/*/* ]] && return 0
+  [[ "$dir" == projects/samples/* && "$dir" != projects/samples/*/* ]] && return 0
+  return 1
+}
 
 # 関数: find_project_root
 # 引数:
@@ -53,8 +61,8 @@ find_project_root() {
         if [[ -z "$first_found" ]]; then
           first_found="$dir"
         fi
-        # projects/<name> の直下マーカーを優先
-        if [[ "$dir" == projects/* ]] && [[ "$dir" != */*/* ]]; then
+        # project root 直下のマーカーを優先
+        if is_project_root_dir "$dir"; then
           echo "$dir"
           return 0
         fi
