@@ -1,6 +1,6 @@
 # Raw WebGL2 Shader Lab
 
-依存なしの WebGL2 最小ひな型です。頂点シェーダーとフラグメントシェーダーは `src/main.js` 内の文字列として定義しています。
+依存なしの WebGL2 最小ひな型です。頂点シェーダーとフラグメントシェーダーは `src/shaders.js` 内の文字列として定義しています。
 
 ## Run
 
@@ -20,6 +20,5 @@ http://localhost:5173
 
 ## Edit Points
 
-- `vertexShaderSource`: 頂点位置、変形、varying の実験
-- `fragmentShaderSource`: 色、時間変化、ピクセル単位の表現
+- `src/shaders.js`: 頂点シェーダーとフラグメントシェーダー
 - `vertices`: 頂点座標と頂点カラー
