@@ -8,6 +8,11 @@ import { createGeometry, createProgram, resizeCanvasToDisplaySize } from "./webg
 
 const FLOATS_PER_VERTEX = 6;
 const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
+const CAMERA_TARGET = [0, 0, 0];
+const CAMERA_RADIUS = Math.hypot(1.6, 1.6, 1.6);
+const CAMERA_ROTATION_SPEED = 0.008;
+const CAMERA_MIN_PITCH = -Math.PI / 2 + 0.08;
+const CAMERA_MAX_PITCH = Math.PI / 2 - 0.08;
 
 const triangleVertices = new Float32Array([
   // x, y, z, r, g, b
@@ -42,13 +47,14 @@ export function createRenderer(canvas) {
   const uniforms = getUniforms(gl, program);
   const triangle = createDrawable(gl, triangleVertices, attributes);
   const axes = createDrawable(gl, axisVertices, attributes);
+  const camera = createOrbitCamera(canvas);
 
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
 
   return {
     render({ time }) {
-      const matrix = prepareFrame(gl, canvas);
+      const matrix = prepareFrame(gl, canvas, camera.getEye());
 
       gl.useProgram(program);
       gl.uniform1f(uniforms.time, time);
@@ -58,6 +64,75 @@ export function createRenderer(canvas) {
       drawTriangle(gl, triangle, uniforms);
     },
   };
+}
+
+function createOrbitCamera(canvas) {
+  let yaw = Math.atan2(1.6, 1.6);
+  let pitch = Math.atan2(1.6, Math.hypot(1.6, 1.6));
+  let isDragging = false;
+  let lastPointerX = 0;
+  let lastPointerY = 0;
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    isDragging = true;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    canvas.setPointerCapture(event.pointerId);
+    canvas.classList.add("is-dragging");
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (!isDragging) {
+      return;
+    }
+
+    const deltaX = event.clientX - lastPointerX;
+    const deltaY = event.clientY - lastPointerY;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    yaw -= deltaX * CAMERA_ROTATION_SPEED;
+    pitch = clamp(
+      pitch - deltaY * CAMERA_ROTATION_SPEED,
+      CAMERA_MIN_PITCH,
+      CAMERA_MAX_PITCH,
+    );
+  });
+
+  function stopDragging(event) {
+    if (!isDragging) {
+      return;
+    }
+
+    isDragging = false;
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    canvas.classList.remove("is-dragging");
+  }
+
+  canvas.addEventListener("pointerup", stopDragging);
+  canvas.addEventListener("pointercancel", stopDragging);
+  canvas.addEventListener("lostpointercapture", stopDragging);
+
+  return {
+    getEye() {
+      const xzRadius = Math.cos(pitch) * CAMERA_RADIUS;
+
+      return [
+        Math.cos(yaw) * xzRadius,
+        Math.sin(pitch) * CAMERA_RADIUS,
+        Math.sin(yaw) * xzRadius,
+      ];
+    },
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function getAttributes(gl, program) {
@@ -108,12 +183,12 @@ function bindGeometry(gl, geometry, attributes) {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 }
 
-function prepareFrame(gl, canvas) {
+function prepareFrame(gl, canvas, cameraEye) {
   resizeCanvasToDisplaySize(canvas);
 
   const aspect = canvas.width / canvas.height;
   const projectionMatrix = makeOrthographicMatrix(-aspect, aspect, -1, 1, 0.1, 10);
-  const viewMatrix = makeLookAtMatrix([1.6, 1.6, 1.6], [0, 0, 0], [0, 1, 0]);
+  const viewMatrix = makeLookAtMatrix(cameraEye, CAMERA_TARGET, [0, 1, 0]);
 
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.06, 0.07, 0.08, 1.0);
