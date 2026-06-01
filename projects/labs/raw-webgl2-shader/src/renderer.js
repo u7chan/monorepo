@@ -10,30 +10,39 @@ const FLOATS_PER_VERTEX = 6;
 const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const CAMERA_TARGET = [0, 0, 0];
 const CAMERA_RADIUS = Math.hypot(1.6, 1.6, 1.6);
-const CAMERA_ROTATION_SPEED = 0.008;
+const CAMERA_ROTATION_SPEED = 0.006;
+const CAMERA_ZOOM_SPEED = 0.001;
+const CAMERA_MIN_VIEW_SCALE = 0.45;
+const CAMERA_MAX_VIEW_SCALE = 2.2;
 const CAMERA_MIN_PITCH = -Math.PI / 2 + 0.08;
 const CAMERA_MAX_PITCH = Math.PI / 2 - 0.08;
+const AXIS_LENGTH = 0.9;
+const GRID_DIVISIONS = 3;
+const GRID_SPACING = 0.3;
+const GRID_COLOR = [0.34, 0.38, 0.43];
 
 const triangleVertices = new Float32Array([
   // x, y, z, r, g, b
   -0.48, 0.0, -0.32, 0.95, 0.25, 0.28,
-  0.48, 0.0, -0.32, 0.18, 0.72, 0.95,
   0.0, 0.0, 0.42, 1.0, 0.82, 0.28,
+  0.48, 0.0, -0.32, 0.18, 0.72, 0.95,
 ]);
 
 const axisVertices = new Float32Array([
-  // x axis: red
-  -0.9, 0.0, 0.0, 1.0, 0.18, 0.18,
-  0.9, 0.0, 0.0, 1.0, 0.18, 0.18,
+  // positive x axis: red
+  0.0, 0.0, 0.0, 1.0, 0.18, 0.18,
+  AXIS_LENGTH, 0.0, 0.0, 1.0, 0.18, 0.18,
 
-  // y axis: green
-  0.0, -0.9, 0.0, 0.24, 0.9, 0.35,
-  0.0, 0.9, 0.0, 0.24, 0.9, 0.35,
+  // positive y axis: green
+  0.0, 0.0, 0.0, 0.24, 0.9, 0.35,
+  0.0, AXIS_LENGTH, 0.0, 0.24, 0.9, 0.35,
 
-  // z axis: blue
-  0.0, 0.0, -0.9, 0.28, 0.55, 1.0,
-  0.0, 0.0, 0.9, 0.28, 0.55, 1.0,
+  // positive z axis: blue
+  0.0, 0.0, 0.0, 0.28, 0.55, 1.0,
+  0.0, 0.0, AXIS_LENGTH, 0.28, 0.55, 1.0,
 ]);
+
+const xzGridVertices = createXzGridVertices();
 
 export function createRenderer(canvas) {
   const gl = canvas.getContext("webgl2", { antialias: true });
@@ -46,6 +55,7 @@ export function createRenderer(canvas) {
   const attributes = getAttributes(gl, program);
   const uniforms = getUniforms(gl, program);
   const triangle = createDrawable(gl, triangleVertices, attributes);
+  const xzGrid = createDrawable(gl, xzGridVertices, attributes);
   const axes = createDrawable(gl, axisVertices, attributes);
   const camera = createOrbitCamera(canvas);
 
@@ -54,12 +64,13 @@ export function createRenderer(canvas) {
 
   return {
     render({ time }) {
-      const matrix = prepareFrame(gl, canvas, camera.getEye());
+      const matrix = prepareFrame(gl, canvas, camera.getEye(), camera.getViewScale());
 
       gl.useProgram(program);
       gl.uniform1f(uniforms.time, time);
       gl.uniformMatrix4fv(uniforms.matrix, false, matrix);
 
+      drawGrid(gl, xzGrid, uniforms);
       drawAxes(gl, axes, uniforms);
       drawTriangle(gl, triangle, uniforms);
     },
@@ -69,6 +80,7 @@ export function createRenderer(canvas) {
 function createOrbitCamera(canvas) {
   let yaw = Math.atan2(1.6, 1.6);
   let pitch = Math.atan2(1.6, Math.hypot(1.6, 1.6));
+  let viewScale = 1;
   let isDragging = false;
   let lastPointerX = 0;
   let lastPointerY = 0;
@@ -117,6 +129,18 @@ function createOrbitCamera(canvas) {
   canvas.addEventListener("pointerup", stopDragging);
   canvas.addEventListener("pointercancel", stopDragging);
   canvas.addEventListener("lostpointercapture", stopDragging);
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      viewScale = clamp(
+        viewScale + event.deltaY * CAMERA_ZOOM_SPEED,
+        CAMERA_MIN_VIEW_SCALE,
+        CAMERA_MAX_VIEW_SCALE,
+      );
+    },
+    { passive: false },
+  );
 
   return {
     getEye() {
@@ -128,11 +152,38 @@ function createOrbitCamera(canvas) {
         Math.sin(yaw) * xzRadius,
       ];
     },
+    getViewScale() {
+      return viewScale;
+    },
   };
 }
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function createXzGridVertices() {
+  const extent = GRID_DIVISIONS * GRID_SPACING;
+  const vertices = [];
+
+  for (let index = -GRID_DIVISIONS; index <= GRID_DIVISIONS; index += 1) {
+    const offset = index * GRID_SPACING;
+
+    if (index === 0) {
+      pushLine(vertices, [-extent, 0.0, 0.0], [0.0, 0.0, 0.0], GRID_COLOR);
+      pushLine(vertices, [0.0, 0.0, -extent], [0.0, 0.0, 0.0], GRID_COLOR);
+      continue;
+    }
+
+    pushLine(vertices, [-extent, 0.0, offset], [extent, 0.0, offset], GRID_COLOR);
+    pushLine(vertices, [offset, 0.0, -extent], [offset, 0.0, extent], GRID_COLOR);
+  }
+
+  return new Float32Array(vertices);
+}
+
+function pushLine(vertices, start, end, color) {
+  vertices.push(...start, ...color, ...end, ...color);
 }
 
 function getAttributes(gl, program) {
@@ -183,11 +234,18 @@ function bindGeometry(gl, geometry, attributes) {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 }
 
-function prepareFrame(gl, canvas, cameraEye) {
+function prepareFrame(gl, canvas, cameraEye, viewScale) {
   resizeCanvasToDisplaySize(canvas);
 
   const aspect = canvas.width / canvas.height;
-  const projectionMatrix = makeOrthographicMatrix(-aspect, aspect, -1, 1, 0.1, 10);
+  const projectionMatrix = makeOrthographicMatrix(
+    -aspect * viewScale,
+    aspect * viewScale,
+    -viewScale,
+    viewScale,
+    0.1,
+    10,
+  );
   const viewMatrix = makeLookAtMatrix(cameraEye, CAMERA_TARGET, [0, 1, 0]);
 
   gl.viewport(0, 0, canvas.width, canvas.height);
@@ -205,9 +263,20 @@ function drawAxes(gl, axes, uniforms) {
   gl.drawArrays(gl.LINES, 0, axes.vertexCount);
 }
 
+function drawGrid(gl, grid, uniforms) {
+  gl.bindVertexArray(grid.vao);
+  gl.uniform1f(uniforms.waveStrength, 0.0);
+  gl.uniform1f(uniforms.pulseStrength, 0.0);
+  gl.lineWidth(1);
+  gl.drawArrays(gl.LINES, 0, grid.vertexCount);
+}
+
 function drawTriangle(gl, triangle, uniforms) {
   gl.bindVertexArray(triangle.vao);
   gl.uniform1f(uniforms.waveStrength, 0.08);
   gl.uniform1f(uniforms.pulseStrength, 1.0);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
   gl.drawArrays(gl.TRIANGLES, 0, triangle.vertexCount);
+  gl.disable(gl.CULL_FACE);
 }
