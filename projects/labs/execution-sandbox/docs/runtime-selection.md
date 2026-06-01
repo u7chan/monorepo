@@ -44,7 +44,7 @@ References used during selection:
 ## Spike Artifacts
 
 ```text
-projects/poc/execution-sandbox/
+projects/labs/execution-sandbox/
   package.json
   src/sandbox.ts
   src/server.ts
@@ -208,7 +208,7 @@ Phase 1 does not include `Retry-After` because there is no queue.
 
 ## Verification Commands
 
-From `projects/poc/execution-sandbox/`:
+From `projects/labs/execution-sandbox/`:
 
 ```bash
 bun --version

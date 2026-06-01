@@ -21,7 +21,7 @@ Issue [#657](https://github.com/u7chan/monorepo/issues/657) 向けの PoC です
 ## Project structure
 
 ```text
-projects/poc/backend-sse-chat-poc/
+projects/labs/backend-sse-chat-poc/
 |- src/backend_sse_chat_poc/main.py
 |- src/backend_sse_chat_poc/service.py
 |- src/backend_sse_chat_poc/store.py
@@ -37,7 +37,7 @@ projects/poc/backend-sse-chat-poc/
 このプロジェクトは uv で Python 自体を管理します。`.python-version` は `3.14` です。
 
 ```bash
-cd projects/poc/backend-sse-chat-poc
+cd projects/labs/backend-sse-chat-poc
 UV_CACHE_DIR=/tmp/uv-cache uv python install 3.14
 UV_CACHE_DIR=/tmp/uv-cache uv sync
 ```
@@ -47,14 +47,14 @@ UV_CACHE_DIR=/tmp/uv-cache uv sync
 API キーがなくても PoC を確認できるよう、`OPENAI_API_KEY` 未設定時はフェイクストリーマーに自動フォールバックします。
 
 ```bash
-cd projects/poc/backend-sse-chat-poc
+cd projects/labs/backend-sse-chat-poc
 UV_CACHE_DIR=/tmp/uv-cache uv run uvicorn backend_sse_chat_poc.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Run with OpenAI
 
 ```bash
-cd projects/poc/backend-sse-chat-poc
+cd projects/labs/backend-sse-chat-poc
 export OPENAI_API_KEY="..."
 export OPENAI_MODEL="gpt-4.1-mini"
 UV_CACHE_DIR=/tmp/uv-cache uv run uvicorn backend_sse_chat_poc.main:app --reload --host 0.0.0.0 --port 8000
@@ -134,7 +134,7 @@ data: {"generation_id":"gen_1","message_id":"msg_a","status":"completed","seq":2
 ## Test
 
 ```bash
-cd projects/poc/backend-sse-chat-poc
+cd projects/labs/backend-sse-chat-poc
 UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest -v
@@ -145,7 +145,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest -v
 Docker build は CI 用 `test` stage と実行用 `final` stage を持ちます。`COMMIT_HASH` build arg にも対応しています。
 
 ```bash
-cd projects/poc/backend-sse-chat-poc
+cd projects/labs/backend-sse-chat-poc
 docker build --target=test -t backend-sse-chat-poc:test .
 docker build --target=final -t backend-sse-chat-poc:latest .
 docker run --rm -p 8000:8000 -e OPENAI_API_KEY="$OPENAI_API_KEY" backend-sse-chat-poc:latest
