@@ -4,9 +4,7 @@
 
 ## Run
 
-そのまま `index.html` をブラウザで開けます。
-
-WSL2 から Windows ブラウザで見る場合は、以下でも起動できます。
+ES Modules を使っているため、ローカルサーバーで起動します。
 
 ```bash
 python3 -m http.server 5173
@@ -20,5 +18,9 @@ http://localhost:5173
 
 ## Edit Points
 
+- `src/main.js`: game loop と状態更新
+- `src/hud.js`: FPS などの画面表示
+- `src/renderer.js`: WebGL の初期化と描画処理
+- `src/webgl.js`: WebGL の低レベルな補助関数
+- `src/math.js`: 行列・ベクトル計算
 - `src/shaders.js`: 頂点シェーダーとフラグメントシェーダー
-- `vertices`: 頂点座標と頂点カラー
