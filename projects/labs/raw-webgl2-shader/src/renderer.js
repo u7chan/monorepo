@@ -24,6 +24,7 @@ const AXIS_LENGTH = 0.9;
 const GRID_DIVISIONS = 3;
 const GRID_SPACING = 0.3;
 const GRID_COLOR = [0.34, 0.38, 0.43];
+const MODEL_TARGET_HEIGHT = AXIS_LENGTH;
 const UP_NORMAL = [0, 1, 0];
 
 const axisVertices = createAxisVertices();
@@ -46,7 +47,7 @@ export function createRenderer(canvas) {
 
   loadGltfModel(FOX_MODEL_URL)
     .then((model) => {
-      const fittedModel = fitModelToGround(model);
+      const fittedModel = fitModelToGround(model, MODEL_TARGET_HEIGHT);
 
       foxModel = {
         surface: createDrawable(gl, fittedModel.triangles, attributes),
