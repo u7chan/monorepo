@@ -12,7 +12,7 @@ const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const FOX_MODEL_URL = "./assets/lowpoly_fox_animal.gltf";
 const COLOR_MODE_VERTEX = 0;
 const COLOR_MODE_MATERIAL = 1;
-const CAMERA_TARGET = [0, 0, 0];
+const CAMERA_INITIAL_TARGET = [0, 0, 0];
 const CAMERA_RADIUS = Math.hypot(1.6, 1.6, 1.6);
 const CAMERA_ROTATION_SPEED = 0.006;
 const CAMERA_ZOOM_SPEED = 0.001;
@@ -62,7 +62,13 @@ export function createRenderer(canvas) {
 
   return {
     render({ renderOptions }) {
-      const matrix = prepareFrame(gl, canvas, camera.getEye(), camera.getViewScale());
+      const matrix = prepareFrame(
+        gl,
+        canvas,
+        camera.getEye(),
+        camera.getTarget(),
+        camera.getViewScale(),
+      );
 
       gl.useProgram(program);
       gl.uniformMatrix4fv(uniforms.matrix, false, matrix);
@@ -86,19 +92,21 @@ export function createRenderer(canvas) {
 }
 
 function createOrbitCamera(canvas) {
+  const target = [...CAMERA_INITIAL_TARGET];
   let yaw = Math.atan2(1.6, 1.6);
   let pitch = Math.atan2(1.6, Math.hypot(1.6, 1.6));
   let viewScale = 1;
-  let isDragging = false;
+  let dragMode = null;
   let lastPointerX = 0;
   let lastPointerY = 0;
 
   canvas.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) {
+    if (event.button !== 0 && event.button !== 1) {
       return;
     }
 
-    isDragging = true;
+    event.preventDefault();
+    dragMode = event.button === 0 ? "orbit" : "pan";
     lastPointerX = event.clientX;
     lastPointerY = event.clientY;
     canvas.setPointerCapture(event.pointerId);
@@ -106,7 +114,7 @@ function createOrbitCamera(canvas) {
   });
 
   canvas.addEventListener("pointermove", (event) => {
-    if (!isDragging) {
+    if (dragMode === null) {
       return;
     }
 
@@ -114,20 +122,26 @@ function createOrbitCamera(canvas) {
     const deltaY = event.clientY - lastPointerY;
     lastPointerX = event.clientX;
     lastPointerY = event.clientY;
-    yaw -= deltaX * CAMERA_ROTATION_SPEED;
-    pitch = clamp(
-      pitch - deltaY * CAMERA_ROTATION_SPEED,
-      CAMERA_MIN_PITCH,
-      CAMERA_MAX_PITCH,
-    );
-  });
 
-  function stopDragging(event) {
-    if (!isDragging) {
+    if (dragMode === "orbit") {
+      yaw -= deltaX * CAMERA_ROTATION_SPEED;
+      pitch = clamp(
+        pitch - deltaY * CAMERA_ROTATION_SPEED,
+        CAMERA_MIN_PITCH,
+        CAMERA_MAX_PITCH,
+      );
       return;
     }
 
-    isDragging = false;
+    panCameraTarget(target, getEyeOffset(yaw, pitch), viewScale, canvas, deltaX, deltaY);
+  });
+
+  function stopDragging(event) {
+    if (dragMode === null) {
+      return;
+    }
+
+    dragMode = null;
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
@@ -137,6 +151,11 @@ function createOrbitCamera(canvas) {
   canvas.addEventListener("pointerup", stopDragging);
   canvas.addEventListener("pointercancel", stopDragging);
   canvas.addEventListener("lostpointercapture", stopDragging);
+  canvas.addEventListener("auxclick", (event) => {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  });
   canvas.addEventListener(
     "wheel",
     (event) => {
@@ -152,18 +171,42 @@ function createOrbitCamera(canvas) {
 
   return {
     getEye() {
-      const xzRadius = Math.cos(pitch) * CAMERA_RADIUS;
+      const offset = getEyeOffset(yaw, pitch);
 
       return [
-        Math.cos(yaw) * xzRadius,
-        Math.sin(pitch) * CAMERA_RADIUS,
-        Math.sin(yaw) * xzRadius,
+        target[0] + offset[0],
+        target[1] + offset[1],
+        target[2] + offset[2],
       ];
+    },
+    getTarget() {
+      return target;
     },
     getViewScale() {
       return viewScale;
     },
   };
+}
+
+function getEyeOffset(yaw, pitch) {
+  const xzRadius = Math.cos(pitch) * CAMERA_RADIUS;
+
+  return [
+    Math.cos(yaw) * xzRadius,
+    Math.sin(pitch) * CAMERA_RADIUS,
+    Math.sin(yaw) * xzRadius,
+  ];
+}
+
+function panCameraTarget(target, eyeOffset, viewScale, canvas, deltaX, deltaY) {
+  const unitsPerPixel = (viewScale * 2) / Math.max(canvas.clientHeight, 1);
+  const zAxis = normalize(eyeOffset);
+  const xAxis = normalize(cross([0, 1, 0], zAxis));
+  const yAxis = cross(zAxis, xAxis);
+
+  target[0] += (-xAxis[0] * deltaX + yAxis[0] * deltaY) * unitsPerPixel;
+  target[1] += (-xAxis[1] * deltaX + yAxis[1] * deltaY) * unitsPerPixel;
+  target[2] += (-xAxis[2] * deltaX + yAxis[2] * deltaY) * unitsPerPixel;
 }
 
 function clamp(value, min, max) {
@@ -291,7 +334,7 @@ function bindGeometry(gl, geometry, attributes) {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 }
 
-function prepareFrame(gl, canvas, cameraEye, viewScale) {
+function prepareFrame(gl, canvas, cameraEye, cameraTarget, viewScale) {
   resizeCanvasToDisplaySize(canvas);
 
   const aspect = canvas.width / canvas.height;
@@ -303,13 +346,31 @@ function prepareFrame(gl, canvas, cameraEye, viewScale) {
     0.1,
     10,
   );
-  const viewMatrix = makeLookAtMatrix(cameraEye, CAMERA_TARGET, [0, 1, 0]);
+  const viewMatrix = makeLookAtMatrix(cameraEye, cameraTarget, [0, 1, 0]);
 
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.06, 0.07, 0.08, 1.0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   return multiplyMatrices(projectionMatrix, viewMatrix);
+}
+
+function normalize(vector) {
+  const length = Math.hypot(vector[0], vector[1], vector[2]);
+
+  if (length === 0) {
+    return [0, 0, 0];
+  }
+
+  return [vector[0] / length, vector[1] / length, vector[2] / length];
+}
+
+function cross(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
 }
 
 function drawModel(gl, model, renderOptions) {
