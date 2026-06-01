@@ -19,6 +19,13 @@ canvas {
   display: block;
   width: 100vw;
   height: 100vh;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+canvas.is-dragging {
+  cursor: grabbing;
 }
 
 .hud {
