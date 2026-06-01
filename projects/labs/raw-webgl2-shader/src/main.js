@@ -1,4 +1,4 @@
-import { createFpsCounter } from "./hud.js";
+import { createFpsCounter, createRenderControls } from "./hud.js";
 import { createRenderer } from "./renderer.js";
 
 const canvas = document.querySelector("#gl-canvas");
@@ -13,9 +13,22 @@ const fpsCounter = createFpsCounter(document.querySelector("#fps-counter"));
 const gameState = {
   time: 0,
   deltaTime: 0,
+  renderOptions: {
+    surfaceVisible: true,
+    wireframeVisible: true,
+    useVertexColors: true,
+    lightingEnabled: true,
+    gridVisible: true,
+    axesVisible: true,
+  },
 };
 
 let lastFrameTime = null;
+
+createRenderControls(
+  document.querySelector("#render-controls"),
+  gameState.renderOptions,
+);
 
 function update(deltaTime, time) {
   gameState.deltaTime = deltaTime;

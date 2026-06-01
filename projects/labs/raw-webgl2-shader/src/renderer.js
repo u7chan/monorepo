@@ -3,11 +3,15 @@ import {
   makeOrthographicMatrix,
   multiplyMatrices,
 } from "./math.js";
+import { fitModelToGround, loadGltfModel } from "./gltf.js";
 import { shaderSources } from "./shaders.js";
 import { createGeometry, createProgram, resizeCanvasToDisplaySize } from "./webgl.js";
 
-const FLOATS_PER_VERTEX = 6;
+const FLOATS_PER_VERTEX = 12;
 const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
+const FOX_MODEL_URL = "./assets/lowpoly_fox_animal.gltf";
+const COLOR_MODE_VERTEX = 0;
+const COLOR_MODE_MATERIAL = 1;
 const CAMERA_TARGET = [0, 0, 0];
 const CAMERA_RADIUS = Math.hypot(1.6, 1.6, 1.6);
 const CAMERA_ROTATION_SPEED = 0.006;
@@ -20,28 +24,9 @@ const AXIS_LENGTH = 0.9;
 const GRID_DIVISIONS = 3;
 const GRID_SPACING = 0.3;
 const GRID_COLOR = [0.34, 0.38, 0.43];
+const UP_NORMAL = [0, 1, 0];
 
-const triangleVertices = new Float32Array([
-  // x, y, z, r, g, b
-  -0.48, 0.0, -0.32, 0.95, 0.25, 0.28,
-  0.0, 0.0, 0.42, 1.0, 0.82, 0.28,
-  0.48, 0.0, -0.32, 0.18, 0.72, 0.95,
-]);
-
-const axisVertices = new Float32Array([
-  // positive x axis: red
-  0.0, 0.0, 0.0, 1.0, 0.18, 0.18,
-  AXIS_LENGTH, 0.0, 0.0, 1.0, 0.18, 0.18,
-
-  // positive y axis: green
-  0.0, 0.0, 0.0, 0.24, 0.9, 0.35,
-  0.0, AXIS_LENGTH, 0.0, 0.24, 0.9, 0.35,
-
-  // positive z axis: blue
-  0.0, 0.0, 0.0, 0.28, 0.55, 1.0,
-  0.0, 0.0, AXIS_LENGTH, 0.28, 0.55, 1.0,
-]);
-
+const axisVertices = createAxisVertices();
 const xzGridVertices = createXzGridVertices();
 
 export function createRenderer(canvas) {
@@ -54,25 +39,48 @@ export function createRenderer(canvas) {
   const program = createProgram(gl, shaderSources.vertex, shaderSources.fragment);
   const attributes = getAttributes(gl, program);
   const uniforms = getUniforms(gl, program);
-  const triangle = createDrawable(gl, triangleVertices, attributes);
   const xzGrid = createDrawable(gl, xzGridVertices, attributes);
   const axes = createDrawable(gl, axisVertices, attributes);
   const camera = createOrbitCamera(canvas);
+  let foxModel = null;
+
+  loadGltfModel(FOX_MODEL_URL)
+    .then((model) => {
+      const fittedModel = fitModelToGround(model);
+
+      foxModel = {
+        surface: createDrawable(gl, fittedModel.triangles, attributes),
+        wireframe: createDrawable(gl, fittedModel.wireframe, attributes),
+      };
+    })
+    .catch((error) => {
+      console.error(error);
+    });
 
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
 
   return {
-    render({ time }) {
+    render({ renderOptions }) {
       const matrix = prepareFrame(gl, canvas, camera.getEye(), camera.getViewScale());
 
       gl.useProgram(program);
-      gl.uniform1f(uniforms.time, time);
       gl.uniformMatrix4fv(uniforms.matrix, false, matrix);
+      gl.uniform1i(
+        uniforms.colorMode,
+        renderOptions.useVertexColors ? COLOR_MODE_VERTEX : COLOR_MODE_MATERIAL,
+      );
+      gl.uniform1i(uniforms.lightingEnabled, renderOptions.lightingEnabled ? 1 : 0);
 
-      drawGrid(gl, xzGrid, uniforms);
-      drawAxes(gl, axes, uniforms);
-      drawTriangle(gl, triangle, uniforms);
+      if (renderOptions.gridVisible) {
+        drawLines(gl, xzGrid);
+      }
+
+      if (renderOptions.axesVisible) {
+        drawLines(gl, axes, 2);
+      }
+
+      drawModel(gl, foxModel, renderOptions);
     },
   };
 }
@@ -182,23 +190,52 @@ function createXzGridVertices() {
   return new Float32Array(vertices);
 }
 
+function createAxisVertices() {
+  const vertices = [];
+
+  pushLine(vertices, [0.0, 0.0, 0.0], [AXIS_LENGTH, 0.0, 0.0], [1.0, 0.18, 0.18]);
+  pushLine(vertices, [0.0, 0.0, 0.0], [0.0, AXIS_LENGTH, 0.0], [0.24, 0.9, 0.35]);
+  pushLine(vertices, [0.0, 0.0, 0.0], [0.0, 0.0, AXIS_LENGTH], [0.28, 0.55, 1.0]);
+
+  return new Float32Array(vertices);
+}
+
 function pushLine(vertices, start, end, color) {
-  vertices.push(...start, ...color, ...end, ...color);
+  pushPackedVertex(vertices, start, UP_NORMAL, color, color);
+  pushPackedVertex(vertices, end, UP_NORMAL, color, color);
+}
+
+function pushPackedVertex(vertices, position, normal, vertexColor, materialColor) {
+  vertices.push(
+    position[0],
+    position[1],
+    position[2],
+    normal[0],
+    normal[1],
+    normal[2],
+    vertexColor[0],
+    vertexColor[1],
+    vertexColor[2],
+    materialColor[0],
+    materialColor[1],
+    materialColor[2],
+  );
 }
 
 function getAttributes(gl, program) {
   return {
     position: gl.getAttribLocation(program, "a_position"),
-    color: gl.getAttribLocation(program, "a_color"),
+    normal: gl.getAttribLocation(program, "a_normal"),
+    vertexColor: gl.getAttribLocation(program, "a_vertex_color"),
+    materialColor: gl.getAttribLocation(program, "a_material_color"),
   };
 }
 
 function getUniforms(gl, program) {
   return {
-    time: gl.getUniformLocation(program, "u_time"),
     matrix: gl.getUniformLocation(program, "u_matrix"),
-    waveStrength: gl.getUniformLocation(program, "u_wave_strength"),
-    pulseStrength: gl.getUniformLocation(program, "u_pulse_strength"),
+    colorMode: gl.getUniformLocation(program, "u_color_mode"),
+    lightingEnabled: gl.getUniformLocation(program, "u_lighting_enabled"),
   };
 }
 
@@ -220,14 +257,34 @@ function bindGeometry(gl, geometry, attributes) {
   gl.enableVertexAttribArray(attributes.position);
   gl.vertexAttribPointer(attributes.position, 3, gl.FLOAT, false, STRIDE, 0);
 
-  gl.enableVertexAttribArray(attributes.color);
+  gl.enableVertexAttribArray(attributes.normal);
   gl.vertexAttribPointer(
-    attributes.color,
+    attributes.normal,
     3,
     gl.FLOAT,
     false,
     STRIDE,
     3 * Float32Array.BYTES_PER_ELEMENT,
+  );
+
+  gl.enableVertexAttribArray(attributes.vertexColor);
+  gl.vertexAttribPointer(
+    attributes.vertexColor,
+    3,
+    gl.FLOAT,
+    false,
+    STRIDE,
+    6 * Float32Array.BYTES_PER_ELEMENT,
+  );
+
+  gl.enableVertexAttribArray(attributes.materialColor);
+  gl.vertexAttribPointer(
+    attributes.materialColor,
+    3,
+    gl.FLOAT,
+    false,
+    STRIDE,
+    9 * Float32Array.BYTES_PER_ELEMENT,
   );
 
   gl.bindVertexArray(null);
@@ -255,28 +312,30 @@ function prepareFrame(gl, canvas, cameraEye, viewScale) {
   return multiplyMatrices(projectionMatrix, viewMatrix);
 }
 
-function drawAxes(gl, axes, uniforms) {
-  gl.bindVertexArray(axes.vao);
-  gl.uniform1f(uniforms.waveStrength, 0.0);
-  gl.uniform1f(uniforms.pulseStrength, 0.0);
-  gl.lineWidth(2);
-  gl.drawArrays(gl.LINES, 0, axes.vertexCount);
-}
+function drawModel(gl, model, renderOptions) {
+  if (!model) {
+    return;
+  }
 
-function drawGrid(gl, grid, uniforms) {
-  gl.bindVertexArray(grid.vao);
-  gl.uniform1f(uniforms.waveStrength, 0.0);
-  gl.uniform1f(uniforms.pulseStrength, 0.0);
-  gl.lineWidth(1);
-  gl.drawArrays(gl.LINES, 0, grid.vertexCount);
-}
+  if (renderOptions.surfaceVisible) {
+    gl.disable(gl.CULL_FACE);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1, 1);
+    gl.bindVertexArray(model.surface.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, model.surface.vertexCount);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+  }
 
-function drawTriangle(gl, triangle, uniforms) {
-  gl.bindVertexArray(triangle.vao);
-  gl.uniform1f(uniforms.waveStrength, 0.08);
-  gl.uniform1f(uniforms.pulseStrength, 1.0);
-  gl.enable(gl.CULL_FACE);
-  gl.cullFace(gl.BACK);
-  gl.drawArrays(gl.TRIANGLES, 0, triangle.vertexCount);
+  if (renderOptions.wireframeVisible) {
+    drawLines(gl, model.wireframe);
+  }
+
   gl.disable(gl.CULL_FACE);
+}
+
+function drawLines(gl, drawable, lineWidth = 1) {
+  gl.disable(gl.CULL_FACE);
+  gl.bindVertexArray(drawable.vao);
+  gl.lineWidth(lineWidth);
+  gl.drawArrays(gl.LINES, 0, drawable.vertexCount);
 }

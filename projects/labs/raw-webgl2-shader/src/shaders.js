@@ -3,24 +3,21 @@ export const shaderSources = {
 precision highp float;
 
 in vec3 a_position;
-in vec3 a_color;
+in vec3 a_normal;
+in vec3 a_vertex_color;
+in vec3 a_material_color;
 
-uniform float u_time;
 uniform mat4 u_matrix;
-uniform float u_wave_strength;
+uniform int u_color_mode;
+uniform bool u_lighting_enabled;
 
 out vec3 v_color;
-out float v_wave;
+out vec3 v_normal;
 
 void main() {
-  vec3 pos = a_position;
-
-  float wave = sin((pos.x * 5.0) + u_time * 2.0) * u_wave_strength;
-  pos.y += wave;
-
-  gl_Position = u_matrix * vec4(pos, 1.0);
-  v_color = a_color;
-  v_wave = wave;
+  gl_Position = u_matrix * vec4(a_position, 1.0);
+  v_color = u_color_mode == 0 ? a_vertex_color : a_material_color;
+  v_normal = normalize(a_normal);
 }
 `,
 
@@ -28,17 +25,18 @@ void main() {
 precision highp float;
 
 in vec3 v_color;
-in float v_wave;
+in vec3 v_normal;
 
-uniform float u_time;
-uniform float u_pulse_strength;
+uniform bool u_lighting_enabled;
 
 out vec4 outColor;
 
 void main() {
-  float animatedPulse = 0.65 + 0.35 * sin(u_time + v_wave * 18.0);
-  float pulse = mix(1.0, animatedPulse, u_pulse_strength);
-  vec3 color = v_color * pulse;
+  vec3 lightDirection = normalize(vec3(0.35, 0.82, 0.45));
+  float diffuse = max(dot(normalize(v_normal), lightDirection), 0.0);
+  float light = u_lighting_enabled ? 0.32 + diffuse * 0.78 : 1.0;
+  vec3 color = v_color * light;
+
   outColor = vec4(color, 1.0);
 }
 `,
