@@ -16,7 +16,7 @@ lifecycle, import allowlist, and reset strategy are implemented and tested.
 
 ## Repeatable Spike
 
-From `projects/poc/execution-sandbox/`:
+From `projects/labs/execution-sandbox/`:
 
 ```bash
 bun install
