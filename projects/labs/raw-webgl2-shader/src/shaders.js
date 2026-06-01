@@ -1,6 +1,4 @@
-"use strict";
-
-window.shaderSources = {
+export const shaderSources = {
   vertex: `#version 300 es
 precision highp float;
 
