@@ -138,7 +138,7 @@ function createOrbitCamera(canvas) {
     lastPointerY = event.clientY;
 
     if (dragMode === "orbit") {
-      yaw -= deltaX * CAMERA_ROTATION_SPEED;
+      yaw += deltaX * CAMERA_ROTATION_SPEED;
       pitch = clamp(
         pitch + deltaY * CAMERA_ROTATION_SPEED,
         CAMERA_MIN_PITCH,
