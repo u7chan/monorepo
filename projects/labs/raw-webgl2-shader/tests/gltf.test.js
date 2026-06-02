@@ -84,6 +84,27 @@ describe("loadGltfModelFromFile", () => {
     expectVector(model.bounds.max, [1, 1, 0]);
   });
 
+  test("byteOffset付きのaccessorを読める", async () => {
+    const positionBuffer = floatBuffer([
+      99,
+      0, 0, 0,
+      1, 0, 0,
+      0, 1, 0,
+    ]);
+    const gltf = createTriangleGltf({
+      positionBuffer,
+      positionByteOffset: 4,
+      positions: null,
+    });
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expectVector(readPackedVertex(model.triangles, 0).position, [0, 0, 0]);
+    expectVector(readPackedVertex(model.triangles, 2).position, [0, 1, 0]);
+    expectVector(model.bounds.min, [0, 0, 0]);
+    expectVector(model.bounds.max, [1, 1, 0]);
+  });
+
   test("nodeのtranslationとscaleを頂点に反映する", async () => {
     const gltf = createTriangleGltf({
       node: {
@@ -197,6 +218,7 @@ function createTriangleGltf({
   node = { mesh: 0 },
   normals = null,
   positionBuffer = null,
+  positionByteOffset = undefined,
   positionByteStride = undefined,
   positions = [
     0, 0, 0,
@@ -212,6 +234,7 @@ function createTriangleGltf({
     accessors,
     positionBuffer ?? floatBuffer(positions),
     {
+      byteOffset: positionByteOffset,
       byteStride: positionByteStride,
       componentType: GL_FLOAT,
       count: 3,
@@ -292,6 +315,7 @@ function addAccessor(bufferBuilder, accessors, arrayBuffer, options) {
 
   accessors.push({
     bufferView,
+    ...(options.byteOffset === undefined ? {} : { byteOffset: options.byteOffset }),
     componentType: options.componentType,
     count: options.count,
     type: options.type,
