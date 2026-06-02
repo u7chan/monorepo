@@ -1,4 +1,6 @@
-import { createFpsCounter, createRenderControls } from "./hud.js";
+import { createGltfDropImporter, pickSingleGltfFile } from "./drop-import.js";
+import { loadGltfModelFromFile } from "./gltf.js";
+import { createFpsCounter, createImportStatus, createRenderControls } from "./hud.js";
 import { createRenderer } from "./renderer.js";
 
 const canvas = document.querySelector("#gl-canvas");
@@ -9,6 +11,7 @@ if (!canvas) {
 
 const renderer = createRenderer(canvas);
 const fpsCounter = createFpsCounter(document.querySelector("#fps-counter"));
+const importStatus = createImportStatus(document.querySelector("#import-status"));
 
 const gameState = {
   time: 0,
@@ -29,6 +32,38 @@ createRenderControls(
   document.querySelector("#render-controls"),
   gameState.renderOptions,
 );
+
+createGltfDropImporter({
+  onDragChange(isDragging) {
+    canvas.classList.toggle("is-drop-target", isDragging);
+    document.body.classList.toggle("is-dropping-gltf", isDragging);
+    importStatus.setDragging(isDragging);
+  },
+  async onDropFiles(files) {
+    renderer.clearModel();
+
+    let file;
+
+    try {
+      file = pickSingleGltfFile(files);
+    } catch (error) {
+      importStatus.setError(error.message);
+      return;
+    }
+
+    importStatus.setLoading(file.name);
+
+    try {
+      const model = await loadGltfModelFromFile(file);
+
+      renderer.setModel(model);
+      importStatus.setLoaded(file.name);
+    } catch (error) {
+      console.error(error);
+      importStatus.setError(error.message);
+    }
+  },
+});
 
 function update(deltaTime, time) {
   gameState.deltaTime = deltaTime;

@@ -43,16 +43,15 @@ export function createRenderer(canvas) {
   const xzGrid = createDrawable(gl, xzGridVertices, attributes);
   const axes = createDrawable(gl, axisVertices, attributes);
   const camera = createOrbitCamera(canvas);
-  let foxModel = null;
+  let currentModel = null;
+  let modelRevision = 0;
 
+  const sampleModelRevision = modelRevision;
   loadGltfModel(FOX_MODEL_URL)
     .then((model) => {
-      const fittedModel = fitModelToGround(model, MODEL_TARGET_HEIGHT);
-
-      foxModel = {
-        surface: createDrawable(gl, fittedModel.triangles, attributes),
-        wireframe: createDrawable(gl, fittedModel.wireframe, attributes),
-      };
+      if (sampleModelRevision === modelRevision) {
+        replaceCurrentModel(model);
+      }
     })
     .catch((error) => {
       console.error(error);
@@ -87,9 +86,23 @@ export function createRenderer(canvas) {
         drawLines(gl, axes, 2);
       }
 
-      drawModel(gl, foxModel, renderOptions);
+      drawModel(gl, currentModel, renderOptions);
+    },
+    clearModel() {
+      modelRevision += 1;
+      replaceCurrentModel(null);
+    },
+    setModel(model) {
+      modelRevision += 1;
+      replaceCurrentModel(model);
+      camera.reset();
     },
   };
+
+  function replaceCurrentModel(model) {
+    disposeModel(gl, currentModel);
+    currentModel = model === null ? null : createRenderModel(gl, attributes, model);
+  }
 }
 
 function createOrbitCamera(canvas) {
@@ -125,9 +138,9 @@ function createOrbitCamera(canvas) {
     lastPointerY = event.clientY;
 
     if (dragMode === "orbit") {
-      yaw -= deltaX * CAMERA_ROTATION_SPEED;
+      yaw += deltaX * CAMERA_ROTATION_SPEED;
       pitch = clamp(
-        pitch - deltaY * CAMERA_ROTATION_SPEED,
+        pitch + deltaY * CAMERA_ROTATION_SPEED,
         CAMERA_MIN_PITCH,
         CAMERA_MAX_PITCH,
       );
@@ -185,6 +198,14 @@ function createOrbitCamera(canvas) {
     },
     getViewScale() {
       return viewScale;
+    },
+    reset() {
+      target[0] = CAMERA_INITIAL_TARGET[0];
+      target[1] = CAMERA_INITIAL_TARGET[1];
+      target[2] = CAMERA_INITIAL_TARGET[2];
+      yaw = Math.atan2(1.6, 1.6);
+      pitch = Math.atan2(1.6, Math.hypot(1.6, 1.6));
+      viewScale = 1;
     },
   };
 }
@@ -292,6 +313,29 @@ function createDrawable(gl, vertices, attributes) {
     ...geometry,
     vertexCount: vertices.length / FLOATS_PER_VERTEX,
   };
+}
+
+function createRenderModel(gl, attributes, model) {
+  const fittedModel = fitModelToGround(model, MODEL_TARGET_HEIGHT);
+
+  return {
+    surface: createDrawable(gl, fittedModel.triangles, attributes),
+    wireframe: createDrawable(gl, fittedModel.wireframe, attributes),
+  };
+}
+
+function disposeModel(gl, model) {
+  if (!model) {
+    return;
+  }
+
+  disposeDrawable(gl, model.surface);
+  disposeDrawable(gl, model.wireframe);
+}
+
+function disposeDrawable(gl, drawable) {
+  gl.deleteVertexArray(drawable.vao);
+  gl.deleteBuffer(drawable.buffer);
 }
 
 function bindGeometry(gl, geometry, attributes) {

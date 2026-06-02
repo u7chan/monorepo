@@ -28,10 +28,31 @@ canvas.is-dragging {
   cursor: grabbing;
 }
 
+canvas.is-drop-target {
+  outline: 2px solid #f2b84b;
+  outline-offset: -10px;
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border: 1px solid rgb(242 184 75 / 78%);
+  background: rgb(242 184 75 / 10%);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+body.is-dropping-gltf .drop-overlay {
+  opacity: 1;
+}
+
 .hud {
   position: fixed;
   left: 16px;
   top: 16px;
+  z-index: 2;
   display: grid;
   gap: 2px;
   padding: 10px 12px;
@@ -48,6 +69,15 @@ canvas.is-dragging {
 
 .hud span {
   color: rgb(244 241 234 / 72%);
+}
+
+.hud span[data-state="dragging"],
+.hud span[data-state="loaded"] {
+  color: #f2b84b;
+}
+
+.hud span[data-state="error"] {
+  color: #ff8a7a;
 }
 
 .render-controls {
