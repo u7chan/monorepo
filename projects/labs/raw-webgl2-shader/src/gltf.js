@@ -45,7 +45,30 @@ export async function loadGltfModel(url) {
 
   const gltf = await response.json();
   const baseUrl = new URL(url, window.location.href);
-  const buffers = await loadBuffers(gltf, baseUrl);
+  const buffers = await loadBuffersFromUrl(gltf, baseUrl);
+
+  return createModelFromGltf(gltf, buffers);
+}
+
+export async function loadGltfModelFromFile(file) {
+  if (!file.name.toLowerCase().endsWith(".gltf")) {
+    throw new Error("Only .gltf files are supported.");
+  }
+
+  let gltf;
+
+  try {
+    gltf = JSON.parse(await file.text());
+  } catch {
+    throw new Error("Dropped .gltf is not valid JSON.");
+  }
+
+  const buffers = await loadEmbeddedBuffers(gltf);
+
+  return createModelFromGltf(gltf, buffers);
+}
+
+function createModelFromGltf(gltf, buffers) {
   const model = {
     bounds: createEmptyBounds(),
     triangles: [],
@@ -81,7 +104,7 @@ export function fitModelToGround(model, targetHeight = 1.45) {
   };
 }
 
-async function loadBuffers(gltf, baseUrl) {
+async function loadBuffersFromUrl(gltf, baseUrl) {
   return Promise.all(
     (gltf.buffers ?? []).map(async (buffer) => {
       if (!buffer.uri) {
@@ -101,6 +124,22 @@ async function loadBuffers(gltf, baseUrl) {
       }
 
       return response.arrayBuffer();
+    }),
+  );
+}
+
+async function loadEmbeddedBuffers(gltf) {
+  return Promise.all(
+    (gltf.buffers ?? []).map(async (buffer) => {
+      if (!buffer.uri) {
+        throw new Error("Binary .glb buffers are not supported yet.");
+      }
+
+      if (!buffer.uri.startsWith("data:")) {
+        throw new Error("External .bin buffers are not supported for dropped .gltf files yet.");
+      }
+
+      return decodeDataUri(buffer.uri);
     }),
   );
 }

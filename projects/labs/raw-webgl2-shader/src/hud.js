@@ -36,6 +36,57 @@ export function createFpsCounter(element) {
   };
 }
 
+export function createImportStatus(element) {
+  if (!element) {
+    return {
+      setDragging() {},
+      setError() {},
+      setLoaded() {},
+      setLoading() {},
+      setMessage() {},
+    };
+  }
+
+  let currentText = element.textContent;
+  let currentState = "idle";
+
+  function render(text, state) {
+    element.textContent = text;
+    element.dataset.state = state;
+  }
+
+  return {
+    setDragging(isDragging) {
+      if (isDragging) {
+        render("Drop .gltf to import", "dragging");
+        return;
+      }
+
+      render(currentText, currentState);
+    },
+    setError(message) {
+      currentText = `Unsupported: ${message}`;
+      currentState = "error";
+      render(currentText, currentState);
+    },
+    setLoaded(fileName) {
+      currentText = `Loaded: ${fileName}`;
+      currentState = "loaded";
+      render(currentText, currentState);
+    },
+    setLoading(fileName) {
+      currentText = `Loading: ${fileName}`;
+      currentState = "loading";
+      render(currentText, currentState);
+    },
+    setMessage(message) {
+      currentText = message;
+      currentState = "idle";
+      render(currentText, currentState);
+    },
+  };
+}
+
 export function createRenderControls(element, renderOptions) {
   if (!element) {
     return;
