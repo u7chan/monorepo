@@ -84,6 +84,59 @@ class LicenseExpressionTest(unittest.TestCase):
 
 
 class TargetDetectionTest(unittest.TestCase):
+    def test_dependency_free_package_json_does_not_require_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text('{"scripts":{"test":"bun test"}}\n', encoding="utf-8")
+            self.assertEqual(check_licenses.detect_target_managers(target), [("node-empty", None)])
+
+            summary = check_licenses.check_target(target, POLICY)
+            self.assertEqual(summary.packages_checked, 0)
+            self.assertEqual(summary.fail_count, 0)
+            self.assertEqual([(item.status, item.reason_code) for item in summary.items], [("PASS", "NO_DEPENDENCIES")])
+
+    def test_empty_dependency_fields_do_not_require_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text(
+                (
+                    "{"
+                    '"dependencies":{},'
+                    '"devDependencies":{},'
+                    '"optionalDependencies":{},'
+                    '"peerDependencies":{}'
+                    "}\n"
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(check_licenses.detect_target_managers(target), [("node-empty", None)])
+
+    def test_dependency_free_package_json_with_supported_lockfile_uses_current_manager(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text('{"scripts":{"test":"bun test"}}\n', encoding="utf-8")
+            (target / "package-lock.json").write_text("{}\n", encoding="utf-8")
+            self.assertEqual(check_licenses.detect_target_managers(target), [("npm", None)])
+
+    def test_package_json_with_dependency_still_requires_supported_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text('{"dependencies":{"left-pad":"1.3.0"}}\n', encoding="utf-8")
+            self.assertEqual(
+                check_licenses.detect_target_managers(target),
+                [("node", "missing supported lockfile")],
+            )
+
+    def test_dependency_free_package_json_with_unsupported_lockfile_is_not_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text('{"scripts":{"test":"bun test"}}\n', encoding="utf-8")
+            (target / "yarn.lock").write_text("", encoding="utf-8")
+            self.assertEqual(
+                check_licenses.detect_target_managers(target),
+                [("node", "unsupported lockfile: yarn.lock")],
+            )
+
     def test_yarn_is_not_supported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)

@@ -32,9 +32,11 @@ REASON_UNKNOWN = "LICENSE_UNKNOWN"
 REASON_EXPRESSION_UNSUPPORTED = "EXPRESSION_UNSUPPORTED"
 REASON_NOT_SUPPORTED = "NOT_SUPPORTED"
 REASON_INSTALL_FAILED = "INSTALL_FAILED"
+REASON_NO_DEPENDENCIES = "NO_DEPENDENCIES"
 
 SUPPORTED_NODE_LOCKS = ("bun.lock", "bun.lockb", "package-lock.json")
 UNSUPPORTED_NODE_LOCKS = ("yarn.lock", "pnpm-lock.yaml")
+NODE_DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
 SUPPORTED_PYTHON_LOCKS = ("uv.lock",)
 UNSUPPORTED_PYTHON_LOCKS = ("requirements.txt", "poetry.lock", "Pipfile.lock")
 
@@ -299,6 +301,8 @@ def detect_target_managers(target: Path) -> list[tuple[str, str | None]]:
             managers.append(("bun", None))
         elif (target / "package-lock.json").exists():
             managers.append(("npm", None))
+        elif not has_node_dependencies(target / "package.json"):
+            managers.append(("node-empty", None))
         else:
             managers.append(("node", "missing supported lockfile"))
 
@@ -315,6 +319,25 @@ def detect_target_managers(target: Path) -> list[tuple[str, str | None]]:
         managers.append(("unknown", "package.json or pyproject.toml not found"))
 
     return managers
+
+
+def has_node_dependencies(package_json: Path) -> bool:
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+
+    if not isinstance(data, dict):
+        return True
+
+    for field in NODE_DEPENDENCY_FIELDS:
+        value = data.get(field)
+        if isinstance(value, dict):
+            if value:
+                return True
+        elif value:
+            return True
+    return False
 
 
 def collect_node_packages(target: Path, manager: str) -> tuple[list[PackageInfo], CheckItem | None]:
@@ -549,6 +572,16 @@ def check_target(target: Path, policy: dict) -> TargetSummary:
             continue
         if manager in ("bun", "npm"):
             collected, install_error = collect_node_packages(target, manager)
+        elif manager == "node-empty":
+            items.append(
+                CheckItem(
+                    STATUS_PASS,
+                    REASON_NO_DEPENDENCIES,
+                    None,
+                    f"{target}: no Node dependencies declared; supported lockfile is not required",
+                )
+            )
+            continue
         elif manager == "uv":
             collected, install_error = collect_python_packages(target)
         else:
