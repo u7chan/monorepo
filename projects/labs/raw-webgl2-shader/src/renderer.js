@@ -6,9 +6,9 @@ import {
 import { fitModelToGround } from "./gltf.js";
 import { hexColorToRgb } from "./colors.js";
 import { shaderSources } from "./shaders.js";
+import { FLOATS_PER_VERTEX } from "./vertex-layout.js";
 import { createGeometry, createProgram, resizeCanvasToDisplaySize } from "./webgl.js";
 
-const FLOATS_PER_VERTEX = 12;
 const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const COLOR_MODE_VERTEX = 0;
 const COLOR_MODE_MATERIAL = 1;

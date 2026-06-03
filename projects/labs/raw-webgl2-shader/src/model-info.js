@@ -1,4 +1,4 @@
-const FLOATS_PER_VERTEX = 12;
+import { FLOATS_PER_VERTEX } from "./vertex-layout.js";
 
 export function createModelInfo(fileName, model) {
   const vertexCount = model.triangles.length / FLOATS_PER_VERTEX;

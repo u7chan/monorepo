@@ -1,6 +1,7 @@
 export const DEFAULT_BACKGROUND_COLOR = "#0f1214";
 export const DEFAULT_WIREFRAME_COLOR = "#000000";
 
+// Keep this aligned with the canonical value shape emitted by input[type="color"].
 const HEX_COLOR_PATTERN = /^#[\da-f]{6}$/i;
 
 export function normalizeHexColor(value, fallback) {

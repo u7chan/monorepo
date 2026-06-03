@@ -20,6 +20,10 @@ const STORAGE_KEYS = {
   backgroundColor: "raw-webgl2.backgroundColor",
   wireframeColor: "raw-webgl2.wireframeColor",
 };
+const COLOR_FALLBACKS = {
+  backgroundColor: DEFAULT_BACKGROUND_COLOR,
+  wireframeColor: DEFAULT_WIREFRAME_COLOR,
+};
 
 if (!canvas) {
   throw new Error("Canvas element #gl-canvas was not found.");
@@ -127,8 +131,15 @@ function loadStoredColor(key, fallback) {
 }
 
 function saveRenderColor(key, value) {
+  const storageKey = STORAGE_KEYS[key];
+  const fallback = COLOR_FALLBACKS[key];
+
+  if (!storageKey || !fallback) {
+    return;
+  }
+
   try {
-    localStorage.setItem(STORAGE_KEYS[key], normalizeHexColor(value, value));
+    localStorage.setItem(storageKey, normalizeHexColor(value, fallback));
   } catch {
     // Rendering should continue even when storage is unavailable.
   }
