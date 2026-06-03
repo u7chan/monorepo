@@ -4,6 +4,7 @@ import {
   multiplyMatrices,
 } from "./math.js";
 import { fitModelToGround } from "./gltf.js";
+import { hexColorToRgb } from "./colors.js";
 import { shaderSources } from "./shaders.js";
 import { createGeometry, createProgram, resizeCanvasToDisplaySize } from "./webgl.js";
 
@@ -11,6 +12,7 @@ const FLOATS_PER_VERTEX = 12;
 const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const COLOR_MODE_VERTEX = 0;
 const COLOR_MODE_MATERIAL = 1;
+const COLOR_MODE_SOLID = 2;
 const CAMERA_INITIAL_TARGET = [0, 0, 0];
 const CAMERA_RADIUS = Math.hypot(1.6, 1.6, 1.6);
 const CAMERA_ROTATION_SPEED = 0.006;
@@ -56,6 +58,7 @@ export function createRenderer(canvas) {
         camera.getEye(),
         camera.getTarget(),
         camera.getViewScale(),
+        renderOptions.backgroundColor,
       );
 
       gl.useProgram(program);
@@ -74,7 +77,7 @@ export function createRenderer(canvas) {
         drawLines(gl, axes, 2);
       }
 
-      drawModel(gl, currentModel, renderOptions);
+      drawModel(gl, currentModel, renderOptions, uniforms);
     },
     clearModel() {
       modelRevision += 1;
@@ -288,6 +291,7 @@ function getUniforms(gl, program) {
   return {
     matrix: gl.getUniformLocation(program, "u_matrix"),
     colorMode: gl.getUniformLocation(program, "u_color_mode"),
+    solidColor: gl.getUniformLocation(program, "u_solid_color"),
     lightingEnabled: gl.getUniformLocation(program, "u_lighting_enabled"),
   };
 }
@@ -367,7 +371,7 @@ function bindGeometry(gl, geometry, attributes) {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 }
 
-function prepareFrame(gl, canvas, cameraEye, cameraTarget, viewScale) {
+function prepareFrame(gl, canvas, cameraEye, cameraTarget, viewScale, backgroundColor) {
   resizeCanvasToDisplaySize(canvas);
 
   const aspect = canvas.width / canvas.height;
@@ -382,7 +386,7 @@ function prepareFrame(gl, canvas, cameraEye, cameraTarget, viewScale) {
   const viewMatrix = makeLookAtMatrix(cameraEye, cameraTarget, [0, 1, 0]);
 
   gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.clearColor(0.06, 0.07, 0.08, 1.0);
+  gl.clearColor(...hexColorToRgb(backgroundColor), 1.0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   return multiplyMatrices(projectionMatrix, viewMatrix);
@@ -406,12 +410,17 @@ function cross(a, b) {
   ];
 }
 
-function drawModel(gl, model, renderOptions) {
+function drawModel(gl, model, renderOptions, uniforms) {
   if (!model) {
     return;
   }
 
   if (renderOptions.surfaceVisible) {
+    gl.uniform1i(
+      uniforms.colorMode,
+      renderOptions.useVertexColors ? COLOR_MODE_VERTEX : COLOR_MODE_MATERIAL,
+    );
+    gl.uniform1i(uniforms.lightingEnabled, renderOptions.lightingEnabled ? 1 : 0);
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(1, 1);
@@ -421,6 +430,9 @@ function drawModel(gl, model, renderOptions) {
   }
 
   if (renderOptions.wireframeVisible) {
+    gl.uniform1i(uniforms.colorMode, COLOR_MODE_SOLID);
+    gl.uniform3fv(uniforms.solidColor, hexColorToRgb(renderOptions.wireframeColor));
+    gl.uniform1i(uniforms.lightingEnabled, 0);
     drawLines(gl, model.wireframe);
   }
 
