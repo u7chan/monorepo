@@ -3,13 +3,12 @@ import {
   makeOrthographicMatrix,
   multiplyMatrices,
 } from "./math.js";
-import { fitModelToGround, loadGltfModel } from "./gltf.js";
+import { fitModelToGround } from "./gltf.js";
 import { shaderSources } from "./shaders.js";
 import { createGeometry, createProgram, resizeCanvasToDisplaySize } from "./webgl.js";
 
 const FLOATS_PER_VERTEX = 12;
 const STRIDE = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
-const FOX_MODEL_URL = "./assets/lowpoly_fox_animal.gltf";
 const COLOR_MODE_VERTEX = 0;
 const COLOR_MODE_MATERIAL = 1;
 const CAMERA_INITIAL_TARGET = [0, 0, 0];
@@ -45,17 +44,6 @@ export function createRenderer(canvas) {
   const camera = createOrbitCamera(canvas);
   let currentModel = null;
   let modelRevision = 0;
-
-  const sampleModelRevision = modelRevision;
-  loadGltfModel(FOX_MODEL_URL)
-    .then((model) => {
-      if (sampleModelRevision === modelRevision) {
-        replaceCurrentModel(model);
-      }
-    })
-    .catch((error) => {
-      console.error(error);
-    });
 
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
