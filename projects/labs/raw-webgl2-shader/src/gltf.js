@@ -29,6 +29,12 @@ const TYPE_COMPONENT_COUNTS = {
 const GL_TRIANGLES = 4;
 const DEFAULT_COLOR = [0.95, 0.72, 0.28];
 const DEFAULT_NORMAL = [0, 1, 0];
+const GLB_MAGIC = 0x46546c67;
+const GLB_VERSION = 2;
+const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
+const GLB_BIN_CHUNK_TYPE = 0x004e4942;
+const GLB_HEADER_SIZE = 12;
+const GLB_CHUNK_HEADER_SIZE = 8;
 const IDENTITY_MATRIX = new Float32Array([
   1, 0, 0, 0,
   0, 1, 0, 0,
@@ -43,16 +49,32 @@ export async function loadGltfModel(url) {
     throw new Error(`Failed to load glTF: ${response.status} ${response.statusText}`);
   }
 
-  const gltf = await response.json();
   const baseUrl = new URL(url, window.location.href);
+  const format = getModelFormat(url, response);
+
+  if (format === "glb") {
+    const { gltf, buffers } = parseGlb(await response.arrayBuffer());
+
+    return createModelFromGltf(gltf, buffers);
+  }
+
+  const gltf = await response.json();
   const buffers = await loadBuffersFromUrl(gltf, baseUrl);
 
   return createModelFromGltf(gltf, buffers);
 }
 
 export async function loadGltfModelFromFile(file) {
-  if (!file.name.toLowerCase().endsWith(".gltf")) {
-    throw new Error("Only .gltf files are supported.");
+  const fileName = file.name.toLowerCase();
+
+  if (fileName.endsWith(".glb")) {
+    const { gltf, buffers } = parseGlb(await file.arrayBuffer());
+
+    return createModelFromGltf(gltf, buffers);
+  }
+
+  if (!fileName.endsWith(".gltf")) {
+    throw new Error("Only .gltf and .glb files are supported.");
   }
 
   let gltf;
@@ -66,6 +88,122 @@ export async function loadGltfModelFromFile(file) {
   const buffers = await loadEmbeddedBuffers(gltf);
 
   return createModelFromGltf(gltf, buffers);
+}
+
+function getModelFormat(url, response) {
+  const pathname = new URL(url, window.location.href).pathname.toLowerCase();
+
+  if (pathname.endsWith(".glb")) {
+    return "glb";
+  }
+
+  if (pathname.endsWith(".gltf")) {
+    return "gltf";
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
+  if (contentType.split(";")[0].trim() === "model/gltf-binary") {
+    return "glb";
+  }
+
+  return "gltf";
+}
+
+function parseGlb(arrayBuffer) {
+  if (arrayBuffer.byteLength < GLB_HEADER_SIZE) {
+    throw new Error("Invalid GLB: header is too short.");
+  }
+
+  const dataView = new DataView(arrayBuffer);
+  const magic = dataView.getUint32(0, true);
+  const version = dataView.getUint32(4, true);
+  const declaredLength = dataView.getUint32(8, true);
+
+  if (magic !== GLB_MAGIC) {
+    throw new Error("Invalid GLB: magic header does not match.");
+  }
+
+  if (version !== GLB_VERSION) {
+    throw new Error("Invalid GLB: only version 2 is supported.");
+  }
+
+  if (declaredLength !== arrayBuffer.byteLength) {
+    throw new Error("Invalid GLB: header length does not match file length.");
+  }
+
+  const jsonChunk = readGlbChunk(dataView, GLB_HEADER_SIZE, "JSON");
+
+  if (jsonChunk.type !== GLB_JSON_CHUNK_TYPE) {
+    throw new Error("Invalid GLB: first chunk must be JSON.");
+  }
+
+  let gltf;
+
+  try {
+    const jsonBytes = new Uint8Array(arrayBuffer, jsonChunk.offset, jsonChunk.length);
+    gltf = JSON.parse(new TextDecoder().decode(jsonBytes));
+  } catch {
+    throw new Error("Invalid GLB: JSON chunk is not valid JSON.");
+  }
+
+  let nextChunkOffset = jsonChunk.offset + jsonChunk.length;
+  let binChunk = null;
+
+  while (nextChunkOffset < arrayBuffer.byteLength) {
+    const chunk = readGlbChunk(dataView, nextChunkOffset, "extension");
+
+    if (chunk.type === GLB_BIN_CHUNK_TYPE) {
+      if (binChunk) {
+        throw new Error("Invalid GLB: multiple BIN chunks are not supported.");
+      }
+
+      binChunk = chunk;
+    }
+
+    nextChunkOffset = chunk.offset + chunk.length;
+  }
+
+  if (!binChunk) {
+    throw new Error("Invalid GLB: missing BIN chunk.");
+  }
+
+  const binBuffer = arrayBuffer.slice(
+    binChunk.offset,
+    binChunk.offset + binChunk.length,
+  );
+  const expectedByteLength = gltf.buffers?.[0]?.byteLength;
+
+  if (typeof expectedByteLength === "number") {
+    if (binBuffer.byteLength < expectedByteLength) {
+      throw new Error("Invalid GLB: BIN chunk is shorter than buffers[0].byteLength.");
+    }
+
+    if (binBuffer.byteLength > expectedByteLength + 3) {
+      throw new Error("Invalid GLB: BIN chunk padding is larger than expected.");
+    }
+  }
+
+  return {
+    gltf,
+    buffers: [binBuffer],
+  };
+}
+
+function readGlbChunk(dataView, chunkHeaderOffset, label) {
+  if (chunkHeaderOffset + GLB_CHUNK_HEADER_SIZE > dataView.byteLength) {
+    throw new Error(`Invalid GLB: missing ${label} chunk.`);
+  }
+
+  const length = dataView.getUint32(chunkHeaderOffset, true);
+  const type = dataView.getUint32(chunkHeaderOffset + 4, true);
+  const offset = chunkHeaderOffset + GLB_CHUNK_HEADER_SIZE;
+
+  if (offset + length > dataView.byteLength) {
+    throw new Error(`Invalid GLB: ${label} chunk length exceeds file length.`);
+  }
+
+  return { length, offset, type };
 }
 
 function createModelFromGltf(gltf, buffers) {
@@ -106,9 +244,9 @@ export function fitModelToGround(model, targetHeight = 1.45) {
 
 async function loadBuffersFromUrl(gltf, baseUrl) {
   return Promise.all(
-    (gltf.buffers ?? []).map(async (buffer) => {
+    (gltf.buffers ?? []).map(async (buffer, index) => {
       if (!buffer.uri) {
-        throw new Error("Binary .glb buffers are not supported yet.");
+        throw new Error(`glTF buffer ${index} is missing uri. Use a .glb file for binary GLB data.`);
       }
 
       if (buffer.uri.startsWith("data:")) {
@@ -130,9 +268,11 @@ async function loadBuffersFromUrl(gltf, baseUrl) {
 
 async function loadEmbeddedBuffers(gltf) {
   return Promise.all(
-    (gltf.buffers ?? []).map(async (buffer) => {
+    (gltf.buffers ?? []).map(async (buffer, index) => {
       if (!buffer.uri) {
-        throw new Error("Binary .glb buffers are not supported yet.");
+        throw new Error(
+          `Dropped .gltf buffer ${index} is missing uri. Drop a .glb file for binary GLB data.`,
+        );
       }
 
       if (!buffer.uri.startsWith("data:")) {

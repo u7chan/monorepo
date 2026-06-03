@@ -58,7 +58,7 @@ export function createImportStatus(element) {
   return {
     setDragging(isDragging) {
       if (isDragging) {
-        render("Drop .gltf to import", "dragging");
+        render("Drop .gltf / .glb to import", "dragging");
         return;
       }
 
