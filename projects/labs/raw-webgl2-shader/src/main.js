@@ -1,9 +1,29 @@
 import { createModelDropImporter, pickSingleModelFile } from "./drop-import.js";
 import { loadGltfModelFromFile } from "./gltf.js";
-import { createFpsCounter, createImportStatus, createRenderControls } from "./hud.js";
+import {
+  createColorControls,
+  createFpsCounter,
+  createImportStatus,
+  createModelInfoPanel,
+  createRenderControls,
+} from "./hud.js";
+import {
+  DEFAULT_BACKGROUND_COLOR,
+  DEFAULT_WIREFRAME_COLOR,
+  normalizeHexColor,
+} from "./colors.js";
+import { createModelInfo } from "./model-info.js";
 import { createRenderer } from "./renderer.js";
 
 const canvas = document.querySelector("#gl-canvas");
+const STORAGE_KEYS = {
+  backgroundColor: "raw-webgl2.backgroundColor",
+  wireframeColor: "raw-webgl2.wireframeColor",
+};
+const COLOR_FALLBACKS = {
+  backgroundColor: DEFAULT_BACKGROUND_COLOR,
+  wireframeColor: DEFAULT_WIREFRAME_COLOR,
+};
 
 if (!canvas) {
   throw new Error("Canvas element #gl-canvas was not found.");
@@ -12,6 +32,7 @@ if (!canvas) {
 const renderer = createRenderer(canvas);
 const fpsCounter = createFpsCounter(document.querySelector("#fps-counter"));
 const importStatus = createImportStatus(document.querySelector("#import-status"));
+const modelInfoPanel = createModelInfoPanel(document.querySelector("#model-info"));
 
 const gameState = {
   time: 0,
@@ -23,6 +44,14 @@ const gameState = {
     lightingEnabled: true,
     gridVisible: true,
     axesVisible: true,
+    backgroundColor: loadStoredColor(
+      STORAGE_KEYS.backgroundColor,
+      DEFAULT_BACKGROUND_COLOR,
+    ),
+    wireframeColor: loadStoredColor(
+      STORAGE_KEYS.wireframeColor,
+      DEFAULT_WIREFRAME_COLOR,
+    ),
   },
 };
 
@@ -32,6 +61,12 @@ createRenderControls(
   document.querySelector("#render-controls"),
   gameState.renderOptions,
 );
+createColorControls(
+  document.querySelector("#color-controls"),
+  gameState.renderOptions,
+  saveRenderColor,
+);
+modelInfoPanel.clear();
 
 createModelDropImporter({
   onDragChange(isDragging) {
@@ -41,6 +76,7 @@ createModelDropImporter({
   },
   async onDropFiles(files) {
     renderer.clearModel();
+    modelInfoPanel.clear();
 
     let file;
 
@@ -57,6 +93,7 @@ createModelDropImporter({
       const model = await loadGltfModelFromFile(file);
 
       renderer.setModel(model);
+      modelInfoPanel.setModelInfo(createModelInfo(file.name, model));
       importStatus.setLoaded(file.name);
     } catch (error) {
       console.error(error);
@@ -84,3 +121,26 @@ function gameLoop(now) {
 }
 
 requestAnimationFrame(gameLoop);
+
+function loadStoredColor(key, fallback) {
+  try {
+    return normalizeHexColor(localStorage.getItem(key), fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function saveRenderColor(key, value) {
+  const storageKey = STORAGE_KEYS[key];
+  const fallback = COLOR_FALLBACKS[key];
+
+  if (!storageKey || !fallback) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(storageKey, normalizeHexColor(value, fallback));
+  } catch {
+    // Rendering should continue even when storage is unavailable.
+  }
+}

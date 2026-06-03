@@ -80,6 +80,33 @@ body.is-dropping-model .drop-overlay {
   color: #ff8a7a;
 }
 
+.model-info {
+  display: grid;
+  grid-template-columns: auto minmax(96px, 1fr);
+  gap: 5px 12px;
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+}
+
+.model-info dt,
+.model-info dd {
+  margin: 0;
+  line-height: 1.15;
+}
+
+.model-info dt {
+  color: rgb(244 241 234 / 62%);
+}
+
+.model-info dd {
+  overflow: hidden;
+  color: rgb(244 241 234 / 88%);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .render-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(76px, 1fr));
@@ -103,4 +130,30 @@ body.is-dropping-model .drop-overlay {
   height: 14px;
   margin: 0;
   accent-color: #f2b84b;
+}
+
+.color-controls {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+}
+
+.color-controls label {
+  display: grid;
+  grid-template-columns: 1fr 32px;
+  align-items: center;
+  gap: 10px;
+  color: rgb(244 241 234 / 86%);
+  line-height: 1;
+}
+
+.color-controls input {
+  width: 32px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 20%);
+  background: transparent;
 }

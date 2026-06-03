@@ -9,6 +9,7 @@ in vec3 a_material_color;
 
 uniform mat4 u_matrix;
 uniform int u_color_mode;
+uniform vec3 u_solid_color;
 uniform bool u_lighting_enabled;
 
 out vec3 v_color;
@@ -16,7 +17,11 @@ out vec3 v_normal;
 
 void main() {
   gl_Position = u_matrix * vec4(a_position, 1.0);
-  v_color = u_color_mode == 0 ? a_vertex_color : a_material_color;
+  v_color = u_color_mode == 0
+    ? a_vertex_color
+    : u_color_mode == 1
+      ? a_material_color
+      : u_solid_color;
   v_normal = normalize(a_normal);
 }
 `,
