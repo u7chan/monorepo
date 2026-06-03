@@ -15,6 +15,7 @@ const GLB_MAGIC = 0x46546c67;
 const GLB_VERSION = 2;
 const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
 const GLB_BIN_CHUNK_TYPE = 0x004e4942;
+const GLB_HEADER_SIZE = 12;
 
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
@@ -239,6 +240,18 @@ describe("loadGltfModel", () => {
 });
 
 describe("GLB validation", () => {
+  test("BIN chunk後の未知chunkを無視する", async () => {
+    const model = await loadGltfModelFromFile(
+      createGlbFile(
+        createTriangleGlb({
+          chunksAfterBin: [{ type: 0x12345678, data: [1, 2, 3] }],
+        }),
+      ),
+    );
+
+    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+  });
+
   test("magic headerが不正なGLBを拒否する", async () => {
     await expect(
       loadGltfModelFromFile(createGlbFile(createTriangleGlb({ magic: 0 }))),
@@ -266,13 +279,25 @@ describe("GLB validation", () => {
   test("BIN chunk typeが不正なGLBを拒否する", async () => {
     await expect(
       loadGltfModelFromFile(createGlbFile(createTriangleGlb({ binChunkType: 0 }))),
-    ).rejects.toThrow("Invalid GLB: second chunk must be BIN.");
+    ).rejects.toThrow("Invalid GLB: missing BIN chunk.");
   });
 
   test("BIN chunkがないGLBを拒否する", async () => {
     await expect(
       loadGltfModelFromFile(createGlbFile(createTriangleGlb({ includeBin: false }))),
     ).rejects.toThrow("Invalid GLB: missing BIN chunk.");
+  });
+
+  test("複数のBIN chunkを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(
+        createGlbFile(
+          createTriangleGlb({
+            chunksAfterBin: [{ type: GLB_BIN_CHUNK_TYPE, data: [0] }],
+          }),
+        ),
+      ),
+    ).rejects.toThrow("Invalid GLB: multiple BIN chunks are not supported.");
   });
 
   test("header lengthが不正なGLBを拒否する", async () => {
@@ -468,6 +493,7 @@ function createGlb(
   binBuffer,
   {
     binChunkType = GLB_BIN_CHUNK_TYPE,
+    chunksAfterBin = [],
     declaredLengthDelta = 0,
     includeBin = true,
     jsonChunkType = GLB_JSON_CHUNK_TYPE,
@@ -476,10 +502,30 @@ function createGlb(
     version = GLB_VERSION,
   } = {},
 ) {
-  const jsonChunk = padBytes(new TextEncoder().encode(jsonText), 0x20);
-  const binChunk = padBytes(new Uint8Array(binBuffer), 0);
+  const chunks = [
+    {
+      data: padBytes(new TextEncoder().encode(jsonText), 0x20),
+      type: jsonChunkType,
+    },
+  ];
+
+  if (includeBin) {
+    chunks.push({
+      data: padBytes(new Uint8Array(binBuffer), 0),
+      type: binChunkType,
+    });
+  }
+
+  for (const chunk of chunksAfterBin) {
+    chunks.push({
+      data: padBytes(new Uint8Array(chunk.data), 0),
+      type: chunk.type,
+    });
+  }
+
   const byteLength =
-    12 + 8 + jsonChunk.byteLength + (includeBin ? 8 + binChunk.byteLength : 0);
+    GLB_HEADER_SIZE +
+    chunks.reduce((sum, chunk) => sum + 8 + chunk.data.byteLength, 0);
   const bytes = new Uint8Array(byteLength);
   const view = new DataView(bytes.buffer);
   let offset = 0;
@@ -487,17 +533,13 @@ function createGlb(
   view.setUint32(offset, magic, true);
   view.setUint32(offset + 4, version, true);
   view.setUint32(offset + 8, byteLength + declaredLengthDelta, true);
-  offset += 12;
+  offset += GLB_HEADER_SIZE;
 
-  view.setUint32(offset, jsonChunk.byteLength, true);
-  view.setUint32(offset + 4, jsonChunkType, true);
-  bytes.set(jsonChunk, offset + 8);
-  offset += 8 + jsonChunk.byteLength;
-
-  if (includeBin) {
-    view.setUint32(offset, binChunk.byteLength, true);
-    view.setUint32(offset + 4, binChunkType, true);
-    bytes.set(binChunk, offset + 8);
+  for (const chunk of chunks) {
+    view.setUint32(offset, chunk.data.byteLength, true);
+    view.setUint32(offset + 4, chunk.type, true);
+    bytes.set(chunk.data, offset + 8);
+    offset += 8 + chunk.data.byteLength;
   }
 
   return bytes.buffer;

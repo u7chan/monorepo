@@ -147,20 +147,31 @@ function parseGlb(arrayBuffer) {
     throw new Error("Invalid GLB: JSON chunk is not valid JSON.");
   }
 
-  const binChunkOffset = jsonChunk.offset + jsonChunk.length;
-  const binChunk = readGlbChunk(dataView, binChunkOffset, "BIN");
+  let nextChunkOffset = jsonChunk.offset + jsonChunk.length;
+  let binChunk = null;
 
-  if (binChunk.type !== GLB_BIN_CHUNK_TYPE) {
-    throw new Error("Invalid GLB: second chunk must be BIN.");
+  while (nextChunkOffset < arrayBuffer.byteLength) {
+    const chunk = readGlbChunk(dataView, nextChunkOffset, "extension");
+
+    if (chunk.type === GLB_BIN_CHUNK_TYPE) {
+      if (binChunk) {
+        throw new Error("Invalid GLB: multiple BIN chunks are not supported.");
+      }
+
+      binChunk = chunk;
+    }
+
+    nextChunkOffset = chunk.offset + chunk.length;
   }
 
-  const nextChunkOffset = binChunk.offset + binChunk.length;
-
-  if (nextChunkOffset !== arrayBuffer.byteLength) {
-    throw new Error("Invalid GLB: unexpected chunk data after BIN.");
+  if (!binChunk) {
+    throw new Error("Invalid GLB: missing BIN chunk.");
   }
 
-  const binBuffer = arrayBuffer.slice(binChunk.offset, nextChunkOffset);
+  const binBuffer = arrayBuffer.slice(
+    binChunk.offset,
+    binChunk.offset + binChunk.length,
+  );
   const expectedByteLength = gltf.buffers?.[0]?.byteLength;
 
   if (typeof expectedByteLength === "number") {
