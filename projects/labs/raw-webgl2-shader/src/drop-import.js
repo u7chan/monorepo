@@ -1,4 +1,4 @@
-export function createGltfDropImporter({ onDragChange, onDropFiles }) {
+export function createModelDropImporter({ onDragChange, onDropFiles }) {
   let dragDepth = 0;
 
   window.addEventListener("dragenter", (event) => {
@@ -43,20 +43,30 @@ export function createGltfDropImporter({ onDragChange, onDropFiles }) {
   });
 }
 
-export function pickSingleGltfFile(files) {
+export const createGltfDropImporter = createModelDropImporter;
+
+export function pickSingleModelFile(files) {
   if (files.length !== 1) {
-    throw new Error("Drop exactly one .gltf file.");
+    throw new Error("Drop exactly one .gltf or .glb file.");
   }
 
-  const gltfFiles = files.filter((file) => file.name.toLowerCase().endsWith(".gltf"));
+  const modelFiles = files.filter(isSupportedModelFile);
 
-  if (gltfFiles.length === 0) {
-    throw new Error("Only .gltf files are supported.");
+  if (modelFiles.length === 0) {
+    throw new Error("Only .gltf and .glb files are supported.");
   }
 
-  return gltfFiles[0];
+  return modelFiles[0];
 }
+
+export const pickSingleGltfFile = pickSingleModelFile;
 
 function hasDraggedFiles(event) {
   return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+function isSupportedModelFile(file) {
+  const fileName = file.name.toLowerCase();
+
+  return fileName.endsWith(".gltf") || fileName.endsWith(".glb");
 }

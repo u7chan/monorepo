@@ -1,4 +1,4 @@
-import { createGltfDropImporter, pickSingleGltfFile } from "./drop-import.js";
+import { createModelDropImporter, pickSingleModelFile } from "./drop-import.js";
 import { loadGltfModelFromFile } from "./gltf.js";
 import { createFpsCounter, createImportStatus, createRenderControls } from "./hud.js";
 import { createRenderer } from "./renderer.js";
@@ -33,10 +33,10 @@ createRenderControls(
   gameState.renderOptions,
 );
 
-createGltfDropImporter({
+createModelDropImporter({
   onDragChange(isDragging) {
     canvas.classList.toggle("is-drop-target", isDragging);
-    document.body.classList.toggle("is-dropping-gltf", isDragging);
+    document.body.classList.toggle("is-dropping-model", isDragging);
     importStatus.setDragging(isDragging);
   },
   async onDropFiles(files) {
@@ -45,7 +45,7 @@ createGltfDropImporter({
     let file;
 
     try {
-      file = pickSingleGltfFile(files);
+      file = pickSingleModelFile(files);
     } catch (error) {
       importStatus.setError(error.message);
       return;

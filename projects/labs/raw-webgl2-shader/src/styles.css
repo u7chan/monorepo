@@ -44,7 +44,7 @@ canvas.is-drop-target {
   transition: opacity 120ms ease;
 }
 
-body.is-dropping-gltf .drop-overlay {
+body.is-dropping-model .drop-overlay {
   opacity: 1;
 }
 

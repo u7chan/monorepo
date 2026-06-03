@@ -11,6 +11,10 @@ const GL_TRIANGLES = 4;
 const ARRAY_BUFFER = 34962;
 const ELEMENT_ARRAY_BUFFER = 34963;
 const PACKED_VERTEX_SIZE = 12;
+const GLB_MAGIC = 0x46546c67;
+const GLB_VERSION = 2;
+const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
+const GLB_BIN_CHUNK_TYPE = 0x004e4942;
 
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
@@ -134,9 +138,20 @@ describe("loadGltfModelFromFile", () => {
     expectVector(vertex.materialColor, [0.1, 0.2, 0.3]);
   });
 
+  test("GLBの三角形を読み込める", async () => {
+    const model = await loadGltfModelFromFile(createGlbFile(createTriangleGlb()));
+
+    expect(model.triangles).toBeInstanceOf(Float32Array);
+    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.wireframe.length).toBe(6 * PACKED_VERTEX_SIZE);
+    expectVector(model.bounds.min, [0, 0, 0]);
+    expectVector(model.bounds.max, [1, 1, 0]);
+    expectVector(readPackedVertex(model.triangles, 2).position, [0, 1, 0]);
+  });
+
   test("gltf以外のファイル名は拒否する", async () => {
-    await expect(loadGltfModelFromFile(createGltfFile({}, "model.glb"))).rejects.toThrow(
-      "Only .gltf files are supported.",
+    await expect(loadGltfModelFromFile(createGltfFile({}, "model.obj"))).rejects.toThrow(
+      "Only .gltf and .glb files are supported.",
     );
   });
 
@@ -185,6 +200,85 @@ describe("loadGltfModel", () => {
       "http://example.test/app/models/mesh.bin",
     ]);
     expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+  });
+
+  test("GLBをURLから読み込める", async () => {
+    const glb = createTriangleGlb();
+
+    globalThis.window = { location: { href: "http://example.test/app/" } };
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+
+      if (url === "models/model.glb") {
+        return new Response(glb, {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+
+      return new Response(null, { status: 404, statusText: "Not Found" });
+    };
+
+    const model = await loadGltfModel("models/model.glb");
+
+    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+  });
+
+  test("content-typeからGLBを読み込める", async () => {
+    const glb = createTriangleGlb();
+
+    globalThis.window = { location: { href: "http://example.test/app/" } };
+    globalThis.fetch = async () =>
+      new Response(glb, {
+        headers: { "content-type": "model/gltf-binary; charset=binary" },
+      });
+
+    const model = await loadGltfModel("models/model");
+
+    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+  });
+});
+
+describe("GLB validation", () => {
+  test("magic headerが不正なGLBを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ magic: 0 }))),
+    ).rejects.toThrow("Invalid GLB: magic header does not match.");
+  });
+
+  test("versionが不正なGLBを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ version: 1 }))),
+    ).rejects.toThrow("Invalid GLB: only version 2 is supported.");
+  });
+
+  test("JSON chunk typeが不正なGLBを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ jsonChunkType: 0 }))),
+    ).rejects.toThrow("Invalid GLB: first chunk must be JSON.");
+  });
+
+  test("壊れたJSON chunkを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ jsonText: "{" }))),
+    ).rejects.toThrow("Invalid GLB: JSON chunk is not valid JSON.");
+  });
+
+  test("BIN chunk typeが不正なGLBを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ binChunkType: 0 }))),
+    ).rejects.toThrow("Invalid GLB: second chunk must be BIN.");
+  });
+
+  test("BIN chunkがないGLBを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ includeBin: false }))),
+    ).rejects.toThrow("Invalid GLB: missing BIN chunk.");
+  });
+
+  test("header lengthが不正なGLBを拒否する", async () => {
+    await expect(
+      loadGltfModelFromFile(createGlbFile(createTriangleGlb({ declaredLengthDelta: 4 }))),
+    ).rejects.toThrow("Invalid GLB: header length does not match file length.");
   });
 });
 
@@ -361,8 +455,70 @@ function createBufferBuilder() {
   };
 }
 
+function createTriangleGlb(options = {}) {
+  const { gltf, buffer } = createTriangleGltf({ externalBufferUri: "mesh.bin" });
+
+  delete gltf.buffers[0].uri;
+
+  return createGlb(gltf, buffer, options);
+}
+
+function createGlb(
+  gltf,
+  binBuffer,
+  {
+    binChunkType = GLB_BIN_CHUNK_TYPE,
+    declaredLengthDelta = 0,
+    includeBin = true,
+    jsonChunkType = GLB_JSON_CHUNK_TYPE,
+    jsonText = JSON.stringify(gltf),
+    magic = GLB_MAGIC,
+    version = GLB_VERSION,
+  } = {},
+) {
+  const jsonChunk = padBytes(new TextEncoder().encode(jsonText), 0x20);
+  const binChunk = padBytes(new Uint8Array(binBuffer), 0);
+  const byteLength =
+    12 + 8 + jsonChunk.byteLength + (includeBin ? 8 + binChunk.byteLength : 0);
+  const bytes = new Uint8Array(byteLength);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+
+  view.setUint32(offset, magic, true);
+  view.setUint32(offset + 4, version, true);
+  view.setUint32(offset + 8, byteLength + declaredLengthDelta, true);
+  offset += 12;
+
+  view.setUint32(offset, jsonChunk.byteLength, true);
+  view.setUint32(offset + 4, jsonChunkType, true);
+  bytes.set(jsonChunk, offset + 8);
+  offset += 8 + jsonChunk.byteLength;
+
+  if (includeBin) {
+    view.setUint32(offset, binChunk.byteLength, true);
+    view.setUint32(offset + 4, binChunkType, true);
+    bytes.set(binChunk, offset + 8);
+  }
+
+  return bytes.buffer;
+}
+
+function padBytes(bytes, paddingByte) {
+  const paddedLength = bytes.byteLength + ((4 - (bytes.byteLength % 4)) % 4);
+  const paddedBytes = new Uint8Array(paddedLength);
+
+  paddedBytes.set(bytes);
+  paddedBytes.fill(paddingByte, bytes.byteLength);
+
+  return paddedBytes;
+}
+
 function createGltfFile(gltf, name = "model.gltf") {
   return new File([JSON.stringify(gltf)], name, { type: "model/gltf+json" });
+}
+
+function createGlbFile(arrayBuffer, name = "model.glb") {
+  return new File([arrayBuffer], name, { type: "model/gltf-binary" });
 }
 
 function dataUri(arrayBuffer) {
