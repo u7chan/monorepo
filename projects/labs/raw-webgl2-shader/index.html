@@ -8,14 +8,36 @@
   </head>
   <body>
     <canvas id="gl-canvas" aria-label="WebGL2 shader canvas"></canvas>
-    <div class="hud">
-      <strong>Raw WebGL2</strong>
-      <span>glTF model viewer</span>
-      <span id="fps-counter">-- FPS</span>
-      <span id="import-status">Drop a .gltf / .glb file</span>
-      <dl id="model-info" class="model-info" aria-label="Model information"></dl>
-      <div id="render-controls" class="render-controls" aria-label="Render controls"></div>
-      <div id="color-controls" class="color-controls" aria-label="Color controls"></div>
+    <div id="hud" class="hud">
+      <div class="hud-header">
+        <div class="hud-title">
+          <strong>Raw WebGL2</strong>
+          <span>glTF model viewer</span>
+        </div>
+        <span id="fps-counter" class="hud-fps">-- FPS</span>
+        <button
+          id="hud-toggle"
+          class="hud-toggle"
+          type="button"
+          aria-controls="hud-content"
+          aria-expanded="true"
+          title="パネルを折りたたむ"
+        >
+          <span id="hud-toggle-icon" aria-hidden="true">-</span>
+        </button>
+      </div>
+      <div id="hud-content" class="hud-content">
+        <div class="import-row">
+          <span id="import-status">Drop a .gltf / .glb file</span>
+          <label class="file-upload-button" title="ファイルを選択">
+            <span>選択</span>
+            <input id="model-file-input" class="model-file-input" type="file" accept=".gltf,.glb" />
+          </label>
+        </div>
+        <dl id="model-info" class="model-info" aria-label="Model information"></dl>
+        <div id="render-controls" class="render-controls" aria-label="Render controls"></div>
+        <div id="color-controls" class="color-controls" aria-label="Color controls"></div>
+      </div>
     </div>
     <div class="drop-overlay" aria-hidden="true"></div>
     <script type="module" src="./src/main.js"></script>
