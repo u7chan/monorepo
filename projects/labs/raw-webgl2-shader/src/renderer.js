@@ -96,7 +96,7 @@ export function createRenderer(canvas) {
   }
 }
 
-function createOrbitCamera(canvas) {
+export function createOrbitCamera(canvas) {
   const target = [...CAMERA_INITIAL_TARGET];
   let yaw = Math.atan2(1.6, 1.6);
   let pitch = Math.atan2(1.6, Math.hypot(1.6, 1.6));
@@ -104,6 +104,8 @@ function createOrbitCamera(canvas) {
   let dragMode = null;
   let lastPointerX = 0;
   let lastPointerY = 0;
+  let lastPinchDistance = null;
+  const touchPointers = new Map();
 
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 && event.button !== 1) {
@@ -111,6 +113,26 @@ function createOrbitCamera(canvas) {
     }
 
     event.preventDefault();
+    if (event.pointerType === "touch") {
+      touchPointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      if (touchPointers.size >= 2) {
+        dragMode = null;
+        lastPinchDistance = getTouchPointerDistance(touchPointers);
+      } else {
+        dragMode = "orbit";
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+      }
+
+      canvas.setPointerCapture(event.pointerId);
+      canvas.classList.add("is-dragging");
+      return;
+    }
+
     dragMode = event.button === 0 ? "orbit" : "pan";
     lastPointerX = event.clientX;
     lastPointerY = event.clientY;
@@ -119,6 +141,34 @@ function createOrbitCamera(canvas) {
   });
 
   canvas.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch") {
+      if (!touchPointers.has(event.pointerId)) {
+        return;
+      }
+
+      event.preventDefault();
+      touchPointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      if (touchPointers.size >= 2) {
+        const pinchDistance = getTouchPointerDistance(touchPointers);
+
+        if (lastPinchDistance !== null && pinchDistance > 0) {
+          viewScale = clamp(
+            viewScale * (lastPinchDistance / pinchDistance),
+            CAMERA_MIN_VIEW_SCALE,
+            CAMERA_MAX_VIEW_SCALE,
+          );
+        }
+
+        lastPinchDistance = pinchDistance;
+        dragMode = null;
+        return;
+      }
+    }
+
     if (dragMode === null) {
       return;
     }
@@ -142,6 +192,30 @@ function createOrbitCamera(canvas) {
   });
 
   function stopDragging(event) {
+    if (event.pointerType === "touch") {
+      touchPointers.delete(event.pointerId);
+
+      if (touchPointers.size >= 2) {
+        lastPinchDistance = getTouchPointerDistance(touchPointers);
+        dragMode = null;
+      } else if (touchPointers.size === 1) {
+        const remainingPointer = touchPointers.values().next().value;
+        lastPinchDistance = null;
+        dragMode = "orbit";
+        lastPointerX = remainingPointer.x;
+        lastPointerY = remainingPointer.y;
+      } else {
+        lastPinchDistance = null;
+        dragMode = null;
+        canvas.classList.remove("is-dragging");
+      }
+
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+
     if (dragMode === null) {
       return;
     }
@@ -199,6 +273,14 @@ function createOrbitCamera(canvas) {
       viewScale = 1;
     },
   };
+}
+
+function getTouchPointerDistance(touchPointers) {
+  const [firstPointer, secondPointer] = touchPointers.values();
+  const deltaX = secondPointer.x - firstPointer.x;
+  const deltaY = secondPointer.y - firstPointer.y;
+
+  return Math.hypot(deltaX, deltaY);
 }
 
 function getEyeOffset(yaw, pitch) {
