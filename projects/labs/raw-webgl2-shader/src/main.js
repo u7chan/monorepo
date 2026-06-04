@@ -55,6 +55,7 @@ const gameState = {
     lightingEnabled: true,
     gridVisible: true,
     axesVisible: true,
+    autoFitModel: false,
     backgroundColor: loadStoredColor(
       STORAGE_KEYS.backgroundColor,
       DEFAULT_BACKGROUND_COLOR,
@@ -155,7 +156,7 @@ async function importModelFiles(files) {
   try {
     const model = await loadGltfModelFromFile(file);
 
-    renderer.setModel(model);
+    renderer.setModel(model, gameState.renderOptions);
     modelInfoPanel.setModelInfo(createModelInfo(file.name, model));
     importStatus.setLoaded(file.name);
   } catch (error) {
