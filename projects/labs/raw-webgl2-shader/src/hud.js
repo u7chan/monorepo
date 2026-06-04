@@ -16,6 +16,62 @@ const COLOR_ITEMS = [
   ["wireframeColor", "ワイヤー色"],
 ];
 
+export function createHudDisclosure({
+  root,
+  toggle,
+  content,
+  icon = null,
+  initialCollapsed = false,
+  onChange = () => {},
+}) {
+  if (!root || !toggle || !content) {
+    return {
+      setCollapsed() {},
+      toggle() {},
+    };
+  }
+
+  let isCollapsed = Boolean(initialCollapsed);
+
+  function render() {
+    if (isCollapsed) {
+      root.classList.add("is-collapsed");
+      content.style.display = "none";
+    } else {
+      root.classList.remove("is-collapsed");
+      content.style.display = "";
+    }
+
+    content.setAttribute("aria-hidden", String(isCollapsed));
+    toggle.setAttribute("aria-expanded", String(!isCollapsed));
+    toggle.title = isCollapsed ? "パネルを開く" : "パネルを折りたたむ";
+
+    if (icon) {
+      icon.textContent = isCollapsed ? "+" : "-";
+    }
+  }
+
+  toggle.addEventListener("click", () => {
+    isCollapsed = !isCollapsed;
+    render();
+    onChange(isCollapsed);
+  });
+  render();
+
+  return {
+    setCollapsed(value) {
+      isCollapsed = Boolean(value);
+      render();
+      onChange(isCollapsed);
+    },
+    toggle() {
+      isCollapsed = !isCollapsed;
+      render();
+      onChange(isCollapsed);
+    },
+  };
+}
+
 export function createFpsCounter(element) {
   if (!element) {
     return {

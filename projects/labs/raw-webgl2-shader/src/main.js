@@ -3,6 +3,7 @@ import { loadGltfModelFromFile } from "./gltf.js";
 import {
   createColorControls,
   createFpsCounter,
+  createHudDisclosure,
   createImportStatus,
   createModelInfoPanel,
   createRenderControls,
@@ -18,6 +19,7 @@ import { createRenderer } from "./renderer.js";
 const canvas = document.querySelector("#gl-canvas");
 const STORAGE_KEYS = {
   backgroundColor: "raw-webgl2.backgroundColor",
+  hudCollapsed: "raw-webgl2.hudCollapsed",
   wireframeColor: "raw-webgl2.wireframeColor",
 };
 const COLOR_FALLBACKS = {
@@ -34,6 +36,14 @@ const fpsCounter = createFpsCounter(document.querySelector("#fps-counter"));
 const importStatus = createImportStatus(document.querySelector("#import-status"));
 const modelInfoPanel = createModelInfoPanel(document.querySelector("#model-info"));
 const modelFileInput = document.querySelector("#model-file-input");
+createHudDisclosure({
+  root: document.querySelector("#hud"),
+  toggle: document.querySelector("#hud-toggle"),
+  content: document.querySelector("#hud-content"),
+  icon: document.querySelector("#hud-toggle-icon"),
+  initialCollapsed: loadInitialHudCollapsed(),
+  onChange: saveHudCollapsed,
+});
 
 const gameState = {
   time: 0,
@@ -159,6 +169,28 @@ function loadStoredColor(key, fallback) {
     return normalizeHexColor(localStorage.getItem(key), fallback);
   } catch {
     return fallback;
+  }
+}
+
+function loadInitialHudCollapsed() {
+  try {
+    const storedValue = localStorage.getItem(STORAGE_KEYS.hudCollapsed);
+
+    if (storedValue !== null) {
+      return storedValue === "true";
+    }
+  } catch {
+    // Use the viewport default when storage is unavailable.
+  }
+
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+function saveHudCollapsed(value) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.hudCollapsed, String(value));
+  } catch {
+    // Rendering should continue even when storage is unavailable.
   }
 }
 
