@@ -58,6 +58,13 @@ describe("loadGltfModelFromFile", () => {
     expectVector(readPackedVertex(model.triangles, 0).normal, [0, 0, 1]);
     expectVector(readPackedVertex(model.triangles, 0).color, [1, 0, 0]);
     expectVector(readPackedVertex(model.triangles, 0).materialColor, [0.25, 0.5, 0.75]);
+    expect(model.materials).toEqual([
+      {
+        baseColor: [0.25, 0.5, 0.75],
+        index: 0,
+        name: "",
+      },
+    ]);
   });
 
   test("indicesがない場合は頂点順で三角形を作る", async () => {
