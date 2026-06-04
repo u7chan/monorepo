@@ -33,6 +33,7 @@ const renderer = createRenderer(canvas);
 const fpsCounter = createFpsCounter(document.querySelector("#fps-counter"));
 const importStatus = createImportStatus(document.querySelector("#import-status"));
 const modelInfoPanel = createModelInfoPanel(document.querySelector("#model-info"));
+const modelFileInput = document.querySelector("#model-file-input");
 
 const gameState = {
   time: 0,
@@ -68,38 +69,42 @@ createColorControls(
 );
 modelInfoPanel.clear();
 
+if (modelFileInput) {
+  modelFileInput.addEventListener("change", handleModelFileSelection);
+  modelFileInput.addEventListener("input", handleModelFileSelection);
+}
+
+let pendingFileSelection = null;
+
+async function handleModelFileSelection() {
+  const files = Array.from(modelFileInput.files ?? []);
+
+  if (files.length === 0) {
+    return;
+  }
+
+  if (pendingFileSelection === modelFileInput.files) {
+    return;
+  }
+
+  pendingFileSelection = modelFileInput.files;
+  importStatus.setLoading(files[0].name);
+
+  try {
+    await importModelFiles(files);
+  } finally {
+    pendingFileSelection = null;
+    modelFileInput.value = "";
+  }
+}
+
 createModelDropImporter({
   onDragChange(isDragging) {
     canvas.classList.toggle("is-drop-target", isDragging);
     document.body.classList.toggle("is-dropping-model", isDragging);
     importStatus.setDragging(isDragging);
   },
-  async onDropFiles(files) {
-    renderer.clearModel();
-    modelInfoPanel.clear();
-
-    let file;
-
-    try {
-      file = pickSingleModelFile(files);
-    } catch (error) {
-      importStatus.setError(error.message);
-      return;
-    }
-
-    importStatus.setLoading(file.name);
-
-    try {
-      const model = await loadGltfModelFromFile(file);
-
-      renderer.setModel(model);
-      modelInfoPanel.setModelInfo(createModelInfo(file.name, model));
-      importStatus.setLoaded(file.name);
-    } catch (error) {
-      console.error(error);
-      importStatus.setError(error.message);
-    }
-  },
+  onDropFiles: importModelFiles,
 });
 
 function update(deltaTime, time) {
@@ -121,6 +126,33 @@ function gameLoop(now) {
 }
 
 requestAnimationFrame(gameLoop);
+
+async function importModelFiles(files) {
+  renderer.clearModel();
+  modelInfoPanel.clear();
+
+  let file;
+
+  try {
+    file = pickSingleModelFile(files);
+  } catch (error) {
+    importStatus.setError(error.message);
+    return;
+  }
+
+  importStatus.setLoading(file.name);
+
+  try {
+    const model = await loadGltfModelFromFile(file);
+
+    renderer.setModel(model);
+    modelInfoPanel.setModelInfo(createModelInfo(file.name, model));
+    importStatus.setLoaded(file.name);
+  } catch (error) {
+    console.error(error);
+    importStatus.setError(error.message);
+  }
+}
 
 function loadStoredColor(key, fallback) {
   try {
