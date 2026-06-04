@@ -250,6 +250,11 @@ function createMaterialRow(material) {
   color.className = "material-color";
   index.textContent = `#${material.index}`;
   name.textContent = material.name || "-";
+
+  if (material.name) {
+    name.title = material.name;
+  }
+
   swatch.style.backgroundColor = toCssColor(material.baseColor);
   swatch.title = formatColor(material.baseColor);
   swatch.setAttribute("aria-hidden", "true");

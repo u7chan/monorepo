@@ -77,6 +77,7 @@ describe("createModelInfoPanel", () => {
 
     expect(materials.classList.contains("materials-panel")).toBe(true);
     expect(toggle.children[0].textContent).toBe("Materials (1)");
+    expect(row.children[1].title).toBe("Body");
     expect(row.children[3].textContent).toBe("[0.250, 0.500, 0.750]");
     expect(content.style.display).toBe("none");
     expect(content.getAttribute("aria-hidden")).toBe("true");
