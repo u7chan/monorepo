@@ -44,14 +44,16 @@ export function createRenderer(canvas) {
   const xzGrid = createDrawable(gl, xzGridVertices, attributes);
   const axes = createDrawable(gl, axisVertices, attributes);
   const camera = createOrbitCamera(canvas);
+  let sourceModel = null;
   let currentModel = null;
-  let modelRevision = 0;
+  let currentAutoFitModel = null;
 
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
 
   return {
     render({ renderOptions }) {
+      syncCurrentModel(renderOptions);
       const matrix = prepareFrame(
         gl,
         canvas,
@@ -80,19 +82,32 @@ export function createRenderer(canvas) {
       drawModel(gl, currentModel, renderOptions, uniforms);
     },
     clearModel() {
-      modelRevision += 1;
+      sourceModel = null;
       replaceCurrentModel(null);
     },
-    setModel(model) {
-      modelRevision += 1;
-      replaceCurrentModel(model);
+    setModel(model, renderOptions = {}) {
+      sourceModel = model;
+      replaceCurrentModel(model, Boolean(renderOptions.autoFitModel));
       camera.reset();
     },
   };
 
-  function replaceCurrentModel(model) {
+  function replaceCurrentModel(model, autoFitModel = false) {
     disposeModel(gl, currentModel);
-    currentModel = model === null ? null : createRenderModel(gl, attributes, model);
+    currentModel = model === null ? null : createRenderModel(gl, attributes, model, autoFitModel);
+    currentAutoFitModel = model === null ? null : autoFitModel;
+  }
+
+  function syncCurrentModel(renderOptions) {
+    if (sourceModel === null) {
+      return;
+    }
+
+    const autoFitModel = Boolean(renderOptions.autoFitModel);
+
+    if (currentAutoFitModel !== autoFitModel) {
+      replaceCurrentModel(sourceModel, autoFitModel);
+    }
   }
 }
 
@@ -389,12 +404,12 @@ function createDrawable(gl, vertices, attributes) {
   };
 }
 
-function createRenderModel(gl, attributes, model) {
-  const fittedModel = fitModelToGround(model, MODEL_TARGET_HEIGHT);
+function createRenderModel(gl, attributes, model, autoFitModel) {
+  const renderModel = autoFitModel ? fitModelToGround(model, MODEL_TARGET_HEIGHT) : model;
 
   return {
-    surface: createDrawable(gl, fittedModel.triangles, attributes),
-    wireframe: createDrawable(gl, fittedModel.wireframe, attributes),
+    surface: createDrawable(gl, renderModel.triangles, attributes),
+    wireframe: createDrawable(gl, renderModel.wireframe, attributes),
   };
 }
 

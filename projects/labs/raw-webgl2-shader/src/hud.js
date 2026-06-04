@@ -9,6 +9,7 @@ const CONTROL_ITEMS = [
   ["lightingEnabled", "ライト"],
   ["gridVisible", "グリッド"],
   ["axesVisible", "軸"],
+  ["autoFitModel", "自動フィット"],
 ];
 
 const COLOR_ITEMS = [

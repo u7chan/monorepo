@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createHudDisclosure, createModelInfoPanel } from "../src/hud.js";
+import { createHudDisclosure, createModelInfoPanel, createRenderControls } from "../src/hud.js";
 
 const originalDocument = globalThis.document;
 
@@ -88,6 +88,35 @@ describe("createModelInfoPanel", () => {
     expect(content.style.display).toBe("");
     expect(content.getAttribute("aria-hidden")).toBe("false");
     expect(icon.textContent).toBe("-");
+  });
+});
+
+describe("createRenderControls", () => {
+  test("自動フィットをデフォルトOffのトグルとして表示する", () => {
+    globalThis.document = createFakeDocument();
+    const root = document.createElement("div");
+    const renderOptions = {
+      autoFitModel: false,
+      axesVisible: true,
+      gridVisible: true,
+      lightingEnabled: true,
+      surfaceVisible: true,
+      useVertexColors: true,
+      wireframeVisible: true,
+    };
+
+    createRenderControls(root, renderOptions);
+
+    const autoFitLabel = root.children.find((label) => label.children[1].textContent === "自動フィット");
+    const input = autoFitLabel.children[0];
+
+    expect(autoFitLabel).toBeDefined();
+    expect(input.checked).toBe(false);
+
+    input.checked = true;
+    input.dispatchEvent(new Event("change"));
+
+    expect(renderOptions.autoFitModel).toBe(true);
   });
 });
 
