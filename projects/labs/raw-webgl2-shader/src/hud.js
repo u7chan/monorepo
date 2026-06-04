@@ -314,13 +314,7 @@ function formatColor(color) {
 }
 
 function formatColorNumber(value) {
-  const rounded = Math.round(value * 1000) / 1000;
-
-  if (Number.isInteger(rounded)) {
-    return String(rounded);
-  }
-
-  return rounded.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  return value.toFixed(3);
 }
 
 function toCssColor(color) {

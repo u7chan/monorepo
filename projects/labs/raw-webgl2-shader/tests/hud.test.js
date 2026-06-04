@@ -73,9 +73,11 @@ describe("createModelInfoPanel", () => {
     const toggle = materials.children[0];
     const content = materials.children[1];
     const icon = toggle.children[1];
+    const row = content.children[0];
 
     expect(materials.classList.contains("materials-panel")).toBe(true);
     expect(toggle.children[0].textContent).toBe("Materials (1)");
+    expect(row.children[3].textContent).toBe("[0.250, 0.500, 0.750]");
     expect(content.style.display).toBe("none");
     expect(content.getAttribute("aria-hidden")).toBe("true");
     expect(icon.textContent).toBe("+");
