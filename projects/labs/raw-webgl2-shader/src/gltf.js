@@ -209,6 +209,7 @@ function readGlbChunk(dataView, chunkHeaderOffset, label) {
 function createModelFromGltf(gltf, buffers) {
   const model = {
     bounds: createEmptyBounds(),
+    materials: getModelMaterials(gltf),
     triangles: [],
     wireframe: [],
   };
@@ -219,6 +220,7 @@ function createModelFromGltf(gltf, buffers) {
 
   return {
     bounds: model.bounds,
+    materials: model.materials,
     triangles: new Float32Array(model.triangles),
     wireframe: new Float32Array(model.wireframe),
   };
@@ -237,6 +239,7 @@ export function fitModelToGround(model, targetHeight = 1.45) {
 
   return {
     bounds: model.bounds,
+    materials: model.materials ?? [],
     triangles: fitVertices(model.triangles, centerX, bounds.min[1], centerZ, scale),
     wireframe: fitVertices(model.wireframe, centerX, bounds.min[1], centerZ, scale),
   };
@@ -406,6 +409,14 @@ function getMaterialColor(gltf, materialIndex) {
     DEFAULT_COLOR;
 
   return [factor[0], factor[1], factor[2]];
+}
+
+function getModelMaterials(gltf) {
+  return (gltf.materials ?? []).map((material, index) => ({
+    baseColor: getMaterialColor(gltf, index),
+    index,
+    name: material.name ?? "",
+  }));
 }
 
 function fitVertices(vertices, centerX, minY, centerZ, scale) {

@@ -6,6 +6,7 @@ export function createModelInfo(fileName, model) {
 
   return {
     fileName,
+    materials: model.materials ?? [],
     vertexCount,
     polygonCount,
     size: [
