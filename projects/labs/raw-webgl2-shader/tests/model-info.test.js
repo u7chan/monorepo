@@ -38,10 +38,78 @@ describe("createModelInfo", () => {
           name: "Body",
         },
       ],
+      textures: [],
       vertexCount: 6,
       polygonCount: 2,
       size: [4, 3.5, 0.75],
     });
+  });
+
+  test("texture情報と参照materialを算出する", () => {
+    const bitmap = {};
+    const model = {
+      bounds: {
+        min: [0, 0, 0],
+        max: [1, 1, 1],
+      },
+      images: [bitmap, null],
+      materials: [
+        {
+          baseColorTexture: {
+            texcoordIndex: 0,
+            textureIndex: 0,
+          },
+          index: 0,
+          name: "Body",
+        },
+        {
+          baseColorTexture: {
+            texcoordIndex: 1,
+            textureIndex: 1,
+          },
+          index: 1,
+          name: "",
+        },
+      ],
+      primitives: [{ triangles: new Float32Array(3 * 12) }],
+      textures: [
+        {
+          imageIndex: 0,
+          sampler: {
+            magFilter: 9729,
+            minFilter: 9729,
+            wrapS: 10497,
+            wrapT: 10497,
+          },
+        },
+        {
+          imageIndex: 1,
+          sampler: null,
+        },
+      ],
+    };
+
+    expect(createModelInfo("sample.glb", model).textures).toEqual([
+      {
+        imageIndex: 0,
+        imageStatus: "decoded",
+        index: 0,
+        materials: [{ index: 0, name: "Body", texcoordIndex: 0 }],
+        sampler: {
+          magFilter: 9729,
+          minFilter: 9729,
+          wrapS: 10497,
+          wrapT: 10497,
+        },
+      },
+      {
+        imageIndex: 1,
+        imageStatus: "missing",
+        index: 1,
+        materials: [{ index: 1, name: "", texcoordIndex: 1 }],
+        sampler: null,
+      },
+    ]);
   });
 });
 

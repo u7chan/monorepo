@@ -3,9 +3,14 @@ import {
   fitModelToGround,
   loadGltfModel,
   loadGltfModelFromFile,
+  setGltfImageBitmapDecoderForTests,
 } from "../src/gltf.js";
 
 const GL_FLOAT = 5126;
+const GL_LINEAR = 9729;
+const GL_MIRRORED_REPEAT = 33648;
+const GL_NEAREST = 9728;
+const GL_REPEAT = 10497;
 const GL_UNSIGNED_SHORT = 5123;
 const GL_TRIANGLES = 4;
 const ARRAY_BUFFER = 34962;
@@ -22,6 +27,7 @@ const originalWindow = globalThis.window;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  setGltfImageBitmapDecoderForTests(null);
 
   if (originalWindow === undefined) {
     delete globalThis.window;
@@ -234,6 +240,222 @@ describe("loadGltfModelFromFile", () => {
       0, 0,
       1, 0,
     ]);
+  });
+
+  test("GLBのbufferView画像をbaseColorTextureとしてdecodeする", async () => {
+    const imageBytes = new Uint8Array([137, 80, 78, 71]);
+    const decoded = [];
+    const { gltf, buffer } = createTriangleGltf({
+      externalBufferUri: "mesh.bin",
+      imageBuffer: imageBytes.buffer,
+      imageMimeType: "image/png",
+      materials: [
+        {
+          pbrMetallicRoughness: {
+            baseColorFactor: [0.25, 0.5, 0.75, 0.6],
+            baseColorTexture: { index: 0 },
+          },
+        },
+      ],
+      texcoords: [
+        0, 0,
+        1, 0,
+        0.5, 1,
+      ],
+    });
+
+    delete gltf.buffers[0].uri;
+    setGltfImageBitmapDecoderForTests(async (blob) => {
+      decoded.push({
+        bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
+        type: blob.type,
+      });
+
+      return { close() {} };
+    });
+
+    const model = await loadGltfModelFromFile(createGlbFile(createGlb(gltf, buffer)));
+
+    expect(decoded).toEqual([{ bytes: [137, 80, 78, 71], type: "image/png" }]);
+    expect(model.images).toHaveLength(1);
+    expect(model.images[0]).not.toBe(null);
+    expect(model.materials[0].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 0,
+    });
+    expect(model.textures).toEqual([
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: GL_LINEAR,
+          minFilter: GL_LINEAR,
+          wrapS: GL_REPEAT,
+          wrapT: GL_REPEAT,
+        },
+      },
+    ]);
+  });
+
+  test("samplerはtexture単位で保持し未指定wrapはREPEATにする", async () => {
+    const gltf = createTriangleGltf({
+      imageUri: dataUri(new Uint8Array([1, 2, 3]).buffer, "image/png"),
+      materials: [
+        {
+          pbrMetallicRoughness: {
+            baseColorTexture: { index: 0 },
+          },
+        },
+        {
+          pbrMetallicRoughness: {
+            baseColorTexture: { index: 1 },
+          },
+        },
+      ],
+    });
+
+    gltf.samplers = [
+      {
+        magFilter: GL_NEAREST,
+        minFilter: GL_NEAREST,
+        wrapS: GL_MIRRORED_REPEAT,
+        wrapT: GL_REPEAT,
+      },
+    ];
+    gltf.textures = [
+      { sampler: 0, source: 0 },
+      { source: 0 },
+    ];
+    setGltfImageBitmapDecoderForTests(async () => ({ close() {} }));
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(model.materials[0].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 0,
+    });
+    expect(model.materials[1].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 1,
+    });
+    expect(model.textures).toEqual([
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: GL_NEAREST,
+          minFilter: GL_NEAREST,
+          wrapS: GL_MIRRORED_REPEAT,
+          wrapT: GL_REPEAT,
+        },
+      },
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: GL_LINEAR,
+          minFilter: GL_LINEAR,
+          wrapS: GL_REPEAT,
+          wrapT: GL_REPEAT,
+        },
+      },
+    ]);
+  });
+
+  test("data URI画像をbaseColorTextureとしてdecodeする", async () => {
+    const imageBytes = new Uint8Array([1, 2, 3]);
+    const decoded = [];
+    const gltf = createTriangleGltf({
+      imageUri: dataUri(imageBytes.buffer, "image/jpeg"),
+      materials: [
+        {
+          pbrMetallicRoughness: {
+            baseColorFactor: [1, 1, 1, 1],
+            baseColorTexture: { index: 0, texCoord: 0 },
+          },
+        },
+      ],
+      texcoords: [
+        0, 0,
+        1, 0,
+        0.5, 1,
+      ],
+    });
+
+    setGltfImageBitmapDecoderForTests(async (blob) => {
+      decoded.push({
+        bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
+        type: blob.type,
+      });
+
+      return { close() {} };
+    });
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(decoded).toEqual([{ bytes: [1, 2, 3], type: "image/jpeg" }]);
+    expect(model.images[0]).not.toBe(null);
+    expect(model.materials[0].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 0,
+    });
+  });
+
+  test("mimeType未指定のbufferView画像はtypeなしBlobでdecodeを試す", async () => {
+    const decodedTypes = [];
+    const { gltf, buffer } = createTriangleGltf({
+      externalBufferUri: "mesh.bin",
+      imageBuffer: new Uint8Array([9, 8, 7]).buffer,
+      imageMimeType: null,
+      materials: [
+        {
+          pbrMetallicRoughness: {
+            baseColorFactor: [1, 1, 1, 1],
+            baseColorTexture: { index: 0 },
+          },
+        },
+      ],
+    });
+
+    delete gltf.buffers[0].uri;
+    setGltfImageBitmapDecoderForTests(async (blob) => {
+      decodedTypes.push(blob.type);
+
+      return { close() {} };
+    });
+
+    await loadGltfModelFromFile(createGlbFile(createGlb(gltf, buffer)));
+
+    expect(decodedTypes).toEqual([""]);
+  });
+
+  test("画像decode失敗時もmodel読み込みを継続しtextureだけ無効化する", async () => {
+    const gltf = createTriangleGltf({
+      imageUri: dataUri(new Uint8Array([1]).buffer, "image/png"),
+      materials: [
+        {
+          pbrMetallicRoughness: {
+            baseColorFactor: [0.1, 0.2, 0.3, 1],
+            baseColorTexture: { index: 0 },
+          },
+        },
+      ],
+    });
+
+    setGltfImageBitmapDecoderForTests(async () => {
+      throw new Error("decode failed");
+    });
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.images).toEqual([null]);
+    expect(model.materials[0].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 0,
+    });
   });
 
   test("GLBの三角形を読み込める", async () => {
@@ -458,6 +680,9 @@ function createTriangleGltf({
   ],
   primitiveOverrides = null,
   texcoords = null,
+  imageBuffer = null,
+  imageMimeType = "image/png",
+  imageUri = null,
 } = {}) {
   const bufferBuilder = createBufferBuilder();
   const accessors = [];
@@ -528,6 +753,24 @@ function createTriangleGltf({
   };
 
   const primitives = (primitiveOverrides ?? [{}]).map(createPrimitive);
+  const images = [];
+  const textures = [];
+
+  if (imageBuffer) {
+    const image = {
+      bufferView: bufferBuilder.addBufferView(imageBuffer, {}),
+    };
+
+    if (imageMimeType !== null) {
+      image.mimeType = imageMimeType;
+    }
+
+    images.push(image);
+    textures.push({ source: 0 });
+  } else if (imageUri) {
+    images.push({ uri: imageUri });
+    textures.push({ source: 0 });
+  }
 
   const buffer = bufferBuilder.build();
   const gltf = {
@@ -549,6 +792,7 @@ function createTriangleGltf({
     nodes: [node],
     scene: 0,
     scenes: [{ nodes: [0] }],
+    ...(images.length === 0 ? {} : { images, textures }),
   };
 
   return externalBufferUri ? { gltf, buffer } : gltf;
@@ -689,8 +933,8 @@ function createGlbFile(arrayBuffer, name = "model.glb") {
   return new File([arrayBuffer], name, { type: "model/gltf-binary" });
 }
 
-function dataUri(arrayBuffer) {
-  return `data:application/octet-stream;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+function dataUri(arrayBuffer, mimeType = "application/octet-stream") {
+  return `data:${mimeType};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
 }
 
 function floatBuffer(values) {

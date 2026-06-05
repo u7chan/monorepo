@@ -1,10 +1,22 @@
 import { formatModelSize } from "./model-info.js";
 
 const FPS_UPDATE_INTERVAL = 0.25;
+const SAMPLER_NAMES = {
+  33071: "CLAMP",
+  33648: "MIRROR",
+  9728: "NEAREST",
+  9729: "LINEAR",
+  9984: "NEAREST_MIP_NEAREST",
+  9985: "LINEAR_MIP_NEAREST",
+  9986: "NEAREST_MIP_LINEAR",
+  9987: "LINEAR_MIP_LINEAR",
+  10497: "REPEAT",
+};
 
 const CONTROL_ITEMS = [
   ["surfaceVisible", "面"],
   ["wireframeVisible", "ワイヤー"],
+  ["texturesVisible", "テクスチャ"],
   ["useVertexColors", "頂点色"],
   ["lightingEnabled", "ライト"],
   ["gridVisible", "グリッド"],
@@ -159,12 +171,16 @@ export function createModelInfoPanel(element) {
     };
   }
 
-  function render(rows, materials = []) {
+  function render(rows, materials = [], textures = []) {
     element.textContent = "";
     element.append(createModelInfoList(rows));
 
     if (materials.length > 0) {
       element.append(createMaterialsSection(materials));
+    }
+
+    if (textures.length > 0) {
+      element.append(createTexturesSection(textures));
     }
   }
 
@@ -183,9 +199,11 @@ export function createModelInfoPanel(element) {
           ["ファイル", info.fileName],
           ["頂点", formatCount(info.vertexCount)],
           ["ポリゴン", formatCount(info.polygonCount)],
+          ["テクスチャ", formatCount(info.textures?.length ?? 0)],
           ["サイズ", formatModelSize(info.size)],
         ],
         info.materials ?? [],
+        info.textures ?? [],
       );
     },
   };
@@ -208,22 +226,51 @@ function createModelInfoList(rows) {
 }
 
 function createMaterialsSection(materials) {
+  return createCollapsibleInfoSection({
+    className: "materials-panel",
+    contentClassName: "materials-list",
+    count: materials.length,
+    items: materials,
+    rowFactory: createMaterialRow,
+    title: "Materials",
+  });
+}
+
+function createTexturesSection(textures) {
+  return createCollapsibleInfoSection({
+    className: "textures-panel",
+    contentClassName: "textures-list",
+    count: textures.length,
+    items: textures,
+    rowFactory: createTextureRow,
+    title: "Textures",
+  });
+}
+
+function createCollapsibleInfoSection({
+  className,
+  contentClassName,
+  count,
+  items,
+  rowFactory,
+  title: titleText,
+}) {
   const root = document.createElement("section");
   const toggle = document.createElement("button");
   const title = document.createElement("span");
   const icon = document.createElement("span");
   const content = document.createElement("div");
 
-  root.className = "materials-panel";
-  toggle.className = "materials-toggle";
+  root.className = className;
+  toggle.className = "info-section-toggle";
   toggle.type = "button";
-  title.textContent = `Materials (${materials.length})`;
-  icon.className = "materials-toggle-icon";
+  title.textContent = `${titleText} (${count})`;
+  icon.className = "info-section-toggle-icon";
   icon.setAttribute("aria-hidden", "true");
-  content.className = "materials-list";
+  content.className = contentClassName;
 
   toggle.append(title, icon);
-  content.append(...materials.map(createMaterialRow));
+  content.append(...items.map(rowFactory));
   root.append(toggle, content);
 
   createHudDisclosure({
@@ -262,6 +309,30 @@ function createMaterialRow(material) {
   color.textContent = formatColor(material.baseColor);
 
   row.append(index, name, swatch, color);
+
+  return row;
+}
+
+function createTextureRow(texture) {
+  const row = document.createElement("div");
+  const index = document.createElement("span");
+  const image = document.createElement("span");
+  const sampler = document.createElement("span");
+  const materials = document.createElement("span");
+
+  row.className = "texture-row";
+  index.className = "texture-index";
+  image.className = "texture-image";
+  sampler.className = "texture-sampler";
+  materials.className = "texture-materials";
+  index.textContent = `#${texture.index}`;
+  image.textContent = formatTextureImage(texture);
+  sampler.textContent = formatTextureSampler(texture.sampler);
+  sampler.title = sampler.textContent;
+  materials.textContent = formatTextureMaterials(texture);
+  materials.title = materials.textContent;
+
+  row.append(index, image, sampler, materials);
 
   return row;
 }
@@ -317,6 +388,57 @@ function formatCount(value) {
 
 function formatColor(color) {
   return `[${color.map(formatColorNumber).join(", ")}]`;
+}
+
+function formatTextureImage(texture) {
+  if (texture.imageIndex === null || texture.imageIndex === undefined) {
+    return "image -";
+  }
+
+  return `image #${texture.imageIndex} ${formatTextureImageStatus(texture.imageStatus)}`;
+}
+
+function formatTextureImageStatus(status) {
+  if (status === "decoded") {
+    return "ok";
+  }
+
+  if (status === "missing") {
+    return "missing";
+  }
+
+  return "-";
+}
+
+function formatTextureMaterials(texture) {
+  if (!texture.materials || texture.materials.length === 0) {
+    return "material -";
+  }
+
+  return texture.materials
+    .map((material) => {
+      const name = material.name || `#${material.index}`;
+
+      return `${name} uv${material.texcoordIndex}`;
+    })
+    .join(", ");
+}
+
+function formatTextureSampler(sampler) {
+  if (!sampler) {
+    return "sampler -";
+  }
+
+  return [
+    `S:${formatSamplerValue(sampler.wrapS)}`,
+    `T:${formatSamplerValue(sampler.wrapT)}`,
+    `min:${formatSamplerValue(sampler.minFilter)}`,
+    `mag:${formatSamplerValue(sampler.magFilter)}`,
+  ].join(" ");
+}
+
+function formatSamplerValue(value) {
+  return SAMPLER_NAMES[value] ?? String(value);
 }
 
 function formatColorNumber(value) {

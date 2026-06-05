@@ -37,12 +37,20 @@ const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
 const GLB_BIN_CHUNK_TYPE = 0x004e4942;
 const GLB_HEADER_SIZE = 12;
 const GLB_CHUNK_HEADER_SIZE = 8;
+const GL_REPEAT = 10497;
+const GL_LINEAR = 9729;
 const IDENTITY_MATRIX = new Float32Array([
   1, 0, 0, 0,
   0, 1, 0, 0,
   0, 0, 1, 0,
   0, 0, 0, 1,
 ]);
+
+let imageBitmapDecoderForTests = null;
+
+export function setGltfImageBitmapDecoderForTests(decoder) {
+  imageBitmapDecoderForTests = decoder;
+}
 
 export async function loadGltfModel(url) {
   const response = await fetch(url);
@@ -208,11 +216,13 @@ function readGlbChunk(dataView, chunkHeaderOffset, label) {
   return { length, offset, type };
 }
 
-function createModelFromGltf(gltf, buffers) {
+async function createModelFromGltf(gltf, buffers) {
   const model = {
     bounds: createEmptyBounds(),
+    images: await decodeModelImages(gltf, buffers),
     materials: getModelMaterials(gltf),
     primitives: [],
+    textures: getModelTextures(gltf),
   };
 
   for (const sceneIndex of getSceneNodeIndices(gltf)) {
@@ -221,6 +231,7 @@ function createModelFromGltf(gltf, buffers) {
 
   return {
     bounds: model.bounds,
+    images: model.images,
     materials: model.materials,
     primitives: model.primitives.map((primitive) => ({
       materialIndex: primitive.materialIndex,
@@ -228,6 +239,7 @@ function createModelFromGltf(gltf, buffers) {
       triangles: new Float32Array(primitive.triangles),
       wireframe: new Float32Array(primitive.wireframe),
     })),
+    textures: model.textures,
   };
 }
 
@@ -244,6 +256,7 @@ export function fitModelToGround(model, targetHeight = 1.45) {
 
   return {
     bounds: model.bounds,
+    images: model.images ?? [],
     materials: model.materials ?? [],
     primitives: model.primitives.map((primitive) => ({
       materialIndex: primitive.materialIndex,
@@ -251,6 +264,7 @@ export function fitModelToGround(model, targetHeight = 1.45) {
       triangles: fitVertices(primitive.triangles, centerX, bounds.min[1], centerZ, scale),
       wireframe: fitVertices(primitive.wireframe, centerX, bounds.min[1], centerZ, scale),
     })),
+    textures: model.textures ?? [],
   };
 }
 
@@ -443,10 +457,50 @@ function getModelMaterials(gltf) {
   return (gltf.materials ?? []).map((material, index) => ({
     baseColorFactor: getMaterialBaseColorFactor(gltf, index),
     baseColor: getMaterialColor(gltf, index),
-    baseColorTexture: null,
+    baseColorTexture: getMaterialBaseColorTexture(gltf, index),
     index,
     name: material.name ?? "",
   }));
+}
+
+function getModelTextures(gltf) {
+  return (gltf.textures ?? []).map((texture) => ({
+    imageIndex: texture.source ?? null,
+    sampler: getTextureSampler(gltf, texture.sampler),
+  }));
+}
+
+function getMaterialBaseColorTexture(gltf, materialIndex) {
+  const textureInfo =
+    gltf.materials?.[materialIndex]?.pbrMetallicRoughness?.baseColorTexture;
+
+  if (!textureInfo || textureInfo.index === undefined) {
+    return null;
+  }
+
+  const texture = gltf.textures?.[textureInfo.index];
+
+  if (!texture || texture.source === undefined) {
+    return null;
+  }
+
+  return {
+    imageIndex: texture.source,
+    texcoordIndex: textureInfo.texCoord ?? 0,
+    textureIndex: textureInfo.index,
+  };
+}
+
+function getTextureSampler(gltf, samplerIndex) {
+  const sampler =
+    samplerIndex === undefined ? null : gltf.samplers?.[samplerIndex] ?? null;
+
+  return {
+    magFilter: sampler?.magFilter ?? GL_LINEAR,
+    minFilter: sampler?.minFilter ?? GL_LINEAR,
+    wrapS: sampler?.wrapS ?? GL_REPEAT,
+    wrapT: sampler?.wrapT ?? GL_REPEAT,
+  };
 }
 
 function getMaterialBaseColorFactor(gltf, materialIndex) {
@@ -527,6 +581,10 @@ function createSequentialIndices(count) {
 }
 
 function decodeDataUri(uri) {
+  return decodeDataUriBytes(uri).arrayBuffer;
+}
+
+function decodeDataUriBytes(uri) {
   const commaIndex = uri.indexOf(",");
 
   if (commaIndex === -1) {
@@ -547,7 +605,77 @@ function decodeDataUri(uri) {
     bytes[index] = binary.charCodeAt(index);
   }
 
-  return bytes.buffer;
+  return {
+    arrayBuffer: bytes.buffer,
+    mimeType: metadata.slice(5, -7) || "",
+  };
+}
+
+async function decodeModelImages(gltf, buffers) {
+  return Promise.all(
+    (gltf.images ?? []).map(async (image) => {
+      const source = getImageSource(gltf, buffers, image);
+
+      if (!source) {
+        return null;
+      }
+
+      return decodeImageSource(source);
+    }),
+  );
+}
+
+function getImageSource(gltf, buffers, image) {
+  if (image.bufferView !== undefined) {
+    const bufferView = gltf.bufferViews?.[image.bufferView];
+
+    if (!bufferView) {
+      return null;
+    }
+
+    return {
+      arrayBuffer: sliceBufferView(buffers, bufferView),
+      mimeType: image.mimeType ?? "",
+    };
+  }
+
+  if (typeof image.uri === "string" && image.uri.startsWith("data:")) {
+    const source = decodeDataUriBytes(image.uri);
+
+    return {
+      arrayBuffer: source.arrayBuffer,
+      mimeType: image.mimeType ?? source.mimeType,
+    };
+  }
+
+  return null;
+}
+
+function sliceBufferView(buffers, bufferView) {
+  const buffer = buffers[bufferView.buffer];
+
+  if (!buffer) {
+    return new ArrayBuffer(0);
+  }
+
+  const byteOffset = bufferView.byteOffset ?? 0;
+  const byteLength = bufferView.byteLength ?? 0;
+
+  return buffer.slice(byteOffset, byteOffset + byteLength);
+}
+
+async function decodeImageSource(source) {
+  const decoder = imageBitmapDecoderForTests ?? globalThis.createImageBitmap;
+
+  if (typeof decoder !== "function") {
+    return null;
+  }
+
+  try {
+    return await decoder(new Blob([source.arrayBuffer], { type: source.mimeType }));
+  } catch {
+    return null;
+  }
 }
 
 function getNodeMatrix(node) {

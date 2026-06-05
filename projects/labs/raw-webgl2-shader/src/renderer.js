@@ -17,16 +17,21 @@ const CAMERA_INITIAL_TARGET = [0, 0, 0];
 const CAMERA_RADIUS = Math.hypot(1.6, 1.6, 1.6);
 const CAMERA_ROTATION_SPEED = 0.006;
 const CAMERA_ZOOM_SPEED = 0.001;
-const CAMERA_MIN_VIEW_SCALE = 0.45;
+const CAMERA_MIN_VIEW_SCALE = 0.25;
 const CAMERA_MAX_VIEW_SCALE = 2.2;
 const CAMERA_MIN_PITCH = -Math.PI / 2 + 0.08;
 const CAMERA_MAX_PITCH = Math.PI / 2 - 0.08;
+const TEXCOORD_COMPONENTS = 2;
 const AXIS_LENGTH = 0.9;
 const GRID_DIVISIONS = 3;
 const GRID_SPACING = 0.3;
 const GRID_COLOR = [0.34, 0.38, 0.43];
 const MODEL_TARGET_HEIGHT = AXIS_LENGTH;
 const UP_NORMAL = [0, 1, 0];
+const GL_NEAREST_MIPMAP_NEAREST = 9984;
+const GL_LINEAR_MIPMAP_NEAREST = 9985;
+const GL_NEAREST_MIPMAP_LINEAR = 9986;
+const GL_LINEAR_MIPMAP_LINEAR = 9987;
 
 const axisVertices = createAxisVertices();
 const xzGridVertices = createXzGridVertices();
@@ -70,6 +75,8 @@ export function createRenderer(canvas) {
         renderOptions.useVertexColors ? COLOR_MODE_VERTEX : COLOR_MODE_MATERIAL,
       );
       gl.uniform1i(uniforms.lightingEnabled, renderOptions.lightingEnabled ? 1 : 0);
+      gl.uniform1i(uniforms.textureEnabled, 0);
+      gl.uniform1i(uniforms.baseColorTexture, 0);
 
       if (renderOptions.gridVisible) {
         drawLines(gl, xzGrid);
@@ -82,12 +89,18 @@ export function createRenderer(canvas) {
       drawModel(gl, currentModel, renderOptions, uniforms);
     },
     clearModel() {
-      sourceModel = null;
       replaceCurrentModel(null);
+      disposeSourceModelImages(sourceModel);
+      sourceModel = null;
     },
     setModel(model, renderOptions = {}) {
+      const previousSourceModel = sourceModel;
+
       sourceModel = model;
       replaceCurrentModel(model, Boolean(renderOptions.autoFitModel));
+      if (previousSourceModel !== model) {
+        disposeSourceModelImages(previousSourceModel);
+      }
       camera.reset();
     },
   };
@@ -381,6 +394,7 @@ function getAttributes(gl, program) {
     normal: gl.getAttribLocation(program, "a_normal"),
     vertexColor: gl.getAttribLocation(program, "a_vertex_color"),
     materialColor: gl.getAttribLocation(program, "a_material_color"),
+    texcoord: gl.getAttribLocation(program, "a_texcoord"),
   };
 }
 
@@ -390,6 +404,8 @@ function getUniforms(gl, program) {
     colorMode: gl.getUniformLocation(program, "u_color_mode"),
     solidColor: gl.getUniformLocation(program, "u_solid_color"),
     lightingEnabled: gl.getUniformLocation(program, "u_lighting_enabled"),
+    textureEnabled: gl.getUniformLocation(program, "u_texture_enabled"),
+    baseColorTexture: gl.getUniformLocation(program, "u_base_color_texture"),
   };
 }
 
@@ -406,10 +422,13 @@ function createDrawable(gl, vertices, attributes) {
 
 function createRenderModel(gl, attributes, model, autoFitModel) {
   const renderModel = autoFitModel ? fitModelToGround(model, MODEL_TARGET_HEIGHT) : model;
+  const textures = createModelTextures(gl, renderModel);
 
   return {
+    textures,
     primitives: renderModel.primitives.map((primitive) => ({
-      surface: createDrawable(gl, primitive.triangles, attributes),
+      surface: createSurfaceDrawable(gl, primitive, attributes),
+      texture: getPrimitiveTexture(renderModel, primitive, textures),
       wireframe: createDrawable(gl, primitive.wireframe, attributes),
     })),
   };
@@ -424,11 +443,21 @@ function disposeModel(gl, model) {
     disposeDrawable(gl, primitive.surface);
     disposeDrawable(gl, primitive.wireframe);
   }
+
+  for (const texture of model.textures) {
+    if (texture) {
+      gl.deleteTexture(texture);
+    }
+  }
 }
 
 function disposeDrawable(gl, drawable) {
   gl.deleteVertexArray(drawable.vao);
   gl.deleteBuffer(drawable.buffer);
+
+  if (drawable.texcoordBuffer) {
+    gl.deleteBuffer(drawable.texcoordBuffer);
+  }
 }
 
 function bindGeometry(gl, geometry, attributes) {
@@ -470,6 +499,107 @@ function bindGeometry(gl, geometry, attributes) {
 
   gl.bindVertexArray(null);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
+}
+
+function createSurfaceDrawable(gl, primitive, attributes) {
+  const drawable = createDrawable(gl, primitive.triangles, attributes);
+
+  if (primitive.texcoords === null || attributes.texcoord < 0) {
+    return drawable;
+  }
+
+  const texcoordBuffer = gl.createBuffer();
+
+  gl.bindVertexArray(drawable.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, primitive.texcoords, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(attributes.texcoord);
+  gl.vertexAttribPointer(
+    attributes.texcoord,
+    TEXCOORD_COMPONENTS,
+    gl.FLOAT,
+    false,
+    0,
+    0,
+  );
+  gl.bindVertexArray(null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  return {
+    ...drawable,
+    texcoordBuffer,
+  };
+}
+
+function createModelTextures(gl, model) {
+  return (model.textures ?? []).map((textureInfo) => {
+    const image =
+      textureInfo.imageIndex === null ? null : model.images?.[textureInfo.imageIndex] ?? null;
+
+    return image ? createTextureFromImageBitmap(gl, image, textureInfo.sampler) : null;
+  });
+}
+
+function createTextureFromImageBitmap(gl, imageBitmap, sampler) {
+  const texture = gl.createTexture();
+
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, sampler.wrapS);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, sampler.wrapT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, sampler.minFilter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, sampler.magFilter);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    imageBitmap,
+  );
+  if (usesMipmapFilter(sampler.minFilter)) {
+    gl.generateMipmap(gl.TEXTURE_2D);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  return texture;
+}
+
+function usesMipmapFilter(minFilter) {
+  return (
+    minFilter === GL_NEAREST_MIPMAP_NEAREST ||
+    minFilter === GL_LINEAR_MIPMAP_NEAREST ||
+    minFilter === GL_NEAREST_MIPMAP_LINEAR ||
+    minFilter === GL_LINEAR_MIPMAP_LINEAR
+  );
+}
+
+function getPrimitiveTexture(model, primitive, textures) {
+  const material =
+    primitive.materialIndex === null
+      ? null
+      : model.materials?.[primitive.materialIndex] ?? null;
+  const textureInfo = material?.baseColorTexture ?? null;
+
+  if (
+    textureInfo === null ||
+    textureInfo.texcoordIndex !== 0 ||
+    primitive.texcoords === null
+  ) {
+    return null;
+  }
+
+  return textures[textureInfo.textureIndex] ?? null;
+}
+
+function disposeSourceModelImages(model) {
+  if (!model) {
+    return;
+  }
+
+  // ImageBitmaps stay open while the source model is active so auto-fit can rebuild textures.
+  for (const image of model.images ?? []) {
+    image?.close?.();
+  }
 }
 
 function prepareFrame(gl, canvas, cameraEye, cameraTarget, viewScale, backgroundColor) {
@@ -527,15 +657,33 @@ function drawModel(gl, model, renderOptions, uniforms) {
     gl.polygonOffset(1, 1);
 
     for (const primitive of model.primitives) {
+      if (primitive.texture && renderOptions.texturesVisible) {
+        gl.uniform1i(uniforms.colorMode, COLOR_MODE_MATERIAL);
+        gl.uniform1i(uniforms.textureEnabled, 1);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, primitive.texture);
+      } else {
+        gl.uniform1i(
+          uniforms.colorMode,
+          renderOptions.useVertexColors ? COLOR_MODE_VERTEX : COLOR_MODE_MATERIAL,
+        );
+        gl.uniform1i(uniforms.textureEnabled, 0);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+      }
+
       gl.bindVertexArray(primitive.surface.vao);
       gl.drawArrays(gl.TRIANGLES, 0, primitive.surface.vertexCount);
     }
+
+    gl.uniform1i(uniforms.textureEnabled, 0);
+    gl.bindTexture(gl.TEXTURE_2D, null);
 
     gl.disable(gl.POLYGON_OFFSET_FILL);
   }
 
   if (renderOptions.wireframeVisible) {
     gl.uniform1i(uniforms.colorMode, COLOR_MODE_SOLID);
+    gl.uniform1i(uniforms.textureEnabled, 0);
     gl.uniform3fv(uniforms.solidColor, hexColorToRgb(renderOptions.wireframeColor));
     gl.uniform1i(uniforms.lightingEnabled, 0);
 
