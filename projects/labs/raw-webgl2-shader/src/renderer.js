@@ -28,6 +28,10 @@ const GRID_SPACING = 0.3;
 const GRID_COLOR = [0.34, 0.38, 0.43];
 const MODEL_TARGET_HEIGHT = AXIS_LENGTH;
 const UP_NORMAL = [0, 1, 0];
+const GL_NEAREST_MIPMAP_NEAREST = 9984;
+const GL_LINEAR_MIPMAP_NEAREST = 9985;
+const GL_NEAREST_MIPMAP_LINEAR = 9986;
+const GL_LINEAR_MIPMAP_LINEAR = 9987;
 
 const axisVertices = createAxisVertices();
 const xzGridVertices = createXzGridVertices();
@@ -418,7 +422,7 @@ function createDrawable(gl, vertices, attributes) {
 
 function createRenderModel(gl, attributes, model, autoFitModel) {
   const renderModel = autoFitModel ? fitModelToGround(model, MODEL_TARGET_HEIGHT) : model;
-  const textures = createModelTextures(gl, renderModel.images ?? []);
+  const textures = createModelTextures(gl, renderModel);
 
   return {
     textures,
@@ -527,18 +531,23 @@ function createSurfaceDrawable(gl, primitive, attributes) {
   };
 }
 
-function createModelTextures(gl, images) {
-  return images.map((image) => (image ? createTextureFromImageBitmap(gl, image) : null));
+function createModelTextures(gl, model) {
+  return (model.textures ?? []).map((textureInfo) => {
+    const image =
+      textureInfo.imageIndex === null ? null : model.images?.[textureInfo.imageIndex] ?? null;
+
+    return image ? createTextureFromImageBitmap(gl, image, textureInfo.sampler) : null;
+  });
 }
 
-function createTextureFromImageBitmap(gl, imageBitmap) {
+function createTextureFromImageBitmap(gl, imageBitmap, sampler) {
   const texture = gl.createTexture();
 
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, sampler.wrapS);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, sampler.wrapT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, sampler.minFilter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, sampler.magFilter);
   gl.texImage2D(
     gl.TEXTURE_2D,
     0,
@@ -547,9 +556,21 @@ function createTextureFromImageBitmap(gl, imageBitmap) {
     gl.UNSIGNED_BYTE,
     imageBitmap,
   );
+  if (usesMipmapFilter(sampler.minFilter)) {
+    gl.generateMipmap(gl.TEXTURE_2D);
+  }
   gl.bindTexture(gl.TEXTURE_2D, null);
 
   return texture;
+}
+
+function usesMipmapFilter(minFilter) {
+  return (
+    minFilter === GL_NEAREST_MIPMAP_NEAREST ||
+    minFilter === GL_LINEAR_MIPMAP_NEAREST ||
+    minFilter === GL_NEAREST_MIPMAP_LINEAR ||
+    minFilter === GL_LINEAR_MIPMAP_LINEAR
+  );
 }
 
 function getPrimitiveTexture(model, primitive, textures) {
@@ -567,7 +588,7 @@ function getPrimitiveTexture(model, primitive, textures) {
     return null;
   }
 
-  return textures[textureInfo.imageIndex] ?? null;
+  return textures[textureInfo.textureIndex] ?? null;
 }
 
 function disposeSourceModelImages(model) {

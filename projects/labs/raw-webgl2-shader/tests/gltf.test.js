@@ -7,6 +7,10 @@ import {
 } from "../src/gltf.js";
 
 const GL_FLOAT = 5126;
+const GL_LINEAR = 9729;
+const GL_MIRRORED_REPEAT = 33648;
+const GL_NEAREST = 9728;
+const GL_REPEAT = 10497;
 const GL_UNSIGNED_SHORT = 5123;
 const GL_TRIANGLES = 4;
 const ARRAY_BUFFER = 34962;
@@ -278,7 +282,84 @@ describe("loadGltfModelFromFile", () => {
     expect(model.materials[0].baseColorTexture).toEqual({
       imageIndex: 0,
       texcoordIndex: 0,
+      textureIndex: 0,
     });
+    expect(model.textures).toEqual([
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: GL_LINEAR,
+          minFilter: GL_LINEAR,
+          wrapS: GL_REPEAT,
+          wrapT: GL_REPEAT,
+        },
+      },
+    ]);
+  });
+
+  test("samplerはtexture単位で保持し未指定wrapはREPEATにする", async () => {
+    const gltf = createTriangleGltf({
+      imageUri: dataUri(new Uint8Array([1, 2, 3]).buffer, "image/png"),
+      materials: [
+        {
+          pbrMetallicRoughness: {
+            baseColorTexture: { index: 0 },
+          },
+        },
+        {
+          pbrMetallicRoughness: {
+            baseColorTexture: { index: 1 },
+          },
+        },
+      ],
+    });
+
+    gltf.samplers = [
+      {
+        magFilter: GL_NEAREST,
+        minFilter: GL_NEAREST,
+        wrapS: GL_MIRRORED_REPEAT,
+        wrapT: GL_REPEAT,
+      },
+    ];
+    gltf.textures = [
+      { sampler: 0, source: 0 },
+      { source: 0 },
+    ];
+    setGltfImageBitmapDecoderForTests(async () => ({ close() {} }));
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(model.materials[0].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 0,
+    });
+    expect(model.materials[1].baseColorTexture).toEqual({
+      imageIndex: 0,
+      texcoordIndex: 0,
+      textureIndex: 1,
+    });
+    expect(model.textures).toEqual([
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: GL_NEAREST,
+          minFilter: GL_NEAREST,
+          wrapS: GL_MIRRORED_REPEAT,
+          wrapT: GL_REPEAT,
+        },
+      },
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: GL_LINEAR,
+          minFilter: GL_LINEAR,
+          wrapS: GL_REPEAT,
+          wrapT: GL_REPEAT,
+        },
+      },
+    ]);
   });
 
   test("data URI画像をbaseColorTextureとしてdecodeする", async () => {
@@ -317,6 +398,7 @@ describe("loadGltfModelFromFile", () => {
     expect(model.materials[0].baseColorTexture).toEqual({
       imageIndex: 0,
       texcoordIndex: 0,
+      textureIndex: 0,
     });
   });
 
@@ -372,6 +454,7 @@ describe("loadGltfModelFromFile", () => {
     expect(model.materials[0].baseColorTexture).toEqual({
       imageIndex: 0,
       texcoordIndex: 0,
+      textureIndex: 0,
     });
   });
 

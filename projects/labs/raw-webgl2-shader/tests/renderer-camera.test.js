@@ -97,8 +97,8 @@ describe("createRenderer texture rendering", () => {
     expect(gl.bufferDataCalls.some((call) => call.data === model.primitives[0].texcoords)).toBe(true);
     expect(gl.vertexAttribPointerCalls.some((call) => call.index === 4 && call.size === 2)).toBe(true);
     expect(gl.texParameteriCalls).toEqual([
-      [gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE],
-      [gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE],
+      [gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT],
+      [gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT],
       [gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR],
       [gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR],
     ]);
@@ -143,6 +143,20 @@ describe("createRenderer texture rendering", () => {
 
     expect(gl.uniform1iCalls).not.toContainEqual(["u_texture_enabled", 1]);
     expect(gl.drawArraysCalls).toContainEqual([gl.TRIANGLES, 0, 3]);
+  });
+
+  test("mipmap系minFilterではmipmapを生成する", () => {
+    const gl = createMockGl();
+    const canvas = createTestCanvas(gl);
+    const model = createTexturedModel(
+      { close() {} },
+      { minFilter: gl.LINEAR_MIPMAP_LINEAR },
+    );
+    const renderer = createRenderer(canvas);
+
+    renderer.setModel(model);
+
+    expect(gl.generateMipmapCalls).toEqual([gl.TEXTURE_2D]);
   });
 });
 
@@ -204,7 +218,7 @@ function createRenderOptions() {
   };
 }
 
-function createTexturedModel(bitmap) {
+function createTexturedModel(bitmap, samplerOverrides = {}) {
   return {
     bounds: {
       min: [0, 0, 0],
@@ -218,6 +232,7 @@ function createTexturedModel(bitmap) {
         baseColorTexture: {
           imageIndex: 0,
           texcoordIndex: 0,
+          textureIndex: 0,
         },
         index: 0,
         name: "Textured",
@@ -233,6 +248,18 @@ function createTexturedModel(bitmap) {
         ]),
         triangles: new Float32Array(3 * 12),
         wireframe: new Float32Array(0),
+      },
+    ],
+    textures: [
+      {
+        imageIndex: 0,
+        sampler: {
+          magFilter: 0x2601,
+          minFilter: 0x2601,
+          wrapS: 0x2901,
+          wrapT: 0x8370,
+          ...samplerOverrides,
+        },
       },
     ],
   };
@@ -255,10 +282,13 @@ function createMockGl() {
     FRAGMENT_SHADER: 0x8b30,
     LEQUAL: 0x0203,
     LINEAR: 0x2601,
+    LINEAR_MIPMAP_LINEAR: 0x2703,
     LINK_STATUS: 0x8b82,
     LINES: 0x0001,
+    MIRRORED_REPEAT: 0x8370,
     POLYGON_OFFSET_FILL: 0x8037,
     RGBA: 0x1908,
+    REPEAT: 0x2901,
     STATIC_DRAW: 0x88e4,
     TEXTURE0: 0x84c0,
     TEXTURE_2D: 0x0de1,
@@ -272,6 +302,7 @@ function createMockGl() {
     bufferDataCalls: [],
     deletedTextures: [],
     drawArraysCalls: [],
+    generateMipmapCalls: [],
     texImage2DCalls: [],
     texParameteriCalls: [],
     uniform1iCalls: [],
@@ -348,6 +379,9 @@ function createMockGl() {
     },
     getUniformLocation(_program, name) {
       return name;
+    },
+    generateMipmap(target) {
+      gl.generateMipmapCalls.push(target);
     },
     lineWidth() {},
     linkProgram() {},

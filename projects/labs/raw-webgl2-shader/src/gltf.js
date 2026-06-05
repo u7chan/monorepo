@@ -37,6 +37,8 @@ const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
 const GLB_BIN_CHUNK_TYPE = 0x004e4942;
 const GLB_HEADER_SIZE = 12;
 const GLB_CHUNK_HEADER_SIZE = 8;
+const GL_REPEAT = 10497;
+const GL_LINEAR = 9729;
 const IDENTITY_MATRIX = new Float32Array([
   1, 0, 0, 0,
   0, 1, 0, 0,
@@ -220,6 +222,7 @@ async function createModelFromGltf(gltf, buffers) {
     images: await decodeModelImages(gltf, buffers),
     materials: getModelMaterials(gltf),
     primitives: [],
+    textures: getModelTextures(gltf),
   };
 
   for (const sceneIndex of getSceneNodeIndices(gltf)) {
@@ -236,6 +239,7 @@ async function createModelFromGltf(gltf, buffers) {
       triangles: new Float32Array(primitive.triangles),
       wireframe: new Float32Array(primitive.wireframe),
     })),
+    textures: model.textures,
   };
 }
 
@@ -260,6 +264,7 @@ export function fitModelToGround(model, targetHeight = 1.45) {
       triangles: fitVertices(primitive.triangles, centerX, bounds.min[1], centerZ, scale),
       wireframe: fitVertices(primitive.wireframe, centerX, bounds.min[1], centerZ, scale),
     })),
+    textures: model.textures ?? [],
   };
 }
 
@@ -458,6 +463,13 @@ function getModelMaterials(gltf) {
   }));
 }
 
+function getModelTextures(gltf) {
+  return (gltf.textures ?? []).map((texture) => ({
+    imageIndex: texture.source ?? null,
+    sampler: getTextureSampler(gltf, texture.sampler),
+  }));
+}
+
 function getMaterialBaseColorTexture(gltf, materialIndex) {
   const textureInfo =
     gltf.materials?.[materialIndex]?.pbrMetallicRoughness?.baseColorTexture;
@@ -475,6 +487,19 @@ function getMaterialBaseColorTexture(gltf, materialIndex) {
   return {
     imageIndex: texture.source,
     texcoordIndex: textureInfo.texCoord ?? 0,
+    textureIndex: textureInfo.index,
+  };
+}
+
+function getTextureSampler(gltf, samplerIndex) {
+  const sampler =
+    samplerIndex === undefined ? null : gltf.samplers?.[samplerIndex] ?? null;
+
+  return {
+    magFilter: sampler?.magFilter ?? GL_LINEAR,
+    minFilter: sampler?.minFilter ?? GL_LINEAR,
+    wrapS: sampler?.wrapS ?? GL_REPEAT,
+    wrapT: sampler?.wrapT ?? GL_REPEAT,
   };
 }
 
