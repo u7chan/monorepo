@@ -44,6 +44,12 @@ const IDENTITY_MATRIX = new Float32Array([
   0, 0, 0, 1,
 ]);
 
+let imageBitmapDecoderForTests = null;
+
+export function setGltfImageBitmapDecoderForTests(decoder) {
+  imageBitmapDecoderForTests = decoder;
+}
+
 export async function loadGltfModel(url) {
   const response = await fetch(url);
 
@@ -208,9 +214,10 @@ function readGlbChunk(dataView, chunkHeaderOffset, label) {
   return { length, offset, type };
 }
 
-function createModelFromGltf(gltf, buffers) {
+async function createModelFromGltf(gltf, buffers) {
   const model = {
     bounds: createEmptyBounds(),
+    images: await decodeModelImages(gltf, buffers),
     materials: getModelMaterials(gltf),
     primitives: [],
   };
@@ -221,6 +228,7 @@ function createModelFromGltf(gltf, buffers) {
 
   return {
     bounds: model.bounds,
+    images: model.images,
     materials: model.materials,
     primitives: model.primitives.map((primitive) => ({
       materialIndex: primitive.materialIndex,
@@ -244,6 +252,7 @@ export function fitModelToGround(model, targetHeight = 1.45) {
 
   return {
     bounds: model.bounds,
+    images: model.images ?? [],
     materials: model.materials ?? [],
     primitives: model.primitives.map((primitive) => ({
       materialIndex: primitive.materialIndex,
@@ -443,10 +452,30 @@ function getModelMaterials(gltf) {
   return (gltf.materials ?? []).map((material, index) => ({
     baseColorFactor: getMaterialBaseColorFactor(gltf, index),
     baseColor: getMaterialColor(gltf, index),
-    baseColorTexture: null,
+    baseColorTexture: getMaterialBaseColorTexture(gltf, index),
     index,
     name: material.name ?? "",
   }));
+}
+
+function getMaterialBaseColorTexture(gltf, materialIndex) {
+  const textureInfo =
+    gltf.materials?.[materialIndex]?.pbrMetallicRoughness?.baseColorTexture;
+
+  if (!textureInfo || textureInfo.index === undefined) {
+    return null;
+  }
+
+  const texture = gltf.textures?.[textureInfo.index];
+
+  if (!texture || texture.source === undefined) {
+    return null;
+  }
+
+  return {
+    imageIndex: texture.source,
+    texcoordIndex: textureInfo.texCoord ?? 0,
+  };
 }
 
 function getMaterialBaseColorFactor(gltf, materialIndex) {
@@ -527,6 +556,10 @@ function createSequentialIndices(count) {
 }
 
 function decodeDataUri(uri) {
+  return decodeDataUriBytes(uri).arrayBuffer;
+}
+
+function decodeDataUriBytes(uri) {
   const commaIndex = uri.indexOf(",");
 
   if (commaIndex === -1) {
@@ -547,7 +580,77 @@ function decodeDataUri(uri) {
     bytes[index] = binary.charCodeAt(index);
   }
 
-  return bytes.buffer;
+  return {
+    arrayBuffer: bytes.buffer,
+    mimeType: metadata.slice(5, -7) || "",
+  };
+}
+
+async function decodeModelImages(gltf, buffers) {
+  return Promise.all(
+    (gltf.images ?? []).map(async (image) => {
+      const source = getImageSource(gltf, buffers, image);
+
+      if (!source) {
+        return null;
+      }
+
+      return decodeImageSource(source);
+    }),
+  );
+}
+
+function getImageSource(gltf, buffers, image) {
+  if (image.bufferView !== undefined) {
+    const bufferView = gltf.bufferViews?.[image.bufferView];
+
+    if (!bufferView) {
+      return null;
+    }
+
+    return {
+      arrayBuffer: sliceBufferView(buffers, bufferView),
+      mimeType: image.mimeType ?? "",
+    };
+  }
+
+  if (typeof image.uri === "string" && image.uri.startsWith("data:")) {
+    const source = decodeDataUriBytes(image.uri);
+
+    return {
+      arrayBuffer: source.arrayBuffer,
+      mimeType: image.mimeType ?? source.mimeType,
+    };
+  }
+
+  return null;
+}
+
+function sliceBufferView(buffers, bufferView) {
+  const buffer = buffers[bufferView.buffer];
+
+  if (!buffer) {
+    return new ArrayBuffer(0);
+  }
+
+  const byteOffset = bufferView.byteOffset ?? 0;
+  const byteLength = bufferView.byteLength ?? 0;
+
+  return buffer.slice(byteOffset, byteOffset + byteLength);
+}
+
+async function decodeImageSource(source) {
+  const decoder = imageBitmapDecoderForTests ?? globalThis.createImageBitmap;
+
+  if (typeof decoder !== "function") {
+    return null;
+  }
+
+  try {
+    return await decoder(new Blob([source.arrayBuffer], { type: source.mimeType }));
+  } catch {
+    return null;
+  }
 }
 
 function getNodeMatrix(node) {
