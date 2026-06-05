@@ -10,9 +10,9 @@
 | Linter & Formatter | Oxlint / Oxfmt          |
 | CSS Styling        | Tailwind CSS            |
 | Build & Bundler    | Vite                    |
+| Testing            | Vitest                  |
 | Backend            | Hono                    |
 | Frontend           | React (SPA)             |
-| Testing            | Vitest                  |
 | Routing            | TanStack Router         |
 | Database           | PostgreSQL              |
 | ORM                | Drizzle ORM             |
