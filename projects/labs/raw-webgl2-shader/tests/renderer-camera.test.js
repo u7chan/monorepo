@@ -35,6 +35,29 @@ describe("createOrbitCamera", () => {
     expect(camera.getViewScale()).toBe(0.5);
   });
 
+  test("2本指のピンチアウトで0.25まで拡大できる", () => {
+    const canvas = createTestCanvas();
+    const camera = createOrbitCamera(canvas);
+
+    dispatchPointer(canvas, "pointerdown", {
+      clientX: 0,
+      clientY: 0,
+      pointerId: 1,
+    });
+    dispatchPointer(canvas, "pointerdown", {
+      clientX: 0,
+      clientY: 100,
+      pointerId: 2,
+    });
+    dispatchPointer(canvas, "pointermove", {
+      clientX: 0,
+      clientY: 500,
+      pointerId: 2,
+    });
+
+    expect(camera.getViewScale()).toBe(0.25);
+  });
+
   test("2本指のピンチインで縮小する", () => {
     const canvas = createTestCanvas();
     const camera = createOrbitCamera(canvas);
