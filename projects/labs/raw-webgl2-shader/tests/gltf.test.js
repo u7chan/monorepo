@@ -48,19 +48,26 @@ describe("loadGltfModelFromFile", () => {
 
     const model = await loadGltfModelFromFile(createGltfFile(gltf));
 
-    expect(model.triangles).toBeInstanceOf(Float32Array);
-    expect(model.wireframe).toBeInstanceOf(Float32Array);
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
-    expect(model.wireframe.length).toBe(6 * PACKED_VERTEX_SIZE);
+    expect(model).not.toHaveProperty("triangles");
+    expect(model).not.toHaveProperty("wireframe");
+    expect(model.primitives).toHaveLength(1);
+    expect(model.primitives[0].materialIndex).toBe(0);
+    expect(model.primitives[0].texcoords).toBe(null);
+    expect(model.primitives[0].triangles).toBeInstanceOf(Float32Array);
+    expect(model.primitives[0].wireframe).toBeInstanceOf(Float32Array);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].wireframe.length).toBe(6 * PACKED_VERTEX_SIZE);
     expectVector(model.bounds.min, [0, 0, 0]);
     expectVector(model.bounds.max, [1, 1, 0]);
-    expectVector(readPackedVertex(model.triangles, 0).position, [0, 0, 0]);
-    expectVector(readPackedVertex(model.triangles, 0).normal, [0, 0, 1]);
-    expectVector(readPackedVertex(model.triangles, 0).color, [1, 0, 0]);
-    expectVector(readPackedVertex(model.triangles, 0).materialColor, [0.25, 0.5, 0.75]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 0).position, [0, 0, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 0).normal, [0, 0, 1]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 0).color, [1, 0, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 0).materialColor, [0.25, 0.5, 0.75]);
     expect(model.materials).toEqual([
       {
+        baseColorFactor: [0.25, 0.5, 0.75, 1],
         baseColor: [0.25, 0.5, 0.75],
+        baseColorTexture: null,
         index: 0,
         name: "",
       },
@@ -72,10 +79,10 @@ describe("loadGltfModelFromFile", () => {
 
     const model = await loadGltfModelFromFile(createGltfFile(gltf));
 
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
-    expectVector(readPackedVertex(model.triangles, 0).position, [0, 0, 0]);
-    expectVector(readPackedVertex(model.triangles, 1).position, [1, 0, 0]);
-    expectVector(readPackedVertex(model.triangles, 2).position, [0, 1, 0]);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 0).position, [0, 0, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 1).position, [1, 0, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 2).position, [0, 1, 0]);
   });
 
   test("byteStride付きのaccessorを読める", async () => {
@@ -92,7 +99,7 @@ describe("loadGltfModelFromFile", () => {
 
     const model = await loadGltfModelFromFile(createGltfFile(gltf));
 
-    expectVector(readPackedVertex(model.triangles, 2).position, [0, 1, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 2).position, [0, 1, 0]);
     expectVector(model.bounds.max, [1, 1, 0]);
   });
 
@@ -111,8 +118,8 @@ describe("loadGltfModelFromFile", () => {
 
     const model = await loadGltfModelFromFile(createGltfFile(gltf));
 
-    expectVector(readPackedVertex(model.triangles, 0).position, [0, 0, 0]);
-    expectVector(readPackedVertex(model.triangles, 2).position, [0, 1, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 0).position, [0, 0, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 2).position, [0, 1, 0]);
     expectVector(model.bounds.min, [0, 0, 0]);
     expectVector(model.bounds.max, [1, 1, 0]);
   });
@@ -130,7 +137,7 @@ describe("loadGltfModelFromFile", () => {
 
     expectVector(model.bounds.min, [10, 20, 30]);
     expectVector(model.bounds.max, [12, 23, 30]);
-    expectVector(readPackedVertex(model.triangles, 1).position, [12, 20, 30]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 1).position, [12, 20, 30]);
   });
 
   test("NORMALとCOLOR_0がない場合はデフォルト値とmaterial色を使う", async () => {
@@ -139,22 +146,105 @@ describe("loadGltfModelFromFile", () => {
     });
 
     const model = await loadGltfModelFromFile(createGltfFile(gltf));
-    const vertex = readPackedVertex(model.triangles, 0);
+    const vertex = readPackedVertex(model.primitives[0].triangles, 0);
 
     expectVector(vertex.normal, [0, 1, 0]);
     expectVector(vertex.color, [0.1, 0.2, 0.3]);
     expectVector(vertex.materialColor, [0.1, 0.2, 0.3]);
   });
 
+  test("複数primitiveを分けて読み込む", async () => {
+    const gltf = createTriangleGltf({
+      primitiveOverrides: [
+        { material: 0 },
+        {
+          indices: [2, 1, 0],
+          material: 1,
+        },
+      ],
+      materials: [
+        { pbrMetallicRoughness: { baseColorFactor: [0.1, 0.2, 0.3, 0.4] } },
+        { name: "Default factor material" },
+      ],
+    });
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(model.primitives).toHaveLength(2);
+    expect(model.primitives[0].materialIndex).toBe(0);
+    expect(model.primitives[1].materialIndex).toBe(1);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[1].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expectVector(
+      readPackedVertex(model.primitives[1].triangles, 0).materialColor,
+      [0.95, 0.72, 0.28],
+    );
+    expect(model.materials).toEqual([
+      {
+        baseColor: [0.1, 0.2, 0.3],
+        baseColorFactor: [0.1, 0.2, 0.3, 0.4],
+        baseColorTexture: null,
+        index: 0,
+        name: "",
+      },
+      {
+        baseColor: [0.95, 0.72, 0.28],
+        baseColorFactor: [0.95, 0.72, 0.28, 1],
+        baseColorTexture: null,
+        index: 1,
+        name: "Default factor material",
+      },
+    ]);
+  });
+
+  test("material未指定primitiveはdefault色を焼き込みmaterialsには追加しない", async () => {
+    const gltf = createTriangleGltf({
+      primitiveOverrides: [{ material: undefined }],
+    });
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(model.primitives[0].materialIndex).toBe(null);
+    expectVector(
+      readPackedVertex(model.primitives[0].triangles, 0).color,
+      [0.95, 0.72, 0.28],
+    );
+    expectVector(
+      readPackedVertex(model.primitives[0].triangles, 0).materialColor,
+      [0.95, 0.72, 0.28],
+    );
+    expect(model.materials).toHaveLength(1);
+  });
+
+  test("TEXCOORD_0をtriangle頂点順のprimitive texcoordsに展開する", async () => {
+    const gltf = createTriangleGltf({
+      indices: [2, 0, 1],
+      texcoords: [
+        0, 0,
+        1, 0,
+        0.5, 1,
+      ],
+    });
+
+    const model = await loadGltfModelFromFile(createGltfFile(gltf));
+
+    expect(model.primitives[0].texcoords).toBeInstanceOf(Float32Array);
+    expectVector(Array.from(model.primitives[0].texcoords), [
+      0.5, 1,
+      0, 0,
+      1, 0,
+    ]);
+  });
+
   test("GLBの三角形を読み込める", async () => {
     const model = await loadGltfModelFromFile(createGlbFile(createTriangleGlb()));
 
-    expect(model.triangles).toBeInstanceOf(Float32Array);
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
-    expect(model.wireframe.length).toBe(6 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].triangles).toBeInstanceOf(Float32Array);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].wireframe.length).toBe(6 * PACKED_VERTEX_SIZE);
     expectVector(model.bounds.min, [0, 0, 0]);
     expectVector(model.bounds.max, [1, 1, 0]);
-    expectVector(readPackedVertex(model.triangles, 2).position, [0, 1, 0]);
+    expectVector(readPackedVertex(model.primitives[0].triangles, 2).position, [0, 1, 0]);
   });
 
   test("gltf以外のファイル名は拒否する", async () => {
@@ -207,7 +297,7 @@ describe("loadGltfModel", () => {
       "models/model.gltf",
       "http://example.test/app/models/mesh.bin",
     ]);
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
   });
 
   test("GLBをURLから読み込める", async () => {
@@ -228,7 +318,7 @@ describe("loadGltfModel", () => {
 
     const model = await loadGltfModel("models/model.glb");
 
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
   });
 
   test("content-typeからGLBを読み込める", async () => {
@@ -242,7 +332,7 @@ describe("loadGltfModel", () => {
 
     const model = await loadGltfModel("models/model");
 
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
   });
 });
 
@@ -256,7 +346,7 @@ describe("GLB validation", () => {
       ),
     );
 
-    expect(model.triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
+    expect(model.primitives[0].triangles.length).toBe(3 * PACKED_VERTEX_SIZE);
   });
 
   test("magic headerが不正なGLBを拒否する", async () => {
@@ -321,18 +411,26 @@ describe("fitModelToGround", () => {
         min: [0, 0, 0],
         max: [2, 4, 2],
       },
-      triangles: new Float32Array([
-        0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1,
-      ]),
-      wireframe: new Float32Array([
-        2, 4, 2, 0, 1, 0, 1, 1, 1, 1, 1, 1,
-      ]),
+      materials: [],
+      primitives: [
+        {
+          materialIndex: null,
+          texcoords: new Float32Array([0, 0]),
+          triangles: new Float32Array([
+            0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1,
+          ]),
+          wireframe: new Float32Array([
+            2, 4, 2, 0, 1, 0, 1, 1, 1, 1, 1, 1,
+          ]),
+        },
+      ],
     };
 
     const fitted = fitModelToGround(model, 2);
 
-    expectVector(Array.from(fitted.triangles.slice(0, 3)), [-0.5, 0, -0.5]);
-    expectVector(Array.from(fitted.wireframe.slice(0, 3)), [0.5, 2, 0.5]);
+    expectVector(Array.from(fitted.primitives[0].triangles.slice(0, 3)), [-0.5, 0, -0.5]);
+    expectVector(Array.from(fitted.primitives[0].wireframe.slice(0, 3)), [0.5, 2, 0.5]);
+    expect(fitted.primitives[0].texcoords).toBe(model.primitives[0].texcoords);
   });
 });
 
@@ -341,6 +439,13 @@ function createTriangleGltf({
   externalBufferUri = null,
   indices = [0, 1, 2],
   materialColor = [0.95, 0.72, 0.28],
+  materials = [
+    {
+      pbrMetallicRoughness: {
+        baseColorFactor: [...materialColor, 1],
+      },
+    },
+  ],
   node = { mesh: 0 },
   normals = null,
   positionBuffer = null,
@@ -351,6 +456,8 @@ function createTriangleGltf({
     1, 0, 0,
     0, 1, 0,
   ],
+  primitiveOverrides = null,
+  texcoords = null,
 } = {}) {
   const bufferBuilder = createBufferBuilder();
   const accessors = [];
@@ -389,20 +496,38 @@ function createTriangleGltf({
     });
   }
 
-  const primitive = {
-    attributes,
-    material: 0,
-    mode: GL_TRIANGLES,
-  };
-
-  if (indices) {
-    primitive.indices = addAccessor(bufferBuilder, accessors, uint16Buffer(indices), {
-      componentType: GL_UNSIGNED_SHORT,
-      count: indices.length,
-      target: ELEMENT_ARRAY_BUFFER,
-      type: "SCALAR",
+  if (texcoords) {
+    attributes.TEXCOORD_0 = addAccessor(bufferBuilder, accessors, floatBuffer(texcoords), {
+      componentType: GL_FLOAT,
+      count: 3,
+      target: ARRAY_BUFFER,
+      type: "VEC2",
     });
   }
+
+  const createPrimitive = (override = {}) => {
+    const { indices: overrideIndices, ...primitiveOptions } = override;
+    const primitive = {
+      attributes,
+      mode: GL_TRIANGLES,
+      ...("material" in override ? {} : { material: 0 }),
+      ...primitiveOptions,
+    };
+    const primitiveIndices = "indices" in override ? overrideIndices : indices;
+
+    if (primitiveIndices) {
+      primitive.indices = addAccessor(bufferBuilder, accessors, uint16Buffer(primitiveIndices), {
+        componentType: GL_UNSIGNED_SHORT,
+        count: primitiveIndices.length,
+        target: ELEMENT_ARRAY_BUFFER,
+        type: "SCALAR",
+      });
+    }
+
+    return primitive;
+  };
+
+  const primitives = (primitiveOverrides ?? [{}]).map(createPrimitive);
 
   const buffer = bufferBuilder.build();
   const gltf = {
@@ -415,16 +540,10 @@ function createTriangleGltf({
       },
     ],
     bufferViews: bufferBuilder.bufferViews,
-    materials: [
-      {
-        pbrMetallicRoughness: {
-          baseColorFactor: [...materialColor, 1],
-        },
-      },
-    ],
+    materials,
     meshes: [
       {
-        primitives: [primitive],
+        primitives,
       },
     ],
     nodes: [node],

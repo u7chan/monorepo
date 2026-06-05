@@ -408,8 +408,10 @@ function createRenderModel(gl, attributes, model, autoFitModel) {
   const renderModel = autoFitModel ? fitModelToGround(model, MODEL_TARGET_HEIGHT) : model;
 
   return {
-    surface: createDrawable(gl, renderModel.triangles, attributes),
-    wireframe: createDrawable(gl, renderModel.wireframe, attributes),
+    primitives: renderModel.primitives.map((primitive) => ({
+      surface: createDrawable(gl, primitive.triangles, attributes),
+      wireframe: createDrawable(gl, primitive.wireframe, attributes),
+    })),
   };
 }
 
@@ -418,8 +420,10 @@ function disposeModel(gl, model) {
     return;
   }
 
-  disposeDrawable(gl, model.surface);
-  disposeDrawable(gl, model.wireframe);
+  for (const primitive of model.primitives) {
+    disposeDrawable(gl, primitive.surface);
+    disposeDrawable(gl, primitive.wireframe);
+  }
 }
 
 function disposeDrawable(gl, drawable) {
@@ -521,8 +525,12 @@ function drawModel(gl, model, renderOptions, uniforms) {
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(1, 1);
-    gl.bindVertexArray(model.surface.vao);
-    gl.drawArrays(gl.TRIANGLES, 0, model.surface.vertexCount);
+
+    for (const primitive of model.primitives) {
+      gl.bindVertexArray(primitive.surface.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, primitive.surface.vertexCount);
+    }
+
     gl.disable(gl.POLYGON_OFFSET_FILL);
   }
 
@@ -530,7 +538,10 @@ function drawModel(gl, model, renderOptions, uniforms) {
     gl.uniform1i(uniforms.colorMode, COLOR_MODE_SOLID);
     gl.uniform3fv(uniforms.solidColor, hexColorToRgb(renderOptions.wireframeColor));
     gl.uniform1i(uniforms.lightingEnabled, 0);
-    drawLines(gl, model.wireframe);
+
+    for (const primitive of model.primitives) {
+      drawLines(gl, primitive.wireframe);
+    }
   }
 
   gl.disable(gl.CULL_FACE);

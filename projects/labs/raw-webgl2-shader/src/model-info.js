@@ -1,7 +1,10 @@
 import { FLOATS_PER_VERTEX } from "./vertex-layout.js";
 
 export function createModelInfo(fileName, model) {
-  const vertexCount = model.triangles.length / FLOATS_PER_VERTEX;
+  const vertexCount = model.primitives.reduce(
+    (sum, primitive) => sum + primitive.triangles.length / FLOATS_PER_VERTEX,
+    0,
+  );
   const polygonCount = vertexCount / 3;
 
   return {
