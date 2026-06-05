@@ -1,3 +1,5 @@
+import { FLOATS_PER_VERTEX } from "./vertex-layout.js";
+
 const COMPONENT_READERS = {
   5120: { byteSize: 1, read: (view, offset) => view.getInt8(offset) },
   5121: { byteSize: 1, read: (view, offset) => view.getUint8(offset) },
@@ -210,8 +212,7 @@ function createModelFromGltf(gltf, buffers) {
   const model = {
     bounds: createEmptyBounds(),
     materials: getModelMaterials(gltf),
-    triangles: [],
-    wireframe: [],
+    primitives: [],
   };
 
   for (const sceneIndex of getSceneNodeIndices(gltf)) {
@@ -221,8 +222,12 @@ function createModelFromGltf(gltf, buffers) {
   return {
     bounds: model.bounds,
     materials: model.materials,
-    triangles: new Float32Array(model.triangles),
-    wireframe: new Float32Array(model.wireframe),
+    primitives: model.primitives.map((primitive) => ({
+      materialIndex: primitive.materialIndex,
+      texcoords: primitive.texcoords === null ? null : new Float32Array(primitive.texcoords),
+      triangles: new Float32Array(primitive.triangles),
+      wireframe: new Float32Array(primitive.wireframe),
+    })),
   };
 }
 
@@ -240,8 +245,12 @@ export function fitModelToGround(model, targetHeight = 1.45) {
   return {
     bounds: model.bounds,
     materials: model.materials ?? [],
-    triangles: fitVertices(model.triangles, centerX, bounds.min[1], centerZ, scale),
-    wireframe: fitVertices(model.wireframe, centerX, bounds.min[1], centerZ, scale),
+    primitives: model.primitives.map((primitive) => ({
+      materialIndex: primitive.materialIndex,
+      texcoords: primitive.texcoords,
+      triangles: fitVertices(primitive.triangles, centerX, bounds.min[1], centerZ, scale),
+      wireframe: fitVertices(primitive.wireframe, centerX, bounds.min[1], centerZ, scale),
+    })),
   };
 }
 
@@ -343,11 +352,22 @@ function appendPrimitive(model, gltf, buffers, primitive, matrix) {
     primitive.attributes.COLOR_0 === undefined
       ? null
       : readAccessor(gltf, buffers, primitive.attributes.COLOR_0);
+  const texcoords =
+    primitive.attributes.TEXCOORD_0 === undefined
+      ? null
+      : readAccessor(gltf, buffers, primitive.attributes.TEXCOORD_0);
   const indices =
     primitive.indices === undefined
       ? createSequentialIndices(positions.count)
       : readAccessor(gltf, buffers, primitive.indices);
-  const materialColor = getMaterialColor(gltf, primitive.material);
+  const materialIndex = primitive.material ?? null;
+  const materialColor = getMaterialColor(gltf, materialIndex);
+  const modelPrimitive = {
+    materialIndex,
+    texcoords: texcoords === null ? null : [],
+    triangles: [],
+    wireframe: [],
+  };
 
   for (let index = 0; index < indices.count; index += 3) {
     const a = indices.get(index);
@@ -359,16 +379,26 @@ function appendPrimitive(model, gltf, buffers, primitive, matrix) {
       createVertex(positions, normals, colors, materialColor, matrix, c),
     ];
 
-    pushPackedVertex(model.triangles, model.bounds, triangle[0]);
-    pushPackedVertex(model.triangles, model.bounds, triangle[1]);
-    pushPackedVertex(model.triangles, model.bounds, triangle[2]);
+    pushPackedVertex(modelPrimitive.triangles, model.bounds, triangle[0]);
+    pushPackedVertex(modelPrimitive.triangles, model.bounds, triangle[1]);
+    pushPackedVertex(modelPrimitive.triangles, model.bounds, triangle[2]);
 
-    pushPackedVertex(model.wireframe, model.bounds, triangle[0]);
-    pushPackedVertex(model.wireframe, model.bounds, triangle[1]);
-    pushPackedVertex(model.wireframe, model.bounds, triangle[1]);
-    pushPackedVertex(model.wireframe, model.bounds, triangle[2]);
-    pushPackedVertex(model.wireframe, model.bounds, triangle[2]);
-    pushPackedVertex(model.wireframe, model.bounds, triangle[0]);
+    pushPackedVertex(modelPrimitive.wireframe, model.bounds, triangle[0]);
+    pushPackedVertex(modelPrimitive.wireframe, model.bounds, triangle[1]);
+    pushPackedVertex(modelPrimitive.wireframe, model.bounds, triangle[1]);
+    pushPackedVertex(modelPrimitive.wireframe, model.bounds, triangle[2]);
+    pushPackedVertex(modelPrimitive.wireframe, model.bounds, triangle[2]);
+    pushPackedVertex(modelPrimitive.wireframe, model.bounds, triangle[0]);
+
+    if (texcoords !== null) {
+      pushTexcoord(modelPrimitive.texcoords, texcoords, a);
+      pushTexcoord(modelPrimitive.texcoords, texcoords, b);
+      pushTexcoord(modelPrimitive.texcoords, texcoords, c);
+    }
+  }
+
+  if (modelPrimitive.triangles.length > 0) {
+    model.primitives.push(modelPrimitive);
   }
 }
 
@@ -404,25 +434,39 @@ function pushPackedVertex(vertices, bounds, vertex) {
 }
 
 function getMaterialColor(gltf, materialIndex) {
-  const factor =
-    gltf.materials?.[materialIndex]?.pbrMetallicRoughness?.baseColorFactor ??
-    DEFAULT_COLOR;
+  const factor = getMaterialBaseColorFactor(gltf, materialIndex);
 
   return [factor[0], factor[1], factor[2]];
 }
 
 function getModelMaterials(gltf) {
   return (gltf.materials ?? []).map((material, index) => ({
+    baseColorFactor: getMaterialBaseColorFactor(gltf, index),
     baseColor: getMaterialColor(gltf, index),
+    baseColorTexture: null,
     index,
     name: material.name ?? "",
   }));
 }
 
+function getMaterialBaseColorFactor(gltf, materialIndex) {
+  const factor =
+    gltf.materials?.[materialIndex]?.pbrMetallicRoughness?.baseColorFactor ??
+    DEFAULT_COLOR;
+
+  return [factor[0], factor[1], factor[2], factor[3] ?? 1];
+}
+
+function pushTexcoord(texcoords, accessor, vertexIndex) {
+  const texcoord = accessor.get(vertexIndex);
+
+  texcoords.push(texcoord[0], texcoord[1]);
+}
+
 function fitVertices(vertices, centerX, minY, centerZ, scale) {
   const fitted = new Float32Array(vertices);
 
-  for (let index = 0; index < fitted.length; index += 12) {
+  for (let index = 0; index < fitted.length; index += FLOATS_PER_VERTEX) {
     fitted[index] = (fitted[index] - centerX) * scale;
     fitted[index + 1] = (fitted[index + 1] - minY) * scale;
     fitted[index + 2] = (fitted[index + 2] - centerZ) * scale;

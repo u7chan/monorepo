@@ -10,19 +10,30 @@ describe("createModelInfo", () => {
       },
       materials: [
         {
+          baseColorFactor: [0.95, 0.72, 0.28, 1],
           baseColor: [0.95, 0.72, 0.28],
+          baseColorTexture: null,
           index: 0,
           name: "Body",
         },
       ],
-      triangles: new Float32Array(6 * 12),
+      primitives: [
+        {
+          triangles: new Float32Array(3 * 12),
+        },
+        {
+          triangles: new Float32Array(3 * 12),
+        },
+      ],
     };
 
     expect(createModelInfo("sample.glb", model)).toEqual({
       fileName: "sample.glb",
       materials: [
         {
+          baseColorFactor: [0.95, 0.72, 0.28, 1],
           baseColor: [0.95, 0.72, 0.28],
+          baseColorTexture: null,
           index: 0,
           name: "Body",
         },
