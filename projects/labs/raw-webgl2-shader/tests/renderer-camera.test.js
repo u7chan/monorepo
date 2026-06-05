@@ -145,6 +145,24 @@ describe("createRenderer texture rendering", () => {
     expect(gl.drawArraysCalls).toContainEqual([gl.TRIANGLES, 0, 3]);
   });
 
+  test("texturesVisibleがfalseならtexture samplingせず選択中の色モードで描画する", () => {
+    const gl = createMockGl();
+    const canvas = createTestCanvas(gl);
+    const model = createTexturedModel({ close() {} });
+    const renderer = createRenderer(canvas);
+    const renderOptions = createRenderOptions();
+
+    renderOptions.texturesVisible = false;
+
+    renderer.setModel(model);
+    renderer.render({ renderOptions });
+
+    expect(gl.texImage2DCalls).toHaveLength(1);
+    expect(gl.uniform1iCalls).not.toContainEqual(["u_texture_enabled", 1]);
+    expect(gl.uniform1iCalls).toContainEqual(["u_color_mode", 0]);
+    expect(gl.drawArraysCalls).toContainEqual([gl.TRIANGLES, 0, 3]);
+  });
+
   test("mipmap系minFilterではmipmapを生成する", () => {
     const gl = createMockGl();
     const canvas = createTestCanvas(gl);
@@ -212,6 +230,7 @@ function createRenderOptions() {
     gridVisible: false,
     lightingEnabled: false,
     surfaceVisible: true,
+    texturesVisible: true,
     useVertexColors: true,
     wireframeColor: "#ffffff",
     wireframeVisible: false,

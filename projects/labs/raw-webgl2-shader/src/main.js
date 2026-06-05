@@ -51,6 +51,7 @@ const gameState = {
   renderOptions: {
     surfaceVisible: true,
     wireframeVisible: true,
+    texturesVisible: true,
     useVertexColors: true,
     lightingEnabled: true,
     gridVisible: true,

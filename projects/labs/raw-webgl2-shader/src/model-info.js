@@ -10,6 +10,7 @@ export function createModelInfo(fileName, model) {
   return {
     fileName,
     materials: model.materials ?? [],
+    textures: createTextureInfo(model),
     vertexCount,
     polygonCount,
     size: [
@@ -18,6 +19,32 @@ export function createModelInfo(fileName, model) {
       model.bounds.max[2] - model.bounds.min[2],
     ],
   };
+}
+
+function createTextureInfo(model) {
+  const materials = model.materials ?? [];
+
+  return (model.textures ?? []).map((texture, index) => ({
+    imageIndex: texture.imageIndex,
+    imageStatus: getImageStatus(model.images, texture.imageIndex),
+    index,
+    materials: materials
+      .filter((material) => material.baseColorTexture?.textureIndex === index)
+      .map((material) => ({
+        index: material.index,
+        name: material.name,
+        texcoordIndex: material.baseColorTexture.texcoordIndex,
+      })),
+    sampler: texture.sampler ?? null,
+  }));
+}
+
+function getImageStatus(images = [], imageIndex) {
+  if (imageIndex === null || imageIndex === undefined) {
+    return "none";
+  }
+
+  return images[imageIndex] ? "decoded" : "missing";
 }
 
 export function formatModelSize(size) {

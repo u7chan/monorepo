@@ -89,6 +89,46 @@ describe("createModelInfoPanel", () => {
     expect(content.getAttribute("aria-hidden")).toBe("false");
     expect(icon.textContent).toBe("-");
   });
+
+  test("Texturesセクションをデフォルトで閉じて表示する", () => {
+    globalThis.document = createFakeDocument();
+    const panel = document.createElement("section");
+
+    createModelInfoPanel(panel).setModelInfo({
+      fileName: "sample.glb",
+      materials: [],
+      polygonCount: 1,
+      size: [1, 2, 3],
+      textures: [
+        {
+          imageIndex: 0,
+          imageStatus: "decoded",
+          index: 0,
+          materials: [{ index: 0, name: "tex", texcoordIndex: 0 }],
+          sampler: {
+            magFilter: 9729,
+            minFilter: 9729,
+            wrapS: 10497,
+            wrapT: 10497,
+          },
+        },
+      ],
+      vertexCount: 3,
+    });
+
+    const textures = panel.children[1];
+    const toggle = textures.children[0];
+    const content = textures.children[1];
+    const row = content.children[0];
+
+    expect(textures.classList.contains("textures-panel")).toBe(true);
+    expect(toggle.children[0].textContent).toBe("Textures (1)");
+    expect(row.children[1].textContent).toBe("image #0 ok");
+    expect(row.children[2].textContent).toBe("S:REPEAT T:REPEAT min:LINEAR mag:LINEAR");
+    expect(row.children[3].textContent).toBe("tex uv0");
+    expect(content.style.display).toBe("none");
+    expect(content.getAttribute("aria-hidden")).toBe("true");
+  });
 });
 
 describe("createRenderControls", () => {
@@ -101,6 +141,7 @@ describe("createRenderControls", () => {
       gridVisible: true,
       lightingEnabled: true,
       surfaceVisible: true,
+      texturesVisible: true,
       useVertexColors: true,
       wireframeVisible: true,
     };

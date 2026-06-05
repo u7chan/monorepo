@@ -657,7 +657,7 @@ function drawModel(gl, model, renderOptions, uniforms) {
     gl.polygonOffset(1, 1);
 
     for (const primitive of model.primitives) {
-      if (primitive.texture) {
+      if (primitive.texture && renderOptions.texturesVisible) {
         gl.uniform1i(uniforms.colorMode, COLOR_MODE_MATERIAL);
         gl.uniform1i(uniforms.textureEnabled, 1);
         gl.activeTexture(gl.TEXTURE0);
