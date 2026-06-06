@@ -6,7 +6,6 @@
     "format": "biome check --write ."
   },
   "dependencies": {
-    "@google/gemini-cli": "^0.2.2",
     "@hono/mcp": "^0.1.2",
     "@modelcontextprotocol/sdk": "^1.17.5",
     "hono": "^4.9.6",
