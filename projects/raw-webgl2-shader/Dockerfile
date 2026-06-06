@@ -30,6 +30,15 @@ ARG COMMIT_HASH
 ENV COMMIT_HASH=${COMMIT_HASH}
 LABEL org.opencontainers.image.revision="${COMMIT_HASH}"
 
+# PoC のため、nginx 側のキャッシュ最適化は使わず常に最新の静的ファイルを返す。
+RUN printf '%s\n' \
+  'etag off;' \
+  'if_modified_since off;' \
+  'add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;' \
+  'add_header Pragma "no-cache" always;' \
+  'add_header Expires "0" always;' \
+  > /etc/nginx/conf.d/no-cache.conf
+
 COPY --chown=101:101 index.html /usr/share/nginx/html/index.html
 COPY --chown=101:101 src /usr/share/nginx/html/src
 
