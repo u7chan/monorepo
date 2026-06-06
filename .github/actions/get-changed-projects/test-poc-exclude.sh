@@ -128,10 +128,10 @@ assert "No Dockerfile -> excluded" "" "$RESULT"
 # Test 7: サブ階層通常プロジェクト (Dockerfile あり)
 # --------------------------------------------------
 echo "[Test 7] Nested project with Dockerfile"
-mkdir -p "projects/labs/docker-app"
-echo "FROM ubuntu" > "projects/labs/docker-app/Dockerfile"
-RESULT=$(run_logic "projects/labs/docker-app")
-assert "Nested docker project included" "projects/labs/docker-app" "$RESULT"
+mkdir -p "projects/_labs/docker-app"
+echo "FROM ubuntu" > "projects/_labs/docker-app/Dockerfile"
+RESULT=$(run_logic "projects/_labs/docker-app")
+assert "Nested docker project included" "projects/_labs/docker-app" "$RESULT"
 
 # --------------------------------------------------
 # Test 8: 複数プロジェクト (カンマ区切り)
@@ -174,10 +174,10 @@ assert "No final stage -> excluded" "" "$RESULT"
 # Test 11: samples 階層の PoC ではないプロジェクトは含める
 # --------------------------------------------------
 echo "[Test 11] Samples project (not poc) included"
-mkdir -p "projects/samples/cicd"
-echo "FROM alpine" > "projects/samples/cicd/Dockerfile"
-RESULT=$(run_logic "projects/samples/cicd")
-assert "Samples project included" "projects/samples/cicd" "$RESULT"
+mkdir -p "projects/_samples/cicd"
+echo "FROM alpine" > "projects/_samples/cicd/Dockerfile"
+RESULT=$(run_logic "projects/_samples/cicd")
+assert "Samples project included" "projects/_samples/cicd" "$RESULT"
 
 echo ""
 echo "=== Results ==="

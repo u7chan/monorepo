@@ -41,7 +41,7 @@ MCP クライアントで `node-mcp-server` を利用する場合の設定例で
   "mcpServers": {
     "node-mcp-server": {
       "command": "node",
-      "args": ["<fullpath>/monorepo/projects/samples/node-mcp-server/dist/bundle.js"]
+      "args": ["<fullpath>/monorepo/projects/_samples/node-mcp-server/dist/bundle.js"]
     }
   }
 }

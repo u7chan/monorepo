@@ -36,9 +36,9 @@ diff_with_renames() {
 is_project_root_dir() {
   local dir="$1"
   [[ "$dir" == projects/* && "$dir" != */*/* ]] && return 0
-  [[ "$dir" == projects/labs/* && "$dir" != projects/labs/*/* ]] && return 0
+  [[ "$dir" == projects/_labs/* && "$dir" != projects/_labs/*/* ]] && return 0
   [[ "$dir" == projects/poc/* && "$dir" != projects/poc/*/* ]] && return 0
-  [[ "$dir" == projects/samples/* && "$dir" != projects/samples/*/* ]] && return 0
+  [[ "$dir" == projects/_samples/* && "$dir" != projects/_samples/*/* ]] && return 0
   return 1
 }
 

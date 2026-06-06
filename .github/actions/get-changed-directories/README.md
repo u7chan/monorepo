@@ -119,7 +119,7 @@ export GITHUB_BASE_REF="main"
 2. **対象ディレクトリのフィルタリング**
    - `projects/` ディレクトリ配下のファイルのみを対象
    - 変更ファイルのパスから上方へ辿り、プロジェクトマーカーファイル（`package.json`, `pyproject.toml`, `Dockerfile` など）を含む最寄りのディレクトリをプロジェクトルートとして抽出
-   - サブ階層（例：`projects/labs/tanstack-start-example`）のプロジェクトルートも検出可能
+   - サブ階層（例：`projects/_labs/tanstack-start-example`）のプロジェクトルートも検出可能
 
 3. **重複除去**
    - `sort -u` で重複するディレクトリを除去
@@ -187,11 +187,11 @@ TARGET_DIRS=("projects" "新しいディレクトリ")
 # 通常の変更: projects/portfolio/src/main.ts
 # 結果: projects/portfolio が変更対象として検出される
 
-# サブ階層プロジェクト: projects/labs/tanstack-start-example/src/a.ts
-# 結果: projects/labs/tanstack-start-example が変更対象として検出される
+# サブ階層プロジェクト: projects/_labs/tanstack-start-example/src/a.ts
+# 結果: projects/_labs/tanstack-start-example が変更対象として検出される
 
-# サブ階層プロジェクト: projects/samples/cicd-ci-sample/Dockerfile
-# 結果: projects/samples/cicd-ci-sample が変更対象として検出される
+# サブ階層プロジェクト: projects/_samples/cicd-ci-sample/Dockerfile
+# 結果: projects/_samples/cicd-ci-sample が変更対象として検出される
 
 # PoCプロジェクト: projects/poc/backend-sse-chat-poc/Dockerfile
 # 結果: projects/poc/backend-sse-chat-poc が変更対象として検出される

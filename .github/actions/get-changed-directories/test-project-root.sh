@@ -24,9 +24,9 @@ PROJECT_MARKERS=(
 is_project_root_dir() {
   local dir="$1"
   [[ "$dir" == projects/* && "$dir" != */*/* ]] && return 0
-  [[ "$dir" == projects/labs/* && "$dir" != projects/labs/*/* ]] && return 0
+  [[ "$dir" == projects/_labs/* && "$dir" != projects/_labs/*/* ]] && return 0
   [[ "$dir" == projects/poc/* && "$dir" != projects/poc/*/* ]] && return 0
-  [[ "$dir" == projects/samples/* && "$dir" != projects/samples/*/* ]] && return 0
+  [[ "$dir" == projects/_samples/* && "$dir" != projects/_samples/*/* ]] && return 0
   return 1
 }
 
@@ -96,25 +96,25 @@ assert "projects/portfolio/src/main.ts -> projects/portfolio" \
   "$(find_project_root "projects/portfolio/src/main.ts")"
 
 # --------------------------------------------------
-# Test 2: サブ階層プロジェクト (projects/labs/<name>)
+# Test 2: サブ階層プロジェクト (projects/_labs/<name>)
 # --------------------------------------------------
-echo "[Test 2] Nested project under projects/labs/"
-mkdir -p "projects/labs/tanstack-start-example/src"
-mkdir -p "projects/labs/tanstack-start-example/public"
-touch "projects/labs/tanstack-start-example/package.json"
-assert "projects/labs/tanstack-start-example/src/a.ts -> projects/labs/tanstack-start-example" \
-  "projects/labs/tanstack-start-example" \
-  "$(find_project_root "projects/labs/tanstack-start-example/src/a.ts")"
+echo "[Test 2] Nested project under projects/_labs/"
+mkdir -p "projects/_labs/tanstack-start-example/src"
+mkdir -p "projects/_labs/tanstack-start-example/public"
+touch "projects/_labs/tanstack-start-example/package.json"
+assert "projects/_labs/tanstack-start-example/src/a.ts -> projects/_labs/tanstack-start-example" \
+  "projects/_labs/tanstack-start-example" \
+  "$(find_project_root "projects/_labs/tanstack-start-example/src/a.ts")"
 
 # --------------------------------------------------
-# Test 3: サブ階層プロジェクト (projects/samples/<name>)
+# Test 3: サブ階層プロジェクト (projects/_samples/<name>)
 # --------------------------------------------------
-echo "[Test 3] Nested project under projects/samples/"
-mkdir -p "projects/samples/cicd-ci-sample"
-touch "projects/samples/cicd-ci-sample/Dockerfile"
-assert "projects/samples/cicd-ci-sample/Dockerfile -> projects/samples/cicd-ci-sample" \
-  "projects/samples/cicd-ci-sample" \
-  "$(find_project_root "projects/samples/cicd-ci-sample/Dockerfile")"
+echo "[Test 3] Nested project under projects/_samples/"
+mkdir -p "projects/_samples/cicd-ci-sample"
+touch "projects/_samples/cicd-ci-sample/Dockerfile"
+assert "projects/_samples/cicd-ci-sample/Dockerfile -> projects/_samples/cicd-ci-sample" \
+  "projects/_samples/cicd-ci-sample" \
+  "$(find_project_root "projects/_samples/cicd-ci-sample/Dockerfile")"
 
 # --------------------------------------------------
 # Test 4: PoC プロジェクト (projects/poc/<name>)
@@ -130,11 +130,11 @@ assert "projects/poc/backend-sse-chat-poc/Dockerfile -> projects/poc/backend-sse
 # Test 5: 深いネストからの検出
 # --------------------------------------------------
 echo "[Test 5] Deep nesting"
-mkdir -p "projects/labs/deep-project/src/components/ui/button"
-touch "projects/labs/deep-project/pyproject.toml"
-assert "projects/labs/deep-project/src/components/ui/button/index.tsx -> projects/labs/deep-project" \
-  "projects/labs/deep-project" \
-  "$(find_project_root "projects/labs/deep-project/src/components/ui/button/index.tsx")"
+mkdir -p "projects/_labs/deep-project/src/components/ui/button"
+touch "projects/_labs/deep-project/pyproject.toml"
+assert "projects/_labs/deep-project/src/components/ui/button/index.tsx -> projects/_labs/deep-project" \
+  "projects/_labs/deep-project" \
+  "$(find_project_root "projects/_labs/deep-project/src/components/ui/button/index.tsx")"
 
 # --------------------------------------------------
 # Test 6: マーカーファイルがない場合は出力なし
@@ -150,21 +150,21 @@ assert "projects/empty-project/src/main.ts -> (empty)" \
 # Test 7: Python プロジェクト (pyproject.toml)
 # --------------------------------------------------
 echo "[Test 7] Python project (pyproject.toml)"
-mkdir -p "projects/samples/python-sample"
-touch "projects/samples/python-sample/pyproject.toml"
-assert "projects/samples/python-sample/src/app.py -> projects/samples/python-sample" \
-  "projects/samples/python-sample" \
-  "$(find_project_root "projects/samples/python-sample/src/app.py")"
+mkdir -p "projects/_samples/python-sample"
+touch "projects/_samples/python-sample/pyproject.toml"
+assert "projects/_samples/python-sample/src/app.py -> projects/_samples/python-sample" \
+  "projects/_samples/python-sample" \
+  "$(find_project_root "projects/_samples/python-sample/src/app.py")"
 
 # --------------------------------------------------
 # Test 8: Docker Compose プロジェクト
 # --------------------------------------------------
 echo "[Test 8] Docker Compose project"
-mkdir -p "projects/samples/compose-sample/config"
-touch "projects/samples/compose-sample/docker-compose.yaml"
-assert "projects/samples/compose-sample/config/litellm.yml -> projects/samples/compose-sample" \
-  "projects/samples/compose-sample" \
-  "$(find_project_root "projects/samples/compose-sample/config/litellm.yml")"
+mkdir -p "projects/_samples/compose-sample/config"
+touch "projects/_samples/compose-sample/docker-compose.yaml"
+assert "projects/_samples/compose-sample/config/litellm.yml -> projects/_samples/compose-sample" \
+  "projects/_samples/compose-sample" \
+  "$(find_project_root "projects/_samples/compose-sample/config/litellm.yml")"
 
 # --------------------------------------------------
 # Test 9: マーカーファイルが親にある場合
@@ -193,36 +193,36 @@ assert "projects/edit-vid/frontend/src/App.tsx -> projects/edit-vid (skip fronte
 # Test 11: .devcontainer 内の Dockerfile を誤検出しない
 # --------------------------------------------------
 echo "[Test 11] .devcontainer/Dockerfile should not override project root"
-mkdir -p "projects/samples/hono-node-server/.devcontainer"
-mkdir -p "projects/samples/hono-node-server/src"
-touch "projects/samples/hono-node-server/package.json"
-touch "projects/samples/hono-node-server/.devcontainer/Dockerfile"
-assert "projects/samples/hono-node-server/.devcontainer/devcontainer.json -> projects/samples/hono-node-server" \
-  "projects/samples/hono-node-server" \
-  "$(find_project_root "projects/samples/hono-node-server/.devcontainer/devcontainer.json")"
+mkdir -p "projects/_samples/hono-node-server/.devcontainer"
+mkdir -p "projects/_samples/hono-node-server/src"
+touch "projects/_samples/hono-node-server/package.json"
+touch "projects/_samples/hono-node-server/.devcontainer/Dockerfile"
+assert "projects/_samples/hono-node-server/.devcontainer/devcontainer.json -> projects/_samples/hono-node-server" \
+  "projects/_samples/hono-node-server" \
+  "$(find_project_root "projects/_samples/hono-node-server/.devcontainer/devcontainer.json")"
 
 # --------------------------------------------------
 # Test 12: labs 直下に marker がなくてもサブ階層が正しく検出される
 #          (labs 自体は marker なし)
 # --------------------------------------------------
 echo "[Test 12] Labs category without own marker still detects sub-project"
-mkdir -p "projects/labs/sub-proj/src"
-touch "projects/labs/sub-proj/package.json"
-assert "projects/labs/sub-proj/src/index.ts -> projects/labs/sub-proj" \
-  "projects/labs/sub-proj" \
-  "$(find_project_root "projects/labs/sub-proj/src/index.ts")"
+mkdir -p "projects/_labs/sub-proj/src"
+touch "projects/_labs/sub-proj/package.json"
+assert "projects/_labs/sub-proj/src/index.ts -> projects/_labs/sub-proj" \
+  "projects/_labs/sub-proj" \
+  "$(find_project_root "projects/_labs/sub-proj/src/index.ts")"
 
 # --------------------------------------------------
 # Test 13: サブ階層プロジェクトでも .devcontainer/Dockerfile は
 #          project root を上書きしない
 # --------------------------------------------------
 echo "[Test 13] Nested .devcontainer/Dockerfile should not override project root"
-mkdir -p "projects/samples/hono-node-server/.devcontainer"
-touch "projects/samples/hono-node-server/package.json"
-touch "projects/samples/hono-node-server/.devcontainer/Dockerfile"
-assert "projects/samples/hono-node-server/.devcontainer/Dockerfile -> projects/samples/hono-node-server" \
-  "projects/samples/hono-node-server" \
-  "$(find_project_root "projects/samples/hono-node-server/.devcontainer/Dockerfile")"
+mkdir -p "projects/_samples/hono-node-server/.devcontainer"
+touch "projects/_samples/hono-node-server/package.json"
+touch "projects/_samples/hono-node-server/.devcontainer/Dockerfile"
+assert "projects/_samples/hono-node-server/.devcontainer/Dockerfile -> projects/_samples/hono-node-server" \
+  "projects/_samples/hono-node-server" \
+  "$(find_project_root "projects/_samples/hono-node-server/.devcontainer/Dockerfile")"
 
 echo ""
 echo "=== Results ==="
