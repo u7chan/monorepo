@@ -7,7 +7,7 @@ import { mapSubtitlesToOutputTime, normalizeKeepSegments } from '#/server/featur
 import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import { toSubtitleStyle } from '#/shared/schemas'
 import type { ExportPreset, KeepSegment, SubtitleItem, SubtitleStyle, TimelineStateV1 } from '#/shared/schemas'
-import { updateExportJob } from './export-repository'
+import { getExportJobById, updateExportJob } from './export-repository'
 import type { AppDatabase } from '#/db'
 
 interface ExportJobRecord {
@@ -207,6 +207,10 @@ class ExportWorker {
         throw new Error(`ffmpeg exited with code ${proc.exitCode}`)
       }
     } catch (err) {
+      const current = getExportJobById(db, jobId)
+      if (current?.status === 'canceled' || current?.status === 'canceling') {
+        return
+      }
       const message = err instanceof Error ? err.message : 'unknown error'
       updateExportJob(db, jobId, { status: 'failed', progress: 0 })
       this.notifyProgress(jobId, 0, `failed: ${message}`)
