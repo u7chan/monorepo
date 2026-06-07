@@ -2,6 +2,7 @@ import { getDatabase } from '#/db'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
 import { errHandler } from '#/server/middleware/error-handler'
 import { htmlRoutes } from '#/server/routes/html'
+import { projectRoutes } from '#/server/routes/projects'
 import { videoRoutes } from '#/server/routes/videos'
 import type { AppDatabase } from '#/db'
 import { Hono } from 'hono'
@@ -33,5 +34,6 @@ const app = new Hono<{
 const routes = app
   .route('/', htmlRoutes)
   .route('/api/videos', videoRoutes)
+  .route('/api/projects', projectRoutes)
 
 export default app
