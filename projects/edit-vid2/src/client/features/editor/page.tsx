@@ -1,8 +1,363 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams } from '@tanstack/react-router'
+import { ArrowLeft, Plus, Scissors, Type } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import type { KeepSegment, Project, SubtitleItem, SubtitleTemplate, TimelineStateV1, VideoAsset } from '#/shared/schemas'
+
 export function EditorPage() {
+  const params = useParams({ from: '/projects/$projectId' })
+  const projectId = params.projectId
+  const queryClient = useQueryClient()
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+
+  const { data: project } = useQuery<Project>({
+    queryKey: ['project', projectId],
+    queryFn: () => fetch(`/api/projects/${projectId}`).then((r) => r.json()),
+  })
+
+  const { data: videoAsset } = useQuery<VideoAsset>({
+    queryKey: ['video', project?.videoAssetId],
+    enabled: !!project?.videoAssetId,
+    queryFn: () => fetch(`/api/videos/${project!.videoAssetId}`).then((r) => r.json()),
+  })
+
+  const { data: templates } = useQuery<SubtitleTemplate[]>({
+    queryKey: ['templates'],
+    queryFn: () => fetch('/api/templates').then((r) => r.json()),
+  })
+
+  const timelineState = (project?.timelineState as TimelineStateV1 | null) ?? {
+    version: 1,
+    tracks: [],
+    keepSegments: [],
+  }
+
+  const updateProject = useMutation({
+    mutationFn: (data: { timelineState: TimelineStateV1 }) =>
+      fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', projectId] }),
+  })
+
+  const saveTimelineState = useCallback(
+    (newState: TimelineStateV1) => {
+      updateProject.mutate({ timelineState: newState })
+    },
+    [updateProject]
+  )
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const onTimeUpdate = () => {
+      if (video.paused) return
+      setCurrentTime(video.currentTime)
+    }
+    const onLoadedMetadata = () => setDuration(video.duration)
+
+    video.addEventListener('timeupdate', onTimeUpdate)
+    video.addEventListener('loadedmetadata', onLoadedMetadata)
+
+    return () => {
+      video.removeEventListener('timeupdate', onTimeUpdate)
+      video.removeEventListener('loadedmetadata', onLoadedMetadata)
+    }
+  }, [])
+
+  const addSubtitle = () => {
+    const subTrack = timelineState.tracks.find((t) => t.type === 'subtitle')
+    const items = subTrack?.items ?? []
+    const newItem: SubtitleItem = {
+      id: crypto.randomUUID(),
+      sourceStart: currentTime,
+      sourceEnd: Math.min(currentTime + 3, duration),
+      text: '',
+      templateId: templates?.[0]?.id ?? 'default',
+      styleOverrides: {},
+    }
+    const updatedTracks = subTrack
+      ? timelineState.tracks.map((t) => (t.type === 'subtitle' ? { ...t, items: [...t.items, newItem] } : t))
+      : [...timelineState.tracks, { id: crypto.randomUUID(), type: 'subtitle' as const, items: [newItem] }]
+    saveTimelineState({ ...timelineState, tracks: updatedTracks })
+  }
+
+  const addKeepSegment = () => {
+    const newSegment: KeepSegment = {
+      id: crypto.randomUUID(),
+      sourceStart: 0,
+      sourceEnd: duration || 0,
+    }
+    saveTimelineState({
+      ...timelineState,
+      keepSegments: [...timelineState.keepSegments, newSegment],
+    })
+  }
+
+  const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
+
   return (
-    <div className='p-6'>
-      <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>エディタ</h1>
-      <p className='mt-2 text-gray-500 dark:text-gray-400'>動画編集画面。</p>
+    <div className='flex h-full flex-col'>
+      <div className='flex items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-gray-700'>
+        <Link
+          to='/projects'
+          className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+        >
+          <ArrowLeft className='h-5 w-5' />
+        </Link>
+        <h1 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>{project?.name ?? 'エディタ'}</h1>
+        <span className='text-sm text-gray-400'>{videoAsset?.displayName}</span>
+        <div className='ml-auto flex gap-2'>
+          <button
+            onClick={addSubtitle}
+            className='inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700'
+          >
+            <Type className='h-4 w-4' />
+            字幕追加 (A)
+          </button>
+          <button
+            onClick={addKeepSegment}
+            className='inline-flex items-center gap-1 rounded-lg bg-gray-600 px-3 py-1.5 text-sm text-white hover:bg-gray-700'
+          >
+            <Scissors className='h-4 w-4' />
+            保持区間追加
+          </button>
+        </div>
+      </div>
+
+      <div className='flex flex-1 flex-col overflow-auto lg:flex-row'>
+        <div className='flex-1 bg-black p-4'>
+          <video
+            ref={videoRef}
+            src={videoAsset ? `/${videoAsset.storagePath}` : undefined}
+            controls
+            className='max-h-[60vh] w-full rounded-lg'
+          />
+        </div>
+
+        <div className='w-full overflow-auto border-t border-gray-200 p-4 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
+          <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>
+            字幕 ({subItems.length})
+          </h2>
+          <div className='space-y-2'>
+            {subItems.map((sub) => (
+              <SubtitleEditorItem
+                key={sub.id}
+                item={sub}
+                templates={templates ?? []}
+                duration={duration}
+                onChange={(updated) => {
+                  const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
+                  const newTracks = timelineState.tracks.map((t) =>
+                    t.type === 'subtitle' ? { ...t, items: newItems } : t
+                  )
+                  saveTimelineState({ ...timelineState, tracks: newTracks })
+                }}
+                onDelete={() => {
+                  const newItems = subItems.filter((s) => s.id !== sub.id)
+                  const newTracks = timelineState.tracks.map((t) =>
+                    t.type === 'subtitle' ? { ...t, items: newItems } : t
+                  )
+                  saveTimelineState({ ...timelineState, tracks: newTracks })
+                }}
+              />
+            ))}
+            {subItems.length === 0 && (
+              <p className='text-xs text-gray-400 dark:text-gray-500'>
+                字幕がありません。「字幕追加」ボタンまたは A キーで追加できます。
+              </p>
+            )}
+          </div>
+
+          {timelineState.keepSegments.length > 0 && (
+            <>
+              <h2 className='mb-3 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300'>
+                トリム区間 ({timelineState.keepSegments.length})
+              </h2>
+              <div className='space-y-2'>
+                {timelineState.keepSegments.map((seg) => (
+                  <div
+                    key={seg.id}
+                    className='rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'
+                  >
+                    <div className='flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400'>
+                      <span>{formatSeconds(seg.sourceStart)}</span>
+                      <span>-</span>
+                      <span>{formatSeconds(seg.sourceEnd)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <TimelineBar
+        duration={duration}
+        currentTime={currentTime}
+        keepSegments={timelineState.keepSegments}
+        subtitleItems={subItems}
+        onSeek={(t) => {
+          if (videoRef.current) {
+            videoRef.current.currentTime = t
+            setCurrentTime(t)
+          }
+        }}
+      />
+    </div>
+  )
+}
+
+function formatSeconds(s: number): string {
+  const m = Math.floor(s / 60)
+  const sec = Math.floor(s % 60)
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+function SubtitleEditorItem({
+  item,
+  templates,
+  duration,
+  onChange,
+  onDelete,
+}: {
+  item: SubtitleItem
+  templates: SubtitleTemplate[]
+  duration: number
+  onChange: (item: SubtitleItem) => void
+  onDelete: () => void
+}) {
+  return (
+    <div className='rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-800'>
+      <div className='mb-2 flex items-center gap-2'>
+        <input
+          type='text'
+          value={item.text}
+          onChange={(e) => onChange({ ...item, text: e.target.value })}
+          className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+          placeholder='字幕テキスト'
+        />
+        <button
+          onClick={onDelete}
+          className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
+        >
+          <svg className='h-3.5 w-3.5' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
+            <path d='M18 6L6 18M6 6l12 12' />
+          </svg>
+        </button>
+      </div>
+      <div className='grid grid-cols-2 gap-2'>
+        <div>
+          <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
+          <input
+            type='number'
+            value={item.sourceStart}
+            step={0.1}
+            min={0}
+            max={duration}
+            onChange={(e) => onChange({ ...item, sourceStart: Number(e.target.value) })}
+            className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+          />
+        </div>
+        <div>
+          <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
+          <input
+            type='number'
+            value={item.sourceEnd}
+            step={0.1}
+            min={0}
+            max={duration}
+            onChange={(e) => onChange({ ...item, sourceEnd: Number(e.target.value) })}
+            className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+          />
+        </div>
+      </div>
+      {templates.length > 0 && (
+        <select
+          value={item.templateId}
+          onChange={(e) => onChange({ ...item, templateId: e.target.value })}
+          className='mt-2 w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+        >
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
+}
+
+function TimelineBar({
+  duration,
+  currentTime,
+  keepSegments,
+  subtitleItems,
+  onSeek,
+}: {
+  duration: number
+  currentTime: number
+  keepSegments: KeepSegment[]
+  subtitleItems: SubtitleItem[]
+  onSeek: (time: number) => void
+}) {
+  const barRef = useRef<HTMLDivElement>(null)
+
+  const handleClick = (e: React.MouseEvent) => {
+    const bar = barRef.current
+    if (!bar || duration === 0) return
+    const rect = bar.getBoundingClientRect()
+    const ratio = (e.clientX - rect.left) / rect.width
+    onSeek(Math.max(0, Math.min(ratio * duration, duration)))
+  }
+
+  return (
+    <div className='h-20 border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800'>
+      <div
+        ref={barRef}
+        className='relative h-10 cursor-pointer rounded bg-gray-100 dark:bg-gray-700'
+        onClick={handleClick}
+      >
+        {keepSegments.map((seg) => (
+          <div
+            key={seg.id}
+            className='absolute top-0 h-full rounded bg-green-200/70 dark:bg-green-800/40'
+            style={{
+              left: `${(seg.sourceStart / duration) * 100}%`,
+              width: `${((seg.sourceEnd - seg.sourceStart) / duration) * 100}%`,
+            }}
+          />
+        ))}
+
+        {subtitleItems.map((sub) => (
+          <div
+            key={sub.id}
+            className='absolute bottom-0 h-3 rounded bg-indigo-400/70 dark:bg-indigo-500/50'
+            style={{
+              left: `${(sub.sourceStart / duration) * 100}%`,
+              width: `${((sub.sourceEnd - sub.sourceStart) / duration) * 100}%`,
+            }}
+            title={sub.text || '(空)'}
+          />
+        ))}
+
+        <div
+          className='absolute top-0 h-full w-0.5 bg-red-500'
+          style={{ left: `${(currentTime / duration) * 100}%` }}
+        />
+      </div>
+      <div className='mt-1 flex justify-between text-xs text-gray-400'>
+        <span>{formatSeconds(currentTime)}</span>
+        <span>{formatSeconds(duration)}</span>
+      </div>
     </div>
   )
 }

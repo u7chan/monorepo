@@ -57,7 +57,30 @@ export type SubtitleTemplate = z.infer<typeof SubtitleTemplateSchema>
 export type CreateSubtitleTemplate = z.infer<typeof CreateSubtitleTemplateSchema>
 export type UpdateSubtitleTemplate = z.infer<typeof UpdateSubtitleTemplateSchema>
 
-export function toSubtitleStyle(template: SubtitleTemplate) {
+export function toSubtitleStyle(
+  template: {
+    fontFamilyId: string
+    fontSize: number
+    fontColor: string
+    bold: boolean
+    italic: boolean
+    outlineColor: string
+    outlineWidth: number
+    shadowEnabled: boolean
+    shadowColor: string
+    shadowOffsetX: number
+    shadowOffsetY: number
+    shadowBlur: number
+    backgroundBoxEnabled: boolean
+    backgroundBoxColor: string
+    backgroundBoxOpacity: number
+    backgroundBoxPadding: number
+    position: string
+    marginX: number
+    marginY: number
+  }
+) {
+  const position = (['top', 'center', 'bottom'] as const).find((p) => p === template.position) ?? 'bottom'
   return {
     fontFamilyId: template.fontFamilyId,
     fontSize: template.fontSize,
@@ -79,7 +102,7 @@ export function toSubtitleStyle(template: SubtitleTemplate) {
       opacity: template.backgroundBoxOpacity,
       padding: template.backgroundBoxPadding,
     },
-    position: template.position,
+    position,
     margin: {
       x: template.marginX,
       y: template.marginY,
