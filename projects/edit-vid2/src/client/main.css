@@ -2,3 +2,5 @@
 
 @source "../../node_modules";
 @source "./";
+
+@custom-variant dark (&:where(.dark, .dark *));
