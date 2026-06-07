@@ -34,6 +34,7 @@ const app = new Hono<{
   })
 
 app.use('/static/*', serveStatic({ root: './dist' }))
+app.use('/data/*', serveStatic({ root: './' }))
 app.route('/api/videos', videoRoutes)
 app.route('/api/projects', projectRoutes)
 app.route('/api/templates', templateRoutes)

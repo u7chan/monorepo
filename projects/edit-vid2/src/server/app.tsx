@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { serveStatic } from 'hono/bun'
 import { getDatabase } from '#/db'
 import type { AppDatabase } from '#/db'
 import { errHandler } from '#/server/middleware/error-handler'
@@ -42,5 +43,6 @@ const routes = app
   .route('/api/projects/:projectId/export-jobs', exportRoutes)
   .route('/api/export-jobs', sseRoutes)
   .route('/', htmlRoutes)
+  .get('/data/*', serveStatic({ root: './' }))
 
 export default app
