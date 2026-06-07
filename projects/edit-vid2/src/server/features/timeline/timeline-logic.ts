@@ -22,6 +22,16 @@ export function mapSubtitlesToOutputTime(
   subtitles: SubtitleItem[],
   keepSegments: KeepSegment[]
 ): MappedSubtitle[] {
+  if (keepSegments.length === 0) {
+    return subtitles.map((sub) => ({
+      text: sub.text,
+      outputStart: sub.sourceStart,
+      outputEnd: sub.sourceEnd,
+      templateId: sub.templateId,
+      styleOverrides: sub.styleOverrides,
+    }))
+  }
+
   const normalized = normalizeKeepSegments(keepSegments)
 
   if (normalized.length === 0) return []

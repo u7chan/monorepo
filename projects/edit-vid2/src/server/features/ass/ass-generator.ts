@@ -6,11 +6,14 @@ type ResolvedStyle = Omit<SubtitleStyle, 'shadow' | 'backgroundBox' | 'margin'> 
   margin: { x: number; y: number }
 }
 
+const ASS_NEWLINE_MARKER = '\x00N'
+
 function escapeAssText(text: string): string {
   return text
-    .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\N')
     .replace(/\r/g, '')
+    .replace(/\n/g, ASS_NEWLINE_MARKER)
+    .replace(/\\/g, '\\\\')
+    .replace(new RegExp(ASS_NEWLINE_MARKER, 'g'), '\\N')
 }
 
 function formatAssTime(seconds: number): string {
@@ -47,28 +50,42 @@ function fontColorToAss(color: string): string {
   return `&H00${b}${g}${r}&`
 }
 
-function buildAssStyle(style: ResolvedStyle): string {
+function buildAssStyleLine(name: string, style: ResolvedStyle): string {
   const yPos: Record<string, number> = {
     top: 50 + style.margin.y,
     center: style.margin.y,
     bottom: -50 + style.margin.y,
   }
-  const marginV = yPos[style.position] ?? 0
+  const marginV = Math.round(yPos[style.position] ?? 0)
+  const alignment = style.position === 'top' ? 8 : style.position === 'center' ? 5 : 2
 
+  // Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour,
+  // Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle,
+  // Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
   return [
-    `Fontname=${style.fontFamilyId}`,
-    `Fontsize=${style.fontSize}`,
-    `PrimaryColour=${fontColorToAss(style.fontColor)}`,
-    `Bold=${style.bold ? -1 : 0}`,
-    `Italic=${style.italic ? -1 : 0}`,
-    `Outline=${style.outlineWidth}`,
-    `OutlineColour=${fontColorToAss(style.outlineColor)}`,
-    `Shadow=${style.shadow.enabled ? style.shadow.blur : 0}`,
-    `ShadowColour=${fontColorToAss(style.shadow.color)}`,
-    `MarginL=${style.margin.x}`,
-    `MarginR=${style.margin.x}`,
-    `MarginV=${marginV}`,
-    `Alignment=${style.position === 'top' ? 8 : style.position === 'center' ? 5 : 2}`,
+    `Style: ${name}`,
+    style.fontFamilyId,
+    style.fontSize,
+    fontColorToAss(style.fontColor),
+    '&H000000FF',
+    fontColorToAss(style.outlineColor),
+    style.backgroundBox.enabled ? fontColorToAss(style.backgroundBox.color) : '&H00000000',
+    style.bold ? -1 : 0,
+    style.italic ? -1 : 0,
+    0, // Underline
+    0, // StrikeOut
+    100, // ScaleX
+    100, // ScaleY
+    0, // Spacing
+    0, // Angle
+    1, // BorderStyle
+    style.outlineWidth,
+    style.shadow.enabled ? style.shadow.blur : 0,
+    alignment,
+    Math.round(style.margin.x),
+    Math.round(style.margin.x),
+    marginV,
+    1, // Encoding
   ].join(',')
 }
 
@@ -93,8 +110,17 @@ export function generateAssContent(
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding'
   )
   lines.push(
-    `Style: Default,${buildAssStyle(resolveStyle({ text: '', outputStart: 0, outputEnd: 0, templateId: '', styleOverrides: {} }, defaultStyle))}`
+    buildAssStyleLine('Default', resolveStyle({ text: '', outputStart: 0, outputEnd: 0, templateId: '', styleOverrides: {} }, defaultStyle))
   )
+
+  // Collect per-subtitle style lines
+  const styleLines: string[] = []
+  for (let i = 0; i < subtitles.length; i++) {
+    const style = resolveStyle(subtitles[i], defaultStyle)
+    styleLines.push(buildAssStyleLine(`Sub${i}`, style))
+  }
+
+  lines.push(...styleLines)
   lines.push('')
 
   lines.push('[Events]')
@@ -102,9 +128,6 @@ export function generateAssContent(
 
   for (let i = 0; i < subtitles.length; i++) {
     const sub = subtitles[i]
-    const style = resolveStyle(sub, defaultStyle)
-    const styleName = `Style: Sub${i},${buildAssStyle(style)}`
-    lines.splice(lines.indexOf('') + 1, 0, styleName)
     lines.push(
       `Dialogue: 0,${formatAssTime(sub.outputStart)},${formatAssTime(sub.outputEnd)},Sub${i},,0,0,0,,${escapeAssText(sub.text)}`
     )

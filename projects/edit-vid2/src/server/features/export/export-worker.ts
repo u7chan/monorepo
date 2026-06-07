@@ -20,6 +20,7 @@ interface ExportJobRecord {
 
 class ExportWorker {
   private running = false
+  private currentJobId: string | null = null
   private queue: Array<{ jobId: string; db: AppDatabase }> = []
   private currentProcess: { kill: () => void } | null = null
   private progressCallbacks = new Map<string, (progress: number, status: string) => void>()
@@ -35,10 +36,15 @@ class ExportWorker {
   }
 
   cancel(jobId: string) {
-    if (this.currentProcess && this.queue.some((j) => j.jobId === jobId)) {
+    // If currently running this job, kill the process
+    if (this.currentJobId === jobId && this.currentProcess) {
       this.currentProcess.kill()
       this.currentProcess = null
+      this.currentJobId = null
+      return
     }
+    // If queued but not yet started, remove from queue
+    this.queue = this.queue.filter((j) => j.jobId !== jobId)
   }
 
   private async processNext() {
@@ -47,6 +53,7 @@ class ExportWorker {
 
     const job = this.queue.shift()!
     const { jobId, db } = job
+    this.currentJobId = jobId
 
     try {
       updateExportJob(db, jobId, { status: 'running', progress: 0 })
@@ -206,6 +213,7 @@ class ExportWorker {
       console.error(`[export-worker] job ${jobId} failed:`, message)
     } finally {
       this.currentProcess = null
+      this.currentJobId = null
       this.running = false
       this.processNext()
     }
