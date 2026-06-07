@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Download, Plus, Scissors, Type } from 'lucide-react'
+import { ArrowLeft, Download, Scissors, Type, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   KeepSegment,
@@ -80,7 +80,6 @@ export function EditorPage() {
 
   const addSubtitle = () => {
     const subTrack = timelineState.tracks.find((t) => t.type === 'subtitle')
-    const items = subTrack?.items ?? []
     const newItem: SubtitleItem = {
       id: crypto.randomUUID(),
       sourceStart: currentTime,
@@ -191,10 +190,26 @@ export function EditorPage() {
                     key={seg.id}
                     className='rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'
                   >
-                    <div className='flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400'>
-                      <span>{formatSeconds(seg.sourceStart)}</span>
-                      <span>-</span>
-                      <span>{formatSeconds(seg.sourceEnd)}</span>
+                    <div className='flex items-center justify-between gap-2'>
+                      <div className='flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400'>
+                        <span>{formatSeconds(seg.sourceStart)}</span>
+                        <span>-</span>
+                        <span>{formatSeconds(seg.sourceEnd)}</span>
+                      </div>
+                      <button
+                        type='button'
+                        onClick={() =>
+                          saveTimelineState({
+                            ...timelineState,
+                            keepSegments: timelineState.keepSegments.filter((s) => s.id !== seg.id),
+                          })
+                        }
+                        className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
+                        aria-label='トリム区間を削除'
+                        title='トリム区間を削除'
+                      >
+                        <X className='h-3.5 w-3.5' />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -254,10 +269,10 @@ function SubtitleEditorItem({
         <button
           onClick={onDelete}
           className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
+          aria-label='字幕を削除'
+          title='字幕を削除'
         >
-          <svg className='h-3.5 w-3.5' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
-            <path d='M18 6L6 18M6 6l12 12' />
-          </svg>
+          <X className='h-3.5 w-3.5' />
         </button>
       </div>
       <div className='grid grid-cols-2 gap-2'>
@@ -379,7 +394,6 @@ interface ExportJob {
 
 function ExportPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [preset, setPreset] = useState({
     videoCodec: 'libx264',
@@ -402,9 +416,8 @@ function ExportPanel({ projectId }: { projectId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preset }),
       }).then((r) => r.json()),
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
-      setActiveJobId(data.id)
     },
   })
 
