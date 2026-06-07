@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { Database as BunDatabase } from 'bun:sqlite'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
 
 export function getDatabase(path: string) {
   const sqlite = new BunDatabase(path, { create: true })

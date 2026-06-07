@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { sValidator } from '@hono/standard-validator'
+import { Hono } from 'hono'
+import { z } from 'zod'
+import { buildPreviewCacheKey, generateSubtitlePreview } from '#/server/features/preview/preview-service'
 import { getProjectById } from '#/server/features/projects/project-repository'
 import { getTemplateById } from '#/server/features/templates/template-repository'
-import { buildPreviewCacheKey, generateSubtitlePreview } from '#/server/features/preview/preview-service'
 import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import type { HonoEnv } from '#/server/routes/shared'
 import { toSubtitleStyle } from '#/shared/schemas'
-import { Hono } from 'hono'
-import { z } from 'zod'
 
 const previewSchema = z.object({
   sourceTime: z.number().min(0),
@@ -55,14 +55,7 @@ previewRoutes.post('/', sValidator('json', previewSchema), async (c) => {
   const template = getTemplateById(db, body.templateId)
   const style = template ? toSubtitleStyle(template) : defaultStyle
 
-  const cacheKey = buildPreviewCacheKey(
-    projectId,
-    videoAsset.id,
-    body.sourceTime,
-    style,
-    body.text,
-    1
-  )
+  const cacheKey = buildPreviewCacheKey(projectId, videoAsset.id, body.sourceTime, style, body.text, 1)
 
   const cacheDir = `data/projects/${projectId}/previews`
   if (!existsSync(cacheDir)) {

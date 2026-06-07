@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
-import { exportJobs } from '#/db/schema'
 import type { AppDatabase } from '#/db'
+import { exportJobs } from '#/db/schema'
 
 export function getExportJobs(db: AppDatabase) {
   return db.select().from(exportJobs).where(isNull(exportJobs.deletedAt)).all()

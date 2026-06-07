@@ -31,9 +31,7 @@ export async function probeVideo(filePath: string): Promise<VideoProbeResult> {
     const format = data.format ?? {}
     const streams: Array<Record<string, unknown>> = data.streams ?? []
 
-    const videoStream = streams.find(
-      (s) => s.codec_type === 'video'
-    ) as Record<string, unknown> | undefined
+    const videoStream = streams.find((s) => s.codec_type === 'video') as Record<string, unknown> | undefined
     const audioStream = streams.find((s) => s.codec_type === 'audio')
 
     return {
@@ -77,8 +75,7 @@ export async function generateThumbnail(
   duration: number | null
 ): Promise<boolean> {
   const seekTime = duration ? Math.min(duration * 0.1, 10).toFixed(1) : '1'
-  const result =
-    await $`ffmpeg -y -ss ${seekTime} -i "${filePath}" -vframes 1 -q:v 2 "${outputPath}"`.nothrow().quiet()
+  const result = await $`ffmpeg -y -ss ${seekTime} -i "${filePath}" -vframes 1 -q:v 2 "${outputPath}"`.nothrow().quiet()
 
   return result.exitCode === 0
 }

@@ -70,9 +70,7 @@ describe('mapSubtitlesToOutputTime', () => {
     const subtitles: SubtitleItem[] = [
       { id: 's1', sourceStart: 2, sourceEnd: 6, text: 'Hello', templateId: 't1', styleOverrides: {} },
     ]
-    const keepSegments: KeepSegment[] = [
-      { id: 'k1', sourceStart: 0, sourceEnd: 10 },
-    ]
+    const keepSegments: KeepSegment[] = [{ id: 'k1', sourceStart: 0, sourceEnd: 10 }]
     const result = mapSubtitlesToOutputTime(subtitles, keepSegments)
     expect(result).toHaveLength(1)
     expect(result[0].outputStart).toBe(2)
@@ -83,9 +81,7 @@ describe('mapSubtitlesToOutputTime', () => {
     const subtitles: SubtitleItem[] = [
       { id: 's1', sourceStart: 5, sourceEnd: 10, text: 'Hello', templateId: 't1', styleOverrides: {} },
     ]
-    const keepSegments: KeepSegment[] = [
-      { id: 'k1', sourceStart: 5, sourceEnd: 15 },
-    ]
+    const keepSegments: KeepSegment[] = [{ id: 'k1', sourceStart: 5, sourceEnd: 15 }]
     const result = mapSubtitlesToOutputTime(subtitles, keepSegments)
     expect(result).toHaveLength(1)
     expect(result[0].outputStart).toBe(0)

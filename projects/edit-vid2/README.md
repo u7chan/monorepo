@@ -55,9 +55,9 @@ docker run -p 3000:3000 -v $(pwd)/data:/app/data edit-vid2
 
 ## 環境変数
 
-| 変数 | デフォルト | 説明 |
-|------|-----------|------|
-| `SERVER_PORT` | `3000` | サーバーポート |
-| `DATABASE_URL` | `data/edit-vid2.db` | SQLite ファイルパス |
-| `MAX_UPLOAD_BYTES` | `2147483648` (2GB) | アップロード上限 |
-| `LOG_LEVEL` | `info` | ログレベル |
+| 変数               | デフォルト          | 説明                |
+| ------------------ | ------------------- | ------------------- |
+| `SERVER_PORT`      | `3000`              | サーバーポート      |
+| `DATABASE_URL`     | `data/edit-vid2.db` | SQLite ファイルパス |
+| `MAX_UPLOAD_BYTES` | `2147483648` (2GB)  | アップロード上限    |
+| `LOG_LEVEL`        | `info`              | ログレベル          |

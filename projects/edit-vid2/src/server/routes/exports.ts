@@ -1,12 +1,18 @@
 import { sValidator } from '@hono/standard-validator'
-import { createExportJob, getExportJobById, getExportJobsByProject, getIncompleteJobs, updateExportJob } from '#/server/features/export/export-repository'
+import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
+import { uuidv7 } from 'uuidv7'
+import {
+  createExportJob,
+  getExportJobById,
+  getExportJobsByProject,
+  getIncompleteJobs,
+  updateExportJob,
+} from '#/server/features/export/export-repository'
 import { exportWorker } from '#/server/features/export/export-worker'
 import { getProjectById } from '#/server/features/projects/project-repository'
 import type { HonoEnv } from '#/server/routes/shared'
 import { CreateExportJobSchema } from '#/shared/schemas'
-import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
-import { uuidv7 } from 'uuidv7'
 
 function ensureParam(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is required`)
@@ -62,9 +68,11 @@ sseRoutes.get('/:exportJobId/events', (c) => {
     })
 
     const unsubscribe = exportWorker.onProgress(jobId, (progress, status) => {
-      stream.writeSSE({
-        data: JSON.stringify({ progress, status }),
-      }).catch(() => {})
+      stream
+        .writeSSE({
+          data: JSON.stringify({ progress, status }),
+        })
+        .catch(() => {})
     })
 
     const keepAlive = setInterval(() => {

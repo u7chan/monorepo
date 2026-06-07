@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
-import { subtitleTemplates } from '#/db/schema'
 import type { AppDatabase } from '#/db'
+import { subtitleTemplates } from '#/db/schema'
 
 export function getTemplates(db: AppDatabase) {
   return db.select().from(subtitleTemplates).where(isNull(subtitleTemplates.deletedAt)).all()
@@ -40,29 +40,31 @@ export function createTemplate(
     marginY?: number
   }
 ) {
-  db.insert(subtitleTemplates).values({
-    id: data.id,
-    name: data.name,
-    fontFamilyId: data.fontFamilyId ?? 'default',
-    fontSize: data.fontSize ?? 48,
-    fontColor: data.fontColor ?? '#FFFFFF',
-    bold: data.bold ?? false,
-    italic: data.italic ?? false,
-    outlineColor: data.outlineColor ?? '#000000',
-    outlineWidth: data.outlineWidth ?? 2,
-    shadowEnabled: data.shadowEnabled ?? false,
-    shadowColor: data.shadowColor ?? '#000000',
-    shadowOffsetX: data.shadowOffsetX ?? 0,
-    shadowOffsetY: data.shadowOffsetY ?? 0,
-    shadowBlur: data.shadowBlur ?? 0,
-    backgroundBoxEnabled: data.backgroundBoxEnabled ?? false,
-    backgroundBoxColor: data.backgroundBoxColor ?? '#000000',
-    backgroundBoxOpacity: data.backgroundBoxOpacity ?? 0.6,
-    backgroundBoxPadding: data.backgroundBoxPadding ?? 4,
-    position: data.position ?? 'bottom',
-    marginX: data.marginX ?? 0,
-    marginY: data.marginY ?? 0,
-  }).run()
+  db.insert(subtitleTemplates)
+    .values({
+      id: data.id,
+      name: data.name,
+      fontFamilyId: data.fontFamilyId ?? 'default',
+      fontSize: data.fontSize ?? 48,
+      fontColor: data.fontColor ?? '#FFFFFF',
+      bold: data.bold ?? false,
+      italic: data.italic ?? false,
+      outlineColor: data.outlineColor ?? '#000000',
+      outlineWidth: data.outlineWidth ?? 2,
+      shadowEnabled: data.shadowEnabled ?? false,
+      shadowColor: data.shadowColor ?? '#000000',
+      shadowOffsetX: data.shadowOffsetX ?? 0,
+      shadowOffsetY: data.shadowOffsetY ?? 0,
+      shadowBlur: data.shadowBlur ?? 0,
+      backgroundBoxEnabled: data.backgroundBoxEnabled ?? false,
+      backgroundBoxColor: data.backgroundBoxColor ?? '#000000',
+      backgroundBoxOpacity: data.backgroundBoxOpacity ?? 0.6,
+      backgroundBoxPadding: data.backgroundBoxPadding ?? 4,
+      position: data.position ?? 'bottom',
+      marginX: data.marginX ?? 0,
+      marginY: data.marginY ?? 0,
+    })
+    .run()
   return getTemplateById(db, data.id)!
 }
 

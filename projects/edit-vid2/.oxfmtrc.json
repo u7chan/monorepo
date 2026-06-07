@@ -8,21 +8,10 @@
   "trailingComma": "es5",
   "endOfLine": "lf",
   "sortImports": {
-    "groups": [
-      ["side_effect"],
-      ["builtin"],
-      ["external"],
-      ["internal"],
-      ["parent", "sibling", "index"]
-    ],
+    "groups": [["side_effect"], ["builtin"], ["external"], ["internal"], ["parent", "sibling", "index"]],
     "sortSideEffects": false,
     "newlinesBetween": false,
     "ignoreCase": true
   },
-  "ignorePatterns": [
-    "dist/**",
-    "node_modules/**",
-    "/src/client/routeTree.gen.ts",
-    "/src/server/app.d.ts"
-  ]
+  "ignorePatterns": ["dist/**", "node_modules/**", "/src/client/routeTree.gen.ts", "/src/server/app.d.ts"]
 }

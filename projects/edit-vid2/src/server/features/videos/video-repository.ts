@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
-import { videoAssets } from '#/db/schema'
 import type { AppDatabase } from '#/db'
+import { videoAssets } from '#/db/schema'
 
 export function getVideoAssets(db: AppDatabase) {
   return db.select().from(videoAssets).where(isNull(videoAssets.deletedAt)).all()
@@ -36,11 +36,7 @@ export function createVideoAsset(
   return getVideoAssetById(db, data.id)!
 }
 
-export function updateVideoAsset(
-  db: AppDatabase,
-  id: string,
-  data: Record<string, unknown>
-) {
+export function updateVideoAsset(db: AppDatabase, id: string, data: Record<string, unknown>) {
   db.update(videoAssets)
     .set({ ...data, updatedAt: new Date().toISOString() })
     .where(eq(videoAssets.id, id))

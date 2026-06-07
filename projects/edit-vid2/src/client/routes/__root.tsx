@@ -1,8 +1,8 @@
 import { Outlet, createRootRoute } from '@tanstack/react-router'
+import { Clapperboard, Film } from 'lucide-react'
 import { Suspense, lazy } from 'react'
 import { AppLayout } from '#/client/app/app-layout'
 import { RouteLoading } from '#/client/app/route-loading'
-import { Clapperboard, Film } from 'lucide-react'
 
 const TanStackRouterDevtoolsPanel = import.meta.env.PROD
   ? () => null

@@ -1,9 +1,15 @@
 import { sValidator } from '@hono/standard-validator'
-import { createProject, getProjectById, getProjects, softDeleteProject, updateProject } from '#/server/features/projects/project-repository'
-import type { HonoEnv } from '#/server/routes/shared'
-import { CreateProjectSchema, DuplicateProjectSchema, UpdateProjectSchema } from '#/shared/schemas'
 import { Hono } from 'hono'
 import { uuidv7 } from 'uuidv7'
+import {
+  createProject,
+  getProjectById,
+  getProjects,
+  softDeleteProject,
+  updateProject,
+} from '#/server/features/projects/project-repository'
+import type { HonoEnv } from '#/server/routes/shared'
+import { CreateProjectSchema, DuplicateProjectSchema, UpdateProjectSchema } from '#/shared/schemas'
 
 const projectRoutes = new Hono<HonoEnv>()
 

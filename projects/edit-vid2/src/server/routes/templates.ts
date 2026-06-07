@@ -1,9 +1,15 @@
 import { sValidator } from '@hono/standard-validator'
-import { createTemplate, getTemplateById, getTemplates, softDeleteTemplate, updateTemplate } from '#/server/features/templates/template-repository'
-import type { HonoEnv } from '#/server/routes/shared'
-import { CreateSubtitleTemplateSchema, UpdateSubtitleTemplateSchema } from '#/shared/schemas'
 import { Hono } from 'hono'
 import { uuidv7 } from 'uuidv7'
+import {
+  createTemplate,
+  getTemplateById,
+  getTemplates,
+  softDeleteTemplate,
+  updateTemplate,
+} from '#/server/features/templates/template-repository'
+import type { HonoEnv } from '#/server/routes/shared'
+import { CreateSubtitleTemplateSchema, UpdateSubtitleTemplateSchema } from '#/shared/schemas'
 
 const templateRoutes = new Hono<HonoEnv>()
 

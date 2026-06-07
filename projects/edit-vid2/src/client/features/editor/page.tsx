@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
-import { ArrowLeft, Download, Plus, Scissors, Type } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import type { KeepSegment, Project, SubtitleItem, SubtitleTemplate, TimelineStateV1, VideoAsset } from '#/shared/schemas'
+import { ArrowLeft, Download, Plus, Scissors, Type } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  KeepSegment,
+  Project,
+  SubtitleItem,
+  SubtitleTemplate,
+  TimelineStateV1,
+  VideoAsset,
+} from '#/shared/schemas'
 
 export function EditorPage() {
   const params = useParams({ from: '/projects/$projectId' })
@@ -142,9 +149,7 @@ export function EditorPage() {
         </div>
 
         <div className='w-full overflow-auto border-t border-gray-200 p-4 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
-          <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>
-            字幕 ({subItems.length})
-          </h2>
+          <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>字幕 ({subItems.length})</h2>
           <div className='space-y-2'>
             {subItems.map((sub) => (
               <SubtitleEditorItem
@@ -376,7 +381,13 @@ function ExportPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [preset, setPreset] = useState({ videoCodec: 'libx264', crf: 23, format: 'mp4', audioCodec: 'aac', preset: 'medium' as const })
+  const [preset, setPreset] = useState({
+    videoCodec: 'libx264',
+    crf: 23,
+    format: 'mp4',
+    audioCodec: 'aac',
+    preset: 'medium' as const,
+  })
 
   const { data: jobs } = useQuery<ExportJob[]>({
     queryKey: ['export-jobs', projectId],
@@ -398,8 +409,7 @@ function ExportPanel({ projectId }: { projectId: string }) {
   })
 
   const cancelExport = useMutation({
-    mutationFn: (jobId: string) =>
-      fetch(`/api/export-jobs/${jobId}/cancel`, { method: 'POST' }),
+    mutationFn: (jobId: string) => fetch(`/api/export-jobs/${jobId}/cancel`, { method: 'POST' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] }),
   })
 
@@ -505,7 +515,10 @@ function JobCard({ job, onCancel }: { job: ExportJob; onCancel: () => void }) {
         </span>
         <div className='flex gap-1'>
           {canCancel && (
-            <button onClick={onCancel} className='rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'>
+            <button
+              onClick={onCancel}
+              className='rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'
+            >
               キャンセル
             </button>
           )}

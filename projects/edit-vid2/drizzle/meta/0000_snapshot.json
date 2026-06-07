@@ -95,12 +95,8 @@
           "name": "export_jobs_project_id_projects_id_fk",
           "tableFrom": "export_jobs",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -148,12 +144,8 @@
           "name": "project_templates_project_id_projects_id_fk",
           "tableFrom": "project_templates",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -161,12 +153,8 @@
           "name": "project_templates_template_id_subtitle_templates_id_fk",
           "tableFrom": "project_templates",
           "tableTo": "subtitle_templates",
-          "columnsFrom": [
-            "template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["template_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -244,12 +232,8 @@
           "name": "projects_video_asset_id_video_assets_id_fk",
           "tableFrom": "projects",
           "tableTo": "video_assets",
-          "columnsFrom": [
-            "video_asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["video_asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }

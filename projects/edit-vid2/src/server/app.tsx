@@ -1,14 +1,14 @@
+import { Hono } from 'hono'
 import { getDatabase } from '#/db'
-import { applySecurityHeaders } from '#/server/middleware/security-headers'
+import type { AppDatabase } from '#/db'
 import { errHandler } from '#/server/middleware/error-handler'
+import { applySecurityHeaders } from '#/server/middleware/security-headers'
 import { exportRoutes, sseRoutes } from '#/server/routes/exports'
 import { htmlRoutes } from '#/server/routes/html'
 import { previewRoutes } from '#/server/routes/previews'
 import { projectRoutes } from '#/server/routes/projects'
 import { templateRoutes } from '#/server/routes/templates'
 import { videoRoutes } from '#/server/routes/videos'
-import type { AppDatabase } from '#/db'
-import { Hono } from 'hono'
 
 export type AppType = typeof routes
 

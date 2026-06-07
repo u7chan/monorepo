@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Clapperboard, FileVideo, Pencil, Trash2, Upload } from 'lucide-react'
+import { useState } from 'react'
 
 interface VideoAsset {
   id: string
@@ -114,11 +114,7 @@ export function VideosPage() {
             >
               <div className='mb-3 aspect-video overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700'>
                 {video.thumbnailPath ? (
-                  <img
-                    src={`/${video.thumbnailPath}`}
-                    alt={video.displayName}
-                    className='h-full w-full object-cover'
-                  />
+                  <img src={`/${video.thumbnailPath}`} alt={video.displayName} className='h-full w-full object-cover' />
                 ) : (
                   <div className='flex h-full items-center justify-center'>
                     <FileVideo className='h-12 w-12 text-gray-400' />

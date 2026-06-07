@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { $ } from 'bun'
+import type { AppDatabase } from '#/db'
 import { generateAssContent } from '#/server/features/ass/ass-generator'
 import { getProjectById } from '#/server/features/projects/project-repository'
 import { getTemplateById } from '#/server/features/templates/template-repository'
@@ -8,7 +9,6 @@ import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import { toSubtitleStyle } from '#/shared/schemas'
 import type { ExportPreset, KeepSegment, SubtitleItem, SubtitleStyle, TimelineStateV1 } from '#/shared/schemas'
 import { getExportJobById, updateExportJob } from './export-repository'
-import type { AppDatabase } from '#/db'
 
 interface ExportJobRecord {
   id: string
@@ -112,12 +112,7 @@ class ExportWorker {
             }
 
         const mapped = mapSubtitlesToOutputTime(subItems, keepSegments)
-        const assContent = generateAssContent(
-          mapped,
-          videoAsset.width ?? 1920,
-          videoAsset.height ?? 1080,
-          defaultStyle
-        )
+        const assContent = generateAssContent(mapped, videoAsset.width ?? 1920, videoAsset.height ?? 1080, defaultStyle)
         assPath = `${exportDir}/subtitles.ass`
         const { writeFileSync } = await import('node:fs')
         writeFileSync(assPath, assContent)
@@ -173,9 +168,10 @@ class ExportWorker {
           if (line.startsWith('out_time_ms=')) {
             const ms = Number(line.substring(12))
             if (videoAsset.duration && videoAsset.duration > 0) {
-              const totalDuration = normalized.length > 0
-                ? normalized.reduce((sum, seg) => sum + (seg.sourceEnd - seg.sourceStart), 0)
-                : videoAsset.duration
+              const totalDuration =
+                normalized.length > 0
+                  ? normalized.reduce((sum, seg) => sum + (seg.sourceEnd - seg.sourceStart), 0)
+                  : videoAsset.duration
               const progress = Math.min(5 + (ms / 1_000_000 / totalDuration) * 90, 95)
               if (progress > lastProgress + 1) {
                 lastProgress = Math.round(progress)

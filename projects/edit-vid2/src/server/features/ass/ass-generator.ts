@@ -110,7 +110,10 @@ export function generateAssContent(
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding'
   )
   lines.push(
-    buildAssStyleLine('Default', resolveStyle({ text: '', outputStart: 0, outputEnd: 0, templateId: '', styleOverrides: {} }, defaultStyle))
+    buildAssStyleLine(
+      'Default',
+      resolveStyle({ text: '', outputStart: 0, outputEnd: 0, templateId: '', styleOverrides: {} }, defaultStyle)
+    )
   )
 
   // Collect per-subtitle style lines

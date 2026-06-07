@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Clapperboard, Copy, Edit, FileVideo, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 
 interface Project {
   id: string
@@ -116,11 +116,7 @@ export function ProjectsPage() {
                 <Link to='/projects/$projectId' params={{ projectId: project.id }}>
                   <div className='mb-3 aspect-video overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700'>
                     {video?.thumbnailPath ? (
-                      <img
-                        src={`/${video.thumbnailPath}`}
-                        alt={project.name}
-                        className='h-full w-full object-cover'
-                      />
+                      <img src={`/${video.thumbnailPath}`} alt={project.name} className='h-full w-full object-cover' />
                     ) : (
                       <div className='flex h-full items-center justify-center'>
                         <FileVideo className='h-12 w-12 text-gray-400' />

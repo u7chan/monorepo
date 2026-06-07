@@ -1,12 +1,18 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { sValidator } from '@hono/standard-validator'
-import { generateThumbnail, probeVideo } from '#/server/features/ffmpeg/ffmpeg-service'
-import { createVideoAsset, getVideoAssetById, getVideoAssets, softDeleteVideoAsset, updateVideoAsset } from '#/server/features/videos/video-repository'
-import type { HonoEnv } from '#/server/routes/shared'
-import { UpdateVideoAssetSchema, VideoAssetSchema } from '#/shared/schemas'
 import { Hono } from 'hono'
 import { uuidv7 } from 'uuidv7'
+import { generateThumbnail, probeVideo } from '#/server/features/ffmpeg/ffmpeg-service'
+import {
+  createVideoAsset,
+  getVideoAssetById,
+  getVideoAssets,
+  softDeleteVideoAsset,
+  updateVideoAsset,
+} from '#/server/features/videos/video-repository'
+import type { HonoEnv } from '#/server/routes/shared'
+import { UpdateVideoAssetSchema, VideoAssetSchema } from '#/shared/schemas'
 
 const videoRoutes = new Hono<HonoEnv>()
 

@@ -18,10 +18,7 @@ export function normalizeKeepSegments(segments: KeepSegment[]): KeepSegment[] {
   return merged
 }
 
-export function mapSubtitlesToOutputTime(
-  subtitles: SubtitleItem[],
-  keepSegments: KeepSegment[]
-): MappedSubtitle[] {
+export function mapSubtitlesToOutputTime(subtitles: SubtitleItem[], keepSegments: KeepSegment[]): MappedSubtitle[] {
   if (keepSegments.length === 0) {
     return subtitles.map((sub) => ({
       text: sub.text,

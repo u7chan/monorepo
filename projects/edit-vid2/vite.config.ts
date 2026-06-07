@@ -34,10 +34,7 @@ export default defineConfig(({ mode }) => {
 
     case 'dev':
       return {
-        plugins: [
-          tanstackRouter({ target: 'react' }),
-          devServer({ entry: './src/server/app.tsx' }),
-        ],
+        plugins: [tanstackRouter({ target: 'react' }), devServer({ entry: './src/server/app.tsx' })],
         resolve: { alias: sourceAlias },
         server: {
           port: process.env.SERVER_PORT ? Number(process.env.SERVER_PORT) : undefined,

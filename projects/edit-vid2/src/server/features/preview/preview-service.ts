@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { $ } from 'bun'
-import type { SubtitleStyle } from '#/shared/schemas'
 import { generateAssContent } from '#/server/features/ass/ass-generator'
+import type { SubtitleStyle } from '#/shared/schemas'
 
 export function buildPreviewCacheKey(
   projectId: string,
@@ -43,7 +43,9 @@ export async function generateSubtitlePreview(params: {
   writeFileSync(assPath, assContent)
 
   const result =
-    await $`ffmpeg -y -ss ${sourceTime.toFixed(2)} -i "${videoPath}" -vf "subtitles=${assPath}" -vframes 1 -q:v 2 "${outputPath}"`.nothrow().quiet()
+    await $`ffmpeg -y -ss ${sourceTime.toFixed(2)} -i "${videoPath}" -vf "subtitles=${assPath}" -vframes 1 -q:v 2 "${outputPath}"`
+      .nothrow()
+      .quiet()
 
   // Clean up ASS temp
   try {

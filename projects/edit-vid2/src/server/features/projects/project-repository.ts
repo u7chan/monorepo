@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
-import { projects } from '#/db/schema'
 import type { AppDatabase } from '#/db'
+import { projects } from '#/db/schema'
 
 export function getProjects(db: AppDatabase) {
   return db.select().from(projects).where(isNull(projects.deletedAt)).all()
