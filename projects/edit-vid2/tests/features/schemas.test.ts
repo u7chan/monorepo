@@ -39,6 +39,8 @@ describe('ExportPresetSchema', () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.format).toBe('mp4')
+      expect(result.data.videoCodec).toBe('libx264')
+      expect(result.data.audioCodec).toBe('aac')
       expect(result.data.crf).toBe(23)
     }
   })

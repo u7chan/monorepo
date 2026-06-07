@@ -26,6 +26,25 @@ function buildSubtitleFilter(assPath: string): string {
   return `subtitles='${escapeFilterPath(assPath)}'`
 }
 
+export function buildVideoEncodeArgs(preset: ExportPreset): string {
+  const args = [`-c:v ${preset.videoCodec}`, `-crf ${preset.crf}`, `-preset ${preset.preset}`]
+
+  if (preset.videoCodec === 'libx264') {
+    args.push('-profile:v high', '-level 4.1', '-pix_fmt yuv420p', '-tag:v avc1')
+  }
+
+  return args.join(' ')
+}
+
+function buildAudioEncodeArgs(audioCodec: ExportPreset['audioCodec']): string {
+  if (audioCodec === 'copy') return '-c:a copy'
+  return `-c:a ${audioCodec}`
+}
+
+export function buildMp4OutputArgs(): string {
+  return '-movflags +faststart'
+}
+
 function buildTrimFilter(normalized: KeepSegment[], hasAudio: boolean, subtitleFilter: string) {
   const parts: string[] = []
 
@@ -172,17 +191,20 @@ class ExportWorker {
       const normalized = normalizeKeepSegments(keepSegments)
 
       let ffmpegCmd: string
+      const videoEncodeArgs = buildVideoEncodeArgs(preset)
+      const outputArgs = buildMp4OutputArgs()
       if (normalized.length === 0) {
         // No trim: render entire video
         const filterPart = vfFilter ? ` -vf "${vfFilter}"` : ''
-        ffmpegCmd = `ffmpeg -y -i "${videoPath}"${filterPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -c:a ${preset.audioCodec} -progress pipe:1 -nostats "${outputPath}"`
+        const audioEncodeArgs = buildAudioEncodeArgs(preset.audioCodec)
+        ffmpegCmd = `ffmpeg -y -i "${videoPath}"${filterPart} ${videoEncodeArgs} ${audioEncodeArgs} ${outputArgs} -progress pipe:1 -nostats "${outputPath}"`
       } else {
         const hasAudio = videoAsset.hasAudio === true
         const trimFilter = buildTrimFilter(normalized, hasAudio, vfFilter)
         const audioPart = trimFilter.audioMap
           ? ` -map "${trimFilter.audioMap}" -c:a ${preset.audioCodec === 'copy' ? 'aac' : preset.audioCodec}`
           : ' -an'
-        ffmpegCmd = `ffmpeg -y -i "${videoPath}" -filter_complex "${trimFilter.graph}" -map "${trimFilter.videoMap}"${audioPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -progress pipe:1 -nostats "${outputPath}"`
+        ffmpegCmd = `ffmpeg -y -i "${videoPath}" -filter_complex "${trimFilter.graph}" -map "${trimFilter.videoMap}"${audioPart} ${videoEncodeArgs} ${outputArgs} -progress pipe:1 -nostats "${outputPath}"`
       }
 
       updateExportJob(db, jobId, { progress: 5 })
