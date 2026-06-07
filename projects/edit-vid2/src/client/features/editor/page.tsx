@@ -375,6 +375,8 @@ interface ExportJob {
 function ExportPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [preset, setPreset] = useState({ videoCodec: 'libx264', crf: 23, format: 'mp4', audioCodec: 'aac', preset: 'medium' as const })
 
   const { data: jobs } = useQuery<ExportJob[]>({
     queryKey: ['export-jobs', projectId],
@@ -387,7 +389,7 @@ function ExportPanel({ projectId }: { projectId: string }) {
       fetch(`/api/projects/${projectId}/export-jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ preset }),
       }).then((r) => r.json()),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
@@ -404,6 +406,54 @@ function ExportPanel({ projectId }: { projectId: string }) {
   return (
     <>
       <h2 className='mb-3 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300'>書き出し</h2>
+
+      <button
+        onClick={() => setShowSettings(!showSettings)}
+        className='mb-2 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
+      >
+        {showSettings ? '設定を閉じる' : '書き出し設定'}
+      </button>
+
+      {showSettings && (
+        <div className='mb-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>ビデオコーデック</label>
+            <select
+              value={preset.videoCodec}
+              onChange={(e) => setPreset({ ...preset, videoCodec: e.target.value })}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            >
+              <option value='libx264'>H.264</option>
+              <option value='libx265'>H.265</option>
+            </select>
+          </div>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>品質 (CRF: 0-51, 低いほど高品質)</label>
+            <input
+              type='range'
+              min={0}
+              max={51}
+              value={preset.crf}
+              onChange={(e) => setPreset({ ...preset, crf: Number(e.target.value) })}
+              className='w-full'
+            />
+            <span className='text-xs text-gray-400'>{preset.crf}</span>
+          </div>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>エンコード速度</label>
+            <select
+              value={preset.preset}
+              onChange={(e) => setPreset({ ...preset, preset: e.target.value as 'medium' })}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            >
+              <option value='ultrafast'>超高速</option>
+              <option value='fast'>高速</option>
+              <option value='medium'>標準</option>
+              <option value='slow'>低速 (高圧縮)</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       <button
         onClick={() => createExport.mutate()}
