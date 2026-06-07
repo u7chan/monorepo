@@ -5,3 +5,13 @@ declare module 'bun:sqlite' {
     close(): void
   }
 }
+
+declare module 'bun' {
+  export function $(
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ): {
+    quiet(): { nothrow(): Promise<{ exitCode: number; stdout: Buffer; stderr: Buffer }> }
+    nothrow(): { quiet(): Promise<{ exitCode: number; stdout: Buffer; stderr: Buffer }> }
+  }
+}

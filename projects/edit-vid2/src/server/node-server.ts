@@ -2,6 +2,7 @@ import { getDatabase } from '#/db'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
 import { errHandler } from '#/server/middleware/error-handler'
 import { htmlRoutes } from '#/server/routes/html'
+import { videoRoutes } from '#/server/routes/videos'
 import type { AppDatabase } from '#/db'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
@@ -30,6 +31,7 @@ const app = new Hono<{
 
 app.use('/static/*', serveStatic({ root: './dist' }))
 app.route('/', htmlRoutes)
+app.route('/api/videos', videoRoutes)
 
 const port = Number(process.env.SERVER_PORT) || 3000
 
