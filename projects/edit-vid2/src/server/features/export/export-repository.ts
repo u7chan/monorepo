@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { AppDatabase } from '#/db'
 import { exportJobs } from '#/db/schema'
 
@@ -11,6 +11,7 @@ export function getExportJobsByProject(db: AppDatabase, projectId: string) {
     .select()
     .from(exportJobs)
     .where(and(eq(exportJobs.projectId, projectId), isNull(exportJobs.deletedAt)))
+    .orderBy(desc(exportJobs.createdAt))
     .all()
 }
 

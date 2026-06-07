@@ -18,6 +18,54 @@ interface ExportJobRecord {
   preset: unknown
 }
 
+function escapeFilterPath(path: string): string {
+  return path.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
+}
+
+function buildSubtitleFilter(assPath: string): string {
+  return `subtitles='${escapeFilterPath(assPath)}'`
+}
+
+function buildTrimFilter(normalized: KeepSegment[], hasAudio: boolean, subtitleFilter: string) {
+  const parts: string[] = []
+
+  for (let i = 0; i < normalized.length; i++) {
+    const segment = normalized[i]
+    parts.push(`[0:v]trim=start=${segment.sourceStart}:end=${segment.sourceEnd},setpts=PTS-STARTPTS[v${i}]`)
+    if (hasAudio) {
+      parts.push(`[0:a]atrim=start=${segment.sourceStart}:end=${segment.sourceEnd},asetpts=PTS-STARTPTS[a${i}]`)
+    }
+  }
+
+  let videoLabel: string
+  let audioLabel: string | null = null
+
+  if (normalized.length === 1) {
+    videoLabel = 'v0'
+    audioLabel = hasAudio ? 'a0' : null
+  } else if (hasAudio) {
+    const inputs = normalized.map((_, i) => `[v${i}][a${i}]`).join('')
+    parts.push(`${inputs}concat=n=${normalized.length}:v=1:a=1[vcat][acat]`)
+    videoLabel = 'vcat'
+    audioLabel = 'acat'
+  } else {
+    const inputs = normalized.map((_, i) => `[v${i}]`).join('')
+    parts.push(`${inputs}concat=n=${normalized.length}:v=1:a=0[vcat]`)
+    videoLabel = 'vcat'
+  }
+
+  if (subtitleFilter) {
+    parts.push(`[${videoLabel}]${subtitleFilter}[vout]`)
+    videoLabel = 'vout'
+  }
+
+  return {
+    graph: parts.join(';'),
+    videoMap: `[${videoLabel}]`,
+    audioMap: audioLabel ? `[${audioLabel}]` : null,
+  }
+}
+
 class ExportWorker {
   private running = false
   private currentJobId: string | null = null
@@ -114,10 +162,10 @@ class ExportWorker {
 
         const mapped = mapSubtitlesToOutputTime(subItems, keepSegments)
         const assContent = generateAssContent(mapped, videoAsset.width ?? 1920, videoAsset.height ?? 1080, defaultStyle)
-        assPath = `${exportDir}/subtitles.ass`
+        assPath = resolve(exportDir, 'subtitles.ass')
         const { writeFileSync } = await import('node:fs')
         writeFileSync(assPath, assContent)
-        vfFilter = `subtitles=${assPath}`
+        vfFilter = buildSubtitleFilter(assPath)
       }
 
       // Build ffmpeg command for trim + concat
@@ -129,16 +177,12 @@ class ExportWorker {
         const filterPart = vfFilter ? ` -vf "${vfFilter}"` : ''
         ffmpegCmd = `ffmpeg -y -i "${videoPath}"${filterPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -c:a ${preset.audioCodec} -progress pipe:1 -nostats "${outputPath}"`
       } else {
-        // Trim via concat
-        const concatFile = `${exportDir}/concat.txt`
-        const { writeFileSync } = await import('node:fs')
-        const segments = normalized.map(
-          (seg) => `file '${videoPath}'\ninpoint ${seg.sourceStart}\noutpoint ${seg.sourceEnd}`
-        )
-        writeFileSync(concatFile, segments.join('\n'))
-
-        const filterPart = vfFilter ? ` -vf "${vfFilter}"` : ''
-        ffmpegCmd = `ffmpeg -y -f concat -safe 0 -i "${concatFile}"${filterPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -c:a ${preset.audioCodec} -progress pipe:1 -nostats "${outputPath}"`
+        const hasAudio = videoAsset.hasAudio === true
+        const trimFilter = buildTrimFilter(normalized, hasAudio, vfFilter)
+        const audioPart = trimFilter.audioMap
+          ? ` -map "${trimFilter.audioMap}" -c:a ${preset.audioCodec === 'copy' ? 'aac' : preset.audioCodec}`
+          : ' -an'
+        ffmpegCmd = `ffmpeg -y -i "${videoPath}" -filter_complex "${trimFilter.graph}" -map "${trimFilter.videoMap}"${audioPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -progress pipe:1 -nostats "${outputPath}"`
       }
 
       updateExportJob(db, jobId, { progress: 5 })
