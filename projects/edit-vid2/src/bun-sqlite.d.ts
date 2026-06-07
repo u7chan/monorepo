@@ -45,4 +45,5 @@ interface BunSubprocess {
 
 declare var Bun: {
   spawn(cmd: string[], options?: BunSpawnOptions): BunSubprocess
+  serve(options: { fetch: (request: Request) => Response | Promise<Response>; port?: number }): unknown
 }

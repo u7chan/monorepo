@@ -17,7 +17,7 @@ bun install
 # 開発サーバー起動
 bun run dev
 
-# マイグレーション
+# スキーマ変更後
 bun run db:generate
 bun run db:migrate
 ```
@@ -25,7 +25,6 @@ bun run db:migrate
 ## 検証
 
 ```bash
-bun run typecheck    # tsc
 bun run lint         # tsc && oxlint
 bun run format:check # oxfmt --check
 bun test             # bun test

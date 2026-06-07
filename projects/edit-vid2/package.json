@@ -2,21 +2,20 @@
   "name": "edit-vid2",
   "type": "module",
   "scripts": {
-    "dev": "dotenv -- vite --mode dev --host 0.0.0.0",
+    "dev": "bun run db:migrate && bun --bun vite --mode dev --host 0.0.0.0",
     "typegen": "vite build --mode typegen",
     "build": "vite build",
-    "start": "NODE_ENV=production dotenv -- bun run ./src/server/node-server.ts",
+    "start": "bun run db:migrate && NODE_ENV=production bun run ./src/server/bun-server.ts",
     "test": "bun test",
     "lint": "tsc && oxlint",
     "lint:fix": "oxlint --fix",
     "format:check": "oxfmt --check",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "bun run ./src/db/migrate.ts"
   },
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
-    "@hono/node-server": "^2.0.4",
     "@hono/standard-validator": "^0.2.2",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.101.0",
@@ -37,7 +36,6 @@
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "oxfmt": "0.53.0",
     "oxlint": "^1.68.0",

@@ -35,12 +35,12 @@ const app = new Hono<{
   })
 
 const routes = app
-  .route('/', htmlRoutes)
   .route('/api/videos', videoRoutes)
   .route('/api/projects', projectRoutes)
   .route('/api/templates', templateRoutes)
   .route('/api/projects/:projectId/previews/subtitle', previewRoutes)
   .route('/api/projects/:projectId/export-jobs', exportRoutes)
   .route('/api/export-jobs', sseRoutes)
+  .route('/', htmlRoutes)
 
 export default app

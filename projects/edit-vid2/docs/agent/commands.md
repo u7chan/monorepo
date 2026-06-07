@@ -17,7 +17,7 @@ Run from `projects/edit-vid2`.
 ## DB
 
 - Generate: `bun run db:generate`
-- Migrate: `bun run db:migrate`
+- Migrate: `bun run db:migrate` (Bun migrator)
 
 ## Docker
 

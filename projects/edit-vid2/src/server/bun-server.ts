@@ -1,5 +1,5 @@
-import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
+import { serveStatic } from 'hono/bun'
 import { getDatabase } from '#/db'
 import type { AppDatabase } from '#/db'
 import { errHandler } from '#/server/middleware/error-handler'
@@ -34,17 +34,19 @@ const app = new Hono<{
   })
 
 app.use('/static/*', serveStatic({ root: './dist' }))
-app.route('/', htmlRoutes)
 app.route('/api/videos', videoRoutes)
 app.route('/api/projects', projectRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/projects/:projectId/previews/subtitle', previewRoutes)
 app.route('/api/projects/:projectId/export-jobs', exportRoutes)
 app.route('/api/export-jobs', sseRoutes)
+app.route('/', htmlRoutes)
 
 const port = Number(process.env.SERVER_PORT) || 3000
 
-const { serve } = await import('@hono/node-server')
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`edit-vid2 server running on port ${info.port}`)
+Bun.serve({
+  fetch: app.fetch,
+  port,
 })
+
+console.log(`edit-vid2 server running on port ${port}`)

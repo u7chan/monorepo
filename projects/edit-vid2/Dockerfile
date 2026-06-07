@@ -34,4 +34,4 @@ COPY --from=builder /app/tsconfig.json ./tsconfig.json
 VOLUME /app/data
 EXPOSE 3000
 ENV NODE_ENV=production
-CMD ["bun", "run", "./src/server/node-server.ts"]
+CMD ["bun", "run", "start"]
