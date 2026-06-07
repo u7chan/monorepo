@@ -231,9 +231,7 @@ export function VideosPage() {
           <p className='mt-1 text-sm text-gray-400 dark:text-gray-500'>アップロードボタンから動画を追加してください</p>
         </div>
       )}
-      {previewVideo && (
-        <VideoPreviewModal video={previewVideo} onClose={() => setPreviewVideo(null)} />
-      )}
+      {previewVideo && <VideoPreviewModal video={previewVideo} onClose={() => setPreviewVideo(null)} />}
     </div>
   )
 }
@@ -250,10 +248,7 @@ function VideoPreviewModal({ video, onClose }: { video: VideoAsset; onClose: () 
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/80' onClick={onClose}>
       <div className='relative w-full max-w-4xl' onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          className='absolute -top-10 right-0 rounded-full p-1 text-white/70 hover:text-white'
-        >
+        <button onClick={onClose} className='absolute -top-10 right-0 rounded-full p-1 text-white/70 hover:text-white'>
           <X className='h-6 w-6' />
         </button>
         <video src={`/${video.storagePath}`} controls autoPlay className='w-full max-h-[80vh] rounded-lg bg-black' />
