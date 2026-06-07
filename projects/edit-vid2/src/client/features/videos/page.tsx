@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Clapperboard, FileVideo, Pencil, Play, Trash2, Upload, X } from 'lucide-react'
+import { Clapperboard, Download, FileVideo, Pencil, Play, Trash2, Upload, X } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 interface VideoAsset {
@@ -190,6 +190,13 @@ export function VideosPage() {
                     >
                       <Pencil className='h-3.5 w-3.5' />
                     </button>
+                    <a
+                      href={`/${video.storagePath}`}
+                      download={video.originalFilename}
+                      className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                    >
+                      <Download className='h-3.5 w-3.5' />
+                    </a>
                     <button
                       onClick={() => {
                         if (confirm('この動画を削除しますか？')) deleteMutation.mutate(video.id)
