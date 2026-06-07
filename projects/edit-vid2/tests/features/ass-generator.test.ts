@@ -79,4 +79,11 @@ describe('generateAssContent', () => {
     expect(content).toContain('&H000000FF&')
     expect(content).toContain('60')
   })
+
+  test('bottom subtitles use a positive vertical margin', () => {
+    const content = generateAssContent([], 1920, 1080, defaultStyle)
+    const defaultStyleLine = content.split('\n').find((line) => line.startsWith('Style: Default,'))
+
+    expect(defaultStyleLine).toContain(',2,10,10,60,1')
+  })
 })

@@ -54,9 +54,9 @@ function buildAssStyleLine(name: string, style: ResolvedStyle): string {
   const yPos: Record<string, number> = {
     top: 50 + style.margin.y,
     center: style.margin.y,
-    bottom: -50 + style.margin.y,
+    bottom: 50 + style.margin.y,
   }
-  const marginV = Math.round(yPos[style.position] ?? 0)
+  const marginV = Math.max(0, Math.round(yPos[style.position] ?? 0))
   const alignment = style.position === 'top' ? 8 : style.position === 'center' ? 5 : 2
 
   // Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour,
