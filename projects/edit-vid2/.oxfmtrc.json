@@ -1,0 +1,17 @@
+{
+  "printWidth": 120,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": false,
+  "singleQuote": true,
+  "jsxSingleQuote": true,
+  "trailingComma": "es5",
+  "endOfLine": "lf",
+  "sortImports": {
+    "groups": [["side_effect"], ["builtin"], ["external"], ["internal"], ["parent", "sibling", "index"]],
+    "sortSideEffects": false,
+    "newlinesBetween": false,
+    "ignoreCase": true
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**", "/src/client/routeTree.gen.ts", "/src/server/app.d.ts"]
+}

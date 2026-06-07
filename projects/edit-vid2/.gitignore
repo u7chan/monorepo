@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+logs/
+data/
+.env
+*.db
+*.db-journal
+*.db-wal
+.tanstack/
