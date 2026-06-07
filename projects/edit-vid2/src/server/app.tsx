@@ -1,6 +1,7 @@
 import { getDatabase } from '#/db'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
 import { errHandler } from '#/server/middleware/error-handler'
+import { exportRoutes, sseRoutes } from '#/server/routes/exports'
 import { htmlRoutes } from '#/server/routes/html'
 import { previewRoutes } from '#/server/routes/previews'
 import { projectRoutes } from '#/server/routes/projects'
@@ -39,5 +40,7 @@ const routes = app
   .route('/api/projects', projectRoutes)
   .route('/api/templates', templateRoutes)
   .route('/api/projects/:projectId/previews/subtitle', previewRoutes)
+  .route('/api/projects/:projectId/export-jobs', exportRoutes)
+  .route('/api/export-jobs', sseRoutes)
 
 export default app

@@ -1,6 +1,7 @@
 import { getDatabase } from '#/db'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
 import { errHandler } from '#/server/middleware/error-handler'
+import { exportRoutes, sseRoutes } from '#/server/routes/exports'
 import { htmlRoutes } from '#/server/routes/html'
 import { previewRoutes } from '#/server/routes/previews'
 import { projectRoutes } from '#/server/routes/projects'
@@ -38,6 +39,8 @@ app.route('/api/videos', videoRoutes)
 app.route('/api/projects', projectRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/projects/:projectId/previews/subtitle', previewRoutes)
+app.route('/api/projects/:projectId/export-jobs', exportRoutes)
+app.route('/api/export-jobs', sseRoutes)
 
 const port = Number(process.env.SERVER_PORT) || 3000
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
-import { ArrowLeft, Plus, Scissors, Type } from 'lucide-react'
+import { ArrowLeft, Download, Plus, Scissors, Type } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import type { KeepSegment, Project, SubtitleItem, SubtitleTemplate, TimelineStateV1, VideoAsset } from '#/shared/schemas'
 
@@ -196,6 +196,8 @@ export function EditorPage() {
               </div>
             </>
           )}
+
+          <ExportPanel projectId={projectId} />
         </div>
       </div>
 
@@ -358,6 +360,126 @@ function TimelineBar({
         <span>{formatSeconds(currentTime)}</span>
         <span>{formatSeconds(duration)}</span>
       </div>
+    </div>
+  )
+}
+
+interface ExportJob {
+  id: string
+  status: string
+  progress: number
+  outputPath: string | null
+  createdAt: string
+}
+
+function ExportPanel({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient()
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+
+  const { data: jobs } = useQuery<ExportJob[]>({
+    queryKey: ['export-jobs', projectId],
+    queryFn: () => fetch(`/api/projects/${projectId}/export-jobs`).then((r) => r.json()),
+    refetchInterval: 3000,
+  })
+
+  const createExport = useMutation({
+    mutationFn: () =>
+      fetch(`/api/projects/${projectId}/export-jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }).then((r) => r.json()),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
+      setActiveJobId(data.id)
+    },
+  })
+
+  const cancelExport = useMutation({
+    mutationFn: (jobId: string) =>
+      fetch(`/api/export-jobs/${jobId}/cancel`, { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] }),
+  })
+
+  return (
+    <>
+      <h2 className='mb-3 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300'>書き出し</h2>
+
+      <button
+        onClick={() => createExport.mutate()}
+        disabled={createExport.isPending}
+        className='mb-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50'
+      >
+        <Download className='h-4 w-4' />
+        {createExport.isPending ? '作成中...' : '書き出しを開始'}
+      </button>
+
+      <div className='space-y-2'>
+        {jobs?.map((job) => (
+          <JobCard key={job.id} job={job} onCancel={() => cancelExport.mutate(job.id)} />
+        ))}
+        {(!jobs || jobs.length === 0) && (
+          <p className='text-xs text-gray-400 dark:text-gray-500'>書き出し履歴がありません</p>
+        )}
+      </div>
+    </>
+  )
+}
+
+function JobCard({ job, onCancel }: { job: ExportJob; onCancel: () => void }) {
+  const statusLabels: Record<string, string> = {
+    queued: '待機中',
+    running: '実行中',
+    succeeded: '完了',
+    failed: '失敗',
+    canceling: 'キャンセル中',
+    canceled: 'キャンセル済',
+  }
+  const statusColors: Record<string, string> = {
+    queued: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+    running: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+    succeeded: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+    canceling: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
+    canceled: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+  }
+
+  const canCancel = job.status === 'queued' || job.status === 'running'
+  const canDownload = job.status === 'succeeded' && job.outputPath
+
+  return (
+    <div className='rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-800'>
+      <div className='flex items-center justify-between'>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[job.status] ?? ''}`}>
+          {statusLabels[job.status] ?? job.status}
+        </span>
+        <div className='flex gap-1'>
+          {canCancel && (
+            <button onClick={onCancel} className='rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'>
+              キャンセル
+            </button>
+          )}
+          {canDownload && (
+            <a
+              href={`/api/export-jobs/${job.id}/download`}
+              className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+            >
+              ダウンロード
+            </a>
+          )}
+        </div>
+      </div>
+      {(job.status === 'running' || job.status === 'queued') && (
+        <div className='mt-2'>
+          <div className='h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700'>
+            <div
+              className='h-full rounded-full bg-indigo-600 transition-all duration-300'
+              style={{ width: `${job.progress}%` }}
+            />
+          </div>
+          <p className='mt-1 text-right text-xs text-gray-400'>{Math.round(job.progress)}%</p>
+        </div>
+      )}
     </div>
   )
 }
