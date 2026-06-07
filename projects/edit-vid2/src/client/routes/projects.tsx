@@ -1,8 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { lazy } from 'react'
-
-const ProjectsPage = lazy(() => import('#/client/features/projects/page').then((m) => ({ default: m.ProjectsPage })))
+import { createFileRoute, Outlet } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/projects')({
-  component: ProjectsPage,
+  component: () => <Outlet />,
 })
