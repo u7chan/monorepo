@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { $ } from 'bun'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { AppDatabase } from '#/db'
 import { generateAssContent } from '#/server/features/ass/ass-generator'
 import { getProjectById } from '#/server/features/projects/project-repository'
@@ -67,6 +67,7 @@ class ExportWorker {
 
       const videoAsset = getVideoAssetById(db, project.videoAssetId)
       if (!videoAsset || !videoAsset.storagePath) throw new Error('video asset not found')
+      const videoPath = resolve(videoAsset.storagePath)
 
       const timelineState = (exportJob.snapshot as TimelineStateV1) ?? (project.timelineState as TimelineStateV1 | null)
       if (!timelineState) throw new Error('no timeline state')
@@ -126,13 +127,13 @@ class ExportWorker {
       if (normalized.length === 0) {
         // No trim: render entire video
         const filterPart = vfFilter ? ` -vf "${vfFilter}"` : ''
-        ffmpegCmd = `ffmpeg -y -i "${videoAsset.storagePath}"${filterPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -c:a ${preset.audioCodec} -progress pipe:1 -nostats "${outputPath}"`
+        ffmpegCmd = `ffmpeg -y -i "${videoPath}"${filterPart} -c:v ${preset.videoCodec} -crf ${preset.crf} -preset ${preset.preset} -c:a ${preset.audioCodec} -progress pipe:1 -nostats "${outputPath}"`
       } else {
         // Trim via concat
         const concatFile = `${exportDir}/concat.txt`
         const { writeFileSync } = await import('node:fs')
         const segments = normalized.map(
-          (seg) => `file '${videoAsset.storagePath}'\ninpoint ${seg.sourceStart}\noutpoint ${seg.sourceEnd}`
+          (seg) => `file '${videoPath}'\ninpoint ${seg.sourceStart}\noutpoint ${seg.sourceEnd}`
         )
         writeFileSync(concatFile, segments.join('\n'))
 

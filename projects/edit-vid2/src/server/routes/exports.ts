@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -19,13 +20,40 @@ function ensureParam(value: string | undefined, name: string): string {
   return value
 }
 
+function summarizeExportError(logPath: string | null): string | null {
+  if (!logPath || !existsSync(logPath)) return null
+
+  const log = readFileSync(logPath, 'utf8').slice(-12000)
+  const lines = log
+    .split('\n')
+    .map((line) => line.replace(/^\[ERROR\]\s*/, '').trim())
+    .filter(Boolean)
+
+  const inputOpenLine = [...lines].reverse().find((line) => line.includes('Impossible to open'))
+  if (inputOpenLine) {
+    const match = inputOpenLine.match(/Impossible to open '([^']+)'/)
+    return match ? `入力ファイルを開けません: ${match[1]}` : inputOpenLine
+  }
+
+  const relevantLine = [...lines]
+    .reverse()
+    .find((line) => /error|failed|invalid|unable|no such file/i.test(line) && !line.startsWith('configuration:'))
+
+  return relevantLine ?? null
+}
+
 const exportRoutes = new Hono<HonoEnv>()
 
 exportRoutes.get('/', (c) => {
   const db = c.var.db
   const projectId = ensureParam(c.req.param('projectId'), 'projectId')
   const jobs = getExportJobsByProject(db, projectId)
-  return c.json(jobs)
+  return c.json(
+    jobs.map((job) => ({
+      ...job,
+      errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
+    }))
+  )
 })
 
 exportRoutes.post('/', sValidator('json', CreateExportJobSchema), (c) => {
@@ -105,7 +133,10 @@ sseRoutes.get('/:exportJobId', (c) => {
   if (!job) {
     return c.json({ error: 'not found' }, 404)
   }
-  return c.json(job)
+  return c.json({
+    ...job,
+    errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
+  })
 })
 
 sseRoutes.post('/:exportJobId/cancel', (c) => {

@@ -462,6 +462,8 @@ interface ExportJob {
   status: string
   progress: number
   outputPath: string | null
+  logPath: string | null
+  errorMessage: string | null
   createdAt: string
 }
 
@@ -627,6 +629,21 @@ function JobCard({ job, onCancel }: { job: ExportJob; onCancel: () => void }) {
             />
           </div>
           <p className='mt-1 text-right text-xs text-gray-400'>{Math.round(job.progress)}%</p>
+        </div>
+      )}
+      {job.status === 'failed' && (
+        <div className='mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'>
+          <p className='break-words'>{job.errorMessage ?? '書き出しに失敗しました。ログを確認してください。'}</p>
+          {job.logPath && (
+            <a
+              href={`/${job.logPath}`}
+              target='_blank'
+              rel='noreferrer'
+              className='mt-1 inline-block font-medium underline underline-offset-2'
+            >
+              ffmpegログを開く
+            </a>
+          )}
         </div>
       )}
     </div>
