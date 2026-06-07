@@ -36,6 +36,7 @@ const app = new Hono<{
   })
 
 const routes = app
+  .get('/data/*', serveStatic({ root: './' }))
   .route('/api/videos', videoRoutes)
   .route('/api/projects', projectRoutes)
   .route('/api/templates', templateRoutes)
@@ -43,6 +44,5 @@ const routes = app
   .route('/api/projects/:projectId/export-jobs', exportRoutes)
   .route('/api/export-jobs', sseRoutes)
   .route('/', htmlRoutes)
-  .get('/data/*', serveStatic({ root: './' }))
 
 export default app
