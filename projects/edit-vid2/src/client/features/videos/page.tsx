@@ -34,6 +34,12 @@ function formatFileSize(bytes: number | null): string {
   return `${(bytes / 1024).toFixed(1)} KB`
 }
 
+function downloadName(displayName: string, originalFilename: string): string {
+  const ext = originalFilename.match(/\.[^.]+$/)?.[0] ?? ''
+  if (!ext) return displayName
+  return displayName.endsWith(ext) ? displayName : `${displayName}${ext}`
+}
+
 export function VideosPage() {
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -192,7 +198,7 @@ export function VideosPage() {
                     </button>
                     <a
                       href={`/${video.storagePath}`}
-                      download={video.originalFilename}
+                      download={downloadName(video.displayName, video.originalFilename)}
                       className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
                     >
                       <Download className='h-3.5 w-3.5' />
