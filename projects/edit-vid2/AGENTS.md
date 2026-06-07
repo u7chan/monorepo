@@ -12,10 +12,10 @@ Thin router for `edit-vid2`.
 
 ## Routes
 
-| Need | Read |
-| --- | --- |
-| Commands | `docs/agent/commands.md` |
-| Overview | `README.md` |
+| Need      | Read                                     |
+| --------- | ---------------------------------------- |
+| Commands  | `docs/agent/commands.md`                 |
+| Overview  | `README.md`                              |
 | CI/Docker | `Dockerfile`, `../../docs/about-cicd.md` |
-| Source | `src/` |
-| Tests | `tests/` |
+| Source    | `src/`                                   |
+| Tests     | `tests/`                                 |
