@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Clapperboard, FileVideo, Pencil, Trash2, Upload } from 'lucide-react'
-import { useState } from 'react'
+import { Clapperboard, FileVideo, Pencil, Play, Trash2, Upload, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
 interface VideoAsset {
   id: string
   originalFilename: string
   displayName: string
+  storagePath: string
   thumbnailPath: string | null
   duration: number | null
   width: number | null
@@ -37,6 +38,7 @@ export function VideosPage() {
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [previewVideo, setPreviewVideo] = useState<VideoAsset | null>(null)
 
   const { data: videos, isLoading } = useQuery<VideoAsset[]>({
     queryKey: ['videos'],
@@ -112,7 +114,11 @@ export function VideosPage() {
               key={video.id}
               className='group rounded-xl border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800'
             >
-              <div className='mb-3 aspect-video overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700'>
+              <button
+                type='button'
+                onClick={() => setPreviewVideo(video)}
+                className='group/thumb relative mb-3 aspect-video w-full overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700'
+              >
                 {video.thumbnailPath ? (
                   <img src={`/${video.thumbnailPath}`} alt={video.displayName} className='h-full w-full object-cover' />
                 ) : (
@@ -120,7 +126,10 @@ export function VideosPage() {
                     <FileVideo className='h-12 w-12 text-gray-400' />
                   </div>
                 )}
-              </div>
+                <div className='absolute inset-0 flex items-center justify-center transition-colors group-hover/thumb:bg-black/30'>
+                  <Play className='h-12 w-12 text-white opacity-0 transition-opacity group-hover/thumb:opacity-90 drop-shadow-lg' />
+                </div>
+              </button>
 
               <div className='space-y-1'>
                 {editingId === video.id ? (
@@ -209,6 +218,34 @@ export function VideosPage() {
           <p className='mt-1 text-sm text-gray-400 dark:text-gray-500'>アップロードボタンから動画を追加してください</p>
         </div>
       )}
+      {previewVideo && (
+        <VideoPreviewModal video={previewVideo} onClose={() => setPreviewVideo(null)} />
+      )}
+    </div>
+  )
+}
+
+function VideoPreviewModal({ video, onClose }: { video: VideoAsset; onClose: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/80' onClick={onClose}>
+      <div className='relative w-full max-w-4xl' onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={onClose}
+          className='absolute -top-10 right-0 rounded-full p-1 text-white/70 hover:text-white'
+        >
+          <X className='h-6 w-6' />
+        </button>
+        <video src={`/${video.storagePath}`} controls autoPlay className='w-full max-h-[80vh] rounded-lg bg-black' />
+        <p className='mt-2 text-center text-sm text-white/70'>{video.displayName}</p>
+      </div>
     </div>
   )
 }
