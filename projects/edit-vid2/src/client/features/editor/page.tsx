@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Download, RotateCcw, Type, X } from 'lucide-react'
+import { ArrowLeft, Download, RotateCcw, Trash2, Type, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   KeepSegment,
@@ -501,6 +501,11 @@ function ExportPanel({ projectId }: { projectId: string }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] }),
   })
 
+  const deleteExport = useMutation({
+    mutationFn: (jobId: string) => fetch(`/api/export-jobs/${jobId}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] }),
+  })
+
   return (
     <>
       <h2 className='mb-3 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300'>書き出し</h2>
@@ -564,7 +569,12 @@ function ExportPanel({ projectId }: { projectId: string }) {
 
       <div className='space-y-2'>
         {jobs?.map((job) => (
-          <JobCard key={job.id} job={job} onCancel={() => cancelExport.mutate(job.id)} />
+          <JobCard
+            key={job.id}
+            job={job}
+            onCancel={() => cancelExport.mutate(job.id)}
+            onDelete={() => deleteExport.mutate(job.id)}
+          />
         ))}
         {(!jobs || jobs.length === 0) && (
           <p className='text-xs text-gray-400 dark:text-gray-500'>書き出し履歴がありません</p>
@@ -574,7 +584,7 @@ function ExportPanel({ projectId }: { projectId: string }) {
   )
 }
 
-function JobCard({ job, onCancel }: { job: ExportJob; onCancel: () => void }) {
+function JobCard({ job, onCancel, onDelete }: { job: ExportJob; onCancel: () => void; onDelete: () => void }) {
   const statusLabels: Record<string, string> = {
     queued: '待機中',
     running: '実行中',
@@ -594,6 +604,7 @@ function JobCard({ job, onCancel }: { job: ExportJob; onCancel: () => void }) {
 
   const canCancel = job.status === 'queued' || job.status === 'running'
   const canDownload = job.status === 'succeeded' && job.outputPath
+  const canDelete = job.status === 'succeeded' || job.status === 'failed' || job.status === 'canceled'
 
   return (
     <div className='rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-800'>
@@ -617,6 +628,17 @@ function JobCard({ job, onCancel }: { job: ExportJob; onCancel: () => void }) {
             >
               ダウンロード
             </a>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => {
+                if (confirm('この書き出し履歴と出力ファイルを削除しますか？')) onDelete()
+              }}
+              className='inline-flex h-6 w-6 items-center justify-center rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'
+              title='履歴と出力ファイルを削除'
+            >
+              <Trash2 className='h-3.5 w-3.5' />
+            </button>
           )}
         </div>
       </div>

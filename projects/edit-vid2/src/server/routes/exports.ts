@@ -1,10 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { uuidv7 } from 'uuidv7'
 import {
   createExportJob,
+  deleteExportJob,
   getExportJobById,
   getExportJobsByProject,
   getIncompleteJobs,
@@ -40,6 +42,15 @@ function summarizeExportError(logPath: string | null): string | null {
     .find((line) => /error|failed|invalid|unable|no such file/i.test(line) && !line.startsWith('configuration:'))
 
   return relevantLine ?? null
+}
+
+function removeExportFiles(jobId: string) {
+  const exportsRoot = resolve('data/exports')
+  const exportDir = resolve(exportsRoot, jobId)
+  if (!exportDir.startsWith(`${exportsRoot}/`)) {
+    throw new Error('invalid export path')
+  }
+  rmSync(exportDir, { recursive: true, force: true })
 }
 
 const exportRoutes = new Hono<HonoEnv>()
@@ -151,6 +162,22 @@ sseRoutes.post('/:exportJobId/cancel', (c) => {
     updateExportJob(db, jobId, { status: 'canceled' })
   }
   return c.json(updateExportJob(db, jobId, {}))
+})
+
+sseRoutes.delete('/:exportJobId', (c) => {
+  const db = c.var.db
+  const jobId = c.req.param('exportJobId')
+  const job = getExportJobById(db, jobId)
+  if (!job) {
+    return c.json({ error: 'not found' }, 404)
+  }
+  if (job.status === 'queued' || job.status === 'running' || job.status === 'canceling') {
+    return c.json({ error: 'cancel export before deleting it' }, 409)
+  }
+
+  removeExportFiles(jobId)
+  deleteExportJob(db, jobId)
+  return c.body(null, 204)
 })
 
 sseRoutes.get('/:exportJobId/download', async (c) => {

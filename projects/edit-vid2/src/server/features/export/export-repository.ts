@@ -60,3 +60,7 @@ export function updateExportJob(db: AppDatabase, id: string, data: Record<string
     .run()
   return getExportJobById(db, id)
 }
+
+export function deleteExportJob(db: AppDatabase, id: string) {
+  db.delete(exportJobs).where(eq(exportJobs.id, id)).run()
+}
