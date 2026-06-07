@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Download, Scissors, Type, X } from 'lucide-react'
+import { ArrowLeft, Download, RotateCcw, Type, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   KeepSegment,
@@ -41,6 +41,7 @@ export function EditorPage() {
     tracks: [],
     keepSegments: [],
   }
+  const mediaDuration = duration || videoAsset?.duration || 0
 
   const updateProject = useMutation({
     mutationFn: (data: { timelineState: TimelineStateV1 }) =>
@@ -83,7 +84,7 @@ export function EditorPage() {
     const newItem: SubtitleItem = {
       id: crypto.randomUUID(),
       sourceStart: currentTime,
-      sourceEnd: Math.min(currentTime + 3, duration),
+      sourceEnd: Math.min(currentTime + 3, mediaDuration),
       text: '',
       templateId: templates?.[0]?.id ?? 'default',
       styleOverrides: {},
@@ -92,18 +93,6 @@ export function EditorPage() {
       ? timelineState.tracks.map((t) => (t.type === 'subtitle' ? { ...t, items: [...t.items, newItem] } : t))
       : [...timelineState.tracks, { id: crypto.randomUUID(), type: 'subtitle' as const, items: [newItem] }]
     saveTimelineState({ ...timelineState, tracks: updatedTracks })
-  }
-
-  const addKeepSegment = () => {
-    const newSegment: KeepSegment = {
-      id: crypto.randomUUID(),
-      sourceStart: 0,
-      sourceEnd: duration || 0,
-    }
-    saveTimelineState({
-      ...timelineState,
-      keepSegments: [...timelineState.keepSegments, newSegment],
-    })
   }
 
   const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
@@ -127,13 +116,6 @@ export function EditorPage() {
             <Type className='h-4 w-4' />
             字幕追加 (A)
           </button>
-          <button
-            onClick={addKeepSegment}
-            className='inline-flex items-center gap-1 rounded-lg bg-gray-600 px-3 py-1.5 text-sm text-white hover:bg-gray-700'
-          >
-            <Scissors className='h-4 w-4' />
-            保持区間追加
-          </button>
         </div>
       </div>
 
@@ -148,6 +130,13 @@ export function EditorPage() {
         </div>
 
         <div className='w-full overflow-auto border-t border-gray-200 p-4 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
+          <TrimPanel
+            duration={mediaDuration}
+            currentTime={currentTime}
+            keepSegments={timelineState.keepSegments}
+            onChange={(keepSegments) => saveTimelineState({ ...timelineState, keepSegments })}
+          />
+
           <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>字幕 ({subItems.length})</h2>
           <div className='space-y-2'>
             {subItems.map((sub) => (
@@ -155,7 +144,7 @@ export function EditorPage() {
                 key={sub.id}
                 item={sub}
                 templates={templates ?? []}
-                duration={duration}
+                duration={mediaDuration}
                 onChange={(updated) => {
                   const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
                   const newTracks = timelineState.tracks.map((t) =>
@@ -179,50 +168,12 @@ export function EditorPage() {
             )}
           </div>
 
-          {timelineState.keepSegments.length > 0 && (
-            <>
-              <h2 className='mb-3 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300'>
-                トリム区間 ({timelineState.keepSegments.length})
-              </h2>
-              <div className='space-y-2'>
-                {timelineState.keepSegments.map((seg) => (
-                  <div
-                    key={seg.id}
-                    className='rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'
-                  >
-                    <div className='flex items-center justify-between gap-2'>
-                      <div className='flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400'>
-                        <span>{formatSeconds(seg.sourceStart)}</span>
-                        <span>-</span>
-                        <span>{formatSeconds(seg.sourceEnd)}</span>
-                      </div>
-                      <button
-                        type='button'
-                        onClick={() =>
-                          saveTimelineState({
-                            ...timelineState,
-                            keepSegments: timelineState.keepSegments.filter((s) => s.id !== seg.id),
-                          })
-                        }
-                        className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
-                        aria-label='トリム区間を削除'
-                        title='トリム区間を削除'
-                      >
-                        <X className='h-3.5 w-3.5' />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
           <ExportPanel projectId={projectId} />
         </div>
       </div>
 
       <TimelineBar
-        duration={duration}
+        duration={mediaDuration}
         currentTime={currentTime}
         keepSegments={timelineState.keepSegments}
         subtitleItems={subItems}
@@ -241,6 +192,128 @@ function formatSeconds(s: number): string {
   const m = Math.floor(s / 60)
   const sec = Math.floor(s % 60)
   return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+function clampTime(value: number, duration: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(value, duration || 0))
+}
+
+function roundTime(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function formatDecimalSeconds(value: number): string {
+  return roundTime(value).toFixed(1)
+}
+
+function TrimPanel({
+  duration,
+  currentTime,
+  keepSegments,
+  onChange,
+}: {
+  duration: number
+  currentTime: number
+  keepSegments: KeepSegment[]
+  onChange: (keepSegments: KeepSegment[]) => void
+}) {
+  const segment = keepSegments[0]
+  const start = clampTime(segment?.sourceStart ?? 0, duration)
+  const end = clampTime(segment?.sourceEnd ?? duration, duration)
+  const trimLength = Math.max(0, end - start)
+  const hasTrim = keepSegments.length > 0
+
+  const saveRange = (nextStart: number, nextEnd: number) => {
+    if (duration === 0) return
+
+    const minLength = Math.min(0.1, duration)
+    const maxStart = Math.max(0, duration - minLength)
+    const sourceStart = clampTime(roundTime(Math.min(clampTime(nextStart, duration), maxStart)), maxStart)
+    const sourceEnd = clampTime(roundTime(Math.max(clampTime(nextEnd, duration), sourceStart + minLength)), duration)
+
+    if (sourceStart === 0 && sourceEnd === roundTime(duration)) {
+      onChange([])
+      return
+    }
+
+    onChange([
+      {
+        id: segment?.id ?? crypto.randomUUID(),
+        sourceStart,
+        sourceEnd,
+      },
+    ])
+  }
+
+  return (
+    <section className='mb-6'>
+      <div className='mb-3 flex items-center justify-between gap-3'>
+        <h2 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>切り抜き</h2>
+        <span className='text-xs text-gray-400 dark:text-gray-500'>長さ {formatSeconds(trimLength)}</span>
+      </div>
+
+      <div className='rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'>
+        <div className='grid grid-cols-2 gap-2'>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
+            <input
+              type='number'
+              value={formatDecimalSeconds(start)}
+              step={0.1}
+              min={0}
+              max={duration}
+              disabled={duration === 0}
+              onChange={(e) => saveRange(Number(e.target.value), end)}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            />
+          </div>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
+            <input
+              type='number'
+              value={formatDecimalSeconds(end)}
+              step={0.1}
+              min={0}
+              max={duration}
+              disabled={duration === 0}
+              onChange={(e) => saveRange(start, Number(e.target.value))}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            />
+          </div>
+        </div>
+
+        <div className='mt-3 grid grid-cols-2 gap-2'>
+          <button
+            type='button'
+            onClick={() => saveRange(currentTime, end)}
+            disabled={duration === 0}
+            className='rounded-lg border border-gray-300 px-2 py-1.5 text-xs text-gray-700 hover:bg-white disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+          >
+            現在位置を開始にする
+          </button>
+          <button
+            type='button'
+            onClick={() => saveRange(start, currentTime)}
+            disabled={duration === 0}
+            className='rounded-lg border border-gray-300 px-2 py-1.5 text-xs text-gray-700 hover:bg-white disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+          >
+            現在位置を終了にする
+          </button>
+        </div>
+
+        <button
+          type='button'
+          onClick={() => onChange([])}
+          disabled={!hasTrim}
+          className='mt-2 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-gray-300 px-2 py-1.5 text-xs text-gray-600 hover:bg-white disabled:opacity-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
+        >
+          <RotateCcw className='h-3.5 w-3.5' />
+          全体に戻す
+        </button>
+      </div>
+    </section>
+  )
 }
 
 function SubtitleEditorItem({
