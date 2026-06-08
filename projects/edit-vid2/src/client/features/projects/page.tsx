@@ -104,6 +104,7 @@ export function ProjectsPage() {
       {linkingProject && (
         <LinkVideoModal
           project={linkingProject}
+          currentVideo={videos?.find((v) => v.id === linkingProject.videoAssetId)}
           videos={readyVideos}
           onSubmit={(videoAssetId) => updateMutation.mutate({ id: linkingProject.id, videoAssetId })}
           onClose={() => setLinkingProject(null)}
@@ -174,16 +175,14 @@ export function ProjectsPage() {
                   <p className='text-xs text-gray-500 dark:text-gray-400 truncate'>
                     {video?.displayName ?? '動画未紐づけ'}
                   </p>
-                  {!hasVideo && (
-                    <button
-                      type='button'
-                      onClick={() => setLinkingProject(project)}
-                      className='mt-2 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-500/60 dark:text-indigo-300 dark:hover:bg-indigo-500/10'
-                    >
-                      <Link2 className='h-3.5 w-3.5' />
-                      動画を紐づけ
-                    </button>
-                  )}
+                  <button
+                    type='button'
+                    onClick={() => setLinkingProject(project)}
+                    className='mt-2 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-500/60 dark:text-indigo-300 dark:hover:bg-indigo-500/10'
+                  >
+                    <Link2 className='h-3.5 w-3.5' />
+                    {hasVideo ? '動画を変更' : '動画を紐づけ'}
+                  </button>
 
                   <div className='flex items-center gap-1'>
                     <span className='text-xs text-gray-400 dark:text-gray-500'>
@@ -235,18 +234,20 @@ export function ProjectsPage() {
 
 function LinkVideoModal({
   project,
+  currentVideo,
   videos,
   onSubmit,
   onClose,
   loading,
 }: {
   project: Project
+  currentVideo?: VideoAsset
   videos: VideoAsset[]
   onSubmit: (videoAssetId: string) => void
   onClose: () => void
   loading: boolean
 }) {
-  const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id ?? '')
+  const [selectedVideoId, setSelectedVideoId] = useState(currentVideo?.id ?? videos[0]?.id ?? '')
 
   useEffect(() => {
     if (!selectedVideoId && videos[0]) {
@@ -254,14 +255,32 @@ function LinkVideoModal({
     }
   }, [selectedVideoId, videos])
 
+  const isChangingVideo = !!currentVideo
+  const submit = () => {
+    if (!selectedVideoId) return
+    if (
+      isChangingVideo &&
+      selectedVideoId !== currentVideo.id &&
+      !confirm('動画を変更すると、字幕や切り抜き位置が新しい動画と合わなくなる場合があります。変更しますか？')
+    ) {
+      return
+    }
+    onSubmit(selectedVideoId)
+  }
+
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50' onClick={onClose}>
       <div
         className='w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800'
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className='mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100'>動画を紐づけ</h2>
+        <h2 className='mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100'>
+          {isChangingVideo ? '動画を変更' : '動画を紐づけ'}
+        </h2>
         <p className='mb-4 truncate text-sm text-gray-500 dark:text-gray-400'>{project.name}</p>
+        {currentVideo && (
+          <p className='mb-3 truncate text-xs text-gray-500 dark:text-gray-400'>現在: {currentVideo.displayName}</p>
+        )}
         <label className='mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'>元動画</label>
         <select
           value={selectedVideoId}
@@ -283,12 +302,12 @@ function LinkVideoModal({
             キャンセル
           </button>
           <button
-            onClick={() => onSubmit(selectedVideoId)}
-            disabled={loading || !selectedVideoId}
+            onClick={submit}
+            disabled={loading || !selectedVideoId || selectedVideoId === currentVideo?.id}
             className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
           >
             <Link2 className='h-4 w-4' />
-            {loading ? '保存中...' : '紐づけ'}
+            {loading ? '保存中...' : isChangingVideo ? '変更' : '紐づけ'}
           </button>
         </div>
       </div>

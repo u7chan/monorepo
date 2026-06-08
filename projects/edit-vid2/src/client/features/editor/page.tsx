@@ -20,6 +20,7 @@ export function EditorPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [showLinkVideo, setShowLinkVideo] = useState(false)
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -82,6 +83,7 @@ export function EditorPage() {
     onSuccess: () => {
       setCurrentTime(0)
       setDuration(0)
+      setShowLinkVideo(false)
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
     },
   })
@@ -141,6 +143,16 @@ export function EditorPage() {
         <h1 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>{project?.name ?? 'エディタ'}</h1>
         <span className='text-sm text-gray-400'>{videoAsset?.displayName ?? '動画未紐づけ'}</span>
         <div className='ml-auto flex gap-2'>
+          {hasVideo && (
+            <button
+              type='button'
+              onClick={() => setShowLinkVideo(true)}
+              className='inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+            >
+              <Link2 className='h-4 w-4' />
+              動画を変更
+            </button>
+          )}
           <button
             onClick={addSubtitle}
             disabled={!hasVideo}
@@ -151,6 +163,16 @@ export function EditorPage() {
           </button>
         </div>
       </div>
+
+      {showLinkVideo && (
+        <EditorLinkVideoModal
+          currentVideo={videoAsset}
+          videos={readyVideos}
+          loading={linkVideo.isPending}
+          onSubmit={(videoAssetId) => linkVideo.mutate(videoAssetId)}
+          onClose={() => setShowLinkVideo(false)}
+        />
+      )}
 
       <div className='flex flex-1 flex-col overflow-auto lg:flex-row'>
         <div className='flex-1 bg-black p-4'>
@@ -275,6 +297,85 @@ function MissingVideoPlaceholder({
           >
             <Link2 className='h-4 w-4' />
             {loading ? '保存中...' : '紐づけ'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditorLinkVideoModal({
+  currentVideo,
+  videos,
+  loading,
+  onSubmit,
+  onClose,
+}: {
+  currentVideo: VideoAsset | null | undefined
+  videos: VideoAsset[]
+  loading: boolean
+  onSubmit: (videoAssetId: string) => void
+  onClose: () => void
+}) {
+  const [selectedVideoId, setSelectedVideoId] = useState(currentVideo?.id ?? videos[0]?.id ?? '')
+
+  useEffect(() => {
+    if (!selectedVideoId && videos[0]) {
+      setSelectedVideoId(videos[0].id)
+    }
+  }, [selectedVideoId, videos])
+
+  const submit = () => {
+    if (!selectedVideoId) return
+    if (
+      currentVideo &&
+      selectedVideoId !== currentVideo.id &&
+      !confirm('動画を変更すると、字幕や切り抜き位置が新しい動画と合わなくなる場合があります。変更しますか？')
+    ) {
+      return
+    }
+    onSubmit(selectedVideoId)
+  }
+
+  return (
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50' onClick={onClose}>
+      <div
+        className='w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800'
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className='mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100'>動画を変更</h2>
+        {currentVideo && (
+          <p className='mb-4 truncate text-sm text-gray-500 dark:text-gray-400'>現在: {currentVideo.displayName}</p>
+        )}
+        <label className='mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'>元動画</label>
+        <select
+          value={selectedVideoId}
+          onChange={(e) => setSelectedVideoId(e.target.value)}
+          className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+        >
+          {videos.length === 0 && <option value=''>利用可能な動画がありません</option>}
+          {videos.map((video) => (
+            <option key={video.id} value={video.id}>
+              {video.displayName}
+            </option>
+          ))}
+        </select>
+        <div className='mt-6 flex justify-end gap-2'>
+          <button
+            type='button'
+            onClick={onClose}
+            className='rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+          >
+            キャンセル
+          </button>
+          <button
+            type='button'
+            onClick={submit}
+            disabled={loading || !selectedVideoId || selectedVideoId === currentVideo?.id}
+            className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
+          >
+            <Link2 className='h-4 w-4' />
+            {loading ? '保存中...' : '変更'}
           </button>
         </div>
       </div>
