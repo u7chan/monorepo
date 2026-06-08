@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Clapperboard, Copy, Edit, FileVideo, Link2, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 interface Project {
   id: string
@@ -248,24 +248,19 @@ function LinkVideoModal({
   loading: boolean
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState(currentVideo?.id ?? videos[0]?.id ?? '')
-
-  useEffect(() => {
-    if (!selectedVideoId && videos[0]) {
-      setSelectedVideoId(videos[0].id)
-    }
-  }, [selectedVideoId, videos])
+  const resolvedSelectedVideoId = selectedVideoId || currentVideo?.id || videos[0]?.id || ''
 
   const isChangingVideo = !!currentVideo
   const submit = () => {
-    if (!selectedVideoId) return
+    if (!resolvedSelectedVideoId) return
     if (
       isChangingVideo &&
-      selectedVideoId !== currentVideo.id &&
+      resolvedSelectedVideoId !== currentVideo.id &&
       !confirm('動画を変更すると、字幕や切り抜き位置が新しい動画と合わなくなる場合があります。変更しますか？')
     ) {
       return
     }
-    onSubmit(selectedVideoId)
+    onSubmit(resolvedSelectedVideoId)
   }
 
   return (
@@ -283,7 +278,7 @@ function LinkVideoModal({
         )}
         <label className='mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'>元動画</label>
         <select
-          value={selectedVideoId}
+          value={resolvedSelectedVideoId}
           onChange={(e) => setSelectedVideoId(e.target.value)}
           className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
         >
@@ -303,7 +298,7 @@ function LinkVideoModal({
           </button>
           <button
             onClick={submit}
-            disabled={loading || !selectedVideoId || selectedVideoId === currentVideo?.id}
+            disabled={loading || !resolvedSelectedVideoId || resolvedSelectedVideoId === currentVideo?.id}
             className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
           >
             <Link2 className='h-4 w-4' />

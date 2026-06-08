@@ -93,25 +93,6 @@ export function EditorPage() {
     setDuration(0)
   }, [videoAsset?.id])
 
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    const onTimeUpdate = () => {
-      if (video.paused) return
-      setCurrentTime(video.currentTime)
-    }
-    const onLoadedMetadata = () => setDuration(video.duration)
-
-    video.addEventListener('timeupdate', onTimeUpdate)
-    video.addEventListener('loadedmetadata', onLoadedMetadata)
-
-    return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate)
-      video.removeEventListener('loadedmetadata', onLoadedMetadata)
-    }
-  }, [])
-
   const addSubtitle = () => {
     if (!hasVideo) return
     const subTrack = timelineState.tracks.find((t) => t.type === 'subtitle')
@@ -181,6 +162,11 @@ export function EditorPage() {
               ref={videoRef}
               src={`/${videoAsset.storagePath}`}
               controls
+              onTimeUpdate={(e) => {
+                if (e.currentTarget.paused) return
+                setCurrentTime(e.currentTarget.currentTime)
+              }}
+              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
               className='max-h-[60vh] w-full rounded-lg'
             />
           ) : (
@@ -261,12 +247,7 @@ function MissingVideoPlaceholder({
   onSubmit: (videoAssetId: string) => void
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id ?? '')
-
-  useEffect(() => {
-    if (!selectedVideoId && videos[0]) {
-      setSelectedVideoId(videos[0].id)
-    }
-  }, [selectedVideoId, videos])
+  const resolvedSelectedVideoId = selectedVideoId || videos[0]?.id || ''
 
   return (
     <div className='flex min-h-[360px] w-full items-center justify-center rounded-lg border border-dashed border-gray-600 bg-gray-950 p-6 text-center'>
@@ -278,7 +259,7 @@ function MissingVideoPlaceholder({
         </p>
         <div className='mt-5 flex flex-col gap-2 sm:flex-row'>
           <select
-            value={selectedVideoId}
+            value={resolvedSelectedVideoId}
             onChange={(e) => setSelectedVideoId(e.target.value)}
             className='min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-gray-100'
           >
@@ -291,8 +272,8 @@ function MissingVideoPlaceholder({
           </select>
           <button
             type='button'
-            onClick={() => onSubmit(selectedVideoId)}
-            disabled={loading || !selectedVideoId}
+            onClick={() => onSubmit(resolvedSelectedVideoId)}
+            disabled={loading || !resolvedSelectedVideoId}
             className='inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
           >
             <Link2 className='h-4 w-4' />
@@ -318,23 +299,18 @@ function EditorLinkVideoModal({
   onClose: () => void
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState(currentVideo?.id ?? videos[0]?.id ?? '')
-
-  useEffect(() => {
-    if (!selectedVideoId && videos[0]) {
-      setSelectedVideoId(videos[0].id)
-    }
-  }, [selectedVideoId, videos])
+  const resolvedSelectedVideoId = selectedVideoId || currentVideo?.id || videos[0]?.id || ''
 
   const submit = () => {
-    if (!selectedVideoId) return
+    if (!resolvedSelectedVideoId) return
     if (
       currentVideo &&
-      selectedVideoId !== currentVideo.id &&
+      resolvedSelectedVideoId !== currentVideo.id &&
       !confirm('動画を変更すると、字幕や切り抜き位置が新しい動画と合わなくなる場合があります。変更しますか？')
     ) {
       return
     }
-    onSubmit(selectedVideoId)
+    onSubmit(resolvedSelectedVideoId)
   }
 
   return (
@@ -349,7 +325,7 @@ function EditorLinkVideoModal({
         )}
         <label className='mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'>元動画</label>
         <select
-          value={selectedVideoId}
+          value={resolvedSelectedVideoId}
           onChange={(e) => setSelectedVideoId(e.target.value)}
           className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
         >
@@ -371,7 +347,7 @@ function EditorLinkVideoModal({
           <button
             type='button'
             onClick={submit}
-            disabled={loading || !selectedVideoId || selectedVideoId === currentVideo?.id}
+            disabled={loading || !resolvedSelectedVideoId || resolvedSelectedVideoId === currentVideo?.id}
             className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
           >
             <Link2 className='h-4 w-4' />
