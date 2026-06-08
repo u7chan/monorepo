@@ -44,6 +44,13 @@ function isPendingVideo(video: VideoAsset): boolean {
   return video.status === 'uploading' || video.status === 'processing'
 }
 
+function videoStatusLabel(video: VideoAsset): string {
+  if (video.status === 'ready') return '完了'
+  if (video.status === 'uploading') return 'アップロード中'
+  if (video.status === 'processing') return '処理中'
+  return '失敗'
+}
+
 export function VideosPage() {
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -203,12 +210,12 @@ export function VideosPage() {
                       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         video.status === 'ready'
                           ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                          : video.status === 'processing'
+                          : isPending
                             ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
                             : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
                       }`}
                     >
-                      {video.status === 'ready' ? '完了' : video.status === 'processing' ? '処理中' : '失敗'}
+                      {videoStatusLabel(video)}
                     </span>
 
                     <div className='ml-auto flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
