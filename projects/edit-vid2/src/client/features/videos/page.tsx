@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Clapperboard, Download, FileVideo, Pencil, Play, Trash2, Upload, X } from 'lucide-react'
+import { Clapperboard, Download, FileVideo, LoaderCircle, Pencil, Play, Trash2, Upload, X } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 interface VideoAsset {
@@ -40,6 +40,10 @@ function downloadName(displayName: string, originalFilename: string): string {
   return displayName.endsWith(ext) ? displayName : `${displayName}${ext}`
 }
 
+function isPendingVideo(video: VideoAsset): boolean {
+  return video.status === 'uploading' || video.status === 'processing'
+}
+
 export function VideosPage() {
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -49,6 +53,8 @@ export function VideosPage() {
   const { data: videos, isLoading } = useQuery<VideoAsset[]>({
     queryKey: ['videos'],
     queryFn: () => fetch('/api/videos').then((r) => r.json()),
+    refetchInterval: (query) => (query.state.data?.some(isPendingVideo) ? 3000 : false),
+    refetchIntervalInBackground: true,
   })
 
   const deleteMutation = useMutation({
@@ -115,114 +121,156 @@ export function VideosPage() {
         </div>
       ) : videos && videos.length > 0 ? (
         <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
-          {videos.map((video) => (
-            <div
-              key={video.id}
-              className='group rounded-xl border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800'
-            >
-              <button
-                type='button'
-                onClick={() => setPreviewVideo(video)}
-                className='group/thumb relative mb-3 aspect-video w-full overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700'
+          {videos.map((video) => {
+            const isPending = isPendingVideo(video)
+            const isReady = video.status === 'ready'
+
+            return (
+              <div
+                key={video.id}
+                className='group rounded-xl border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800'
               >
-                {video.thumbnailPath ? (
-                  <img src={`/${video.thumbnailPath}`} alt={video.displayName} className='h-full w-full object-cover' />
-                ) : (
-                  <div className='flex h-full items-center justify-center'>
-                    <FileVideo className='h-12 w-12 text-gray-400' />
-                  </div>
-                )}
-                <div className='absolute inset-0 flex items-center justify-center transition-colors group-hover/thumb:bg-black/30'>
-                  <Play className='h-12 w-12 text-white opacity-0 transition-opacity group-hover/thumb:opacity-90 drop-shadow-lg' />
-                </div>
-              </button>
-
-              <div className='space-y-1'>
-                {editingId === video.id ? (
-                  <div className='flex gap-1'>
-                    <input
-                      type='text'
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') updateMutation.mutate({ id: video.id, displayName: editName })
-                        if (e.key === 'Escape') setEditingId(null)
-                      }}
+                <button
+                  type='button'
+                  onClick={() => {
+                    if (!isPending) setPreviewVideo(video)
+                  }}
+                  disabled={isPending}
+                  className={`group/thumb relative mb-3 aspect-video w-full overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700 ${
+                    isPending ? 'cursor-wait' : ''
+                  }`}
+                >
+                  {video.thumbnailPath ? (
+                    <img
+                      src={`/${video.thumbnailPath}`}
+                      alt={video.displayName}
+                      className='h-full w-full object-cover'
                     />
-                    <button
-                      onClick={() => updateMutation.mutate({ id: video.id, displayName: editName })}
-                      className='rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700'
-                    >
-                      保存
-                    </button>
-                  </div>
-                ) : (
-                  <h3 className='font-medium text-gray-900 truncate dark:text-gray-100'>{video.displayName}</h3>
-                )}
-
-                <div className='flex flex-wrap gap-x-3 text-xs text-gray-500 dark:text-gray-400'>
-                  <span>{formatDuration(video.duration)}</span>
-                  {video.width && video.height && (
-                    <span>
-                      {video.width}x{video.height}
-                    </span>
+                  ) : (
+                    <div className='flex h-full items-center justify-center'>
+                      <FileVideo className='h-12 w-12 text-gray-400' />
+                    </div>
                   )}
-                  <span>{formatFileSize(video.fileSize)}</span>
-                  <span>{video.fps ? `${Math.round(video.fps)}fps` : ''}</span>
-                </div>
+                  {isPending ? (
+                    <div className='absolute inset-0 flex items-center justify-center bg-black/20'>
+                      <LoaderCircle className='h-10 w-10 animate-spin text-white drop-shadow-lg' />
+                    </div>
+                  ) : (
+                    <div className='absolute inset-0 flex items-center justify-center transition-colors group-hover/thumb:bg-black/30'>
+                      <Play className='h-12 w-12 text-white opacity-0 transition-opacity group-hover/thumb:opacity-90 drop-shadow-lg' />
+                    </div>
+                  )}
+                </button>
 
-                <div className='flex items-center gap-2'>
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                      video.status === 'ready'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                        : video.status === 'processing'
-                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                          : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                    }`}
-                  >
-                    {video.status === 'ready' ? '完了' : video.status === 'processing' ? '処理中' : '失敗'}
-                  </span>
+                <div className='space-y-1'>
+                  {editingId === video.id ? (
+                    <div className='flex gap-1'>
+                      <input
+                        type='text'
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') updateMutation.mutate({ id: video.id, displayName: editName })
+                          if (e.key === 'Escape') setEditingId(null)
+                        }}
+                      />
+                      <button
+                        onClick={() => updateMutation.mutate({ id: video.id, displayName: editName })}
+                        className='rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700'
+                      >
+                        保存
+                      </button>
+                    </div>
+                  ) : (
+                    <h3 className='font-medium text-gray-900 truncate dark:text-gray-100'>{video.displayName}</h3>
+                  )}
 
-                  <div className='ml-auto flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
-                    <button
-                      onClick={() => {
-                        setEditingId(video.id)
-                        setEditName(video.displayName)
-                      }}
-                      className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                  <div className='flex flex-wrap gap-x-3 text-xs text-gray-500 dark:text-gray-400'>
+                    <span>{formatDuration(video.duration)}</span>
+                    {video.width && video.height && (
+                      <span>
+                        {video.width}x{video.height}
+                      </span>
+                    )}
+                    <span>{formatFileSize(video.fileSize)}</span>
+                    <span>{video.fps ? `${Math.round(video.fps)}fps` : ''}</span>
+                  </div>
+
+                  <div className='flex items-center gap-2'>
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                        video.status === 'ready'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                          : video.status === 'processing'
+                            ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                      }`}
                     >
-                      <Pencil className='h-3.5 w-3.5' />
-                    </button>
-                    <a
-                      href={`/${video.storagePath}`}
-                      download={downloadName(video.displayName, video.originalFilename)}
-                      className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
-                    >
-                      <Download className='h-3.5 w-3.5' />
-                    </a>
-                    <button
-                      onClick={() => {
-                        if (confirm('この動画を削除しますか？')) deleteMutation.mutate(video.id)
-                      }}
-                      className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
-                    >
-                      <Trash2 className='h-3.5 w-3.5' />
-                    </button>
-                    <Link
-                      to='/projects'
-                      className='rounded p-1 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900 dark:hover:text-indigo-400'
-                      title='プロジェクトを作成'
-                    >
-                      <Clapperboard className='h-3.5 w-3.5' />
-                    </Link>
+                      {video.status === 'ready' ? '完了' : video.status === 'processing' ? '処理中' : '失敗'}
+                    </span>
+
+                    <div className='ml-auto flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
+                      <button
+                        onClick={() => {
+                          setEditingId(video.id)
+                          setEditName(video.displayName)
+                        }}
+                        className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                      >
+                        <Pencil className='h-3.5 w-3.5' />
+                      </button>
+                      {isReady ? (
+                        <a
+                          href={`/${video.storagePath}`}
+                          download={downloadName(video.displayName, video.originalFilename)}
+                          className='rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                        >
+                          <Download className='h-3.5 w-3.5' />
+                        </a>
+                      ) : (
+                        <button
+                          type='button'
+                          disabled
+                          className='cursor-not-allowed rounded p-1 text-gray-400 opacity-40'
+                          title='処理完了後にダウンロードできます'
+                        >
+                          <Download className='h-3.5 w-3.5' />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (confirm('この動画を削除しますか？')) deleteMutation.mutate(video.id)
+                        }}
+                        className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
+                      >
+                        <Trash2 className='h-3.5 w-3.5' />
+                      </button>
+                      {isReady ? (
+                        <Link
+                          to='/projects'
+                          className='rounded p-1 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900 dark:hover:text-indigo-400'
+                          title='プロジェクトを作成'
+                        >
+                          <Clapperboard className='h-3.5 w-3.5' />
+                        </Link>
+                      ) : (
+                        <button
+                          type='button'
+                          disabled
+                          className='cursor-not-allowed rounded p-1 text-gray-400 opacity-40'
+                          title='処理完了後にプロジェクトを作成できます'
+                        >
+                          <Clapperboard className='h-3.5 w-3.5' />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : (
         <div className='flex flex-col items-center justify-center py-20 text-center'>
