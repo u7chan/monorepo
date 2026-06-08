@@ -292,6 +292,7 @@ export function VideosPage() {
 }
 
 function VideoPreviewModal({ video, onClose }: { video: VideoAsset; onClose: () => void }) {
+  // Keep document key subscription explicit while the preview modal is mounted.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
