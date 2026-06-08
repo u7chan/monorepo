@@ -3,6 +3,7 @@ import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft, Download, RotateCcw, Trash2, Type, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { uuidv7 } from 'uuidv7'
 import type {
   KeepSegment,
   Project,
@@ -82,7 +83,7 @@ export function EditorPage() {
   const addSubtitle = () => {
     const subTrack = timelineState.tracks.find((t) => t.type === 'subtitle')
     const newItem: SubtitleItem = {
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       sourceStart: currentTime,
       sourceEnd: Math.min(currentTime + 3, mediaDuration),
       text: '',
@@ -91,7 +92,7 @@ export function EditorPage() {
     }
     const updatedTracks = subTrack
       ? timelineState.tracks.map((t) => (t.type === 'subtitle' ? { ...t, items: [...t.items, newItem] } : t))
-      : [...timelineState.tracks, { id: crypto.randomUUID(), type: 'subtitle' as const, items: [newItem] }]
+      : [...timelineState.tracks, { id: uuidv7(), type: 'subtitle' as const, items: [newItem] }]
     saveTimelineState({ ...timelineState, tracks: updatedTracks })
   }
 
@@ -239,7 +240,7 @@ function TrimPanel({
 
     onChange([
       {
-        id: segment?.id ?? crypto.randomUUID(),
+        id: segment?.id ?? uuidv7(),
         sourceStart,
         sourceEnd,
       },
