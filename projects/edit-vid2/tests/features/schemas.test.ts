@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CreateProjectSchema, CreateVideoAssetSchema, ExportPresetSchema } from '#/shared/schemas'
+import { CreateProjectSchema, CreateVideoAssetSchema, ExportPresetSchema, UpdateProjectSchema } from '#/shared/schemas'
 
 describe('CreateVideoAssetSchema', () => {
   test('accepts valid minimal input', () => {
@@ -30,6 +30,13 @@ describe('CreateProjectSchema', () => {
   test('rejects missing videoAssetId', () => {
     const result = CreateProjectSchema.safeParse({ name: 'Test' })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('UpdateProjectSchema', () => {
+  test('accepts videoAssetId relink', () => {
+    const result = UpdateProjectSchema.safeParse({ videoAssetId: 'va2' })
+    expect(result.success).toBe(true)
   })
 })
 

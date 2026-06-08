@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Clapperboard, Copy, Edit, FileVideo, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Clapperboard, Copy, Edit, FileVideo, Link2, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 interface Project {
   id: string
@@ -23,6 +23,7 @@ export function ProjectsPage() {
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [linkingProject, setLinkingProject] = useState<Project | null>(null)
   const [editName, setEditName] = useState('')
 
   const { data: projects, isLoading: projectsLoading } = useQuery<Project[]>({
@@ -64,15 +65,16 @@ export function ProjectsPage() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
+    mutationFn: ({ id, name, videoAssetId }: { id: string; name?: string; videoAssetId?: string }) =>
       fetch(`/api/projects/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, videoAssetId }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setEditingId(null)
+      setLinkingProject(null)
     },
   })
 
@@ -99,6 +101,15 @@ export function ProjectsPage() {
           loading={createMutation.isPending}
         />
       )}
+      {linkingProject && (
+        <LinkVideoModal
+          project={linkingProject}
+          videos={readyVideos}
+          onSubmit={(videoAssetId) => updateMutation.mutate({ id: linkingProject.id, videoAssetId })}
+          onClose={() => setLinkingProject(null)}
+          loading={updateMutation.isPending}
+        />
+      )}
 
       {projectsLoading ? (
         <div className='flex items-center justify-center py-20'>
@@ -108,6 +119,7 @@ export function ProjectsPage() {
         <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
           {projects.map((project) => {
             const video = videos?.find((v) => v.id === project.videoAssetId)
+            const hasVideo = !!video
             return (
               <div
                 key={project.id}
@@ -118,8 +130,13 @@ export function ProjectsPage() {
                     {video?.thumbnailPath ? (
                       <img src={`/${video.thumbnailPath}`} alt={project.name} className='h-full w-full object-cover' />
                     ) : (
-                      <div className='flex h-full items-center justify-center'>
+                      <div className='flex h-full flex-col items-center justify-center gap-2 px-3 text-center'>
                         <FileVideo className='h-12 w-12 text-gray-400' />
+                        {!hasVideo && (
+                          <span className='text-xs font-medium text-indigo-600 dark:text-indigo-300'>
+                            元動画が見つかりません
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -154,7 +171,19 @@ export function ProjectsPage() {
                     </Link>
                   )}
 
-                  <p className='text-xs text-gray-500 dark:text-gray-400 truncate'>{video?.displayName}</p>
+                  <p className='text-xs text-gray-500 dark:text-gray-400 truncate'>
+                    {video?.displayName ?? '動画未紐づけ'}
+                  </p>
+                  {!hasVideo && (
+                    <button
+                      type='button'
+                      onClick={() => setLinkingProject(project)}
+                      className='mt-2 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-500/60 dark:text-indigo-300 dark:hover:bg-indigo-500/10'
+                    >
+                      <Link2 className='h-3.5 w-3.5' />
+                      動画を紐づけ
+                    </button>
+                  )}
 
                   <div className='flex items-center gap-1'>
                     <span className='text-xs text-gray-400 dark:text-gray-500'>
@@ -200,6 +229,69 @@ export function ProjectsPage() {
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+function LinkVideoModal({
+  project,
+  videos,
+  onSubmit,
+  onClose,
+  loading,
+}: {
+  project: Project
+  videos: VideoAsset[]
+  onSubmit: (videoAssetId: string) => void
+  onClose: () => void
+  loading: boolean
+}) {
+  const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id ?? '')
+
+  useEffect(() => {
+    if (!selectedVideoId && videos[0]) {
+      setSelectedVideoId(videos[0].id)
+    }
+  }, [selectedVideoId, videos])
+
+  return (
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50' onClick={onClose}>
+      <div
+        className='w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800'
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className='mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100'>動画を紐づけ</h2>
+        <p className='mb-4 truncate text-sm text-gray-500 dark:text-gray-400'>{project.name}</p>
+        <label className='mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'>元動画</label>
+        <select
+          value={selectedVideoId}
+          onChange={(e) => setSelectedVideoId(e.target.value)}
+          className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+        >
+          {videos.length === 0 && <option value=''>利用可能な動画がありません</option>}
+          {videos.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.displayName}
+            </option>
+          ))}
+        </select>
+        <div className='mt-6 flex justify-end gap-2'>
+          <button
+            onClick={onClose}
+            className='rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={() => onSubmit(selectedVideoId)}
+            disabled={loading || !selectedVideoId}
+            className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
+          >
+            <Link2 className='h-4 w-4' />
+            {loading ? '保存中...' : '紐づけ'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

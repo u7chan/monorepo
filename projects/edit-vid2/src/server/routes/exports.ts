@@ -14,6 +14,7 @@ import {
 } from '#/server/features/export/export-repository'
 import { exportWorker } from '#/server/features/export/export-worker'
 import { getProjectById } from '#/server/features/projects/project-repository'
+import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import type { HonoEnv } from '#/server/routes/shared'
 import { CreateExportJobSchema } from '#/shared/schemas'
 
@@ -74,6 +75,10 @@ exportRoutes.post('/', sValidator('json', CreateExportJobSchema), (c) => {
   const project = getProjectById(db, projectId)
   if (!project) {
     return c.json({ error: 'project not found' }, 404)
+  }
+  const videoAsset = getVideoAssetById(db, project.videoAssetId)
+  if (videoAsset?.status !== 'ready' || !videoAsset.storagePath) {
+    return c.json({ error: 'video asset not ready' }, 400)
   }
 
   const body = c.req.valid('json')

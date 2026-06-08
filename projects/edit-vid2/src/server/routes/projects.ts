@@ -8,10 +8,16 @@ import {
   softDeleteProject,
   updateProject,
 } from '#/server/features/projects/project-repository'
+import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import type { HonoEnv } from '#/server/routes/shared'
 import { CreateProjectSchema, DuplicateProjectSchema, UpdateProjectSchema } from '#/shared/schemas'
 
 const projectRoutes = new Hono<HonoEnv>()
+
+function getReadyVideoAsset(db: HonoEnv['Variables']['db'], videoAssetId: string) {
+  const videoAsset = getVideoAssetById(db, videoAssetId)
+  return videoAsset?.status === 'ready' ? videoAsset : null
+}
 
 projectRoutes.get('/', (c) => {
   const db = c.var.db
@@ -31,6 +37,9 @@ projectRoutes.get('/:projectId', (c) => {
 projectRoutes.post('/', sValidator('json', CreateProjectSchema), (c) => {
   const db = c.var.db
   const body = c.req.valid('json')
+  if (!getReadyVideoAsset(db, body.videoAssetId)) {
+    return c.json({ error: 'video asset not ready' }, 400)
+  }
   const project = createProject(db, {
     id: uuidv7(),
     videoAssetId: body.videoAssetId,
@@ -46,7 +55,11 @@ projectRoutes.patch('/:projectId', sValidator('json', UpdateProjectSchema), (c) 
   if (!existing) {
     return c.json({ error: 'not found' }, 404)
   }
-  const updated = updateProject(db, id, c.req.valid('json'))
+  const body = c.req.valid('json')
+  if (body.videoAssetId && !getReadyVideoAsset(db, body.videoAssetId)) {
+    return c.json({ error: 'video asset not ready' }, 400)
+  }
+  const updated = updateProject(db, id, body)
   return c.json(updated)
 })
 
