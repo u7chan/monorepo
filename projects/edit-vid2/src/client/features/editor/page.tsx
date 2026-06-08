@@ -88,6 +88,7 @@ export function EditorPage() {
     },
   })
 
+  // Query refresh or project loading can swap the video outside linkVideo.onSuccess.
   useEffect(() => {
     setCurrentTime(0)
     setDuration(0)
