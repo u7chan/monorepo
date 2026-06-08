@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { $ } from 'bun'
 import { generateAssContent } from '#/server/features/ass/ass-generator'
 import type { SubtitleStyle } from '#/shared/schemas'
