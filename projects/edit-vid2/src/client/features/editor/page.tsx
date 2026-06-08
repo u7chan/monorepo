@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Download, RotateCcw, Trash2, Type, X } from 'lucide-react'
+import { ArrowLeft, Download, FileVideo, Link2, RotateCcw, Trash2, Type, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { uuidv7 } from 'uuidv7'
 import type {
@@ -20,16 +20,26 @@ export function EditorPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [showLinkVideo, setShowLinkVideo] = useState(false)
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
     queryFn: () => fetch(`/api/projects/${projectId}`).then((r) => r.json()),
   })
 
-  const { data: videoAsset } = useQuery<VideoAsset>({
+  const { data: videoAsset } = useQuery<VideoAsset | null>({
     queryKey: ['video', project?.videoAssetId],
     enabled: !!project?.videoAssetId,
-    queryFn: () => fetch(`/api/videos/${project!.videoAssetId}`).then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch(`/api/videos/${project!.videoAssetId}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+  })
+
+  const { data: videos } = useQuery<VideoAsset[]>({
+    queryKey: ['videos'],
+    queryFn: () => fetch('/api/videos').then((r) => r.json()),
   })
 
   const { data: templates } = useQuery<SubtitleTemplate[]>({
@@ -43,6 +53,8 @@ export function EditorPage() {
     keepSegments: [],
   }
   const mediaDuration = duration || videoAsset?.duration || 0
+  const hasVideo = !!videoAsset?.storagePath
+  const readyVideos = videos?.filter((video) => video.status === 'ready') ?? []
 
   const updateProject = useMutation({
     mutationFn: (data: { timelineState: TimelineStateV1 }) =>
@@ -61,26 +73,28 @@ export function EditorPage() {
     [updateProject]
   )
 
+  const linkVideo = useMutation({
+    mutationFn: (videoAssetId: string) =>
+      fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoAssetId }),
+      }),
+    onSuccess: () => {
+      setCurrentTime(0)
+      setDuration(0)
+      setShowLinkVideo(false)
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+    },
+  })
+
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    const onTimeUpdate = () => {
-      if (video.paused) return
-      setCurrentTime(video.currentTime)
-    }
-    const onLoadedMetadata = () => setDuration(video.duration)
-
-    video.addEventListener('timeupdate', onTimeUpdate)
-    video.addEventListener('loadedmetadata', onLoadedMetadata)
-
-    return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate)
-      video.removeEventListener('loadedmetadata', onLoadedMetadata)
-    }
-  }, [])
+    setCurrentTime(0)
+    setDuration(0)
+  }, [videoAsset?.id])
 
   const addSubtitle = () => {
+    if (!hasVideo) return
     const subTrack = timelineState.tracks.find((t) => t.type === 'subtitle')
     const newItem: SubtitleItem = {
       id: uuidv7(),
@@ -108,11 +122,22 @@ export function EditorPage() {
           <ArrowLeft className='h-5 w-5' />
         </Link>
         <h1 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>{project?.name ?? 'エディタ'}</h1>
-        <span className='text-sm text-gray-400'>{videoAsset?.displayName}</span>
+        <span className='text-sm text-gray-400'>{videoAsset?.displayName ?? '動画未紐づけ'}</span>
         <div className='ml-auto flex gap-2'>
+          {hasVideo && (
+            <button
+              type='button'
+              onClick={() => setShowLinkVideo(true)}
+              className='inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+            >
+              <Link2 className='h-4 w-4' />
+              動画を変更
+            </button>
+          )}
           <button
             onClick={addSubtitle}
-            className='inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700'
+            disabled={!hasVideo}
+            className='inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50'
           >
             <Type className='h-4 w-4' />
             字幕追加 (A)
@@ -120,14 +145,37 @@ export function EditorPage() {
         </div>
       </div>
 
+      {showLinkVideo && (
+        <EditorLinkVideoModal
+          currentVideo={videoAsset}
+          videos={readyVideos}
+          loading={linkVideo.isPending}
+          onSubmit={(videoAssetId) => linkVideo.mutate(videoAssetId)}
+          onClose={() => setShowLinkVideo(false)}
+        />
+      )}
+
       <div className='flex flex-1 flex-col overflow-auto lg:flex-row'>
         <div className='flex-1 bg-black p-4'>
-          <video
-            ref={videoRef}
-            src={videoAsset ? `/${videoAsset.storagePath}` : undefined}
-            controls
-            className='max-h-[60vh] w-full rounded-lg'
-          />
+          {hasVideo ? (
+            <video
+              ref={videoRef}
+              src={`/${videoAsset.storagePath}`}
+              controls
+              onTimeUpdate={(e) => {
+                if (e.currentTarget.paused) return
+                setCurrentTime(e.currentTarget.currentTime)
+              }}
+              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+              className='max-h-[60vh] w-full rounded-lg'
+            />
+          ) : (
+            <MissingVideoPlaceholder
+              videos={readyVideos}
+              loading={linkVideo.isPending}
+              onSubmit={(videoAssetId) => linkVideo.mutate(videoAssetId)}
+            />
+          )}
         </div>
 
         <div className='w-full overflow-auto border-t border-gray-200 p-4 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
@@ -169,7 +217,7 @@ export function EditorPage() {
             )}
           </div>
 
-          <ExportPanel projectId={projectId} />
+          <ExportPanel projectId={projectId} canExport={hasVideo} />
         </div>
       </div>
 
@@ -185,6 +233,128 @@ export function EditorPage() {
           }
         }}
       />
+    </div>
+  )
+}
+
+function MissingVideoPlaceholder({
+  videos,
+  loading,
+  onSubmit,
+}: {
+  videos: VideoAsset[]
+  loading: boolean
+  onSubmit: (videoAssetId: string) => void
+}) {
+  const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id ?? '')
+  const resolvedSelectedVideoId = selectedVideoId || videos[0]?.id || ''
+
+  return (
+    <div className='flex min-h-[360px] w-full items-center justify-center rounded-lg border border-dashed border-gray-600 bg-gray-950 p-6 text-center'>
+      <div className='w-full max-w-md'>
+        <FileVideo className='mx-auto mb-4 h-14 w-14 text-gray-500' />
+        <h2 className='text-base font-semibold text-gray-100'>元動画が見つかりません</h2>
+        <p className='mt-1 text-sm text-gray-400'>
+          削除済み、または利用できない動画を参照しています。別の動画を選んで紐づけ直してください。
+        </p>
+        <div className='mt-5 flex flex-col gap-2 sm:flex-row'>
+          <select
+            value={resolvedSelectedVideoId}
+            onChange={(e) => setSelectedVideoId(e.target.value)}
+            className='min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-gray-100'
+          >
+            {videos.length === 0 && <option value=''>利用可能な動画がありません</option>}
+            {videos.map((video) => (
+              <option key={video.id} value={video.id}>
+                {video.displayName}
+              </option>
+            ))}
+          </select>
+          <button
+            type='button'
+            onClick={() => onSubmit(resolvedSelectedVideoId)}
+            disabled={loading || !resolvedSelectedVideoId}
+            className='inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
+          >
+            <Link2 className='h-4 w-4' />
+            {loading ? '保存中...' : '紐づけ'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditorLinkVideoModal({
+  currentVideo,
+  videos,
+  loading,
+  onSubmit,
+  onClose,
+}: {
+  currentVideo: VideoAsset | null | undefined
+  videos: VideoAsset[]
+  loading: boolean
+  onSubmit: (videoAssetId: string) => void
+  onClose: () => void
+}) {
+  const [selectedVideoId, setSelectedVideoId] = useState(currentVideo?.id ?? videos[0]?.id ?? '')
+  const resolvedSelectedVideoId = selectedVideoId || currentVideo?.id || videos[0]?.id || ''
+
+  const submit = () => {
+    if (!resolvedSelectedVideoId) return
+    if (
+      currentVideo &&
+      resolvedSelectedVideoId !== currentVideo.id &&
+      !confirm('動画を変更すると、字幕や切り抜き位置が新しい動画と合わなくなる場合があります。変更しますか？')
+    ) {
+      return
+    }
+    onSubmit(resolvedSelectedVideoId)
+  }
+
+  return (
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50' onClick={onClose}>
+      <div
+        className='w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800'
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className='mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100'>動画を変更</h2>
+        {currentVideo && (
+          <p className='mb-4 truncate text-sm text-gray-500 dark:text-gray-400'>現在: {currentVideo.displayName}</p>
+        )}
+        <label className='mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'>元動画</label>
+        <select
+          value={resolvedSelectedVideoId}
+          onChange={(e) => setSelectedVideoId(e.target.value)}
+          className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+        >
+          {videos.length === 0 && <option value=''>利用可能な動画がありません</option>}
+          {videos.map((video) => (
+            <option key={video.id} value={video.id}>
+              {video.displayName}
+            </option>
+          ))}
+        </select>
+        <div className='mt-6 flex justify-end gap-2'>
+          <button
+            type='button'
+            onClick={onClose}
+            className='rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+          >
+            キャンセル
+          </button>
+          <button
+            type='button'
+            onClick={submit}
+            disabled={loading || !resolvedSelectedVideoId || resolvedSelectedVideoId === currentVideo?.id}
+            className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
+          >
+            <Link2 className='h-4 w-4' />
+            {loading ? '保存中...' : '変更'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -406,6 +576,8 @@ function TimelineBar({
   onSeek: (time: number) => void
 }) {
   const barRef = useRef<HTMLDivElement>(null)
+  const toPercent = (value: number) => (duration > 0 ? (value / duration) * 100 : 0)
+  const toWidthPercent = (start: number, end: number) => (duration > 0 ? ((end - start) / duration) * 100 : 0)
 
   const handleClick = (e: React.MouseEvent) => {
     const bar = barRef.current
@@ -427,8 +599,8 @@ function TimelineBar({
             key={seg.id}
             className='absolute top-0 h-full rounded bg-green-200/70 dark:bg-green-800/40'
             style={{
-              left: `${(seg.sourceStart / duration) * 100}%`,
-              width: `${((seg.sourceEnd - seg.sourceStart) / duration) * 100}%`,
+              left: `${toPercent(seg.sourceStart)}%`,
+              width: `${toWidthPercent(seg.sourceStart, seg.sourceEnd)}%`,
             }}
           />
         ))}
@@ -438,17 +610,14 @@ function TimelineBar({
             key={sub.id}
             className='absolute bottom-0 h-3 rounded bg-indigo-400/70 dark:bg-indigo-500/50'
             style={{
-              left: `${(sub.sourceStart / duration) * 100}%`,
-              width: `${((sub.sourceEnd - sub.sourceStart) / duration) * 100}%`,
+              left: `${toPercent(sub.sourceStart)}%`,
+              width: `${toWidthPercent(sub.sourceStart, sub.sourceEnd)}%`,
             }}
             title={sub.text || '(空)'}
           />
         ))}
 
-        <div
-          className='absolute top-0 h-full w-0.5 bg-red-500'
-          style={{ left: `${(currentTime / duration) * 100}%` }}
-        />
+        <div className='absolute top-0 h-full w-0.5 bg-red-500' style={{ left: `${toPercent(currentTime)}%` }} />
       </div>
       <div className='mt-1 flex justify-between text-xs text-gray-400'>
         <span>{formatSeconds(currentTime)}</span>
@@ -468,7 +637,7 @@ interface ExportJob {
   createdAt: string
 }
 
-function ExportPanel({ projectId }: { projectId: string }) {
+function ExportPanel({ projectId, canExport }: { projectId: string; canExport: boolean }) {
   const queryClient = useQueryClient()
   const [showSettings, setShowSettings] = useState(false)
   const [preset, setPreset] = useState({
@@ -561,12 +730,15 @@ function ExportPanel({ projectId }: { projectId: string }) {
 
       <button
         onClick={() => createExport.mutate()}
-        disabled={createExport.isPending}
+        disabled={createExport.isPending || !canExport}
         className='mb-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50'
       >
         <Download className='h-4 w-4' />
         {createExport.isPending ? '作成中...' : '書き出しを開始'}
       </button>
+      {!canExport && (
+        <p className='mb-3 text-xs text-amber-600 dark:text-amber-300'>動画を紐づけると書き出しできます。</p>
+      )}
 
       <div className='space-y-2'>
         {jobs?.map((job) => (

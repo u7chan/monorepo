@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { SubtitleStyleSchema } from './subtitle-style'
 
 export const SubtitleTemplateSchema = z.object({
   id: z.string(),

@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { uuidv7 } from 'uuidv7'
@@ -12,7 +11,7 @@ import {
   updateVideoAsset,
 } from '#/server/features/videos/video-repository'
 import type { HonoEnv } from '#/server/routes/shared'
-import { UpdateVideoAssetSchema, VideoAssetSchema } from '#/shared/schemas'
+import { UpdateVideoAssetSchema } from '#/shared/schemas'
 
 const videoRoutes = new Hono<HonoEnv>()
 
@@ -67,7 +66,6 @@ videoRoutes.post('/', async (c) => {
     return c.json({ error: 'file too large' }, 413)
   }
 
-  const allowedMimes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska']
   const extMap: Record<string, string> = {
     'video/mp4': '.mp4',
     'video/quicktime': '.mov',
