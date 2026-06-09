@@ -9,6 +9,7 @@ Thin router for `edit-vid2`.
 - Never commit secrets, tokens, generated media, DB files, or export data.
 - State assumptions before non-trivial decisions.
 - Use Bun and existing scripts; see [commands](docs/agent/commands.md).
+- Avoid `useEffect`; prefer event handlers (`onKeyDown`, `onClick`, etc.) or other alternatives.
 
 ## Routes
 

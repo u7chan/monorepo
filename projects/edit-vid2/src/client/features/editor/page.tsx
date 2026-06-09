@@ -114,7 +114,22 @@ export function EditorPage() {
   const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
 
   return (
-    <div className='flex h-full flex-col'>
+    <div
+      className='flex h-full flex-col'
+      onKeyDown={(e) => {
+        if (e.code !== 'Space') return
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+        e.preventDefault()
+        const video = videoRef.current
+        if (!video) return
+        if (video.paused) {
+          video.play()
+        } else {
+          video.pause()
+        }
+      }}
+    >
       <div className='flex items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-gray-700'>
         <Link
           to='/projects'
