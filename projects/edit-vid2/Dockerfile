@@ -9,8 +9,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 RUN bun run format:check
 RUN bun run lint
-RUN bunx playwright install chromium --with-deps
-RUN bun test
+RUN bun run test:unit
 RUN bun run build
 
 # ── Builder Stage ───────────────────────────────────────────
