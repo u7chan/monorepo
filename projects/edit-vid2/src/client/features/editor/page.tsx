@@ -601,15 +601,36 @@ function TimelineBar({
   onSeek: (time: number) => void
 }) {
   const barRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef(false)
   const toPercent = (value: number) => (duration > 0 ? (value / duration) * 100 : 0)
   const toWidthPercent = (start: number, end: number) => (duration > 0 ? ((end - start) / duration) * 100 : 0)
 
-  const handleClick = (e: React.MouseEvent) => {
+  const calcTime = (clientX: number) => {
     const bar = barRef.current
-    if (!bar || duration === 0) return
+    if (!bar || duration === 0) return 0
     const rect = bar.getBoundingClientRect()
-    const ratio = (e.clientX - rect.left) / rect.width
-    onSeek(Math.max(0, Math.min(ratio * duration, duration)))
+    const ratio = (clientX - rect.left) / rect.width
+    return Math.max(0, Math.min(ratio * duration, duration))
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    draggingRef.current = true
+    onSeek(calcTime(e.clientX))
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current) return
+      onSeek(calcTime(ev.clientX))
+    }
+
+    const handleMouseUp = () => {
+      draggingRef.current = false
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
   }
 
   return (
@@ -617,7 +638,7 @@ function TimelineBar({
       <div
         ref={barRef}
         className='relative h-10 cursor-pointer rounded bg-gray-100 dark:bg-gray-700'
-        onClick={handleClick}
+        onMouseDown={handleMouseDown}
       >
         {keepSegments.map((seg) => (
           <div
