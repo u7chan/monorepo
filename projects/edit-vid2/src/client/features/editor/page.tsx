@@ -118,6 +118,7 @@ export function EditorPage() {
     <div
       ref={rootRef}
       tabIndex={-1}
+      autoFocus
       className='flex h-full flex-col outline-none'
       onClick={(e) => {
         const tag = (e.target as HTMLElement).tagName
