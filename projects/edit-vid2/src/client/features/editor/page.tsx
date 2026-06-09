@@ -117,6 +117,7 @@ export function EditorPage() {
   return (
     <div
       ref={rootRef}
+      data-testid='editor-root'
       tabIndex={-1}
       autoFocus
       className='flex h-full flex-col outline-none'
@@ -146,7 +147,9 @@ export function EditorPage() {
         >
           <ArrowLeft className='h-5 w-5' />
         </Link>
-        <h1 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>{project?.name ?? 'エディタ'}</h1>
+        <h1 data-testid='editor-title' className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+          {project?.name ?? 'エディタ'}
+        </h1>
         <span className='text-sm text-gray-400'>{videoAsset?.displayName ?? '動画未紐づけ'}</span>
         <div className='ml-auto flex gap-2'>
           {hasVideo && (
@@ -637,6 +640,7 @@ function TimelineBar({
     <div className='h-20 border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800'>
       <div
         ref={barRef}
+        data-testid='timeline-seek-bar'
         className='relative h-10 cursor-pointer rounded bg-gray-100 dark:bg-gray-700'
         onMouseDown={handleMouseDown}
       >
@@ -666,7 +670,7 @@ function TimelineBar({
         <div className='absolute top-0 h-full w-0.5 bg-red-500' style={{ left: `${toPercent(currentTime)}%` }} />
       </div>
       <div className='mt-1 flex justify-between text-xs text-gray-400'>
-        <span>{formatSeconds(currentTime)}</span>
+        <span data-testid='timeline-current-time'>{formatSeconds(currentTime)}</span>
         <span>{formatSeconds(duration)}</span>
       </div>
     </div>

@@ -83,7 +83,9 @@ export function ProjectsPage() {
   return (
     <div className='p-6'>
       <div className='mb-6 flex items-center justify-between'>
-        <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>プロジェクト</h1>
+        <h1 data-testid='projects-title' className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
+          プロジェクト
+        </h1>
         <button
           onClick={() => setShowCreate(true)}
           className='inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700'
