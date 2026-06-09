@@ -18,6 +18,7 @@ export function EditorPage() {
   const projectId = params.projectId
   const queryClient = useQueryClient()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [showLinkVideo, setShowLinkVideo] = useState(false)
@@ -115,7 +116,14 @@ export function EditorPage() {
 
   return (
     <div
-      className='flex h-full flex-col'
+      ref={rootRef}
+      tabIndex={-1}
+      className='flex h-full flex-col outline-none'
+      onClick={(e) => {
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A') return
+        rootRef.current?.focus()
+      }}
       onKeyDown={(e) => {
         if (e.code !== 'Space') return
         const tag = (e.target as HTMLElement).tagName
