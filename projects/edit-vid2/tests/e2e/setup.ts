@@ -54,7 +54,7 @@ export async function setupE2E(): Promise<{ browser: Browser; page: Page }> {
     await startDevServer()
   }
   if (!sharedBrowser) {
-    sharedBrowser = await chromium.launch({ headless: true })
+    sharedBrowser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   }
   const page = await sharedBrowser.newPage()
   return { browser: sharedBrowser, page }
