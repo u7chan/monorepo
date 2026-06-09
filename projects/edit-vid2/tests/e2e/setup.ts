@@ -9,14 +9,29 @@ let sharedBrowser: Browser | null = null
 let refCount = 0
 let seeded = false
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function waitForServerPortAvailable(): Promise<void> {
+  for (let i = 0; i < 20; i++) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/projects`, { signal: AbortSignal.timeout(100) })
+      await res.body?.cancel()
+    } catch {
+      return
+    }
+    await delay(100)
+  }
+}
+
 async function startDevServer(): Promise<void> {
   if (!seeded) {
     seedTestData()
     seeded = true
   }
 
-  // Small delay to let previous server fully release port
-  await new Promise((r) => setTimeout(r, 1000))
+  await waitForServerPortAvailable()
 
   const proc = Bun.spawn(['bun', '--bun', 'vite', '--mode', 'dev', '--host', '0.0.0.0'], {
     env: { ...process.env, SERVER_PORT: '9999', DATABASE_URL: '/tmp/edit-vid2-test.db' },
@@ -43,7 +58,7 @@ async function startDevServer(): Promise<void> {
       const res = await fetch(`${BASE_URL}/api/projects`)
       if (res.ok) return
     } catch {}
-    await new Promise((r) => setTimeout(r, 500))
+    await delay(500)
   }
   throw new Error('Dev server did not start within 30 seconds')
 }

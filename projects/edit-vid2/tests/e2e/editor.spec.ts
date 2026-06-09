@@ -15,32 +15,55 @@ beforeAll(async () => {
     },
     { timeout: 10000 }
   )
-})
+}, 15000)
 
 afterAll(async () => {
   await teardownE2E(page)
-})
+}, 10000)
 
 async function getTimeDisplay(): Promise<string> {
-  return page.evaluate(() => {
-    const spans = document.querySelectorAll('[class*="h-20"] span')
-    return spans[0]?.textContent ?? ''
-  })
+  return (await page.getByTestId('timeline-current-time').textContent()) ?? ''
 }
 
 async function resetVideo() {
   await page.evaluate(() => {
     const v = document.querySelector('video') as HTMLVideoElement
-    if (v) {
-      v.pause()
-      v.currentTime = 0
-    }
+    v?.pause()
   })
-  await page.waitForTimeout(200)
+  const bar = seekBar()
+  const box = await bar.boundingBox()
+  if (!box) throw new Error('Seek bar not found')
+  await page.mouse.click(box.x + 1, box.y + box.height / 2)
+  await waitForTimeDisplay('0:00')
 }
 
 function seekBar() {
-  return page.locator('.h-20 .h-10.cursor-pointer')
+  return page.getByTestId('timeline-seek-bar')
+}
+
+async function waitForTimeDisplay(expected: string): Promise<void> {
+  await page.waitForFunction(
+    ({ testId, value }) => document.querySelector(`[data-testid="${testId}"]`)?.textContent === value,
+    { testId: 'timeline-current-time', value: expected }
+  )
+}
+
+async function waitForTimeDisplayToChange(previous: string): Promise<void> {
+  await page.waitForFunction(
+    ({ testId, value }) => document.querySelector(`[data-testid="${testId}"]`)?.textContent !== value,
+    { testId: 'timeline-current-time', value: previous }
+  )
+}
+
+async function waitForPlaybackState(paused: boolean): Promise<void> {
+  await page.waitForFunction(
+    (expectedPaused) => {
+      const video = document.querySelector('video') as HTMLVideoElement | null
+      return video?.paused === expectedPaused
+    },
+    paused,
+    { timeout: 5000 }
+  )
 }
 
 describe('Editor seek bar', () => {
@@ -59,7 +82,7 @@ describe('Editor seek bar', () => {
     const clickX = box.x + box.width * 0.7
     const clickY = box.y + box.height / 2
     await page.mouse.click(clickX, clickY)
-    await page.waitForTimeout(500)
+    await waitForTimeDisplayToChange(timeBefore)
 
     const timeAfter = await getTimeDisplay()
     expect(timeAfter).not.toBe('0:00')
@@ -80,7 +103,7 @@ describe('Editor seek bar', () => {
     await page.mouse.down()
     await page.mouse.move(endX, y, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(300)
+    await waitForTimeDisplayToChange('0:00')
 
     const timeAfter = await getTimeDisplay()
     expect(timeAfter).not.toBe('0:00')
@@ -89,7 +112,7 @@ describe('Editor seek bar', () => {
   test('space key toggles play/pause', async () => {
     await resetVideo()
 
-    await page.locator('.outline-none').focus()
+    await page.getByTestId('editor-root').focus()
 
     const wasPaused = await page.evaluate(() => {
       const v = document.querySelector('video') as HTMLVideoElement
@@ -98,7 +121,7 @@ describe('Editor seek bar', () => {
     expect(wasPaused).toBe(true)
 
     await page.keyboard.press('Space')
-    await page.waitForTimeout(800)
+    await waitForPlaybackState(false)
 
     const isPlaying = await page.evaluate(() => {
       const v = document.querySelector('video') as HTMLVideoElement
@@ -106,9 +129,9 @@ describe('Editor seek bar', () => {
     })
     expect(isPlaying).toBe(true)
 
-    await page.locator('.outline-none').focus()
+    await page.getByTestId('editor-root').focus()
     await page.keyboard.press('Space')
-    await page.waitForTimeout(500)
+    await waitForPlaybackState(true)
 
     const isPaused = await page.evaluate(() => {
       const v = document.querySelector('video') as HTMLVideoElement

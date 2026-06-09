@@ -6,17 +6,17 @@ let page: Page
 
 beforeAll(async () => {
   ;({ page } = await setupE2E())
-})
+}, 15000)
 
 afterAll(async () => {
   await teardownE2E(page)
-})
+}, 10000)
 
 describe('Smoke tests', () => {
   test('projects page loads', async () => {
     await page.goto(`${BASE_URL}/projects`)
-    await page.waitForSelector('h1', { timeout: 10000 })
-    const title = await page.textContent('h1')
+    await page.getByTestId('projects-title').waitFor({ state: 'visible', timeout: 10000 })
+    const title = await page.getByTestId('projects-title').textContent()
     expect(title).toBe('プロジェクト')
   })
 
@@ -30,7 +30,7 @@ describe('Smoke tests', () => {
   test('editor page shows project name', async () => {
     await page.goto(`${BASE_URL}/projects/${TEST_PROJECT_ID}`)
     await page.waitForSelector('video', { timeout: 10000 })
-    const heading = await page.textContent('h1')
+    const heading = await page.getByTestId('editor-title').textContent()
     expect(heading).toBe('E2E Test Project')
   })
 })
