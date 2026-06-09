@@ -614,6 +614,7 @@ function TimelineBar({
   }
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return
     draggingRef.current = true
     onSeek(calcTime(e.clientX))
 
