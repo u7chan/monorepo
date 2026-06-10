@@ -3,11 +3,7 @@ import type { AppDatabase } from '#/db'
 import { exportJobs } from '#/db/schema'
 
 export function getExportJobs(db: AppDatabase, limit?: number) {
-  const query = db
-    .select()
-    .from(exportJobs)
-    .where(isNull(exportJobs.deletedAt))
-    .orderBy(desc(exportJobs.createdAt))
+  const query = db.select().from(exportJobs).where(isNull(exportJobs.deletedAt)).orderBy(desc(exportJobs.createdAt))
 
   if (limit !== undefined) {
     return query.limit(limit).all()

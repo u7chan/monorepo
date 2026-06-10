@@ -95,12 +95,14 @@ exportRoutes.post('/', sValidator('json', CreateExportJobSchema), (c) => {
   return c.json(job, 201)
 })
 
-// SSE endpoint: GET /api/export-jobs/:exportJobId/events
-const sseRoutes = new Hono<HonoEnv>()
+// REST endpoints for job actions: GET /api/export-jobs, GET /api/export-jobs/:exportJobId, etc.
+const jobRoutes = new Hono<HonoEnv>()
 
-sseRoutes.get('/', (c) => {
+jobRoutes.get('/', (c) => {
   const db = c.var.db
-  const limit = Number(c.req.query('limit') ?? '100')
+  const rawLimit = c.req.query('limit') ?? '100'
+  const parsed = Number(rawLimit)
+  const limit = Number.isNaN(parsed) || parsed < 1 ? 100 : Math.min(parsed, 500)
   const jobs = getExportJobs(db, limit)
   const allProjects = getProjects(db)
   const projectMap = new Map(allProjects.map((p) => [p.id, p.name]))
@@ -109,11 +111,11 @@ sseRoutes.get('/', (c) => {
       ...job,
       projectName: projectMap.get(job.projectId) ?? '',
       errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
-    })),
+    }))
   )
 })
 
-sseRoutes.get('/:exportJobId/events', (c) => {
+jobRoutes.get('/:exportJobId/events', (c) => {
   const db = c.var.db
   const jobId = c.req.param('exportJobId')
 
@@ -159,7 +161,7 @@ sseRoutes.get('/:exportJobId/events', (c) => {
   })
 })
 
-sseRoutes.get('/:exportJobId', (c) => {
+jobRoutes.get('/:exportJobId', (c) => {
   const db = c.var.db
   const job = getExportJobById(db, c.req.param('exportJobId'))
   if (!job) {
@@ -171,7 +173,7 @@ sseRoutes.get('/:exportJobId', (c) => {
   })
 })
 
-sseRoutes.post('/:exportJobId/cancel', (c) => {
+jobRoutes.post('/:exportJobId/cancel', (c) => {
   const db = c.var.db
   const jobId = c.req.param('exportJobId')
   const job = getExportJobById(db, jobId)
@@ -185,7 +187,7 @@ sseRoutes.post('/:exportJobId/cancel', (c) => {
   return c.json(updateExportJob(db, jobId, {}))
 })
 
-sseRoutes.delete('/:exportJobId', (c) => {
+jobRoutes.delete('/:exportJobId', (c) => {
   const db = c.var.db
   const jobId = c.req.param('exportJobId')
   const job = getExportJobById(db, jobId)
@@ -201,7 +203,7 @@ sseRoutes.delete('/:exportJobId', (c) => {
   return c.body(null, 204)
 })
 
-sseRoutes.get('/:exportJobId/download', async (c) => {
+jobRoutes.get('/:exportJobId/download', async (c) => {
   const db = c.var.db
   const job = getExportJobById(db, c.req.param('exportJobId'))
   if (!job) {
@@ -241,4 +243,4 @@ function recoverIncompleteJobs() {
 }
 recoverIncompleteJobs()
 
-export { exportRoutes, sseRoutes }
+export { exportRoutes, jobRoutes }

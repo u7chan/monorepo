@@ -800,10 +800,7 @@ function ExportPanel({ projectId, canExport }: { projectId: string; canExport: b
         <p className='text-xs text-gray-400 dark:text-gray-500'>書き出し履歴がありません</p>
       )}
       <div className='mt-2'>
-        <Link
-          to='/exports'
-          className='text-xs text-indigo-600 hover:underline dark:text-indigo-400'
-        >
+        <Link to='/exports' className='text-xs text-indigo-600 hover:underline dark:text-indigo-400'>
           書き出し履歴を表示
         </Link>
       </div>

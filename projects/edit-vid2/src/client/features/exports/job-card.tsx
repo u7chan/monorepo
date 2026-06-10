@@ -13,7 +13,7 @@ export interface ExportJob {
   updatedAt: string
 }
 
-const statusLabels: Record<string, string> = {
+export const statusLabels: Record<string, string> = {
   queued: '待機中',
   running: '実行中',
   succeeded: '完了',
@@ -22,7 +22,7 @@ const statusLabels: Record<string, string> = {
   canceled: 'キャンセル済',
 }
 
-const statusColors: Record<string, string> = {
+export const statusColors: Record<string, string> = {
   queued: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
   running: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
   succeeded: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
