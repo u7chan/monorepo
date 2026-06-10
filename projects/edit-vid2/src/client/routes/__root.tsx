@@ -1,5 +1,5 @@
 import { Outlet, createRootRoute } from '@tanstack/react-router'
-import { Clapperboard, Film } from 'lucide-react'
+import { Clapperboard, Download, Film } from 'lucide-react'
 import { Suspense, lazy } from 'react'
 import { AppLayout } from '#/client/app/app-layout'
 import { RouteLoading } from '#/client/app/route-loading'
@@ -20,6 +20,7 @@ function Root() {
   const menuItems = [
     { label: '動画', icon: <Film size={20} />, to: '/videos' },
     { label: 'プロジェクト', icon: <Clapperboard size={20} />, to: '/projects' },
+    { label: '書き出し', icon: <Download size={20} />, to: '/exports' },
   ]
 
   return (
