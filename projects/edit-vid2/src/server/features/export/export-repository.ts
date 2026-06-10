@@ -2,8 +2,17 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { AppDatabase } from '#/db'
 import { exportJobs } from '#/db/schema'
 
-export function getExportJobs(db: AppDatabase) {
-  return db.select().from(exportJobs).where(isNull(exportJobs.deletedAt)).all()
+export function getExportJobs(db: AppDatabase, limit?: number) {
+  const query = db
+    .select()
+    .from(exportJobs)
+    .where(isNull(exportJobs.deletedAt))
+    .orderBy(desc(exportJobs.createdAt))
+
+  if (limit !== undefined) {
+    return query.limit(limit).all()
+  }
+  return query.all()
 }
 
 export function getExportJobsByProject(db: AppDatabase, projectId: string) {

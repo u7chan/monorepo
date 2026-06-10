@@ -8,12 +8,13 @@ import {
   createExportJob,
   deleteExportJob,
   getExportJobById,
+  getExportJobs,
   getExportJobsByProject,
   getIncompleteJobs,
   updateExportJob,
 } from '#/server/features/export/export-repository'
 import { exportWorker } from '#/server/features/export/export-worker'
-import { getProjectById } from '#/server/features/projects/project-repository'
+import { getProjectById, getProjects } from '#/server/features/projects/project-repository'
 import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import type { HonoEnv } from '#/server/routes/shared'
 import { CreateExportJobSchema } from '#/shared/schemas'
@@ -96,6 +97,21 @@ exportRoutes.post('/', sValidator('json', CreateExportJobSchema), (c) => {
 
 // SSE endpoint: GET /api/export-jobs/:exportJobId/events
 const sseRoutes = new Hono<HonoEnv>()
+
+sseRoutes.get('/', (c) => {
+  const db = c.var.db
+  const limit = Number(c.req.query('limit') ?? '100')
+  const jobs = getExportJobs(db, limit)
+  const allProjects = getProjects(db)
+  const projectMap = new Map(allProjects.map((p) => [p.id, p.name]))
+  return c.json(
+    jobs.map((job) => ({
+      ...job,
+      projectName: projectMap.get(job.projectId) ?? '',
+      errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
+    })),
+  )
+})
 
 sseRoutes.get('/:exportJobId/events', (c) => {
   const db = c.var.db
