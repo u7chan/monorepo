@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { Readable } from 'node:stream'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -248,8 +249,11 @@ jobRoutes.get('/:exportJobId/preview', async (c) => {
   }
 
   if (!rangeHeader) {
-    const file = readFileSync(job.outputPath)
-    return c.body(file, 200, baseHeaders)
+    const stream = createReadStream(job.outputPath)
+    return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 200, {
+      ...baseHeaders,
+      'Content-Length': String(size),
+    })
   }
 
   const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
@@ -265,8 +269,8 @@ jobRoutes.get('/:exportJobId/preview', async (c) => {
   }
 
   const length = end - start + 1
-  const file = readFileSync(job.outputPath).subarray(start, end + 1)
-  return c.body(file, 206, {
+  const stream = createReadStream(job.outputPath, { start, end })
+  return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 206, {
     ...baseHeaders,
     'Content-Range': `bytes ${start}-${end}/${size}`,
     'Content-Length': String(length),
