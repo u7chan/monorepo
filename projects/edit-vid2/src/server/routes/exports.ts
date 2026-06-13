@@ -277,8 +277,9 @@ jobRoutes.get('/:exportJobId/preview', async (c) => {
   })
 })
 
-// Recover incomplete jobs on startup
-function recoverIncompleteJobs() {
+// Recover incomplete jobs on startup.
+// This is exported so server entrypoints can call it after migrations are applied.
+export function recoverIncompleteJobs() {
   const dbUrl = process.env.DATABASE_URL ?? 'data/edit-vid2.db'
   import('#/db').then(({ getDatabase }) => {
     const db = getDatabase(dbUrl)
@@ -293,6 +294,5 @@ function recoverIncompleteJobs() {
     }
   })
 }
-recoverIncompleteJobs()
 
 export { exportRoutes, jobRoutes }
