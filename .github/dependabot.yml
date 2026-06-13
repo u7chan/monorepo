@@ -1,13 +1,28 @@
 version: 2
 updates:
-  - package-ecosystem: "bun"
-    directory: "/projects/portfolio"
+  - package-ecosystem: "uv"
+    directory: "/projects/edit-vid"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 1
     rebase-strategy: "disabled"
     groups:
-      portfolio-minor-and-patch:
+      edit-vid-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "bun"
+    directory: "/projects/edit-vid2"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    groups:
+      edit-vid2-minor-and-patch:
         applies-to: version-updates
         patterns:
           - "*"
@@ -30,14 +45,29 @@ updates:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "uv"
-    directory: "/projects/edit-vid"
+  - package-ecosystem: "bun"
+    directory: "/projects/portal"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 1
     rebase-strategy: "disabled"
     groups:
-      edit-vid-minor-and-patch:
+      portal-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "bun"
+    directory: "/projects/portfolio"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    groups:
+      portfolio-minor-and-patch:
         applies-to: version-updates
         patterns:
           - "*"
