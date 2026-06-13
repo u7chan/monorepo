@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react'
+import { Download, Play, Trash2 } from 'lucide-react'
 
 export interface ExportJob {
   id: string
@@ -62,17 +62,21 @@ export function JobCard({ job, onCancel, onDelete, onPreview }: JobCardProps) {
           {canPreview && (
             <button
               onClick={onPreview}
-              className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+              className='inline-flex h-6 w-6 items-center justify-center rounded text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+              title='プレビュー'
+              aria-label='プレビュー'
             >
-              プレビュー
+              <Play className='h-3.5 w-3.5' />
             </button>
           )}
           {canDownload && (
             <a
               href={`/api/export-jobs/${job.id}/download`}
-              className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+              className='inline-flex h-6 w-6 items-center justify-center rounded text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+              title='ダウンロード'
+              aria-label='ダウンロード'
             >
-              ダウンロード
+              <Download className='h-3.5 w-3.5' />
             </a>
           )}
           {canDelete && (
