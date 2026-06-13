@@ -35,11 +35,13 @@ interface JobCardProps {
   job: ExportJob
   onCancel: () => void
   onDelete: () => void
+  onPreview?: () => void
 }
 
-export function JobCard({ job, onCancel, onDelete }: JobCardProps) {
+export function JobCard({ job, onCancel, onDelete, onPreview }: JobCardProps) {
   const canCancel = job.status === 'queued' || job.status === 'running'
   const canDownload = job.status === 'succeeded' && job.outputPath
+  const canPreview = canDownload && onPreview != null
   const canDelete = job.status === 'succeeded' || job.status === 'failed' || job.status === 'canceled'
 
   return (
@@ -55,6 +57,14 @@ export function JobCard({ job, onCancel, onDelete }: JobCardProps) {
               className='rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'
             >
               キャンセル
+            </button>
+          )}
+          {canPreview && (
+            <button
+              onClick={onPreview}
+              className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+            >
+              プレビュー
             </button>
           )}
           {canDownload && (

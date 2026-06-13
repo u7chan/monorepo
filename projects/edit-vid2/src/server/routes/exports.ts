@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
@@ -222,6 +222,54 @@ jobRoutes.get('/:exportJobId/download', async (c) => {
   return c.body(file, 200, {
     'Content-Type': 'video/mp4',
     'Content-Disposition': `attachment; filename="export-${job.id}.mp4"`,
+  })
+})
+
+jobRoutes.get('/:exportJobId/preview', async (c) => {
+  const db = c.var.db
+  const job = getExportJobById(db, c.req.param('exportJobId'))
+  if (!job) {
+    return c.json({ error: 'not found' }, 404)
+  }
+  if (job.status !== 'succeeded' || !job.outputPath) {
+    return c.json({ error: 'not ready' }, 400)
+  }
+  if (!existsSync(job.outputPath)) {
+    return c.json({ error: 'output file not found' }, 404)
+  }
+
+  const { size } = statSync(job.outputPath)
+  const rangeHeader = c.req.header('range')
+
+  const baseHeaders = {
+    'Content-Type': 'video/mp4',
+    'Content-Disposition': `inline; filename="export-${job.id}.mp4"`,
+    'Accept-Ranges': 'bytes',
+  }
+
+  if (!rangeHeader) {
+    const file = readFileSync(job.outputPath)
+    return c.body(file, 200, baseHeaders)
+  }
+
+  const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
+  if (!match) {
+    return c.json({ error: 'range not satisfiable' }, 416)
+  }
+
+  const start = Number.parseInt(match[1], 10)
+  const end = match[2] ? Number.parseInt(match[2], 10) : size - 1
+
+  if (Number.isNaN(start) || Number.isNaN(end) || start >= size || end >= size || start > end) {
+    return c.json({ error: 'range not satisfiable' }, 416)
+  }
+
+  const length = end - start + 1
+  const file = readFileSync(job.outputPath).subarray(start, end + 1)
+  return c.body(file, 206, {
+    ...baseHeaders,
+    'Content-Range': `bytes ${start}-${end}/${size}`,
+    'Content-Length': String(length),
   })
 })
 
