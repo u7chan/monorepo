@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Trash2, X } from 'lucide-react'
+import { Download, Play, Trash2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { JobCard, statusColors, statusLabels, type ExportJob } from '#/client/features/exports/job-card'
 import type { Project } from '#/shared/schemas'
@@ -42,17 +42,21 @@ function JobActions({
       {canPreview && (
         <button
           onClick={onPreview}
-          className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+          className='inline-flex h-6 w-6 items-center justify-center rounded text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+          title='プレビュー'
+          aria-label='プレビュー'
         >
-          プレビュー
+          <Play className='h-3.5 w-3.5' />
         </button>
       )}
       {canDownload && (
         <a
           href={`/api/export-jobs/${job.id}/download`}
-          className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+          className='inline-flex h-6 w-6 items-center justify-center rounded text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+          title='ダウンロード'
+          aria-label='ダウンロード'
         >
-          ダウンロード
+          <Download className='h-3.5 w-3.5' />
         </a>
       )}
       {canDelete && (
@@ -62,6 +66,7 @@ function JobActions({
           }}
           className='inline-flex h-6 w-6 items-center justify-center rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'
           title='履歴と出力ファイルを削除'
+          aria-label='履歴と出力ファイルを削除'
         >
           <Trash2 className='h-3.5 w-3.5' />
         </button>
