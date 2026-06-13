@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { Readable } from 'node:stream'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -225,8 +226,60 @@ jobRoutes.get('/:exportJobId/download', async (c) => {
   })
 })
 
-// Recover incomplete jobs on startup
-function recoverIncompleteJobs() {
+jobRoutes.get('/:exportJobId/preview', async (c) => {
+  const db = c.var.db
+  const job = getExportJobById(db, c.req.param('exportJobId'))
+  if (!job) {
+    return c.json({ error: 'not found' }, 404)
+  }
+  if (job.status !== 'succeeded' || !job.outputPath) {
+    return c.json({ error: 'not ready' }, 400)
+  }
+  if (!existsSync(job.outputPath)) {
+    return c.json({ error: 'output file not found' }, 404)
+  }
+
+  const { size } = statSync(job.outputPath)
+  const rangeHeader = c.req.header('range')
+
+  const baseHeaders = {
+    'Content-Type': 'video/mp4',
+    'Content-Disposition': `inline; filename="export-${job.id}.mp4"`,
+    'Accept-Ranges': 'bytes',
+  }
+
+  if (!rangeHeader) {
+    const stream = createReadStream(job.outputPath)
+    return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 200, {
+      ...baseHeaders,
+      'Content-Length': String(size),
+    })
+  }
+
+  const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
+  if (!match) {
+    return c.json({ error: 'range not satisfiable' }, 416)
+  }
+
+  const start = Number.parseInt(match[1], 10)
+  const end = match[2] ? Number.parseInt(match[2], 10) : size - 1
+
+  if (Number.isNaN(start) || Number.isNaN(end) || start >= size || end >= size || start > end) {
+    return c.json({ error: 'range not satisfiable' }, 416)
+  }
+
+  const length = end - start + 1
+  const stream = createReadStream(job.outputPath, { start, end })
+  return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 206, {
+    ...baseHeaders,
+    'Content-Range': `bytes ${start}-${end}/${size}`,
+    'Content-Length': String(length),
+  })
+})
+
+// Recover incomplete jobs on startup.
+// This is exported so server entrypoints can call it after migrations are applied.
+export function recoverIncompleteJobs() {
   const dbUrl = process.env.DATABASE_URL ?? 'data/edit-vid2.db'
   import('#/db').then(({ getDatabase }) => {
     const db = getDatabase(dbUrl)
@@ -241,6 +294,5 @@ function recoverIncompleteJobs() {
     }
   })
 }
-recoverIncompleteJobs()
 
 export { exportRoutes, jobRoutes }

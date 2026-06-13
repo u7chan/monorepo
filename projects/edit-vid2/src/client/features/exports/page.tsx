@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Trash2 } from 'lucide-react'
+import { Trash2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { JobCard, statusColors, statusLabels, type ExportJob } from '#/client/features/exports/job-card'
 import type { Project } from '#/shared/schemas'
@@ -13,9 +13,20 @@ function JobStatusBadge({ status }: { status: string }) {
   )
 }
 
-function JobActions({ job, onCancel, onDelete }: { job: ExportJob; onCancel: () => void; onDelete: () => void }) {
+function JobActions({
+  job,
+  onCancel,
+  onDelete,
+  onPreview,
+}: {
+  job: ExportJob
+  onCancel: () => void
+  onDelete: () => void
+  onPreview: () => void
+}) {
   const canCancel = job.status === 'queued' || job.status === 'running'
   const canDownload = job.status === 'succeeded' && job.outputPath
+  const canPreview = canDownload
   const canDelete = job.status === 'succeeded' || job.status === 'failed' || job.status === 'canceled'
 
   return (
@@ -26,6 +37,14 @@ function JobActions({ job, onCancel, onDelete }: { job: ExportJob; onCancel: () 
           className='rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900'
         >
           キャンセル
+        </button>
+      )}
+      {canPreview && (
+        <button
+          onClick={onPreview}
+          className='rounded px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900'
+        >
+          プレビュー
         </button>
       )}
       {canDownload && (
@@ -65,10 +84,46 @@ function JobProgress({ progress }: { progress: number }) {
   )
 }
 
+type ExportPreviewTarget = {
+  id: string
+  projectName?: string
+  createdAt: string
+}
+
+function ExportPreviewModal({ target, onClose }: { target: ExportPreviewTarget; onClose: () => void }) {
+  return (
+    <div
+      className='fixed inset-0 z-50 flex items-center justify-center bg-black/80'
+      onClick={onClose}
+      role='presentation'
+    >
+      <div className='relative w-full max-w-4xl px-4' onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={onClose}
+          className='absolute -top-10 right-0 rounded-full p-1 text-white/70 hover:text-white'
+          aria-label='閉じる'
+        >
+          <X className='h-6 w-6' />
+        </button>
+        <video
+          src={`/api/export-jobs/${target.id}/preview`}
+          controls
+          autoPlay
+          className='w-full max-h-[80vh] rounded-lg bg-black'
+        />
+        <p className='mt-2 text-center text-sm text-white/70'>
+          {target.projectName ?? ''} · {new Date(target.createdAt).toLocaleString('ja-JP')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export function ExportsPage() {
   const queryClient = useQueryClient()
   const [statusFilter, setStatusFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
+  const [previewTarget, setPreviewTarget] = useState<ExportPreviewTarget | null>(null)
 
   const { data: jobs } = useQuery<ExportJob[]>({
     queryKey: ['export-jobs'],
@@ -189,6 +244,13 @@ export function ExportsPage() {
                     job={job}
                     onCancel={() => cancelExport.mutate(job.id)}
                     onDelete={() => deleteExport.mutate(job.id)}
+                    onPreview={() =>
+                      setPreviewTarget({
+                        id: job.id,
+                        projectName: job.projectName,
+                        createdAt: job.createdAt,
+                      })
+                    }
                   />
                 </td>
               </tr>
@@ -212,6 +274,13 @@ export function ExportsPage() {
               job={job}
               onCancel={() => cancelExport.mutate(job.id)}
               onDelete={() => deleteExport.mutate(job.id)}
+              onPreview={() =>
+                setPreviewTarget({
+                  id: job.id,
+                  projectName: job.projectName,
+                  createdAt: job.createdAt,
+                })
+              }
             />
             <div className='mt-1 px-1 text-sm'>
               <span className='text-gray-500 dark:text-gray-400'>プロジェクト:</span>{' '}
@@ -232,6 +301,7 @@ export function ExportsPage() {
           <p className='text-center text-sm text-gray-400 dark:text-gray-500'>書き出し履歴がありません</p>
         )}
       </div>
+      {previewTarget && <ExportPreviewModal target={previewTarget} onClose={() => setPreviewTarget(null)} />}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { getDatabase } from '#/db'
 import type { AppDatabase } from '#/db'
 import { errHandler } from '#/server/middleware/error-handler'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
-import { exportRoutes, jobRoutes } from '#/server/routes/exports'
+import { exportRoutes, jobRoutes, recoverIncompleteJobs } from '#/server/routes/exports'
 import { htmlRoutes } from '#/server/routes/html'
 import { previewRoutes } from '#/server/routes/previews'
 import { projectRoutes } from '#/server/routes/projects'
@@ -49,5 +49,7 @@ Bun.serve({
   fetch: app.fetch,
   port,
 })
+
+recoverIncompleteJobs()
 
 console.log(`edit-vid2 server running on port ${port}`)
