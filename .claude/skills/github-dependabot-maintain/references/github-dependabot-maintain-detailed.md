@@ -1,96 +1,52 @@
 # Detailed Scanning and Approval Script
 
-## Full maintenance script
+## Script location
 
-A Bash script you can adapt to preview changes before writing:
+The complete maintenance script is at:
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-CONFIG=".github/dependabot.yml"
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
-
-# 1. Safety check
-if [ -n "$(git diff -- "$CONFIG")" ]; then
-  echo "ERROR: $CONFIG has uncommitted changes. Commit or revert them first."
-  exit 1
-fi
-
-# 2. Scan projects and detect ecosystems
-pairs=()
-for dir in projects/*/; do
-  name=$(basename "$dir")
-  [[ "$name" == "_labs" || "$name" == "_samples" ]] && continue
-
-  eco=""
-  if [[ -f "$dir/bun.lock" || -f "$dir/bun.lockb" ]]; then
-    eco="bun"
-  elif [[ -f "$dir/uv.lock" ]]; then
-    eco="uv"
-  fi
-
-  if [ -n "$eco" ]; then
-    pairs+=("$name $eco")
-  fi
-done
-
-# 3. Generate desired config
-{
-  echo "version: 2"
-  echo "updates:"
-
-  # Sort by project name for deterministic output
-  first=true
-  printf '%s\n' "${pairs[@]}" | sort | while read -r name eco; do
-    if [ "$first" = true ]; then
-      first=false
-    else
-      echo ""  # blank line between entries, matching current format
-    fi
-    cat << ENTRY
-  - package-ecosystem: "$eco"
-    directory: "/projects/$name"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 1
-    rebase-strategy: "disabled"
-    groups:
-      $name-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-ENTRY
-  done
-} > "$TMP_DIR/desired.yml"
-
-# 4. Show diff and stop for approval
-diff -u "$CONFIG" "$TMP_DIR/desired.yml" || true
-
-# Do not write the config here. Wait for explicit user approval.
-# After approval, run:
-#   cp "$TMP_DIR/desired.yml" "$CONFIG"
-#   python3 -c "import yaml; yaml.safe_load(open('$CONFIG'))"
+```
+.claude/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 ```
 
-## After approval
+It loads the existing `.github/dependabot.yml`, preserves settings for
+directories that are still present, adds missing entries, removes stale entries,
+normalizes group names, and waits for explicit approval before writing the file.
 
-Write the file and validate:
+## Running the script
+
+Install PyYAML if it is not already available:
 
 ```bash
-cp "$TMP_DIR/desired.yml" "$CONFIG"
-python3 -c "import yaml; yaml.safe_load(open('$CONFIG'))"
+python3 -m pip install pyyaml
 ```
 
-Recheck coverage by rerunning the scan and confirming each detected project has one entry.
+Then run from the repository root:
+
+```bash
+python3 .claude/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
+```
+
+## What the script does
+
+1. Checks `git status --porcelain -- .github/dependabot.yml` and stops if there
+   are staged or unstaged changes.
+2. Parses the existing `dependabot.yml` into directory-indexed text blocks.
+3. Scans `projects/*/` and detects the ecosystem from lockfiles.
+4. Builds the desired entry list:
+   - If a directory already exists in `dependabot.yml`, reuse its settings
+     (`schedule`, `open-pull-requests-limit`, `rebase-strategy`, etc.) and only
+     normalize `package-ecosystem`, `directory`, and the group name.
+   - If a directory is new, create it from the default template.
+5. Writes a preview to `.github/dependabot.yml.preview` and shows `diff -u`.
+6. Prompts `Apply changes? [y/N]`. If approved, copies the preview to
+   `.github/dependabot.yml`, deletes the preview, validates the YAML, and
+   rechecks coverage. If not approved, keeps the preview file and exits without
+   modifying the config.
 
 ## Edge cases
 
-- If a project has both `bun.lock` and `uv.lock`, treat that as an error and ask the user.
-- If no lockfile is found, exclude the directory from Dependabot.
-- If an existing entry points to a directory that no longer exists, remove it.
-- If an existing entry points to a directory whose lockfile is gone, remove it.
+- If a project has both `bun.lock` and `uv.lock`, the script picks `bun` because
+  it is checked first. Review the result manually if this happens.
+- If no lockfile is found, the directory is excluded from Dependabot.
+- If an existing entry points to a directory that no longer exists, it is removed.
+- If an existing entry points to a directory whose lockfile is gone, it is removed.

@@ -64,9 +64,9 @@ Use lockfiles only:
 
 Before editing, run:
 
-    git diff -- .github/dependabot.yml
+    git status --porcelain -- .github/dependabot.yml
 
-If there are uncommitted changes, stop and warn the user.
+If the output is non-empty, stop and warn the user. This catches both staged and unstaged changes.
 
 ### Step 2: Scan Projects
 
