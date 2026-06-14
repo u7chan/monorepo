@@ -7,3 +7,7 @@ export function isRenderableSubtitle(item: SubtitleItem): boolean {
 export function getRenderableSubtitles(items: SubtitleItem[]): SubtitleItem[] {
   return items.filter(isRenderableSubtitle)
 }
+
+export function sortSubtitleItemsByStart(items: SubtitleItem[]): SubtitleItem[] {
+  return [...items].sort((a, b) => a.sourceStart - b.sourceStart)
+}

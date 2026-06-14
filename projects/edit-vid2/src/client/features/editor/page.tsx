@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft, Download, FileVideo, Link2, RotateCcw, Type, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import { uuidv7 } from 'uuidv7'
 import { JobCard, type ExportJob } from '#/client/features/exports/job-card'
 import type {
@@ -13,7 +13,7 @@ import type {
   TimelineStateV1,
   VideoAsset,
 } from '#/shared/schemas'
-import { getRenderableSubtitles } from '#/shared/subtitles'
+import { getRenderableSubtitles, sortSubtitleItemsByStart } from '#/shared/subtitles'
 
 export function EditorPage() {
   const params = useParams({ from: '/projects/$projectId' })
@@ -115,7 +115,8 @@ export function EditorPage() {
   }
 
   const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
-  const renderableSubItems = getRenderableSubtitles(subItems)
+  const sortedSubItems = useMemo(() => sortSubtitleItemsByStart(subItems), [subItems])
+  const renderableSubItems = getRenderableSubtitles(sortedSubItems)
 
   return (
     <div
@@ -209,48 +210,54 @@ export function EditorPage() {
           )}
         </div>
 
-        <div className='w-full overflow-auto border-t border-gray-200 p-4 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
-          <TrimPanel
-            duration={mediaDuration}
-            currentTime={currentTime}
-            keepSegments={timelineState.keepSegments}
-            onChange={(keepSegments) => saveTimelineState({ ...timelineState, keepSegments })}
-          />
-
-          <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>
-            字幕 ({renderableSubItems.length})
-          </h2>
-          <div className='space-y-2'>
-            {subItems.map((sub) => (
-              <SubtitleEditorItem
-                key={sub.id}
-                item={sub}
-                templates={templates ?? []}
-                duration={mediaDuration}
-                onChange={(updated) => {
-                  const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
-                  const newTracks = timelineState.tracks.map((t) =>
-                    t.type === 'subtitle' ? { ...t, items: newItems } : t
-                  )
-                  saveTimelineState({ ...timelineState, tracks: newTracks })
-                }}
-                onDelete={() => {
-                  const newItems = subItems.filter((s) => s.id !== sub.id)
-                  const newTracks = timelineState.tracks.map((t) =>
-                    t.type === 'subtitle' ? { ...t, items: newItems } : t
-                  )
-                  saveTimelineState({ ...timelineState, tracks: newTracks })
-                }}
-              />
-            ))}
-            {subItems.length === 0 && (
-              <p className='text-xs text-gray-400 dark:text-gray-500'>
-                字幕がありません。「字幕追加」ボタンまたは A キーで追加できます。
-              </p>
-            )}
+        <div className='flex w-full flex-col overflow-hidden border-t border-gray-200 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
+          <div className='shrink-0 p-4 pb-2'>
+            <TrimPanel
+              duration={mediaDuration}
+              currentTime={currentTime}
+              keepSegments={timelineState.keepSegments}
+              onChange={(keepSegments) => saveTimelineState({ ...timelineState, keepSegments })}
+            />
           </div>
 
-          <ExportPanel projectId={projectId} canExport={hasVideo} />
+          <div className='flex min-h-0 flex-1 flex-col px-4'>
+            <h2 className='mb-3 shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300'>
+              字幕 ({renderableSubItems.length})
+            </h2>
+            <div className='min-h-0 flex-1 space-y-2 overflow-y-auto pr-1'>
+              {sortedSubItems.map((sub) => (
+                <SubtitleEditorItem
+                  key={sub.id}
+                  item={sub}
+                  templates={templates ?? []}
+                  duration={mediaDuration}
+                  onChange={(updated) => {
+                    const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
+                    const newTracks = timelineState.tracks.map((t) =>
+                      t.type === 'subtitle' ? { ...t, items: newItems } : t
+                    )
+                    saveTimelineState({ ...timelineState, tracks: newTracks })
+                  }}
+                  onDelete={() => {
+                    const newItems = subItems.filter((s) => s.id !== sub.id)
+                    const newTracks = timelineState.tracks.map((t) =>
+                      t.type === 'subtitle' ? { ...t, items: newItems } : t
+                    )
+                    saveTimelineState({ ...timelineState, tracks: newTracks })
+                  }}
+                />
+              ))}
+              {sortedSubItems.length === 0 && (
+                <p className='text-xs text-gray-400 dark:text-gray-500'>
+                  字幕がありません。「字幕追加」ボタンまたは A キーで追加できます。
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className='shrink-0 border-t border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800'>
+            <ExportPanel projectId={projectId} canExport={hasVideo} />
+          </div>
         </div>
       </div>
 
