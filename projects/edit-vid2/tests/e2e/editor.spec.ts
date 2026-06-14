@@ -277,3 +277,65 @@ describe('Subtitle text input IME handling', () => {
     await expectProjectSubtitleText('plain subtitle')
   })
 })
+
+async function expectProjectTrimStart(value: number): Promise<void> {
+  const response = await page.request.get(`${BASE_URL}/api/projects/${TEST_PROJECT_ID}`)
+  expect(response.ok()).toBe(true)
+  const project = await response.json()
+  expect(project.timelineState?.keepSegments?.[0]?.sourceStart).toBe(value)
+}
+
+describe('Trim time input', () => {
+  test('commits start time on blur, not while typing', async () => {
+    await resetVideo()
+
+    const input = page.getByTestId('trim-start-input')
+    expect(await input.inputValue()).toBe('0.0')
+
+    const tracker = trackProjectPatchRequests()
+    try {
+      await input.focus()
+      await input.fill('1.5')
+      expect(tracker.count).toBe(0)
+
+      const patchResponse = waitForProjectPatchResponse()
+      await input.evaluate((node) => {
+        ;(node as HTMLInputElement).blur()
+      })
+      await patchResponse
+
+      expect(tracker.count).toBe(1)
+      expect(await input.inputValue()).toBe('1.5')
+      await expectProjectTrimStart(1.5)
+    } finally {
+      tracker.dispose()
+    }
+  })
+
+  test('reverts invalid input on blur', async () => {
+    const input = page.getByTestId('trim-start-input')
+
+    // Prepare a known committed value so this test does not depend on the previous one.
+    await input.fill('2.0')
+    const patchResponse = waitForProjectPatchResponse()
+    await input.evaluate((node) => {
+      ;(node as HTMLInputElement).blur()
+    })
+    await patchResponse
+    expect(await input.inputValue()).toBe('2.0')
+
+    // Non-numeric input should revert to the last committed value.
+    await input.fill('abc')
+    await input.evaluate((node) => {
+      ;(node as HTMLInputElement).blur()
+    })
+    expect(await input.inputValue()).toBe('2.0')
+
+    // Partial-numeric input (parseFloat would accept the leading digits) should also revert.
+    await input.fill('1abc')
+    await input.evaluate((node) => {
+      ;(node as HTMLInputElement).blur()
+    })
+    expect(await input.inputValue()).toBe('2.0')
+  })
+})
