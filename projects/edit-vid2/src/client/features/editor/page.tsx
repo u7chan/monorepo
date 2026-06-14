@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft, Download, FileVideo, Link2, RotateCcw, Type, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import { uuidv7 } from 'uuidv7'
 import { JobCard, type ExportJob } from '#/client/features/exports/job-card'
 import type {
@@ -532,13 +532,7 @@ function SubtitleEditorItem({
   return (
     <div className='rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-800'>
       <div className='mb-2 flex items-center gap-2'>
-        <input
-          type='text'
-          value={item.text}
-          onChange={(e) => onChange({ ...item, text: e.target.value })}
-          className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-          placeholder='字幕テキスト'
-        />
+        <SubtitleTextInput item={item} onChange={onChange} />
         <button
           onClick={onDelete}
           className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
@@ -588,6 +582,59 @@ function SubtitleEditorItem({
         </select>
       )}
     </div>
+  )
+}
+
+function SubtitleTextInput({ item, onChange }: { item: SubtitleItem; onChange: (item: SubtitleItem) => void }) {
+  const [draftText, setDraftText] = useState(item.text)
+  const isComposingRef = useRef(false)
+  const committedTextRef = useRef(item.text)
+
+  const commitText = (text: string) => {
+    if (text === committedTextRef.current) return
+    committedTextRef.current = text
+    onChange({ ...item, text })
+  }
+
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const text = e.target.value
+    const nativeEvent = e.nativeEvent as InputEvent
+    setDraftText(text)
+    if (isComposingRef.current || nativeEvent.isComposing) return
+    commitText(text)
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return
+    if (isComposingRef.current || e.nativeEvent.isComposing) return
+    commitText(e.currentTarget.value)
+    e.currentTarget.blur()
+  }
+
+  return (
+    <input
+      type='text'
+      value={draftText}
+      onChange={handleChange}
+      onCompositionStart={() => {
+        isComposingRef.current = true
+      }}
+      onCompositionEnd={(e) => {
+        isComposingRef.current = false
+        const text = e.currentTarget.value
+        setDraftText(text)
+        commitText(text)
+      }}
+      onBlur={(e) => {
+        isComposingRef.current = false
+        const text = e.currentTarget.value
+        setDraftText(text)
+        commitText(text)
+      }}
+      onKeyDown={handleKeyDown}
+      className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+      placeholder='字幕テキスト'
+    />
   )
 }
 
