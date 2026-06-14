@@ -259,6 +259,7 @@ export function EditorPage() {
         currentTime={currentTime}
         keepSegments={timelineState.keepSegments}
         subtitleItems={renderableSubItems}
+        onPause={() => videoRef.current?.pause()}
         onSeek={(t) => {
           if (videoRef.current) {
             videoRef.current.currentTime = t
@@ -734,12 +735,14 @@ function TimelineBar({
   currentTime,
   keepSegments,
   subtitleItems,
+  onPause,
   onSeek,
 }: {
   duration: number
   currentTime: number
   keepSegments: KeepSegment[]
   subtitleItems: SubtitleItem[]
+  onPause: () => void
   onSeek: (time: number) => void
 }) {
   const barRef = useRef<HTMLDivElement>(null)
@@ -758,6 +761,7 @@ function TimelineBar({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return
     draggingRef.current = true
+    onPause()
     onSeek(calcTime(e.clientX))
 
     const handleMouseMove = (ev: MouseEvent) => {
@@ -775,6 +779,22 @@ function TimelineBar({
     document.addEventListener('mouseup', handleMouseUp)
   }
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 0) return
+    draggingRef.current = true
+    onPause()
+    onSeek(calcTime(e.touches[0].clientX))
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!draggingRef.current || e.touches.length === 0) return
+    onSeek(calcTime(e.touches[0].clientX))
+  }
+
+  const handleTouchEnd = () => {
+    draggingRef.current = false
+  }
+
   return (
     <div className='h-20 border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800'>
       <div
@@ -782,6 +802,9 @@ function TimelineBar({
         data-testid='timeline-seek-bar'
         className='relative h-10 cursor-pointer rounded bg-gray-100 dark:bg-gray-700'
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         {keepSegments.map((seg) => (
           <div
