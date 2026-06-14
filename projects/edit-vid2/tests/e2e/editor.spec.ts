@@ -215,6 +215,21 @@ describe('Editor seek bar', () => {
     })
     expect(isPaused).toBe(true)
   })
+
+  test('timeline interaction pauses playback', async () => {
+    await resetVideo()
+
+    await page.getByTestId('editor-root').focus()
+    await page.keyboard.press('Space')
+    await waitForPlaybackState(false)
+
+    const bar = seekBar()
+    const box = await bar.boundingBox()
+    if (!box) throw new Error('Seek bar not found')
+
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2)
+    await waitForPlaybackState(true)
+  })
 })
 
 describe('Subtitle text input IME handling', () => {
