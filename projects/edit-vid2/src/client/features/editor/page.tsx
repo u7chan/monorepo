@@ -432,15 +432,21 @@ function TimeField({
     setDraft(formatDecimalSeconds(value))
   }, [value])
 
+  const isValidDecimal = (raw: string): boolean => {
+    const trimmed = raw.trim()
+    if (trimmed === '') return false
+    return /^-?\d+(\.\d*)?$/.test(trimmed) && Number.isFinite(Number(trimmed))
+  }
+
   const commit = (raw: string) => {
-    const parsed = Number.parseFloat(raw)
-    if (Number.isFinite(parsed)) {
-      const next = Math.max(min, Math.min(parsed, max))
-      onCommit(next)
-      setDraft(formatDecimalSeconds(next))
-    } else {
+    if (!isValidDecimal(raw)) {
       setDraft(formatDecimalSeconds(value))
+      return
     }
+    const parsed = Number(raw)
+    const next = Math.max(min, Math.min(parsed, max))
+    onCommit(next)
+    setDraft(formatDecimalSeconds(next))
   }
 
   return (

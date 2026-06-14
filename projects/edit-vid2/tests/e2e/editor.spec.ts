@@ -314,14 +314,28 @@ describe('Trim time input', () => {
 
   test('reverts invalid input on blur', async () => {
     const input = page.getByTestId('trim-start-input')
-    expect(await input.inputValue()).toBe('1.5')
 
-    await input.focus()
+    // Prepare a known committed value so this test does not depend on the previous one.
+    await input.fill('2.0')
+    const patchResponse = waitForProjectPatchResponse()
+    await input.evaluate((node) => {
+      ;(node as HTMLInputElement).blur()
+    })
+    await patchResponse
+    expect(await input.inputValue()).toBe('2.0')
+
+    // Non-numeric input should revert to the last committed value.
     await input.fill('abc')
     await input.evaluate((node) => {
       ;(node as HTMLInputElement).blur()
     })
+    expect(await input.inputValue()).toBe('2.0')
 
-    expect(await input.inputValue()).toBe('1.5')
+    // Partial-numeric input (parseFloat would accept the leading digits) should also revert.
+    await input.fill('1abc')
+    await input.evaluate((node) => {
+      ;(node as HTMLInputElement).blur()
+    })
+    expect(await input.inputValue()).toBe('2.0')
   })
 })
