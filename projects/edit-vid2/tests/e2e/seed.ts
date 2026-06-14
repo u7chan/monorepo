@@ -6,8 +6,9 @@ import { projects, videoAssets } from '#/db/schema'
 
 export const TEST_VIDEO_ID = 'e2e-test-video'
 export const TEST_PROJECT_ID = 'e2e-test-project'
-const TEST_DB_PATH = '/tmp/edit-vid2-test.db'
-const TEST_VIDEO_DIR = 'data/videos/e2e-test-video'
+const E2E_WORKER_KEY = (process.env.BUN_TEST_WORKER_ID ?? String(process.pid)).replace(/[^a-zA-Z0-9_-]/g, '-')
+export const TEST_DB_PATH = `/tmp/edit-vid2-test-${E2E_WORKER_KEY}.db`
+const TEST_VIDEO_DIR = `data/videos/e2e-test-video-${E2E_WORKER_KEY}`
 
 export function seedTestData() {
   try {
@@ -25,7 +26,7 @@ export function seedTestData() {
       id: TEST_VIDEO_ID,
       originalFilename: 'test-compat.mp4',
       displayName: 'E2E Test Video',
-      storagePath: 'data/videos/e2e-test-video/source.mp4',
+      storagePath: `${TEST_VIDEO_DIR}/source.mp4`,
       status: 'ready',
       duration: 5.0,
       width: 320,
