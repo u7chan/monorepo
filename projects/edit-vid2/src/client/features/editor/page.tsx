@@ -3,12 +3,14 @@ import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
+  Bell,
   ChevronDown,
   Download,
   FileVideo,
   ImageIcon,
   Link2,
   LoaderCircle,
+  Plus,
   RotateCcw,
   Type,
   X,
@@ -24,8 +26,11 @@ import {
   type ReactNode,
 } from 'react'
 import { uuidv7 } from 'uuidv7'
-import { JobCard, statusLabels, type ExportJob } from '#/client/features/exports/job-card'
+import { ExportConfirmDialog } from '#/client/features/editor/export-confirm-dialog'
+import { ExportHistoryPopup } from '#/client/features/editor/export-history-popup'
+import { ExportPresetForm, ExportPresetSummary } from '#/client/features/editor/export-preset-form'
 import type {
+  ExportPreset,
   KeepSegment,
   Project,
   SubtitleItem,
@@ -45,6 +50,15 @@ export function EditorPage() {
   const [duration, setDuration] = useState(0)
   const [showLinkVideo, setShowLinkVideo] = useState(false)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<string | null>(null)
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [exportPreset, setExportPreset] = useState<ExportPreset>({
+    format: 'mp4',
+    videoCodec: 'libx264',
+    crf: 23,
+    audioCodec: 'aac',
+    preset: 'medium',
+  })
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -97,6 +111,20 @@ export function EditorPage() {
     [updateProject]
   )
 
+  const createExport = useMutation({
+    mutationFn: () =>
+      fetch(`/api/projects/${projectId}/export-jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset: exportPreset }),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      setIsExportDialogOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['export-jobs'] })
+    },
+  })
+
   const linkVideo = useMutation({
     mutationFn: (videoAssetId: string) =>
       fetch(`/api/projects/${projectId}`, {
@@ -141,6 +169,11 @@ export function EditorPage() {
   const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
   const sortedSubItems = useMemo(() => sortSubtitleItemsByStart(subItems), [subItems])
   const renderableSubItems = getRenderableSubtitles(sortedSubItems)
+  const hasSubtitles = subItems.length > 0
+  const trimDuration =
+    timelineState.keepSegments.length > 0
+      ? timelineState.keepSegments.reduce((sum, seg) => sum + (seg.sourceEnd - seg.sourceStart), 0)
+      : mediaDuration
 
   return (
     <div
@@ -155,16 +188,23 @@ export function EditorPage() {
         rootRef.current?.focus()
       }}
       onKeyDown={(e) => {
-        if (e.code !== 'Space') return
         const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-        e.preventDefault()
-        const video = videoRef.current
-        if (!video) return
-        if (video.paused) {
-          video.play()
-        } else {
-          video.pause()
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return
+        if (isExportDialogOpen || isHistoryOpen) return
+        if (e.code === 'Space') {
+          e.preventDefault()
+          const video = videoRef.current
+          if (!video) return
+          if (video.paused) {
+            video.play()
+          } else {
+            video.pause()
+          }
+          return
+        }
+        if (e.code === 'KeyA') {
+          e.preventDefault()
+          addSubtitle()
         }
       }}
     >
@@ -179,7 +219,7 @@ export function EditorPage() {
           {project?.name ?? 'エディタ'}
         </h1>
         <span className='text-sm text-gray-400'>{videoAsset?.displayName ?? '動画未紐づけ'}</span>
-        <div className='ml-auto flex gap-2'>
+        <div className='ml-auto flex items-center gap-2'>
           {hasVideo && (
             <button
               type='button'
@@ -187,17 +227,31 @@ export function EditorPage() {
               className='inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
             >
               <Link2 className='h-4 w-4' />
-              動画を変更
+              <span className='hidden sm:inline'>動画を変更</span>
             </button>
           )}
           <button
-            onClick={addSubtitle}
+            type='button'
+            onClick={() => setIsExportDialogOpen(true)}
             disabled={!hasVideo}
-            className='inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50'
+            title={hasVideo ? '書き出し' : '動画を紐づけると書き出しできます'}
+            className='inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 disabled:opacity-50'
           >
-            <Type className='h-4 w-4' />
-            字幕追加 (A)
+            <Download className='h-4 w-4' />
+            <span className='hidden sm:inline'>書き出し</span>
           </button>
+          <div className='relative'>
+            <button
+              type='button'
+              onClick={() => setIsHistoryOpen((current) => !current)}
+              className='inline-flex items-center rounded-lg p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+              aria-label='書き出し履歴'
+              aria-expanded={isHistoryOpen}
+            >
+              <Bell className='h-5 w-5' />
+            </button>
+            <ExportHistoryPopup projectId={projectId} isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
+          </div>
         </div>
       </div>
 
@@ -286,18 +340,37 @@ export function EditorPage() {
               <div className='flex flex-1 flex-col items-center justify-center text-center'>
                 <Type className='mb-2 h-8 w-8 text-gray-300 dark:text-gray-600' />
                 <p className='text-sm text-gray-500 dark:text-gray-400'>字幕を選択すると詳細が表示されます</p>
-                <p className='mt-1 text-xs text-gray-400 dark:text-gray-500'>
-                  タイムラインのクリップをクリックするか、「字幕追加」ボタンで追加してください
-                </p>
+                <button
+                  type='button'
+                  onClick={addSubtitle}
+                  disabled={!hasVideo}
+                  className='mt-3 inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50'
+                >
+                  <Plus className='h-4 w-4' />
+                  字幕を追加
+                </button>
+                <p className='mt-2 text-xs text-gray-400 dark:text-gray-500'>または A キーで追加できます</p>
               </div>
             )}
           </div>
 
           <div className='shrink-0 border-t border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800'>
-            <ExportPanel projectId={projectId} canExport={hasVideo} />
+            <ExportPanel preset={exportPreset} onPresetChange={setExportPreset} />
           </div>
         </div>
       </div>
+
+      <ExportConfirmDialog
+        isOpen={isExportDialogOpen}
+        preset={exportPreset}
+        onPresetChange={setExportPreset}
+        duration={mediaDuration}
+        trimDuration={trimDuration}
+        hasSubtitles={hasSubtitles}
+        isPending={createExport.isPending}
+        onExport={() => createExport.mutate()}
+        onClose={() => setIsExportDialogOpen(false)}
+      />
 
       <TimelineBar
         duration={mediaDuration}
@@ -539,7 +612,7 @@ function CollapsibleSection({
   children,
 }: {
   title: string
-  meta?: string
+  meta?: ReactNode
   defaultOpen?: boolean
   children: ReactNode
 }) {
@@ -1164,135 +1237,32 @@ function TimelineBar({
   )
 }
 
-function ExportPanel({ projectId, canExport }: { projectId: string; canExport: boolean }) {
-  const queryClient = useQueryClient()
+function ExportPanel({
+  preset,
+  onPresetChange,
+}: {
+  preset: ExportPreset
+  onPresetChange: (preset: ExportPreset) => void
+}) {
   const [showSettings, setShowSettings] = useState(false)
-  const [preset, setPreset] = useState({
-    videoCodec: 'libx264',
-    crf: 23,
-    format: 'mp4',
-    audioCodec: 'aac',
-    preset: 'medium' as const,
-  })
-
-  const { data: jobs } = useQuery<ExportJob[]>({
-    queryKey: ['export-jobs', projectId],
-    queryFn: () => fetch(`/api/projects/${projectId}/export-jobs`).then((r) => r.json()),
-    refetchInterval: 3000,
-  })
-
-  const createExport = useMutation({
-    mutationFn: () =>
-      fetch(`/api/projects/${projectId}/export-jobs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preset }),
-      }).then((r) => r.json()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
-      queryClient.invalidateQueries({ queryKey: ['export-jobs'] })
-    },
-  })
-
-  const cancelExport = useMutation({
-    mutationFn: (jobId: string) => fetch(`/api/export-jobs/${jobId}/cancel`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
-      queryClient.invalidateQueries({ queryKey: ['export-jobs'] })
-    },
-  })
-
-  const deleteExport = useMutation({
-    mutationFn: (jobId: string) => fetch(`/api/export-jobs/${jobId}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['export-jobs', projectId] })
-      queryClient.invalidateQueries({ queryKey: ['export-jobs'] })
-    },
-  })
-
-  const latestJob = jobs?.[0]
-  const latestJobStatus = latestJob ? (statusLabels[latestJob.status] ?? latestJob.status) : '履歴なし'
-  const exportMeta =
-    latestJob?.status === 'running' || latestJob?.status === 'queued'
-      ? `${latestJobStatus} ${Math.round(latestJob.progress)}%`
-      : latestJobStatus
 
   return (
-    <CollapsibleSection title='書き出し' meta={exportMeta}>
+    <CollapsibleSection title='書き出し' meta={<ExportPresetSummary preset={preset} />}>
       <button
-        onClick={() => setShowSettings(!showSettings)}
+        type='button'
+        onClick={() => setShowSettings((current) => !current)}
         className='mb-2 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
       >
         {showSettings ? '設定を閉じる' : '書き出し設定'}
       </button>
 
       {showSettings && (
-        <div className='mb-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'>
-          <div>
-            <label className='block text-xs text-gray-500 dark:text-gray-400'>ビデオコーデック</label>
-            <select
-              value={preset.videoCodec}
-              onChange={(e) => setPreset({ ...preset, videoCodec: e.target.value })}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-            >
-              <option value='libx264'>H.264</option>
-              <option value='libx265'>H.265</option>
-            </select>
-          </div>
-          <div>
-            <label className='block text-xs text-gray-500 dark:text-gray-400'>品質 (CRF: 0-51, 低いほど高品質)</label>
-            <input
-              type='range'
-              min={0}
-              max={51}
-              value={preset.crf}
-              onChange={(e) => setPreset({ ...preset, crf: Number(e.target.value) })}
-              className='w-full'
-            />
-            <span className='text-xs text-gray-400'>{preset.crf}</span>
-          </div>
-          <div>
-            <label className='block text-xs text-gray-500 dark:text-gray-400'>エンコード速度</label>
-            <select
-              value={preset.preset}
-              onChange={(e) => setPreset({ ...preset, preset: e.target.value as 'medium' })}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-            >
-              <option value='ultrafast'>超高速</option>
-              <option value='fast'>高速</option>
-              <option value='medium'>標準</option>
-              <option value='slow'>低速 (高圧縮)</option>
-            </select>
-          </div>
+        <div className='mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'>
+          <ExportPresetForm preset={preset} onChange={onPresetChange} />
         </div>
       )}
 
-      <button
-        onClick={() => createExport.mutate()}
-        disabled={createExport.isPending || !canExport}
-        className='mb-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50'
-      >
-        <Download className='h-4 w-4' />
-        {createExport.isPending ? '作成中...' : '書き出しを開始'}
-      </button>
-      {!canExport && (
-        <p className='mb-3 text-xs text-amber-600 dark:text-amber-300'>動画を紐づけると書き出しできます。</p>
-      )}
-
-      {latestJob ? (
-        <JobCard
-          job={latestJob}
-          onCancel={() => cancelExport.mutate(latestJob.id)}
-          onDelete={() => deleteExport.mutate(latestJob.id)}
-        />
-      ) : (
-        <p className='text-xs text-gray-400 dark:text-gray-500'>書き出し履歴がありません</p>
-      )}
-      <div className='mt-2'>
-        <Link to='/exports' className='text-xs text-indigo-600 hover:underline dark:text-indigo-400'>
-          書き出し履歴を表示
-        </Link>
-      </div>
+      <p className='text-xs text-gray-400 dark:text-gray-500'>ヘッダーの「書き出し」ボタンから実行できます。</p>
     </CollapsibleSection>
   )
 }
