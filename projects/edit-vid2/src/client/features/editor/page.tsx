@@ -1,10 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Download, FileVideo, ImageIcon, Link2, LoaderCircle, RotateCcw, Type, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import {
+  ArrowLeft,
+  ChevronDown,
+  Download,
+  FileVideo,
+  ImageIcon,
+  Link2,
+  LoaderCircle,
+  RotateCcw,
+  Type,
+  X,
+} from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import { uuidv7 } from 'uuidv7'
-import { JobCard, type ExportJob } from '#/client/features/exports/job-card'
+import { JobCard, statusLabels, type ExportJob } from '#/client/features/exports/job-card'
 import type {
   KeepSegment,
   Project,
@@ -215,7 +235,7 @@ export function EditorPage() {
         </div>
 
         <div className='flex w-full flex-col overflow-hidden border-t border-gray-200 dark:border-gray-700 lg:w-96 lg:border-l lg:border-t-0'>
-          <div className='shrink-0 p-4 pb-2'>
+          <div className='shrink-0 border-b border-gray-200 p-4 dark:border-gray-700'>
             <TrimPanel
               duration={mediaDuration}
               currentTime={currentTime}
@@ -512,6 +532,36 @@ function TimeField({
   )
 }
 
+function CollapsibleSection({
+  title,
+  meta,
+  defaultOpen = false,
+  children,
+}: {
+  title: string
+  meta?: string
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+
+  return (
+    <section>
+      <button
+        type='button'
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+        className='flex w-full items-center justify-between gap-3 rounded-md px-1 py-1 text-left hover:bg-gray-100 dark:hover:bg-gray-700/70'
+      >
+        <span className='text-sm font-semibold text-gray-700 dark:text-gray-300'>{title}</span>
+        <span className='ml-auto min-w-0 truncate text-xs text-gray-400 dark:text-gray-500'>{meta}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && <div className='mt-3'>{children}</div>}
+    </section>
+  )
+}
+
 function TrimPanel({
   duration,
   currentTime,
@@ -552,12 +602,7 @@ function TrimPanel({
   }
 
   return (
-    <section className='mb-6'>
-      <div className='mb-3 flex items-center justify-between gap-3'>
-        <h2 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>切り抜き</h2>
-        <span className='text-xs text-gray-400 dark:text-gray-500'>長さ {formatSeconds(trimLength)}</span>
-      </div>
-
+    <CollapsibleSection title='切り抜き' meta={`長さ ${formatSeconds(trimLength)}`}>
       <div className='rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'>
         <div className='grid grid-cols-2 gap-2'>
           <div>
@@ -613,7 +658,7 @@ function TrimPanel({
           全体に戻す
         </button>
       </div>
-    </section>
+    </CollapsibleSection>
   )
 }
 
@@ -1126,11 +1171,14 @@ function ExportPanel({ projectId, canExport }: { projectId: string; canExport: b
   })
 
   const latestJob = jobs?.[0]
+  const latestJobStatus = latestJob ? (statusLabels[latestJob.status] ?? latestJob.status) : '履歴なし'
+  const exportMeta =
+    latestJob?.status === 'running' || latestJob?.status === 'queued'
+      ? `${latestJobStatus} ${Math.round(latestJob.progress)}%`
+      : latestJobStatus
 
   return (
-    <>
-      <h2 className='mb-3 mt-6 text-sm font-semibold text-gray-700 dark:text-gray-300'>書き出し</h2>
-
+    <CollapsibleSection title='書き出し' meta={exportMeta}>
       <button
         onClick={() => setShowSettings(!showSettings)}
         className='mb-2 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
@@ -1205,6 +1253,6 @@ function ExportPanel({ projectId, canExport }: { projectId: string; canExport: b
           書き出し履歴を表示
         </Link>
       </div>
-    </>
+    </CollapsibleSection>
   )
 }

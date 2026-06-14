@@ -59,6 +59,14 @@ function seekBar() {
   return page.getByTestId('timeline-seek-bar')
 }
 
+async function ensureTrimPanelOpen(): Promise<void> {
+  const toggle = page.getByRole('button', { name: /切り抜き/ })
+  const expanded = await toggle.getAttribute('aria-expanded')
+  if (expanded === 'true') return
+  await toggle.click()
+  await page.getByTestId('trim-start-input').waitFor({ state: 'visible', timeout: 5000 })
+}
+
 async function waitForTimeDisplay(expected: string): Promise<void> {
   await page.waitForFunction(
     ({ testId, value }) => document.querySelector(`[data-testid="${testId}"]`)?.textContent === value,
@@ -374,6 +382,7 @@ async function getLatestSubtitleItem(): Promise<{
 describe('Trim time input', () => {
   test('commits start time on blur, not while typing', async () => {
     await resetVideo()
+    await ensureTrimPanelOpen()
 
     const input = page.getByTestId('trim-start-input')
     expect(await input.inputValue()).toBe('0.0')
@@ -399,6 +408,8 @@ describe('Trim time input', () => {
   })
 
   test('reverts invalid input on blur', async () => {
+    await ensureTrimPanelOpen()
+
     const input = page.getByTestId('trim-start-input')
 
     // Prepare a known committed value so this test does not depend on the previous one.
