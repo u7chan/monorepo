@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { Page } from 'playwright'
+import type { Locator, Page, Request } from 'playwright'
 import { BASE_URL, setupE2E, teardownE2E, TEST_PROJECT_ID } from './setup'
 
 let page: Page
@@ -64,6 +64,82 @@ async function waitForPlaybackState(paused: boolean): Promise<void> {
     paused,
     { timeout: 5000 }
   )
+}
+
+async function addSubtitle(): Promise<Locator> {
+  const inputs = page.getByPlaceholder('字幕テキスト')
+  const before = await inputs.count()
+  await page.getByRole('button', { name: /字幕追加/ }).click()
+  await page.waitForFunction(
+    ({ placeholder, count }) => document.querySelectorAll(`input[placeholder="${placeholder}"]`).length > count,
+    { placeholder: '字幕テキスト', count: before }
+  )
+  return inputs.last()
+}
+
+function trackProjectPatchRequests() {
+  let count = 0
+  const handler = (request: Request) => {
+    if (request.method() === 'PATCH' && request.url().includes(`/api/projects/${TEST_PROJECT_ID}`)) {
+      count++
+    }
+  }
+  page.on('request', handler)
+
+  return {
+    get count() {
+      return count
+    },
+    dispose() {
+      page.off('request', handler)
+    },
+  }
+}
+
+async function waitForProjectPatchResponse(): Promise<void> {
+  const response = await page.waitForResponse(
+    (res) => res.request().method() === 'PATCH' && res.url().includes(`/api/projects/${TEST_PROJECT_ID}`)
+  )
+  expect(response.ok()).toBe(true)
+}
+
+async function expectProjectSubtitleText(text: string): Promise<void> {
+  const response = await page.request.get(`${BASE_URL}/api/projects/${TEST_PROJECT_ID}`)
+  expect(response.ok()).toBe(true)
+  const project = await response.json()
+  const subtitles = project.timelineState?.tracks?.find((track: { type: string }) => track.type === 'subtitle')?.items
+  expect(subtitles?.some((item: { text: string }) => item.text === text)).toBe(true)
+}
+
+async function inputComposingText(input: Locator, text: string): Promise<void> {
+  await input.evaluate((node, value) => {
+    const element = node as HTMLInputElement
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    element.value = value
+    element.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        data: value,
+        inputType: 'insertCompositionText',
+        isComposing: true,
+      })
+    )
+  }, text)
+}
+
+async function endComposition(input: Locator, text: string): Promise<void> {
+  await input.evaluate((node, value) => {
+    const element = node as HTMLInputElement
+    element.value = value
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value }))
+  }, text)
+}
+
+async function pressComposingEnter(input: Locator): Promise<void> {
+  await input.evaluate((node) => {
+    const element = node as HTMLInputElement
+    element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', isComposing: true }))
+  })
 }
 
 describe('Editor seek bar', () => {
@@ -138,5 +214,66 @@ describe('Editor seek bar', () => {
       return v ? v.paused : true
     })
     expect(isPaused).toBe(true)
+  })
+})
+
+describe('Subtitle text input IME handling', () => {
+  test('defers saving during composition and saves once on compositionend', async () => {
+    const input = await addSubtitle()
+    const tracker = trackProjectPatchRequests()
+
+    try {
+      await input.focus()
+      await inputComposingText(input, 'こんに')
+      await pressComposingEnter(input)
+
+      expect(tracker.count).toBe(0)
+
+      const patchResponse = waitForProjectPatchResponse()
+      await endComposition(input, 'こんにちは')
+      await patchResponse
+
+      expect(tracker.count).toBe(1)
+      expect(await input.inputValue()).toBe('こんにちは')
+      await expectProjectSubtitleText('こんにちは')
+    } finally {
+      tracker.dispose()
+    }
+  })
+
+  test('saves composing draft on blur', async () => {
+    const input = await addSubtitle()
+    const tracker = trackProjectPatchRequests()
+
+    try {
+      await input.focus()
+      await inputComposingText(input, '未確定')
+
+      expect(tracker.count).toBe(0)
+
+      await inputComposingText(input, '未確定')
+      const patchResponse = waitForProjectPatchResponse()
+      await input.evaluate((node) => {
+        ;(node as HTMLInputElement).blur()
+      })
+      await patchResponse
+
+      expect(tracker.count).toBe(1)
+      expect(await input.inputValue()).toBe('未確定')
+      await expectProjectSubtitleText('未確定')
+    } finally {
+      tracker.dispose()
+    }
+  })
+
+  test('saves normal text input without composition', async () => {
+    const input = await addSubtitle()
+    const patchResponse = waitForProjectPatchResponse()
+
+    await input.fill('plain subtitle')
+    await patchResponse
+
+    expect(await input.inputValue()).toBe('plain subtitle')
+    await expectProjectSubtitleText('plain subtitle')
   })
 })
