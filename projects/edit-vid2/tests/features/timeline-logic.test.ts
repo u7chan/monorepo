@@ -66,6 +66,29 @@ describe('mapSubtitlesToOutputTime', () => {
     expect(result[0].text).toBe('Hello')
   })
 
+  test('excludes empty text subtitles', () => {
+    const subtitles: SubtitleItem[] = [
+      { id: 's1', sourceStart: 1, sourceEnd: 3, text: 'Hello', templateId: 't1', styleOverrides: {} },
+      { id: 's2', sourceStart: 3, sourceEnd: 5, text: '', templateId: 't1', styleOverrides: {} },
+      { id: 's3', sourceStart: 5, sourceEnd: 7, text: '   ', templateId: 't1', styleOverrides: {} },
+    ]
+    const result = mapSubtitlesToOutputTime(subtitles, [])
+    expect(result).toHaveLength(1)
+    expect(result[0].text).toBe('Hello')
+  })
+
+  test('excludes empty text subtitles with keepSegments', () => {
+    const subtitles: SubtitleItem[] = [
+      { id: 's1', sourceStart: 1, sourceEnd: 3, text: 'Hello', templateId: 't1', styleOverrides: {} },
+      { id: 's2', sourceStart: 3, sourceEnd: 5, text: '', templateId: 't1', styleOverrides: {} },
+      { id: 's3', sourceStart: 5, sourceEnd: 7, text: '   ', templateId: 't1', styleOverrides: {} },
+    ]
+    const keepSegments: KeepSegment[] = [{ id: 'k1', sourceStart: 0, sourceEnd: 8 }]
+    const result = mapSubtitlesToOutputTime(subtitles, keepSegments)
+    expect(result).toHaveLength(1)
+    expect(result[0].text).toBe('Hello')
+  })
+
   test('maps simple case with single keepSegment', () => {
     const subtitles: SubtitleItem[] = [
       { id: 's1', sourceStart: 2, sourceEnd: 6, text: 'Hello', templateId: 't1', styleOverrides: {} },
