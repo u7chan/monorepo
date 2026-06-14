@@ -8,6 +8,7 @@ import { mapSubtitlesToOutputTime, normalizeKeepSegments } from '#/server/featur
 import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import { toSubtitleStyle } from '#/shared/schemas'
 import type { ExportPreset, KeepSegment, SubtitleItem, SubtitleStyle, TimelineStateV1 } from '#/shared/schemas'
+import { getRenderableSubtitles } from '#/shared/subtitles'
 import { getExportJobById, updateExportJob } from './export-repository'
 
 interface ExportJobRecord {
@@ -141,6 +142,7 @@ class ExportWorker {
 
       const keepSegments: KeepSegment[] = timelineState.keepSegments ?? []
       const subItems: SubtitleItem[] = timelineState.tracks?.find((t) => t.type === 'subtitle')?.items ?? []
+      const renderableSubItems = getRenderableSubtitles(subItems)
 
       const preset = (exportJob.preset ?? {
         format: 'mp4',
@@ -161,8 +163,8 @@ class ExportWorker {
       let vfFilter = ''
       let assPath = ''
 
-      if (subItems.length > 0) {
-        const defaultTemplate = getTemplateById(db, subItems[0]?.templateId ?? '')
+      if (renderableSubItems.length > 0) {
+        const defaultTemplate = getTemplateById(db, renderableSubItems[0]?.templateId ?? '')
         const defaultStyle: SubtitleStyle = defaultTemplate
           ? toSubtitleStyle(defaultTemplate)
           : {
@@ -179,7 +181,7 @@ class ExportWorker {
               margin: { x: 0, y: 0 },
             }
 
-        const mapped = mapSubtitlesToOutputTime(subItems, keepSegments)
+        const mapped = mapSubtitlesToOutputTime(renderableSubItems, keepSegments)
         const assContent = generateAssContent(mapped, videoAsset.width ?? 1920, videoAsset.height ?? 1080, defaultStyle)
         assPath = resolve(exportDir, 'subtitles.ass')
         const { writeFileSync } = await import('node:fs')

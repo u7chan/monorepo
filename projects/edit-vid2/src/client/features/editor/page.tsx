@@ -13,6 +13,7 @@ import type {
   TimelineStateV1,
   VideoAsset,
 } from '#/shared/schemas'
+import { getRenderableSubtitles } from '#/shared/subtitles'
 
 export function EditorPage() {
   const params = useParams({ from: '/projects/$projectId' })
@@ -114,6 +115,7 @@ export function EditorPage() {
   }
 
   const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
+  const renderableSubItems = getRenderableSubtitles(subItems)
 
   return (
     <div
@@ -215,7 +217,9 @@ export function EditorPage() {
             onChange={(keepSegments) => saveTimelineState({ ...timelineState, keepSegments })}
           />
 
-          <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>字幕 ({subItems.length})</h2>
+          <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>
+            字幕 ({renderableSubItems.length})
+          </h2>
           <div className='space-y-2'>
             {subItems.map((sub) => (
               <SubtitleEditorItem
@@ -254,7 +258,7 @@ export function EditorPage() {
         duration={mediaDuration}
         currentTime={currentTime}
         keepSegments={timelineState.keepSegments}
-        subtitleItems={subItems}
+        subtitleItems={renderableSubItems}
         onSeek={(t) => {
           if (videoRef.current) {
             videoRef.current.currentTime = t
@@ -729,6 +733,7 @@ function TimelineBar({
         {subtitleItems.map((sub) => (
           <div
             key={sub.id}
+            data-testid='timeline-subtitle-item'
             className='absolute bottom-0 h-3 rounded bg-indigo-400/70 dark:bg-indigo-500/50'
             style={{
               left: `${toPercent(sub.sourceStart)}%`,

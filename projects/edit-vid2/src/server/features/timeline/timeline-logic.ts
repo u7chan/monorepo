@@ -1,4 +1,5 @@
 import type { KeepSegment, MappedSubtitle, SubtitleItem } from '#/shared/schemas'
+import { getRenderableSubtitles } from '#/shared/subtitles'
 
 export function normalizeKeepSegments(segments: KeepSegment[]): KeepSegment[] {
   if (segments.length === 0) return []
@@ -19,8 +20,10 @@ export function normalizeKeepSegments(segments: KeepSegment[]): KeepSegment[] {
 }
 
 export function mapSubtitlesToOutputTime(subtitles: SubtitleItem[], keepSegments: KeepSegment[]): MappedSubtitle[] {
+  const renderableSubtitles = getRenderableSubtitles(subtitles)
+
   if (keepSegments.length === 0) {
-    return subtitles.map((sub) => ({
+    return renderableSubtitles.map((sub) => ({
       text: sub.text,
       outputStart: sub.sourceStart,
       outputEnd: sub.sourceEnd,
@@ -54,7 +57,7 @@ export function mapSubtitlesToOutputTime(subtitles: SubtitleItem[], keepSegments
 
   const result: MappedSubtitle[] = []
 
-  for (const sub of subtitles) {
+  for (const sub of renderableSubtitles) {
     for (const seg of normalized) {
       const intersectStart = Math.max(sub.sourceStart, seg.sourceStart)
       const intersectEnd = Math.min(sub.sourceEnd, seg.sourceEnd)
