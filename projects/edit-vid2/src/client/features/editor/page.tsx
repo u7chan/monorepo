@@ -427,10 +427,16 @@ function TimeField({
   onCommit: (value: number) => void
 }) {
   const [draft, setDraft] = useState(formatDecimalSeconds(value))
+  const [isFocused, setIsFocused] = useState(false)
+  const valueRef = useRef(value)
 
-  useEffect(() => {
-    setDraft(formatDecimalSeconds(value))
-  }, [value])
+  if (value !== valueRef.current && !isFocused) {
+    valueRef.current = value
+    const formatted = formatDecimalSeconds(value)
+    if (draft !== formatted) {
+      setDraft(formatted)
+    }
+  }
 
   const isValidDecimal = (raw: string): boolean => {
     const trimmed = raw.trim()
@@ -439,6 +445,7 @@ function TimeField({
   }
 
   const commit = (raw: string) => {
+    setIsFocused(false)
     if (!isValidDecimal(raw)) {
       setDraft(formatDecimalSeconds(value))
       return
@@ -456,6 +463,11 @@ function TimeField({
       disabled={disabled}
       data-testid={testId}
       value={draft}
+      onFocus={() => {
+        valueRef.current = value
+        setDraft(formatDecimalSeconds(value))
+        setIsFocused(true)
+      }}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={(e) => commit(e.target.value)}
       onKeyDown={(e) => {
