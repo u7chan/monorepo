@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Download, FileVideo, Link2, RotateCcw, Type, X } from 'lucide-react'
+import { ArrowLeft, Download, FileVideo, ImageIcon, Link2, LoaderCircle, RotateCcw, Type, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import { uuidv7 } from 'uuidv7'
 import { JobCard, type ExportJob } from '#/client/features/exports/job-card'
@@ -239,9 +239,11 @@ export function EditorPage() {
                 return (
                   <SubtitleDetailForm
                     key={selectedSubtitleId}
+                    projectId={projectId}
                     item={selectedItem}
                     templates={templates ?? []}
                     duration={mediaDuration}
+                    canPreview={hasVideo}
                     onChange={(updated) => {
                       const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
                       const newTracks = timelineState.tracks.map((t) =>
@@ -616,18 +618,50 @@ function TrimPanel({
 }
 
 function SubtitleDetailForm({
+  projectId,
   item,
   templates,
   duration,
+  canPreview,
   onChange,
   onDelete,
 }: {
+  projectId: string
   item: SubtitleItem
   templates: SubtitleTemplate[]
   duration: number
+  canPreview: boolean
   onChange: (item: SubtitleItem) => void
   onDelete: () => void
 }) {
+  const previewText = item.text.trim()
+  const previewSourceTime = Math.max(0, Number(item.sourceStart.toFixed(2)))
+  const previewQuery = useQuery<{ path: string; cached: boolean }>({
+    queryKey: ['subtitle-preview', projectId, item.id, previewSourceTime, previewText, item.templateId],
+    enabled: canPreview && previewText.length > 0,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/previews/subtitle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceTime: previewSourceTime,
+          text: previewText,
+          templateId: item.templateId,
+        }),
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(body?.error ?? 'preview generation failed')
+      }
+      return res.json()
+    },
+  })
+  const previewSrc = previewQuery.data?.path
+    ? previewQuery.data.path.startsWith('/')
+      ? previewQuery.data.path
+      : `/${previewQuery.data.path}`
+    : null
+
   return (
     <div data-testid='subtitle-detail-form' className='flex min-h-0 flex-1 flex-col overflow-y-auto py-4'>
       <div className='mb-4 flex items-center justify-between'>
@@ -688,6 +722,38 @@ function SubtitleDetailForm({
             </select>
           </div>
         )}
+        <section
+          data-testid='subtitle-preview'
+          className='overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900'
+        >
+          <div className='flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700'>
+            <ImageIcon className='h-3.5 w-3.5 text-gray-500 dark:text-gray-400' />
+            <h3 className='text-xs font-medium text-gray-600 dark:text-gray-300'>静止画プレビュー</h3>
+          </div>
+          <div className='flex aspect-video items-center justify-center bg-gray-100 text-xs text-gray-500 dark:bg-gray-950 dark:text-gray-400'>
+            {!canPreview ? (
+              <span>元動画が必要です</span>
+            ) : previewText.length === 0 ? (
+              <span>テキスト入力後に表示されます</span>
+            ) : previewQuery.isFetching ? (
+              <span className='inline-flex items-center gap-2'>
+                <LoaderCircle className='h-3.5 w-3.5 animate-spin' />
+                生成中...
+              </span>
+            ) : previewQuery.isError ? (
+              <span>プレビューを生成できませんでした</span>
+            ) : previewSrc ? (
+              <img
+                data-testid='subtitle-preview-image'
+                src={previewSrc}
+                alt='字幕プレビュー'
+                className='h-full w-full object-contain'
+              />
+            ) : (
+              <span>プレビュー未生成</span>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   )

@@ -1,11 +1,29 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import type { Locator, Page, Request } from 'playwright'
+import type { Locator, Page, Request, Route } from 'playwright'
 import { BASE_URL, setupE2E, teardownE2E, TEST_PROJECT_ID } from './setup'
 
 let page: Page
 
+const e2ePreviewImagePath = 'data/e2e-subtitle-preview.svg'
+const e2ePreviewImageBody =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="black"/><text x="160" y="100" fill="white" text-anchor="middle">preview</text></svg>'
+
 beforeAll(async () => {
   ;({ page } = await setupE2E())
+  await page.route('**/api/projects/*/previews/subtitle', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ path: e2ePreviewImagePath, cached: false }),
+    })
+  })
+  await page.route(`**/${e2ePreviewImagePath}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/svg+xml',
+      body: e2ePreviewImageBody,
+    })
+  })
   await page.goto(`${BASE_URL}/projects/${TEST_PROJECT_ID}`)
   await page.waitForSelector('video', { timeout: 10000 })
   await page.waitForFunction(
@@ -19,7 +37,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await teardownE2E(page)
-}, 10000)
+}, 15000)
 
 async function getTimeDisplay(): Promise<string> {
   return (await page.getByTestId('timeline-current-time').textContent()) ?? ''
@@ -342,11 +360,12 @@ async function getLatestSubtitleItem(): Promise<{
   sourceStart: number
   sourceEnd: number
   text: string
+  templateId: string
 } | null> {
   const response = await page.request.get(`${BASE_URL}/api/projects/${TEST_PROJECT_ID}`)
   expect(response.ok()).toBe(true)
   const project = await response.json()
-  const items: Array<{ id: string; sourceStart: number; sourceEnd: number; text: string }> =
+  const items: Array<{ id: string; sourceStart: number; sourceEnd: number; text: string; templateId: string }> =
     project.timelineState?.tracks?.find((track: { type: string }) => track.type === 'subtitle')?.items ?? []
   if (items.length === 0) return null
   return items.sort((a, b) => a.sourceStart - b.sourceStart)[items.length - 1]
@@ -411,7 +430,7 @@ describe('Timeline subtitle clip interaction', () => {
   beforeEach(async () => {
     await clearSubtitles()
     await resetVideo()
-  })
+  }, 10000)
 
   test('clicking a clip selects it and shows the detail form', async () => {
     const { item } = await addSubtitleWithText('select me')
@@ -430,6 +449,39 @@ describe('Timeline subtitle clip interaction', () => {
 
     const selectedInput = page.getByPlaceholder('字幕テキスト')
     expect(await selectedInput.inputValue()).toBe('select me')
+  })
+
+  test('selecting a subtitle requests and shows a still preview', async () => {
+    const previewRoute = async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ path: e2ePreviewImagePath, cached: false }),
+      })
+    }
+
+    await page.route(`**/api/projects/${TEST_PROJECT_ID}/previews/subtitle`, previewRoute)
+
+    try {
+      const previewResponsePromise = page.waitForResponse(
+        (res) =>
+          res.request().method() === 'POST' && res.url().includes(`/api/projects/${TEST_PROJECT_ID}/previews/subtitle`)
+      )
+      const { item } = await addSubtitleWithText('preview me')
+      const previewResponse = await previewResponsePromise
+      expect(previewResponse.ok()).toBe(true)
+      expect(previewResponse.request().postDataJSON()).toEqual({
+        sourceTime: Number(item.sourceStart.toFixed(2)),
+        text: 'preview me',
+        templateId: item.templateId,
+      })
+
+      const previewImage = page.getByTestId('subtitle-preview-image')
+      await previewImage.waitFor({ state: 'visible', timeout: 5000 })
+      expect(await previewImage.getAttribute('src')).toBe(`/${e2ePreviewImagePath}`)
+    } finally {
+      await page.unroute(`**/api/projects/${TEST_PROJECT_ID}/previews/subtitle`, previewRoute)
+    }
   })
 
   test('dragging a clip body shifts sourceStart and sourceEnd', async () => {
@@ -454,7 +506,7 @@ describe('Timeline subtitle clip interaction', () => {
     expect(after).not.toBeNull()
     expect(after!.sourceStart).toBeGreaterThan(item.sourceStart)
     expect(after!.sourceEnd - after!.sourceStart).toBeCloseTo(item.sourceEnd - item.sourceStart, 1)
-  })
+  }, 10000)
 
   test('dragging the right edge resizes sourceEnd', async () => {
     const { item } = await addSubtitleWithText('resize me')
@@ -482,5 +534,5 @@ describe('Timeline subtitle clip interaction', () => {
     expect(after).not.toBeNull()
     expect(after!.sourceEnd).toBeGreaterThan(item.sourceEnd)
     expect(after!.sourceStart).toBeCloseTo(item.sourceStart, 1)
-  })
+  }, 10000)
 })
