@@ -411,6 +411,56 @@ function formatDecimalSeconds(value: number): string {
   return roundTime(value).toFixed(1)
 }
 
+function TimeField({
+  value,
+  min,
+  max,
+  disabled,
+  testId,
+  onCommit,
+}: {
+  value: number
+  min: number
+  max: number
+  disabled: boolean
+  testId?: string
+  onCommit: (value: number) => void
+}) {
+  const [draft, setDraft] = useState(formatDecimalSeconds(value))
+
+  useEffect(() => {
+    setDraft(formatDecimalSeconds(value))
+  }, [value])
+
+  const commit = (raw: string) => {
+    const parsed = Number.parseFloat(raw)
+    if (Number.isFinite(parsed)) {
+      const next = Math.max(min, Math.min(parsed, max))
+      onCommit(next)
+      setDraft(formatDecimalSeconds(next))
+    } else {
+      setDraft(formatDecimalSeconds(value))
+    }
+  }
+
+  return (
+    <input
+      type='text'
+      inputMode='decimal'
+      disabled={disabled}
+      data-testid={testId}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return
+        e.currentTarget.blur()
+      }}
+      className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+    />
+  )
+}
+
 function TrimPanel({
   duration,
   currentTime,
@@ -461,28 +511,24 @@ function TrimPanel({
         <div className='grid grid-cols-2 gap-2'>
           <div>
             <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
-            <input
-              type='number'
-              value={formatDecimalSeconds(start)}
-              step={0.1}
+            <TimeField
+              value={start}
               min={0}
               max={duration}
               disabled={duration === 0}
-              onChange={(e) => saveRange(Number(e.target.value), end)}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+              testId='trim-start-input'
+              onCommit={(nextStart) => saveRange(nextStart, end)}
             />
           </div>
           <div>
             <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
-            <input
-              type='number'
-              value={formatDecimalSeconds(end)}
-              step={0.1}
+            <TimeField
+              value={end}
               min={0}
               max={duration}
               disabled={duration === 0}
-              onChange={(e) => saveRange(start, Number(e.target.value))}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+              testId='trim-end-input'
+              onCommit={(nextEnd) => saveRange(start, nextEnd)}
             />
           </div>
         </div>
