@@ -1,5 +1,5 @@
 import { type Browser, type Page, chromium } from 'playwright'
-import { seedTestData, TEST_DB_PATH, TEST_PROJECT_ID } from './seed'
+import { seedTestData, TEST_DB_PATH, TEST_PROJECT_ID, TEST_VIDEO_ID } from './seed'
 
 export { TEST_PROJECT_ID }
 const workerId = Number(process.env.BUN_TEST_WORKER_ID)
@@ -66,6 +66,22 @@ async function startDevServer(): Promise<void> {
   throw new Error('Dev server did not start within 30 seconds')
 }
 
+async function resetServerState(): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/projects/${TEST_PROJECT_ID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'E2E Test Project',
+      videoAssetId: TEST_VIDEO_ID,
+      timelineState: { version: 1, tracks: [], keepSegments: [] },
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to reset E2E state: ${res.status}`)
+  }
+  await res.body?.cancel()
+}
+
 export async function setupE2E(): Promise<{ browser: Browser; page: Page }> {
   refCount++
   if (serverTeardownTimer) {
@@ -74,6 +90,8 @@ export async function setupE2E(): Promise<{ browser: Browser; page: Page }> {
   }
   if (!serverProcess) {
     await startDevServer()
+  } else {
+    await resetServerState()
   }
   if (!sharedBrowser) {
     sharedBrowser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })

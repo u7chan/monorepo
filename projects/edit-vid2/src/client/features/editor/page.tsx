@@ -735,7 +735,7 @@ function SubtitleDetailForm({
               <span>元動画が必要です</span>
             ) : previewText.length === 0 ? (
               <span>テキスト入力後に表示されます</span>
-            ) : previewQuery.isFetching ? (
+            ) : previewQuery.isPending ? (
               <span className='inline-flex items-center gap-2'>
                 <LoaderCircle className='h-3.5 w-3.5 animate-spin' />
                 生成中...

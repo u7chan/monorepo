@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import type { Locator, Page, Request, Route } from 'playwright'
+import type { Locator, Page, Request } from 'playwright'
 import { BASE_URL, setupE2E, teardownE2E, TEST_PROJECT_ID } from './setup'
 
 let page: Page
@@ -452,36 +452,22 @@ describe('Timeline subtitle clip interaction', () => {
   })
 
   test('selecting a subtitle requests and shows a still preview', async () => {
-    const previewRoute = async (route: Route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ path: e2ePreviewImagePath, cached: false }),
-      })
-    }
+    const previewResponsePromise = page.waitForResponse(
+      (res) =>
+        res.request().method() === 'POST' && res.url().includes(`/api/projects/${TEST_PROJECT_ID}/previews/subtitle`)
+    )
+    const { item } = await addSubtitleWithText('preview me')
+    const previewResponse = await previewResponsePromise
+    expect(previewResponse.ok()).toBe(true)
+    expect(previewResponse.request().postDataJSON()).toEqual({
+      sourceTime: Number(item.sourceStart.toFixed(2)),
+      text: 'preview me',
+      templateId: item.templateId,
+    })
 
-    await page.route(`**/api/projects/${TEST_PROJECT_ID}/previews/subtitle`, previewRoute)
-
-    try {
-      const previewResponsePromise = page.waitForResponse(
-        (res) =>
-          res.request().method() === 'POST' && res.url().includes(`/api/projects/${TEST_PROJECT_ID}/previews/subtitle`)
-      )
-      const { item } = await addSubtitleWithText('preview me')
-      const previewResponse = await previewResponsePromise
-      expect(previewResponse.ok()).toBe(true)
-      expect(previewResponse.request().postDataJSON()).toEqual({
-        sourceTime: Number(item.sourceStart.toFixed(2)),
-        text: 'preview me',
-        templateId: item.templateId,
-      })
-
-      const previewImage = page.getByTestId('subtitle-preview-image')
-      await previewImage.waitFor({ state: 'visible', timeout: 5000 })
-      expect(await previewImage.getAttribute('src')).toBe(`/${e2ePreviewImagePath}`)
-    } finally {
-      await page.unroute(`**/api/projects/${TEST_PROJECT_ID}/previews/subtitle`, previewRoute)
-    }
+    const previewImage = page.getByTestId('subtitle-preview-image')
+    await previewImage.waitFor({ state: 'visible', timeout: 5000 })
+    expect(await previewImage.getAttribute('src')).toBe(`/${e2ePreviewImagePath}`)
   })
 
   test('dragging a clip body shifts sourceStart and sourceEnd', async () => {
