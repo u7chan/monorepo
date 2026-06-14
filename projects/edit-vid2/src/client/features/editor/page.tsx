@@ -589,10 +589,34 @@ function SubtitleTextInput({ item, onChange }: { item: SubtitleItem; onChange: (
   const [draftText, setDraftText] = useState(item.text)
   const isComposingRef = useRef(false)
   const committedTextRef = useRef(item.text)
+  const pendingTextRef = useRef<string | null>(null)
+  const itemIdRef = useRef(item.id)
+
+  let inputText = draftText
+  if (itemIdRef.current !== item.id) {
+    itemIdRef.current = item.id
+    pendingTextRef.current = null
+    committedTextRef.current = item.text
+    inputText = item.text
+    if (draftText !== item.text) {
+      setDraftText(item.text)
+    }
+  } else if (!isComposingRef.current && pendingTextRef.current !== null) {
+    if (item.text === pendingTextRef.current) {
+      pendingTextRef.current = null
+    }
+  } else if (!isComposingRef.current && committedTextRef.current !== item.text) {
+    committedTextRef.current = item.text
+    inputText = item.text
+    if (draftText !== item.text) {
+      setDraftText(item.text)
+    }
+  }
 
   const commitText = (text: string) => {
     if (text === committedTextRef.current) return
     committedTextRef.current = text
+    pendingTextRef.current = text
     onChange({ ...item, text })
   }
 
@@ -608,13 +632,12 @@ function SubtitleTextInput({ item, onChange }: { item: SubtitleItem; onChange: (
     if (e.key !== 'Enter') return
     if (isComposingRef.current || e.nativeEvent.isComposing) return
     commitText(e.currentTarget.value)
-    e.currentTarget.blur()
   }
 
   return (
     <input
       type='text'
-      value={draftText}
+      value={inputText}
       onChange={handleChange}
       onCompositionStart={() => {
         isComposingRef.current = true
