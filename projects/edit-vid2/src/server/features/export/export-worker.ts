@@ -164,7 +164,7 @@ class ExportWorker {
       let assPath = ''
 
       if (renderableSubItems.length > 0) {
-        const defaultTemplate = getTemplateById(db, renderableSubItems[0]?.templateId ?? '')
+        const defaultTemplate = getTemplateById(db, renderableSubItems[0].templateId)
         const defaultStyle: SubtitleStyle = defaultTemplate
           ? toSubtitleStyle(defaultTemplate)
           : {
