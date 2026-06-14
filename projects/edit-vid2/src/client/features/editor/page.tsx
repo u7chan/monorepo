@@ -679,6 +679,7 @@ function SubtitleDetailForm({
   onChange: (item: SubtitleItem) => void
   onDelete: () => void
 }) {
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const previewText = item.text.trim()
   const previewSourceTime = Math.max(0, Number(item.sourceStart.toFixed(2)))
   const previewQuery = useQuery<{ path: string; cached: boolean }>({
@@ -708,99 +709,138 @@ function SubtitleDetailForm({
     : null
 
   return (
-    <div data-testid='subtitle-detail-form' className='flex min-h-0 flex-1 flex-col overflow-y-auto py-4'>
-      <div className='mb-4 flex items-center justify-between'>
-        <h2 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>字幕詳細</h2>
-        <button
-          onClick={onDelete}
-          className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
-          aria-label='字幕を削除'
-          title='字幕を削除'
-        >
-          <X className='h-3.5 w-3.5' />
-        </button>
-      </div>
-      <div className='space-y-3'>
-        <div>
-          <label className='mb-1 block text-xs text-gray-500 dark:text-gray-400'>テキスト</label>
-          <SubtitleTextInput item={item} onChange={onChange} />
+    <>
+      <div data-testid='subtitle-detail-form' className='flex min-h-0 flex-1 flex-col overflow-y-auto py-4'>
+        <div className='mb-4 flex items-center justify-between'>
+          <h2 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>字幕詳細</h2>
+          <button
+            onClick={onDelete}
+            className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
+            aria-label='字幕を削除'
+            title='字幕を削除'
+          >
+            <X className='h-3.5 w-3.5' />
+          </button>
         </div>
-        <div className='grid grid-cols-2 gap-3'>
+        <div className='space-y-3'>
           <div>
-            <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
-            <input
-              type='number'
-              value={item.sourceStart}
-              step={0.1}
-              min={0}
-              max={duration}
-              onChange={(e) => onChange({ ...item, sourceStart: Number(e.target.value) })}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-            />
+            <label className='mb-1 block text-xs text-gray-500 dark:text-gray-400'>テキスト</label>
+            <SubtitleTextInput item={item} onChange={onChange} />
           </div>
-          <div>
-            <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
-            <input
-              type='number'
-              value={item.sourceEnd}
-              step={0.1}
-              min={0}
-              max={duration}
-              onChange={(e) => onChange({ ...item, sourceEnd: Number(e.target.value) })}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-            />
-          </div>
-        </div>
-        {templates.length > 0 && (
-          <div>
-            <label className='mb-1 block text-xs text-gray-500 dark:text-gray-400'>テンプレート</label>
-            <select
-              value={item.templateId}
-              onChange={(e) => onChange({ ...item, templateId: e.target.value })}
-              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-            >
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        <section
-          data-testid='subtitle-preview'
-          className='overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900'
-        >
-          <div className='flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700'>
-            <ImageIcon className='h-3.5 w-3.5 text-gray-500 dark:text-gray-400' />
-            <h3 className='text-xs font-medium text-gray-600 dark:text-gray-300'>静止画プレビュー</h3>
-          </div>
-          <div className='flex aspect-video items-center justify-center bg-gray-100 text-xs text-gray-500 dark:bg-gray-950 dark:text-gray-400'>
-            {!canPreview ? (
-              <span>元動画が必要です</span>
-            ) : previewText.length === 0 ? (
-              <span>テキスト入力後に表示されます</span>
-            ) : previewQuery.isPending ? (
-              <span className='inline-flex items-center gap-2'>
-                <LoaderCircle className='h-3.5 w-3.5 animate-spin' />
-                生成中...
-              </span>
-            ) : previewQuery.isError ? (
-              <span>プレビューを生成できませんでした</span>
-            ) : previewSrc ? (
-              <img
-                data-testid='subtitle-preview-image'
-                src={previewSrc}
-                alt='字幕プレビュー'
-                className='h-full w-full object-contain'
+          <div className='grid grid-cols-2 gap-3'>
+            <div>
+              <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
+              <input
+                type='number'
+                value={item.sourceStart}
+                step={0.1}
+                min={0}
+                max={duration}
+                onChange={(e) => onChange({ ...item, sourceStart: Number(e.target.value) })}
+                className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
               />
-            ) : (
-              <span>プレビュー未生成</span>
-            )}
+            </div>
+            <div>
+              <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
+              <input
+                type='number'
+                value={item.sourceEnd}
+                step={0.1}
+                min={0}
+                max={duration}
+                onChange={(e) => onChange({ ...item, sourceEnd: Number(e.target.value) })}
+                className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+              />
+            </div>
           </div>
-        </section>
+          {templates.length > 0 && (
+            <div>
+              <label className='mb-1 block text-xs text-gray-500 dark:text-gray-400'>テンプレート</label>
+              <select
+                value={item.templateId}
+                onChange={(e) => onChange({ ...item, templateId: e.target.value })}
+                className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+              >
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <section
+            data-testid='subtitle-preview'
+            className='overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900'
+          >
+            <div className='flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700'>
+              <ImageIcon className='h-3.5 w-3.5 text-gray-500 dark:text-gray-400' />
+              <h3 className='text-xs font-medium text-gray-600 dark:text-gray-300'>静止画プレビュー</h3>
+            </div>
+            <div className='flex aspect-video items-center justify-center bg-gray-100 text-xs text-gray-500 dark:bg-gray-950 dark:text-gray-400'>
+              {!canPreview ? (
+                <span>元動画が必要です</span>
+              ) : previewText.length === 0 ? (
+                <span>テキスト入力後に表示されます</span>
+              ) : previewQuery.isPending ? (
+                <span className='inline-flex items-center gap-2'>
+                  <LoaderCircle className='h-3.5 w-3.5 animate-spin' />
+                  生成中...
+                </span>
+              ) : previewQuery.isError ? (
+                <span>プレビューを生成できませんでした</span>
+              ) : previewSrc ? (
+                <button
+                  type='button'
+                  onClick={() => setIsPreviewOpen(true)}
+                  className='h-full w-full cursor-zoom-in transition hover:bg-black/5 dark:hover:bg-white/5'
+                  aria-label='字幕プレビューを拡大表示'
+                >
+                  <img
+                    data-testid='subtitle-preview-image'
+                    src={previewSrc}
+                    alt='字幕プレビュー'
+                    className='h-full w-full object-contain'
+                  />
+                </button>
+              ) : (
+                <span>プレビュー未生成</span>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
-    </div>
+      {isPreviewOpen && previewSrc && (
+        <div
+          data-testid='subtitle-preview-modal'
+          className='fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4'
+          onClick={(e) => {
+            if (e.target !== e.currentTarget) return
+            setIsPreviewOpen(false)
+          }}
+        >
+          <div className='relative w-full max-w-5xl overflow-hidden rounded-lg border border-white/10 bg-gray-950'>
+            <button
+              type='button'
+              data-testid='subtitle-preview-modal-close'
+              onClick={() => setIsPreviewOpen(false)}
+              className='absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white transition hover:bg-black/70'
+              aria-label='プレビューを閉じる'
+            >
+              <X className='h-4 w-4' />
+            </button>
+            <div className='flex max-h-[85vh] min-h-[240px] items-center justify-center bg-black'>
+              <img
+                data-testid='subtitle-preview-modal-image'
+                src={previewSrc}
+                alt='字幕プレビュー拡大表示'
+                className='max-h-[85vh] w-full object-contain'
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

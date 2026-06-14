@@ -481,6 +481,26 @@ describe('Timeline subtitle clip interaction', () => {
     expect(await previewImage.getAttribute('src')).toBe(`/${e2ePreviewImagePath}`)
   })
 
+  test('clicking a preview image opens and closes the enlarged modal', async () => {
+    await addSubtitleWithText('open preview modal')
+
+    const previewImage = page.getByTestId('subtitle-preview-image')
+    await previewImage.waitFor({ state: 'visible', timeout: 5000 })
+    await previewImage.click()
+
+    const previewModal = page.getByTestId('subtitle-preview-modal')
+    await previewModal.waitFor({ state: 'visible', timeout: 5000 })
+    expect(await page.getByTestId('subtitle-preview-modal-image').getAttribute('src')).toBe(`/${e2ePreviewImagePath}`)
+
+    await page.getByTestId('subtitle-preview-modal-close').click()
+    await previewModal.waitFor({ state: 'hidden', timeout: 5000 })
+
+    await previewImage.click()
+    await previewModal.waitFor({ state: 'visible', timeout: 5000 })
+    await previewModal.click({ position: { x: 8, y: 8 } })
+    await previewModal.waitFor({ state: 'hidden', timeout: 5000 })
+  })
+
   test('dragging a clip body shifts sourceStart and sourceEnd', async () => {
     const { item } = await addSubtitleWithText('drag me')
 
