@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  getRenderableSubtitles,
-  isRenderableSubtitle,
-  sortSubtitleItemsByStart,
-} from '#/shared/subtitles'
 import type { SubtitleItem } from '#/shared/schemas'
+import { getRenderableSubtitles, isRenderableSubtitle, sortSubtitleItemsByStart } from '#/shared/subtitles'
 
 describe('isRenderableSubtitle', () => {
   test('returns true for non-empty text', () => {
