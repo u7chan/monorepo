@@ -22,7 +22,7 @@ RUN bun run build
 # ── Final Stage ─────────────────────────────────────────────
 FROM oven/bun:1-slim AS final
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-ipafont && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/package.json /app/bun.lock ./
 RUN bun install --frozen-lockfile --production
 COPY --from=builder /app/dist ./dist
