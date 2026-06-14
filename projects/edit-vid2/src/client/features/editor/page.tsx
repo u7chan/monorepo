@@ -24,6 +24,7 @@ export function EditorPage() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [showLinkVideo, setShowLinkVideo] = useState(false)
+  const [selectedSubtitleId, setSelectedSubtitleId] = useState<string | null>(null)
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -70,8 +71,8 @@ export function EditorPage() {
   })
 
   const saveTimelineState = useCallback(
-    (newState: TimelineStateV1) => {
-      updateProject.mutate({ timelineState: newState })
+    (newState: TimelineStateV1, options?: { onSuccess?: () => void }) => {
+      updateProject.mutate({ timelineState: newState }, { onSuccess: options?.onSuccess })
     },
     [updateProject]
   )
@@ -111,7 +112,10 @@ export function EditorPage() {
     const updatedTracks = subTrack
       ? timelineState.tracks.map((t) => (t.type === 'subtitle' ? { ...t, items: [...t.items, newItem] } : t))
       : [...timelineState.tracks, { id: uuidv7(), type: 'subtitle' as const, items: [newItem] }]
-    saveTimelineState({ ...timelineState, tracks: updatedTracks })
+    saveTimelineState(
+      { ...timelineState, tracks: updatedTracks },
+      { onSuccess: () => setSelectedSubtitleId(newItem.id) }
+    )
   }
 
   const subItems: SubtitleItem[] = timelineState.tracks.find((t) => t.type === 'subtitle')?.items ?? []
@@ -221,38 +225,50 @@ export function EditorPage() {
           </div>
 
           <div className='flex min-h-0 flex-1 flex-col px-4'>
-            <h2 className='mb-3 shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300'>
-              字幕 ({renderableSubItems.length})
-            </h2>
-            <div className='min-h-0 flex-1 space-y-2 overflow-y-auto pr-1'>
-              {sortedSubItems.map((sub) => (
-                <SubtitleEditorItem
-                  key={sub.id}
-                  item={sub}
-                  templates={templates ?? []}
-                  duration={mediaDuration}
-                  onChange={(updated) => {
-                    const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
-                    const newTracks = timelineState.tracks.map((t) =>
-                      t.type === 'subtitle' ? { ...t, items: newItems } : t
-                    )
-                    saveTimelineState({ ...timelineState, tracks: newTracks })
-                  }}
-                  onDelete={() => {
-                    const newItems = subItems.filter((s) => s.id !== sub.id)
-                    const newTracks = timelineState.tracks.map((t) =>
-                      t.type === 'subtitle' ? { ...t, items: newItems } : t
-                    )
-                    saveTimelineState({ ...timelineState, tracks: newTracks })
-                  }}
-                />
-              ))}
-              {sortedSubItems.length === 0 && (
-                <p className='text-xs text-gray-400 dark:text-gray-500'>
-                  字幕がありません。「字幕追加」ボタンまたは A キーで追加できます。
+            {selectedSubtitleId ? (
+              (() => {
+                const selectedItem = sortedSubItems.find((s) => s.id === selectedSubtitleId)
+                if (!selectedItem) {
+                  return (
+                    <div className='flex flex-1 flex-col items-center justify-center text-center'>
+                      <Type className='mb-2 h-8 w-8 text-gray-300 dark:text-gray-600' />
+                      <p className='text-sm text-gray-500 dark:text-gray-400'>選択した字幕が見つかりません</p>
+                    </div>
+                  )
+                }
+                return (
+                  <SubtitleDetailForm
+                    key={selectedSubtitleId}
+                    item={selectedItem}
+                    templates={templates ?? []}
+                    duration={mediaDuration}
+                    onChange={(updated) => {
+                      const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
+                      const newTracks = timelineState.tracks.map((t) =>
+                        t.type === 'subtitle' ? { ...t, items: newItems } : t
+                      )
+                      saveTimelineState({ ...timelineState, tracks: newTracks })
+                    }}
+                    onDelete={() => {
+                      const newItems = subItems.filter((s) => s.id !== selectedSubtitleId)
+                      const newTracks = timelineState.tracks.map((t) =>
+                        t.type === 'subtitle' ? { ...t, items: newItems } : t
+                      )
+                      setSelectedSubtitleId(null)
+                      saveTimelineState({ ...timelineState, tracks: newTracks })
+                    }}
+                  />
+                )
+              })()
+            ) : (
+              <div className='flex flex-1 flex-col items-center justify-center text-center'>
+                <Type className='mb-2 h-8 w-8 text-gray-300 dark:text-gray-600' />
+                <p className='text-sm text-gray-500 dark:text-gray-400'>字幕を選択すると詳細が表示されます</p>
+                <p className='mt-1 text-xs text-gray-400 dark:text-gray-500'>
+                  タイムラインのクリップをクリックするか、「字幕追加」ボタンで追加してください
                 </p>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           <div className='shrink-0 border-t border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800'>
@@ -266,6 +282,13 @@ export function EditorPage() {
         currentTime={currentTime}
         keepSegments={timelineState.keepSegments}
         subtitleItems={renderableSubItems}
+        selectedId={selectedSubtitleId}
+        onSelect={setSelectedSubtitleId}
+        onChange={(updated) => {
+          const newItems = subItems.map((s) => (s.id === updated.id ? updated : s))
+          const newTracks = timelineState.tracks.map((t) => (t.type === 'subtitle' ? { ...t, items: newItems } : t))
+          saveTimelineState({ ...timelineState, tracks: newTracks })
+        }}
         onPause={() => videoRef.current?.pause()}
         onSeek={(t) => {
           if (videoRef.current) {
@@ -592,7 +615,7 @@ function TrimPanel({
   )
 }
 
-function SubtitleEditorItem({
+function SubtitleDetailForm({
   item,
   templates,
   duration,
@@ -606,9 +629,9 @@ function SubtitleEditorItem({
   onDelete: () => void
 }) {
   return (
-    <div className='rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-800'>
-      <div className='mb-2 flex items-center gap-2'>
-        <SubtitleTextInput item={item} onChange={onChange} />
+    <div data-testid='subtitle-detail-form' className='flex min-h-0 flex-1 flex-col overflow-y-auto py-4'>
+      <div className='mb-4 flex items-center justify-between'>
+        <h2 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>字幕詳細</h2>
         <button
           onClick={onDelete}
           className='rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900 dark:hover:text-red-400'
@@ -618,45 +641,54 @@ function SubtitleEditorItem({
           <X className='h-3.5 w-3.5' />
         </button>
       </div>
-      <div className='grid grid-cols-2 gap-2'>
+      <div className='space-y-3'>
         <div>
-          <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
-          <input
-            type='number'
-            value={item.sourceStart}
-            step={0.1}
-            min={0}
-            max={duration}
-            onChange={(e) => onChange({ ...item, sourceStart: Number(e.target.value) })}
-            className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-          />
+          <label className='mb-1 block text-xs text-gray-500 dark:text-gray-400'>テキスト</label>
+          <SubtitleTextInput item={item} onChange={onChange} />
         </div>
-        <div>
-          <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
-          <input
-            type='number'
-            value={item.sourceEnd}
-            step={0.1}
-            min={0}
-            max={duration}
-            onChange={(e) => onChange({ ...item, sourceEnd: Number(e.target.value) })}
-            className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-          />
+        <div className='grid grid-cols-2 gap-3'>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>開始 (秒)</label>
+            <input
+              type='number'
+              value={item.sourceStart}
+              step={0.1}
+              min={0}
+              max={duration}
+              onChange={(e) => onChange({ ...item, sourceStart: Number(e.target.value) })}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            />
+          </div>
+          <div>
+            <label className='block text-xs text-gray-500 dark:text-gray-400'>終了 (秒)</label>
+            <input
+              type='number'
+              value={item.sourceEnd}
+              step={0.1}
+              min={0}
+              max={duration}
+              onChange={(e) => onChange({ ...item, sourceEnd: Number(e.target.value) })}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            />
+          </div>
         </div>
+        {templates.length > 0 && (
+          <div>
+            <label className='mb-1 block text-xs text-gray-500 dark:text-gray-400'>テンプレート</label>
+            <select
+              value={item.templateId}
+              onChange={(e) => onChange({ ...item, templateId: e.target.value })}
+              className='w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
-      {templates.length > 0 && (
-        <select
-          value={item.templateId}
-          onChange={(e) => onChange({ ...item, templateId: e.target.value })}
-          className='mt-2 w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
-        >
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-      )}
     </div>
   )
 }
@@ -737,11 +769,16 @@ function SubtitleTextInput({ item, onChange }: { item: SubtitleItem; onChange: (
   )
 }
 
+type DragMode = 'move' | 'resize-start' | 'resize-end'
+
 function TimelineBar({
   duration,
   currentTime,
   keepSegments,
   subtitleItems,
+  selectedId,
+  onSelect,
+  onChange,
   onPause,
   onSeek,
 }: {
@@ -749,11 +786,24 @@ function TimelineBar({
   currentTime: number
   keepSegments: KeepSegment[]
   subtitleItems: SubtitleItem[]
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+  onChange: (item: SubtitleItem) => void
   onPause: () => void
   onSeek: (time: number) => void
 }) {
   const barRef = useRef<HTMLDivElement>(null)
-  const draggingRef = useRef(false)
+  const seekingRef = useRef(false)
+  const dragRef = useRef<{
+    id: string
+    mode: DragMode
+    startX: number
+    startSourceStart: number
+    startSourceEnd: number
+    previewSourceStart: number
+    previewSourceEnd: number
+  } | null>(null)
+  const [dragPreview, setDragPreview] = useState<{ id: string; sourceStart: number; sourceEnd: number } | null>(null)
   const toPercent = (value: number) => (duration > 0 ? (value / duration) * 100 : 0)
   const toWidthPercent = (start: number, end: number) => (duration > 0 ? ((end - start) / duration) * 100 : 0)
 
@@ -765,19 +815,104 @@ function TimelineBar({
     return Math.max(0, Math.min(ratio * duration, duration))
   }
 
+  const calcDeltaTime = (clientX: number) => {
+    const bar = barRef.current
+    if (!bar || duration === 0) return 0
+    const rect = bar.getBoundingClientRect()
+    return ((clientX - rect.left) / rect.width) * duration - calcTime(dragRef.current?.startX ?? clientX)
+  }
+
+  const clampItemRange = (nextStart: number, nextEnd: number) => {
+    const minLength = 0.1
+    const sourceStart = Math.max(0, Math.min(roundTime(nextStart), duration - minLength))
+    const sourceEnd = Math.max(sourceStart + minLength, Math.min(roundTime(nextEnd), duration))
+    return { sourceStart, sourceEnd }
+  }
+
+  const stopDrag = () => {
+    dragRef.current = null
+    setDragPreview(null)
+    document.removeEventListener('mousemove', handleItemMouseMove)
+    document.removeEventListener('mouseup', handleItemMouseUp)
+  }
+
+  const handleItemMouseMove = (ev: MouseEvent) => {
+    const drag = dragRef.current
+    if (!drag) return
+    ev.preventDefault()
+    const delta = calcDeltaTime(ev.clientX)
+    const { id, mode, startSourceStart, startSourceEnd } = drag
+    let nextStart = startSourceStart
+    let nextEnd = startSourceEnd
+    if (mode === 'move') {
+      const originalDuration = startSourceEnd - startSourceStart
+      nextStart = startSourceStart + delta
+      nextEnd = startSourceEnd + delta
+      if (nextEnd > duration) {
+        nextEnd = duration
+        nextStart = Math.max(0, duration - originalDuration)
+      }
+      if (nextStart < 0) {
+        nextStart = 0
+        nextEnd = Math.min(duration, originalDuration)
+      }
+    } else if (mode === 'resize-start') {
+      nextStart = startSourceStart + delta
+    } else {
+      nextEnd = startSourceEnd + delta
+    }
+    const { sourceStart, sourceEnd } = clampItemRange(nextStart, nextEnd)
+    drag.previewSourceStart = sourceStart
+    drag.previewSourceEnd = sourceEnd
+    setDragPreview({ id, sourceStart, sourceEnd })
+  }
+
+  const handleItemMouseUp = () => {
+    const drag = dragRef.current
+    if (drag) {
+      const item = subtitleItems.find((s) => s.id === drag.id)
+      if (item) {
+        const { sourceStart, sourceEnd } = clampItemRange(drag.previewSourceStart, drag.previewSourceEnd)
+        if (sourceStart !== item.sourceStart || sourceEnd !== item.sourceEnd) {
+          onChange({ ...item, sourceStart, sourceEnd })
+        }
+      }
+    }
+    stopDrag()
+  }
+
+  const startItemDrag = (e: React.MouseEvent, item: SubtitleItem, mode: DragMode) => {
+    e.stopPropagation()
+    if (e.button !== 0) return
+    onPause()
+    onSelect(item.id)
+    dragRef.current = {
+      id: item.id,
+      mode,
+      startX: e.clientX,
+      startSourceStart: item.sourceStart,
+      startSourceEnd: item.sourceEnd,
+      previewSourceStart: item.sourceStart,
+      previewSourceEnd: item.sourceEnd,
+    }
+    document.addEventListener('mousemove', handleItemMouseMove)
+    document.addEventListener('mouseup', handleItemMouseUp)
+  }
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return
-    draggingRef.current = true
+    onSelect(null)
+    seekingRef.current = true
     onPause()
     onSeek(calcTime(e.clientX))
 
     const handleMouseMove = (ev: MouseEvent) => {
-      if (!draggingRef.current) return
+      if (!seekingRef.current) return
       onSeek(calcTime(ev.clientX))
     }
 
     const handleMouseUp = () => {
-      draggingRef.current = false
+      seekingRef.current = false
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
@@ -788,26 +923,26 @@ function TimelineBar({
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 0) return
-    draggingRef.current = true
+    seekingRef.current = true
     onPause()
     onSeek(calcTime(e.touches[0].clientX))
   }
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!draggingRef.current || e.touches.length === 0) return
+    if (!seekingRef.current || e.touches.length === 0) return
     onSeek(calcTime(e.touches[0].clientX))
   }
 
   const handleTouchEnd = () => {
-    draggingRef.current = false
+    seekingRef.current = false
   }
 
   return (
-    <div className='h-20 border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800'>
+    <div className='h-24 border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800'>
       <div
         ref={barRef}
         data-testid='timeline-seek-bar'
-        className='relative h-10 cursor-pointer rounded bg-gray-100 dark:bg-gray-700'
+        className='relative h-14 cursor-pointer rounded bg-gray-100 dark:bg-gray-700'
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -824,18 +959,49 @@ function TimelineBar({
           />
         ))}
 
-        {subtitleItems.map((sub) => (
-          <div
-            key={sub.id}
-            data-testid='timeline-subtitle-item'
-            className='absolute bottom-0 h-3 rounded bg-indigo-400/70 dark:bg-indigo-500/50'
-            style={{
-              left: `${toPercent(sub.sourceStart)}%`,
-              width: `${toWidthPercent(sub.sourceStart, sub.sourceEnd)}%`,
-            }}
-            title={sub.text || '(空)'}
-          />
-        ))}
+        {subtitleItems.map((sub) => {
+          const isSelected = sub.id === selectedId
+          const preview = dragPreview?.id === sub.id ? dragPreview : null
+          const sourceStart = preview?.sourceStart ?? sub.sourceStart
+          const sourceEnd = preview?.sourceEnd ?? sub.sourceEnd
+          return (
+            <div
+              key={sub.id}
+              data-testid='timeline-subtitle-item'
+              data-subtitle-id={sub.id}
+              onMouseDown={(e) => startItemDrag(e, sub, 'move')}
+              onClick={(e) => {
+                e.stopPropagation()
+                onSelect(sub.id)
+              }}
+              className={[
+                'group absolute bottom-1 h-5 cursor-grab rounded border border-indigo-500/30 bg-indigo-400/70 dark:bg-indigo-500/50',
+                isSelected ? 'ring-2 ring-indigo-500' : '',
+              ].join(' ')}
+              style={{
+                left: `${toPercent(sourceStart)}%`,
+                width: `${toWidthPercent(sourceStart, sourceEnd)}%`,
+                minWidth: '4px',
+              }}
+              title={sub.text || '(空)'}
+            >
+              {isSelected && (
+                <>
+                  <div
+                    data-testid='timeline-subtitle-resize-start'
+                    onMouseDown={(e) => startItemDrag(e, sub, 'resize-start')}
+                    className='absolute -left-1.5 top-0 h-full w-3 cursor-w-resize'
+                  />
+                  <div
+                    data-testid='timeline-subtitle-resize-end'
+                    onMouseDown={(e) => startItemDrag(e, sub, 'resize-end')}
+                    className='absolute -right-1.5 top-0 h-full w-3 cursor-e-resize'
+                  />
+                </>
+              )}
+            </div>
+          )
+        })}
 
         <div className='absolute top-0 h-full w-0.5 bg-red-500' style={{ left: `${toPercent(currentTime)}%` }} />
       </div>
