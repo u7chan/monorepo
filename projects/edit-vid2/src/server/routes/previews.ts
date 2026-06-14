@@ -2,7 +2,10 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { buildPreviewCacheKey, generateSubtitlePreview } from '#/server/features/preview/preview-service'
+import {
+  buildPreviewCacheKey,
+  generateSubtitlePreview as defaultGenerateSubtitlePreview,
+} from '#/server/features/preview/preview-service'
 import { getProjectById } from '#/server/features/projects/project-repository'
 import { getTemplateById } from '#/server/features/templates/template-repository'
 import { getVideoAssetById } from '#/server/features/videos/video-repository'
@@ -29,59 +32,80 @@ const defaultStyle = {
   margin: { x: 0, y: 0 },
 }
 
-const previewRoutes = new Hono<HonoEnv>()
+type PreviewRouteDeps = {
+  exists: (path: string) => boolean
+  ensureDir: (path: string) => void
+  getCacheDir: (projectId: string) => string
+  generateSubtitlePreview: typeof defaultGenerateSubtitlePreview
+}
 
-previewRoutes.post('/', sValidator('json', previewSchema), async (c) => {
-  const db = c.var.db
-  const projectId = c.req.param('projectId')
-  if (!projectId) {
-    return c.json({ error: 'projectId required' }, 400)
-  }
-  const project = getProjectById(db, projectId)
-  if (!project) {
-    return c.json({ error: 'project not found' }, 404)
-  }
+const defaultPreviewRouteDeps: PreviewRouteDeps = {
+  exists: existsSync,
+  ensureDir: (path) => mkdirSync(path, { recursive: true }),
+  getCacheDir: (projectId) => `data/projects/${projectId}/previews`,
+  generateSubtitlePreview: defaultGenerateSubtitlePreview,
+}
 
-  const videoAsset = getVideoAssetById(db, project.videoAssetId)
-  if (!videoAsset || !videoAsset.width || !videoAsset.height) {
-    return c.json({ error: 'video asset not ready' }, 400)
-  }
+function createPreviewRoutes(deps: Partial<PreviewRouteDeps> = {}) {
+  const resolvedDeps = { ...defaultPreviewRouteDeps, ...deps }
+  const previewRoutes = new Hono<HonoEnv>()
 
-  if (!videoAsset.storagePath) {
-    return c.json({ error: 'video storage path not set' }, 400)
-  }
+  previewRoutes.post('/', sValidator('json', previewSchema), async (c) => {
+    const db = c.var.db
+    const projectId = c.req.param('projectId')
+    if (!projectId) {
+      return c.json({ error: 'projectId required' }, 400)
+    }
+    const project = getProjectById(db, projectId)
+    if (!project) {
+      return c.json({ error: 'project not found' }, 404)
+    }
 
-  const body = c.req.valid('json')
-  const template = getTemplateById(db, body.templateId)
-  const style = template ? toSubtitleStyle(template) : defaultStyle
+    const videoAsset = getVideoAssetById(db, project.videoAssetId)
+    if (!videoAsset || !videoAsset.width || !videoAsset.height) {
+      return c.json({ error: 'video asset not ready' }, 400)
+    }
 
-  const cacheKey = buildPreviewCacheKey(projectId, videoAsset.id, body.sourceTime, style, body.text, 1)
+    if (!videoAsset.storagePath) {
+      return c.json({ error: 'video storage path not set' }, 400)
+    }
 
-  const cacheDir = `data/projects/${projectId}/previews`
-  if (!existsSync(cacheDir)) {
-    mkdirSync(cacheDir, { recursive: true })
-  }
-  const outputPath = `${cacheDir}/${cacheKey}.jpg`
+    const body = c.req.valid('json')
+    const template = getTemplateById(db, body.templateId)
+    const style = template ? toSubtitleStyle(template) : defaultStyle
 
-  if (existsSync(outputPath)) {
-    return c.json({ path: outputPath, cached: true })
-  }
+    const cacheKey = buildPreviewCacheKey(projectId, videoAsset.id, body.sourceTime, style, body.text, 1)
 
-  const success = await generateSubtitlePreview({
-    videoPath: videoAsset.storagePath,
-    outputPath,
-    sourceTime: body.sourceTime,
-    text: body.text,
-    videoWidth: videoAsset.width,
-    videoHeight: videoAsset.height,
-    defaultStyle: style,
+    const cacheDir = resolvedDeps.getCacheDir(projectId)
+    if (!resolvedDeps.exists(cacheDir)) {
+      resolvedDeps.ensureDir(cacheDir)
+    }
+    const outputPath = `${cacheDir}/${cacheKey}.jpg`
+
+    if (resolvedDeps.exists(outputPath)) {
+      return c.json({ path: outputPath, cached: true })
+    }
+
+    const success = await resolvedDeps.generateSubtitlePreview({
+      videoPath: videoAsset.storagePath,
+      outputPath,
+      sourceTime: body.sourceTime,
+      text: body.text,
+      videoWidth: videoAsset.width,
+      videoHeight: videoAsset.height,
+      defaultStyle: style,
+    })
+
+    if (!success) {
+      return c.json({ error: 'preview generation failed' }, 500)
+    }
+
+    return c.json({ path: outputPath, cached: false })
   })
 
-  if (!success) {
-    return c.json({ error: 'preview generation failed' }, 500)
-  }
+  return previewRoutes
+}
 
-  return c.json({ path: outputPath, cached: false })
-})
+const previewRoutes = createPreviewRoutes()
 
-export { previewRoutes }
+export { createPreviewRoutes, previewRoutes }

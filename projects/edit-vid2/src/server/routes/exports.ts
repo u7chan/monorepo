@@ -5,6 +5,8 @@ import { sValidator } from '@hono/standard-validator'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { uuidv7 } from 'uuidv7'
+import { getDatabase } from '#/db'
+import type { AppDatabase } from '#/db'
 import {
   createExportJob,
   deleteExportJob,
@@ -25,10 +27,14 @@ function ensureParam(value: string | undefined, name: string): string {
   return value
 }
 
-function summarizeExportError(logPath: string | null): string | null {
-  if (!logPath || !existsSync(logPath)) return null
+function summarizeExportError(
+  logPath: string | null,
+  exists = existsSync,
+  readFile: (path: string, encoding: 'utf8') => string = readFileSync
+): string | null {
+  if (!logPath || !exists(logPath)) return null
 
-  const log = readFileSync(logPath, 'utf8').slice(-12000)
+  const log = readFile(logPath, 'utf8').slice(-12000)
   const lines = log
     .split('\n')
     .map((line) => line.replace(/^\[ERROR\]\s*/, '').trim())
@@ -47,252 +53,295 @@ function summarizeExportError(logPath: string | null): string | null {
   return relevantLine ?? null
 }
 
-function removeExportFiles(jobId: string) {
+function removeExportFiles(
+  jobId: string,
+  removeDir: (path: string, options: { recursive: boolean; force: boolean }) => void = rmSync
+) {
   const exportsRoot = resolve('data/exports')
   const exportDir = resolve(exportsRoot, jobId)
   if (!exportDir.startsWith(`${exportsRoot}/`)) {
     throw new Error('invalid export path')
   }
-  rmSync(exportDir, { recursive: true, force: true })
+  removeDir(exportDir, { recursive: true, force: true })
 }
 
-const exportRoutes = new Hono<HonoEnv>()
+type ExportWorkerLike = {
+  enqueue: (jobId: string, db: AppDatabase) => void
+  cancel: (jobId: string) => void
+  onProgress: (jobId: string, callback: (progress: number, status: string) => void) => () => void
+}
 
-exportRoutes.get('/', (c) => {
-  const db = c.var.db
-  const projectId = ensureParam(c.req.param('projectId'), 'projectId')
-  const jobs = getExportJobsByProject(db, projectId)
-  return c.json(
-    jobs.map((job) => ({
-      ...job,
-      errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
-    }))
-  )
-})
+type ExportRouteDeps = {
+  createId: () => string
+  worker: ExportWorkerLike
+  exists: (path: string) => boolean
+  stat: (path: string) => { size: number }
+  readFile: (path: string) => Uint8Array<ArrayBuffer>
+  createReadStream: (path: string, options?: { start?: number; end?: number }) => Readable
+  removeExportFiles: (jobId: string) => void
+  summarizeExportError: (logPath: string | null) => string | null
+}
 
-exportRoutes.post('/', sValidator('json', CreateExportJobSchema), (c) => {
-  const db = c.var.db
-  const projectId = ensureParam(c.req.param('projectId'), 'projectId')
+const defaultExportRouteDeps: ExportRouteDeps = {
+  createId: uuidv7,
+  worker: exportWorker,
+  exists: existsSync,
+  stat: (path) => statSync(path),
+  readFile: (path) => new Uint8Array(readFileSync(path)),
+  createReadStream,
+  removeExportFiles,
+  summarizeExportError,
+}
 
-  const project = getProjectById(db, projectId)
-  if (!project) {
-    return c.json({ error: 'project not found' }, 404)
-  }
-  const videoAsset = getVideoAssetById(db, project.videoAssetId)
-  if (videoAsset?.status !== 'ready' || !videoAsset.storagePath) {
-    return c.json({ error: 'video asset not ready' }, 400)
-  }
+function createExportRoutes(deps: Partial<ExportRouteDeps> = {}) {
+  const resolvedDeps = { ...defaultExportRouteDeps, ...deps }
+  const exportRoutes = new Hono<HonoEnv>()
 
-  const body = c.req.valid('json')
-  const job = createExportJob(db, {
-    id: uuidv7(),
-    projectId,
-    snapshot: project.timelineState as object | undefined,
-    preset: body.preset as object | undefined,
+  exportRoutes.get('/', (c) => {
+    const db = c.var.db
+    const projectId = ensureParam(c.req.param('projectId'), 'projectId')
+    const jobs = getExportJobsByProject(db, projectId)
+    return c.json(
+      jobs.map((job) => ({
+        ...job,
+        errorMessage: job.status === 'failed' ? resolvedDeps.summarizeExportError(job.logPath) : null,
+      }))
+    )
   })
 
-  exportWorker.enqueue(job.id, db)
+  exportRoutes.post('/', sValidator('json', CreateExportJobSchema), (c) => {
+    const db = c.var.db
+    const projectId = ensureParam(c.req.param('projectId'), 'projectId')
 
-  return c.json(job, 201)
-})
+    const project = getProjectById(db, projectId)
+    if (!project) {
+      return c.json({ error: 'project not found' }, 404)
+    }
+    const videoAsset = getVideoAssetById(db, project.videoAssetId)
+    if (videoAsset?.status !== 'ready' || !videoAsset.storagePath) {
+      return c.json({ error: 'video asset not ready' }, 400)
+    }
+
+    const body = c.req.valid('json')
+    const job = createExportJob(db, {
+      id: resolvedDeps.createId(),
+      projectId,
+      snapshot: project.timelineState as object | undefined,
+      preset: body.preset as object | undefined,
+    })
+
+    resolvedDeps.worker.enqueue(job.id, db)
+
+    return c.json(job, 201)
+  })
+
+  return exportRoutes
+}
 
 // REST endpoints for job actions: GET /api/export-jobs, GET /api/export-jobs/:exportJobId, etc.
-const jobRoutes = new Hono<HonoEnv>()
+function createJobRoutes(deps: Partial<ExportRouteDeps> = {}) {
+  const resolvedDeps = { ...defaultExportRouteDeps, ...deps }
+  const jobRoutes = new Hono<HonoEnv>()
 
-jobRoutes.get('/', (c) => {
-  const db = c.var.db
-  const rawLimit = c.req.query('limit') ?? '100'
-  const parsed = Number(rawLimit)
-  const limit = Number.isNaN(parsed) || parsed < 1 ? 100 : Math.min(parsed, 500)
-  const jobs = getExportJobs(db, limit)
-  const allProjects = getProjects(db)
-  const projectMap = new Map(allProjects.map((p) => [p.id, p.name]))
-  return c.json(
-    jobs.map((job) => ({
+  jobRoutes.get('/', (c) => {
+    const db = c.var.db
+    const rawLimit = c.req.query('limit') ?? '100'
+    const parsed = Number(rawLimit)
+    const limit = Number.isNaN(parsed) || parsed < 1 ? 100 : Math.min(parsed, 500)
+    const jobs = getExportJobs(db, limit)
+    const allProjects = getProjects(db)
+    const projectMap = new Map(allProjects.map((p) => [p.id, p.name]))
+    return c.json(
+      jobs.map((job) => ({
+        ...job,
+        projectName: projectMap.get(job.projectId) ?? '',
+        errorMessage: job.status === 'failed' ? resolvedDeps.summarizeExportError(job.logPath) : null,
+      }))
+    )
+  })
+
+  jobRoutes.get('/:exportJobId/events', (c) => {
+    const db = c.var.db
+    const jobId = c.req.param('exportJobId')
+
+    const job = getExportJobById(db, jobId)
+    if (!job) {
+      return c.json({ error: 'not found' }, 404)
+    }
+
+    return streamSSE(c, async (stream) => {
+      await stream.writeSSE({
+        data: JSON.stringify({ progress: job.progress, status: job.status }),
+      })
+
+      const unsubscribe = resolvedDeps.worker.onProgress(jobId, (progress, status) => {
+        stream
+          .writeSSE({
+            data: JSON.stringify({ progress, status }),
+          })
+          .catch(() => {})
+      })
+
+      const keepAlive = setInterval(() => {
+        stream.writeSSE({ data: '' }).catch(() => {})
+      }, 5000)
+
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const current = getExportJobById(db, jobId)
+        if (
+          !current ||
+          current.status === 'succeeded' ||
+          current.status === 'failed' ||
+          current.status === 'canceled'
+        ) {
+          break
+        }
+      }
+
+      clearInterval(keepAlive)
+      unsubscribe()
+
+      await stream.writeSSE({
+        data: JSON.stringify({
+          progress: getExportJobById(db, jobId)?.progress ?? 0,
+          status: getExportJobById(db, jobId)?.status ?? 'failed',
+        }),
+      })
+    })
+  })
+
+  jobRoutes.get('/:exportJobId', (c) => {
+    const db = c.var.db
+    const job = getExportJobById(db, c.req.param('exportJobId'))
+    if (!job) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    return c.json({
       ...job,
-      projectName: projectMap.get(job.projectId) ?? '',
-      errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
-    }))
-  )
-})
-
-jobRoutes.get('/:exportJobId/events', (c) => {
-  const db = c.var.db
-  const jobId = c.req.param('exportJobId')
-
-  const job = getExportJobById(db, jobId)
-  if (!job) {
-    return c.json({ error: 'not found' }, 404)
-  }
-
-  return streamSSE(c, async (stream) => {
-    await stream.writeSSE({
-      data: JSON.stringify({ progress: job.progress, status: job.status }),
+      errorMessage: job.status === 'failed' ? resolvedDeps.summarizeExportError(job.logPath) : null,
     })
+  })
 
-    const unsubscribe = exportWorker.onProgress(jobId, (progress, status) => {
-      stream
-        .writeSSE({
-          data: JSON.stringify({ progress, status }),
-        })
-        .catch(() => {})
-    })
+  jobRoutes.post('/:exportJobId/cancel', (c) => {
+    const db = c.var.db
+    const jobId = c.req.param('exportJobId')
+    const job = getExportJobById(db, jobId)
+    if (!job) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    if (job.status === 'queued' || job.status === 'running') {
+      resolvedDeps.worker.cancel(jobId)
+      updateExportJob(db, jobId, { status: 'canceled' })
+    }
+    return c.json(updateExportJob(db, jobId, {}))
+  })
 
-    const keepAlive = setInterval(() => {
-      stream.writeSSE({ data: '' }).catch(() => {})
-    }, 5000)
-
-    while (true) {
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      const current = getExportJobById(db, jobId)
-      if (!current || current.status === 'succeeded' || current.status === 'failed' || current.status === 'canceled') {
-        break
-      }
+  jobRoutes.delete('/:exportJobId', (c) => {
+    const db = c.var.db
+    const jobId = c.req.param('exportJobId')
+    const job = getExportJobById(db, jobId)
+    if (!job) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    if (job.status === 'queued' || job.status === 'running' || job.status === 'canceling') {
+      return c.json({ error: 'cancel export before deleting it' }, 409)
     }
 
-    clearInterval(keepAlive)
-    unsubscribe()
+    resolvedDeps.removeExportFiles(jobId)
+    deleteExportJob(db, jobId)
+    return c.body(null, 204)
+  })
 
-    await stream.writeSSE({
-      data: JSON.stringify({
-        progress: getExportJobById(db, jobId)?.progress ?? 0,
-        status: getExportJobById(db, jobId)?.status ?? 'failed',
-      }),
+  jobRoutes.get('/:exportJobId/download', async (c) => {
+    const db = c.var.db
+    const job = getExportJobById(db, c.req.param('exportJobId'))
+    if (!job) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    if (job.status !== 'succeeded' || !job.outputPath) {
+      return c.json({ error: 'not ready' }, 400)
+    }
+
+    if (!resolvedDeps.exists(job.outputPath)) {
+      return c.json({ error: 'output file not found' }, 404)
+    }
+
+    const file = resolvedDeps.readFile(job.outputPath)
+    return c.body(file, 200, {
+      'Content-Type': 'video/mp4',
+      'Content-Disposition': `attachment; filename="export-${job.id}.mp4"`,
     })
   })
-})
 
-jobRoutes.get('/:exportJobId', (c) => {
-  const db = c.var.db
-  const job = getExportJobById(db, c.req.param('exportJobId'))
-  if (!job) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  return c.json({
-    ...job,
-    errorMessage: job.status === 'failed' ? summarizeExportError(job.logPath) : null,
-  })
-})
+  jobRoutes.get('/:exportJobId/preview', async (c) => {
+    const db = c.var.db
+    const job = getExportJobById(db, c.req.param('exportJobId'))
+    if (!job) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    if (job.status !== 'succeeded' || !job.outputPath) {
+      return c.json({ error: 'not ready' }, 400)
+    }
+    if (!resolvedDeps.exists(job.outputPath)) {
+      return c.json({ error: 'output file not found' }, 404)
+    }
 
-jobRoutes.post('/:exportJobId/cancel', (c) => {
-  const db = c.var.db
-  const jobId = c.req.param('exportJobId')
-  const job = getExportJobById(db, jobId)
-  if (!job) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  if (job.status === 'queued' || job.status === 'running') {
-    exportWorker.cancel(jobId)
-    updateExportJob(db, jobId, { status: 'canceled' })
-  }
-  return c.json(updateExportJob(db, jobId, {}))
-})
+    const { size } = resolvedDeps.stat(job.outputPath)
+    const rangeHeader = c.req.header('range')
 
-jobRoutes.delete('/:exportJobId', (c) => {
-  const db = c.var.db
-  const jobId = c.req.param('exportJobId')
-  const job = getExportJobById(db, jobId)
-  if (!job) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  if (job.status === 'queued' || job.status === 'running' || job.status === 'canceling') {
-    return c.json({ error: 'cancel export before deleting it' }, 409)
-  }
+    const baseHeaders = {
+      'Content-Type': 'video/mp4',
+      'Content-Disposition': `inline; filename="export-${job.id}.mp4"`,
+      'Accept-Ranges': 'bytes',
+    }
 
-  removeExportFiles(jobId)
-  deleteExportJob(db, jobId)
-  return c.body(null, 204)
-})
+    if (!rangeHeader) {
+      const stream = resolvedDeps.createReadStream(job.outputPath)
+      return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 200, {
+        ...baseHeaders,
+        'Content-Length': String(size),
+      })
+    }
 
-jobRoutes.get('/:exportJobId/download', async (c) => {
-  const db = c.var.db
-  const job = getExportJobById(db, c.req.param('exportJobId'))
-  if (!job) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  if (job.status !== 'succeeded' || !job.outputPath) {
-    return c.json({ error: 'not ready' }, 400)
-  }
+    const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
+    if (!match) {
+      return c.json({ error: 'range not satisfiable' }, 416)
+    }
 
-  const { readFileSync, existsSync } = await import('node:fs')
-  if (!existsSync(job.outputPath)) {
-    return c.json({ error: 'output file not found' }, 404)
-  }
+    const start = Number.parseInt(match[1], 10)
+    const end = match[2] ? Number.parseInt(match[2], 10) : size - 1
 
-  const file = readFileSync(job.outputPath)
-  return c.body(file, 200, {
-    'Content-Type': 'video/mp4',
-    'Content-Disposition': `attachment; filename="export-${job.id}.mp4"`,
-  })
-})
+    if (Number.isNaN(start) || Number.isNaN(end) || start >= size || end >= size || start > end) {
+      return c.json({ error: 'range not satisfiable' }, 416)
+    }
 
-jobRoutes.get('/:exportJobId/preview', async (c) => {
-  const db = c.var.db
-  const job = getExportJobById(db, c.req.param('exportJobId'))
-  if (!job) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  if (job.status !== 'succeeded' || !job.outputPath) {
-    return c.json({ error: 'not ready' }, 400)
-  }
-  if (!existsSync(job.outputPath)) {
-    return c.json({ error: 'output file not found' }, 404)
-  }
-
-  const { size } = statSync(job.outputPath)
-  const rangeHeader = c.req.header('range')
-
-  const baseHeaders = {
-    'Content-Type': 'video/mp4',
-    'Content-Disposition': `inline; filename="export-${job.id}.mp4"`,
-    'Accept-Ranges': 'bytes',
-  }
-
-  if (!rangeHeader) {
-    const stream = createReadStream(job.outputPath)
-    return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 200, {
+    const length = end - start + 1
+    const stream = resolvedDeps.createReadStream(job.outputPath, { start, end })
+    return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 206, {
       ...baseHeaders,
-      'Content-Length': String(size),
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Content-Length': String(length),
     })
-  }
-
-  const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
-  if (!match) {
-    return c.json({ error: 'range not satisfiable' }, 416)
-  }
-
-  const start = Number.parseInt(match[1], 10)
-  const end = match[2] ? Number.parseInt(match[2], 10) : size - 1
-
-  if (Number.isNaN(start) || Number.isNaN(end) || start >= size || end >= size || start > end) {
-    return c.json({ error: 'range not satisfiable' }, 416)
-  }
-
-  const length = end - start + 1
-  const stream = createReadStream(job.outputPath, { start, end })
-  return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 206, {
-    ...baseHeaders,
-    'Content-Range': `bytes ${start}-${end}/${size}`,
-    'Content-Length': String(length),
   })
-})
 
-// Recover incomplete jobs on startup.
-// This is exported so server entrypoints can call it after migrations are applied.
-export function recoverIncompleteJobs() {
-  const dbUrl = process.env.DATABASE_URL ?? 'data/edit-vid2.db'
-  import('#/db').then(({ getDatabase }) => {
-    const db = getDatabase(dbUrl)
-    const incomplete = getIncompleteJobs(db)
-    for (const job of incomplete) {
-      if (job.status === 'running') {
-        updateExportJob(db, job.id, { status: 'failed' })
-      }
-      if (job.status === 'canceling') {
-        updateExportJob(db, job.id, { status: 'canceled' })
-      }
-    }
-  })
+  return jobRoutes
 }
 
-export { exportRoutes, jobRoutes }
+const exportRoutes = createExportRoutes()
+const jobRoutes = createJobRoutes()
+
+export function recoverIncompleteJobs(options: { db?: AppDatabase; dbUrl?: string } = {}) {
+  const db = options.db ?? getDatabase(options.dbUrl ?? process.env.DATABASE_URL ?? 'data/edit-vid2.db')
+  const incomplete = getIncompleteJobs(db)
+  for (const job of incomplete) {
+    if (job.status === 'running') {
+      updateExportJob(db, job.id, { status: 'failed' })
+    }
+    if (job.status === 'canceling') {
+      updateExportJob(db, job.id, { status: 'canceled' })
+    }
+  }
+}
+
+export { createExportRoutes, createJobRoutes, exportRoutes, jobRoutes, removeExportFiles, summarizeExportError }

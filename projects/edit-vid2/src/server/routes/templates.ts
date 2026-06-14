@@ -11,53 +11,68 @@ import {
 import type { HonoEnv } from '#/server/routes/shared'
 import { CreateSubtitleTemplateSchema, UpdateSubtitleTemplateSchema } from '#/shared/schemas'
 
-const templateRoutes = new Hono<HonoEnv>()
+type TemplateRouteDeps = {
+  createId: () => string
+}
 
-templateRoutes.get('/', (c) => {
-  const db = c.var.db
-  const templates = getTemplates(db)
-  return c.json(templates)
-})
+const defaultTemplateRouteDeps: TemplateRouteDeps = {
+  createId: uuidv7,
+}
 
-templateRoutes.get('/:templateId', (c) => {
-  const db = c.var.db
-  const template = getTemplateById(db, c.req.param('templateId'))
-  if (!template) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  return c.json(template)
-})
+function createTemplateRoutes(deps: Partial<TemplateRouteDeps> = {}) {
+  const resolvedDeps = { ...defaultTemplateRouteDeps, ...deps }
+  const templateRoutes = new Hono<HonoEnv>()
 
-templateRoutes.post('/', sValidator('json', CreateSubtitleTemplateSchema), (c) => {
-  const db = c.var.db
-  const body = c.req.valid('json')
-  const template = createTemplate(db, {
-    id: uuidv7(),
-    ...body,
+  templateRoutes.get('/', (c) => {
+    const db = c.var.db
+    const templates = getTemplates(db)
+    return c.json(templates)
   })
-  return c.json(template, 201)
-})
 
-templateRoutes.patch('/:templateId', sValidator('json', UpdateSubtitleTemplateSchema), (c) => {
-  const db = c.var.db
-  const id = c.req.param('templateId')
-  const existing = getTemplateById(db, id)
-  if (!existing) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  const updated = updateTemplate(db, id, c.req.valid('json'))
-  return c.json(updated)
-})
+  templateRoutes.get('/:templateId', (c) => {
+    const db = c.var.db
+    const template = getTemplateById(db, c.req.param('templateId'))
+    if (!template) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    return c.json(template)
+  })
 
-templateRoutes.delete('/:templateId', (c) => {
-  const db = c.var.db
-  const id = c.req.param('templateId')
-  const existing = getTemplateById(db, id)
-  if (!existing) {
-    return c.json({ error: 'not found' }, 404)
-  }
-  softDeleteTemplate(db, id)
-  return c.body(null, 204)
-})
+  templateRoutes.post('/', sValidator('json', CreateSubtitleTemplateSchema), (c) => {
+    const db = c.var.db
+    const body = c.req.valid('json')
+    const template = createTemplate(db, {
+      id: resolvedDeps.createId(),
+      ...body,
+    })
+    return c.json(template, 201)
+  })
 
-export { templateRoutes }
+  templateRoutes.patch('/:templateId', sValidator('json', UpdateSubtitleTemplateSchema), (c) => {
+    const db = c.var.db
+    const id = c.req.param('templateId')
+    const existing = getTemplateById(db, id)
+    if (!existing) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    const updated = updateTemplate(db, id, c.req.valid('json'))
+    return c.json(updated)
+  })
+
+  templateRoutes.delete('/:templateId', (c) => {
+    const db = c.var.db
+    const id = c.req.param('templateId')
+    const existing = getTemplateById(db, id)
+    if (!existing) {
+      return c.json({ error: 'not found' }, 404)
+    }
+    softDeleteTemplate(db, id)
+    return c.body(null, 204)
+  })
+
+  return templateRoutes
+}
+
+const templateRoutes = createTemplateRoutes()
+
+export { createTemplateRoutes, templateRoutes }

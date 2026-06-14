@@ -4,14 +4,23 @@ import { getDatabase } from '#/db'
 import type { AppDatabase } from '#/db'
 import { errHandler } from '#/server/middleware/error-handler'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
-import { exportRoutes, jobRoutes, recoverIncompleteJobs } from '#/server/routes/exports'
+import { createExportRoutes, createJobRoutes } from '#/server/routes/exports'
 import { htmlRoutes } from '#/server/routes/html'
-import { previewRoutes } from '#/server/routes/previews'
-import { projectRoutes } from '#/server/routes/projects'
-import { templateRoutes } from '#/server/routes/templates'
-import { videoRoutes } from '#/server/routes/videos'
+import { createPreviewRoutes } from '#/server/routes/previews'
+import { createProjectRoutes } from '#/server/routes/projects'
+import { createTemplateRoutes } from '#/server/routes/templates'
+import { createVideoRoutes } from '#/server/routes/videos'
 
-export type AppType = typeof routes
+type AppDeps = {
+  db?: AppDatabase
+  getDb?: () => AppDatabase
+  videoRoutes?: Parameters<typeof createVideoRoutes>[0]
+  projectRoutes?: Parameters<typeof createProjectRoutes>[0]
+  templateRoutes?: Parameters<typeof createTemplateRoutes>[0]
+  previewRoutes?: Parameters<typeof createPreviewRoutes>[0]
+  exportRoutes?: Parameters<typeof createExportRoutes>[0]
+  jobRoutes?: Parameters<typeof createJobRoutes>[0]
+}
 
 let db: AppDatabase | null = null
 
@@ -23,28 +32,36 @@ function getOrCreateDb() {
   return db
 }
 
-const app = new Hono<{
-  Variables: {
-    db: AppDatabase
-  }
-}>()
-  .use(applySecurityHeaders)
-  .onError(errHandler)
-  .use('*', async (c, next) => {
-    c.set('db', getOrCreateDb())
-    await next()
-  })
+function createApp(deps: AppDeps = {}) {
+  const getDb = deps.getDb ?? (() => deps.db ?? getOrCreateDb())
 
-const routes = app
-  .get('/data/*', serveStatic({ root: './' }))
-  .route('/api/videos', videoRoutes)
-  .route('/api/projects', projectRoutes)
-  .route('/api/templates', templateRoutes)
-  .route('/api/projects/:projectId/previews/subtitle', previewRoutes)
-  .route('/api/projects/:projectId/export-jobs', exportRoutes)
-  .route('/api/export-jobs', jobRoutes)
-  .route('/', htmlRoutes)
+  const app = new Hono<{
+    Variables: {
+      db: AppDatabase
+    }
+  }>()
+    .use(applySecurityHeaders)
+    .onError(errHandler)
+    .use('*', async (c, next) => {
+      c.set('db', getDb())
+      await next()
+    })
 
-recoverIncompleteJobs()
+  return app
+    .get('/static/*', serveStatic({ root: './dist' }))
+    .get('/data/*', serveStatic({ root: './' }))
+    .route('/api/videos', createVideoRoutes(deps.videoRoutes))
+    .route('/api/projects', createProjectRoutes(deps.projectRoutes))
+    .route('/api/templates', createTemplateRoutes(deps.templateRoutes))
+    .route('/api/projects/:projectId/previews/subtitle', createPreviewRoutes(deps.previewRoutes))
+    .route('/api/projects/:projectId/export-jobs', createExportRoutes(deps.exportRoutes))
+    .route('/api/export-jobs', createJobRoutes(deps.jobRoutes))
+    .route('/', htmlRoutes)
+}
+
+const app = createApp()
+
+export type AppType = typeof app
+export { createApp }
 
 export default app
