@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import {
   buildPreviewCacheKey,
+  clearPreviewCache as defaultClearPreviewCache,
   generateSubtitlePreview as defaultGenerateSubtitlePreview,
 } from '#/server/features/preview/preview-service'
 import { getProjectById } from '#/server/features/projects/project-repository'
@@ -37,6 +38,7 @@ type PreviewRouteDeps = {
   ensureDir: (path: string) => void
   getCacheDir: (projectId: string) => string
   generateSubtitlePreview: typeof defaultGenerateSubtitlePreview
+  clearProjectPreviews: (projectId: string) => void
 }
 
 const defaultPreviewRouteDeps: PreviewRouteDeps = {
@@ -44,13 +46,14 @@ const defaultPreviewRouteDeps: PreviewRouteDeps = {
   ensureDir: (path) => mkdirSync(path, { recursive: true }),
   getCacheDir: (projectId) => `data/projects/${projectId}/previews`,
   generateSubtitlePreview: defaultGenerateSubtitlePreview,
+  clearProjectPreviews: defaultClearPreviewCache,
 }
 
 function createPreviewRoutes(deps: Partial<PreviewRouteDeps> = {}) {
   const resolvedDeps = { ...defaultPreviewRouteDeps, ...deps }
   const previewRoutes = new Hono<HonoEnv>()
 
-  previewRoutes.post('/', sValidator('json', previewSchema), async (c) => {
+  previewRoutes.post('/subtitle', sValidator('json', previewSchema), async (c) => {
     const db = c.var.db
     const projectId = c.req.param('projectId')
     if (!projectId) {
@@ -101,6 +104,21 @@ function createPreviewRoutes(deps: Partial<PreviewRouteDeps> = {}) {
     }
 
     return c.json({ path: outputPath, cached: false })
+  })
+
+  previewRoutes.delete('/', (c) => {
+    const db = c.var.db
+    const projectId = c.req.param('projectId')
+    if (!projectId) {
+      return c.json({ error: 'projectId required' }, 400)
+    }
+    const project = getProjectById(db, projectId)
+    if (!project) {
+      return c.json({ error: 'project not found' }, 404)
+    }
+
+    resolvedDeps.clearProjectPreviews(projectId)
+    return c.body(null, 204)
   })
 
   return previewRoutes

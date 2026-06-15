@@ -184,6 +184,7 @@ describe('server API routes', () => {
           exists: (path) => scenario === 'cached' && path.endsWith('.jpg'),
           ensureDir: () => {},
           getCacheDir: () => '/tmp/previews',
+          clearProjectPreviews: () => {},
           generateSubtitlePreview: async ({ outputPath }) => {
             generatedPaths.push(outputPath)
             return scenario !== 'failed'
@@ -207,6 +208,69 @@ describe('server API routes', () => {
       } finally {
         cleanup()
       }
+    }
+  })
+
+  test('preview cache can be cleared for an existing project', async () => {
+    let cachePresent = true
+    const clearedProjectIds: string[] = []
+    const generatedPaths: string[] = []
+    const { app, db, cleanup } = createTestServer({
+      previewRoutes: {
+        exists: (path) => path.endsWith('.jpg') && cachePresent,
+        ensureDir: () => {},
+        getCacheDir: () => '/tmp/previews',
+        clearProjectPreviews: (projectId) => {
+          clearedProjectIds.push(projectId)
+          cachePresent = false
+        },
+        generateSubtitlePreview: async ({ outputPath }) => {
+          generatedPaths.push(outputPath)
+          return true
+        },
+      },
+    })
+    try {
+      seedVideoAsset(db)
+      seedProject(db)
+      seedTemplate(db)
+
+      const cachedRes = await app.request(
+        '/api/projects/project-1/previews/subtitle',
+        jsonRequest('POST', { sourceTime: 1, text: 'hello', templateId: 'template-1' })
+      )
+      expect(cachedRes.status).toBe(200)
+      expect((await cachedRes.json()).cached).toBe(true)
+
+      const clearRes = await app.request('/api/projects/project-1/previews', { method: 'DELETE' })
+      expect(clearRes.status).toBe(204)
+      expect(clearedProjectIds).toEqual(['project-1'])
+
+      const regeneratedRes = await app.request(
+        '/api/projects/project-1/previews/subtitle',
+        jsonRequest('POST', { sourceTime: 1, text: 'hello', templateId: 'template-1' })
+      )
+      expect(regeneratedRes.status).toBe(200)
+      expect((await regeneratedRes.json()).cached).toBe(false)
+      expect(generatedPaths).toHaveLength(1)
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('preview cache clear returns 404 for a missing project', async () => {
+    const clearedProjectIds: string[] = []
+    const { app, cleanup } = createTestServer({
+      previewRoutes: {
+        clearProjectPreviews: (projectId) => clearedProjectIds.push(projectId),
+      },
+    })
+    try {
+      const res = await app.request('/api/projects/missing/previews', { method: 'DELETE' })
+      expect(res.status).toBe(404)
+      expect(clearedProjectIds).toEqual([])
+    } finally {
+      cleanup()
     }
   })
 
