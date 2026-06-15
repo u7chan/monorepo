@@ -755,6 +755,7 @@ function SubtitleDetailForm({
 }) {
   const queryClient = useQueryClient()
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [clearCacheError, setClearCacheError] = useState<string | null>(null)
   const previewText = item.text.trim()
   const previewSourceTime = Math.max(0, Number(item.sourceStart.toFixed(2)))
   const clearCacheMutation = useMutation({
@@ -765,8 +766,14 @@ function SubtitleDetailForm({
         throw new Error(body?.error ?? 'preview cache clear failed')
       }
     },
+    onMutate: () => {
+      setClearCacheError(null)
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['subtitle-preview'] })
+      queryClient.invalidateQueries({ queryKey: ['subtitle-preview', projectId] })
+    },
+    onError: (error) => {
+      setClearCacheError(error instanceof Error ? error.message : 'preview cache clear failed')
     },
   })
   const previewQuery = useQuery<{ path: string; cached: boolean }>({
@@ -881,6 +888,11 @@ function SubtitleDetailForm({
                 キャッシュクリア
               </button>
             </div>
+            {clearCacheError && (
+              <p role='alert' className='border-b border-red-200 px-3 py-2 text-xs text-red-600 dark:border-red-900/60'>
+                キャッシュクリアに失敗しました
+              </p>
+            )}
             <div className='flex aspect-video items-center justify-center bg-gray-100 text-xs text-gray-500 dark:bg-gray-950 dark:text-gray-400'>
               {!canPreview ? (
                 <span>元動画が必要です</span>
