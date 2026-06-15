@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   Plus,
   RotateCcw,
+  Trash2,
   Type,
   X,
 } from 'lucide-react'
@@ -752,9 +753,22 @@ function SubtitleDetailForm({
   onChange: (item: SubtitleItem) => void
   onDelete: () => void
 }) {
+  const queryClient = useQueryClient()
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const previewText = item.text.trim()
   const previewSourceTime = Math.max(0, Number(item.sourceStart.toFixed(2)))
+  const clearCacheMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/previews`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(body?.error ?? 'preview cache clear failed')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subtitle-preview'] })
+    },
+  })
   const previewQuery = useQuery<{ path: string; cached: boolean }>({
     queryKey: ['subtitle-preview', projectId, item.id, previewSourceTime, previewText, item.templateId],
     enabled: canPreview && previewText.length > 0,
@@ -846,9 +860,26 @@ function SubtitleDetailForm({
             data-testid='subtitle-preview'
             className='overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900'
           >
-            <div className='flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700'>
-              <ImageIcon className='h-3.5 w-3.5 text-gray-500 dark:text-gray-400' />
-              <h3 className='text-xs font-medium text-gray-600 dark:text-gray-300'>静止画プレビュー</h3>
+            <div className='flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700'>
+              <div className='flex min-w-0 items-center gap-2'>
+                <ImageIcon className='h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400' />
+                <h3 className='truncate text-xs font-medium text-gray-600 dark:text-gray-300'>静止画プレビュー</h3>
+              </div>
+              <button
+                type='button'
+                onClick={() => clearCacheMutation.mutate()}
+                disabled={clearCacheMutation.isPending}
+                className='inline-flex shrink-0 items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 transition hover:bg-white disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
+                aria-label='プレビューキャッシュをクリア'
+                title='プレビューキャッシュをクリア'
+              >
+                {clearCacheMutation.isPending ? (
+                  <LoaderCircle className='h-3.5 w-3.5 animate-spin' />
+                ) : (
+                  <Trash2 className='h-3.5 w-3.5' />
+                )}
+                キャッシュクリア
+              </button>
             </div>
             <div className='flex aspect-video items-center justify-center bg-gray-100 text-xs text-gray-500 dark:bg-gray-950 dark:text-gray-400'>
               {!canPreview ? (

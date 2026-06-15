@@ -53,7 +53,7 @@ function createApp(deps: AppDeps = {}) {
     .route('/api/videos', createVideoRoutes(deps.videoRoutes))
     .route('/api/projects', createProjectRoutes(deps.projectRoutes))
     .route('/api/templates', createTemplateRoutes(deps.templateRoutes))
-    .route('/api/projects/:projectId/previews/subtitle', createPreviewRoutes(deps.previewRoutes))
+    .route('/api/projects/:projectId/previews', createPreviewRoutes(deps.previewRoutes))
     .route('/api/projects/:projectId/export-jobs', createExportRoutes(deps.exportRoutes))
     .route('/api/export-jobs', createJobRoutes(deps.jobRoutes))
     .route('/', htmlRoutes)

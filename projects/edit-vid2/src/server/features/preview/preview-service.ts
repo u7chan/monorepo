@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { $ } from 'bun'
 import { generateAssContent } from '#/server/features/ass/ass-generator'
 import type { SubtitleStyle } from '#/shared/schemas'
@@ -14,6 +14,13 @@ export function buildPreviewCacheKey(
 ): string {
   const payload = `${projectId}:${videoAssetId}:${sourceTime}:${JSON.stringify(template)}:${text}:${renderVersion}`
   return createHash('sha256').update(payload).digest('hex').substring(0, 16)
+}
+
+export function clearPreviewCache(projectId: string): void {
+  const cacheDir = `data/projects/${projectId}/previews`
+  if (existsSync(cacheDir)) {
+    rmSync(cacheDir, { recursive: true, force: true })
+  }
 }
 
 export async function generateSubtitlePreview(params: {
