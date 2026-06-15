@@ -29,7 +29,6 @@ import {
 import { uuidv7 } from 'uuidv7'
 import { ExportConfirmDialog } from '#/client/features/editor/export-confirm-dialog'
 import { ExportHistoryPopup } from '#/client/features/editor/export-history-popup'
-import { ExportPresetForm, ExportPresetSummary } from '#/client/features/editor/export-preset-form'
 import type {
   ExportPreset,
   KeepSegment,
@@ -353,10 +352,6 @@ export function EditorPage() {
                 <p className='mt-2 text-xs text-gray-400 dark:text-gray-500'>または A キーで追加できます</p>
               </div>
             )}
-          </div>
-
-          <div className='shrink-0 border-t border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800'>
-            <ExportPanel preset={exportPreset} onPresetChange={setExportPreset} />
           </div>
         </div>
       </div>
@@ -1277,35 +1272,5 @@ function TimelineBar({
         <span>{formatSeconds(duration)}</span>
       </div>
     </div>
-  )
-}
-
-function ExportPanel({
-  preset,
-  onPresetChange,
-}: {
-  preset: ExportPreset
-  onPresetChange: (preset: ExportPreset) => void
-}) {
-  const [showSettings, setShowSettings] = useState(false)
-
-  return (
-    <CollapsibleSection title='書き出し' meta={<ExportPresetSummary preset={preset} />}>
-      <button
-        type='button'
-        onClick={() => setShowSettings((current) => !current)}
-        className='mb-2 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
-      >
-        {showSettings ? '設定を閉じる' : '書き出し設定'}
-      </button>
-
-      {showSettings && (
-        <div className='mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700/50'>
-          <ExportPresetForm preset={preset} onChange={onPresetChange} />
-        </div>
-      )}
-
-      <p className='text-xs text-gray-400 dark:text-gray-500'>ヘッダーの「書き出し」ボタンから実行できます。</p>
-    </CollapsibleSection>
   )
 }
