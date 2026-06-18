@@ -38,7 +38,12 @@ function serveDataFile(c: Context) {
     return c.notFound()
   }
 
-  const { size } = statSync(filePath)
+  const stats = statSync(filePath)
+  if (!stats.isFile()) {
+    return c.notFound()
+  }
+
+  const { size } = stats
   const ext = extname(filePath).toLowerCase()
   const contentType = MIME_TYPES[ext] || 'application/octet-stream'
   const rangeHeader = c.req.header('range')
@@ -52,16 +57,37 @@ function serveDataFile(c: Context) {
     })
   }
 
-  const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
+  const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/)
   if (!match) {
     return c.body('range not satisfiable', 416)
   }
 
-  const start = Number.parseInt(match[1], 10)
-  const end = match[2] ? Number.parseInt(match[2], 10) : size - 1
+  let start: number
+  let end: number
 
-  if (Number.isNaN(start) || Number.isNaN(end) || start >= size || end >= size || start > end) {
-    return c.body('range not satisfiable', 416)
+  if (match[1] === '') {
+    // suffix range: bytes=-N (last N bytes)
+    const suffixLength = Number.parseInt(match[2], 10)
+    if (Number.isNaN(suffixLength) || suffixLength <= 0) {
+      return c.body('range not satisfiable', 416)
+    }
+    start = Math.max(0, size - suffixLength)
+    end = size - 1
+  } else {
+    start = Number.parseInt(match[1], 10)
+    end = match[2] ? Number.parseInt(match[2], 10) : size - 1
+
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      return c.body('range not satisfiable', 416)
+    }
+
+    if (end >= size) {
+      end = size - 1
+    }
+
+    if (start > end || start >= size) {
+      return c.body('range not satisfiable', 416)
+    }
   }
 
   const length = end - start + 1
