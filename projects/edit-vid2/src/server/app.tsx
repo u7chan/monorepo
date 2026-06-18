@@ -1,105 +1,16 @@
-import { createReadStream, existsSync, statSync } from 'node:fs'
-import { extname, resolve } from 'node:path'
-import { Readable } from 'node:stream'
 import { Hono } from 'hono'
-import type { Context } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { getDatabase } from '#/db'
 import type { AppDatabase } from '#/db'
 import { errHandler } from '#/server/middleware/error-handler'
 import { applySecurityHeaders } from '#/server/middleware/security-headers'
+import { createDataFileRoutes, type DataFileRouteDeps } from '#/server/routes/data-files'
 import { createExportRoutes, createJobRoutes } from '#/server/routes/exports'
 import { htmlRoutes } from '#/server/routes/html'
 import { createPreviewRoutes } from '#/server/routes/previews'
 import { createProjectRoutes } from '#/server/routes/projects'
 import { createTemplateRoutes } from '#/server/routes/templates'
 import { createVideoRoutes } from '#/server/routes/videos'
-
-const MIME_TYPES: Record<string, string> = {
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.ogv': 'video/ogg',
-  '.mov': 'video/quicktime',
-  '.avi': 'video/x-msvideo',
-  '.mkv': 'video/x-matroska',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-}
-
-function serveDataFile(c: Context) {
-  const url = new URL(c.req.url)
-  const filePath = resolve(process.cwd(), `.${url.pathname}`)
-
-  if (!existsSync(filePath)) {
-    return c.notFound()
-  }
-
-  const stats = statSync(filePath)
-  if (!stats.isFile()) {
-    return c.notFound()
-  }
-
-  const { size } = stats
-  const ext = extname(filePath).toLowerCase()
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream'
-  const rangeHeader = c.req.header('range')
-
-  if (!rangeHeader) {
-    const stream = createReadStream(filePath)
-    return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 200, {
-      'Content-Type': contentType,
-      'Content-Length': String(size),
-      'Accept-Ranges': 'bytes',
-    })
-  }
-
-  const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/)
-  if (!match) {
-    return c.body('range not satisfiable', 416)
-  }
-
-  let start: number
-  let end: number
-
-  if (match[1] === '') {
-    // suffix range: bytes=-N (last N bytes)
-    const suffixLength = Number.parseInt(match[2], 10)
-    if (Number.isNaN(suffixLength) || suffixLength <= 0) {
-      return c.body('range not satisfiable', 416)
-    }
-    start = Math.max(0, size - suffixLength)
-    end = size - 1
-  } else {
-    start = Number.parseInt(match[1], 10)
-    end = match[2] ? Number.parseInt(match[2], 10) : size - 1
-
-    if (Number.isNaN(start) || Number.isNaN(end)) {
-      return c.body('range not satisfiable', 416)
-    }
-
-    if (end >= size) {
-      end = size - 1
-    }
-
-    if (start > end || start >= size) {
-      return c.body('range not satisfiable', 416)
-    }
-  }
-
-  const length = end - start + 1
-  const stream = createReadStream(filePath, { start, end })
-
-  return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 206, {
-    'Content-Type': contentType,
-    'Content-Range': `bytes ${start}-${end}/${size}`,
-    'Content-Length': String(length),
-    'Accept-Ranges': 'bytes',
-  })
-}
 
 type AppDeps = {
   db?: AppDatabase
@@ -110,6 +21,7 @@ type AppDeps = {
   previewRoutes?: Parameters<typeof createPreviewRoutes>[0]
   exportRoutes?: Parameters<typeof createExportRoutes>[0]
   jobRoutes?: Parameters<typeof createJobRoutes>[0]
+  dataFileRoutes?: Partial<DataFileRouteDeps>
 }
 
 let db: AppDatabase | null = null
@@ -124,6 +36,7 @@ function getOrCreateDb() {
 
 function createApp(deps: AppDeps = {}) {
   const getDb = deps.getDb ?? (() => deps.db ?? getOrCreateDb())
+  const dataFileDeps = deps.dataFileRoutes ?? {}
 
   const app = new Hono<{
     Variables: {
@@ -139,7 +52,7 @@ function createApp(deps: AppDeps = {}) {
 
   return app
     .get('/static/*', serveStatic({ root: './dist' }))
-    .get('/data/*', serveDataFile)
+    .route('/', createDataFileRoutes(dataFileDeps))
     .route('/api/videos', createVideoRoutes(deps.videoRoutes))
     .route('/api/projects', createProjectRoutes(deps.projectRoutes))
     .route('/api/templates', createTemplateRoutes(deps.templateRoutes))

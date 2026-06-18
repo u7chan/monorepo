@@ -17,6 +17,7 @@ import {
   updateExportJob,
 } from '#/server/features/export/export-repository'
 import { exportWorker } from '#/server/features/export/export-worker'
+import { parseByteRange } from '#/server/features/http/byte-range'
 import { getProjectById, getProjects } from '#/server/features/projects/project-repository'
 import { getVideoAssetById } from '#/server/features/videos/video-repository'
 import type { HonoEnv } from '#/server/routes/shared'
@@ -304,19 +305,14 @@ function createJobRoutes(deps: Partial<ExportRouteDeps> = {}) {
       })
     }
 
-    const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/)
-    if (!match) {
-      return c.json({ error: 'range not satisfiable' }, 416)
+    const range = parseByteRange(rangeHeader, size)
+    if (!range.ok) {
+      return c.json({ error: 'range not satisfiable' }, 416, {
+        'Content-Range': `bytes */${size}`,
+      })
     }
 
-    const start = Number.parseInt(match[1], 10)
-    const end = match[2] ? Number.parseInt(match[2], 10) : size - 1
-
-    if (Number.isNaN(start) || Number.isNaN(end) || start >= size || end >= size || start > end) {
-      return c.json({ error: 'range not satisfiable' }, 416)
-    }
-
-    const length = end - start + 1
+    const { start, end, length } = range
     const stream = resolvedDeps.createReadStream(job.outputPath, { start, end })
     return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 206, {
       ...baseHeaders,
