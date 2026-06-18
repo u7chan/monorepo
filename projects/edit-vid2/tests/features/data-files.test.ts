@@ -176,6 +176,18 @@ describe('data file API', () => {
     }
   })
 
+  test('returns 400 for malformed percent encoding on video route', async () => {
+    const root = setupTempRoot()
+    const { app, cleanup } = createTestServer({ dataFileRoutes: { videoRoot: root, projectRoot: root } })
+    try {
+      const res = await app.request('/data/videos/%E0%A4%A')
+      expect(res.status).toBe(400)
+    } finally {
+      cleanup()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('returns 404 for encoded path traversal', async () => {
     const root = setupTempRoot()
     const { app, cleanup } = createTestServer({ dataFileRoutes: { videoRoot: root, projectRoot: root } })
@@ -224,6 +236,26 @@ describe('data file API', () => {
     }
   })
 
+  test('project preview is scoped to its own project directory', async () => {
+    const root = setupTempRoot()
+    const { app, cleanup } = createTestServer({ dataFileRoutes: { videoRoot: root, projectRoot: root } })
+    try {
+      const ownDir = join(root, 'project-1', 'previews')
+      const otherDir = join(root, 'project-2', 'previews')
+      mkdirSync(ownDir, { recursive: true })
+      mkdirSync(otherDir, { recursive: true })
+      writeFileSync(join(ownDir, 'preview.jpg'), 'image')
+      writeFileSync(join(otherDir, 'preview.jpg'), 'other')
+
+      const res = await app.request(
+        '/data/projects/project-1/previews/' + encodeURIComponent('../project-2/previews/preview.jpg')
+      )
+      expect(res.status).toBe(404)
+    } finally {
+      cleanup()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
   test('does not serve files outside allowed data roots', async () => {
     const root = setupTempRoot()
     const { app, cleanup } = createTestServer({ dataFileRoutes: { videoRoot: root, projectRoot: root } })

@@ -51,12 +51,16 @@ function isWithinRoot(root: string, target: string): boolean {
   return target === resolvedRoot || target.startsWith(prefix)
 }
 
-function resolveRelativePath(c: Context): string {
-  return decodeURIComponent(c.req.path.replace(PUBLIC_DATA_PREFIX, ''))
+function resolveRelativePath(c: Context): string | null {
+  const raw = c.req.path.replace(PUBLIC_DATA_PREFIX, '')
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return null
+  }
 }
 
-function serveFile(c: Context, root: string, fs: FileSystemLike) {
-  const relativePath = resolveRelativePath(c)
+function serveFile(c: Context, root: string, fs: FileSystemLike, relativePath: string) {
   const filePath = resolve(root, relativePath)
 
   if (!isWithinRoot(root, filePath)) {
@@ -107,10 +111,20 @@ export function createDataFileRoutes(deps: Partial<DataFileRouteDeps> = {}) {
   const resolvedDeps = { ...defaultDataFileRouteDeps, ...deps }
   const routes = new Hono<HonoEnv>()
 
-  routes.get('/data/videos/:path{.*}', (c) => serveFile(c, resolvedDeps.videoRoot, resolvedDeps.fs))
-  routes.get('/data/projects/:projectId/previews/:path{.*}', (c) =>
-    serveFile(c, resolvedDeps.projectRoot, resolvedDeps.fs)
-  )
+  routes.get('/data/videos/:path{.*}', (c) => {
+    const relativePath = resolveRelativePath(c)
+    if (relativePath === null) {
+      return c.text('bad request', 400)
+    }
+    return serveFile(c, resolvedDeps.videoRoot, resolvedDeps.fs, relativePath)
+  })
+
+  routes.get('/data/projects/:projectId/previews/:path{.*}', (c) => {
+    const projectId = c.req.param('projectId')
+    const projectPreviewRoot = resolve(resolvedDeps.projectRoot, projectId, 'previews')
+    const relativePath = c.req.param('path')
+    return serveFile(c, projectPreviewRoot, resolvedDeps.fs, relativePath)
+  })
 
   return routes
 }
