@@ -273,7 +273,6 @@ export function EditorPage() {
               src={`/${videoAsset.storagePath}`}
               controls
               onTimeUpdate={(e) => {
-                if (e.currentTarget.paused) return
                 setCurrentTime(e.currentTarget.currentTime)
               }}
               onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
