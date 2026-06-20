@@ -4,6 +4,7 @@ import {
   secondaryIconButtonClassName,
 } from "../buttonStyles"
 import { CloseIcon } from "../icons/CloseIcon"
+import { CopyIcon } from "../icons/CopyIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 import { EditIcon } from "../icons/EditIcon"
 import { ExternalLinkIcon } from "../icons/ExternalLinkIcon"
@@ -16,6 +17,7 @@ interface FileViewerModalProps {
   animation?: string
   isEditing?: boolean
   showEdit?: boolean
+  showCopy?: boolean
   layout?: "default" | "pdf"
   children: Child
 }
@@ -28,6 +30,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
   animation,
   isEditing = false,
   showEdit = false,
+  showCopy = false,
   layout = "default",
   children,
 }) => {
@@ -69,6 +72,19 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
       </button>
     ) : null
 
+  const copyButton = showCopy ? (
+    <button
+      type="button"
+      id="file-viewer-copy-button"
+      title="Copy all"
+      aria-label="Copy all"
+      onclick="copyFileContent()"
+      className={secondaryIconButtonClassName}
+    >
+      <CopyIcon />
+    </button>
+  ) : null
+
   const closeButton = (
     <button
       type="button"
@@ -91,6 +107,42 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
           __html: "document.body.style.overflow = 'hidden';",
         }}
       />
+      {showCopy ? (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+            function copyFileContent() {
+              const target = document.querySelector('[data-copy-source]');
+              const content = target instanceof HTMLTextAreaElement ? target.value : (target?.textContent ?? '');
+              async function doCopy() {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  await navigator.clipboard.writeText(content);
+                } else {
+                  const textarea = document.createElement('textarea');
+                  textarea.value = content;
+                  textarea.style.position = 'fixed';
+                  textarea.style.left = '-9999px';
+                  document.body.appendChild(textarea);
+                  textarea.focus();
+                  textarea.select();
+                  const ok = document.execCommand('copy');
+                  document.body.removeChild(textarea);
+                  if (!ok) throw new Error('copy failed');
+                }
+              }
+              doCopy().then(() => showCopyFeedback('Copied')).catch(() => showCopyFeedback('Copy failed'));
+            }
+            function showCopyFeedback(message) {
+              const btn = document.getElementById('file-viewer-copy-button');
+              if (!btn) return;
+              const original = btn.innerHTML;
+              btn.innerHTML = '<span class=\\'text-xs font-semibold px-1\\'>' + message + '</span>';
+              setTimeout(() => { btn.innerHTML = original; }, 1500);
+            }
+          `,
+          }}
+        />
+      ) : null}
       <div
         className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
         hx-on:click={closeScript}
@@ -103,6 +155,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
             <div className="flex items-center gap-2">
               {downloadButton}
               {publicUrlButton}
+              {copyButton}
               {editButton}
               {closeButton}
             </div>

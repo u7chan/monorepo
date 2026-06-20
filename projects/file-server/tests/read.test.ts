@@ -312,6 +312,58 @@ describe("file endpoint /file", () => {
     expect(data.success).toBe(false)
     expect(data.error.name).toBe("NotAFile")
   })
+
+  it("should show copy button for text files", async () => {
+    await Bun.write(
+      path.join(UPLOAD_DIR, "public", "copy-test.txt"),
+      "copy target content",
+    )
+
+    const res = await app.request(
+      new Request("http://localhost/file?path=public%2Fcopy-test.txt", {
+        headers: { "HX-Request": "true" },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('id="file-viewer-copy-button"')
+    expect(text).toContain('aria-label="Copy all"')
+    expect(text).toContain('title="Copy all"')
+    expect(text).toContain('onclick="copyFileContent()"')
+    expect(text).toContain("data-copy-source")
+    expect(text).toContain("copy target content")
+  })
+
+  it("should show copy button for empty text files", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "public", "empty-copy.txt"), "")
+
+    const res = await app.request(
+      new Request("http://localhost/file?path=public%2Fempty-copy.txt", {
+        headers: { "HX-Request": "true" },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('id="file-viewer-copy-button"')
+    expect(text).toContain("data-copy-source")
+  })
+
+  it("should not show copy button for image files", async () => {
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ])
+    await Bun.write(path.join(UPLOAD_DIR, "public", "photo.png"), pngBytes)
+
+    const res = await app.request(
+      new Request("http://localhost/file?path=public%2Fphoto.png", {
+        headers: { "HX-Request": "true" },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).not.toContain('id="file-viewer-copy-button"')
+    expect(text).not.toContain("data-copy-source")
+  })
 })
 
 describe("file archive endpoint /file/archive", () => {

@@ -40,6 +40,7 @@ export const FileViewer: FC<FileViewerProps> = ({
           borderColor="indigo-300"
           isEditing={true}
           showEdit={allowEdit}
+          showCopy={true}
         >
           <TextEditor content={content} path={path} />
         </FileViewerModal>
@@ -52,6 +53,7 @@ export const FileViewer: FC<FileViewerProps> = ({
         publicUrl={publicUrl}
         borderColor="indigo-300"
         showEdit={allowEdit}
+        showCopy={true}
       >
         <TextViewer content={content} />
       </FileViewerModal>

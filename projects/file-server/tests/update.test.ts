@@ -151,4 +151,25 @@ describe("update", () => {
     const saved = await readFile(testFilePath, "utf-8")
     expect(saved).toBe("Updated nested content!")
   })
+
+  it("should show copy button in text editor", async () => {
+    const testFilePath = path.join(UPLOAD_DIR, "public", "edit-copy.txt")
+    await writeFile(testFilePath, "edit copy content", "utf-8")
+
+    const res = await app.request(
+      new Request(
+        "http://localhost/file?path=public%2Fedit-copy.txt&edit=true",
+        {
+          headers: { "HX-Request": "true" },
+        },
+      ),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('id="file-viewer-copy-button"')
+    expect(text).toContain('aria-label="Copy all"')
+    expect(text).toContain('onclick="copyFileContent()"')
+    expect(text).toContain("data-copy-source")
+    expect(text).toContain("edit copy content")
+  })
 })
