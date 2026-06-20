@@ -132,12 +132,15 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
               }
               doCopy().then(() => showCopyFeedback('Copied')).catch(() => showCopyFeedback('Copy failed'));
             }
+            let copyFeedbackTimer = null;
+            let originalBtnHTML = null;
             function showCopyFeedback(message) {
               const btn = document.getElementById('file-viewer-copy-button');
               if (!btn) return;
-              const original = btn.innerHTML;
+              if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+              if (!originalBtnHTML) originalBtnHTML = btn.innerHTML;
               btn.innerHTML = '<span class=\\'text-xs font-semibold px-1\\'>' + message + '</span>';
-              setTimeout(() => { btn.innerHTML = original; }, 1500);
+              copyFeedbackTimer = setTimeout(function() { btn.innerHTML = originalBtnHTML; copyFeedbackTimer = null; }, 1500);
             }
           `,
           }}

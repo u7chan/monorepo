@@ -346,6 +346,9 @@ describe("file endpoint /file", () => {
     const text = await res.text()
     expect(text).toContain('id="file-viewer-copy-button"')
     expect(text).toContain("data-copy-source")
+    expect(text).toMatch(
+      /<span[^>]*data-copy-source[^>]*>\s*<\/span>/,
+    )
   })
 
   it("should not show copy button for image files", async () => {
