@@ -18,6 +18,7 @@ export const TextEditor: FC<TextEditorProps> = ({ content, path }) => {
     >
       <input type="hidden" name="path" value={path} />
       <textarea
+        data-copy-source
         name="content"
         placeholder="This file is empty. Start typing..."
         className="flex-1 w-full bg-gradient-to-br from-indigo-50 to-purple-50 p-4 rounded-xl border-2 border-indigo-200 resize-none font-mono text-sm leading-relaxed focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
