@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const saveDiffStateMock = vi.fn()
 
+vi.mock('#/client/features/diff/monaco', () => ({}))
+
 vi.mock('@monaco-editor/react', () => ({
   default: ({ onChange, value }: { onChange: (value: string) => void; value: string }) => (
     <textarea value={value} onChange={(event) => onChange(event.target.value)} />

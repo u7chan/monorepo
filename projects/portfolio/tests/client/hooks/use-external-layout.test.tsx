@@ -5,8 +5,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDarkMode } from '#/client/shared/hooks/use-dark-mode'
 import { useMobileLayout } from '#/client/shared/hooks/use-mobile-layout'
 
+const createLocalStorageMock = () => {
+  const store = new Map<string, string>()
+
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => store.set(key, value),
+    removeItem: (key: string) => store.delete(key),
+    clear: () => store.clear(),
+  }
+}
+
 describe('external layout hooks', () => {
   beforeEach(() => {
+    vi.stubGlobal('localStorage', createLocalStorageMock())
     localStorage.clear()
     document.documentElement.classList.remove('dark')
   })
