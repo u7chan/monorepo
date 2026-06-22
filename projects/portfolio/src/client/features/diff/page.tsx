@@ -1,3 +1,4 @@
+import './monaco'
 import Editor from '@monaco-editor/react'
 import type { ComponentType } from 'react'
 import { useEffect, useState } from 'react'
