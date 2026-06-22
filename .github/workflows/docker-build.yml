@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   docker-build-if-changes-detected:
@@ -31,7 +32,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.sha }}
           persist-credentials: false
           # プッシュイベントでは直前のコミットとの差分で十分
           # 2コミット分の履歴で変更検出が可能
