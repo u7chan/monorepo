@@ -129,6 +129,12 @@ type DiffProps = {
   initialState: DiffStatePayload
 }
 
+function persistDiffState(state: DiffStatePayload) {
+  void saveDiffState(state).catch((error) => {
+    console.error('Failed to save diff state:', error)
+  })
+}
+
 export function Diff({ initialState }: DiffProps) {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [beforeCode, setBeforeCode] = useState(initialState.beforeCode)
@@ -143,14 +149,14 @@ export function Diff({ initialState }: DiffProps) {
     const nextBeforeCode = value ?? ''
     beforeCodeRef.current = nextBeforeCode
     setBeforeCode(nextBeforeCode)
-    void saveDiffState({ beforeCode: nextBeforeCode, afterCode: afterCodeRef.current }).catch(() => undefined)
+    persistDiffState({ beforeCode: nextBeforeCode, afterCode: afterCodeRef.current })
   }
 
   const handleAfterCodeChange = (value: string | undefined) => {
     const nextAfterCode = value ?? ''
     afterCodeRef.current = nextAfterCode
     setAfterCode(nextAfterCode)
-    void saveDiffState({ beforeCode: beforeCodeRef.current, afterCode: nextAfterCode }).catch(() => undefined)
+    persistDiffState({ beforeCode: beforeCodeRef.current, afterCode: nextAfterCode })
   }
 
   return (

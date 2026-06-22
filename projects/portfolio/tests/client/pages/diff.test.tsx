@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const saveDiffStateMock = vi.fn()
 
@@ -40,6 +40,14 @@ const initialState = {
 }
 
 describe('Diff page', () => {
+  beforeEach(() => {
+    saveDiffStateMock.mockReset()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
   it('保存済みコードを初期表示する', () => {
     render(<Diff initialState={initialState} />)
 
@@ -64,6 +72,20 @@ describe('Diff page', () => {
     expect(saveDiffStateMock).toHaveBeenNthCalledWith(2, {
       beforeCode: 'updated before',
       afterCode: 'updated after',
+    })
+  })
+
+  it('保存失敗をコンソールへ出力する', async () => {
+    const error = new Error('storage unavailable')
+    const consoleErrorMock = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    saveDiffStateMock.mockRejectedValue(error)
+    const { container } = render(<Diff initialState={initialState} />)
+
+    fireEvent.click(container.querySelector('button')!)
+    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'updated before' } })
+
+    await waitFor(() => {
+      expect(consoleErrorMock).toHaveBeenCalledWith('Failed to save diff state:', error)
     })
   })
 })
