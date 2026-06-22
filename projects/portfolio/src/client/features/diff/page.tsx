@@ -1,9 +1,11 @@
 import './monaco'
 import Editor from '@monaco-editor/react'
 import type { ComponentType } from 'react'
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import ReactDiffViewerModule from 'react-diff-viewer'
-import { loadDiffState, saveDiffState } from '#/client/shared/storage/diff-state'
+import { useDarkMode } from '#/client/shared/hooks/use-dark-mode'
+import { useMobileLayout } from '#/client/shared/hooks/use-mobile-layout'
+import { type DiffStatePayload, saveDiffState } from '#/client/shared/storage/diff-state'
 
 const reactDiffViewerImport = ReactDiffViewerModule as ComponentType<any> | { default: ComponentType<any> }
 const ReactDiffViewer =
@@ -46,12 +48,6 @@ const LANGUAGE_OPTIONS: string[] = [
   'markdown',
 ]
 
-const defaultBefore = `line 1
-line 2
-line 3`
-const defaultAfter = `line 1
-modified line 2
-line 3`
 const diffViewerStyles = {
   variables: {
     light: {
@@ -129,102 +125,39 @@ const diffViewerStyles = {
   },
 }
 
-export function Diff() {
-  const [mode, setMode] = useState<'view' | 'edit'>('view')
-  const [beforeCode, setBeforeCode] = useState(defaultBefore)
-  const [afterCode, setAfterCode] = useState(defaultAfter)
-  const [language, setLanguage] = useState('')
-  const [isHydrated, setIsHydrated] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
-  const [isDarkTheme, setIsDarkTheme] = useState(() => {
-    if (typeof window === 'undefined') {
-      return false
-    }
-    const saved = localStorage.getItem('theme')
-    if (saved === 'dark') {
-      return true
-    }
-    if (saved === 'light') {
-      return false
-    }
-    return document.documentElement.classList.contains('dark')
+type DiffProps = {
+  initialState: DiffStatePayload
+}
+
+function persistDiffState(state: DiffStatePayload) {
+  void saveDiffState(state).catch((error) => {
+    console.error('Failed to save diff state:', error)
   })
+}
 
-  useEffect(() => {
-    const syncTheme = () => {
-      const saved = localStorage.getItem('theme')
-      if (saved === 'dark') {
-        setIsDarkTheme(true)
-        return
-      }
-      if (saved === 'light') {
-        setIsDarkTheme(false)
-        return
-      }
-      setIsDarkTheme(document.documentElement.classList.contains('dark'))
-    }
+export function Diff({ initialState }: DiffProps) {
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [beforeCode, setBeforeCode] = useState(initialState.beforeCode)
+  const [afterCode, setAfterCode] = useState(initialState.afterCode)
+  const [language, setLanguage] = useState('')
+  const beforeCodeRef = useRef(beforeCode)
+  const afterCodeRef = useRef(afterCode)
+  const isMobile = useMobileLayout()
+  const isDarkTheme = useDarkMode()
 
-    syncTheme()
+  const handleBeforeCodeChange = (value: string | undefined) => {
+    const nextBeforeCode = value ?? ''
+    beforeCodeRef.current = nextBeforeCode
+    setBeforeCode(nextBeforeCode)
+    persistDiffState({ beforeCode: nextBeforeCode, afterCode: afterCodeRef.current })
+  }
 
-    const observer = new MutationObserver(syncTheme)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    window.addEventListener('storage', syncTheme)
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('storage', syncTheme)
-    }
-  }, [])
-
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768)
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
-
-  useEffect(() => {
-    let isMounted = true
-
-    const hydrate = async () => {
-      try {
-        const saved = await loadDiffState()
-        if (!isMounted) {
-          return
-        }
-        if (saved) {
-          setBeforeCode(saved.beforeCode)
-          setAfterCode(saved.afterCode)
-        }
-      } catch {
-        if (!isMounted) {
-          return
-        }
-      } finally {
-        if (isMounted) {
-          setIsHydrated(true)
-        }
-      }
-    }
-
-    hydrate()
-
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isHydrated) {
-      return
-    }
-
-    const persist = async () => {
-      await saveDiffState({ beforeCode, afterCode })
-    }
-
-    persist()
-  }, [beforeCode, afterCode, isHydrated])
+  const handleAfterCodeChange = (value: string | undefined) => {
+    const nextAfterCode = value ?? ''
+    afterCodeRef.current = nextAfterCode
+    setAfterCode(nextAfterCode)
+    persistDiffState({ beforeCode: beforeCodeRef.current, afterCode: nextAfterCode })
+  }
 
   return (
     <div className='h-screen flex flex-col bg-white p-4 dark:bg-gray-900 overflow-hidden'>
@@ -271,7 +204,7 @@ export function Diff() {
               <div className='flex-1 min-h-0'>
                 <Editor
                   value={beforeCode}
-                  onChange={(value) => setBeforeCode(value || '')}
+                  onChange={handleBeforeCodeChange}
                   theme={isDarkTheme ? 'vs-dark' : 'light'}
                   height='100%'
                   language={language}
@@ -287,7 +220,7 @@ export function Diff() {
               <div className='flex-1 min-h-0'>
                 <Editor
                   value={afterCode}
-                  onChange={(value) => setAfterCode(value || '')}
+                  onChange={handleAfterCodeChange}
                   theme={isDarkTheme ? 'vs-dark' : 'light'}
                   height='100%'
                   language={language}

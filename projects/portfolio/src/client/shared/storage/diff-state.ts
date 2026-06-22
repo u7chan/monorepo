@@ -1,6 +1,15 @@
-type DiffStatePayload = {
+export type DiffStatePayload = {
   beforeCode: string
   afterCode: string
+}
+
+export const DEFAULT_DIFF_STATE: DiffStatePayload = {
+  beforeCode: `line 1
+line 2
+line 3`,
+  afterCode: `line 1
+modified line 2
+line 3`,
 }
 
 const databaseName = 'portfolio'
