@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/client/index.html --production --outdir dist/client",
+    "build": "bun build src/client/index.html --production --public-path / --outdir dist/client",
     "dev": "bun --watch src/server/bun-server.ts",
     "lint": "oxlint . --deny-warnings",
     "lint:fix": "oxlint . --fix",
