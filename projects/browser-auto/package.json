@@ -2,9 +2,8 @@
   "name": "browser-auto",
   "private": true,
   "type": "module",
-  "module": "src/index.ts",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
+    "dev": "bun --watch src/server/bun-server.ts",
     "lint": "oxlint . --deny-warnings",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt .",
