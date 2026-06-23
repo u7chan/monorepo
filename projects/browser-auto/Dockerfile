@@ -1,5 +1,4 @@
 ARG BUN_VERSION=1.3.10
-ARG PLAYWRIGHT_VERSION=1.61.0
 ARG COMMIT_HASH=""
 
 # -----------------------------------------------
@@ -58,7 +57,8 @@ RUN bun install --frozen-lockfile --production
 # -----------------------------------------------
 # final stage
 # -----------------------------------------------
-FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble AS final
+# TODO: Use the Playwright image when browser automation is implemented.
+FROM oven/bun:${BUN_VERSION} AS final
 
 ARG COMMIT_HASH
 
@@ -68,21 +68,20 @@ ENV PORT=3000
 
 WORKDIR /app
 
-COPY --from=base /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
-COPY --from=production-dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
-COPY --from=build --chown=pwuser:pwuser /app/dist ./dist
-COPY --chown=pwuser:pwuser package.json bun.lock tsconfig.json ./
-COPY --chown=pwuser:pwuser src ./src
+COPY --from=production-dependencies --chown=bun:bun /app/node_modules ./node_modules
+COPY --from=build --chown=bun:bun /app/dist ./dist
+COPY --chown=bun:bun package.json bun.lock tsconfig.json ./
+COPY --chown=bun:bun src ./src
 
-RUN mkdir -p /data && chown pwuser:pwuser /data
+RUN mkdir -p /data && chown bun:bun /data
 
-USER pwuser
+USER bun
 
 VOLUME ["/data"]
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+    CMD bun -e "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["bun", "run", "src/server/bun-server.ts"]
