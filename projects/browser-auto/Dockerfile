@@ -19,6 +19,17 @@ FROM base AS dependencies
 RUN bun install --frozen-lockfile
 
 # -----------------------------------------------
+# build stage
+# -----------------------------------------------
+FROM base AS build
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN bun run build
+
+# -----------------------------------------------
 # test stage
 # -----------------------------------------------
 FROM base AS test
@@ -59,6 +70,7 @@ WORKDIR /app
 
 COPY --from=base /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
 COPY --from=production-dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
+COPY --from=build --chown=pwuser:pwuser /app/dist ./dist
 COPY --chown=pwuser:pwuser package.json bun.lock tsconfig.json ./
 COPY --chown=pwuser:pwuser src ./src
 
@@ -73,4 +85,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "run", "src/server/bun-server.ts"]

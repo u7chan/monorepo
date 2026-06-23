@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "bun build src/client/index.html --production --outdir dist/client",
     "dev": "bun --watch src/server/bun-server.ts",
     "lint": "oxlint . --deny-warnings",
     "lint:fix": "oxlint . --fix",
-    "format": "oxfmt .",
-    "format:check": "oxfmt --check .",
+    "format": "oxfmt . '!src/client/index.html'",
+    "format:check": "oxfmt --check . '!src/client/index.html'",
     "check": "bun run lint && bun run format:check"
   },
   "dependencies": {
@@ -15,8 +16,12 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "oxfmt": "^0.56.0",
-    "oxlint": "^1.71.0"
+    "oxlint": "^1.71.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "peerDependencies": {
     "typescript": "^6.0.3"
