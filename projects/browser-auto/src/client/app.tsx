@@ -1,11 +1,16 @@
-import { StrictMode } from "react"
+import { StrictMode, useState } from "react"
 import { createRoot } from "react-dom/client"
 
 export function App() {
+  const [count, setCount] = useState(0)
+
   return (
     <main>
       <h1>Browser Auto</h1>
-      <p>Client foundation is ready.</p>
+      <p>Count: {count}</p>
+      <button type="button" onClick={() => setCount((current) => current + 1)}>
+        Increment
+      </button>
     </main>
   )
 }
