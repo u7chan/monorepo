@@ -19,10 +19,10 @@
     "@base-ui-components/react": "1.0.0-rc.0",
     "@hono/standard-validator": "^0.2.2",
     "@tailwindcss/typography": "^0.5.20",
-    "@tanstack/react-query": "^5.101.0",
+    "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-router": "^1.170.16",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.26",
+    "hono": "^4.12.27",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -38,13 +38,13 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "drizzle-kit": "^0.31.10",
-    "oxfmt": "0.55.0",
-    "oxlint": "^1.70.0",
-    "playwright": "^1.61.0",
+    "oxfmt": "0.56.0",
+    "oxlint": "^1.71.0",
+    "playwright": "^1.61.1",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16",
-    "vite-plugin-dts": "^5.0.2"
+    "vite": "^8.1.0",
+    "vite-plugin-dts": "^5.0.3"
   }
 }
