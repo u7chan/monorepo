@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.138.0",
+    "fastapi>=0.138.1",
     "litellm>=1.81.14",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
@@ -26,10 +26,10 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
-    "ruff>=0.15.18",
+    "ruff>=0.15.20",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ty>=0.0.51",
+    "ty>=0.0.55",
 ]
 
 [tool.hatch.build.targets.wheel]
