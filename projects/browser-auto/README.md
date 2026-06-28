@@ -64,6 +64,19 @@ Content-Type: application/json
 {"scenarioId": "smoke"}
 ```
 
+```bash
+# Start a smoke test run and poll for completion
+RUN=$(curl -sS -X POST http://127.0.0.1:3000/api/runs -H 'Content-Type: application/json' -d '{"scenarioId":"smoke"}')
+RUN_ID=$(echo "$RUN" | head -1 | sed 's/.*"runId":"\([^"]*\)".*/\1/')
+echo "Started $RUN_ID"
+while :; do
+  STATUS=$(curl -sS "http://127.0.0.1:3000/api/runs/$RUN_ID")
+  echo "$STATUS"
+  echo "$STATUS" | grep -q '"running"' || break
+  sleep 1
+done
+```
+
 Response (202 Accepted):
 
 ```json
