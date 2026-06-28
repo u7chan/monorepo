@@ -25,6 +25,7 @@ FROM base AS build
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
 
 RUN bun run build
 
