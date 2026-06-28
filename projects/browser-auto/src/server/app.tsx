@@ -1,6 +1,5 @@
 import { Hono, type Env } from "hono"
 import { serveStatic } from "hono/bun"
-import { logger as honoLogger } from "hono/logger"
 import { randomUUID } from "node:crypto"
 import type { DefinitionStore } from "./yaml-loader"
 import { loadDefinitions } from "./yaml-loader"
@@ -33,7 +32,18 @@ export async function createApp(): Promise<Hono<AppEnv>> {
     await next()
   })
 
-  app.use(honoLogger((msg) => logger.info(msg)))
+  app.use("*", async (c, next) => {
+    const log = c.get("logger")
+    const { method } = c.req
+    const { pathname } = new URL(c.req.url)
+    log.info(`<-- ${method} ${pathname}`)
+    const start = Date.now()
+    await next()
+    const elapsed = Date.now() - start
+    const statusColor =
+      c.res.status < 300 ? "\u001b[32m" : c.res.status < 400 ? "\u001b[36m" : "\u001b[33m"
+    log.info(`--> ${method} ${pathname} ${statusColor}${c.res.status}\u001b[0m ${elapsed}ms`)
+  })
 
   app.post("/api/runs", async (c) => {
     const log = c.get("logger")
