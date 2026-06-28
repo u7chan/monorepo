@@ -115,6 +115,23 @@ Status codes:
 - `200` — Run found
 - `404` — Run not found (expired or never existed)
 
+## Logging
+
+Structured JSON logs are written to stdout via [pino](https://github.com/pinojs/pino).
+The default log level is `info`. Set the `LOG_LEVEL` environment variable to change it.
+
+```bash
+# Show debug-level logs with pretty-printing
+LOG_LEVEL=debug bun run dev | npx pino-pretty
+
+# Suppress info-level logs
+LOG_LEVEL=error bun run dev
+```
+
+Supported levels: `trace`, `debug`, `info`, `warn`, `error`, `fatal`.
+
+Each API request is assigned a unique `reqId` that appears in all log lines for that request lifecycle (including executor step logs).
+
 ## Docker
 
 Docker-based Playwright execution is out of scope at this stage. Run the server directly with Bun for browser automation.

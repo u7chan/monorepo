@@ -1,10 +1,9 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test"
 import { createApp } from "../app"
 import { isRunning } from "../run-state"
-import type { Hono } from "hono"
 
 describe("API routes", () => {
-  let app: Hono
+  let app: Awaited<ReturnType<typeof createApp>>
   let baseUrl: string
   let fixtureServer: ReturnType<typeof Bun.serve>
 

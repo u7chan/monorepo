@@ -1,22 +1,42 @@
-import { Hono } from "hono"
+import { Hono, type Env } from "hono"
 import { serveStatic } from "hono/bun"
+import { logger as honoLogger } from "hono/logger"
 import { randomUUID } from "node:crypto"
 import type { DefinitionStore } from "./yaml-loader"
 import { loadDefinitions } from "./yaml-loader"
 import { isRunning, startRun, getCurrentRun } from "./run-state"
 import { executeScenario } from "./executor"
+import { logger } from "./logger"
 import { join } from "node:path"
+import type pino from "pino"
 
-export async function createApp(): Promise<Hono> {
+interface AppEnv extends Env {
+  Variables: {
+    reqId: string
+    logger: pino.Logger
+  }
+}
+
+export async function createApp(): Promise<Hono<AppEnv>> {
   const projectRoot = join(import.meta.dirname, "../..")
   const sitesDir = join(projectRoot, "definitions", "sites")
   const scenariosDir = join(projectRoot, "definitions", "scenarios")
 
   const store: DefinitionStore = await loadDefinitions(sitesDir, scenariosDir)
 
-  const app = new Hono()
+  const app = new Hono<AppEnv>()
+
+  app.use("*", async (c, next) => {
+    const reqId = randomUUID()
+    c.set("reqId", reqId)
+    c.set("logger", logger.child({ reqId }))
+    await next()
+  })
+
+  app.use(honoLogger((msg) => logger.info(msg)))
 
   app.post("/api/runs", async (c) => {
+    const log = c.get("logger")
     let body: unknown
     try {
       body = await c.req.json()
@@ -44,9 +64,13 @@ export async function createApp(): Promise<Hono> {
     const runId = randomUUID()
     const run = startRun(runId, scenarioId)
 
+    log.info({ runId, scenarioId }, "Run started")
+
     const scenario = store.scenarios.get(scenarioId)!
     const site = store.sites.get(scenario.siteId)!
-    executeScenario(scenario, site)
+    executeScenario(scenario, site, { logger: log }).catch((err) => {
+      log.error({ err, runId }, "Run promise rejected unexpectedly")
+    })
 
     return c.json({ runId: run.runId, status: run.status }, 202)
   })
