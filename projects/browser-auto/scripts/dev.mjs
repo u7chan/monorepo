@@ -1,7 +1,8 @@
 import { spawn, execSync } from "node:child_process"
-import { watch } from "node:fs"
+import { watch, mkdirSync } from "node:fs"
 
 function copyHtml() {
+  mkdirSync("dist/client", { recursive: true })
   execSync("cp src/client/index.html dist/client/index.html", { stdio: "inherit" })
 }
 
