@@ -1,0 +1,10 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans:
+    'Noto Sans JP', 'ヒラギノ角ゴ ProN', 'Hiragino Kaku Gothic ProN',
+    'Helvetica Neue', Arial, 'Hiragino Sans', Meiryo, sans-serif;
+
+  --color-app-bg: #f8fafc;
+  --color-text-main: #0f172a;
+}

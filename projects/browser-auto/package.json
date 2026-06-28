@@ -3,25 +3,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/client/index.html --production --public-path / --outdir dist/client",
-    "dev": "bun --watch src/server/bun-server.ts",
+    "build": "bun scripts/build.mjs",
+    "dev": "bun scripts/dev.mjs",
     "lint": "oxlint . --deny-warnings",
     "lint:fix": "oxlint . --fix",
-    "format": "oxfmt . '!src/client/index.html'",
-    "format:check": "oxfmt --check . '!src/client/index.html'",
+    "format": "oxfmt . '!src/client/index.html' '!src/client/app.css'",
+    "format:check": "oxfmt --check . '!src/client/index.html' '!src/client/app.css'",
     "check": "bun run lint && bun run format:check"
   },
   "dependencies": {
     "hono": "^4.12.27"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.1",
     "@types/bun": "^1.3.14",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "oxfmt": "^0.56.0",
     "oxlint": "^1.71.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.1"
   },
   "peerDependencies": {
     "typescript": "^6.0.3"
