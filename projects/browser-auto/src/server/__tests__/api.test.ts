@@ -64,8 +64,33 @@ describe("API routes", () => {
       expect(run!.stepIndex).toBe(null)
       expect(run!.finishedAt).not.toBe(null)
       expect(run!.error).toBe(null)
+
+      // Start a second run to evict the first runId from memory
+      const res2 = await fetch(`${baseUrl}/api/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenarioId: "smoke" }),
+      })
+      expect(res2.status).toBe(202)
+
+      // The old runId should now return 404
+      const staleRes = await fetch(`${baseUrl}/api/runs/${runId}`)
+      expect(staleRes.status).toBe(404)
+      const staleData = await staleRes.json()
+      expect(staleData.error).toBe("Run not found")
+
+      // Wait for second run to finish so it doesn't interfere with other tests
+      const { runId: secondRunId } = await res2.json()
+      for (let i = 0; i < 100; i++) {
+        const getRes = await fetch(`${baseUrl}/api/runs/${secondRunId}`)
+        if (getRes.status === 200) {
+          const r = await getRes.json()
+          if (r.status !== "running") break
+        }
+        await Bun.sleep(200)
+      }
     },
-    { timeout: 30_000 },
+    { timeout: 40_000 },
   )
 
   test("POST /api/runs with invalid JSON returns 400", async () => {
