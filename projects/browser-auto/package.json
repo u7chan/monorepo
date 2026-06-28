@@ -7,8 +7,8 @@
     "dev": "bun scripts/dev.mjs",
     "lint": "oxlint . --deny-warnings",
     "lint:fix": "oxlint . --fix",
-    "format": "oxfmt . '!src/client/index.html' '!src/client/app.css' '!definitions/**'",
-    "format:check": "oxfmt --check . '!src/client/index.html' '!src/client/app.css' '!definitions/**'",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "check": "bun run lint && bun run format:check"
   },
   "dependencies": {
