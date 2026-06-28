@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll } from "bun:test"
+import { describe, expect, test, beforeAll, afterAll } from "bun:test"
 import { createApp } from "../app"
 import { isRunning } from "../run-state"
 import type { Hono } from "hono"
@@ -6,6 +6,7 @@ import type { Hono } from "hono"
 describe("API routes", () => {
   let app: Hono
   let baseUrl: string
+  let fixtureServer: ReturnType<typeof Bun.serve>
 
   beforeAll(async () => {
     app = await createApp()
@@ -14,21 +15,58 @@ describe("API routes", () => {
       fetch: app.fetch,
       port: 0,
     })
-    const addr = server.port
-    baseUrl = `http://127.0.0.1:${addr}`
+    baseUrl = `http://127.0.0.1:${server.port}`
+
+    // Start a fixture server on port 3000 to serve the page the "smoke" scenario expects
+    fixtureServer = Bun.serve({
+      fetch(_req) {
+        return new Response(`<!DOCTYPE html><html><body><h1>Browser Auto</h1></body></html>`, {
+          headers: { "Content-Type": "text/html" },
+        })
+      },
+      port: 3000,
+    })
   })
 
-  test("POST /api/runs with valid scenario returns 202", async () => {
-    const res = await fetch(`${baseUrl}/api/runs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scenarioId: "smoke" }),
-    })
-    expect(res.status).toBe(202)
-    const data = await res.json()
-    expect(data.runId).toBeDefined()
-    expect(data.status).toBe("running")
+  afterAll(() => {
+    fixtureServer.stop()
   })
+
+  test(
+    "POST /api/runs with valid scenario → runs to completion and GET returns succeeded",
+    async () => {
+      const res = await fetch(`${baseUrl}/api/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenarioId: "smoke" }),
+      })
+      expect(res.status).toBe(202)
+      const { runId } = await res.json()
+      expect(runId).toBeDefined()
+
+      let run: {
+        status: string
+        stepIndex: number | null
+        finishedAt: string | null
+        error: string | null
+      } | null = null
+      for (let i = 0; i < 100; i++) {
+        const getRes = await fetch(`${baseUrl}/api/runs/${runId}`)
+        if (getRes.status === 200) {
+          run = await getRes.json()
+          if (run!.status !== "running") break
+        }
+        await Bun.sleep(200)
+      }
+
+      expect(run).not.toBe(null)
+      expect(run!.status).toBe("succeeded")
+      expect(run!.stepIndex).toBe(null)
+      expect(run!.finishedAt).not.toBe(null)
+      expect(run!.error).toBe(null)
+    },
+    { timeout: 30_000 },
+  )
 
   test("POST /api/runs with invalid JSON returns 400", async () => {
     const res = await fetch(`${baseUrl}/api/runs`, {

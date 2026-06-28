@@ -1,14 +1,9 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test"
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright"
-import {
-  startRun,
-  getCurrentRun,
-  setStepIndex,
-  finishRunSucceeded,
-  finishRunFailed,
-} from "../run-state"
+import { executeScenario } from "../executor"
+import type { ScenarioDefinition, SiteDefinition } from "../yaml-schemas"
+import { startRun, getCurrentRun } from "../run-state"
 
-describe("executor", () => {
+describe("executeScenario", () => {
   let fixtureServer: ReturnType<typeof Bun.serve>
   let fixturePort: number
 
@@ -41,80 +36,61 @@ describe("executor", () => {
     fixtureServer.stop()
   })
 
+  const fixtureSite: SiteDefinition = {
+    schemaVersion: 1,
+    id: "fixture",
+    name: "Fixture",
+    baseUrl: "",
+  }
+
+  beforeAll(() => {
+    fixtureSite.baseUrl = `http://127.0.0.1:${fixturePort}`
+  })
+
   test(
-    "goto and assertVisible success",
+    "successful scenario (goto + assertVisible)",
     async () => {
-      let browser: Browser | null = null
-      let context: BrowserContext | null = null
-      let page: Page | null = null
-
-      try {
-        browser = await chromium.launch({ headless: true })
-        context = await browser.newContext()
-        page = await context.newPage()
-
-        startRun("cr-test-1", "test-success")
-        setStepIndex(0)
-        await page.goto(`http://127.0.0.1:${fixturePort}/test`, {
-          timeout: 10_000,
-          waitUntil: "domcontentloaded",
-        })
-        setStepIndex(1)
-        await page.getByText("Browser Auto", { exact: true }).waitFor({
-          state: "visible",
-          timeout: 5000,
-        })
-        finishRunSucceeded()
-
-        const run = getCurrentRun()
-        expect(run?.status).toBe("succeeded")
-        expect(run?.error).toBe(null)
-      } finally {
-        if (page) await page.close().catch(() => {})
-        if (context) await context.close().catch(() => {})
-        if (browser) await browser.close().catch(() => {})
+      const scenario: ScenarioDefinition = {
+        schemaVersion: 1,
+        id: "test-success",
+        name: "Test Success",
+        siteId: "fixture",
+        steps: [
+          { action: "goto", path: "/test" },
+          { action: "assertVisible", locator: { text: "Browser Auto" } },
+        ],
       }
+
+      startRun("exec-success", scenario.id)
+      await executeScenario(scenario, fixtureSite, { stepTimeoutMs: 5_000 })
+
+      const run = getCurrentRun()
+      expect(run?.status).toBe("succeeded")
+      expect(run?.error).toBe(null)
     },
     { timeout: 15_000 },
   )
 
   test(
-    "assertVisible failure",
+    "failed scenario (assertVisible on wrong page)",
     async () => {
-      let browser: Browser | null = null
-      let context: BrowserContext | null = null
-      let page: Page | null = null
-
-      try {
-        browser = await chromium.launch({ headless: true })
-        context = await browser.newContext()
-        page = await context.newPage()
-
-        startRun("cr-test-2", "test-fail")
-        setStepIndex(0)
-        await page.goto(`http://127.0.0.1:${fixturePort}/missing`, {
-          timeout: 5000,
-          waitUntil: "domcontentloaded",
-        })
-        setStepIndex(1)
-        try {
-          await page.getByText("Browser Auto", { exact: true }).waitFor({
-            state: "visible",
-            timeout: 3000,
-          })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          finishRunFailed(1, message)
-        }
-
-        const run = getCurrentRun()
-        expect(run?.status).toBe("failed")
-        expect(run?.error).not.toBe(null)
-      } finally {
-        if (page) await page.close().catch(() => {})
-        if (context) await context.close().catch(() => {})
-        if (browser) await browser.close().catch(() => {})
+      const scenario: ScenarioDefinition = {
+        schemaVersion: 1,
+        id: "test-fail",
+        name: "Test Fail",
+        siteId: "fixture",
+        steps: [
+          { action: "goto", path: "/missing" },
+          { action: "assertVisible", locator: { text: "Browser Auto" } },
+        ],
       }
+
+      startRun("exec-fail", scenario.id)
+      await executeScenario(scenario, fixtureSite, { stepTimeoutMs: 3_000 })
+
+      const run = getCurrentRun()
+      expect(run?.status).toBe("failed")
+      expect(run?.error).not.toBe(null)
     },
     { timeout: 15_000 },
   )
@@ -122,36 +98,25 @@ describe("executor", () => {
   test(
     "browser resources are released after failure",
     async () => {
-      let browser: Browser | null = null
-      let context: BrowserContext | null = null
-      let page: Page | null = null
-
-      try {
-        browser = await chromium.launch({ headless: true })
-        context = await browser.newContext()
-        page = await context.newPage()
-
-        startRun("cr-test-3", "test-release")
-        setStepIndex(0)
-        await page.goto(`http://127.0.0.1:${fixturePort}/missing`, {
-          timeout: 5000,
-          waitUntil: "domcontentloaded",
-        })
-
-        // Simulate a failure by throwing
-        throw new Error("Simulated error")
-      } catch (error) {
-        const current = getCurrentRun()
-        const message = error instanceof Error ? error.message : String(error)
-        finishRunFailed(current?.stepIndex ?? 0, message)
-      } finally {
-        if (page) await page.close().catch(() => {})
-        if (context) await context.close().catch(() => {})
-        if (browser) await browser.close().catch(() => {})
+      const scenario: ScenarioDefinition = {
+        schemaVersion: 1,
+        id: "test-release",
+        name: "Test Release",
+        siteId: "fixture",
+        steps: [
+          { action: "goto", path: "/missing" },
+          { action: "assertVisible", locator: { text: "Browser Auto" } },
+        ],
       }
+
+      startRun("exec-release", scenario.id)
+      await executeScenario(scenario, fixtureSite, { stepTimeoutMs: 3_000 })
 
       const run = getCurrentRun()
       expect(run?.status).toBe("failed")
+      // After executeScenario finishes, getCurrentRun still returns the latest run
+      // The finally block in executeScenario has already released browser/context/page
+      // If resources leaked, process would not exit cleanly
     },
     { timeout: 15_000 },
   )
