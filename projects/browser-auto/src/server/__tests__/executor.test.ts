@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test"
+import { describe, expect, it, beforeAll, afterAll } from "bun:test"
 import { executeScenario } from "../executor"
 import type { ScenarioDefinition, SiteDefinition } from "../yaml-schemas"
 import { startRun, getCurrentRun } from "../run-state"
@@ -47,8 +47,8 @@ describe("executeScenario", () => {
     fixtureSite.baseUrl = `http://127.0.0.1:${fixturePort}`
   })
 
-  test(
-    "successful scenario (goto + assertVisible)",
+  it(
+    "succeeds with goto + assertVisible steps",
     async () => {
       const scenario: ScenarioDefinition = {
         schemaVersion: 1,
@@ -71,8 +71,8 @@ describe("executeScenario", () => {
     { timeout: 15_000 },
   )
 
-  test(
-    "failed scenario (assertVisible on wrong page)",
+  it(
+    "fails when assertVisible targets wrong page",
     async () => {
       const scenario: ScenarioDefinition = {
         schemaVersion: 1,
@@ -95,8 +95,8 @@ describe("executeScenario", () => {
     { timeout: 15_000 },
   )
 
-  test(
-    "browser resources are released after failure",
+  it(
+    "releases browser resources after step failure",
     async () => {
       const scenario: ScenarioDefinition = {
         schemaVersion: 1,
@@ -114,9 +114,6 @@ describe("executeScenario", () => {
 
       const run = getCurrentRun()
       expect(run?.status).toBe("failed")
-      // After executeScenario finishes, getCurrentRun still returns the latest run
-      // The finally block in executeScenario has already released browser/context/page
-      // If resources leaked, process would not exit cleanly
     },
     { timeout: 15_000 },
   )

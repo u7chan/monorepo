@@ -1,3 +1,14 @@
+# Why / What / Constraints First
+
+Before implementation, clarify the following concisely as needed.
+
+- **Why**: Why it is needed
+- **What**: What must be satisfied
+- **Constraints**: Assumptions and constraints to follow
+
+**How** refers to the implementation itself and is intentionally excluded here.
+Express How through design and code.
+
 # Tech Stack
 
 - Bun

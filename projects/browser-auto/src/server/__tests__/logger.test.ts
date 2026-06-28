@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, it } from "bun:test"
 import { logger } from "../logger"
 
 describe("logger", () => {
-  test("exports a pino logger instance", () => {
+  it("exports a pino logger instance", () => {
     expect(logger).toBeDefined()
     expect(typeof logger.info).toBe("function")
     expect(typeof logger.debug).toBe("function")
@@ -11,7 +11,7 @@ describe("logger", () => {
     expect(typeof logger.fatal).toBe("function")
   })
 
-  test("default log level is info", () => {
+  it("has info as default log level", () => {
     expect(logger.level).toBe("info")
   })
 })
