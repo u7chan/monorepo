@@ -1,0 +1,10 @@
+schemaVersion: 1
+id: smoke
+name: Smoke Test
+siteId: local
+steps:
+  - action: goto
+    path: /
+  - action: assertVisible
+    locator:
+      text: Browser Auto
