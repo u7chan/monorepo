@@ -2,6 +2,8 @@ import { chromium, type Browser, type BrowserContext, type Page, type Locator } 
 import type { ScenarioDefinition, Step } from "./yaml-schemas"
 import type { SiteDefinition } from "./yaml-schemas"
 import { setStepIndex, finishRunSucceeded, finishRunFailed, getCurrentRun } from "./run-state"
+import { logger as defaultLogger } from "./logger"
+import type pino from "pino"
 
 const DEFAULT_STEP_TIMEOUT_MS = 30_000
 
@@ -37,6 +39,7 @@ const stepExecutors: Record<
 
 export interface ExecuteOptions {
   stepTimeoutMs?: number
+  logger?: pino.Logger
 }
 
 export async function executeScenario(
@@ -44,6 +47,7 @@ export async function executeScenario(
   site: SiteDefinition,
   options: ExecuteOptions = {},
 ): Promise<void> {
+  const log = options.logger ?? defaultLogger
   const stepTimeoutMs = options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS
   let browser: Browser | null = null
   let context: BrowserContext | null = null
@@ -61,18 +65,22 @@ export async function executeScenario(
       if (!executor) {
         throw new Error(`Unknown action: ${step.action}`)
       }
+      log.debug({ stepIndex: i, action: step.action, scenarioId: scenario.id }, "Step executing")
       await executor(page, step, site.baseUrl, stepTimeoutMs)
     }
 
+    const run = getCurrentRun()
+    log.info({ runId: run?.runId, scenarioId: scenario.id, status: "succeeded" }, "Run succeeded")
     finishRunSucceeded()
   } catch (error) {
     const current = getCurrentRun()
     const stepIndex = current?.stepIndex ?? 0
     const message = error instanceof Error ? error.message : String(error)
+    log.error({ stepIndex, scenarioId: scenario.id, err: error }, "Step failed")
     finishRunFailed(stepIndex, message)
   } finally {
-    if (page) await page.close().catch(() => {})
-    if (context) await context.close().catch(() => {})
-    if (browser) await browser.close().catch(() => {})
+    if (page) await page.close().catch((e) => log.warn(e, "Page close failed"))
+    if (context) await context.close().catch((e) => log.warn(e, "Context close failed"))
+    if (browser) await browser.close().catch((e) => log.warn(e, "Browser close failed"))
   }
 }

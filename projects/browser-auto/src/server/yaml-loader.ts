@@ -7,6 +7,8 @@ import {
   scenarioDefinitionSchema,
   type ScenarioDefinition,
 } from "./yaml-schemas"
+import { logger } from "./logger"
+import type { z } from "zod/v4"
 
 export interface DefinitionStore {
   sites: Map<string, SiteDefinition>
@@ -24,7 +26,9 @@ async function loadFiles<T>(dir: string, schema: z.ZodType<T>): Promise<T[]> {
     const parsed = parseYaml(content)
     const result = schema.safeParse(parsed)
     if (!result.success) {
-      throw new Error(`Invalid YAML file ${join(dir, entry.name)}: ${result.error.message}`)
+      const filePath = join(dir, entry.name)
+      logger.error({ file: filePath, err: result.error }, "Invalid YAML file")
+      throw new Error(`Invalid YAML file ${filePath}: ${result.error.message}`)
     }
     files.push(result.data)
   }
@@ -45,6 +49,8 @@ export async function loadDefinitions(
   sitesDir: string,
   scenariosDir: string,
 ): Promise<DefinitionStore> {
+  logger.info({ sitesDir, scenariosDir }, "Loading definitions")
+
   const sites = await loadFiles(sitesDir, siteDefinitionSchema)
   checkDuplicateIds(sites, "site")
 
@@ -58,10 +64,10 @@ export async function loadDefinitions(
     }
   }
 
+  logger.info({ siteCount: sites.length, scenarioCount: scenarios.length }, "Definitions loaded")
+
   return {
     sites: new Map(sites.map((s) => [s.id, s])),
     scenarios: new Map(scenarios.map((s) => [s.id, s])),
   }
 }
-
-import type { z } from "zod/v4"

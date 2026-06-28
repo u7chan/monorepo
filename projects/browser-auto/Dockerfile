@@ -39,12 +39,16 @@ ARG COMMIT_HASH
 ENV COMMIT_HASH=${COMMIT_HASH}
 
 COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=build /app/dist/client ./dist/client
 COPY .gitignore .oxfmtrc.json .oxlintrc.json tsconfig.json ./
 COPY src ./src
+COPY definitions ./definitions
 
-RUN bun run lint && \
+RUN bunx playwright install --with-deps chromium && \
+    bun run lint && \
     bun run format:check && \
-    bunx tsc --noEmit
+    bunx tsc --noEmit && \
+    bun test
 
 # -----------------------------------------------
 # production dependencies stage
