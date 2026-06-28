@@ -1,0 +1,4 @@
+schemaVersion: 1
+id: local
+name: Local Browser Auto
+baseUrl: http://127.0.0.1:3000

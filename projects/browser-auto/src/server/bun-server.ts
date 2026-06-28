@@ -1,5 +1,7 @@
 import { Hono } from "hono"
-import app from "./app"
+import { createApp } from "./app"
+
+const app = await createApp()
 
 const hono = new Hono()
 hono.route("/", app)
