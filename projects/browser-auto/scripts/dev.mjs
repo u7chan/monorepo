@@ -1,6 +1,10 @@
 import { spawn, execSync } from "node:child_process"
 import { watch } from "node:fs"
 
+function copyHtml() {
+  execSync("cp src/client/index.html dist/client/index.html", { stdio: "inherit" })
+}
+
 function buildJs() {
   try {
     execSync("bun build src/client/app.tsx --outdir dist/client --minify --production", {
@@ -11,11 +15,15 @@ function buildJs() {
   }
 }
 
+copyHtml()
 buildJs()
 
 watch("src/client", { recursive: true }, (_event, filename) => {
   if (filename?.endsWith(".tsx") || filename?.endsWith(".ts")) {
     buildJs()
+  }
+  if (filename?.endsWith(".html")) {
+    copyHtml()
   }
 })
 
