@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test"
 import { executeScenario } from "../executor"
-import type { ScenarioDefinition, SiteDefinition } from "../yaml-schemas"
-import { startRun, getCurrentRun } from "../run-state"
+import type { ScenarioDefinition, SiteDefinition } from "../../scenarios/schema"
+import { startRun, getCurrentRun } from "../state"
 
 describe("executeScenario", () => {
   let fixtureServer: ReturnType<typeof Bun.serve>

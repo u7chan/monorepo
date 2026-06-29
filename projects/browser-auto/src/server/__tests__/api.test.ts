@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test"
 import { createApp } from "../app"
-import { isRunning } from "../run-state"
+import { isRunning } from "../features/runs/state"
 
 describe("API routes", () => {
   let app: Awaited<ReturnType<typeof createApp>>

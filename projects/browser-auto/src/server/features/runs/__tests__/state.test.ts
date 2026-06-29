@@ -6,7 +6,7 @@ import {
   isRunning,
   getCurrentRun,
   setStepIndex,
-} from "../run-state"
+} from "../state"
 
 describe("run-state", () => {
   describe("startRun", () => {

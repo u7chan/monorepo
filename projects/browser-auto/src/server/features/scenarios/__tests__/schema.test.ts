@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { siteDefinitionSchema, scenarioDefinitionSchema, stepSchema } from "../yaml-schemas"
+import { siteDefinitionSchema, scenarioDefinitionSchema, stepSchema } from "../schema"
 
 describe("siteDefinitionSchema", () => {
   describe("valid", () => {
