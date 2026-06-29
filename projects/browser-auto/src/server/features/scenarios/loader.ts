@@ -6,8 +6,8 @@ import {
   type SiteDefinition,
   scenarioDefinitionSchema,
   type ScenarioDefinition,
-} from "./yaml-schemas"
-import { logger } from "./logger"
+} from "./schema"
+import { logger } from "../../logger"
 import type { z } from "zod/v4"
 
 export interface DefinitionStore {

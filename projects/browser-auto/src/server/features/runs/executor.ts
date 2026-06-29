@@ -1,8 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Locator } from "playwright"
-import type { ScenarioDefinition, Step } from "./yaml-schemas"
-import type { SiteDefinition } from "./yaml-schemas"
-import { setStepIndex, finishRunSucceeded, finishRunFailed, getCurrentRun } from "./run-state"
-import { logger as defaultLogger } from "./logger"
+import type { ScenarioDefinition, Step, SiteDefinition } from "../scenarios/schema"
+import { setStepIndex, finishRunSucceeded, finishRunFailed, getCurrentRun } from "./state"
+import { logger as defaultLogger } from "../../logger"
 import type pino from "pino"
 
 const DEFAULT_STEP_TIMEOUT_MS = 30_000

@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from "bun:test"
 import { mkdtemp, writeFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { loadDefinitions } from "../yaml-loader"
+import { loadDefinitions } from "../loader"
 
 describe("yaml-loader", () => {
   let tmpDir: string
