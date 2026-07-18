@@ -8,13 +8,13 @@
     "hash-password": "bun run scripts/hash-password.ts"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.8.0",
-    "hono": "^4.12.29",
+    "@hono/zod-validator": "^0.9.0",
+    "hono": "^4.12.30",
     "mime-types": "^3.0.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.3",
+    "@biomejs/biome": "^2.5.4",
     "@types/bun": "^1.3.14",
     "@types/mime-types": "^3.0.1",
     "@types/node": "^25.9.3",
