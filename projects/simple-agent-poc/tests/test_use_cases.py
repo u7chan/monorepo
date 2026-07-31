@@ -2,13 +2,6 @@
 
 from collections.abc import Iterator
 
-from tests.helpers import (
-    _batch_questions_args,
-    _choice_questions_args,
-    _over_limit_questions_args,
-    _questions_args,
-)
-
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -32,6 +25,12 @@ from simple_agent_poc.core.types import (
     ToolDefinition,
     Usage,
     ValidationError,
+)
+from tests.helpers import (
+    _batch_questions_args,
+    _choice_questions_args,
+    _over_limit_questions_args,
+    _questions_args,
 )
 
 
@@ -342,13 +341,13 @@ def test_execute_stream_final_complete(default_agent_def, tool_registry):
 
 
 def test_execute_stream_paused_on_ask_user():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -382,13 +381,13 @@ def test_execute_stream_paused_on_ask_user():
 
 
 def test_continue_stream_resumes_and_completes():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -504,13 +503,13 @@ def test_continue_stream_does_not_offer_ask_user_after_answer():
 
 
 def test_continue_stream_with_unknown_session_raises_error():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -534,13 +533,13 @@ def test_continue_stream_with_unknown_session_raises_error():
 
 
 def test_continue_stream_with_non_paused_session_raises_error():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -578,13 +577,13 @@ def test_continue_stream_with_non_paused_session_raises_error():
 
 
 def test_continue_stream_choice_number_to_label():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -631,13 +630,13 @@ def test_continue_stream_choice_number_to_label():
 
 
 def test_continue_stream_choice_multi_select():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -681,13 +680,13 @@ def test_continue_stream_choice_multi_select():
 
 
 def test_continue_stream_choice_free_text_fallback():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -732,13 +731,13 @@ def test_continue_stream_choice_free_text_fallback():
 
 
 def test_continue_stream_choice_single_select_comma_fallback():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -790,13 +789,13 @@ def test_continue_stream_choice_single_select_comma_fallback():
 
 
 def test_execute_stream_multi_question_batch():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -841,13 +840,13 @@ def test_execute_stream_multi_question_batch():
 
 
 def test_continue_stream_multi_question_batch():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -894,13 +893,13 @@ def test_continue_stream_multi_question_batch():
 
 
 def test_execute_stream_over_max_questions_raises_error():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)
@@ -942,13 +941,13 @@ def test_execute_stream_over_max_questions_raises_error():
 
 
 def test_execute_stream_empty_questions_raises_error():
-    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
     from simple_agent_poc.adapters.tools.ask_user import (
         TOOL_DEFINITION as ASK_USER_TOOL_DEF,
     )
     from simple_agent_poc.adapters.tools.ask_user import (
         execute as ask_user_execute,
     )
+    from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 
     tool_executor = BuiltinToolRegistry()
     tool_executor.register(ASK_USER_TOOL_DEF, ask_user_execute)

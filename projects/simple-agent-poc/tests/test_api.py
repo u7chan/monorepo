@@ -14,7 +14,6 @@ from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMStreamChunk, Message
-
 from tests.helpers import _choice_questions_args
 
 

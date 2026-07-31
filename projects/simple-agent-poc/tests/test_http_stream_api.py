@@ -7,17 +7,16 @@ from fastapi.testclient import TestClient
 
 from simple_agent_poc.adapters.http.api import create_app
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
-from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.adapters.tools.ask_user import (
     TOOL_DEFINITION as ASK_USER_TOOL_DEF,
 )
 from simple_agent_poc.adapters.tools.ask_user import (
     execute as ask_user_execute,
 )
+from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.use_cases import RunAgentUseCase
 from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import LLMStreamChunk, Message
-
 from tests.helpers import _choice_questions_args, _questions_args
 
 

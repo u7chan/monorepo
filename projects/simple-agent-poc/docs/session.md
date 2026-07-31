@@ -7,12 +7,12 @@ Sessions track conversation history across multiple requests. Each session is ti
 ```python
 @dataclass(slots=True)
 class ConversationSession:
-    session_id: str              # UUID hex string
+    session_id: str  # UUID hex string
     agent_id: str = "default"
-    messages: list[Message]      # [system, user, assistant, tool, user, ...]
-    is_paused: bool = False      # True when waiting for ask_user answer
+    messages: list[Message]  # [system, user, assistant, tool, user, ...]
+    is_paused: bool = False  # True when waiting for ask_user answer
     pending_tool_call: ToolCall | None = None  # saved tool call during pause
-    pending_round: int = 0       # remaining ReAct rounds to resume
+    pending_round: int = 0  # remaining ReAct rounds to resume
 ```
 
 Source: `src/simple_agent_poc/core/session.py`

@@ -1,7 +1,7 @@
 """Tests for application ports."""
 
-from typing import get_type_hints
 from collections.abc import Iterator
+from typing import get_type_hints
 
 from simple_agent_poc.application.ports import LLMClient, SessionStore
 from simple_agent_poc.core.session import ConversationSession

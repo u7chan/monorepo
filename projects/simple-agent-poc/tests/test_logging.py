@@ -26,7 +26,6 @@ from simple_agent_poc.core.types import (
     Usage,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -529,7 +528,7 @@ def test_run_id_correlation(logging_use_case, temp_log_path, default_agent_def):
     events = _read_jsonl(temp_log_path)
     run_ids = {e["run_id"] for e in events}
     assert len(run_ids) == 1
-    assert list(run_ids)[0] == ctx_store["captured_run_id"]
+    assert next(iter(run_ids)) == ctx_store["captured_run_id"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,9 @@
 """Agent definition loading and validation."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Literal, cast
 
 import yaml
 
@@ -46,7 +47,7 @@ class AgentDefinitionRegistry:
     _definitions: Mapping[str, AgentDefinition]
 
     @classmethod
-    def from_yaml_file(cls, path: str | Path) -> "AgentDefinitionRegistry":
+    def from_yaml_file(cls, path: str | Path) -> AgentDefinitionRegistry:
         """Load agent definitions from a YAML file."""
         config_path = Path(path)
         try:
@@ -63,7 +64,7 @@ class AgentDefinitionRegistry:
         return cls.from_mapping(data)
 
     @classmethod
-    def from_mapping(cls, data: object) -> "AgentDefinitionRegistry":
+    def from_mapping(cls, data: object) -> AgentDefinitionRegistry:
         """Build a registry from a parsed YAML mapping."""
         root = _require_mapping(data, "root")
         _reject_unknown_fields(root, _ROOT_FIELDS, "root")

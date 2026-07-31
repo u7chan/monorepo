@@ -3,6 +3,13 @@
 from collections.abc import Callable, Generator
 from typing import Protocol
 
+from simple_agent_poc.adapters.cli.renderer import (
+    get_user_input,
+    show_error,
+    show_exit_message,
+    show_streaming_response,
+    show_welcome,
+)
 from simple_agent_poc.application.dto import (
     ContentDelta,
     RunAgentRequest,
@@ -12,13 +19,6 @@ from simple_agent_poc.application.dto import (
     ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
-from simple_agent_poc.adapters.cli.renderer import (
-    get_user_input,
-    show_error,
-    show_exit_message,
-    show_streaming_response,
-    show_welcome,
-)
 from simple_agent_poc.observability import log_event, summarize_payload
 
 
@@ -34,7 +34,6 @@ class StreamingRenderer(Protocol):
             | SessionPaused
             | StreamComplete,
             dict[str, str] | None,
-            None,
         ],
     ) -> StreamComplete: ...
 
@@ -94,6 +93,6 @@ class CLIAdapter:
             except EOFError:
                 self._exit_renderer()
                 break
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 log_event("cli.turn.error", error=summarize_payload(str(error)))
                 self._error_renderer(error)

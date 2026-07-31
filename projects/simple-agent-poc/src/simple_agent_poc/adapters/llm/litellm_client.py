@@ -7,6 +7,8 @@ from collections.abc import Iterator
 from litellm import completion, responses
 from litellm.exceptions import (
     AuthenticationError as LiteLLMAuthError,
+)
+from litellm.exceptions import (
     RateLimitError as LiteLLMRateLimitError,
 )
 

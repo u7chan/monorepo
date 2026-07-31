@@ -5,9 +5,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.helpers import _batch_questions_args, _questions_args
-
 from simple_agent_poc.adapters.session_store.in_memory import InMemorySessionStore
+from simple_agent_poc.adapters.tools.ask_user import (
+    TOOL_DEFINITION as ASK_USER_TOOL_DEF,
+)
+from simple_agent_poc.adapters.tools.ask_user import (
+    execute as ask_user_execute,
+)
+from simple_agent_poc.adapters.tools.concat import TOOL_DEFINITION as CONCAT_TOOL_DEF
+from simple_agent_poc.adapters.tools.concat import execute as concat_execute
+from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
 from simple_agent_poc.application.dto import (
     ContentDelta,
     ContinueRequest,
@@ -27,15 +34,7 @@ from simple_agent_poc.core.types import (
     Usage,
     ValidationError,
 )
-from simple_agent_poc.adapters.tools.concat import TOOL_DEFINITION as CONCAT_TOOL_DEF
-from simple_agent_poc.adapters.tools.concat import execute as concat_execute
-from simple_agent_poc.adapters.tools.registry import BuiltinToolRegistry
-from simple_agent_poc.adapters.tools.ask_user import (
-    TOOL_DEFINITION as ASK_USER_TOOL_DEF,
-)
-from simple_agent_poc.adapters.tools.ask_user import (
-    execute as ask_user_execute,
-)
+from tests.helpers import _batch_questions_args, _questions_args
 
 
 class StreamingStubLLMClient:

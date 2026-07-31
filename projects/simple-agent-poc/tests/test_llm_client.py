@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from litellm.exceptions import (
     AuthenticationError as LiteLLMAuthError,
+)
+from litellm.exceptions import (
     RateLimitError as LiteLLMRateLimitError,
 )
 
