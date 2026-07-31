@@ -4,8 +4,7 @@ import json
 import sys
 import threading
 import time
-from collections.abc import Generator
-from typing import Callable
+from collections.abc import Callable, Generator
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -138,7 +137,6 @@ def show_streaming_response(
     stream: Generator[
         ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
         dict[str, str] | None,
-        None,
     ],
 ) -> StreamComplete:
     """Display a streaming response with live output.

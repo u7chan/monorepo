@@ -3,14 +3,8 @@
 import json
 import time
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
-
-from simple_agent_poc.observability import (
-    bind_log_context,
-    log_event,
-    summarize_payload,
-)
 
 from simple_agent_poc.application.dto import (
     ContentDelta,
@@ -41,6 +35,11 @@ from simple_agent_poc.core.types import (
     ToolDefinition,
     Usage,
     ValidationError,
+)
+from simple_agent_poc.observability import (
+    bind_log_context,
+    log_event,
+    summarize_payload,
 )
 
 
@@ -137,7 +136,7 @@ def _tools_without_ask_user(
     return filtered or None
 
 
-def _ask_user_tool_results(session: "ConversationSession") -> list[str]:
+def _ask_user_tool_results(session: ConversationSession) -> list[str]:
     ask_user_call_ids: set[str] = set()
     for msg in session.messages:
         tool_calls = msg.get("tool_calls", [])
@@ -155,7 +154,7 @@ def _ask_user_tool_results(session: "ConversationSession") -> list[str]:
 
 
 def _messages_for_llm(
-    session: "ConversationSession",
+    session: ConversationSession,
     *,
     ask_user_answered: bool,
 ) -> list[Message]:
@@ -170,7 +169,7 @@ def _messages_for_llm(
 
 
 def _replace_all_ask_user_placeholders(
-    session: "ConversationSession",
+    session: ConversationSession,
     answers: dict[str, str],
     pending_tc: ToolCall,
 ) -> list[tuple[str, str]]:
@@ -223,7 +222,6 @@ class RunAgentUseCase:
     ) -> Generator[
         ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
         dict[str, str] | None,
-        None,
     ]:
         """Run the agent for a single user message with streaming ReAct loop.
 
@@ -501,9 +499,7 @@ class RunAgentUseCase:
     def continue_stream(
         self, request: ContinueRequest
     ) -> Generator[
-        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete,
-        None,
-        None,
+        ContentDelta | ToolCallEvent | ToolResultEvent | SessionPaused | StreamComplete
     ]:
         """Resume a paused session with the user's answers."""
         run_id = uuid4().hex
@@ -779,7 +775,7 @@ class RunAgentUseCase:
                 session_id=new_id,
                 agent_id=agent_definition.agent_id,
                 system_prompt=agent_definition.format_system_prompt(
-                    current_datetime=datetime.now(timezone.utc).isoformat()
+                    current_datetime=datetime.now(UTC).isoformat()
                 ),
             )
             log_event("session.created", session_id=new_id)

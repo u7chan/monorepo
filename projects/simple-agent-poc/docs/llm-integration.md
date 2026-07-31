@@ -15,6 +15,7 @@ class LLMClient(Protocol):
         tools: list[ToolDefinition] | None = None,
     ) -> Iterator[LLMStreamChunk]: ...
 
+
 class LLMClientFactory(Protocol):
     def __call__(self, agent_definition: AgentDefinition) -> LLMClient: ...
 ```

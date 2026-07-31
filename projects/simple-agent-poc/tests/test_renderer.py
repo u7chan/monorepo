@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-
 from simple_agent_poc.adapters.cli.renderer import (
     ask_user_question,
     get_user_input,

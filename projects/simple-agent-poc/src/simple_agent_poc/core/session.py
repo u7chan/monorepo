@@ -23,7 +23,7 @@ class ConversationSession:
         session_id: str,
         agent_id: str = "default",
         system_prompt: str,
-    ) -> "ConversationSession":
+    ) -> ConversationSession:
         """Create a new session with its initial system prompt."""
         return cls(
             session_id=session_id,

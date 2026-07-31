@@ -146,9 +146,9 @@ Returns the development test page as HTML.
 ```python
 def resolve_session_id(*, header_session_id, body_session_id):
     if header_session_id is None:
-        return body_session_id          # use body only
+        return body_session_id  # use body only
     if body_session_id is None or body_session_id == header_session_id:
-        return header_session_id        # use header (match)
+        return header_session_id  # use header (match)
     raise HTTPException(400, "Conflicting session_id values...")
 ```
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, Protocol, Self, TypedDict, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -61,7 +61,7 @@ class _Response(Protocol):
 
     def read(self) -> bytes: ...
 
-    def __enter__(self) -> _Response: ...
+    def __enter__(self) -> Self: ...
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None: ...
 

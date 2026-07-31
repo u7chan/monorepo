@@ -21,7 +21,7 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 __all__ = [
@@ -162,9 +162,9 @@ class _JSONLFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         obj: dict[str, object] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).strftime(
+                "%Y-%m-%dT%H:%M:%S.%fZ"
+            ),
             "level": record.levelname,
             "event": record.msg,
             "logger": record.name,

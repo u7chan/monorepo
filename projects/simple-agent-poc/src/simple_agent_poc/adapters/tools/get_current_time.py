@@ -1,7 +1,7 @@
 """get_current_time — returns current UTC datetime in ISO 8601."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from simple_agent_poc.core.types import ToolDefinition
@@ -22,6 +22,6 @@ TOOL_DEFINITION: ToolDefinition = {
 
 def execute(arguments: dict[str, Any]) -> str:
     return json.dumps(
-        {"datetime": datetime.now(timezone.utc).isoformat()},
+        {"datetime": datetime.now(UTC).isoformat()},
         ensure_ascii=False,
     )

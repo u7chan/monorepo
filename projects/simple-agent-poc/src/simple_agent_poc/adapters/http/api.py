@@ -1,14 +1,15 @@
 """HTTP API adapter."""
 
 import json
-from dataclasses import asdict
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
 from starlette.responses import HTMLResponse, StreamingResponse
 
+from simple_agent_poc.adapters.http.test_page import TEST_PAGE_HTML
 from simple_agent_poc.application.dto import (
     ContentDelta,
     ContinueRequest,
@@ -19,13 +20,12 @@ from simple_agent_poc.application.dto import (
     ToolResultEvent,
 )
 from simple_agent_poc.application.use_cases import RunAgentUseCase
+from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.core.types import (
     SessionNotFoundError,
     SessionNotPausedError,
     ValidationError,
 )
-from simple_agent_poc.adapters.http.test_page import TEST_PAGE_HTML
-from simple_agent_poc.core.agent_definition import AgentDefinitionRegistry
 from simple_agent_poc.entrypoints.bootstrap import (
     create_agent_definition_registry,
     create_run_agent_use_case_factory,
@@ -155,7 +155,7 @@ def create_app(
             except ValidationError as error:
                 log_event("http.request.error", error=summarize_payload(str(error)))
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 log_event("http.request.error", error=summarize_payload(str(error)))
                 yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
 
@@ -194,7 +194,7 @@ def create_app(
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
             except ValidationError as error:
                 yield f"event: error\ndata: {json.dumps({'detail': error.display_message}, ensure_ascii=False)}\n\n"
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 yield f"event: error\ndata: {json.dumps({'detail': str(error)}, ensure_ascii=False)}\n\n"
             finally:
                 generator.close()
