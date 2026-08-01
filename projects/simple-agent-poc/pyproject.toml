@@ -5,8 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.140.0",
-    "litellm>=1.93.0",
+    "fastapi>=0.140.13",
+    "litellm>=1.94.0",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
     "uvicorn>=0.51.0",
@@ -29,7 +29,7 @@ dev = [
     "ruff>=0.16.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ty>=0.0.63",
+    "ty>=0.0.64",
 ]
 
 [tool.hatch.build.targets.wheel]
