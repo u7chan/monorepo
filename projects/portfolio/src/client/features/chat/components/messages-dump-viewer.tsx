@@ -3,6 +3,7 @@ import { useLockBodyScroll } from '#/client/shared/hooks/use-lock-body-scroll'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
 import { CloseIcon } from '#/client/shared/icons/close-icon'
 import { CopyIcon } from '#/client/shared/icons/copy-icon'
+import { copyToClipboard } from '#/client/shared/lib/copy-to-clipboard'
 import type { ApiChatMessage, Message } from '#/types'
 
 interface MessagesDumpViewerProps {
@@ -51,7 +52,7 @@ export function MessagesDumpViewer({ messages, apiContextMessages, open, onClose
   const json = JSON.stringify(visibleData, null, 2)
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(json)
+    await copyToClipboard(json)
     setCopied(true)
   }
 
