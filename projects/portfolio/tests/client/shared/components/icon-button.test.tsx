@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 
 describe('IconButton', () => {
@@ -62,15 +62,15 @@ describe('IconButton', () => {
       expect(button.className).toContain('custom-class')
     })
 
-    it('標準button propsがforwardされる', () => {
+    it('onClickが正しく発火する', () => {
+      const handleClick = vi.fn()
       render(
-        <IconButton label='test' data-testid='icon-btn' onClick={() => {}}>
+        <IconButton label='test' onClick={handleClick}>
           <span />
         </IconButton>
       )
-      const button = screen.getByTestId('icon-btn')
-      expect(button).toBeTruthy()
-      expect(button.tagName).toBe('BUTTON')
+      fireEvent.click(screen.getByRole('button'))
+      expect(handleClick).toHaveBeenCalledTimes(1)
     })
   })
 })

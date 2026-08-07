@@ -198,7 +198,7 @@ function CodeBlockCopyButton({ copied, onClick, disabled }: CodeBlockCopyButtonP
       disabled={copied || disabled}
       className={`relative inline-flex h-8 w-8 rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out dark:text-gray-300 ${
         copied
-          ? 'text-emerald-600 dark:text-emerald-400'
+          ? 'text-emerald-600 disabled:opacity-100 dark:text-emerald-400'
           : 'hover:bg-gray-200 hover:text-gray-800 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:disabled:hover:bg-transparent dark:disabled:hover:text-gray-300'
       }`}
     >
