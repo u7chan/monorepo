@@ -67,18 +67,20 @@ export function CompareComposer({
           <button
             type='button'
             onClick={onCancel}
+            aria-label='Stop'
             className='flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-800 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-primary-700 dark:hover:bg-primary-600'
           >
-            <StopIcon className='fill-white' size={18} />
+            <StopIcon className='text-white' size={18} />
           </button>
         ) : (
           <button
             type='button'
             onClick={onSubmit}
             disabled={submitDisabled || value.trim().length === 0}
+            aria-label='Send'
             className='flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-800 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:cursor-default disabled:opacity-40 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700'
           >
-            <ArrowUpIcon className='fill-white' size={22} />
+            <ArrowUpIcon className='text-white' size={22} />
           </button>
         )}
       </div>

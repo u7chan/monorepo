@@ -52,7 +52,9 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
       <div className='md:hidden fixed top-0 left-0 right-0 h-14 bg-gray-100 dark:bg-gray-800 border-b dark:border-gray-700 z-50 flex items-center justify-between px-4'>
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className='p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700'
+          aria-label={isMobileMenuOpen ? 'メニューを閉じる' : 'メニューを開く'}
+          aria-expanded={isMobileMenuOpen}
+          className='p-2 rounded text-gray-900 hover:bg-gray-200 dark:text-white dark:hover:bg-gray-700'
         >
           {/* ハンバーガーアイコン */}
           <HamburgerIcon />

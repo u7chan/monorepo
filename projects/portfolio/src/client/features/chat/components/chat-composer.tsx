@@ -97,9 +97,10 @@ function UploadButton({ disabled, onClick }: { disabled: boolean; onClick: () =>
       type='button'
       onClick={onClick}
       disabled={disabled}
+      aria-label='画像アップロード'
       className='group flex cursor-pointer items-center gap-0.5 rounded-3xl border border-gray-200 bg-white px-2 py-1 transition-colors hover:bg-gray-100 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-50 disabled:hover:cursor-default disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:hover:bg-gray-700'
     >
-      <UploadIcon size={20} className='fill-gray-500 group-disabled:fill-gray-300' />
+      <UploadIcon size={20} className='text-gray-500 group-disabled:text-gray-300' />
       <div className='hidden sm:block mr-0.5 text-gray-500 text-xs group-disabled:text-gray-300 dark:text-gray-400 dark:group-disabled:text-gray-500'>
         画像アップロード
       </div>
@@ -132,17 +133,19 @@ export function SendButton({ color = 'blue', loading, disabled, handleClickStop 
     <button
       type='button'
       onClick={handleClickStop}
+      aria-label='Stop sending'
       className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
     >
-      <StopIcon className='fill-white' size={18} />
+      <StopIcon className='text-white' size={18} />
     </button>
   ) : (
     <button
       type='submit'
       disabled={disabled}
+      aria-label='Send'
       className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
     >
-      <ArrowUpIcon className='fill-white' size={22} />
+      <ArrowUpIcon className='text-white' size={22} />
     </button>
   )
 }

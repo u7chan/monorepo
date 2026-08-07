@@ -73,7 +73,7 @@ describe('ChatMessageList', () => {
     })
 
     it('ストリーム中はタイピングアイコンを表示する', () => {
-      render(
+      const { container } = render(
         <ChatMessageList
           messages={[]}
           conversationId='conversation-1'
@@ -92,8 +92,8 @@ describe('ChatMessageList', () => {
         />
       )
 
-      expect(screen.getByRole('img', { name: 'chatbot-typing-icon' })).toBeTruthy()
-      expect(screen.queryByRole('img', { name: 'chatbot-icon' })).toBeNull()
+      expect(screen.queryByRole('img')).toBeNull()
+      expect(container.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
     })
   })
 
