@@ -1,8 +1,14 @@
-# Example Responses
+# LiteLLM 画像生成のレスポンス記録（2026年1月）
 
-`gpt-image-1`:
+> [!WARNING]
+> これは2026年1月17日時点の履歴資料です。現在の実行用サンプルではありません。
+> `dall-e-3` は2026年5月12日に停止しています。
 
-```sh
+当時の `litellm-image-generation.http` を実行したときのレスポンスです。ヘッダー、処理時間、利用量、URL などの値は採取時点の記録であり、実行ごとに変わります。現在使用するモデルは、[`litellm-image-generation.http`](./litellm-image-generation.http)を確認してください。
+
+## `gpt-image-1`
+
+```http
 HTTP/1.1 200 OK
 date: Sat, 17 Jan 2026 07:19:15 GMT
 server: uvicorn
@@ -40,9 +46,11 @@ Connection: close
 }
 ```
 
-`dall-e-3`:
+`b64_json` に、Base64 形式の画像データが返されています。この例では、実データの大部分を省略しています。
 
-```sh
+## `dall-e-3`
+
+```http
 HTTP/1.1 200 OK
 date: Sat, 17 Jan 2026 07:29:32 GMT
 server: uvicorn
@@ -81,3 +89,5 @@ Connection: close
   }
 }
 ```
+
+この例では `b64_json` は `null` で、生成画像の URL と `revised_prompt` が返されています。

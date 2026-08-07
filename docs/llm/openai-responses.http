@@ -4,7 +4,7 @@
 @litellmUrl={{$dotenv LITELLM_BASE_URL}}
 @litellmApiKey={{$dotenv LITELLM_API_KEY}}
 
-#### responses
+### Responses：通常応答
 POST {{ baseURL }}/responses
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}
@@ -15,7 +15,7 @@ Authorization: Bearer {{ apiKey }}
   "store": false
 }
 
-#### responses - stream
+### Responses：ストリーミング
 POST {{ baseURL }}/responses
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}
@@ -27,7 +27,8 @@ Authorization: Bearer {{ apiKey }}
   "stream": true
 }
 
-#### responses - MCP with litellm （動かない。MCPサーバーをインターネットに公開していないと呼べないみたい。）
+### Responses：LiteLLM MCP（動作しない）
+# MCP サーバーをインターネットへ公開していないことが原因とみられる。
 POST {{ baseURL }}/responses
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}
@@ -50,7 +51,8 @@ Authorization: Bearer {{ apiKey }}
   ]
 }
 
-#### responses - MCP with litellm proxy　（こちらも動かない。MCPサーバーをインターネットに公開していないと呼べないみたい。）
+### Responses：LiteLLM Proxy 経由の MCP（動作しない）
+# MCP サーバーをインターネットへ公開していないことが原因とみられる。
 POST {{ litellmUrl }}/v1/responses
 Content-Type: application/json
 Authorization: Bearer {{ litellmApiKey }}
