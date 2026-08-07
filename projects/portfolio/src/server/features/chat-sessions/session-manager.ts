@@ -3,7 +3,7 @@ import { chatConversationRepository } from '#/server/features/chat-conversations
 import { chat } from '#/server/features/chat/chat'
 import { convertStreamChunks } from '#/server/features/chat/converter'
 import type { ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
-import { toChatError } from '#/server/lib/chat-error'
+import { conversationPersistenceError, toChatError } from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
 import type { ApiMode, AssistantMessage, Conversation } from '#/types'
 import type {
@@ -162,7 +162,7 @@ export class ChatSessionManager {
         await this.completeSession(sessionId, params.databaseUrl, params.ttlSeconds)
       }
     } catch (err) {
-      if (controller.signal.aborted || runtime.controller?.signal.aborted) return
+      if (controller.signal.aborted || runtime.controller?.signal?.aborted) return
 
       logger.error({ err, sessionId }, 'Session chat generation failed')
       await this.finishSession(sessionId, 'error', {
@@ -202,47 +202,48 @@ export class ChatSessionManager {
     status: Exclude<ChatSessionStatus, 'running'>,
     data: { reason?: string; error?: ChatError } = {}
   ): Promise<void> {
-    await this.store.updateSession(sessionId, {
-      status,
-      completedAt: new Date().toISOString(),
-      error: data.error ?? null,
-    })
+    const completedAt = new Date().toISOString()
 
     if (status === 'completed') {
       await this.appendEvent(sessionId, { type: 'done', data: {} })
-      return
-    }
-
-    if (status === 'cancelled') {
+    } else if (status === 'cancelled') {
       await this.appendEvent(sessionId, {
         type: 'cancelled',
         data: {
           reason: data.reason ?? 'cancelled',
         },
       })
-      return
+    } else {
+      await this.appendEvent(sessionId, {
+        type: 'generation_error',
+        data: data.error ?? toChatError(new Error('Unknown upstream error')),
+      })
     }
 
-    await this.appendEvent(sessionId, {
-      type: 'generation_error',
-      data: data.error ?? toChatError(new Error('Unknown upstream error')),
+    await this.store.updateSession(sessionId, {
+      status,
+      completedAt,
+      error: data.error ?? null,
     })
   }
 
   private async completeSession(sessionId: string, databaseUrl: string | undefined, ttlSeconds: number): Promise<void> {
+    try {
+      await this.persistIfSignedIn(sessionId, databaseUrl, ttlSeconds)
+    } catch (err) {
+      logger.error({ err, sessionId }, 'Session conversation persistence failed')
+      await this.finishSession(sessionId, 'error', {
+        error: conversationPersistenceError(),
+      })
+      return
+    }
+
+    await this.appendEvent(sessionId, { type: 'done', data: {} })
     await this.store.updateSession(sessionId, {
       status: 'completed',
       completedAt: new Date().toISOString(),
       error: null,
     })
-
-    try {
-      await this.persistIfSignedIn(sessionId, databaseUrl, ttlSeconds)
-    } catch (err) {
-      logger.error({ err, sessionId }, 'Session conversation persistence failed')
-    }
-
-    await this.appendEvent(sessionId, { type: 'done', data: {} })
   }
 
   private async appendEvent(sessionId: string, event: Omit<ChatSessionEvent, 'id' | 'sessionId' | 'createdAt'>) {
@@ -263,7 +264,7 @@ export class ChatSessionManager {
     if (!session || !session.email || !databaseUrl) return
 
     const events = await this.store.readEvents(sessionId)
-    const conversation = foldSessionEvents(session, events)
+    const conversation = foldSessionEvents(session, events, true)
     await chatConversationRepository.upsert(databaseUrl, session.email, conversation)
     await this.store.setSessionTtl(sessionId, ttlSeconds)
   }
@@ -282,8 +283,12 @@ export class ChatSessionManager {
   }
 }
 
-export function foldSessionEvents(session: ChatSessionMeta, events: ChatSessionEvent[]): Conversation {
-  if (session.status !== 'completed') {
+export function foldSessionEvents(
+  session: ChatSessionMeta,
+  events: ChatSessionEvent[],
+  includeCompletedOutput = session.status === 'completed'
+): Conversation {
+  if (!includeCompletedOutput) {
     return session.conversation
   }
 

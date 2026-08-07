@@ -8,7 +8,7 @@ import {
 } from '#/client/features/chat/lib/receive-session-events'
 import { readChatError, unknownChatError } from '#/client/shared/lib/chat-error'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
-import { parseChatStreamEvent, updateChatStream } from '#/client/shared/lib/chat-stream'
+import { isChatStreamError, parseChatStreamPayload, updateChatStream } from '#/client/shared/lib/chat-stream'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ApiMode, Conversation } from '#/types'
 import type { ChatError, ChatResponse, ChatUsage } from '#/types/chat-api'
@@ -80,7 +80,14 @@ export const sendStreamCompletion = async (
   }
 ): Promise<ChatCompletionResult> => {
   if (!req.conversation || !req.assistantMessageId) {
-    return sendLegacyStreamCompletion(req)
+    try {
+      return await sendLegacyStreamCompletion(req)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { result: null, error: null }
+      }
+      return { result: null, error: unknownChatError() }
+    }
   }
 
   try {
@@ -148,6 +155,7 @@ const sendLegacyStreamCompletion = async (
   let finishReason = ''
   let receivedFinish = false
   let usage: ChatUsage | null = null
+  let generationError: ChatError | null = null
 
   const res = await client.api.chat.stream.$post(
     {
@@ -194,7 +202,14 @@ const sendLegacyStreamCompletion = async (
         break
       }
 
-      const event = parseChatStreamEvent(jsonStr)
+      const payload = parseChatStreamPayload(jsonStr)
+      if (isChatStreamError(payload)) {
+        generationError = payload
+        running = false
+        break
+      }
+
+      const event = payload
       accumulated = updateChatStream(accumulated, event)
 
       if (event.event === 'delta') {
@@ -214,6 +229,7 @@ const sendLegacyStreamCompletion = async (
     }
   }
 
+  if (generationError) return { result: null, error: generationError }
   if (!receivedFinish) return { result: null, error: null }
   if (!hasAssistantOutput(accumulated)) return { result: null, error: null }
 

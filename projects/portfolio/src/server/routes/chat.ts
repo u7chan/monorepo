@@ -303,10 +303,21 @@ const chatRoutes = new Hono<HonoEnv>()
         streamCompletion.controller.abort()
       })
 
-      for await (const event of convertStreamChunks(apiMode, streamCompletion)) {
-        requestLogger.debug({ event }, 'Stream event emitted')
-        await stream.writeSSE({ data: JSON.stringify(event) })
-        await new Promise((resolve) => setTimeout(resolve, 10))
+      try {
+        for await (const event of convertStreamChunks(apiMode, streamCompletion)) {
+          requestLogger.debug({ event }, 'Stream event emitted')
+          await stream.writeSSE({ data: JSON.stringify(event) })
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      } catch (err) {
+        requestLogger.error({ err }, 'Stream chat iteration failed')
+        if (!aborted) {
+          await stream.writeSSE({
+            event: 'generation_error',
+            data: JSON.stringify(toChatError(err)),
+          })
+        }
+        return
       }
 
       if (!aborted) {
@@ -385,16 +396,22 @@ const chatRoutes = new Hono<HonoEnv>()
       stream.onAbort(close)
 
       let lastEventId = afterEventId
-      for (const event of await chatSessionManager.readEvents(sessionId, afterEventId)) {
-        await writeSessionEvent(stream, event)
-        lastEventId = event.id
-        if (isTerminalSessionEvent(event)) {
-          close()
-          return
+      const replayEvents = async () => {
+        for (const event of await chatSessionManager.readEvents(sessionId, lastEventId)) {
+          await writeSessionEvent(stream, event)
+          lastEventId = event.id
+          if (isTerminalSessionEvent(event)) {
+            close()
+            return true
+          }
         }
+        return false
       }
 
+      if (await replayEvents()) return
+
       if ((await chatSessionManager.getSession(sessionId))?.status !== 'running') {
+        if (await replayEvents()) return
         close()
         return
       }
@@ -412,17 +429,11 @@ const chatRoutes = new Hono<HonoEnv>()
           })
           .then((nextUnsubscribe) => {
             unsubscribe = nextUnsubscribe
-            void chatSessionManager.readEvents(sessionId, lastEventId).then(async (events) => {
-              for (const event of events) {
-                await writeSessionEvent(stream, event)
-                lastEventId = event.id
-                if (isTerminalSessionEvent(event)) {
-                  close()
-                  resolve()
-                  return
-                }
+            void replayEvents().then((isTerminal) => {
+              if (isTerminal) {
+                resolve()
               }
-            })
+            }, reject)
           })
           .catch(reject)
       })

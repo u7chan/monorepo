@@ -231,4 +231,58 @@ describe('useCompareStream', () => {
       'LLM プロバイダーのクレジットが不足しています。API キーの請求状況を確認してください。'
     )
   })
+
+  it('direct stream の generation_error を完了扱いにしない', async () => {
+    const encoder = new TextEncoder()
+    mock$post.mockResolvedValue({
+      ok: true,
+      body: {
+        getReader: () => {
+          let sent = false
+          return {
+            read: async () => {
+              if (sent) return { done: true, value: undefined }
+              sent = true
+              return {
+                done: false,
+                value: encoder.encode(
+                  'event: generation_error\ndata: {"code":"RATE_LIMITED","message":"retry later","retryable":true}\n'
+                ),
+              }
+            },
+            cancel: async () => {},
+          }
+        },
+      },
+    })
+    const { useCompareStream } = await import('#/client/features/chat-compare/hooks/use-compare-stream')
+    const { result } = renderHook(() => useCompareStream())
+    const onStreamError = vi.fn()
+    const onStreamDone = vi.fn()
+
+    await act(async () => {
+      await result.current.submitModel({
+        settings,
+        modelState: {
+          model: 'model-a',
+          status: 'retrying',
+          messages: [{ role: 'user', content: 'hello' }],
+          content: '',
+          reasoningContent: '',
+          usage: null,
+          finishReason: null,
+          responseTimeMs: null,
+          error: null,
+        },
+        callbacks: {
+          onStreamContent: vi.fn(),
+          onStreamDone,
+          onStreamError,
+        },
+      })
+    })
+
+    expect(onStreamError).toHaveBeenCalledWith('retry later')
+    expect(onStreamDone).not.toHaveBeenCalled()
+  })
 })

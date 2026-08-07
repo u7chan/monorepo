@@ -480,6 +480,19 @@ describe('responses converter', () => {
     })
   })
 
+  it('Responses の failed 応答を空の ChatResponse に変換しない', () => {
+    const raw = {
+      id: 'resp_1',
+      status: 'failed',
+      error: {
+        code: 'rate_limit_exceeded',
+        message: 'raw provider error',
+      },
+    }
+
+    expect(() => convertCompletion('responses', raw as any)).toThrow('raw provider error')
+  })
+
   it('Responses の stream 出力を既存イベント契約に正規化できる', async () => {
     const stream = (async function* () {
       yield {
@@ -566,5 +579,46 @@ describe('responses converter', () => {
         },
       },
     ])
+  })
+
+  it('Responses の failed stream event を例外化する', async () => {
+    const stream = (async function* () {
+      yield {
+        type: 'response.failed',
+        sequence_number: 0,
+        response: {
+          id: 'resp_1',
+          status: 'failed',
+          error: {
+            code: 'server_error',
+            message: 'raw provider error',
+          },
+        },
+      }
+    })() as any
+
+    await expect(async () => {
+      for await (const _event of convertStreamChunks('responses', stream)) {
+        // stream を最後まで消費して terminal failure を検証する。
+      }
+    }).rejects.toThrow('raw provider error')
+  })
+
+  it('Responses の error stream event を例外化する', async () => {
+    const stream = (async function* () {
+      yield {
+        type: 'error',
+        sequence_number: 0,
+        code: 'rate_limit_exceeded',
+        message: 'raw provider error',
+        param: null,
+      }
+    })() as any
+
+    await expect(async () => {
+      for await (const _event of convertStreamChunks('responses', stream)) {
+        // stream を最後まで消費して terminal failure を検証する。
+      }
+    }).rejects.toThrow('raw provider error')
   })
 })

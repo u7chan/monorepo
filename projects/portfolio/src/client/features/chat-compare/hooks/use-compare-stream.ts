@@ -1,7 +1,7 @@
 import { hc } from 'hono/client'
 import { useCallback, useRef } from 'react'
 import { readChatError, unavailableChatError } from '#/client/shared/lib/chat-error'
-import { parseChatStreamEvent, updateChatStream } from '#/client/shared/lib/chat-stream'
+import { isChatStreamError, parseChatStreamPayload, updateChatStream } from '#/client/shared/lib/chat-stream'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ChatUsage } from '#/types'
 import type { CompareSettings } from './use-compare-settings'
@@ -216,7 +216,14 @@ async function runModelStream(
         }
 
         try {
-          const event = parseChatStreamEvent(jsonStr)
+          const payload = parseChatStreamPayload(jsonStr)
+          if (isChatStreamError(payload)) {
+            clearIdleTimer()
+            onError(payload.message)
+            return
+          }
+
+          const event = payload
           accumulated = updateChatStream(accumulated, event)
 
           if (event.event === 'delta') {

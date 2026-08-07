@@ -1,6 +1,22 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from 'openai'
 import type { ChatError, ChatErrorCode } from '#/types/chat-api'
 
+export type UpstreamErrorDetails = {
+  status?: number
+  type?: string
+  code?: string
+  param?: string
+  message?: string
+}
+
+/** HTTP 200 の Responses terminal failure など、SDK が例外化しない upstream エラーを表す。 */
+export class UpstreamChatError extends Error {
+  constructor(readonly details: UpstreamErrorDetails) {
+    super(details.message ?? 'Unknown upstream error')
+    this.name = 'UpstreamChatError'
+  }
+}
+
 const errorDefinitions: Record<Exclude<ChatErrorCode, 'VALIDATION_ERROR'>, Omit<ChatError, 'code'>> = {
   AUTHENTICATION_FAILED: {
     message: 'API キーが無効か、利用を許可されていません。設定を確認してください。',
@@ -43,6 +59,12 @@ export const unavailableChatError = (): ChatError => ({
   ...errorDefinitions.UPSTREAM_UNAVAILABLE,
 })
 
+export const conversationPersistenceError = (): ChatError => ({
+  code: 'UPSTREAM_UNAVAILABLE',
+  message: '会話を保存できませんでした。しばらく待ってから再試行してください。',
+  retryable: true,
+})
+
 /**
  * OpenAI SDK が保持する HTTP ステータスと provider のエラー種別だけを使い、
  * provider の本文を UI 契約へ持ち込まずに分類する。
@@ -68,10 +90,11 @@ type ErrorDetails = {
 
 function getErrorDetails(error: unknown): ErrorDetails {
   const apiError = error instanceof APIError ? error : undefined
-  const body = asRecord(apiError?.error)
+  const upstreamError = error instanceof UpstreamChatError ? error.details : undefined
+  const body = asRecord(apiError?.error) ?? upstreamError
 
   return {
-    status: apiError?.status,
+    status: apiError?.status ?? upstreamError?.status,
     type: readString(body?.type),
     code: readString(body?.code),
     param: readString(body?.param),
@@ -117,12 +140,17 @@ function classifyError({
     connectionError ||
     status === 408 ||
     (status !== undefined && status >= 500) ||
-    /connection refused|network error|fetch failed|timed out|timeout/.test(signals)
+    /connection refused|network error|fetch failed|timed out|timeout|server[_\s-]?error|internal[_\s-]?error/.test(
+      signals
+    )
   ) {
     return 'UPSTREAM_UNAVAILABLE'
   }
 
-  if ((status !== undefined && status >= 400 && status < 500) || /invalid[_\s-]?request|bad request/.test(signals)) {
+  if (
+    (status !== undefined && status >= 400 && status < 500) ||
+    /invalid[_\s-]?(?:request|prompt)|bad request/.test(signals)
+  ) {
     return 'INVALID_REQUEST'
   }
 

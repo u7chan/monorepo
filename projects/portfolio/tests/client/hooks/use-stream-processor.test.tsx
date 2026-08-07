@@ -284,6 +284,49 @@ describe('useStreamProcessor', () => {
     })
   })
 
+  it('direct stream の generation_error を assistant 応答にせず返す', async () => {
+    const { useStreamProcessor, chatStreamPostMock } = await importSubject()
+    const encoder = new TextEncoder()
+    const chunks = [
+      encoder.encode(
+        'event: generation_error\ndata: {"code":"RATE_LIMITED","message":"retry later","retryable":true}\n'
+      ),
+    ]
+    chatStreamPostMock.mockResolvedValue({
+      ok: true,
+      body: {
+        getReader() {
+          let index = 0
+          return {
+            read: async () => {
+              if (index >= chunks.length) return { done: true, value: undefined }
+              return { done: false, value: chunks[index++] }
+            },
+          }
+        },
+      },
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+    let response: Awaited<ReturnType<typeof result.current.submitChatCompletion>> | undefined
+    await act(async () => {
+      response = await result.current.submitChatCompletion({
+        ...request,
+        streamMode: true,
+      })
+    })
+
+    expect(response).toEqual({
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'retry later',
+        retryable: true,
+      },
+      result: null,
+      responseTimeMs: expect.any(Number),
+    })
+  })
+
   it('session replay の user_message で会話を復元する', async () => {
     const { useStreamProcessor, chatSessionPostMock } = await importSubject()
     const onSessionConversation = vi.fn()

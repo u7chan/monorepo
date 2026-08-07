@@ -146,6 +146,88 @@ describe('ChatSessionManager', () => {
     )
   })
 
+  it('会話保存の完了後に done と completed を公開する', async () => {
+    const { manager, completionsMock, upsertMock } = await importSubject()
+    let resolveUpsert: (() => void) | undefined
+    upsertMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUpsert = resolve
+        })
+    )
+    completionsMock.mockResolvedValue({
+      controller: { abort: vi.fn() },
+      [Symbol.asyncIterator]: createStreamChunk,
+    })
+
+    const session = await manager.startSession({
+      header: {
+        'api-key': 'api-key',
+        'base-url': 'https://example.com',
+      },
+      req: request,
+      apiMode: 'chat_completions',
+      email: 'test@example.com',
+      databaseUrl: 'postgres://example',
+      ttlSeconds: 1800,
+      disconnectGraceMs: 30000,
+    })
+
+    await vi.waitFor(() => expect(upsertMock).toHaveBeenCalledOnce())
+    await expect(manager.getSession(session.id)).resolves.toMatchObject({ status: 'running' })
+    expect((await manager.readEvents(session.id)).some((event) => event.type === 'done')).toBe(false)
+
+    resolveUpsert?.()
+
+    await vi.waitFor(async () => {
+      await expect(manager.getSession(session.id)).resolves.toMatchObject({ status: 'completed' })
+    })
+    expect((await manager.readEvents(session.id)).at(-1)?.type).toBe('done')
+  })
+
+  it('会話保存に失敗した場合は done を配信せず retryable な error session を残す', async () => {
+    const { manager, completionsMock, upsertMock } = await importSubject()
+    upsertMock.mockRejectedValue(new Error('database unavailable'))
+    completionsMock.mockResolvedValue({
+      controller: { abort: vi.fn() },
+      [Symbol.asyncIterator]: createStreamChunk,
+    })
+
+    const session = await manager.startSession({
+      header: {
+        'api-key': 'api-key',
+        'base-url': 'https://example.com',
+      },
+      req: request,
+      apiMode: 'chat_completions',
+      email: 'test@example.com',
+      databaseUrl: 'postgres://example',
+      ttlSeconds: 1800,
+      disconnectGraceMs: 30000,
+    })
+
+    await vi.waitFor(async () => {
+      await expect(manager.getSession(session.id)).resolves.toMatchObject({
+        status: 'error',
+        error: {
+          code: 'UPSTREAM_UNAVAILABLE',
+          message: '会話を保存できませんでした。しばらく待ってから再試行してください。',
+          retryable: true,
+        },
+      })
+    })
+
+    const events = await manager.readEvents(session.id)
+    expect(events.some((event) => event.type === 'done')).toBe(false)
+    expect(events.at(-1)).toMatchObject({
+      type: 'generation_error',
+      data: {
+        code: 'UPSTREAM_UNAVAILABLE',
+        retryable: true,
+      },
+    })
+  })
+
   it('cancel で cancelled event を追加し、terminal event を判定できる', async () => {
     const { store, manager, isTerminalSessionEvent } = await importSubject()
     await store.createSession({
