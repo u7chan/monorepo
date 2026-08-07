@@ -1,3 +1,4 @@
+import { APIError } from 'openai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockLogger } from '../helpers/mock-logger'
 
@@ -86,8 +87,11 @@ describe('chatRoutes', () => {
 
       expect(res.status).toBe(400)
       const body = await res.json()
-      expect(body).toHaveProperty('error')
-      expect(body).toHaveProperty('code', 'VALIDATION_ERROR')
+      expect(body).toEqual({
+        code: 'VALIDATION_ERROR',
+        message: "Missing required header 'api-key'",
+        retryable: false,
+      })
     })
 
     it('fakemode では base-url をローカル endpoint に置き換える', async () => {
@@ -335,6 +339,39 @@ describe('chatRoutes', () => {
       })
     })
 
+    it('responses の failed 応答を安全なエラーへ正規化する', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'resp_1',
+        status: 'failed',
+        error: {
+          code: 'rate_limit_exceeded',
+          message: 'raw provider error',
+        },
+      })
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          apiMode: 'responses',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(502)
+      await expect(res.json()).resolves.toEqual({
+        code: 'RATE_LIMITED',
+        message: 'リクエスト数の上限に達しました。しばらく待ってから再試行してください。',
+        retryable: true,
+      })
+    })
+
     it('不正な body は公開契約の validation error 形式で 400 を返す', async () => {
       const { chatRoutes } = await importSubject()
 
@@ -353,12 +390,13 @@ describe('chatRoutes', () => {
 
       expect(res.status).toBe(400)
       await expect(res.json()).resolves.toEqual({
-        error: "Invalid request body 'model'",
         code: 'VALIDATION_ERROR',
+        message: "Invalid request body 'model'",
+        retryable: false,
       })
     })
 
-    it('upstream エラー時は 502 を返す', async () => {
+    it('upstream エラーを安全なアプリケーションエラーへ正規化して 502 を返す', async () => {
       const { chatRoutes, completionsMock } = await importSubject()
       completionsMock.mockRejectedValue(new Error('Connection refused'))
 
@@ -378,12 +416,13 @@ describe('chatRoutes', () => {
       expect(res.status).toBe(502)
       const body = await res.json()
       expect(body).toEqual({
-        error: 'Connection refused',
-        code: 'UPSTREAM_ERROR',
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'LLM プロバイダーに接続できませんでした。しばらく待ってから再試行してください。',
+        retryable: true,
       })
     })
 
-    it('production の upstream エラー時は詳細を隠す', async () => {
+    it('production でも provider のエラー詳細を公開しない', async () => {
       vi.stubEnv('NODE_ENV', 'production')
       const { chatRoutes, completionsMock } = await importSubject()
       completionsMock.mockRejectedValue(new Error('Connection refused'))
@@ -403,8 +442,9 @@ describe('chatRoutes', () => {
 
       expect(res.status).toBe(502)
       await expect(res.json()).resolves.toEqual({
-        error: 'Upstream error',
-        code: 'UPSTREAM_ERROR',
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'LLM プロバイダーに接続できませんでした。しばらく待ってから再試行してください。',
+        retryable: true,
       })
     })
   })
@@ -536,6 +576,36 @@ describe('chatRoutes', () => {
       expect(body).toContain('"event":"usage"')
     })
 
+    it('200 応答後の反復例外を generation_error として配信する', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        async *[Symbol.asyncIterator]() {
+          yield* createStreamChunk()
+          throw new Error('Connection refused')
+        },
+      })
+
+      const res = await chatRoutes.request('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+      const body = await res.text()
+
+      expect(body).toContain('event: generation_error')
+      expect(body).toContain('"code":"UPSTREAM_UNAVAILABLE"')
+      expect(body).not.toContain('Connection refused')
+      expect(body).not.toContain('data: [DONE]')
+    })
+
     it('必須 header がない場合は 400 を返す', async () => {
       const { chatRoutes } = await importSubject()
 
@@ -573,12 +643,13 @@ describe('chatRoutes', () => {
 
       expect(res.status).toBe(400)
       await expect(res.json()).resolves.toEqual({
-        error: "Invalid request body 'model'",
         code: 'VALIDATION_ERROR',
+        message: "Invalid request body 'model'",
+        retryable: false,
       })
     })
 
-    it('production の upstream エラー時は詳細を隠す', async () => {
+    it('production でも provider のエラー詳細を公開しない', async () => {
       vi.stubEnv('NODE_ENV', 'production')
       const { chatRoutes, completionsMock } = await importSubject()
       completionsMock.mockRejectedValue(new Error('Connection refused'))
@@ -598,8 +669,9 @@ describe('chatRoutes', () => {
 
       expect(res.status).toBe(502)
       await expect(res.json()).resolves.toEqual({
-        error: 'Upstream error',
-        code: 'UPSTREAM_ERROR',
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'LLM プロバイダーに接続できませんでした。しばらく待ってから再試行してください。',
+        retryable: true,
       })
     })
   })
@@ -663,6 +735,19 @@ describe('chatRoutes', () => {
         expect(body.session.status).toBe('completed')
       })
     }
+
+    it('存在しない session は公開契約の validation error 形式で返す', async () => {
+      const { chatRoutes } = await importSubject()
+
+      const res = await chatRoutes.request('/api/chat/sessions/not-found')
+
+      expect(res.status).toBe(404)
+      await expect(res.json()).resolves.toEqual({
+        code: 'VALIDATION_ERROR',
+        message: 'Session not found',
+        retryable: false,
+      })
+    })
 
     it('session を作成し、SSE events で replay できる', async () => {
       const { chatRoutes, completionsMock } = await importSubject()
@@ -741,6 +826,105 @@ describe('chatRoutes', () => {
           ]),
         })
       )
+    })
+
+    it('responses モードの upstream 失敗を安全な generation_error event にする', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockRejectedValue(
+        new APIError(
+          401,
+          {
+            message: 'Invalid proxy server token passed. Key Hash (Token) = secret-hash',
+            type: 'token_not_found_in_db',
+            param: 'key',
+            code: '401',
+          },
+          undefined,
+          new Headers()
+        )
+      )
+
+      const startRes = await chatRoutes.request('/api/chat/sessions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          conversation,
+          assistantMessageId: 'message-assistant-1',
+          model: 'gpt-test',
+          apiMode: 'responses',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      })
+      const { sessionId } = (await startRes.json()) as { sessionId: string }
+
+      await vi.waitFor(async () => {
+        const sessionRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}`)
+        const body = (await sessionRes.json()) as { session: { status: string } }
+        expect(body.session.status).toBe('error')
+      })
+      const eventsRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}/events`)
+      const body = await eventsRes.text()
+
+      expect(body).toContain('event: generation_error')
+      expect(body).toContain('"code":"AUTHENTICATION_FAILED"')
+      expect(body).toContain('API キーが無効か、利用を許可されていません。設定を確認してください。')
+      expect(body).not.toContain('secret-hash')
+    })
+
+    it('responses の failed stream event を成功 session として保存しない', async () => {
+      const { chatRoutes, completionsMock, upsertConversationMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        controller: { abort: vi.fn() },
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'response.failed',
+            sequence_number: 0,
+            response: {
+              id: 'resp_1',
+              status: 'failed',
+              error: {
+                code: 'server_error',
+                message: 'raw provider error',
+              },
+            },
+          }
+        },
+      })
+
+      const startRes = await chatRoutes.request('/api/chat/sessions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          conversation,
+          assistantMessageId: 'message-assistant-1',
+          model: 'gpt-test',
+          apiMode: 'responses',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      })
+      const { sessionId } = (await startRes.json()) as { sessionId: string }
+
+      await vi.waitFor(async () => {
+        const sessionRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}`)
+        const body = (await sessionRes.json()) as { session: { status: string } }
+        expect(body.session.status).toBe('error')
+      })
+      const eventsRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}/events`)
+      const body = await eventsRes.text()
+
+      expect(body).toContain('event: generation_error')
+      expect(body).toContain('"code":"UPSTREAM_UNAVAILABLE"')
+      expect(body).not.toContain('event: done')
+      expect(body).not.toContain('raw provider error')
+      expect(upsertConversationMock).not.toHaveBeenCalled()
     })
 
     it('未ログイン時は terminal 後に会話を保存しない', async () => {

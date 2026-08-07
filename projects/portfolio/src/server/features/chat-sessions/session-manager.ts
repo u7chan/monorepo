@@ -3,10 +3,11 @@ import { chatConversationRepository } from '#/server/features/chat-conversations
 import { chat } from '#/server/features/chat/chat'
 import { convertStreamChunks } from '#/server/features/chat/converter'
 import type { ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
-import { getErrorMessage } from '#/server/lib/error-message'
+import { conversationPersistenceError, toChatError } from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
 import type { ApiMode, AssistantMessage, Conversation } from '#/types'
 import type {
+  ChatError,
   ChatSessionEvent,
   ChatSessionMeta,
   ChatSessionStartRequest,
@@ -36,7 +37,7 @@ type SessionRuntime = {
   graceTimer: ReturnType<typeof setTimeout> | null
 }
 
-const TERMINAL_EVENT_TYPES = new Set<ChatSessionEvent['type']>(['done', 'cancelled', 'error'])
+const TERMINAL_EVENT_TYPES = new Set<ChatSessionEvent['type']>(['done', 'cancelled', 'generation_error'])
 
 export class ChatSessionManager {
   private readonly runtimes = new Map<string, SessionRuntime>()
@@ -158,17 +159,15 @@ export class ChatSessionManager {
       }
 
       if ((await this.store.getSession(sessionId))?.status === 'running') {
-        await this.finishSession(sessionId, 'completed')
-        await this.persistIfSignedIn(sessionId, params.databaseUrl, params.ttlSeconds)
+        await this.completeSession(sessionId, params.databaseUrl, params.ttlSeconds)
       }
     } catch (err) {
-      if (controller.signal.aborted || runtime.controller?.signal.aborted) return
+      if (controller.signal.aborted || runtime.controller?.signal?.aborted) return
 
       logger.error({ err, sessionId }, 'Session chat generation failed')
       await this.finishSession(sessionId, 'error', {
-        message: getErrorMessage(err, 'Upstream error'),
+        error: toChatError(err),
       })
-      await this.persistIfSignedIn(sessionId, params.databaseUrl, params.ttlSeconds)
     } finally {
       runtime.controller = null
       await this.store.setSessionTtl(sessionId, params.ttlSeconds)
@@ -201,34 +200,49 @@ export class ChatSessionManager {
   private async finishSession(
     sessionId: string,
     status: Exclude<ChatSessionStatus, 'running'>,
-    data: { reason?: string; message?: string } = {}
+    data: { reason?: string; error?: ChatError } = {}
   ): Promise<void> {
-    await this.store.updateSession(sessionId, {
-      status,
-      completedAt: new Date().toISOString(),
-      error: data.message ?? null,
-    })
+    const completedAt = new Date().toISOString()
 
     if (status === 'completed') {
       await this.appendEvent(sessionId, { type: 'done', data: {} })
-      return
-    }
-
-    if (status === 'cancelled') {
+    } else if (status === 'cancelled') {
       await this.appendEvent(sessionId, {
         type: 'cancelled',
         data: {
           reason: data.reason ?? 'cancelled',
         },
       })
+    } else {
+      await this.appendEvent(sessionId, {
+        type: 'generation_error',
+        data: data.error ?? toChatError(new Error('Unknown upstream error')),
+      })
+    }
+
+    await this.store.updateSession(sessionId, {
+      status,
+      completedAt,
+      error: data.error ?? null,
+    })
+  }
+
+  private async completeSession(sessionId: string, databaseUrl: string | undefined, ttlSeconds: number): Promise<void> {
+    try {
+      await this.persistIfSignedIn(sessionId, databaseUrl, ttlSeconds)
+    } catch (err) {
+      logger.error({ err, sessionId }, 'Session conversation persistence failed')
+      await this.finishSession(sessionId, 'error', {
+        error: conversationPersistenceError(),
+      })
       return
     }
 
-    await this.appendEvent(sessionId, {
-      type: 'error',
-      data: {
-        message: data.message ?? 'Upstream error',
-      },
+    await this.appendEvent(sessionId, { type: 'done', data: {} })
+    await this.store.updateSession(sessionId, {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      error: null,
     })
   }
 
@@ -250,7 +264,7 @@ export class ChatSessionManager {
     if (!session || !session.email || !databaseUrl) return
 
     const events = await this.store.readEvents(sessionId)
-    const conversation = foldSessionEvents(session, events)
+    const conversation = foldSessionEvents(session, events, true)
     await chatConversationRepository.upsert(databaseUrl, session.email, conversation)
     await this.store.setSessionTtl(sessionId, ttlSeconds)
   }
@@ -269,7 +283,15 @@ export class ChatSessionManager {
   }
 }
 
-export function foldSessionEvents(session: ChatSessionMeta, events: ChatSessionEvent[]): Conversation {
+export function foldSessionEvents(
+  session: ChatSessionMeta,
+  events: ChatSessionEvent[],
+  includeCompletedOutput = session.status === 'completed'
+): Conversation {
+  if (!includeCompletedOutput) {
+    return session.conversation
+  }
+
   let content = ''
   let reasoningContent = ''
   let finishReason = ''

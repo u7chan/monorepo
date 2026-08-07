@@ -17,6 +17,7 @@ import { ChatbotTypingIcon } from '#/client/shared/icons/chatbot-typing-icon'
 import { SpinnerIcon } from '#/client/shared/icons/spinner-icon'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
 import type { GeneratedCodeFile, Message } from '#/types'
+import type { ChatError } from '#/types/chat-api'
 
 const markdownRemarkPlugins = [remarkGfm]
 const markdownRehypePlugins = [rehypeSanitize]
@@ -37,6 +38,7 @@ interface ChatMessageListProps {
   streamMessageId?: string | null
   copiedId: string
   savingConversation?: boolean
+  generationError?: ChatError | null
   messageEndRef: RefObject<HTMLDivElement | null>
   onCopyMessage: (message: string, index: number) => void
   onDeleteMessage: (index: number) => void
@@ -55,6 +57,7 @@ export function ChatMessageList({
   streamMessageId,
   copiedId,
   savingConversation,
+  generationError,
   messageEndRef,
   onCopyMessage,
   onDeleteMessage,
@@ -99,6 +102,14 @@ export function ChatMessageList({
           codeBlockOpenBlocks={codeBlockOpenBlocks}
           onCodeBlockOpenChange={handleCodeBlockOpenChange}
         />
+        {generationError && (
+          <div
+            role='alert'
+            className='mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-red-800 text-sm dark:border-red-800 dark:bg-red-950/40 dark:text-red-200'
+          >
+            {generationError.message}
+          </div>
+        )}
         {loading && (
           <div className='flex align-item'>
             <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-800'>

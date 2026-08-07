@@ -6,12 +6,13 @@ import {
 } from '#/client/features/chat/api/chat-completion-client'
 import { clearActiveSession, readActiveSession } from '#/client/features/chat/lib/chat-session-storage'
 import {
+  type CompletedSessionChatResult,
   receiveSessionEvents,
   type ResumeChatCompletionResult,
 } from '#/client/features/chat/lib/receive-session-events'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
 import type { ApiChatMessage, ApiMode, Conversation } from '#/types'
-import type { ChatResponse } from '#/types/chat-api'
+import type { ChatError, ChatResponse } from '#/types/chat-api'
 
 export {
   ACTIVE_SESSION_STORAGE_KEY,
@@ -38,7 +39,7 @@ interface SubmitChatCompletionParams {
 interface UseStreamProcessorParams {
   onSubmitting?: (submitting: boolean) => void
   onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
-  onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
+  onSessionResult?: (result: CompletedSessionChatResult) => void
 }
 
 export function useStreamProcessor({
@@ -77,14 +78,18 @@ export function useStreamProcessor({
       temperature,
       maxTokens,
       reasoningEffort,
-    }: SubmitChatCompletionParams): Promise<{ result: ChatResponse | null; responseTimeMs: number }> => {
+    }: SubmitChatCompletionParams): Promise<{
+      result: ChatResponse | null
+      error: ChatError | null
+      responseTimeMs: number
+    }> => {
       setLoading(true)
       abortControllerRef.current = new AbortController()
       onSubmitting?.(true)
       const requestStartTime = Date.now()
 
       try {
-        const result = streamMode
+        const completion = streamMode
           ? await sendStreamCompletion({
               abortController: abortControllerRef.current,
               eventSourceRef,
@@ -114,7 +119,7 @@ export function useStreamProcessor({
             })
         const responseTimeMs = Date.now() - requestStartTime
 
-        return { result, responseTimeMs }
+        return { ...completion, responseTimeMs }
       } finally {
         abortControllerRef.current = null
         setStream(null)
@@ -146,8 +151,6 @@ export function useStreamProcessor({
         onSessionResult,
         onStream: (stream) => setStream(stream),
       })
-      if (!result.conversation) return null
-
       return {
         ...result,
         responseTimeMs: Date.now() - requestStartTime,

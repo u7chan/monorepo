@@ -1,3 +1,4 @@
+import { UpstreamChatError } from '#/server/lib/chat-error'
 import type { ApiMode } from '#/types'
 import type { ChatResponse, ChatStreamEvent, ChatUsage } from '#/types/chat-api'
 import type {
@@ -39,6 +40,8 @@ function convertChatCompletionsCompletion(raw: CompletionChunk): ChatResponse {
 }
 
 function convertResponsesCompletion(raw: ResponsesCompletion): ChatResponse {
+  throwIfResponsesFailed(raw)
+
   return {
     id: raw.id,
     created: raw.created_at,
@@ -154,6 +157,8 @@ async function* convertResponsesStreamChunks(raw: ResponsesStreamChunk): AsyncGe
     }
 
     if (event.type === 'response.completed') {
+      throwIfResponsesFailed(event.response)
+
       yield {
         event: 'finish',
         id: lastId,
@@ -172,6 +177,21 @@ async function* convertResponsesStreamChunks(raw: ResponsesStreamChunk): AsyncGe
           usage,
         }
       }
+
+      continue
+    }
+
+    if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+      throwIfResponsesFailed(event.response, true)
+    }
+
+    if (event.type === 'error') {
+      throw new UpstreamChatError({
+        type: 'responses_stream_error',
+        code: event.code ?? undefined,
+        param: event.param ?? undefined,
+        message: event.message,
+      })
     }
   }
 }
@@ -270,4 +290,15 @@ function hasResponseMetadata(
   event: ResponsesStreamEvent
 ): event is Extract<ResponsesStreamEvent, { response: ResponsesCompletion }> {
   return 'response' in event
+}
+
+function throwIfResponsesFailed(raw: Pick<ResponsesCompletion, 'status' | 'error'>, terminalFailure = false): void {
+  if (!terminalFailure && !raw.error && (raw.status === undefined || raw.status === 'completed')) {
+    return
+  }
+
+  throw new UpstreamChatError({
+    code: raw.error?.code ?? raw.status,
+    message: raw.error?.message ?? `Responses API completed with status '${raw.status ?? 'unknown'}'`,
+  })
 }

@@ -10,7 +10,7 @@ import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
-import { getErrorMessage } from '#/server/lib/error-message'
+import { toChatError, validationError } from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
 import {
@@ -51,14 +51,14 @@ const chatHeaderValidator = validator('header', (value, c) => {
     const issue = parsed.error.issues[0]
     const headerName = String(issue?.path[0] ?? 'unknown')
 
-    return c.json({ error: `Missing required header '${headerName}'`, code: 'VALIDATION_ERROR' as const }, 400)
+    return c.json(validationError(`Missing required header '${headerName}'`), 400)
   }
 
   const headers = parsed.data
   const fakeMode = headers['api-key'] === 'fakemode'
 
   if (!fakeMode && !z.string().url().safeParse(headers['base-url']).success) {
-    return c.json({ error: `Invalid url 'base-url'`, code: 'VALIDATION_ERROR' as const }, 400)
+    return c.json(validationError(`Invalid url 'base-url'`), 400)
   }
 
   const { SERVER_PORT: port } = getServerEnv(c)
@@ -90,13 +90,7 @@ const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) =
   const issue = result.error[0]
   const fieldName = formatValidationPath(issue?.path)
 
-  return c.json(
-    {
-      error: `Invalid request body '${fieldName}'`,
-      code: 'VALIDATION_ERROR' as const,
-    },
-    400
-  )
+  return c.json(validationError(`Invalid request body '${fieldName}'`), 400)
 })
 
 const chatSessionStartBodyValidator = sValidator('json', ChatSessionStartRequestSchema, (result, c) => {
@@ -105,13 +99,7 @@ const chatSessionStartBodyValidator = sValidator('json', ChatSessionStartRequest
   const issue = result.error[0]
   const fieldName = formatValidationPath(issue?.path)
 
-  return c.json(
-    {
-      error: `Invalid request body '${fieldName}'`,
-      code: 'VALIDATION_ERROR' as const,
-    },
-    400
-  )
+  return c.json(validationError(`Invalid request body '${fieldName}'`), 400)
 })
 
 function normalizeApiMode(apiMode: ApiMode | undefined): ApiMode {
@@ -259,7 +247,7 @@ const chatRoutes = new Hono<HonoEnv>()
       return c.json(response)
     } catch (err) {
       requestLogger.error({ err }, 'Upstream chat completion failed')
-      return c.json({ error: getErrorMessage(err, 'Upstream error'), code: 'UPSTREAM_ERROR' as const }, 502)
+      return c.json(toChatError(err), 502)
     }
   })
   // SSE ストリーム専用
@@ -302,7 +290,7 @@ const chatRoutes = new Hono<HonoEnv>()
       )
     } catch (err) {
       requestLogger.error({ err }, 'Upstream stream chat failed')
-      return c.json({ error: getErrorMessage(err, 'Upstream error'), code: 'UPSTREAM_ERROR' as const }, 502)
+      return c.json(toChatError(err), 502)
     }
 
     const streamCompletion = completion as StreamChunk | ResponsesStreamChunk
@@ -315,10 +303,21 @@ const chatRoutes = new Hono<HonoEnv>()
         streamCompletion.controller.abort()
       })
 
-      for await (const event of convertStreamChunks(apiMode, streamCompletion)) {
-        requestLogger.debug({ event }, 'Stream event emitted')
-        await stream.writeSSE({ data: JSON.stringify(event) })
-        await new Promise((resolve) => setTimeout(resolve, 10))
+      try {
+        for await (const event of convertStreamChunks(apiMode, streamCompletion)) {
+          requestLogger.debug({ event }, 'Stream event emitted')
+          await stream.writeSSE({ data: JSON.stringify(event) })
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      } catch (err) {
+        requestLogger.error({ err }, 'Stream chat iteration failed')
+        if (!aborted) {
+          await stream.writeSSE({
+            event: 'generation_error',
+            data: JSON.stringify(toChatError(err)),
+          })
+        }
+        return
       }
 
       if (!aborted) {
@@ -367,7 +366,7 @@ const chatRoutes = new Hono<HonoEnv>()
     const session = await chatSessionManager.getSession(sessionId)
 
     if (!session) {
-      return c.json({ error: 'Session not found', code: 'VALIDATION_ERROR' as const }, 404)
+      return c.json(validationError('Session not found'), 404)
     }
 
     return c.json({ session })
@@ -377,7 +376,7 @@ const chatRoutes = new Hono<HonoEnv>()
     const session = await chatSessionManager.getSession(sessionId)
 
     if (!session) {
-      return c.json({ error: 'Session not found', code: 'VALIDATION_ERROR' as const }, 404)
+      return c.json(validationError('Session not found'), 404)
     }
 
     const afterEventId = c.req.header('Last-Event-ID') || c.req.query('afterEventId') || undefined
@@ -397,16 +396,22 @@ const chatRoutes = new Hono<HonoEnv>()
       stream.onAbort(close)
 
       let lastEventId = afterEventId
-      for (const event of await chatSessionManager.readEvents(sessionId, afterEventId)) {
-        await writeSessionEvent(stream, event)
-        lastEventId = event.id
-        if (isTerminalSessionEvent(event)) {
-          close()
-          return
+      const replayEvents = async () => {
+        for (const event of await chatSessionManager.readEvents(sessionId, lastEventId)) {
+          await writeSessionEvent(stream, event)
+          lastEventId = event.id
+          if (isTerminalSessionEvent(event)) {
+            close()
+            return true
+          }
         }
+        return false
       }
 
+      if (await replayEvents()) return
+
       if ((await chatSessionManager.getSession(sessionId))?.status !== 'running') {
+        if (await replayEvents()) return
         close()
         return
       }
@@ -424,17 +429,11 @@ const chatRoutes = new Hono<HonoEnv>()
           })
           .then((nextUnsubscribe) => {
             unsubscribe = nextUnsubscribe
-            void chatSessionManager.readEvents(sessionId, lastEventId).then(async (events) => {
-              for (const event of events) {
-                await writeSessionEvent(stream, event)
-                lastEventId = event.id
-                if (isTerminalSessionEvent(event)) {
-                  close()
-                  resolve()
-                  return
-                }
+            void replayEvents().then((isTerminal) => {
+              if (isTerminal) {
+                resolve()
               }
-            })
+            }, reject)
           })
           .catch(reject)
       })
@@ -447,7 +446,7 @@ const chatRoutes = new Hono<HonoEnv>()
     const session = await chatSessionManager.cancelSession(sessionId, 'user_requested')
 
     if (!session) {
-      return c.json({ error: 'Session not found', code: 'VALIDATION_ERROR' as const }, 404)
+      return c.json(validationError('Session not found'), 404)
     }
 
     return c.json({ status: session.status })

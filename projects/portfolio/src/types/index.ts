@@ -51,6 +51,8 @@ export {
   ChatStreamDeltaEventSchema,
   ChatStreamFinishEventSchema,
   ChatStreamUsageEventSchema,
+  ChatErrorCodeSchema,
+  ChatErrorSchema,
   ChatErrorResponseSchema,
   // Chat API contract types
   type ChatApiRequest,
@@ -60,5 +62,7 @@ export {
   type ChatStreamDeltaEvent,
   type ChatStreamFinishEvent,
   type ChatStreamUsageEvent,
+  type ChatErrorCode,
+  type ChatError,
   type ChatErrorResponse,
 } from './chat-api.js'

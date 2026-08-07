@@ -49,6 +49,32 @@ export const ChatResponseSchema = z.object({
 export type ChatResponse = z.infer<typeof ChatResponseSchema>
 
 // ============================================
+// アプリケーションエラー
+// ============================================
+
+export const ChatErrorCodeSchema = z.enum([
+  'VALIDATION_ERROR',
+  'AUTHENTICATION_FAILED',
+  'MODEL_ACCESS_DENIED',
+  'INSUFFICIENT_CREDIT',
+  'RATE_LIMITED',
+  'INVALID_REQUEST',
+  'UPSTREAM_UNAVAILABLE',
+  'UNKNOWN_UPSTREAM_ERROR',
+])
+
+export type ChatErrorCode = z.infer<typeof ChatErrorCodeSchema>
+
+/** UI に安全に表示できるよう正規化したエラー。provider の生レスポンスは含めない。 */
+export const ChatErrorSchema = z.object({
+  code: ChatErrorCodeSchema,
+  message: z.string(),
+  retryable: z.boolean(),
+})
+
+export type ChatError = z.infer<typeof ChatErrorSchema>
+
+// ============================================
 // SSE ストリームイベント (discriminated union)
 // ============================================
 
@@ -124,7 +150,7 @@ export const ChatSessionMetaSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   completedAt: z.string().nullable(),
-  error: z.string().nullable(),
+  error: ChatErrorSchema.nullable(),
 })
 
 export type ChatSessionMeta = z.infer<typeof ChatSessionMetaSchema>
@@ -166,22 +192,17 @@ export const ChatSessionEventSchema = z.discriminatedUnion('type', [
     }),
   }),
   ChatSessionEventBaseSchema.extend({
-    type: z.literal('error'),
-    data: z.object({
-      message: z.string(),
-    }),
+    type: z.literal('generation_error'),
+    data: ChatErrorSchema,
   }),
 ])
 
 export type ChatSessionEvent = z.infer<typeof ChatSessionEventSchema>
 
 // ============================================
-// 統一エラーレスポンス
+// HTTP エラーレスポンス
 // ============================================
 
-export const ChatErrorResponseSchema = z.object({
-  error: z.string(),
-  code: z.enum(['VALIDATION_ERROR', 'UPSTREAM_ERROR', 'INTERNAL_ERROR']),
-})
+export const ChatErrorResponseSchema = ChatErrorSchema
 
-export type ChatErrorResponse = z.infer<typeof ChatErrorResponseSchema>
+export type ChatErrorResponse = ChatError

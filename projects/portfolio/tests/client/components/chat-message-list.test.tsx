@@ -96,4 +96,30 @@ describe('ChatMessageList', () => {
       expect(screen.queryByRole('img', { name: 'chatbot-icon' })).toBeNull()
     })
   })
+
+  it('生成エラーを assistant message と分けて表示する', () => {
+    render(
+      <ChatMessageList
+        messages={[]}
+        conversationId='conversation-1'
+        markdownPreview={true}
+        sendImagesOnlyOnce={true}
+        loading={false}
+        stream={null}
+        copiedId=''
+        generationError={{
+          code: 'AUTHENTICATION_FAILED',
+          message: 'API キーが無効か、利用を許可されていません。設定を確認してください。',
+          retryable: false,
+        }}
+        messageEndRef={createRef<HTMLDivElement>()}
+        onCopyMessage={vi.fn()}
+        onDeleteMessage={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      'API キーが無効か、利用を許可されていません。設定を確認してください。'
+    )
+  })
 })

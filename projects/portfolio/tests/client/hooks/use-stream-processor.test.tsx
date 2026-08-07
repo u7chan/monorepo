@@ -124,6 +124,7 @@ describe('useStreamProcessor', () => {
     })
 
     expect(response).toEqual({
+      error: null,
       result: {
         id: 'chatcmpl-1',
         created: 1700000000,
@@ -221,6 +222,7 @@ describe('useStreamProcessor', () => {
     })
 
     expect(response).toEqual({
+      error: null,
       result: {
         id: 'chunk-1',
         created: 1700000000,
@@ -276,6 +278,50 @@ describe('useStreamProcessor', () => {
     })
 
     expect(response).toEqual({
+      error: null,
+      result: null,
+      responseTimeMs: expect.any(Number),
+    })
+  })
+
+  it('direct stream の generation_error を assistant 応答にせず返す', async () => {
+    const { useStreamProcessor, chatStreamPostMock } = await importSubject()
+    const encoder = new TextEncoder()
+    const chunks = [
+      encoder.encode(
+        'event: generation_error\ndata: {"code":"RATE_LIMITED","message":"retry later","retryable":true}\n'
+      ),
+    ]
+    chatStreamPostMock.mockResolvedValue({
+      ok: true,
+      body: {
+        getReader() {
+          let index = 0
+          return {
+            read: async () => {
+              if (index >= chunks.length) return { done: true, value: undefined }
+              return { done: false, value: chunks[index++] }
+            },
+          }
+        },
+      },
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+    let response: Awaited<ReturnType<typeof result.current.submitChatCompletion>> | undefined
+    await act(async () => {
+      response = await result.current.submitChatCompletion({
+        ...request,
+        streamMode: true,
+      })
+    })
+
+    expect(response).toEqual({
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'retry later',
+        retryable: true,
+      },
       result: null,
       responseTimeMs: expect.any(Number),
     })
@@ -373,7 +419,7 @@ describe('useStreamProcessor', () => {
       },
     })
     expect(onSessionConversation).toHaveBeenCalledWith(conversation, 'message-assistant-1')
-    expect(sessionStorage.getItem('portfolio.chat.activeSession')).toContain('session-1')
+    expect(sessionStorage.getItem('portfolio.chat.activeSession')).toBeNull()
     expect(chatSessionPostMock).toHaveBeenCalledWith(
       expect.objectContaining({
         header: {
@@ -488,6 +534,129 @@ describe('useStreamProcessor', () => {
         },
       },
     })
+  })
+
+  it('generation_error を assistant 応答へ変換せず専用エラーとして返す', async () => {
+    const { useStreamProcessor, chatSessionPostMock } = await importSubject()
+    const conversation = {
+      id: 'conversation-1',
+      title: 'hello',
+      messages: [
+        {
+          id: 'message-user-1',
+          role: 'user' as const,
+          content: 'hello',
+          metadata: { model: 'gpt-test' },
+        },
+      ],
+    }
+    const eventSources = stubEventSource()
+    chatSessionPostMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ sessionId: 'session-1' }),
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+    const submitChatCompletion = result.current.submitChatCompletion
+    let responsePromise: ReturnType<typeof submitChatCompletion> | undefined
+    act(() => {
+      responsePromise = submitChatCompletion({
+        ...request,
+        streamMode: true,
+        conversation,
+        assistantMessageId: 'message-assistant-1',
+      })
+    })
+
+    await waitFor(() => expect(eventSources).toHaveLength(1))
+    act(() => {
+      eventSources[0].emit('generation_error', {
+        id: 'event-1',
+        sessionId: 'session-1',
+        type: 'generation_error',
+        createdAt: '2026-05-10T00:00:00.000Z',
+        data: {
+          code: 'INSUFFICIENT_CREDIT',
+          message: 'LLM プロバイダーのクレジットが不足しています。API キーの請求状況を確認してください。',
+          retryable: false,
+        },
+      })
+    })
+
+    await act(async () => {
+      await expect(responsePromise).resolves.toMatchObject({
+        result: null,
+        error: {
+          code: 'INSUFFICIENT_CREDIT',
+        },
+      })
+    })
+    expect(result.current.loading).toBe(false)
+    expect(sessionStorage.getItem('portfolio.chat.activeSession')).toBeNull()
+  })
+
+  it('EventSource の切断時に terminal session のエラーを取得する', async () => {
+    const { useStreamProcessor, chatSessionPostMock } = await importSubject()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        session: {
+          id: 'session-1',
+          status: 'error',
+          conversation: { id: 'conversation-1', title: 'hello', messages: [] },
+          assistantMessageId: 'message-assistant-1',
+          apiMode: 'chat_completions',
+          model: 'gpt-test',
+          email: null,
+          createdAt: '2026-05-10T00:00:00.000Z',
+          updatedAt: '2026-05-10T00:00:01.000Z',
+          completedAt: '2026-05-10T00:00:01.000Z',
+          error: {
+            code: 'AUTHENTICATION_FAILED',
+            message: 'API キーが無効か、利用を許可されていません。設定を確認してください。',
+            retryable: false,
+          },
+        },
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const eventSources = stubEventSource()
+    chatSessionPostMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ sessionId: 'session-1' }),
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+    const submitChatCompletion = result.current.submitChatCompletion
+    let responsePromise: ReturnType<typeof submitChatCompletion> | undefined
+    act(() => {
+      responsePromise = submitChatCompletion({
+        ...request,
+        streamMode: true,
+        conversation: {
+          id: 'conversation-1',
+          title: 'hello',
+          messages: [],
+        },
+        assistantMessageId: 'message-assistant-1',
+      })
+    })
+
+    await waitFor(() => expect(eventSources).toHaveLength(1))
+    act(() => {
+      eventSources[0].onerror?.()
+    })
+
+    await act(async () => {
+      await expect(responsePromise).resolves.toMatchObject({
+        result: null,
+        error: {
+          code: 'AUTHENTICATION_FAILED',
+        },
+      })
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/chat/sessions/session-1')
+    expect(result.current.loading).toBe(false)
   })
 
   it('session stream の cancel は RPC で通知し、ローカルでも null 完了する', async () => {

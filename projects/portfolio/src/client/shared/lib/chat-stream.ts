@@ -1,4 +1,4 @@
-import { ChatStreamEventSchema, type ChatStreamEvent } from '#/types/chat-api'
+import { ChatErrorSchema, ChatStreamEventSchema, type ChatError, type ChatStreamEvent } from '#/types/chat-api'
 
 export interface ChatStreamState {
   content: string
@@ -7,6 +7,16 @@ export interface ChatStreamState {
 
 export function parseChatStreamEvent(value: string): ChatStreamEvent {
   return ChatStreamEventSchema.parse(JSON.parse(value))
+}
+
+export function parseChatStreamPayload(value: string): ChatStreamEvent | ChatError {
+  const parsed = JSON.parse(value)
+  const error = ChatErrorSchema.safeParse(parsed)
+  return error.success ? error.data : ChatStreamEventSchema.parse(parsed)
+}
+
+export function isChatStreamError(payload: ChatStreamEvent | ChatError): payload is ChatError {
+  return 'code' in payload
 }
 
 export function updateChatStream(stream: ChatStreamState, event: ChatStreamEvent): ChatStreamState {

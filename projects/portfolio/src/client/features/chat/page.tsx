@@ -169,6 +169,16 @@ export function Chat() {
     }
   }
 
+  const handleSessionCompleted = async (conversation: Conversation): Promise<void> => {
+    if (!email) return
+
+    const shouldReplace = !selectedConversationId
+    if (conversation.id !== selectedConversationId) {
+      navigateToConversation(conversation.id, shouldReplace)
+    }
+    await query.refetch()
+  }
+
   return (
     <ChatLayout
       isSidebarOpen={isSidebarOpen}
@@ -221,6 +231,7 @@ export function Chat() {
           onSubmitting={setSubmitting}
           currentConversation={currentConversation}
           onConversationChange={handleConversationChange}
+          onSessionCompleted={handleSessionCompleted}
           onDeleteMessages={handleDeleteConversationMessage}
         />
       )}
