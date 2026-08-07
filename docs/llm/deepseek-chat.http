@@ -3,7 +3,7 @@
 @baseURL=https://api.deepseek.com
 @uploadImage={{$dotenv UPLOAD_IMAGE}}
 
-#### chat/completions
+### Chat Completions：通常応答
 POST {{ baseURL }}/chat/completions
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}
@@ -18,7 +18,7 @@ Authorization: Bearer {{ apiKey }}
   ]
 }
 
-#### chat/completions - stream
+### Chat Completions：ストリーミング
 POST {{ baseURL }}/chat/completions
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}
@@ -35,7 +35,7 @@ Authorization: Bearer {{ apiKey }}
   "stream_options": { "include_usage": true }
 }
 
-#### chat/completions with image (The image reading is not supported.）
+### Chat Completions：画像入力（非対応）
 POST {{ baseURL }}/chat/completions
 Content-Type: application/json
 Authorization: Bearer {{ apiKey }}

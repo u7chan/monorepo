@@ -1,69 +1,60 @@
-# CI/CDについて
+# CI/CD の仕組みと運用
 
-## まず全体像
+このリポジトリでは、GitHub Actions を使って `projects/` 配下の Docker 対応プロジェクトを検証し、配布用イメージを GitHub Container Registry（GHCR）へ送信します。
 
-このリポジトリでは GitHub Actions を使って、`projects/` 配下の Docker 対応プロジェクトを CI と CD で扱います。
+- **CI** は `main` 向けのプルリクエスト（PR）で動き、OSS ライセンスと Docker ビルドを検証します。
+- **CD** は `main` への push または手動操作で動き、`final` ステージのイメージを GHCR へ送信します。
+- デプロイ先の定義は、このリポジトリでは管理しません。CD の責務は、イメージの送信と古いイメージの削除依頼までです。
 
-- CI は `main` 向け PR で、変更のあったプロジェクトの Dockerfile にある `test` ステージを検証します。
-- CI は dependency manifest / lockfile が変わった Node/Python target の OSS ライセンスも検証します。詳細は [OSSライセンスチェック](./license-check.md) を参照してください。
-- CD は `main` への push または手動実行で、対象プロジェクトの Dockerfile にある `final` ステージを build して GHCR に push します。
-- CD 成功後は、push した image path を `u7chan/self-hosted-runner` 側へ通知し、古い GHCR image の cleanup を起動します。
-- deploy 定義はこのリポジトリでは管理しません。
-
-```mermaid
-flowchart LR
-  subgraph Trigger["Trigger"]
-    PR["main 向け PR<br/>pullrequest-check.yml"]
-    PUSH["main への push<br/>docker-build.yml"]
-    MANUAL["Run workflow<br/>docker-build.yml"]
-  end
-
-  subgraph CI["CI"]
-    CI_DIRS["変更ディレクトリを検出<br/>changed_dirs.txt"]
-    CI_PROJECTS["test ステージを持つ project を抽出<br/>build_projects.txt"]
-    CI_BUILD["--target=test で Docker build"]
-
-    CI_DIRS --> CI_PROJECTS
-    CI_PROJECTS --> CI_BUILD
-  end
-
-  subgraph CD["CD"]
-    CD_AUTO["自動実行<br/>変更ディレクトリを検出"]
-    CD_MANUAL["手動実行<br/>Git ref / project を検証"]
-    CD_BUILD["--target=final で build<br/>image_tag を決定"]
-    GHCR["GHCR に push"]
-    CLEANUP["image cleanup を通知"]
-
-    CD_AUTO --> CD_BUILD
-    CD_MANUAL --> CD_BUILD
-    CD_BUILD --> GHCR
-    GHCR --> CLEANUP
-  end
-
-  PR --> CI_DIRS
-  PUSH --> CD_AUTO
-  MANUAL --> CD_MANUAL
-```
-
-CI と CD は同じ `projects/` 配下を対象にしつつ、使う workflow と Docker stage、実行トリガーが異なります。
-
-## どちらが何をするか
+## CI と CD の違い
 
 | 項目 | CI | CD |
-|---|---|---|
-| Workflow | `pullrequest-check.yml` | `docker-build.yml` |
-| 主なトリガー | `main` 向け PR | `main` への push / manual run |
-| 対象ステージ | `test` | `final` |
-| 目的 | 変更の検証 | 配布用イメージの作成と push |
-| 成果物 | ビルド結果の確認 | GHCR イメージ |
+| --- | --- | --- |
+| ワークフロー | `.github/workflows/pullrequest-check.yml` | `.github/workflows/docker-build.yml` |
+| 起動条件 | `main` 向け PR の作成・更新 | `main` への push、または手動実行 |
+| 主な目的 | 変更内容の検証 | 配布用イメージの作成と送信 |
+| Docker の対象 | `test` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
+| レジストリへの送信 | しない | GHCR へ送信する |
+| イメージタグ | `latest`（ローカルのビルド結果のみ） | 自動実行は `latest`、手動実行は生成タグ |
 
-## 対象になるプロジェクト
+```mermaid
+flowchart TB
+  PR["main 向け PR"] --> CI["CI"]
+  CI --> LICENSE["依存定義の変更を検出<br/>OSS ライセンスを確認"]
+  CI --> CI_PROJECTS["変更プロジェクトを検出<br/>Dockerfile の有無を確認"]
+  CI_PROJECTS --> CI_BUILD["test ステージをビルド<br/>なければ既定ステージをビルド"]
 
-対象は `projects/` 配下にあり、次の条件を満たすディレクトリです。
+  PUSH["main への push"] --> AUTO["CD：自動実行"]
+  MANUAL["Run workflow"] --> MANUAL_CD["CD：手動実行"]
+  AUTO --> FINAL["final ステージをビルド"]
+  MANUAL_CD --> FINAL
+  FINAL --> GHCR["GHCR へ送信"]
+  GHCR --> CLEANUP["古いイメージの削除を依頼"]
+```
 
-- ルートに `Dockerfile` がある
-- CI の対象にするには `test` ステージがある
-- CD の対象にするには `final` ステージがある
+## ビルド対象の決まり方
+
+変更ファイルから、次のマーカーファイルを持つ最寄りのディレクトリをプロジェクトルートとして検出します。
+
+- `package.json`
+- `pyproject.toml`
+- `Dockerfile`
+- `go.mod`
+- `Cargo.toml`
+- `Makefile`
+- `docker-compose.yaml` または `docker-compose.yml`
+
+検出対象は `projects/` 配下です。`projects/<name>`、`projects/_labs/<name>`、`projects/_samples/<name>` の直下にマーカーファイルがある場合は、そのディレクトリを優先します。
+
+CI と CD では、検出後の絞り込み条件が異なります。
+
+| 実行経路 | Docker ビルドの対象 |
+| --- | --- |
+| CI | 変更プロジェクトのうち、ルートに `Dockerfile` があるもの |
+| CD：自動実行 | 上記に加え、`Dockerfile` に `final` ステージがあるもの |
+| CD：手動実行 | 入力した各ディレクトリに `Dockerfile` と `final` ステージがあるもの |
+
+Dockerfile の基本形は次のとおりです。
 
 ```dockerfile
 FROM base AS test
@@ -74,102 +65,79 @@ COPY . .
 CMD ["./start.sh"]
 ```
 
-- `test` ステージだけを持つプロジェクトは CI 専用として扱えます。
-- `final` ステージを持たないプロジェクトは CD の対象になりません。
+CI は `test` ステージを指定してビルドします。ただし、現在のビルドスクリプトは `test` ステージがない場合にターゲット指定を外し、Dockerfile の既定ステージをビルドします。
+一方、CD は対象検出の時点で `final` ステージの有無を確認するため、`final` ステージがないプロジェクトを送信しません。
 
-## CI
+## CI：PR の変更を検証する
 
-### いつ動くか
+### 起動条件
 
-- `main` 向け PR の作成・更新時に実行されます。
-- 対象は `projects/` 配下の変更です。
+`main` 向け PR の作成・更新時に `.github/workflows/pullrequest-check.yml` が起動します。
+ワークフロー自体にはパスの絞り込みがないため、`docs/` だけを変更した PR でも起動しますが、対象がなければライセンスの実スキャンと Docker ビルドは行いません。
 
-### 何をするか
+同じ PR で新しい実行が始まると、進行中の古い実行はキャンセルされます。
 
-```mermaid
-flowchart TD
-  A["PR 更新"] --> B["actions/checkout"]
-  B --> C["変更ディレクトリを検出"]
-  C --> D["test ステージを持つ<br/>変更プロジェクトを抽出"]
-  D --> E["--target=test で Docker build"]
-  E --> F["ビルド結果を表示"]
-```
+### 処理順
 
-### 見るポイント
+1. PR のベースブランチを取得する
+2. 変更ファイルからプロジェクトルートを検出し、`changed_dirs.txt` に保存する
+3. 依存定義の変更からライセンスチェック対象を検出する
+4. 対象があれば OSS ライセンスを確認する
+5. `Dockerfile` がある変更プロジェクトを `build_projects.txt` に保存する
+6. 各プロジェクトを `stage=test` でビルドする
+7. ビルド済み Docker イメージをログに表示する
 
-- PR で失敗した場合、まず `test` ステージが存在するか確認します。
-- CI は push しません。検証だけを行います。
+ライセンスチェックの対象や判定方法は、[OSS ライセンスチェック](./license-check.md)を参照してください。
 
-## CD
+### 失敗時に確認する箇所
 
-### 自動実行と手動実行
+- ライセンスチェックで失敗した場合は、ログの `reason_code` と対象パッケージを確認する
+- Docker ビルドで失敗した場合は、検出されたプロジェクトと `Dockerfile` のステージ名を確認する
+- テストが実行されていない場合は、`Dockerfile` に `AS test` があるか確認する
 
-```mermaid
-flowchart LR
-  AUTO["main への push"] --> A1["変更ディレクトリを検出"]
-  A1 --> A2["final ステージを持つ<br/>変更プロジェクトを抽出"]
-  A2 --> BUILD["--target=final で build"]
-
-  MANUAL["workflow_dispatch"] --> M1["ref と project を入力"]
-  M1 --> M2["入力プロジェクトを検証"]
-  M2 --> BUILD
-
-  BUILD --> PUSH["GHCR へ push"]
-  PUSH --> CLEAN["古い image を cleanup"]
-```
+## CD：イメージを GHCR へ送信する
 
 ### 自動実行
 
-- `main` への push 時に実行されます。
-- 対象は `projects/` 配下の変更です。
-- `final` ステージを持つプロジェクトだけが build / push されます。
-- 短時間に複数の PR がマージされた場合も、最大 100 件をキューに保持して CD を直列実行します。実行中・待機中の CD は後続の push でキャンセルされません。
+`main` への push で `.github/workflows/docker-build.yml` が起動します。
+
+1. 直前のコミットとの差分から変更プロジェクトを検出する
+2. `final` ステージがあるプロジェクトだけを選ぶ
+3. `final` ステージを `latest` タグでビルドする
+4. `ghcr.io/<owner>/<repository>/<project>:latest` へ送信する
+5. 送信したプロジェクトを対象に、古いイメージの削除を依頼する
+
+CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。
 
 ### 手動実行
 
-`docker-build.yml` は `workflow_dispatch` に対応しています。通常のテスト build では GitHub Actions の `Run workflow` からそのまま起動します。
+任意のブランチ、タグ、コミットをビルドしたい場合は、GitHub Actions から `docker-build.yml` を手動実行します。
 
-```mermaid
-sequenceDiagram
-  participant User as 実行者
-  participant GA as GitHub Actions
-  participant Repo as 対象 ref
-  participant GHCR as GHCR
+1. GitHub Actions で **CD** を開き、**Run workflow** を選ぶ
+2. **Use workflow from** は通常 `main` のままにする
+3. **Git ref (branch/tag/SHA)** に、ビルドするブランチ名・タグ・コミットハッシュのいずれかを入力する
+4. **Comma separated project directories** に、`projects/portal` のようなプロジェクトディレクトリを入力する
+5. 複数指定する場合は、`projects/portal,projects/portfolio` のようにカンマで区切る
 
-  User->>GA: Run workflow
-  User->>GA: Git ref / project directories を入力
-  GA->>Repo: 指定した branch / commit を checkout
-  GA->>GA: 対象 project を検証
-  GA->>GA: final ステージを build
-  GA->>GHCR: イメージを push
-  GA-->>User: image_tag / image_path をログ出力
+手動実行では、指定したすべてのプロジェクトに `Dockerfile` と `final` ステージが必要です。一つでも条件を満たさない場合は、ビルド前に失敗します。
+
+### イメージタグ
+
+| 実行方法 | タグ |
+| --- | --- |
+| `main` への push | `latest` |
+| 手動実行 | `manual-<sanitized-ref>-<short-sha>` |
+
+手動実行のタグでは、入力した ref を小文字へ変換し、タグに使えない文字を `-` へ置換します。完了ログには、デプロイ側へ渡す値が次の形式で表示されます。
+
+```text
+image_tag=<generated-tag>
+image_path=monorepo/<project-name> image_tag=<generated-tag>
 ```
 
-入力時の見方は次のとおりです。
+## 古いイメージの削除依頼
 
-- `Use workflow from` は通常 `main` のままで問題ありません。
-- `Git ref (branch name or commit SHA)` に build したい branch 名またはコミットハッシュを入力します。
-- `Comma separated project directories` に `projects/portal` のようなディレクトリを入力します。
-- 手動実行時の build stage は常に `final` です。
-- 手動実行時の image cleanup は常に最新 `3` 件を残します。
-
-手動 build 完了後のログには、次の値が表示されます。
-
-- `image_tag=<generated-tag>`
-- `image_path=monorepo/<project-name> image_tag=<generated-tag>`
-
-### CD の処理順
-
-1. 指定した branch 名またはコミットハッシュを checkout する
-2. 自動実行では変更ディレクトリを検出する
-3. build 対象プロジェクトを `build_projects.txt` に確定する
-4. `--target=final` で Docker build を実行する
-5. `ghcr.io/{repo}/{project}:{image_tag}` へ push する
-6. cleanup 用の `repository_dispatch` を送る
-
-### Cleanup 通知
-
-CD 成功後、`cleanup-docker-images` action が `u7chan/self-hosted-runner` 側へ `repository_dispatch` を送ります。
+GHCR への送信後、`cleanup-docker-images` アクションが `repository_dispatch` を送ります。現行の通知先は `u7chan/self-hosted-runner` です。送信先では、各プロジェクトの新しいイメージを `3` 件残す設定です。
 
 ```json
 {
@@ -183,106 +151,46 @@ CD 成功後、`cleanup-docker-images` action が `u7chan/self-hosted-runner` �
 ```
 
 - `image_path` は `monorepo/<project-name>` のカンマ区切りです。
-- `cleanup_mode` は手動実行時に `manual`、通常の push 実行時に `normal` になります。
-- cleanup 通知は deploy 定義の同期ではなく、GHCR image の保持数整理だけを依頼します。
+- `cleanup_mode` は、自動実行では `normal`、手動実行では `manual` です。
+- この通知はデプロイを指示するものではなく、GHCR に保持するイメージ数の整理を依頼します。
 
-## カスタムアクション
+## カスタムアクションの役割
 
-### 役割の対応表
+| アクション | 入力 | 主な出力・成果物 |
+| --- | --- | --- |
+| `get-changed-directories` | Git の差分 | `changed_dirs.txt` |
+| `get-license-check-targets` | Git の差分 | `license_check_targets.txt`、`LICENSE_CHECK_TARGETS` |
+| `get-changed-projects` | `changed_dirs.txt`、任意の `required-stage` | `build_projects.txt`、`BUILD_PROJECT` |
+| `prepare-manual-build-inputs` | `projects` | 検証済みの `build_projects.txt`、`BUILD_PROJECT` |
+| `set-image-tag` | イベント名、手動実行の ref | `image_tag` |
+| `build-docker-images` | `stage`、`image_tag` | ビルド済み Docker イメージ |
+| `push-docker-images` | 認証情報、`image_tag` | GHCR イメージ、`project_names_csv` |
+| `cleanup-docker-images` | `project-names-csv`、保持数、実行モードなど | 削除処理を始める `repository_dispatch` |
 
-| アクション | 役割 | 主な出力 |
-|---|---|---|
-| `get-changed-directories` | 差分から `projects/` 配下の変更ディレクトリを拾う | `changed_dirs.txt` |
-| `get-changed-projects` | 必要な Docker stage を持つ project を絞り込む | `build_projects.txt`, `BUILD_PROJECT` |
-| `prepare-manual-build-inputs` | 手動実行で指定された project を検証する | `build_projects.txt`, `BUILD_PROJECT` |
-| `set-image-tag` | 実行種別に応じた tag を決める | `image_tag` |
-| `build-docker-images` | Docker image を build する | build 結果 |
-| `push-docker-images` | GHCR に push する | `project_names_csv` |
-| `cleanup-docker-images` | 古い image の cleanup を通知する | cleanup 結果 |
-
-### 各アクションの詳細
-
-#### `get-changed-directories`
-
-- 入力: `HEAD` と比較対象 ref の差分
-- 対象: `projects/` 配下
-- 出力: `changed_dirs.txt`
-
-#### `get-changed-projects`
-
-- 入力: `changed_dirs.txt`
-- オプション: `required-stage`
-- 出力: `build_projects.txt`, `BUILD_PROJECT`
-
-`required-stage` が指定された場合、そのステージを持つ Dockerfile だけが対象になります。
-
-#### `prepare-manual-build-inputs`
-
-- 入力: `projects`
-- 出力: `build_projects.txt`, `BUILD_PROJECT`
-
-手動実行用です。指定されたプロジェクトに `Dockerfile` と `final` ステージがあることを確認します。
-
-#### `set-image-tag`
-
-- push 実行時は `latest`
-- 手動実行時は `manual-<sanitized-ref>-<short-sha>`
-
-#### `build-docker-images`
-
-- 入力: `stage`, `image_tag`
-
-補足:
-
-- `COMMIT_HASH` を build arg として渡します。
-- `pre-docker-build.sh` があれば build 前に実行します。
-
-#### `push-docker-images`
-
-- 入力: `username`, `password`, `image_tag`
-- 出力: `project_names_csv`
-
-push 成功時は、対象プロジェクト名と `image_path=monorepo/<project-name> image_tag=<image_tag>` をログに出します。
-
-#### `cleanup-docker-images`
-
-- 入力: `token`, `repo-name`, `project-names-csv`, `keep-count`, `cleanup-mode`
-
-CD 実行後、不要な古いイメージの cleanup を `deploy_local_trigger` で依頼します。`project-names-csv` は action 内で `monorepo/<project-name>` の `image_path` に変換されます。
-
-## データの受け渡し
-
-```mermaid
-flowchart LR
-  A["changed_dirs.txt"] --> B["build_projects.txt"]
-  B --> C["BUILD_PROJECT"]
-  C --> D["image_tag"]
-  D --> E["project_names_csv"]
-  E --> F["image_path"]
-```
-
-主に `build_projects.txt` と step output を使って、build 対象と cleanup 対象を次の step に渡します。
+`build-docker-images` は、現在の短縮コミットハッシュを `COMMIT_HASH` ビルド引数として渡します。プロジェクトルートに `pre-docker-build.sh` がある場合は、Docker ビルドの前に実行します。
 
 ## トラブルシューティング
 
-### ビルド対象が見つからない
+### ビルド対象が空になる
 
-- 対象が `projects/` 配下か確認する
-- Dockerfile がプロジェクトルートにあるか確認する
-- CI では `test`、CD では `final` ステージがあるか確認する
+1. 変更ファイルが `projects/` 配下にあるか確認する
+2. プロジェクトルートにマーカーファイルがあるか確認する
+3. プロジェクトルートに `Dockerfile` があるか確認する
+4. CD の場合は、`Dockerfile` に `AS final` があるか確認する
 
-### 手動 build で意図した ref が使われない
+### 手動実行で意図した ref を使えない
 
-- `Use workflow from` ではなく `Git ref (branch/tag/SHA)` を確認する
-- `Use workflow from` は通常 `main` のままでよい
+ビルド対象のソースは **Use workflow from** ではなく、**Git ref (branch/tag/SHA)** の入力値で決まります。入力した ref がリポジトリに存在するか、綴りを含めて確認してください。
 
-### push に失敗する
+### GHCR への送信に失敗する
 
-- `PRIVATE_REPO_TOKEN` が正しいか確認する
-- `write:packages` 権限があるか確認する
+- `PRIVATE_REPO_TOKEN` が設定されているか確認する
+- トークンで GHCR へログインし、イメージを送信できるか確認する
+- ログに表示されたイメージ URI とタグが、ビルド時の値と一致しているか確認する
 
-### image cleanup 通知が飛ばない
+### 古いイメージの削除が始まらない
 
-- `PRIVATE_REPO_NAME` が dispatch 先 repo を指しているか確認する
-- `PRIVATE_REPO_TOKEN` に dispatch 先 repo へのアクセス権限があるか確認する
-- `project_names_csv` が空になっていないか確認する
+- `PRIVATE_REPO_NAME` が通知先リポジトリを指しているか確認する
+- `PRIVATE_REPO_TOKEN` で通知先リポジトリへアクセスできるか確認する
+- `push-docker-images` の `project_names_csv` が空でないか確認する
+- `cleanup-docker-images` のログに `Cleanup trigger sent successfully.` があるか確認する

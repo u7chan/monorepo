@@ -1,42 +1,53 @@
 # Dependabot 運用ガイド
 
-## 概要
+このリポジトリでは、Dependabot のバージョン更新を使い、一部プロジェクトの依存パッケージ更新 PR を自動作成します。
+対象プロジェクトと更新条件の正本は [`.github/dependabot.yml`](../.github/dependabot.yml) です。対象一覧を確認するときは、ドキュメントではなく設定ファイルを参照してください。
 
-このリポジトリでは、Dependabot の version updates を使って一部プロジェクトの依存更新 PR を自動作成します。
+## 現在の運用方針
 
-設定ファイルは [`.github/dependabot.yml`](../.github/dependabot.yml) にあります。
+各プロジェクトの設定は、次の方針にそろえています。
 
-対象プロジェクトの一覧はドキュメントに重複記載せず、常に [`.github/dependabot.yml`](../.github/dependabot.yml) を正として確認します。
+| 項目 | 方針 |
+| --- | --- |
+| 対応するパッケージ管理 | Bun、uv |
+| 更新頻度 | 週次 |
+| 同時に開く PR | プロジェクトごとに `1` 件 |
+| minor / patch 更新 | プロジェクト単位で一つの PR にまとめる |
+| major 更新 | 依存パッケージごとに個別 PR を作る |
+| 自動 rebase | 無効 |
 
-## GitHub 側の前提
+公開レジストリだけを使うプロジェクトには、レジストリの追加設定は不要です。非公開レジストリから取得する場合は、`registries` の設定と認証情報を別途追加します。
 
-- 基本的には `.github/dependabot.yml` を既定ブランチに入れるだけで動作する
-- `Dependency Graph` が有効であることを確認する
-- private registry を使う場合だけ `registries` 設定を追加する
+## Dependabot PR を確認する
 
-通常の public registry のみを使う構成であれば、追加の GitHub 設定はほぼ不要です。
+Dependabot PR が作成されたら、次の順に確認します。
 
-## 日常運用
+1. CI が成功しているか確認する
+2. グループ化された PR では、変更が一つのプロジェクトに収まっているか確認する
+3. major 更新では、依存パッケージごとの個別 PR になっているか確認する
+4. 必要な場合は、対象プロジェクトだけをローカルで検証する
+5. 問題がなければ、通常の PR と同じ手順でマージする
 
-1. Dependabot PR が作成されたら CI の結果を確認する
-1. grouped PR の場合は対象が単一 project に閉じていることを確認する
-1. major 更新は grouped ではなく dependency ごとの個別 PR になる前提で扱う
-1. 必要に応じて対象プロジェクトだけローカルで動作確認する
-1. 問題がなければ通常の PR と同様にマージする
-1. 問題がある更新は PR を閉じるか、`ignore` を追加して再発を防ぐ
+更新を取り込めない場合は、PR を閉じます。同じ更新を継続して除外する必要がある場合は、理由を確認したうえで `ignore` を設定します。
 
-## 対象プロジェクトを追加する手順
+`rebase-strategy: "disabled"` を設定しているため、他の PR が先にマージされても Dependabot は自動で rebase しません。競合が発生した PR は手動で確認します。
 
-追加したいプロジェクトが Dependabot 対応のマニフェストを持っていることを確認し、`.github/dependabot.yml` に project ごとの `updates` block を追加します。`directory` は単数形で指定し、non-major のみを group 化します。
+## 対象プロジェクトを追加する
 
-### Bun プロジェクトを追加する場合
+### 1. 対応ファイルを確認する
 
-必要なファイル:
+プロジェクトルートに、対象のパッケージ管理ツールに対応するファイルが必要です。
 
-- `package.json`
-- `bun.lock`
+| パッケージ管理 | 必要なファイル |
+| --- | --- |
+| Bun | `package.json`、`bun.lock` |
+| uv | `pyproject.toml`、`uv.lock` |
 
-設定例:
+### 2. `updates` を追加する
+
+`.github/dependabot.yml` の `updates` に、プロジェクト専用のブロックを追加します。`directory` は単一の文字列で指定し、リポジトリルートから始まる絶対パス形式にします。
+
+#### Bun
 
 ```yaml
 - package-ecosystem: "bun"
@@ -55,14 +66,7 @@
         - "patch"
 ```
 
-### uv プロジェクトを追加する場合
-
-必要なファイル:
-
-- `pyproject.toml`
-- `uv.lock`
-
-設定例:
+#### uv
 
 ```yaml
 - package-ecosystem: "uv"
@@ -81,27 +85,41 @@
         - "patch"
 ```
 
-## よくある調整
+### 3. 設定を確認する
+
+- `package-ecosystem` が実際のパッケージ管理ツールと一致している
+- `directory` がマニフェストとロックファイルのあるディレクトリを指している
+- グループ名が `{project}-minor-and-patch` 形式になっている
+- `update-types` に `major` を含めていない
+- 既存プロジェクトの `updates` と重複していない
+- マージ後、GitHub 上に Dependabot の設定エラーが表示されていない
+
+## 設定を調整する
 
 ### 更新頻度を変える
 
-`schedule.interval` を変更します。
+`schedule.interval` には、次のいずれかを指定します。
 
 - `daily`
 - `weekly`
 - `monthly`
 
-### PR 数を減らす
+```yaml
+schedule:
+  interval: "weekly"
+```
 
-`open-pull-requests-limit` を使うと、同時に開く version update PR の本数を制限できます。project ごとに `1` を指定しておくと、block を分けても PR 数を抑えやすくなります。
+### 同時に開く PR を制限する
+
+`open-pull-requests-limit` は、一つの `updates` ブロックが同時に開くバージョン更新 PR の上限です。現在はプロジェクトごとに `1` を指定しています。
 
 ```yaml
 open-pull-requests-limit: 1
 ```
 
-### minor / patch をまとめる
+### minor / patch 更新をまとめる
 
-同じ project の lockfile を何本も同時に更新しないよう、`groups` で non-major 更新をまとめられます。group 名は `{project}-minor-and-patch` 形式にすると識別しやすくなります。major 更新は group に含めず、dependency ごとの個別 PR に任せます。
+同じプロジェクトのロックファイルを複数の PR が同時に変更しないよう、`groups` で minor / patch 更新をまとめます。major 更新はグループに含めません。
 
 ```yaml
 groups:
@@ -114,19 +132,15 @@ groups:
       - "patch"
 ```
 
-### 自動 rebase を止める
-
-`rebase-strategy: disabled` を指定すると、他の Dependabot PR のマージ後に未マージ PR が自動 rebase されにくくなり、`pull_request` CI の再実行回数を減らせます。
+### 自動 rebase を無効にする
 
 ```yaml
 rebase-strategy: "disabled"
 ```
 
-この設定を入れると CI ノイズは減りますが、競合解消は手動で見る前提になります。
+自動 rebase を無効にすると、依存更新による CI の再実行を抑えられる一方、古くなった PR の競合は手動で解消する必要があります。
 
-### 特定パッケージを無視する
-
-`ignore` を追加します。
+### 特定の依存パッケージを除外する
 
 ```yaml
 ignore:
@@ -135,19 +149,16 @@ ignore:
 
 ### PR にラベルを付ける
 
-`labels` を追加します。
-
 ```yaml
 labels:
   - "dependencies"
 ```
 
-## 注意点
+## PR が作成されないとき
 
-- `bun` と `uv` は別の `updates` ブロックに分ける
-- project ごとに `updates` block を分け、`directory` は単数形で指定する
-- 対象外 project は block を追加しない限り更新されない
-- 同じ lockfile を触る PR が多い場合は `groups` と `open-pull-requests-limit` を優先して調整する
-- major 更新は group 化せず、dependency 単位の個別 PR に任せる
-- `rebase-strategy: disabled` は CI ノイズ低減に有効だが、古い PR の競合は手動確認が必要になる
-- 変更後は GitHub 上で Dependabot 設定エラーが出ていないことを確認する
+1. 対象プロジェクトが `.github/dependabot.yml` に登録されているか確認する
+2. `directory` とマニフェストの配置が一致しているか確認する
+3. 対応するロックファイルが存在するか確認する
+4. GitHub 上に Dependabot の設定エラーがないか確認する
+5. リポジトリの Dependency Graph が有効か確認する
+6. 非公開レジストリを使っている場合は、`registries` と認証情報を確認する

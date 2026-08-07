@@ -1,8 +1,10 @@
-# Example Responses
+# LiteLLM 画像生成のレスポンス例
 
-`gpt-image-1`:
+`litellm-image-generation.http` を実行したときのレスポンス例です。ヘッダー、処理時間、利用量、URL などの値は採取時点の記録であり、実行ごとに変わります。
 
-```sh
+## `gpt-image-1`
+
+```http
 HTTP/1.1 200 OK
 date: Sat, 17 Jan 2026 07:19:15 GMT
 server: uvicorn
@@ -40,9 +42,11 @@ Connection: close
 }
 ```
 
-`dall-e-3`:
+`b64_json` に、Base64 形式の画像データが返されています。この例では、実データの大部分を省略しています。
 
-```sh
+## `dall-e-3`
+
+```http
 HTTP/1.1 200 OK
 date: Sat, 17 Jan 2026 07:29:32 GMT
 server: uvicorn
@@ -81,3 +85,5 @@ Connection: close
   }
 }
 ```
+
+この例では `b64_json` は `null` で、生成画像の URL と `revised_prompt` が返されています。

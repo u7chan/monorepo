@@ -1,7 +1,7 @@
 @litellm_url = {{$dotenv LITELLM_URL}}
 @litellm_api_key = {{$dotenv LITELLM_API_KEY}}
 
-### gpt-image-1
+### 画像生成：gpt-image-1
 POST {{ litellm_url }}/v1/images/generations
 Content-Type: application/json
 Authorization: Bearer {{ litellm_api_key }}
@@ -13,7 +13,7 @@ Authorization: Bearer {{ litellm_api_key }}
   "size": "1024x1024"
 }
 
-### dall-e-3
+### 画像生成：dall-e-3
 POST {{ litellm_url }}/v1/images/generations
 Content-Type: application/json
 Authorization: Bearer {{ litellm_api_key }}
@@ -25,7 +25,7 @@ Authorization: Bearer {{ litellm_api_key }}
   "size": "1024x1024"
 }
 
-### dall-e-2
+### 画像生成：dall-e-2
 POST {{ litellm_url }}/v1/images/generations
 Content-Type: application/json
 Authorization: Bearer {{ litellm_api_key }}
