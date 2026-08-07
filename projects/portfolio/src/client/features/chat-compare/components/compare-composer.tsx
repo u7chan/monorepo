@@ -1,4 +1,5 @@
 import { type ChangeEvent, type KeyboardEvent, useCallback, useState } from 'react'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { ArrowUpIcon } from '#/client/shared/icons/arrow-up-icon'
 import { StopIcon } from '#/client/shared/icons/stop-icon'
 
@@ -64,24 +65,22 @@ export function CompareComposer({
           className='min-h-0 flex-1 resize-none overflow-y-auto rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-700 focus:outline-none focus:ring-0.5 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-500'
         />
         {loading ? (
-          <button
-            type='button'
+          <IconButton
+            label='Stop'
             onClick={onCancel}
-            aria-label='Stop'
-            className='flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-800 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:bg-primary-700 dark:hover:bg-primary-600'
+            className='h-10 w-10 shrink-0 rounded-full bg-primary-800 focus:ring-2 focus:ring-gray-400 hover:bg-primary-700 dark:bg-primary-700 dark:hover:bg-primary-600'
           >
             <StopIcon className='text-white' size={18} />
-          </button>
+          </IconButton>
         ) : (
-          <button
-            type='button'
+          <IconButton
+            label='Send'
             onClick={onSubmit}
             disabled={submitDisabled || value.trim().length === 0}
-            aria-label='Send'
-            className='flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-800 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:cursor-default disabled:opacity-40 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700'
+            className='h-10 w-10 shrink-0 rounded-full bg-primary-800 focus:ring-2 focus:ring-gray-400 disabled:opacity-40 hover:bg-primary-700 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700'
           >
             <ArrowUpIcon className='text-white' size={22} />
-          </button>
+          </IconButton>
         )}
       </div>
     </div>

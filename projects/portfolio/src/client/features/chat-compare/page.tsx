@@ -5,6 +5,7 @@ import { CompareSettings } from '#/client/features/chat-compare/components/compa
 import { ModelChangeConfirmDialog } from '#/client/features/chat-compare/components/model-change-confirm-dialog'
 import { ModelCheckboxList } from '#/client/features/chat-compare/components/model-checkbox-list'
 import { useChatComparePage } from '#/client/features/chat-compare/hooks/use-chat-compare-page'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CloseIcon } from '#/client/shared/icons/close-icon'
 import { GearIcon } from '#/client/shared/icons/gear-icon'
 import { NewChatIcon } from '#/client/shared/icons/new-chat-icon'
@@ -48,15 +49,14 @@ export function ChatCompare() {
           <div className='flex shrink-0 items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-gray-800'>
             <div className='flex items-center gap-2'>
               <h1 className='font-semibold text-gray-800 text-sm dark:text-gray-200'>Chat Compare</h1>
-              <button
-                type='button'
+              <IconButton
+                label='New chat'
                 onClick={handleNewChat}
                 disabled={!hasConversation || isSubmitting}
-                aria-label='New chat'
-                className='flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors enabled:cursor-pointer enabled:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:enabled:hover:bg-gray-700'
+                className='h-8 w-8 rounded-md text-gray-500 transition-colors enabled:hover:bg-gray-200 dark:text-gray-400 dark:enabled:hover:bg-gray-700'
               >
                 <NewChatIcon size={18} className='fill-current' />
-              </button>
+              </IconButton>
             </div>
             <div className='flex items-center gap-2'>
               <button

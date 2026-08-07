@@ -1,3 +1,4 @@
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { GearIcon } from '#/client/shared/icons/gear-icon'
 import { NewChatIcon } from '#/client/shared/icons/new-chat-icon'
 import { SidebarIcon } from '#/client/shared/icons/sidebar-icon'
@@ -45,29 +46,27 @@ export function ChatSettings({
             {/* Left side */}
             <div className='flex items-center gap-2'>
               {showSidebarToggle && (
-                <button
-                  type='button'
+                <IconButton
+                  label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
                   onClick={onToggleSidebar}
                   disabled={isSidebarToggleDisabled}
-                  aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
                   aria-expanded={isSidebarOpen}
-                  className='flex items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
+                  className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
                 >
                   <SidebarIcon
                     variant={isSidebarOpen ? 'collapse' : 'expand'}
                     className='text-[#5D5D5D] dark:text-gray-300'
                   />
-                </button>
+                </IconButton>
               )}
               {showNewChat && (
-                <button
-                  type='button'
+                <IconButton
+                  label='New chat'
                   onClick={onNewChat}
-                  aria-label='New chat'
-                  className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
+                  className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
                 >
                   <NewChatIcon className='text-[#5D5D5D] dark:text-gray-300' />
-                </button>
+                </IconButton>
               )}
             </div>
             {/* Right side */}
@@ -75,14 +74,13 @@ export function ChatSettings({
               <span className='max-w-48 truncate text-xs font-medium text-gray-500 dark:text-gray-400'>
                 {contextValue.fakeMode ? 'Fake Mode' : contextValue.settings.model}
               </span>
-              <button
-                type='button'
+              <IconButton
+                label='Settings'
                 onClick={onShowMenu}
-                aria-label='Settings'
-                className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
+                className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
               >
                 <GearIcon className='text-[#5D5D5D] dark:text-gray-300' />
-              </button>
+              </IconButton>
             </div>
           </>
         )}

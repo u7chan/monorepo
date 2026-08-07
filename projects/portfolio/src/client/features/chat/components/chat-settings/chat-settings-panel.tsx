@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CloseIcon } from '#/client/shared/icons/close-icon'
 
 interface Props {
@@ -33,14 +34,13 @@ export function ChatSettingsPanel({ show, children, onClose }: Props) {
           <h2 id='chat-settings-title' className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
             Chat Settings
           </h2>
-          <button
-            type='button'
+          <IconButton
+            label='Close settings'
             onClick={onClose}
-            className='flex cursor-pointer items-center justify-center rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200 dark:focus:ring-gray-500'
-            aria-label='Close settings'
+            className='rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200'
           >
             <CloseIcon className='fill-current' />
-          </button>
+          </IconButton>
         </div>
 
         {/* Settings Content - Scrollable */}

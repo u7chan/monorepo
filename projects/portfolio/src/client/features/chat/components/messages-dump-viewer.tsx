@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { useLockBodyScroll } from '#/client/shared/hooks/use-lock-body-scroll'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
 import { CloseIcon } from '#/client/shared/icons/close-icon'
@@ -56,9 +57,6 @@ export function MessagesDumpViewer({ messages, apiContextMessages, open, onClose
     setCopied(true)
   }
 
-  const iconButtonClass =
-    'flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
-
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>
       <div className='fixed inset-0 bg-black/50' onClick={onClose} aria-hidden='true' />
@@ -99,12 +97,15 @@ export function MessagesDumpViewer({ messages, apiContextMessages, open, onClose
             )}
           </div>
           <div className='flex items-center gap-1'>
-            <button
-              type='button'
-              className={`${iconButtonClass} ${copied ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
+            <IconButton
+              label={copied ? 'Copied' : 'Copy JSON'}
               onClick={handleCopy}
               disabled={copied}
-              aria-label={copied ? 'Copied' : 'Copy JSON'}
+              className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out dark:text-gray-300 disabled:opacity-100 ${
+                copied
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
+              }`}
             >
               <span
                 aria-hidden='true'
@@ -122,10 +123,14 @@ export function MessagesDumpViewer({ messages, apiContextMessages, open, onClose
               >
                 <CheckIcon size={18} className='stroke-current' />
               </span>
-            </button>
-            <button type='button' className={iconButtonClass} onClick={onClose} aria-label='Close viewer'>
+            </IconButton>
+            <IconButton
+              label='Close viewer'
+              onClick={onClose}
+              className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
+            >
               <CloseIcon size={20} />
-            </button>
+            </IconButton>
           </div>
         </div>
         {hasApiContext && view === 'apiContext' && (

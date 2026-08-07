@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import type { ModelStreamState } from '#/client/features/chat-compare/hooks/use-compare-state'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
 import { CopyIcon } from '#/client/shared/icons/copy-icon'
 import { RefreshIcon } from '#/client/shared/icons/refresh-icon'
@@ -46,16 +47,15 @@ interface CopyMessageButtonProps {
 
 function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
   return (
-    <button
-      type='button'
-      className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 disabled:cursor-default ${
+    <IconButton
+      label={copied ? 'Copied' : 'Copy message'}
+      onClick={onClick}
+      disabled={copied}
+      className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out dark:text-gray-300 disabled:opacity-100 ${
         copied
           ? 'text-emerald-600 dark:text-emerald-400'
           : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
       }`}
-      onClick={onClick}
-      disabled={copied}
-      aria-label={copied ? 'Copied' : 'Copy message'}
     >
       <span
         aria-hidden='true'
@@ -73,7 +73,7 @@ function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
       >
         <CheckIcon size={20} className='stroke-current' />
       </span>
-    </button>
+    </IconButton>
   )
 }
 
@@ -136,24 +136,22 @@ export function CompareColumn({ state, onCancelModel, onRetryModel }: CompareCol
         </span>
         <span className='flex shrink-0 items-center gap-1'>
           {isActive && onCancelModel && (
-            <button
-              type='button'
+            <IconButton
+              label={`Stop ${model}`}
               onClick={() => onCancelModel(model)}
-              aria-label={`Stop ${model}`}
-              className='flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-white'
+              className='h-7 w-7 rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-white'
             >
               <StopIcon size={14} className='fill-current' />
-            </button>
+            </IconButton>
           )}
           {isStopped && onRetryModel && (
-            <button
-              type='button'
+            <IconButton
+              label={`Retry ${model}`}
               onClick={() => onRetryModel(model)}
-              aria-label={`Retry ${model}`}
-              className='flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-white'
+              className='h-7 w-7 rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-white'
             >
               <RefreshIcon size={14} className='fill-current' />
-            </button>
+            </IconButton>
           )}
         </span>
       </div>

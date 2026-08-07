@@ -2,6 +2,7 @@ import type { AnchorHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent, R
 import { createContext, useContext, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
 import { ChevronRightIcon } from '#/client/shared/icons/chevron-right-icon'
 import { CopyIcon } from '#/client/shared/icons/copy-icon'
@@ -121,12 +122,11 @@ export interface CodeBlockPreviewButtonProps {
 
 export function CodeBlockPreviewButton({ onClick, pending, disabled }: CodeBlockPreviewButtonProps) {
   return (
-    <button
-      type='button'
+    <IconButton
+      label={pending ? 'Checking preview' : 'Preview code block'}
       onClick={onClick}
       disabled={pending || disabled}
-      aria-label={pending ? 'Checking preview' : 'Preview code block'}
-      className='relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+      className='relative inline-flex h-8 w-8 rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
     >
       {pending ? (
         <svg viewBox='0 0 24 24' aria-hidden='true' fill='none' className='h-[18px] w-[18px] animate-spin'>
@@ -136,7 +136,7 @@ export function CodeBlockPreviewButton({ onClick, pending, disabled }: CodeBlock
       ) : (
         <EyeIcon size={18} className='stroke-current' />
       )}
-    </button>
+    </IconButton>
   )
 }
 
@@ -166,12 +166,11 @@ export interface CodeBlockGenerateButtonProps {
 
 export function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBlockGenerateButtonProps) {
   return (
-    <button
-      type='button'
+    <IconButton
+      label={pending ? 'Generating preview' : 'Generate preview'}
       onClick={onClick}
       disabled={pending || disabled}
-      aria-label={pending ? 'Generating preview' : 'Generate preview'}
-      className='relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+      className='relative inline-flex h-8 w-8 rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out hover:bg-gray-200 hover:text-gray-800 disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
     >
       {pending ? (
         <svg viewBox='0 0 24 24' aria-hidden='true' fill='none' className='h-[18px] w-[18px] animate-spin'>
@@ -181,7 +180,7 @@ export function CodeBlockGenerateButton({ onClick, pending, disabled }: CodeBloc
       ) : (
         <SparkleIcon size={18} className='stroke-current' />
       )}
-    </button>
+    </IconButton>
   )
 }
 
@@ -193,15 +192,14 @@ interface CodeBlockCopyButtonProps {
 
 function CodeBlockCopyButton({ copied, onClick, disabled }: CodeBlockCopyButtonProps) {
   return (
-    <button
-      type='button'
+    <IconButton
+      label={copied ? 'Copied code block' : 'Copy code block'}
       onClick={onClick}
       disabled={copied || disabled}
-      aria-label={copied ? 'Copied code block' : 'Copy code block'}
-      className={`relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 ${
+      className={`relative inline-flex h-8 w-8 rounded-md text-gray-600 transition-[background-color,color] duration-200 ease-out dark:text-gray-300 ${
         copied
-          ? 'text-emerald-600 disabled:cursor-default dark:text-emerald-400'
-          : 'hover:bg-gray-200 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:disabled:hover:bg-transparent dark:disabled:hover:text-gray-300'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'hover:bg-gray-200 hover:text-gray-800 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:disabled:hover:bg-transparent dark:disabled:hover:text-gray-300'
       }`}
     >
       <span className='relative h-[18px] w-[18px]' aria-hidden='true'>
@@ -220,7 +218,7 @@ function CodeBlockCopyButton({ copied, onClick, disabled }: CodeBlockCopyButtonP
           <CheckIcon size={18} className='stroke-current' />
         </span>
       </span>
-    </button>
+    </IconButton>
   )
 }
 
@@ -306,12 +304,11 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
       <div className='flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-1.5 dark:border-gray-600 dark:bg-[#282c34]'>
         <div className='flex items-center gap-1'>
           {canCollapse && (
-            <button
-              type='button'
+            <IconButton
+              label={isOpen ? 'Collapse code block' : 'Expand code block'}
               onClick={toggle}
               aria-expanded={isOpen}
-              aria-label={isOpen ? 'Collapse code block' : 'Expand code block'}
-              className='inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-600 transition-colors duration-200 ease-out hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
+              className='inline-flex h-6 w-6 rounded text-gray-600 transition-colors duration-200 ease-out hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700'
             >
               <span
                 className={`inline-flex transition-transform duration-200 ease-out motion-reduce:transition-none ${
@@ -320,7 +317,7 @@ export function CodeBlockRenderer({ className, children, actions }: CodeBlockRen
               >
                 <ChevronRightIcon size={10} />
               </span>
-            </button>
+            </IconButton>
           )}
           <div className='relative'>
             <select
