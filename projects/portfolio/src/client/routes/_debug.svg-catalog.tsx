@@ -1,5 +1,6 @@
 import { createRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import type { IconProps } from '../shared/icons/icon-base'
 import { Route as RootRoute } from './__root'
 
 const modules = import.meta.glob('../shared/icons/*-icon.tsx', { eager: true })
@@ -7,15 +8,41 @@ const modules = import.meta.glob('../shared/icons/*-icon.tsx', { eager: true })
 interface IconEntry {
   fileName: string
   componentName: string
-  Component: React.FC<{ size?: number }>
+  Component: React.ComponentType<IconProps & Record<string, unknown>>
 }
+
+interface VariantSpec {
+  componentName: string
+  variants: {
+    label: string
+    props: Partial<IconProps & Record<string, unknown>>
+  }[]
+}
+
+const variantSpecs: VariantSpec[] = import.meta.env.DEV
+  ? [
+      {
+        componentName: 'SidebarIcon',
+        variants: [
+          { label: 'collapse', props: { variant: 'collapse' } },
+          { label: 'expand', props: { variant: 'expand' } },
+        ],
+      },
+    ]
+  : []
 
 const icons: IconEntry[] = Object.entries(modules).map(([path, mod]) => {
   const fileName = path.split('/').pop() ?? ''
   const componentName = Object.keys(mod as Record<string, unknown>).find((k) => k.endsWith('Icon')) ?? ''
-  const Component = (mod as Record<string, unknown>)[componentName] as React.FC<{ size?: number }>
+  const Component = (mod as Record<string, unknown>)[componentName] as React.ComponentType<
+    IconProps & Record<string, unknown>
+  >
   return { fileName, componentName, Component }
 })
+
+function findVariants(componentName: string) {
+  return variantSpecs.find((spec) => spec.componentName === componentName)?.variants ?? []
+}
 
 export const Route = createRoute({
   getParentRoute: () => RootRoute,
@@ -84,16 +111,38 @@ function SvgCatalog() {
         </button>
       </div>
       <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
-        {icons.map(({ fileName, componentName, Component }) => (
-          <div
-            key={componentName}
-            className='flex flex-col items-center gap-2 rounded border border-gray-200 p-4 text-gray-900 dark:border-gray-700 dark:text-white'
-          >
-            <Component size={32} />
-            <span className='text-xs text-gray-500'>{componentName}</span>
-            <span className='text-[10px] text-gray-400'>{fileName}</span>
-          </div>
-        ))}
+        {icons.map(({ fileName, componentName, Component }) => {
+          const variants = findVariants(componentName)
+          return (
+            <div
+              key={componentName}
+              className='flex flex-col gap-2 rounded border border-gray-200 p-4 text-gray-900 dark:border-gray-700 dark:text-white'
+            >
+              <div className='text-blue-600 dark:text-blue-400'>
+                <Component size={48} label={componentName} />
+              </div>
+              <span className='text-xs text-gray-500'>{componentName}</span>
+              <span className='text-[10px] text-gray-400'>{fileName}</span>
+              {variants.length > 0 && (
+                <div className='mt-2 border-t border-gray-200 pt-2 dark:border-gray-700'>
+                  <span className='text-[10px] font-semibold text-gray-400 uppercase tracking-wide'>Variants</span>
+                  {variants.map((v) => (
+                    <div key={v.label} className='mt-1 flex flex-col items-center gap-1'>
+                      <div className='text-green-600 dark:text-green-400'>
+                        <Component
+                          size={48}
+                          label={`${componentName} ${v.label}`}
+                          {...(v.props as IconProps & Record<string, unknown>)}
+                        />
+                      </div>
+                      <span className='text-[10px] text-gray-500'>{v.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
