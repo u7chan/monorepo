@@ -321,7 +321,7 @@ function MessageRendererComponent({
   return (
     <div className='flex'>
       <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-800'>
-        <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-white' />
+        <ChatbotIcon size={32} className='text-gray-600 dark:text-white' />
       </div>
       <div className='message group ml-2 min-w-0 flex-1 text-left'>
         {message.reasoningContent && <ReasoningSection content={message.reasoningContent} />}

@@ -1,18 +1,16 @@
-import type { ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 
-export interface IconProps {
-  size?: number
-  className?: string
+export type IconProps = Omit<ComponentPropsWithoutRef<'svg'>, 'children' | 'width' | 'height' | 'aria-label'> & {
+  size?: number | string
+  label?: string
 }
 
-interface SvgIconProps {
-  size?: number
+interface SvgIconProps extends IconProps {
   viewBox?: string
-  title: string
   children: ReactNode
 }
 
-export function SvgIcon({ size = 24, viewBox = '0 0 24 24', title, children }: SvgIconProps) {
+export function SvgIcon({ size = 24, viewBox = '0 0 24 24', label, children, className, ...rest }: SvgIconProps) {
   return (
     <svg
       width={size}
@@ -20,8 +18,11 @@ export function SvgIcon({ size = 24, viewBox = '0 0 24 24', title, children }: S
       viewBox={viewBox}
       fill='none'
       xmlns='http://www.w3.org/2000/svg'
-      role='img'
-      aria-label={title}
+      {...rest}
+      className={className}
+      role={label ? 'img' : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
     >
       {children}
     </svg>

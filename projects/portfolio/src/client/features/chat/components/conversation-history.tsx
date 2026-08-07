@@ -53,7 +53,7 @@ export function ConversationHistory({
           disabled={disabled}
           className='flex w-full items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 font-medium text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:enabled:bg-gray-600'
         >
-          <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' size={16} />
+          <NewChatIcon className='text-[#5D5D5D] dark:text-gray-300' size={16} />
           新しい会話
         </button>
       </div>
@@ -101,7 +101,7 @@ export function ConversationHistory({
                         </h3>
                         <div className='mt-1 flex items-center gap-2 text-gray-500 text-xs dark:text-gray-400'>
                           <span className='inline-flex shrink-0 items-center gap-1 tabular-nums'>
-                            <MessageIcon size={12} className='stroke-gray-400 dark:stroke-gray-500' />
+                            <MessageIcon size={12} className='text-gray-400 dark:text-gray-500' />
                             <span>{conversation.messages.length}</span>
                           </span>
                           {getConversationDateLabel(conversation) && (

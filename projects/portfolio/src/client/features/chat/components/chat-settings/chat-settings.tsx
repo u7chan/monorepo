@@ -49,11 +49,13 @@ export function ChatSettings({
                   type='button'
                   onClick={onToggleSidebar}
                   disabled={isSidebarToggleDisabled}
+                  aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+                  aria-expanded={isSidebarOpen}
                   className='flex items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
                 >
                   <SidebarIcon
                     variant={isSidebarOpen ? 'collapse' : 'expand'}
-                    className='fill-[#5D5D5D] dark:fill-gray-300'
+                    className='text-[#5D5D5D] dark:text-gray-300'
                   />
                 </button>
               )}
@@ -61,9 +63,10 @@ export function ChatSettings({
                 <button
                   type='button'
                   onClick={onNewChat}
+                  aria-label='New chat'
                   className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
                 >
-                  <NewChatIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+                  <NewChatIcon className='text-[#5D5D5D] dark:text-gray-300' />
                 </button>
               )}
             </div>
@@ -75,9 +78,10 @@ export function ChatSettings({
               <button
                 type='button'
                 onClick={onShowMenu}
+                aria-label='Settings'
                 className='flex cursor-pointer items-center justify-center rounded-md p-2 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-gray-500'
               >
-                <GearIcon className='fill-[#5D5D5D] dark:fill-gray-300' />
+                <GearIcon className='text-[#5D5D5D] dark:text-gray-300' />
               </button>
             </div>
           </>

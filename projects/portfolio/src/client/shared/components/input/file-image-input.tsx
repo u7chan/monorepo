@@ -108,9 +108,10 @@ export function FileImagePreview({ maxImages = 3, src, contextLabel, children, o
           <button
             type='button'
             onClick={handleHideImage}
+            aria-label='Close preview'
             className='absolute top-0 right-0 font-bold text-2xl text-white hover:text-gray-300'
           >
-            <CloseIcon size={48} className='fill-white' />
+            <CloseIcon size={48} className='text-white' />
           </button>
         </div>
       )}
@@ -141,9 +142,10 @@ function ImagePreview({ src, contextLabel, onImageClick, onCloseClick }: ImagePr
       <button
         type='button'
         onClick={onCloseClick}
+        aria-label='Remove image'
         className='absolute -top-2 left-9.5 flex cursor-pointer items-center justify-center rounded-full border bg-primary-800 hover:bg-primary-700'
       >
-        <CloseIcon size={16} className='fill-white' />
+        <CloseIcon size={16} className='text-white' />
       </button>
       {contextLabel && (
         <span className='absolute -bottom-2 left-1/2 max-w-24 -translate-x-1/2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300'>

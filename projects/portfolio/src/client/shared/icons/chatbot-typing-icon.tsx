@@ -1,8 +1,8 @@
 import { type IconProps, SvgIcon } from './icon-base'
 
-export function ChatbotTypingIcon({ size = 24, className = 'stroke-black dark:stroke-white' }: IconProps) {
+export function ChatbotTypingIcon({ size = 24, label, className, ...rest }: IconProps) {
   return (
-    <SvgIcon size={size} viewBox='0 0 400 400' title='chatbot-typing-icon'>
+    <SvgIcon size={size} viewBox='0 0 400 400' label={label} className={className} {...rest}>
       <style>{`
         .bot-root { transform-origin: center; animation: botBob 0.8s ease-in-out infinite; }
         .bot-head { transform-origin: 190px 150px; animation: botHeadSwing 0.52s ease-in-out infinite; }
@@ -58,6 +58,12 @@ export function ChatbotTypingIcon({ size = 24, className = 'stroke-black dark:st
           0%, 100% { transform: translateY(0); opacity: 0; }
           50% { transform: translateY(-12px); opacity: 1; }
         }
+
+        @media (prefers-reduced-motion: reduce) {
+          .bot-root, .bot-head, .bot-arm-left, .bot-arm-1, .bot-arm-2, .bot-eye, .spark-1, .spark-2, .spark-3 {
+            animation: none;
+          }
+        }
       `}</style>
 
       <g
@@ -66,7 +72,7 @@ export function ChatbotTypingIcon({ size = 24, className = 'stroke-black dark:st
         strokeWidth='16'
         strokeLinecap='round'
         strokeLinejoin='round'
-        className={`bot-root ${className}`}
+        className='bot-root'
       >
         <g className='bot-head'>
           <path d='M97.8357 54.6682C177.199 59.5311 213.038 52.9891 238.043 52.9891C261.298 52.9891 272.24 129.465 262.683 152.048C253.672 173.341 100.331 174.196 93.1919 165.763C84.9363 156.008 89.7095 115.275 89.7095 101.301' />

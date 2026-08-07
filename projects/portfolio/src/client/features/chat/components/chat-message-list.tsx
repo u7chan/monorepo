@@ -114,9 +114,9 @@ export function ChatMessageList({
           <div className='flex align-item'>
             <div className='flex h-8 w-8 justify-center rounded-full border border-gray-300 bg-white align-center dark:border-gray-600 dark:bg-gray-800'>
               {stream ? (
-                <ChatbotTypingIcon size={32} className='stroke-gray-600 dark:stroke-white' />
+                <ChatbotTypingIcon size={32} className='text-gray-600 dark:text-white' />
               ) : (
-                <ChatbotIcon size={32} className='stroke-gray-600 dark:stroke-white' />
+                <ChatbotIcon size={32} className='text-gray-600 dark:text-white' />
               )}
             </div>
             {stream ? (
@@ -159,7 +159,7 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className='ml-2 scale-75'>
-                <SpinnerIcon />
+                <SpinnerIcon label='Loading' />
               </div>
             )}
           </div>

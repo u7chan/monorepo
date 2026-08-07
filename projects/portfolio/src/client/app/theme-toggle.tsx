@@ -25,11 +25,7 @@ export function ThemeToggle({ className = '', size = 'md' }: ThemeToggleProps) {
       aria-label={isDark ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
       className={`flex items-center justify-center rounded bg-gray-200 text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 ${sizeClasses[size]} ${className}`}
     >
-      {isDark ? (
-        <SunIcon size={iconSize[size]} className='stroke-current' />
-      ) : (
-        <MoonIcon size={iconSize[size]} className='fill-current' />
-      )}
+      {isDark ? <SunIcon size={iconSize[size]} /> : <MoonIcon size={iconSize[size]} />}
     </button>
   )
 }
