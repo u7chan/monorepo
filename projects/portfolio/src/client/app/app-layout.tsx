@@ -54,7 +54,7 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           aria-label={isMobileMenuOpen ? 'メニューを閉じる' : 'メニューを開く'}
           aria-expanded={isMobileMenuOpen}
-          className='p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700'
+          className='p-2 rounded text-gray-900 hover:bg-gray-200 dark:text-white dark:hover:bg-gray-700'
         >
           {/* ハンバーガーアイコン */}
           <HamburgerIcon />
