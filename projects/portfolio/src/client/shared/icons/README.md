@@ -59,7 +59,7 @@ export function FooIcon({ size = 24, label, className, ...rest }: IconProps) {
 ### `defs` 内の ID
 
 - `defs` で ID 参照（`url(#foo)`）が必要な場合は、複数インスタンス同時描画時に ID 衝突が起きないようユニークな ID を生成する
-- 方法: `useId()` またはコンポーネント名を含むプレフィックスをつける
+- 方法: React の `useId()` を使用する。これにより同一コンポーネントのインスタンスごとに異なる ID が生成され、複数同時描画でも衝突しない
 
 ## 外部素材の利用
 
