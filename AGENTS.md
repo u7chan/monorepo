@@ -1,0 +1,6 @@
+- main への直pushは禁止。必ずブランチを作成してPRを出す。
+- ワークツリー、ブランチ名は小文字のkebab-case（ex: `feat/xxx-yyy`）
+- コミットメッセージはプレフィックスをつけて英語で記述する（例: `feat(portfolio): add custom field`）
+- Issue/PRは日本語で書く
+- PRの作成には `.github/pull_request_template.md` を使用する。
+- PRのフィードバックに対応したら、必ず当該コメントに返信する。インラインコメントでない場合は `Re: ` をつけて全体コメントで返信する。

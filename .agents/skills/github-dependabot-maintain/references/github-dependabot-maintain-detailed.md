@@ -5,7 +5,7 @@
 The complete maintenance script is at:
 
 ```
-.claude/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
+.agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 ```
 
 It loads the existing `.github/dependabot.yml`, preserves settings for
@@ -23,7 +23,7 @@ python3 -m pip install pyyaml
 Then run from the repository root:
 
 ```bash
-python3 .claude/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
+python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 ```
 
 ## What the script does
