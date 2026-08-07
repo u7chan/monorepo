@@ -98,16 +98,30 @@ Dependabot PR が作成されたら、次の順に確認します。
 
 ### 更新頻度を変える
 
-`schedule.interval` には、次のいずれかを指定します。
+このリポジトリでは `weekly` を使用しています。`schedule.interval` で指定できる値は次のとおりです。
 
 - `daily`
 - `weekly`
 - `monthly`
+- `quarterly`
+- `semiannually`
+- `yearly`
+- `cron`
 
 ```yaml
 schedule:
   interval: "weekly"
 ```
+
+`cron` を指定する場合は、同じ `schedule` ブロックに `cronjob` が必要です。
+
+```yaml
+schedule:
+  interval: "cron"
+  cronjob: "0 9 * * *"
+```
+
+各値の実行タイミングと追加オプションは、[GitHub の公式リファレンス](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)を確認してください。
 
 ### 同時に開く PR を制限する
 

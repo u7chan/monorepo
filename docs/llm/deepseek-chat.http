@@ -1,5 +1,6 @@
 @apiKey={{$dotenv DEEPSEEK_API_KEY}}
-@model=deepseek-chat
+# deepseek-chat は 2026-07-24 に停止。後継は deepseek-v4-flash。
+@model=deepseek-v4-flash
 @baseURL=https://api.deepseek.com
 @uploadImage={{$dotenv UPLOAD_IMAGE}}
 

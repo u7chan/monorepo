@@ -1,6 +1,10 @@
-# LiteLLM 画像生成のレスポンス例
+# LiteLLM 画像生成のレスポンス記録（2026年1月）
 
-`litellm-image-generation.http` を実行したときのレスポンス例です。ヘッダー、処理時間、利用量、URL などの値は採取時点の記録であり、実行ごとに変わります。
+> [!WARNING]
+> これは2026年1月17日時点の履歴資料です。現在の実行用サンプルではありません。
+> `dall-e-3` は2026年5月12日に停止しています。
+
+当時の `litellm-image-generation.http` を実行したときのレスポンスです。ヘッダー、処理時間、利用量、URL などの値は採取時点の記録であり、実行ごとに変わります。現在使用するモデルは、[`litellm-image-generation.http`](./litellm-image-generation.http)を確認してください。
 
 ## `gpt-image-1`
 

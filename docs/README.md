@@ -6,7 +6,7 @@
 
 | 目的 | 文書 |
 | --- | --- |
-| PR と `main` マージ後に動く CI/CD を理解する | [CI/CD の仕組みと運用](./about-cicd.md) |
+| `main` 向け PR の検証と、`main` へのマージ後の配布処理を理解する | [CI/CD の仕組みと運用](./about-cicd.md) |
 | Dependabot の PR を確認する、対象プロジェクトを追加する | [Dependabot 運用ガイド](./dependabot-guide.md) |
 | OSS ライセンスチェックをローカルで実行する、CI の失敗を調べる | [OSS ライセンスチェック](./license-check.md) |
 | `projects/` 配下の配置先を判断する | [`projects/` の分類ルール](./projects-classification.md) |
