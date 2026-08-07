@@ -3,12 +3,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
-import type { AssistantMessage, Conversation, UserMessage } from '#/types'
+import type { AssistantMessage, Conversation, Message, UserMessage } from '#/types'
 
 const useMessageScrollMock = vi.fn()
 const scrollToMessageEndMock = vi.fn()
 const submitChatCompletionMock = vi.fn()
 const resumeActiveChatCompletionMock = vi.fn()
+const buildChatMessagesMock = vi.fn()
+const resetAfterSubmitMock = vi.fn()
 let hasActiveChatSessionMock = false
 let streamProcessorParams: Record<string, unknown> | null = null
 let chatMessageListProps: Record<string, unknown> | null = null
@@ -34,8 +36,8 @@ vi.mock('#/client/features/chat/hooks/use-chat-form', () => ({
     handleChangeInput: vi.fn(),
     handleKeyDown: vi.fn(),
     handleChangeComposition: vi.fn(),
-    buildChatMessages: vi.fn(),
-    resetAfterSubmit: vi.fn(),
+    buildChatMessages: buildChatMessagesMock,
+    resetAfterSubmit: resetAfterSubmitMock,
   }),
 }))
 
@@ -128,8 +130,12 @@ describe('ChatMain', () => {
     chatMessageListProps = null
     streamProcessorParams = null
     hasActiveChatSessionMock = false
+    buildChatMessagesMock.mockReset()
+    buildChatMessagesMock.mockReturnValue(null)
+    resetAfterSubmitMock.mockReset()
     resumeActiveChatCompletionMock.mockResolvedValue(null)
     submitChatCompletionMock.mockResolvedValue({
+      error: null,
       result: {
         message: {
           content: '編集後の回答',
@@ -183,6 +189,48 @@ describe('ChatMain', () => {
       },
       responseTimeMs: 123,
     })
+    const onSessionCompleted = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain settings={settings} currentConversation={currentConversation} onSessionCompleted={onSessionCompleted} />
+    )
+
+    await waitFor(() => {
+      expect(resumeActiveChatCompletionMock).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(onSessionCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'conversation-1',
+          messages: [
+            expect.objectContaining({ id: 'message-1' }),
+            expect.objectContaining({ id: 'message-2' }),
+            expect.objectContaining({ id: 'message-3' }),
+            expect.objectContaining({ id: 'message-4', content: '続きの回答' }),
+          ],
+        })
+      )
+    })
+  })
+
+  it('session resume のエラーを assistant message にせず表示状態へ渡す', async () => {
+    hasActiveChatSessionMock = true
+    resumeActiveChatCompletionMock.mockResolvedValue({
+      conversation: {
+        id: 'conversation-1',
+        title: '会話',
+        messages: [...currentConversation.messages, createUserMessage('message-3', '続きの質問')],
+      },
+      assistantMessageId: 'message-4',
+      result: null,
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'リクエスト数の上限に達しました。しばらく待ってから再試行してください。',
+        retryable: true,
+      },
+      responseTimeMs: 123,
+    })
     const onConversationChange = vi.fn()
     const { ChatMain } = await import('#/client/features/chat/components/chat-main')
 
@@ -195,21 +243,9 @@ describe('ChatMain', () => {
     )
 
     await waitFor(() => {
-      expect(resumeActiveChatCompletionMock).toHaveBeenCalled()
+      expect(chatMessageListProps?.generationError).toMatchObject({ code: 'RATE_LIMITED' })
     })
-    await waitFor(() => {
-      expect(onConversationChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'conversation-1',
-          messages: [
-            expect.objectContaining({ id: 'message-1' }),
-            expect.objectContaining({ id: 'message-2' }),
-            expect.objectContaining({ id: 'message-3' }),
-            expect.objectContaining({ id: 'message-4', content: '続きの回答' }),
-          ],
-        })
-      )
-    })
+    expect(onConversationChange).not.toHaveBeenCalled()
   })
 
   it('session replay 中に user_message を受けたら入力済みメッセージを即時表示する', async () => {
@@ -392,7 +428,7 @@ describe('ChatMain', () => {
 
     render(
       <ChatMain
-        settings={settings}
+        settings={{ ...settings, streamMode: false }}
         currentConversation={currentConversation}
         onConversationChange={onConversationChange}
       />
@@ -423,6 +459,78 @@ describe('ChatMain', () => {
     })
   })
 
+  it('通常送信のエラーを保存せず専用エラー状態へ渡す', async () => {
+    buildChatMessagesMock.mockReturnValue({
+      model: 'gpt-test',
+      apiMessages: [{ role: 'user', content: '失敗する質問' }],
+      draftUserMessage: createUserMessage('message-user-3', '失敗する質問'),
+      imageContext: { policy: 'send_once', sent: 0, historyOnly: 0 },
+    })
+    submitChatCompletionMock.mockResolvedValue({
+      result: null,
+      error: {
+        code: 'INSUFFICIENT_CREDIT',
+        message: 'LLM プロバイダーのクレジットが不足しています。API キーの請求状況を確認してください。',
+        retryable: false,
+      },
+      responseTimeMs: 123,
+    })
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain
+        settings={{ ...settings, streamMode: false }}
+        currentConversation={currentConversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    await waitFor(() => expect(chatMessageListProps?.messages).toEqual(currentConversation.messages))
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() => {
+      expect(chatMessageListProps?.generationError).toMatchObject({ code: 'INSUFFICIENT_CREDIT' })
+    })
+    const messages = chatMessageListProps?.messages as Message[]
+    expect(messages.at(-1)).toMatchObject({ role: 'user', content: '失敗する質問' })
+    expect(onConversationChange).not.toHaveBeenCalled()
+  })
+
+  it('編集後再送のエラーを保存せず専用エラー状態へ渡す', async () => {
+    submitChatCompletionMock.mockResolvedValue({
+      result: null,
+      error: {
+        code: 'AUTHENTICATION_FAILED',
+        message: 'API キーが無効か、利用を許可されていません。設定を確認してください。',
+        retryable: false,
+      },
+      responseTimeMs: 123,
+    })
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain
+        settings={settings}
+        currentConversation={currentConversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(chatMessageListProps?.onEditMessage).toBeTypeOf('function')
+    })
+    const onEditMessage = chatMessageListProps?.onEditMessage as (index: number, nextText: string) => Promise<void>
+    await onEditMessage(0, '編集した質問')
+
+    await waitFor(() => {
+      expect(chatMessageListProps?.generationError).toMatchObject({ code: 'AUTHENTICATION_FAILED' })
+    })
+    const messages = chatMessageListProps?.messages as Message[]
+    expect(messages.at(-1)).toMatchObject({ role: 'user', content: '編集した質問' })
+    expect(onConversationChange).not.toHaveBeenCalled()
+  })
+
   it('会話履歴を含めない編集時は送信対象を編集中メッセージに絞る', async () => {
     const conversation: Conversation = {
       ...currentConversation,
@@ -438,7 +546,7 @@ describe('ChatMain', () => {
 
     render(
       <ChatMain
-        settings={{ ...settings, includeChatHistory: false }}
+        settings={{ ...settings, includeChatHistory: false, streamMode: false }}
         currentConversation={conversation}
         onConversationChange={onConversationChange}
       />

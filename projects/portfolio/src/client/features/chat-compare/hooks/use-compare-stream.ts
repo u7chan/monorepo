@@ -1,5 +1,6 @@
 import { hc } from 'hono/client'
 import { useCallback, useRef } from 'react'
+import { readChatError, unavailableChatError } from '#/client/shared/lib/chat-error'
 import { parseChatStreamEvent, updateChatStream } from '#/client/shared/lib/chat-stream'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ChatUsage } from '#/types'
@@ -162,8 +163,8 @@ async function runModelStream(
     )
 
     if (!res.ok) {
-      const errorData = (await res.json()) as { error?: string }
-      onError(errorData?.error || `HTTP ${res.status}`)
+      const error = await readChatError(res)
+      onError(error.message)
       return
     }
 
@@ -241,7 +242,7 @@ async function runModelStream(
     clearIdleTimer()
 
     if (timedOut) {
-      onError('Response timed out')
+      onError(unavailableChatError().message)
     } else if (receivedFinish) {
       const responseTimeMs = Date.now() - startTime
       onDone({
@@ -256,6 +257,6 @@ async function runModelStream(
   } catch (error) {
     clearIdleTimer()
     if (error instanceof Error && error.name === 'AbortError') return
-    onError(error instanceof Error ? error.message : 'Unknown error')
+    onError(unavailableChatError().message)
   }
 }

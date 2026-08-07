@@ -3,14 +3,14 @@ import { hasActiveChatSession, useStreamProcessor } from '#/client/features/chat
 import { createAssistantMessage } from '#/client/features/chat/lib/chat-message-factory'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { Conversation, Message } from '#/types'
-import type { ChatResponse } from '#/types/chat-api'
+import type { ChatError, ChatResponse } from '#/types/chat-api'
 
 interface UseChatConversationParams {
   initTrigger?: number
   settings: Settings
   currentConversation?: Conversation | null
   onSubmitting?: (submitting: boolean) => void
-  onConversationChange?: (conversation: Conversation) => Promise<void> | void
+  onSessionCompleted?: (conversation: Conversation) => Promise<void> | void
 }
 
 export function useChatConversation({
@@ -18,7 +18,7 @@ export function useChatConversation({
   settings,
   currentConversation,
   onSubmitting,
-  onConversationChange,
+  onSessionCompleted,
 }: UseChatConversationParams) {
   const sessionOwnedSnapshotRef = useRef<{ conversationId: string; messageIds: string[] } | null>(null)
   const resumeStartedRef = useRef(false)
@@ -26,6 +26,7 @@ export function useChatConversation({
   const [messages, setMessages] = useState<Message[]>([])
   const [isSavingConversation, setIsSavingConversation] = useState(false)
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null)
+  const [generationError, setGenerationError] = useState<ChatError | null>(null)
 
   const markSessionOwnedSnapshot = useCallback((conversation: Pick<Conversation, 'id' | 'messages'>) => {
     sessionOwnedSnapshotRef.current = {
@@ -91,6 +92,7 @@ export function useChatConversation({
     setMessages([])
     setConversationId(null)
     setStreamMessageId(null)
+    setGenerationError(null)
   }, [initTrigger])
 
   useEffect(() => {
@@ -101,7 +103,14 @@ export function useChatConversation({
     resumeStartedRef.current = true
     let mounted = true
     void resumeActiveChatCompletion().then(async (resumed) => {
-      if (!mounted || !resumed?.conversation) return
+      if (!mounted || !resumed) return
+
+      if (resumed.error) {
+        setGenerationError(resumed.error)
+        return
+      }
+
+      if (!resumed.conversation) return
 
       const assistantMessage = resumed.result
         ? createAssistantMessage({
@@ -122,7 +131,7 @@ export function useChatConversation({
       commitConversationMessages(resumed.conversation.id, finalMessages, null)
 
       if (assistantMessage) {
-        await onConversationChange?.({
+        await onSessionCompleted?.({
           ...resumed.conversation,
           messages: finalMessages,
         })
@@ -135,7 +144,7 @@ export function useChatConversation({
   }, [
     commitConversationMessages,
     markSessionOwnedSnapshot,
-    onConversationChange,
+    onSessionCompleted,
     resumeActiveChatCompletion,
     settings.apiMode,
   ])
@@ -165,10 +174,12 @@ export function useChatConversation({
     messages,
     isSavingConversation,
     streamMessageId,
+    generationError,
     setConversationId,
     setMessages,
     setIsSavingConversation,
     setStreamMessageId,
+    setGenerationError,
     markSessionOwnedSnapshot,
     streamProcessor,
   }

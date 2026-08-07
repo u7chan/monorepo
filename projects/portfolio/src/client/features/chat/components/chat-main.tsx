@@ -18,6 +18,7 @@ interface Props {
   canSaveGeneratedFile?: boolean
   onSubmitting?: (submitting: boolean) => void
   onConversationChange?: (conversation: Conversation) => Promise<void> | void
+  onSessionCompleted?: (conversation: Conversation) => Promise<void> | void
   onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
 }
 
@@ -28,6 +29,7 @@ export function ChatMain({
   canSaveGeneratedFile,
   onSubmitting,
   onConversationChange,
+  onSessionCompleted,
   onDeleteMessages,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
@@ -37,9 +39,10 @@ export function ChatMain({
     settings,
     currentConversation,
     onSubmitting,
-    onConversationChange,
+    onSessionCompleted,
   })
-  const { conversationId, messages, isSavingConversation, streamMessageId, streamProcessor } = conversationState
+  const { conversationId, messages, isSavingConversation, streamMessageId, generationError, streamProcessor } =
+    conversationState
   const { loading, stream, cancelStream } = streamProcessor
   const formState = useChatForm({ initTrigger, formRef, submitDisabled: loading || !!stream })
   const {
@@ -75,6 +78,7 @@ export function ChatMain({
       canSaveGeneratedFile,
       currentConversation,
       onConversationChange,
+      onSessionCompleted,
       onDeleteMessages,
     },
   })
@@ -158,6 +162,7 @@ export function ChatMain({
             streamMessageId={streamMessageId}
             copiedId={copiedId}
             savingConversation={isSavingConversation}
+            generationError={generationError}
             messageEndRef={messageEndRef}
             onCopyMessage={copyMessage}
             onDeleteMessage={handleClickDeleteMessage}

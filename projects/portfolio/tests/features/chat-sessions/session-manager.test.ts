@@ -174,7 +174,7 @@ describe('ChatSessionManager', () => {
     expect(isTerminalSessionEvent(events.at(-1)!)).toBe(true)
   })
 
-  it('production では upstream エラーの詳細を error event に出さない', async () => {
+  it('production では upstream エラーを generation_error として安全に正規化する', async () => {
     vi.stubEnv('NODE_ENV', 'production')
     const { manager, completionsMock } = await importSubject()
     completionsMock.mockRejectedValue(new Error('Connection refused'))
@@ -195,20 +195,26 @@ describe('ChatSessionManager', () => {
     await vi.waitFor(async () => {
       await expect(manager.getSession(session.id)).resolves.toMatchObject({
         status: 'error',
-        error: 'Upstream error',
+        error: {
+          code: 'UPSTREAM_UNAVAILABLE',
+          message: 'LLM プロバイダーに接続できませんでした。しばらく待ってから再試行してください。',
+          retryable: true,
+        },
       })
     })
 
     const events = await manager.readEvents(session.id)
     expect(events.at(-1)).toMatchObject({
-      type: 'error',
+      type: 'generation_error',
       data: {
-        message: 'Upstream error',
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'LLM プロバイダーに接続できませんでした。しばらく待ってから再試行してください。',
+        retryable: true,
       },
     })
   })
 
-  it('development では upstream エラーの詳細を error event に残す', async () => {
+  it('development でも upstream エラーの詳細を event に残さない', async () => {
     const { manager, completionsMock } = await importSubject()
     completionsMock.mockRejectedValue(new Error('Connection refused'))
 
@@ -228,9 +234,39 @@ describe('ChatSessionManager', () => {
     await vi.waitFor(async () => {
       await expect(manager.getSession(session.id)).resolves.toMatchObject({
         status: 'error',
-        error: 'Connection refused',
+        error: {
+          code: 'UPSTREAM_UNAVAILABLE',
+          message: 'LLM プロバイダーに接続できませんでした。しばらく待ってから再試行してください。',
+          retryable: true,
+        },
       })
     })
+  })
+
+  it('error session を fold しても空の assistant message を追加しない', async () => {
+    const { foldSessionEvents } = await importSubject()
+    const conversation = foldSessionEvents(
+      {
+        id: 'session-1',
+        status: 'error',
+        conversation: request.conversation,
+        assistantMessageId: 'message-assistant-1',
+        apiMode: 'chat_completions',
+        model: 'gpt-test',
+        email: 'test@example.com',
+        createdAt: '2026-05-10T00:00:00.000Z',
+        updatedAt: '2026-05-10T00:00:01.000Z',
+        completedAt: '2026-05-10T00:00:01.000Z',
+        error: {
+          code: 'INSUFFICIENT_CREDIT',
+          message: 'LLM プロバイダーのクレジットが不足しています。API キーの請求状況を確認してください。',
+          retryable: false,
+        },
+      },
+      []
+    )
+
+    expect(conversation.messages).toEqual(request.conversation.messages)
   })
 
   it('event log を assistant message へ fold する', async () => {

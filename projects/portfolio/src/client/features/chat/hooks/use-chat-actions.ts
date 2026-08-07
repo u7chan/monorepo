@@ -14,8 +14,10 @@ import {
   prepareApiMessages,
   summarizeImageContext,
 } from '#/client/features/chat/lib/edit-message'
+import { unknownChatError } from '#/client/shared/lib/chat-error'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { Conversation, GeneratedCodeFile, Message } from '#/types'
+import type { ChatError } from '#/types/chat-api'
 
 interface ConversationState {
   conversationId: string | null
@@ -25,6 +27,7 @@ interface ConversationState {
   setMessages: Dispatch<SetStateAction<Message[]>>
   setIsSavingConversation: Dispatch<SetStateAction<boolean>>
   setStreamMessageId: Dispatch<SetStateAction<string | null>>
+  setGenerationError: Dispatch<SetStateAction<ChatError | null>>
   markSessionOwnedSnapshot: (conversation: Pick<Conversation, 'id' | 'messages'>) => void
 }
 
@@ -37,6 +40,7 @@ interface UseChatActionsParams {
     canSaveGeneratedFile?: boolean
     currentConversation?: Conversation | null
     onConversationChange?: (conversation: Conversation) => Promise<void> | void
+    onSessionCompleted?: (conversation: Conversation) => Promise<void> | void
     onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
   }
 }
@@ -57,15 +61,18 @@ export function useChatActions({
     setMessages,
     setIsSavingConversation,
     setStreamMessageId,
+    setGenerationError,
     markSessionOwnedSnapshot,
   } = conversationState
   const { loading, stream, submitChatCompletion } = streamProcessor
-  const { canSaveGeneratedFile, currentConversation, onConversationChange, onDeleteMessages } = callbacks
+  const { canSaveGeneratedFile, currentConversation, onConversationChange, onSessionCompleted, onDeleteMessages } =
+    callbacks
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
       const requestSettings = resolveChatRequestSettings(settings)
+      setGenerationError(null)
       const params = buildChatMessages({
         apiMode: settings.apiMode,
         includeChatHistory: settings.includeChatHistory,
@@ -113,7 +120,12 @@ export function useChatActions({
         maxTokens: requestSettings.maxTokens,
         reasoningEffort: requestSettings.reasoningEffort,
       })
-        .then(async ({ result, responseTimeMs }) => {
+        .then(async ({ result, error, responseTimeMs }) => {
+          if (error) {
+            setGenerationError(error)
+            return
+          }
+
           const assistantMessage = result
             ? createAssistantMessage({
                 assistantMessageId,
@@ -134,14 +146,22 @@ export function useChatActions({
 
           setIsSavingConversation(true)
           try {
-            await onConversationChange?.({
+            const completedConversation = {
               id: currentConversationId,
               title: createConversationTitle(params.draftUserMessage.content),
               messages: finalMessages,
-            })
+            }
+            if (settings.streamMode) {
+              await onSessionCompleted?.(completedConversation)
+            } else {
+              await onConversationChange?.(completedConversation)
+            }
           } finally {
             setIsSavingConversation(false)
           }
+        })
+        .catch(() => {
+          setGenerationError(unknownChatError())
         })
         .finally(() => {
           setStreamMessageId(null)
@@ -153,11 +173,13 @@ export function useChatActions({
       markSessionOwnedSnapshot,
       messages,
       onConversationChange,
+      onSessionCompleted,
       resetAfterSubmit,
       setConversationId,
       setIsSavingConversation,
       setMessages,
       setStreamMessageId,
+      setGenerationError,
       settings,
       submitChatCompletion,
     ]
@@ -226,6 +248,7 @@ export function useChatActions({
       }
 
       const assistantMessageId = uuidv7()
+      setGenerationError(null)
       const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.includeChatHistory)
       const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
@@ -243,7 +266,7 @@ export function useChatActions({
       setStreamMessageId(assistantMessageId)
 
       try {
-        const { result, responseTimeMs } = await submitChatCompletion({
+        const { result, error, responseTimeMs } = await submitChatCompletion({
           header: {
             apiKey: requestSettings.apiKey,
             baseURL: requestSettings.baseURL,
@@ -258,6 +281,11 @@ export function useChatActions({
           maxTokens: requestSettings.maxTokens,
           reasoningEffort: requestSettings.reasoningEffort,
         })
+
+        if (error) {
+          setGenerationError(error)
+          return
+        }
 
         const assistantMessage = result
           ? createAssistantMessage({
@@ -279,14 +307,21 @@ export function useChatActions({
 
         setIsSavingConversation(true)
         try {
-          await onConversationChange?.({
+          const completedConversation = {
             id: draftConversationId,
             title,
             messages: finalMessages,
-          })
+          }
+          if (settings.streamMode) {
+            await onSessionCompleted?.(completedConversation)
+          } else {
+            await onConversationChange?.(completedConversation)
+          }
         } finally {
           setIsSavingConversation(false)
         }
+      } catch {
+        setGenerationError(unknownChatError())
       } finally {
         setStreamMessageId(null)
       }
@@ -299,10 +334,12 @@ export function useChatActions({
       markSessionOwnedSnapshot,
       messages,
       onConversationChange,
+      onSessionCompleted,
       setConversationId,
       setIsSavingConversation,
       setMessages,
       setStreamMessageId,
+      setGenerationError,
       settings,
       stream,
       submitChatCompletion,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { renderHook, act } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mock$post = vi.fn()
@@ -190,5 +190,45 @@ describe('useCompareStream', () => {
     })
 
     expect(abortSpy).toHaveBeenCalledTimes(callsAfterFirst + 1)
+  })
+
+  it('構造化された upstream エラーの安全な message を返す', async () => {
+    mock$post.mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        code: 'INSUFFICIENT_CREDIT',
+        message: 'LLM プロバイダーのクレジットが不足しています。API キーの請求状況を確認してください。',
+        retryable: false,
+      }),
+    })
+    const { useCompareStream } = await import('#/client/features/chat-compare/hooks/use-compare-stream')
+    const { result } = renderHook(() => useCompareStream())
+    const onStreamError = vi.fn()
+
+    await act(async () => {
+      await result.current.submitModel({
+        settings,
+        modelState: {
+          model: 'model-a',
+          status: 'retrying',
+          messages: [{ role: 'user', content: 'hello' }],
+          content: '',
+          reasoningContent: '',
+          usage: null,
+          finishReason: null,
+          responseTimeMs: null,
+          error: null,
+        },
+        callbacks: {
+          onStreamContent: vi.fn(),
+          onStreamDone: vi.fn(),
+          onStreamError,
+        },
+      })
+    })
+
+    expect(onStreamError).toHaveBeenCalledWith(
+      'LLM プロバイダーのクレジットが不足しています。API キーの請求状況を確認してください。'
+    )
   })
 })

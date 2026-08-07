@@ -1,17 +1,34 @@
 import type { MutableRefObject } from 'react'
-import { hasAssistantOutput, makeErrorResponse } from '#/client/features/chat/lib/chat-response-result'
-import { saveActiveSession } from '#/client/features/chat/lib/chat-session-storage'
+import { hasAssistantOutput } from '#/client/features/chat/lib/chat-response-result'
+import { clearActiveSession, saveActiveSession } from '#/client/features/chat/lib/chat-session-storage'
+import { unavailableChatError } from '#/client/shared/lib/chat-error'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
 import { updateChatStream } from '#/client/shared/lib/chat-stream'
 import type { Conversation } from '#/types'
-import { ChatSessionEventSchema, type ChatResponse, type ChatSessionEvent, type ChatUsage } from '#/types/chat-api'
+import {
+  ChatSessionEventSchema,
+  ChatSessionMetaSchema,
+  type ChatError,
+  type ChatResponse,
+  type ChatSessionEvent,
+  type ChatUsage,
+} from '#/types/chat-api'
 
 export type ResumeChatCompletionResult = {
-  conversation: Conversation
+  conversation: Conversation | null
   assistantMessageId: string
   result: ChatResponse | null
+  error: ChatError | null
   responseTimeMs: number
 }
+
+export type CompletedSessionChatResult = {
+  conversation: Conversation
+  assistantMessageId: string
+  result: ChatResponse
+}
+
+const EVENT_SOURCE_ERROR_TIMEOUT_MS = 15_000
 
 type ReceiveSessionEventsParams = {
   sessionId: string
@@ -20,7 +37,7 @@ type ReceiveSessionEventsParams = {
   eventSourceRef: MutableRefObject<EventSource | null>
   activeSessionIdRef: MutableRefObject<string | null>
   onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
-  onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
+  onSessionResult?: (result: CompletedSessionChatResult) => void
   onStream?: (stream: ChatStreamState) => void
 }
 
@@ -45,6 +62,7 @@ export const receiveSessionEvents = ({
     let conversation: Conversation | null = null
     let assistantMessageId = ''
     let settled = false
+    let eventSourceErrorTimeout: ReturnType<typeof setTimeout> | null = null
 
     const eventSource = new EventSource(buildChatSessionEventsUrl(sessionId, afterEventId))
     eventSourceRef.current = eventSource
@@ -53,17 +71,23 @@ export const receiveSessionEvents = ({
       eventSource.close()
       eventSourceRef.current = null
       abortSignal?.removeEventListener('abort', handleAbort)
+      if (eventSourceErrorTimeout) {
+        clearTimeout(eventSourceErrorTimeout)
+        eventSourceErrorTimeout = null
+      }
     }
 
-    const finish = (result: ChatResponse | null) => {
+    const finish = (result: ChatResponse | null, error: ChatError | null = null) => {
       if (settled) return
       settled = true
       cleanup()
       activeSessionIdRef.current = null
+      clearActiveSession()
       resolve({
-        conversation: conversation as Conversation,
+        conversation,
         assistantMessageId,
         result,
+        error,
       })
     }
 
@@ -85,6 +109,10 @@ export const receiveSessionEvents = ({
     abortSignal?.addEventListener('abort', handleAbort, { once: true })
 
     const handleSessionEvent = (sessionEvent: ChatSessionEvent) => {
+      if (eventSourceErrorTimeout) {
+        clearTimeout(eventSourceErrorTimeout)
+        eventSourceErrorTimeout = null
+      }
       saveActiveSession({ sessionId, lastEventId: sessionEvent.id })
 
       if (sessionEvent.type === 'user_message') {
@@ -119,8 +147,8 @@ export const receiveSessionEvents = ({
         return
       }
 
-      if (sessionEvent.type === 'error') {
-        finish(makeErrorResponse(sessionEvent.data.message))
+      if (sessionEvent.type === 'generation_error') {
+        finish(null, sessionEvent.data)
         return
       }
 
@@ -142,6 +170,7 @@ export const receiveSessionEvents = ({
           conversation: conversation as Conversation,
           assistantMessageId,
           result,
+          error: null,
         }
         onSessionResult?.(sessionResult)
         finish(sessionResult.result)
@@ -163,7 +192,7 @@ export const receiveSessionEvents = ({
       'usage',
       'done',
       'cancelled',
-      'error',
+      'generation_error',
     ]) {
       eventSource.addEventListener(eventType, (message) => {
         try {
@@ -175,7 +204,31 @@ export const receiveSessionEvents = ({
     }
 
     eventSource.onerror = () => {
-      // EventSource は一時切断時も onerror 後に自動再接続するため、terminal event を待つ。
+      void checkTerminalSession()
+      if (eventSourceErrorTimeout) return
+
+      eventSourceErrorTimeout = setTimeout(() => {
+        finish(null, unavailableChatError())
+      }, EVENT_SOURCE_ERROR_TIMEOUT_MS)
+    }
+
+    async function checkTerminalSession() {
+      try {
+        const response = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`)
+        if (!response.ok) return
+
+        const payload = (await response.json()) as { session?: unknown }
+        const parsed = ChatSessionMetaSchema.safeParse(payload.session)
+        if (!parsed.success) return
+
+        if (parsed.data.status === 'error') {
+          finish(null, parsed.data.error ?? unavailableChatError())
+        } else if (parsed.data.status === 'cancelled') {
+          finish(null)
+        }
+      } catch {
+        // EventSource の自動再接続と timeout で復旧・終了を判断する。
+      }
     }
   })
 

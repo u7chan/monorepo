@@ -1,16 +1,17 @@
 import { hc } from 'hono/client'
 import type { MutableRefObject } from 'react'
-import { hasAssistantOutput, makeErrorResponse } from '#/client/features/chat/lib/chat-response-result'
+import { hasAssistantOutput } from '#/client/features/chat/lib/chat-response-result'
 import { saveActiveSession } from '#/client/features/chat/lib/chat-session-storage'
 import {
   receiveSessionEvents,
-  type ResumeChatCompletionResult,
+  type CompletedSessionChatResult,
 } from '#/client/features/chat/lib/receive-session-events'
+import { readChatError, unknownChatError } from '#/client/shared/lib/chat-error'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
 import { parseChatStreamEvent, updateChatStream } from '#/client/shared/lib/chat-stream'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ApiMode, Conversation } from '#/types'
-import type { ChatResponse, ChatUsage } from '#/types/chat-api'
+import type { ChatError, ChatResponse, ChatUsage } from '#/types/chat-api'
 
 const client = hc<AppType>('/')
 
@@ -28,7 +29,12 @@ export interface SendCompletionParams {
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 }
 
-export const sendNonStreamCompletion = async (req: SendCompletionParams): Promise<ChatResponse | null> => {
+export type ChatCompletionResult = {
+  result: ChatResponse | null
+  error: ChatError | null
+}
+
+export const sendNonStreamCompletion = async (req: SendCompletionParams): Promise<ChatCompletionResult> => {
   try {
     const res = await client.api.chat.$post(
       {
@@ -49,17 +55,16 @@ export const sendNonStreamCompletion = async (req: SendCompletionParams): Promis
     )
 
     if (!res.ok) {
-      const error = (await res.json()) as { error?: string }
-      return makeErrorResponse(error?.error || JSON.stringify(error))
+      return { result: null, error: await readChatError(res) }
     }
 
     const data = (await res.json()) as ChatResponse
-    if (!hasAssistantOutput(data.message)) return null
+    if (!hasAssistantOutput(data.message)) return { result: null, error: null }
 
-    return data
+    return { result: data, error: null }
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') return null
-    throw error
+    if (error instanceof Error && error.name === 'AbortError') return { result: null, error: null }
+    return { result: null, error: unknownChatError() }
   }
 }
 
@@ -70,10 +75,10 @@ export const sendStreamCompletion = async (
     eventSourceRef: MutableRefObject<EventSource | null>
     activeSessionIdRef: MutableRefObject<string | null>
     onSessionConversation?: (conversation: Conversation, assistantMessageId: string) => void
-    onSessionResult?: (result: Omit<ResumeChatCompletionResult, 'responseTimeMs'>) => void
+    onSessionResult?: (result: CompletedSessionChatResult) => void
     onStream?: (stream: ChatStreamState) => void
   }
-): Promise<ChatResponse | null> => {
+): Promise<ChatCompletionResult> => {
   if (!req.conversation || !req.assistantMessageId) {
     return sendLegacyStreamCompletion(req)
   }
@@ -97,8 +102,7 @@ export const sendStreamCompletion = async (
     )
 
     if (!res.ok) {
-      const error = (await res.json()) as { error?: string }
-      return makeErrorResponse(error?.error || JSON.stringify(error))
+      return { result: null, error: await readChatError(res) }
     }
 
     const data = (await res.json()) as { sessionId: string }
@@ -115,13 +119,12 @@ export const sendStreamCompletion = async (
       onStream: req.onStream,
     })
 
-    return result.result
+    return { result: result.result, error: result.error }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      return null
-    } else {
-      throw error
+      return { result: null, error: null }
     }
+    return { result: null, error: unknownChatError() }
   }
 }
 
@@ -137,7 +140,7 @@ export async function cancelChatSession(sessionId: string): Promise<void> {
 
 const sendLegacyStreamCompletion = async (
   req: SendCompletionParams & { onStream?: (stream: ChatStreamState) => void }
-): Promise<ChatResponse | null> => {
+): Promise<ChatCompletionResult> => {
   let accumulated: ChatStreamState = { content: '', reasoningContent: '' }
   let id = ''
   let created = 0
@@ -162,8 +165,7 @@ const sendLegacyStreamCompletion = async (
   )
 
   if (!res.ok) {
-    const error = (await res.json()) as { error?: string }
-    return makeErrorResponse(error?.error || JSON.stringify(error))
+    return { result: null, error: await readChatError(res) }
   }
 
   const reader = res.body?.getReader()
@@ -212,19 +214,22 @@ const sendLegacyStreamCompletion = async (
     }
   }
 
-  if (!receivedFinish) return null
-  if (!hasAssistantOutput(accumulated)) return null
+  if (!receivedFinish) return { result: null, error: null }
+  if (!hasAssistantOutput(accumulated)) return { result: null, error: null }
 
   return {
-    id,
-    created,
-    model,
-    finishReason,
-    message: {
-      content: accumulated.content,
-      reasoningContent: accumulated.reasoningContent,
+    result: {
+      id,
+      created,
+      model,
+      finishReason,
+      message: {
+        content: accumulated.content,
+        reasoningContent: accumulated.reasoningContent,
+      },
+      usage,
     },
-    usage,
+    error: null,
   }
 }
 
