@@ -18,6 +18,7 @@ import {
 } from '#/client/features/chat/components/code-block-renderer'
 import { ReasoningSection } from '#/client/features/chat/components/reasoning-section'
 import { getUserMessageText } from '#/client/features/chat/lib/edit-message'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { ChatbotIcon } from '#/client/shared/icons/chatbot-icon'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
 import { CloseIcon } from '#/client/shared/icons/close-icon'
@@ -95,16 +96,15 @@ function MessageActionBar({ copied, disabled, children, align = 'left' }: Messag
 
 function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
   return (
-    <button
-      type='button'
-      className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:focus-visible:ring-gray-500 disabled:cursor-default ${
+    <IconButton
+      label={copied ? 'Copied' : 'Copy message'}
+      onClick={onClick}
+      disabled={copied}
+      className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out dark:text-gray-300 disabled:opacity-100 ${
         copied
           ? 'text-emerald-600 dark:text-emerald-400'
           : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
       }`}
-      onClick={onClick}
-      disabled={copied}
-      aria-label={copied ? 'Copied' : 'Copy message'}
     >
       <span
         aria-hidden='true'
@@ -122,7 +122,7 @@ function CopyMessageButton({ copied, onClick }: CopyMessageButtonProps) {
       >
         <CheckIcon size={20} className='stroke-current' />
       </span>
-    </button>
+    </IconButton>
   )
 }
 
@@ -234,44 +234,40 @@ function MessageRendererComponent({
           <MessageActionBar copied={copied} disabled={disabled} align='right'>
             {isEditing ? (
               <>
-                <button
-                  type='button'
-                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                <IconButton
+                  label='Save edited message'
                   onClick={handleSaveEdit}
                   disabled={!canSaveEdit}
-                  aria-label='Save edited message'
+                  className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                 >
                   <CheckIcon size={20} className='stroke-current' />
-                </button>
-                <button
-                  type='button'
-                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-default disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                </IconButton>
+                <IconButton
+                  label='Cancel editing message'
                   onClick={handleCancelEdit}
                   disabled={isSavingEdit}
-                  aria-label='Cancel editing message'
+                  className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                 >
                   <CloseIcon size={20} className='fill-current' />
-                </button>
+                </IconButton>
               </>
             ) : (
               <>
                 <CopyMessageButton copied={copied} onClick={() => onCopyMessage(userMessageText, index)} />
-                <button
-                  type='button'
-                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                <IconButton
+                  label='Edit message'
                   onClick={handleStartEdit}
-                  aria-label='Edit message'
+                  className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                 >
                   <EditIcon size={20} className='stroke-current' />
-                </button>
-                <button
-                  type='button'
-                  className='flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus-visible:ring-gray-500'
+                </IconButton>
+                <IconButton
+                  label='Delete message'
                   onClick={() => onDeleteMessage?.(index)}
-                  aria-label='Delete message'
+                  className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                 >
                   <DeleteIcon size={20} />
-                </button>
+                </IconButton>
               </>
             )}
           </MessageActionBar>

@@ -1,4 +1,5 @@
 import { useTheme } from '#/client/app/hooks/use-theme'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { MoonIcon } from '#/client/shared/icons/moon-icon'
 import { SunIcon } from '#/client/shared/icons/sun-icon'
 
@@ -19,13 +20,12 @@ export function ThemeToggle({ className = '', size = 'md' }: ThemeToggleProps) {
   const iconSize = { sm: 14, md: 16, lg: 20 }
 
   return (
-    <button
-      type='button'
+    <IconButton
+      label={isDark ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
       onClick={toggleDarkMode}
-      aria-label={isDark ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
-      className={`flex items-center justify-center rounded bg-gray-200 text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 ${sizeClasses[size]} ${className}`}
+      className={`rounded bg-gray-200 text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 ${sizeClasses[size]} ${className}`}
     >
       {isDark ? <SunIcon size={iconSize[size]} /> : <MoonIcon size={iconSize[size]} />}
-    </button>
+    </IconButton>
   )
 }

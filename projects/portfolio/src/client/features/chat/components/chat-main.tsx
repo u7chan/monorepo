@@ -7,6 +7,7 @@ import { useChatConversation } from '#/client/features/chat/hooks/use-chat-conve
 import { useChatForm } from '#/client/features/chat/hooks/use-chat-form'
 import { useMessageCopy } from '#/client/features/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/features/chat/hooks/use-message-scroll'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { ArrowDownIcon } from '#/client/shared/icons/arrow-down-icon'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { Conversation } from '#/types'
@@ -183,17 +184,16 @@ export function ChatMain({
                 isPinnedToBottom ? 'pointer-events-none opacity-0' : 'pointer-events-none opacity-100'
               }`}
             >
-              <button
-                type='button'
-                aria-label='最下部へ移動'
+              <IconButton
+                label='最下部へ移動'
                 aria-hidden={isPinnedToBottom}
                 tabIndex={isPinnedToBottom ? -1 : 0}
                 disabled={isPinnedToBottom}
                 onClick={() => scrollToMessageEnd('smooth')}
-                className='pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 shadow-sm transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700 dark:focus-visible:ring-gray-500'
+                className='pointer-events-auto h-8 w-8 rounded-full border border-gray-200 bg-white/95 text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800/95 dark:text-gray-100 dark:hover:bg-gray-700'
               >
                 <ArrowDownIcon size={14} className='stroke-current' />
-              </button>
+              </IconButton>
             </div>
             <ChatComposer
               value={input}

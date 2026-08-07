@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { HamburgerIcon } from '#/client/shared/icons/hamburger-icon'
 import { ThemeToggle } from './theme-toggle'
 
@@ -50,15 +51,14 @@ export const AppLayout: FC<Props> = ({ version, menuItems, children }: Props) =>
 
       {/* モバイルトップヘッダー */}
       <div className='md:hidden fixed top-0 left-0 right-0 h-14 bg-gray-100 dark:bg-gray-800 border-b dark:border-gray-700 z-50 flex items-center justify-between px-4'>
-        <button
+        <IconButton
+          label={isMobileMenuOpen ? 'メニューを閉じる' : 'メニューを開く'}
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          aria-label={isMobileMenuOpen ? 'メニューを閉じる' : 'メニューを開く'}
           aria-expanded={isMobileMenuOpen}
           className='p-2 rounded text-gray-900 hover:bg-gray-200 dark:text-white dark:hover:bg-gray-700'
         >
-          {/* ハンバーガーアイコン */}
           <HamburgerIcon />
-        </button>
+        </IconButton>
         <span className='text-lg font-semibold text-gray-900 dark:text-white'>Portfolio</span>
         <ThemeToggle size='sm' />
       </div>

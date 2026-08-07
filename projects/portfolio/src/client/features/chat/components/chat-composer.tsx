@@ -1,5 +1,6 @@
 import { type ChangeEvent, type KeyboardEvent, useMemo } from 'react'
 import { ChatInput } from '#/client/features/chat/components/chat-input'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { FileImageInput, FileImagePreview } from '#/client/shared/components/input/file-image-input'
 import { ArrowUpIcon } from '#/client/shared/icons/arrow-up-icon'
 import { StopIcon } from '#/client/shared/icons/stop-icon'
@@ -130,22 +131,21 @@ export function SendButton({ color = 'blue', loading, disabled, handleClickStop 
   }, [color])
 
   return loading ? (
-    <button
-      type='button'
+    <IconButton
+      label='Stop sending'
       onClick={handleClickStop}
-      aria-label='Stop sending'
-      className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
+      className={`h-8 w-8 rounded-full focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700 ${classes}`}
     >
       <StopIcon className='text-white' size={18} />
-    </button>
+    </IconButton>
   ) : (
-    <button
+    <IconButton
+      label='Send'
       type='submit'
       disabled={disabled}
-      aria-label='Send'
-      className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full ${classes} focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:cursor-default dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700`}
+      className={`h-8 w-8 rounded-full focus:outline-hidden focus:ring-2 focus:ring-gray-400 disabled:opacity-100 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700 ${classes}`}
     >
       <ArrowUpIcon className='text-white' size={22} />
-    </button>
+    </IconButton>
   )
 }
