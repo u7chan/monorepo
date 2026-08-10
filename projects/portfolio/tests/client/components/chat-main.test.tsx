@@ -19,7 +19,12 @@ let streamProcessorParams: Record<string, unknown> | null = null
 let chatMessageListProps: Record<string, unknown> | null = null
 
 vi.mock('#/client/features/chat/components/chat-input', () => ({
-  ChatInput: () => <div data-testid='chat-input' />,
+  ChatInput: ({ leftBottom, rightBottom }: { leftBottom?: React.ReactNode; rightBottom?: React.ReactNode }) => (
+    <div data-testid='chat-input'>
+      {leftBottom}
+      {rightBottom}
+    </div>
+  ),
 }))
 
 vi.mock('#/client/features/chat/components/chat-message-list', () => ({
@@ -144,7 +149,6 @@ const settings: Settings = {
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
   imageGenerationMode: false,
-  includeImageGenerationHistory: true,
   sidebarOpen: true,
   templateModels: {},
 }
@@ -527,6 +531,57 @@ describe('ChatMain', () => {
         ],
       })
     )
+  })
+
+  it('共有履歴設定が Off の画像生成では過去の画像 prompt を送らない', async () => {
+    chatFormInputMock = '現在の画像 prompt'
+    const imageHistoryConversation: Conversation = {
+      ...currentConversation,
+      messages: [
+        {
+          id: 'image-user-1',
+          role: 'user',
+          content: '過去の画像 prompt',
+          metadata: {
+            model: '',
+            imageGenerationMode: true,
+          },
+        },
+      ],
+    }
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true, includeChatHistory: false }}
+        currentConversation={imageHistoryConversation}
+      />
+    )
+
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() => expect(submitImageGenerationMock).toHaveBeenCalledTimes(1))
+    expect(submitImageGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: '現在の画像 prompt',
+      })
+    )
+  })
+
+  it('画像モードの履歴バッジ toggle は共有 Include chat history を更新する', async () => {
+    const onUpdateSetting = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true, includeChatHistory: false }}
+        currentConversation={currentConversation}
+        onUpdateSetting={onUpdateSetting}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: '画像生成 prompt 履歴 On/Off' }))
+
+    expect(onUpdateSetting).toHaveBeenCalledWith('includeChatHistory', true)
   })
 
   it('画像生成失敗時は assistant message と会話保存を追加しない', async () => {

@@ -90,9 +90,9 @@ export function ChatMain({
     onUpdateSetting?.('imageGenerationMode', !settings.imageGenerationMode)
   }, [onUpdateSetting, settings.imageGenerationMode])
 
-  const toggleImageGenerationHistory = useCallback(() => {
-    onUpdateSetting?.('includeImageGenerationHistory', !settings.includeImageGenerationHistory)
-  }, [onUpdateSetting, settings.includeImageGenerationHistory])
+  const toggleChatHistory = useCallback(() => {
+    onUpdateSetting?.('includeChatHistory', !settings.includeChatHistory)
+  }, [onUpdateSetting, settings.includeChatHistory])
 
   useEffect(() => {
     if (!currentConversation || prevConversationIdRef.current === currentConversation.id) {
@@ -147,7 +147,6 @@ export function ChatMain({
                 includeChatHistory={settings.includeChatHistory}
                 sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
                 imageGenerationMode={settings.imageGenerationMode}
-                includeImageGenerationHistory={settings.includeImageGenerationHistory}
                 uploadImages={uploadImages}
                 onCancelStream={cancelStream}
                 onImageChange={handleUploadImageChange}
@@ -155,7 +154,7 @@ export function ChatMain({
                 onKeyDown={handleKeyDown}
                 onChangeComposition={handleChangeComposition}
                 onToggleImageGenerationMode={toggleImageGenerationMode}
-                onToggleImageGenerationHistory={toggleImageGenerationHistory}
+                onToggleChatHistory={toggleChatHistory}
               />
               <div className='py-4' />
             </div>
@@ -220,7 +219,6 @@ export function ChatMain({
               includeChatHistory={settings.includeChatHistory}
               sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
               imageGenerationMode={settings.imageGenerationMode}
-              includeImageGenerationHistory={settings.includeImageGenerationHistory}
               uploadImages={uploadImages}
               onCancelStream={cancelStream}
               onImageChange={handleUploadImageChange}
@@ -228,7 +226,7 @@ export function ChatMain({
               onKeyDown={handleKeyDown}
               onChangeComposition={handleChangeComposition}
               onToggleImageGenerationMode={toggleImageGenerationMode}
-              onToggleImageGenerationHistory={toggleImageGenerationHistory}
+              onToggleChatHistory={toggleChatHistory}
             />
             <div className='h-4' />
           </>

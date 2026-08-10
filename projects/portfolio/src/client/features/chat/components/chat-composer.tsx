@@ -17,7 +17,6 @@ interface ChatComposerProps {
   includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   imageGenerationMode?: boolean
-  includeImageGenerationHistory?: boolean
   uploadImages: string[]
   onCancelStream: () => void
   onImageChange: (src: string, index?: number) => void
@@ -25,7 +24,7 @@ interface ChatComposerProps {
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onChangeComposition: (composition: boolean) => void
   onToggleImageGenerationMode?: () => void
-  onToggleImageGenerationHistory?: () => void
+  onToggleChatHistory?: () => void
 }
 
 export function ChatComposer({
@@ -39,7 +38,6 @@ export function ChatComposer({
   includeChatHistory,
   sendImagesOnlyOnce,
   imageGenerationMode = false,
-  includeImageGenerationHistory = true,
   uploadImages,
   onCancelStream,
   onImageChange,
@@ -47,7 +45,7 @@ export function ChatComposer({
   onKeyDown,
   onChangeComposition,
   onToggleImageGenerationMode,
-  onToggleImageGenerationHistory,
+  onToggleChatHistory,
 }: ChatComposerProps) {
   return (
     <ChatInput
@@ -68,10 +66,10 @@ export function ChatComposer({
         <div className='flex items-center gap-1'>
           <ImageGenerationModeAction
             enabled={imageGenerationMode}
-            includeHistory={includeImageGenerationHistory}
+            includeHistory={includeChatHistory}
             disabled={loading || streamActive}
             onToggleMode={onToggleImageGenerationMode}
-            onToggleHistory={onToggleImageGenerationHistory}
+            onToggleHistory={onToggleChatHistory}
           />
           {!imageGenerationMode && (
             <ImageUploadAction

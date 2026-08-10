@@ -74,7 +74,6 @@ export const UserMetadataSchema = z
     reasoningEffort: ReasoningEffortSchema.optional(),
     sendImagesOnlyOnce: z.boolean().optional(),
     imageGenerationMode: z.boolean().optional(),
-    includeImageGenerationHistory: z.boolean().optional(),
   })
   .catch({ model: '' })
 

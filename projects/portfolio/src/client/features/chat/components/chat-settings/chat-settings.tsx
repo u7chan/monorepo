@@ -21,6 +21,7 @@ interface Props {
   onChange?: (settings: Settings) => void
   onHidePopup?: () => void
   imageGenerationMode?: boolean
+  settings: Settings
 }
 
 export function ChatSettings({
@@ -36,8 +37,9 @@ export function ChatSettings({
   onChange,
   onHidePopup,
   imageGenerationMode = false,
+  settings,
 }: Props) {
-  const contextValue = useChatSettings({ showPopup, onChange })
+  const contextValue = useChatSettings({ showPopup, onChange, settings })
 
   return (
     <>

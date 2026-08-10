@@ -192,7 +192,7 @@ export function useChatActions({
   )
 
   async function handleImageGenerationSubmit() {
-    const prompt = buildImageGenerationPrompt(messages, formState.input, settings.includeImageGenerationHistory)
+    const prompt = buildImageGenerationPrompt(messages, formState.input, settings.includeChatHistory)
     if (!prompt || !submitImageGeneration) {
       return
     }
@@ -206,7 +206,6 @@ export function useChatActions({
       metadata: {
         model: '',
         imageGenerationMode: true,
-        includeImageGenerationHistory: settings.includeImageGenerationHistory,
       },
     }
     const nextMessages = [...messages, draftUserMessage]

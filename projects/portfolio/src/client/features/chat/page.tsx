@@ -219,6 +219,7 @@ export function Chat() {
         onChange={updateSettings}
         onHidePopup={closeSettingsPopup}
         imageGenerationMode={settings.imageGenerationMode}
+        settings={settings}
       />
       {isResolvingConversation ? (
         <div className='flex min-h-0 flex-1 items-center justify-center gap-2'>

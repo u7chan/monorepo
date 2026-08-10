@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatComposer } from '#/client/features/chat/components/chat-composer'
 
@@ -54,5 +55,29 @@ describe('ChatComposer', () => {
     render(<ChatComposer {...defaultProps} imageGenerationMode={true} />)
 
     expect(screen.getByRole('button', { name: '画像生成モード On/Off' }).textContent).toContain('画像生成 On')
+  })
+
+  it('画像モードの履歴バッジは共有 Include chat history の値を表示・更新する', () => {
+    function ComposerWithSharedHistory() {
+      const [includeChatHistory, setIncludeChatHistory] = useState(false)
+
+      return (
+        <ChatComposer
+          {...defaultProps}
+          imageGenerationMode={true}
+          includeChatHistory={includeChatHistory}
+          onToggleChatHistory={() => setIncludeChatHistory((current) => !current)}
+        />
+      )
+    }
+
+    render(<ComposerWithSharedHistory />)
+
+    const historyButton = screen.getByRole('button', { name: '画像生成 prompt 履歴 On/Off' })
+    expect(historyButton.textContent).toContain('履歴 Off')
+
+    fireEvent.click(historyButton)
+
+    expect(historyButton.textContent).toContain('履歴 On')
   })
 })

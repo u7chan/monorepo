@@ -27,7 +27,6 @@ const settings: Settings = {
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
   imageGenerationMode: false,
-  includeImageGenerationHistory: true,
   sidebarOpen: true,
   templateModels: {},
 }
