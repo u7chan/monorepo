@@ -224,7 +224,7 @@ export function useChatActions({
     resetAfterSubmit()
 
     try {
-      const { result, error } = await submitImageGeneration({
+      const { result, error, responseTimeMs } = await submitImageGeneration({
         header: {
           apiKey: settings.apiKey,
           baseURL: settings.baseURL,
@@ -242,6 +242,7 @@ export function useChatActions({
       const assistantMessage = createImageGenerationAssistantMessage({
         assistantMessageId,
         result,
+        responseTimeMs,
       })
       const finalMessages = [...nextMessages, assistantMessage]
       const completedConversation = {

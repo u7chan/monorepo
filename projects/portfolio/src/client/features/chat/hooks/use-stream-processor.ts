@@ -43,6 +43,10 @@ interface UseStreamProcessorParams {
   onSessionResult?: (result: CompletedSessionChatResult) => void
 }
 
+type ImageGenerationSubmissionResult = Awaited<ReturnType<typeof sendImageGeneration>> & {
+  responseTimeMs?: number
+}
+
 export function useStreamProcessor({
   onSubmitting,
   onSessionConversation,
@@ -168,14 +172,23 @@ export function useStreamProcessor({
   }, [onSessionConversation, onSessionResult, onSubmitting])
 
   const submitImageGeneration = useCallback(
-    async (params: Omit<SendImageGenerationParams, 'abortController'>) => {
+    async (params: Omit<SendImageGenerationParams, 'abortController'>): Promise<ImageGenerationSubmissionResult> => {
       setImageLoading(true)
       const abortController = new AbortController()
       abortControllerRef.current = abortController
       onSubmitting?.(true)
+      const requestStartTime = Date.now()
 
       try {
-        return await sendImageGeneration({ ...params, abortController })
+        const generation = await sendImageGeneration({ ...params, abortController })
+        if (generation.error || !generation.result) {
+          return generation
+        }
+
+        return {
+          ...generation,
+          responseTimeMs: Date.now() - requestStartTime,
+        }
       } finally {
         if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null

@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   createAssistantMessage,
   createConversationTitle,
+  createImageGenerationAssistantMessage,
   resolveChatRequestSettings,
 } from '#/client/features/chat/lib/chat-message-factory'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { ChatResponse } from '#/types/chat-api'
+import type { ImageGenerationResponse } from '#/types/image-generation-api'
 
 const settings: Settings = {
   schemaVersion: '1.4.0',
@@ -40,6 +42,24 @@ const response: ChatResponse = {
     reasoningContent: 'reasoning',
   },
   usage: null,
+}
+
+const imageResponse: ImageGenerationResponse = {
+  id: 'image-1',
+  created: 1700000000,
+  model: 'gpt-image-2',
+  image: {
+    fileName: 'image-1.png',
+    publicPath: '/public/portfolio/conversation-1/image-1.png',
+    previewUrl: 'https://files.example.com/public/portfolio/conversation-1/image-1.png',
+    contentType: 'image/png',
+    createdAt: '2026-08-10T00:00:00.000Z',
+  },
+  usage: {
+    inputTokens: 1,
+    outputTokens: 2,
+    totalTokens: 3,
+  },
 }
 
 describe('chat-message-factory', () => {
@@ -102,6 +122,26 @@ describe('chat-message-factory', () => {
         },
         imageContext: { policy: 'send_once', sent: 1, historyOnly: 2 },
         apiContextMessages: [{ role: 'user', content: '質問' }],
+      })
+    })
+  })
+
+  describe('createImageGenerationAssistantMessage', () => {
+    it('成功時の実測 responseTimeMs を画像 assistant metadata に保存する', () => {
+      const message = createImageGenerationAssistantMessage({
+        assistantMessageId: 'assistant-image-1',
+        result: imageResponse,
+        responseTimeMs: 1_345,
+      })
+
+      expect(message).toMatchObject({
+        id: 'assistant-image-1',
+        role: 'assistant',
+        metadata: {
+          model: 'gpt-image-2',
+          responseTimeMs: 1_345,
+          generatedImages: [imageResponse.image],
+        },
       })
     })
   })
