@@ -63,6 +63,9 @@ export const ChatErrorCodeSchema = z.enum([
   'UNKNOWN_UPSTREAM_ERROR',
   'IMAGE_STORAGE_NOT_CONFIGURED',
   'IMAGE_STORAGE_FAILED',
+  'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE',
+  'IMAGE_REQUEST_INVALID',
+  'IMAGE_PROVIDER_REJECTED',
 ])
 
 export type ChatErrorCode = z.infer<typeof ChatErrorCodeSchema>

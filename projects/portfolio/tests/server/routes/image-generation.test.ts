@@ -6,11 +6,15 @@ const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   save: vi.fn(),
   resolveConfig: vi.fn(),
+  error: vi.fn(),
 }))
 
 vi.mock('#/server/features/image-generation/image-generation', () => ({
   generateImage: mocks.generate,
   IMAGE_GENERATION_CONTENT_TYPE: 'image/png',
+  IMAGE_GENERATION_MODEL: 'gpt-image-2',
+  IMAGE_GENERATION_OUTPUT_FORMAT: 'png',
+  IMAGE_GENERATION_SIZE: '1024x1024',
 }))
 
 vi.mock('#/server/features/chat-conversations/save-generated-image', () => ({
@@ -19,6 +23,10 @@ vi.mock('#/server/features/chat-conversations/save-generated-image', () => ({
 
 vi.mock('#/server/features/chat-conversations/file-server-client', () => ({
   resolveFileServerConfig: mocks.resolveConfig,
+}))
+
+vi.mock('#/server/lib/logger', () => ({
+  logger: { error: mocks.error },
 }))
 
 const env = {
@@ -48,6 +56,7 @@ describe('画像生成専用 API', () => {
     mocks.generate.mockReset()
     mocks.save.mockReset()
     mocks.resolveConfig.mockReset()
+    mocks.error.mockReset()
   })
 
   describe('成功', () => {
@@ -137,32 +146,161 @@ describe('画像生成専用 API', () => {
       expect(mocks.save).toHaveBeenCalled()
     })
 
-    it('OpenAI image API の失敗は provider 系 error classification を維持する', async () => {
-      mocks.resolveConfig.mockReturnValue({
-        baseUrl: 'https://files.example.test',
-        publicBaseUrl: 'https://files.example.test',
-        credentials: { username: 'admin', password: 'password' },
-      })
-      mocks.generate.mockRejectedValueOnce(
-        new APIError(
-          401,
-          {
-            message: 'Invalid API key',
-          },
-          undefined,
-          new Headers()
+    describe('provider error classification', () => {
+      it('OpenAI image API の認証失敗は従来の provider 系分類を維持する', async () => {
+        mocks.resolveConfig.mockReturnValue({
+          baseUrl: 'https://files.example.test',
+          publicBaseUrl: 'https://files.example.test',
+          credentials: { username: 'admin', password: 'password' },
+        })
+        mocks.generate.mockRejectedValueOnce(
+          new APIError(
+            401,
+            {
+              message: 'Invalid API key',
+            },
+            undefined,
+            new Headers()
+          )
         )
-      )
 
-      const response = await chatRoutes.request(request(), undefined, env)
+        const response = await chatRoutes.request(request(), undefined, env)
 
-      expect(response.status).toBe(502)
-      await expect(response.json()).resolves.toEqual({
-        code: 'AUTHENTICATION_FAILED',
-        message: 'API キーが無効か、利用を許可されていません。設定を確認してください。',
-        retryable: false,
+        expect(response.status).toBe(502)
+        await expect(response.json()).resolves.toEqual({
+          code: 'AUTHENTICATION_FAILED',
+          message: 'API キーが無効か、利用を許可されていません。設定を確認してください。',
+          retryable: false,
+        })
+        expect(mocks.save).not.toHaveBeenCalled()
       })
-      expect(mocks.save).not.toHaveBeenCalled()
+
+      it('model または endpoint 非対応を専用エラーに分類し、安全な診断項目だけを記録する', async () => {
+        mocks.resolveConfig.mockReturnValue({
+          baseUrl: 'https://files.example.test',
+          publicBaseUrl: 'https://files.example.test',
+          credentials: { username: 'admin', password: 'password' },
+        })
+        const rawProviderMessage = 'raw provider body with credentials and implementation details'
+        mocks.generate.mockRejectedValueOnce(
+          createApiError(
+            404,
+            {
+              message: rawProviderMessage,
+              code: 'model_not_found',
+              type: 'invalid_request_error',
+              param: 'model',
+            },
+            'req_image_compatibility'
+          )
+        )
+
+        const response = await chatRoutes.request(request(), undefined, env)
+        const body = await response.json()
+
+        expect(response.status).toBe(502)
+        expect(body).toEqual({
+          code: 'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE',
+          message:
+            '画像生成プロバイダーがモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と gpt-image-2 の利用可否を確認してください。',
+          retryable: false,
+        })
+        expect(JSON.stringify(body)).not.toContain(rawProviderMessage)
+        expect(mocks.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            errorCode: 'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE',
+            provider: {
+              status: 404,
+              code: 'model_not_found',
+              type: 'invalid_request_error',
+              param: 'model',
+              requestId: 'req_image_compatibility',
+            },
+            request: {
+              endpoint: '/images/generations',
+              model: 'gpt-image-2',
+              size: '1024x1024',
+              outputFormat: 'png',
+              count: 1,
+            },
+          }),
+          'Image generation failed'
+        )
+        expect(JSON.stringify(mocks.error.mock.calls)).not.toContain(rawProviderMessage)
+        expect(mocks.save).not.toHaveBeenCalled()
+      })
+
+      it('parameter 不正を専用エラーに分類し、provider本文を公開しない', async () => {
+        mocks.resolveConfig.mockReturnValue({
+          baseUrl: 'https://files.example.test',
+          publicBaseUrl: 'https://files.example.test',
+          credentials: { username: 'admin', password: 'password' },
+        })
+        const rawProviderMessage = 'raw provider body with unsupported parameter details'
+        mocks.generate.mockRejectedValueOnce(
+          createApiError(
+            400,
+            {
+              message: rawProviderMessage,
+              code: 'invalid_request_error',
+              type: 'invalid_request_error',
+              param: 'output_format',
+            },
+            'req_image_parameter'
+          )
+        )
+
+        const response = await chatRoutes.request(request(), undefined, env)
+        const body = await response.json()
+
+        expect(response.status).toBe(502)
+        expect(body).toEqual({
+          code: 'IMAGE_REQUEST_INVALID',
+          message:
+            '画像生成リクエストのパラメータが受け付けられませんでした。プロバイダーが受け付ける model・size・output format・n・prompt を確認してください。',
+          retryable: false,
+        })
+        expect(JSON.stringify(body)).not.toContain(rawProviderMessage)
+        expect(mocks.save).not.toHaveBeenCalled()
+      })
+
+      it('provider の安全基準による拒否を専用エラーに分類する', async () => {
+        mocks.resolveConfig.mockReturnValue({
+          baseUrl: 'https://files.example.test',
+          publicBaseUrl: 'https://files.example.test',
+          credentials: { username: 'admin', password: 'password' },
+        })
+        const rawProviderMessage = 'raw moderation response details'
+        mocks.generate.mockRejectedValueOnce(
+          createApiError(
+            400,
+            {
+              message: rawProviderMessage,
+              code: 'moderation_blocked',
+              type: 'image_generation_user_error',
+            },
+            'req_image_moderation'
+          )
+        )
+
+        const response = await chatRoutes.request(request(), undefined, env)
+        const body = await response.json()
+
+        expect(response.status).toBe(502)
+        expect(body).toEqual({
+          code: 'IMAGE_PROVIDER_REJECTED',
+          message:
+            '画像生成プロバイダーにリクエストを拒否されました。prompt の内容とプロバイダーの安全基準・利用制限を確認してください。',
+          retryable: false,
+        })
+        expect(JSON.stringify(body)).not.toContain(rawProviderMessage)
+        expect(JSON.stringify(mocks.error.mock.calls)).not.toContain(rawProviderMessage)
+        expect(mocks.save).not.toHaveBeenCalled()
+      })
     })
   })
 })
+
+function createApiError(status: number, body: Record<string, unknown>, requestId: string): APIError {
+  return new APIError(status, body, undefined, new Headers({ 'x-request-id': requestId }))
+}

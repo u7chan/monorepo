@@ -3,6 +3,7 @@ import type { ImageGenerationUsage } from '#/types/image-generation-api'
 
 export const IMAGE_GENERATION_MODEL = 'gpt-image-2'
 export const IMAGE_GENERATION_SIZE = '1024x1024'
+export const IMAGE_GENERATION_OUTPUT_FORMAT = 'png' as const
 export const IMAGE_GENERATION_CONTENT_TYPE = 'image/png' as const
 
 export interface GeneratedImagePayload {
@@ -28,7 +29,7 @@ export async function generateImage({
     prompt,
     n: 1,
     size: IMAGE_GENERATION_SIZE,
-    output_format: 'png',
+    output_format: IMAGE_GENERATION_OUTPUT_FORMAT,
   })
 
   const image = response.data?.[0]

@@ -49,4 +49,10 @@ describe('ChatComposer', () => {
     expect(buttons.at(-1)?.disabled).toBe(false)
     expect(screen.getByRole('textbox')).toBeTruthy()
   })
+
+  it('画像生成モード時は下部の On バッジを表示する', () => {
+    render(<ChatComposer {...defaultProps} imageGenerationMode={true} />)
+
+    expect(screen.getByRole('button', { name: '画像生成モード On/Off' }).textContent).toContain('画像生成 On')
+  })
 })

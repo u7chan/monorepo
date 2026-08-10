@@ -12,11 +12,19 @@ import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
-import { generateImage, IMAGE_GENERATION_CONTENT_TYPE } from '#/server/features/image-generation/image-generation'
 import {
+  generateImage,
+  IMAGE_GENERATION_CONTENT_TYPE,
+  IMAGE_GENERATION_MODEL,
+  IMAGE_GENERATION_OUTPUT_FORMAT,
+  IMAGE_GENERATION_SIZE,
+} from '#/server/features/image-generation/image-generation'
+import {
+  getSafeUpstreamErrorLogFields,
   imageStorageFailedError,
   imageStorageNotConfiguredError,
   toChatError,
+  toImageGenerationChatError,
   validationError,
 } from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
@@ -267,8 +275,21 @@ const chatRoutes = new Hono<HonoEnv>()
         usage: generated.usage,
       })
     } catch (error) {
-      const chatError = toChatError(error)
-      requestLogger.error({ code: chatError.code }, 'Image generation failed')
+      const chatError = toImageGenerationChatError(error)
+      requestLogger.error(
+        {
+          errorCode: chatError.code,
+          provider: getSafeUpstreamErrorLogFields(error),
+          request: {
+            endpoint: '/images/generations',
+            model: IMAGE_GENERATION_MODEL,
+            size: IMAGE_GENERATION_SIZE,
+            outputFormat: IMAGE_GENERATION_OUTPUT_FORMAT,
+            count: 1,
+          },
+        },
+        'Image generation failed'
+      )
       return c.json(chatError, 502)
     }
   })

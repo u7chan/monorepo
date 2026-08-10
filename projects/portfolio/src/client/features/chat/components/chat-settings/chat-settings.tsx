@@ -75,7 +75,7 @@ export function ChatSettings({
             <div className='flex items-center gap-2'>
               <span className='max-w-48 truncate text-xs font-medium text-gray-500 dark:text-gray-400'>
                 {imageGenerationMode
-                  ? '画像生成モード'
+                  ? 'gpt-image-2'
                   : contextValue.fakeMode
                     ? 'Fake Mode'
                     : contextValue.settings.model}
