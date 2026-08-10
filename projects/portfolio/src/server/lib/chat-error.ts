@@ -46,6 +46,16 @@ const errorDefinitions: Record<Exclude<ChatErrorCode, 'VALIDATION_ERROR'>, Omit<
     message: 'LLM の応答取得中にエラーが発生しました。しばらく待ってから再試行してください。',
     retryable: true,
   },
+  IMAGE_STORAGE_NOT_CONFIGURED: {
+    message:
+      '生成画像の保存先が未設定です。file-server の接続先・公開 URL・管理者ユーザー名・パスワードを確認してください。',
+    retryable: false,
+  },
+  IMAGE_STORAGE_FAILED: {
+    message:
+      '生成画像を保存できませんでした。file-server のログイン・アップロード設定と接続状態を確認して再試行してください。',
+    retryable: true,
+  },
 }
 
 export const validationError = (message: string): ChatError => ({
@@ -57,6 +67,16 @@ export const validationError = (message: string): ChatError => ({
 export const unavailableChatError = (): ChatError => ({
   code: 'UPSTREAM_UNAVAILABLE',
   ...errorDefinitions.UPSTREAM_UNAVAILABLE,
+})
+
+export const imageStorageNotConfiguredError = (): ChatError => ({
+  code: 'IMAGE_STORAGE_NOT_CONFIGURED',
+  ...errorDefinitions.IMAGE_STORAGE_NOT_CONFIGURED,
+})
+
+export const imageStorageFailedError = (): ChatError => ({
+  code: 'IMAGE_STORAGE_FAILED',
+  ...errorDefinitions.IMAGE_STORAGE_FAILED,
 })
 
 export const conversationPersistenceError = (): ChatError => ({

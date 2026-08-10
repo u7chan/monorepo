@@ -13,7 +13,12 @@ import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
 import { generateImage, IMAGE_GENERATION_CONTENT_TYPE } from '#/server/features/image-generation/image-generation'
-import { toChatError, unavailableChatError, validationError } from '#/server/lib/chat-error'
+import {
+  imageStorageFailedError,
+  imageStorageNotConfiguredError,
+  toChatError,
+  validationError,
+} from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
 import {
@@ -226,7 +231,7 @@ const chatRoutes = new Hono<HonoEnv>()
     const requestLogger = c.var.logger ?? logger
 
     if (!fileServerConfig) {
-      return c.json(unavailableChatError(), 503)
+      return c.json(imageStorageNotConfiguredError(), 503)
     }
 
     try {
@@ -248,7 +253,10 @@ const chatRoutes = new Hono<HonoEnv>()
 
       if (!saved.ok) {
         requestLogger.error({ reason: saved.reason }, 'Generated image was not persisted')
-        return c.json(unavailableChatError(), 502)
+        if (saved.reason === 'file-server-unavailable') {
+          return c.json(imageStorageNotConfiguredError(), 503)
+        }
+        return c.json(imageStorageFailedError(), 502)
       }
 
       return c.json({
@@ -259,8 +267,9 @@ const chatRoutes = new Hono<HonoEnv>()
         usage: generated.usage,
       })
     } catch (error) {
-      requestLogger.error({ err: error }, 'Image generation failed')
-      return c.json(toChatError(error), 502)
+      const chatError = toChatError(error)
+      requestLogger.error({ code: chatError.code }, 'Image generation failed')
+      return c.json(chatError, 502)
     }
   })
   // 非ストリーム専用
