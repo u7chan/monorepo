@@ -4,6 +4,7 @@ import {
   sendNonStreamCompletion,
   sendStreamCompletion,
 } from '#/client/features/chat/api/chat-completion-client'
+import { sendImageGeneration, type SendImageGenerationParams } from '#/client/features/chat/api/image-generation-client'
 import { clearActiveSession, readActiveSession } from '#/client/features/chat/lib/chat-session-storage'
 import {
   type CompletedSessionChatResult,
@@ -51,6 +52,7 @@ export function useStreamProcessor({
   const eventSourceRef = useRef<EventSource | null>(null)
   const activeSessionIdRef = useRef<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [imageLoading, setImageLoading] = useState(false)
   const [stream, setStream] = useState<ChatStreamState | null>(null)
 
   const cancelStream = useCallback(() => {
@@ -165,11 +167,32 @@ export function useStreamProcessor({
     }
   }, [onSessionConversation, onSessionResult, onSubmitting])
 
+  const submitImageGeneration = useCallback(
+    async (params: Omit<SendImageGenerationParams, 'abortController'>) => {
+      setImageLoading(true)
+      const abortController = new AbortController()
+      abortControllerRef.current = abortController
+      onSubmitting?.(true)
+
+      try {
+        return await sendImageGeneration({ ...params, abortController })
+      } finally {
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null
+        }
+        setImageLoading(false)
+        onSubmitting?.(false)
+      }
+    },
+    [onSubmitting]
+  )
+
   return {
-    loading,
+    loading: loading || imageLoading,
     stream,
     cancelStream,
     submitChatCompletion,
     resumeActiveChatCompletion,
+    submitImageGeneration,
   }
 }

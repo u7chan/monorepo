@@ -21,6 +21,7 @@ interface Props {
   onConversationChange?: (conversation: Conversation) => Promise<void> | void
   onSessionCompleted?: (conversation: Conversation) => Promise<void> | void
   onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
+  onUpdateSetting?: <K extends keyof Settings>(key: K, value: Settings[K]) => Settings
 }
 
 export function ChatMain({
@@ -32,6 +33,7 @@ export function ChatMain({
   onConversationChange,
   onSessionCompleted,
   onDeleteMessages,
+  onUpdateSetting,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const prevConversationIdRef = useRef<string | null>(null)
@@ -84,6 +86,14 @@ export function ChatMain({
     },
   })
 
+  const toggleImageGenerationMode = useCallback(() => {
+    onUpdateSetting?.('imageGenerationMode', !settings.imageGenerationMode)
+  }, [onUpdateSetting, settings.imageGenerationMode])
+
+  const toggleImageGenerationHistory = useCallback(() => {
+    onUpdateSetting?.('includeImageGenerationHistory', !settings.includeImageGenerationHistory)
+  }, [onUpdateSetting, settings.includeImageGenerationHistory])
+
   useEffect(() => {
     if (!currentConversation || prevConversationIdRef.current === currentConversation.id) {
       return
@@ -118,13 +128,15 @@ export function ChatMain({
               >
                 お手伝いできることはありますか？
               </div>
-              <div className='hidden md:block'>
-                <PromptTemplate
-                  autoModel={settings.autoModel}
-                  placeholder={settings.model}
-                  onSubmit={handleTemplateSubmit}
-                />
-              </div>
+              {!settings.imageGenerationMode && (
+                <div className='hidden md:block'>
+                  <PromptTemplate
+                    autoModel={settings.autoModel}
+                    placeholder={settings.model}
+                    onSubmit={handleTemplateSubmit}
+                  />
+                </div>
+              )}
               <ChatComposer
                 value={input}
                 textAreaRows={textAreaRows}
@@ -134,12 +146,16 @@ export function ChatMain({
                 streamActive={!!stream}
                 includeChatHistory={settings.includeChatHistory}
                 sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
+                imageGenerationMode={settings.imageGenerationMode}
+                includeImageGenerationHistory={settings.includeImageGenerationHistory}
                 uploadImages={uploadImages}
                 onCancelStream={cancelStream}
                 onImageChange={handleUploadImageChange}
                 onChangeInput={handleChangeInput}
                 onKeyDown={handleKeyDown}
                 onChangeComposition={handleChangeComposition}
+                onToggleImageGenerationMode={toggleImageGenerationMode}
+                onToggleImageGenerationHistory={toggleImageGenerationHistory}
               />
               <div className='py-4' />
             </div>
@@ -203,12 +219,16 @@ export function ChatMain({
               streamActive={!!stream}
               includeChatHistory={settings.includeChatHistory}
               sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
+              imageGenerationMode={settings.imageGenerationMode}
+              includeImageGenerationHistory={settings.includeImageGenerationHistory}
               uploadImages={uploadImages}
               onCancelStream={cancelStream}
               onImageChange={handleUploadImageChange}
               onChangeInput={handleChangeInput}
               onKeyDown={handleKeyDown}
               onChangeComposition={handleChangeComposition}
+              onToggleImageGenerationMode={toggleImageGenerationMode}
+              onToggleImageGenerationHistory={toggleImageGenerationHistory}
             />
             <div className='h-4' />
           </>

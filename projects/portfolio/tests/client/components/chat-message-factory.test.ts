@@ -24,6 +24,8 @@ const settings: Settings = {
   streamMode: true,
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
+  imageGenerationMode: false,
+  includeImageGenerationHistory: true,
   sidebarOpen: true,
   templateModels: {},
 }

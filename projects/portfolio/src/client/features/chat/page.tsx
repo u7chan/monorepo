@@ -32,6 +32,7 @@ export function Chat() {
     closeSettingsPopup,
     setSubmitting,
     updateSettings,
+    updateSetting,
   } = useChatPageState(conversationId ?? null)
 
   const { email } = useMetaProps()
@@ -217,6 +218,7 @@ export function Chat() {
         onToggleSidebar={toggleSidebar}
         onChange={updateSettings}
         onHidePopup={closeSettingsPopup}
+        imageGenerationMode={settings.imageGenerationMode}
       />
       {isResolvingConversation ? (
         <div className='flex min-h-0 flex-1 items-center justify-center gap-2'>
@@ -233,6 +235,7 @@ export function Chat() {
           onConversationChange={handleConversationChange}
           onSessionCompleted={handleSessionCompleted}
           onDeleteMessages={handleDeleteConversationMessage}
+          onUpdateSetting={updateSetting}
         />
       )}
     </ChatLayout>

@@ -7,6 +7,7 @@ import type {
   AssistantMetadata,
   Conversation,
   GeneratedCodeFile,
+  GeneratedImage,
   ImageContent,
   Message,
   TextContent,
@@ -72,17 +73,44 @@ function normalizeGeneratedFiles(
   })
 }
 
+function normalizeGeneratedImages(
+  images: unknown,
+  fileServerPublicBaseUrl?: string | null
+): GeneratedImage[] | undefined {
+  if (!Array.isArray(images)) {
+    return undefined
+  }
+
+  return images.map((image) => {
+    if (!image || typeof image !== 'object') {
+      return image as GeneratedImage
+    }
+
+    const generatedImage = image as GeneratedImage
+    if (!fileServerPublicBaseUrl || !generatedImage.publicPath) {
+      return generatedImage
+    }
+
+    return {
+      ...generatedImage,
+      previewUrl: buildFileServerPreviewUrl(fileServerPublicBaseUrl, generatedImage.publicPath),
+    }
+  })
+}
+
 function normalizeAssistantMetadata(metadata: unknown, fileServerPublicBaseUrl?: string | null): AssistantMetadata {
   const base = (metadata ?? {}) as AssistantMetadata
   const generatedFiles = normalizeGeneratedFiles(base.generatedFiles, fileServerPublicBaseUrl)
+  const generatedImages = normalizeGeneratedImages(base.generatedImages, fileServerPublicBaseUrl)
 
-  if (!generatedFiles) {
+  if (!generatedFiles && !generatedImages) {
     return base
   }
 
   return {
     ...base,
-    generatedFiles,
+    ...(generatedFiles ? { generatedFiles } : {}),
+    ...(generatedImages ? { generatedImages } : {}),
   }
 }
 

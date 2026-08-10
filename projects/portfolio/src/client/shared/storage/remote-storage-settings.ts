@@ -21,6 +21,8 @@ export interface Settings {
   streamMode: boolean
   includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
+  imageGenerationMode: boolean
+  includeImageGenerationHistory: boolean
   sidebarOpen: boolean
   templateModels: {
     [key: string]: {
@@ -51,6 +53,8 @@ const defaultSettings: Settings = {
   streamMode: true,
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
+  imageGenerationMode: false,
+  includeImageGenerationHistory: true,
   sidebarOpen: true,
   templateModels: {},
 }
@@ -160,6 +164,8 @@ function shouldPersistNormalizedSettings(
     settings.includeChatHistory !== normalized.includeChatHistory ||
     'interactiveMode' in settings ||
     settings.sendImagesOnlyOnce !== normalized.sendImagesOnlyOnce ||
+    settings.imageGenerationMode !== normalized.imageGenerationMode ||
+    settings.includeImageGenerationHistory !== normalized.includeImageGenerationHistory ||
     'mcpServerURLs' in settings
   )
 }

@@ -9,6 +9,7 @@ export {
   UserMetadataSchema,
   AssistantMetadataSchema,
   GeneratedCodeFileSchema,
+  GeneratedImageSchema,
   ImageContextSummarySchema,
   ApiModeSchema,
   ReasoningEffortSchema,
@@ -26,6 +27,7 @@ export {
   type UserMetadata,
   type AssistantMetadata,
   type GeneratedCodeFile,
+  type GeneratedImage,
   type ImageContextSummary,
   type ApiMode,
   type ReasoningEffort,
@@ -66,3 +68,12 @@ export {
   type ChatError,
   type ChatErrorResponse,
 } from './chat-api.js'
+
+export {
+  ImageGenerationRequestSchema,
+  ImageGenerationResponseSchema,
+  ImageGenerationUsageSchema,
+  type ImageGenerationRequest,
+  type ImageGenerationResponse,
+  type ImageGenerationUsage,
+} from './image-generation-api.js'
