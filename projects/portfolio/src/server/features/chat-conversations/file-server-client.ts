@@ -38,6 +38,31 @@ export function resolveFileServerPublicBaseUrl(env: Pick<FileServerEnv, 'FILE_SE
   return baseUrl.replace(/\/$/, '')
 }
 
+export function resolveFileServerPublicOrigin(env: Pick<FileServerEnv, 'FILE_SERVER_PUBLIC_URL'>): string | null {
+  const baseUrl = resolveFileServerPublicBaseUrl(env)
+
+  if (!baseUrl) {
+    return null
+  }
+
+  try {
+    const url = new URL(baseUrl)
+
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+      return null
+    }
+
+    const origin = url.origin
+    if (!/^https?:\/\/(?:[a-z\d.-]+|\[[0-9a-f:.]+\])(?::\d+)?$/i.test(origin)) {
+      return null
+    }
+
+    return origin
+  } catch {
+    return null
+  }
+}
+
 export function buildFileServerPreviewUrl(publicBaseUrl: string, publicPath: string): string {
   return `${publicBaseUrl}${publicPath}`
 }

@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import { requestId } from 'hono/request-id'
 import type pino from 'pino'
+import { resolveFileServerPublicOrigin } from './features/chat-conversations/file-server-client'
 import { getErrorMessage } from './lib/error-message'
 import { logger } from './lib/logger'
 import { AuthenticationError, authRoutes } from './routes/auth'
@@ -12,19 +13,25 @@ import { htmlRoutes } from './routes/html'
 import { modelsRoutes } from './routes/models'
 import { promptTemplatesRoutes } from './routes/prompt-templates'
 import type { HonoEnv } from './routes/shared'
+import { getServerEnv } from './routes/shared'
 
 const securityHeaders = {
-  'Content-Security-Policy':
-    "base-uri 'self'; default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-src 'self'",
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), display-capture=()',
 } as const
 
+function buildContentSecurityPolicy(fileServerPublicOrigin: string | null): string {
+  const imageOrigin = fileServerPublicOrigin ? ` ${fileServerPublicOrigin}` : ''
+
+  return `base-uri 'self'; default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; img-src 'self' data: https:${imageOrigin}; connect-src 'self'; frame-src 'self'`
+}
+
 const applySecurityHeaders: MiddlewareHandler<HonoEnv> = async (c, next) => {
   await next()
 
+  c.header('Content-Security-Policy', buildContentSecurityPolicy(resolveFileServerPublicOrigin(getServerEnv(c))))
   for (const [name, value] of Object.entries(securityHeaders)) {
     c.header(name, value)
   }
