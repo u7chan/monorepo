@@ -20,6 +20,8 @@ interface Props {
   onToggleSidebar?: () => void
   onChange?: (settings: Settings) => void
   onHidePopup?: () => void
+  imageGenerationMode?: boolean
+  settings: Settings
 }
 
 export function ChatSettings({
@@ -34,8 +36,10 @@ export function ChatSettings({
   onToggleSidebar,
   onChange,
   onHidePopup,
+  imageGenerationMode = false,
+  settings,
 }: Props) {
-  const contextValue = useChatSettings({ showPopup, onChange })
+  const contextValue = useChatSettings({ showPopup, onChange, settings })
 
   return (
     <>
@@ -72,15 +76,21 @@ export function ChatSettings({
             {/* Right side */}
             <div className='flex items-center gap-2'>
               <span className='max-w-48 truncate text-xs font-medium text-gray-500 dark:text-gray-400'>
-                {contextValue.fakeMode ? 'Fake Mode' : contextValue.settings.model}
+                {imageGenerationMode
+                  ? 'gpt-image-2'
+                  : contextValue.fakeMode
+                    ? 'Fake Mode'
+                    : contextValue.settings.model}
               </span>
-              <IconButton
-                label='Settings'
-                onClick={onShowMenu}
-                className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-              >
-                <GearIcon className='text-[#5D5D5D] dark:text-gray-300' />
-              </IconButton>
+              {!imageGenerationMode && (
+                <IconButton
+                  label='Settings'
+                  onClick={onShowMenu}
+                  className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                >
+                  <GearIcon className='text-[#5D5D5D] dark:text-gray-300' />
+                </IconButton>
+              )}
             </div>
           </>
         )}
@@ -88,7 +98,7 @@ export function ChatSettings({
 
       {/* Settings Panel */}
       <ChatSettingsProvider value={contextValue}>
-        <ChatSettingsPanel show={showPopup ?? false} onClose={onHidePopup ?? (() => {})}>
+        <ChatSettingsPanel show={!imageGenerationMode && (showPopup ?? false)} onClose={onHidePopup ?? (() => {})}>
           <ChatSettingsForm />
         </ChatSettingsPanel>
       </ChatSettingsProvider>

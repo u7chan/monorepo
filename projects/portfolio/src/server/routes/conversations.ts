@@ -7,7 +7,7 @@ import {
 } from '#/server/features/chat-conversations/file-server-client'
 import { chatConversationRepository } from '#/server/features/chat-conversations/repository'
 import { requireAuth } from '#/server/middleware/auth'
-import { ApiModeSchema, ConversationSchema, GeneratedCodeFileSchema } from '#/types'
+import { ApiModeSchema, ConversationSchema, GeneratedCodeFileSchema, GeneratedImageSchema } from '#/types'
 import type { HonoEnv } from './shared'
 import { getServerEnv } from './shared'
 
@@ -30,6 +30,7 @@ const AssistantMetadataPatchSchema = z
       })
       .optional(),
     generatedFiles: z.array(GeneratedCodeFileSchema).optional(),
+    generatedImages: z.array(GeneratedImageSchema).optional(),
   })
   .strict()
 

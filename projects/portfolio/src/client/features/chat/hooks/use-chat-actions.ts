@@ -6,6 +6,7 @@ import type { useStreamProcessor } from '#/client/features/chat/hooks/use-stream
 import {
   createAssistantMessage,
   createConversationTitle,
+  createImageGenerationAssistantMessage,
   resolveChatRequestSettings,
 } from '#/client/features/chat/lib/chat-message-factory'
 import {
@@ -14,6 +15,7 @@ import {
   prepareApiMessages,
   summarizeImageContext,
 } from '#/client/features/chat/lib/edit-message'
+import { buildImageGenerationPrompt } from '#/client/features/chat/lib/image-generation'
 import { unknownChatError } from '#/client/shared/lib/chat-error'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { Conversation, GeneratedCodeFile, Message } from '#/types'
@@ -64,13 +66,17 @@ export function useChatActions({
     setGenerationError,
     markSessionOwnedSnapshot,
   } = conversationState
-  const { loading, stream, submitChatCompletion } = streamProcessor
+  const { loading, stream, submitChatCompletion, submitImageGeneration } = streamProcessor
   const { canSaveGeneratedFile, currentConversation, onConversationChange, onSessionCompleted, onDeleteMessages } =
     callbacks
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
+      if (settings.imageGenerationMode) {
+        void handleImageGenerationSubmit()
+        return
+      }
       const requestSettings = resolveChatRequestSettings(settings)
       setGenerationError(null)
       const params = buildChatMessages({
@@ -185,6 +191,80 @@ export function useChatActions({
     ]
   )
 
+  async function handleImageGenerationSubmit() {
+    const prompt = buildImageGenerationPrompt(messages, formState.input, settings.includeChatHistory)
+    if (!prompt || !submitImageGeneration) {
+      return
+    }
+
+    const assistantMessageId = uuidv7()
+    const currentConversationId = conversationId || uuidv7()
+    const draftUserMessage: Message = {
+      id: uuidv7(),
+      role: 'user',
+      content: prompt.currentPrompt,
+      metadata: {
+        model: '',
+        imageGenerationMode: true,
+      },
+    }
+    const nextMessages = [...messages, draftUserMessage]
+    const draftConversation = {
+      id: currentConversationId,
+      title: createConversationTitle(draftUserMessage.content),
+      messages: nextMessages,
+    }
+
+    setGenerationError(null)
+    markSessionOwnedSnapshot(draftConversation)
+    setConversationId(currentConversationId)
+    setMessages(nextMessages)
+    setStreamMessageId(assistantMessageId)
+    resetAfterSubmit()
+
+    try {
+      const { result, error, responseTimeMs } = await submitImageGeneration({
+        header: {
+          apiKey: settings.apiKey,
+          baseURL: settings.baseURL,
+        },
+        prompt: prompt.prompt,
+        conversationId: currentConversationId,
+        assistantMessageId,
+      })
+
+      if (error || !result) {
+        setGenerationError(error ?? unknownChatError())
+        return
+      }
+
+      const assistantMessage = createImageGenerationAssistantMessage({
+        assistantMessageId,
+        result,
+        responseTimeMs,
+      })
+      const finalMessages = [...nextMessages, assistantMessage]
+      const completedConversation = {
+        id: currentConversationId,
+        title: createConversationTitle(draftUserMessage.content),
+        messages: finalMessages,
+      }
+      markSessionOwnedSnapshot(completedConversation)
+      setMessages(finalMessages)
+
+      setIsSavingConversation(true)
+      try {
+        await onConversationChange?.(completedConversation)
+      } finally {
+        setIsSavingConversation(false)
+      }
+    } catch {
+      setGenerationError(unknownChatError())
+    } finally {
+      setStreamMessageId(null)
+    }
+  }
+
   const handleSaveGeneratedFile = useCallback(
     async (messageIndex: number, params: SaveGeneratedFileRequest): Promise<GeneratedCodeFile | null> => {
       if (!canSaveGeneratedFile) {
@@ -238,6 +318,10 @@ export function useChatActions({
   const handleEditMessage = useCallback(
     async (index: number, nextText: string): Promise<void> => {
       if (loading || stream || isSavingConversation) {
+        return
+      }
+
+      if (messages[index]?.role === 'user' && messages[index].metadata.imageGenerationMode === true) {
         return
       }
 

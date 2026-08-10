@@ -73,6 +73,7 @@ export const UserMetadataSchema = z
     maxTokens: z.number().optional(),
     reasoningEffort: ReasoningEffortSchema.optional(),
     sendImagesOnlyOnce: z.boolean().optional(),
+    imageGenerationMode: z.boolean().optional(),
   })
   .catch({ model: '' })
 
@@ -101,6 +102,17 @@ export const GeneratedCodeFileSchema = z.object({
 
 export type GeneratedCodeFile = z.infer<typeof GeneratedCodeFileSchema>
 
+/** file-server に保存した生成画像の公開メタデータ。画像本体は含めない。 */
+export const GeneratedImageSchema = z.object({
+  fileName: z.string(),
+  publicPath: z.string(),
+  previewUrl: z.string().optional(),
+  contentType: z.string(),
+  createdAt: z.string(),
+})
+
+export type GeneratedImage = z.infer<typeof GeneratedImageSchema>
+
 export const AssistantMetadataSchema = z
   .object({
     model: z.string().catch(''),
@@ -116,6 +128,7 @@ export const AssistantMetadataSchema = z
       })
       .catch({}),
     generatedFiles: z.array(GeneratedCodeFileSchema).optional(),
+    generatedImages: z.array(GeneratedImageSchema).optional(),
     imageContext: ImageContextSummarySchema.optional(),
     apiContextMessages: z.array(ApiChatMessageSchema).optional(),
   })

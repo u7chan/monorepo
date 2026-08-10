@@ -5,12 +5,28 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
+import { resolveFileServerConfig } from '#/server/features/chat-conversations/file-server-client'
+import { saveGeneratedImage } from '#/server/features/chat-conversations/save-generated-image'
 import { chatSessionManager, isTerminalSessionEvent } from '#/server/features/chat-sessions/session-manager'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
 import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/server/features/chat/transport'
-import { toChatError, validationError } from '#/server/lib/chat-error'
+import {
+  generateImage,
+  IMAGE_GENERATION_CONTENT_TYPE,
+  IMAGE_GENERATION_MODEL,
+  IMAGE_GENERATION_OUTPUT_FORMAT,
+  IMAGE_GENERATION_SIZE,
+} from '#/server/features/image-generation/image-generation'
+import {
+  getSafeUpstreamErrorLogFields,
+  imageStorageFailedError,
+  imageStorageNotConfiguredError,
+  toChatError,
+  toImageGenerationChatError,
+  validationError,
+} from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
 import {
@@ -19,6 +35,7 @@ import {
   type ChatApiRequest,
   type ChatSessionEvent,
 } from '#/types/chat-api'
+import { ImageGenerationRequestSchema } from '#/types/image-generation-api'
 import type { HonoEnv } from './shared'
 import { getServerEnv, getSignedInEmail } from './shared'
 
@@ -85,6 +102,15 @@ const formatValidationPath = (path: unknown): string => {
 }
 
 const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) => {
+  if (result.success) return
+
+  const issue = result.error[0]
+  const fieldName = formatValidationPath(issue?.path)
+
+  return c.json(validationError(`Invalid request body '${fieldName}'`), 400)
+})
+
+const imageGenerationBodyValidator = sValidator('json', ImageGenerationRequestSchema, (result, c) => {
   if (result.success) return
 
   const issue = result.error[0]
@@ -206,6 +232,67 @@ const streamStubCompletion = (
   })
 
 const chatRoutes = new Hono<HonoEnv>()
+  .post('/api/image/generations', chatHeaderValidator, imageGenerationBodyValidator, async (c) => {
+    const header = c.req.valid('header')
+    const req = c.req.valid('json')
+    const fileServerConfig = resolveFileServerConfig(getServerEnv(c))
+    const requestLogger = c.var.logger ?? logger
+
+    if (!fileServerConfig) {
+      return c.json(imageStorageNotConfiguredError(), 503)
+    }
+
+    try {
+      const generated = await generateImage({
+        apiKey: header['api-key'],
+        baseURL: header['base-url'],
+        prompt: req.prompt,
+      })
+      const saved = await saveGeneratedImage(
+        {
+          conversationId: req.conversationId,
+          assistantMessageId: req.assistantMessageId,
+          content: generated.content,
+          contentType: IMAGE_GENERATION_CONTENT_TYPE,
+          createdAt: new Date(generated.created * 1000).toISOString(),
+        },
+        fileServerConfig
+      )
+
+      if (!saved.ok) {
+        requestLogger.error({ reason: saved.reason }, 'Generated image was not persisted')
+        if (saved.reason === 'file-server-unavailable') {
+          return c.json(imageStorageNotConfiguredError(), 503)
+        }
+        return c.json(imageStorageFailedError(), 502)
+      }
+
+      return c.json({
+        id: generated.id,
+        created: generated.created,
+        model: generated.model,
+        image: saved.image,
+        usage: generated.usage,
+      })
+    } catch (error) {
+      const chatError = toImageGenerationChatError(error)
+      requestLogger.error(
+        {
+          errorCode: chatError.code,
+          provider: getSafeUpstreamErrorLogFields(error),
+          request: {
+            endpoint: '/images/generations',
+            model: IMAGE_GENERATION_MODEL,
+            size: IMAGE_GENERATION_SIZE,
+            outputFormat: IMAGE_GENERATION_OUTPUT_FORMAT,
+            count: 1,
+          },
+        },
+        'Image generation failed'
+      )
+      return c.json(chatError, 502)
+    }
+  })
   // 非ストリーム専用
   .post('/api/chat', chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')

@@ -6,6 +6,7 @@ export type UpstreamErrorDetails = {
   type?: string
   code?: string
   param?: string
+  requestId?: string
   message?: string
 }
 
@@ -46,6 +47,31 @@ const errorDefinitions: Record<Exclude<ChatErrorCode, 'VALIDATION_ERROR'>, Omit<
     message: 'LLM の応答取得中にエラーが発生しました。しばらく待ってから再試行してください。',
     retryable: true,
   },
+  IMAGE_STORAGE_NOT_CONFIGURED: {
+    message:
+      '生成画像の保存先が未設定です。file-server の接続先・公開 URL・管理者ユーザー名・パスワードを確認してください。',
+    retryable: false,
+  },
+  IMAGE_STORAGE_FAILED: {
+    message:
+      '生成画像を保存できませんでした。file-server のログイン・アップロード設定と接続状態を確認して再試行してください。',
+    retryable: true,
+  },
+  IMAGE_MODEL_ENDPOINT_INCOMPATIBLE: {
+    message:
+      '画像生成プロバイダーがモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と gpt-image-2 の利用可否を確認してください。',
+    retryable: false,
+  },
+  IMAGE_REQUEST_INVALID: {
+    message:
+      '画像生成リクエストのパラメータが受け付けられませんでした。プロバイダーが受け付ける model・size・output format・n・prompt を確認してください。',
+    retryable: false,
+  },
+  IMAGE_PROVIDER_REJECTED: {
+    message:
+      '画像生成プロバイダーにリクエストを拒否されました。prompt の内容とプロバイダーの安全基準・利用制限を確認してください。',
+    retryable: false,
+  },
 }
 
 export const validationError = (message: string): ChatError => ({
@@ -58,6 +84,49 @@ export const unavailableChatError = (): ChatError => ({
   code: 'UPSTREAM_UNAVAILABLE',
   ...errorDefinitions.UPSTREAM_UNAVAILABLE,
 })
+
+export const imageStorageNotConfiguredError = (): ChatError => ({
+  code: 'IMAGE_STORAGE_NOT_CONFIGURED',
+  ...errorDefinitions.IMAGE_STORAGE_NOT_CONFIGURED,
+})
+
+export const imageStorageFailedError = (): ChatError => ({
+  code: 'IMAGE_STORAGE_FAILED',
+  ...errorDefinitions.IMAGE_STORAGE_FAILED,
+})
+
+export function toImageGenerationChatError(error: unknown): ChatError {
+  const details = getErrorDetails(error)
+  const code = classifyImageGenerationError(details)
+
+  return {
+    code,
+    ...errorDefinitions[code],
+  }
+}
+
+export function getSafeUpstreamErrorLogFields(error: unknown): Record<string, string | number | boolean> {
+  const details = getErrorDetails(error)
+  const fields: Record<string, string | number | boolean> = {}
+
+  if (isHttpStatus(details.status)) fields.status = details.status
+
+  const code = readSafeDiagnosticValue(details.code)
+  if (code) fields.code = code
+
+  const type = readSafeDiagnosticValue(details.type)
+  if (type) fields.type = type
+
+  const param = readSafeDiagnosticValue(details.param)
+  if (param) fields.param = param
+
+  const requestId = readSafeDiagnosticValue(details.requestId)
+  if (requestId) fields.requestId = requestId
+
+  if (details.connectionError) fields.connectionError = true
+
+  return fields
+}
 
 export const conversationPersistenceError = (): ChatError => ({
   code: 'UPSTREAM_UNAVAILABLE',
@@ -84,6 +153,7 @@ type ErrorDetails = {
   type: string
   code: string
   param: string
+  requestId: string
   message: string
   connectionError: boolean
 }
@@ -95,15 +165,74 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
   return {
     status: apiError?.status ?? upstreamError?.status,
-    type: readString(body?.type),
-    code: readString(body?.code),
-    param: readString(body?.param),
+    type: readString(apiError?.type) || readString(body?.type),
+    code: readString(apiError?.code) || readString(body?.code),
+    param: readString(apiError?.param) || readString(body?.param),
+    requestId: readString(apiError?.requestID) || readString(upstreamError?.requestId),
     message: [readString(body?.message), error instanceof Error ? error.message : '']
       .filter(Boolean)
       .join('\n')
       .toLowerCase(),
     connectionError: error instanceof APIConnectionError || error instanceof APIConnectionTimeoutError,
   }
+}
+
+function classifyImageGenerationError(details: ErrorDetails): Exclude<ChatErrorCode, 'VALIDATION_ERROR'> {
+  const genericCode = classifyError(details)
+
+  if (!['INVALID_REQUEST', 'UNKNOWN_UPSTREAM_ERROR'].includes(genericCode)) {
+    return genericCode
+  }
+
+  if (isImageProviderRejection(details)) {
+    return 'IMAGE_PROVIDER_REJECTED'
+  }
+
+  if (isImageModelEndpointIncompatible(details)) {
+    return 'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE'
+  }
+
+  return genericCode === 'INVALID_REQUEST' ? 'IMAGE_REQUEST_INVALID' : genericCode
+}
+
+function isImageProviderRejection({ type, code, message }: ErrorDetails): boolean {
+  const structuredSignals = `${type}\n${code}`.toLowerCase()
+  if (
+    /moderation[_\s-]?blocked|content[_\s-]?(?:policy|filter)|policy[_\s-]?violation|image[_\s-]?generation[_\s-]?user[_\s-]?error|safety[_\s-]?(?:violation|blocked|filter)|(?:^|\n)blocked(?:$|\n)/.test(
+      structuredSignals
+    )
+  ) {
+    return true
+  }
+
+  const messageSignals = message.toLowerCase()
+  return /(?:prompt|content|image|moderation).*(?:blocked|rejected|filtered|policy|safety|violation)|(?:blocked|rejected|filtered).*(?:prompt|content|image)/.test(
+    messageSignals
+  )
+}
+
+function isImageModelEndpointIncompatible({ status, type, code, param, message }: ErrorDetails): boolean {
+  if (status === 404 || status === 405) return true
+
+  const signals = `${type}\n${code}\n${param}\n${message}`.toLowerCase()
+  const normalizedParam = param.toLowerCase()
+
+  return (
+    normalizedParam === 'model' ||
+    normalizedParam === 'endpoint' ||
+    /(?:model|endpoint|route|path).*(?:not found|not supported|unsupported|unavailable)|(?:not found|not supported|unsupported|unavailable).*(?:model|endpoint|route|path)|does not support.*(?:model|image|endpoint)|image.*(?:not supported|unsupported)/.test(
+      signals
+    )
+  )
+}
+
+function isHttpStatus(value: number | undefined): value is number {
+  return value !== undefined && Number.isInteger(value) && value >= 100 && value <= 599
+}
+
+function readSafeDiagnosticValue(value: unknown): string | undefined {
+  const normalized = readString(value).trim()
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(normalized) ? normalized : undefined
 }
 
 function classifyError({

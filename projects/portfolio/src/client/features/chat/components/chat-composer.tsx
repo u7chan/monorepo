@@ -16,12 +16,15 @@ interface ChatComposerProps {
   streamActive: boolean
   includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
+  imageGenerationMode?: boolean
   uploadImages: string[]
   onCancelStream: () => void
   onImageChange: (src: string, index?: number) => void
   onChangeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onChangeComposition: (composition: boolean) => void
+  onToggleImageGenerationMode?: () => void
+  onToggleChatHistory?: () => void
 }
 
 export function ChatComposer({
@@ -34,12 +37,15 @@ export function ChatComposer({
   streamActive,
   includeChatHistory,
   sendImagesOnlyOnce,
+  imageGenerationMode = false,
   uploadImages,
   onCancelStream,
   onImageChange,
   onChangeInput,
   onKeyDown,
   onChangeComposition,
+  onToggleImageGenerationMode,
+  onToggleChatHistory,
 }: ChatComposerProps) {
   return (
     <ChatInput
@@ -57,17 +63,73 @@ export function ChatComposer({
         />
       }
       leftBottom={
-        <ImageUploadAction
-          uploadImages={uploadImages}
-          disabled={loading || streamActive}
-          contextLabel={sendImagesOnlyOnce ? 'この送信に含む' : '履歴でも継続'}
-          onImageChange={onImageChange}
-        />
+        <div className='flex items-center gap-1'>
+          <ImageGenerationModeAction
+            enabled={imageGenerationMode}
+            includeHistory={includeChatHistory}
+            disabled={loading || streamActive}
+            onToggleMode={onToggleImageGenerationMode}
+            onToggleHistory={onToggleChatHistory}
+          />
+          {!imageGenerationMode && (
+            <ImageUploadAction
+              uploadImages={uploadImages}
+              disabled={loading || streamActive}
+              contextLabel={sendImagesOnlyOnce ? 'この送信に含む' : '履歴でも継続'}
+              onImageChange={onImageChange}
+            />
+          )}
+        </div>
       }
       onChangeInput={onChangeInput}
       onKeyDown={onKeyDown}
       onChangeComposition={onChangeComposition}
     />
+  )
+}
+
+function ImageGenerationModeAction({
+  enabled,
+  includeHistory,
+  disabled,
+  onToggleMode,
+  onToggleHistory,
+}: {
+  enabled: boolean
+  includeHistory: boolean
+  disabled: boolean
+  onToggleMode?: () => void
+  onToggleHistory?: () => void
+}) {
+  return (
+    <div className='flex items-center gap-1'>
+      <button
+        type='button'
+        onClick={onToggleMode}
+        disabled={disabled}
+        aria-label='画像生成モード On/Off'
+        className={`rounded-3xl border px-2 py-1 text-xs transition-colors disabled:opacity-50 ${
+          enabled
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 dark:hover:bg-emerald-900/60'
+            : 'border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+        }`}
+      >
+        画像生成 {enabled ? 'On' : 'Off'}
+      </button>
+      <button
+        type='button'
+        onClick={onToggleHistory}
+        disabled={disabled}
+        aria-label='画像生成 prompt 履歴 On/Off'
+        className={`rounded-3xl border px-2 py-1 text-xs transition-colors disabled:opacity-50 ${
+          includeHistory
+            ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60'
+            : 'border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+        }`}
+      >
+        履歴 {includeHistory ? 'On' : 'Off'}
+      </button>
+    </div>
   )
 }
 

@@ -4,19 +4,27 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { AssistantMessage, Conversation, Message, UserMessage } from '#/types'
+import type { ImageGenerationResponse } from '#/types/image-generation-api'
 
 const useMessageScrollMock = vi.fn()
 const scrollToMessageEndMock = vi.fn()
 const submitChatCompletionMock = vi.fn()
+const submitImageGenerationMock = vi.fn()
 const resumeActiveChatCompletionMock = vi.fn()
 const buildChatMessagesMock = vi.fn()
 const resetAfterSubmitMock = vi.fn()
+let chatFormInputMock = ''
 let hasActiveChatSessionMock = false
 let streamProcessorParams: Record<string, unknown> | null = null
 let chatMessageListProps: Record<string, unknown> | null = null
 
 vi.mock('#/client/features/chat/components/chat-input', () => ({
-  ChatInput: () => <div data-testid='chat-input' />,
+  ChatInput: ({ leftBottom, rightBottom }: { leftBottom?: React.ReactNode; rightBottom?: React.ReactNode }) => (
+    <div data-testid='chat-input'>
+      {leftBottom}
+      {rightBottom}
+    </div>
+  ),
 }))
 
 vi.mock('#/client/features/chat/components/chat-message-list', () => ({
@@ -28,7 +36,7 @@ vi.mock('#/client/features/chat/components/chat-message-list', () => ({
 
 vi.mock('#/client/features/chat/hooks/use-chat-form', () => ({
   useChatForm: () => ({
-    input: '',
+    input: chatFormInputMock,
     uploadImages: [],
     textAreaRows: 2,
     setTemplateInput: vi.fn(),
@@ -61,6 +69,7 @@ vi.mock('#/client/features/chat/hooks/use-stream-processor', () => ({
       stream: null,
       cancelStream: vi.fn(),
       submitChatCompletion: submitChatCompletionMock,
+      submitImageGeneration: submitImageGenerationMock,
       resumeActiveChatCompletion: resumeActiveChatCompletionMock,
     }
   },
@@ -104,6 +113,24 @@ const currentConversation: Conversation = {
   messages: [createUserMessage('message-1', 'こんにちは'), createAssistantMessage('message-2', 'こんばんは')],
 }
 
+const imageGenerationResult: ImageGenerationResponse = {
+  id: 'image-1',
+  created: 1700000000,
+  model: 'gpt-image-2',
+  image: {
+    fileName: 'image-1.png',
+    publicPath: '/public/portfolio/conversation-1/image-1.png',
+    previewUrl: 'https://files.example.com/public/portfolio/conversation-1/image-1.png',
+    contentType: 'image/png',
+    createdAt: '2026-08-10T00:00:00.000Z',
+  },
+  usage: {
+    inputTokens: 1,
+    outputTokens: 2,
+    totalTokens: 3,
+  },
+}
+
 const settings: Settings = {
   schemaVersion: '1.4.0',
   model: 'gpt-4.1-mini',
@@ -121,6 +148,7 @@ const settings: Settings = {
   streamMode: true,
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
+  imageGenerationMode: false,
   sidebarOpen: true,
   templateModels: {},
 }
@@ -129,10 +157,17 @@ describe('ChatMain', () => {
   beforeEach(() => {
     chatMessageListProps = null
     streamProcessorParams = null
+    chatFormInputMock = ''
     hasActiveChatSessionMock = false
     buildChatMessagesMock.mockReset()
     buildChatMessagesMock.mockReturnValue(null)
     resetAfterSubmitMock.mockReset()
+    submitImageGenerationMock.mockReset()
+    submitImageGenerationMock.mockResolvedValue({
+      result: imageGenerationResult,
+      error: null,
+      responseTimeMs: 1_345,
+    })
     resumeActiveChatCompletionMock.mockResolvedValue(null)
     submitChatCompletionMock.mockResolvedValue({
       error: null,
@@ -457,6 +492,127 @@ describe('ChatMain', () => {
         })
       )
     })
+  })
+
+  it('画像生成成功時は実測 responseTimeMs を assistant message と保存 payload に伝播する', async () => {
+    chatFormInputMock = '白い背景に青い円を1つ'
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true }}
+        currentConversation={currentConversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() => expect(onConversationChange).toHaveBeenCalledTimes(1))
+    expect(submitImageGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: '白い背景に青い円を1つ',
+        conversationId: 'conversation-1',
+      })
+    )
+    expect(onConversationChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation-1',
+        messages: [
+          ...currentConversation.messages,
+          expect.objectContaining({ role: 'user', content: '白い背景に青い円を1つ' }),
+          expect.objectContaining({
+            role: 'assistant',
+            metadata: expect.objectContaining({
+              model: 'gpt-image-2',
+              responseTimeMs: 1_345,
+            }),
+          }),
+        ],
+      })
+    )
+  })
+
+  it('共有履歴設定が Off の画像生成では過去の画像 prompt を送らない', async () => {
+    chatFormInputMock = '現在の画像 prompt'
+    const imageHistoryConversation: Conversation = {
+      ...currentConversation,
+      messages: [
+        {
+          id: 'image-user-1',
+          role: 'user',
+          content: '過去の画像 prompt',
+          metadata: {
+            model: '',
+            imageGenerationMode: true,
+          },
+        },
+      ],
+    }
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true, includeChatHistory: false }}
+        currentConversation={imageHistoryConversation}
+      />
+    )
+
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() => expect(submitImageGenerationMock).toHaveBeenCalledTimes(1))
+    expect(submitImageGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: '現在の画像 prompt',
+      })
+    )
+  })
+
+  it('画像モードの履歴バッジ toggle は共有 Include chat history を更新する', async () => {
+    const onUpdateSetting = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true, includeChatHistory: false }}
+        currentConversation={currentConversation}
+        onUpdateSetting={onUpdateSetting}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: '画像生成 prompt 履歴 On/Off' }))
+
+    expect(onUpdateSetting).toHaveBeenCalledWith('includeChatHistory', true)
+  })
+
+  it('画像生成失敗時は assistant message と会話保存を追加しない', async () => {
+    chatFormInputMock = '保存に失敗する画像'
+    submitImageGenerationMock.mockResolvedValue({
+      result: null,
+      error: {
+        code: 'IMAGE_STORAGE_FAILED',
+        message:
+          '生成画像を保存できませんでした。file-server のログイン・アップロード設定と接続状態を確認して再試行してください。',
+        retryable: true,
+      },
+    })
+    const onConversationChange = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true }}
+        currentConversation={currentConversation}
+        onConversationChange={onConversationChange}
+      />
+    )
+
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() => expect(chatMessageListProps?.generationError).toMatchObject({ code: 'IMAGE_STORAGE_FAILED' }))
+    expect(onConversationChange).not.toHaveBeenCalled()
+    expect(chatMessageListProps?.messages).toEqual([
+      ...currentConversation.messages,
+      expect.objectContaining({ role: 'user', content: '保存に失敗する画像' }),
+    ])
   })
 
   it('通常送信のエラーを保存せず専用エラー状態へ渡す', async () => {

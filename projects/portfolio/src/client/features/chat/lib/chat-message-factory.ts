@@ -1,6 +1,7 @@
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { ApiChatMessage, ImageContextSummary, Message } from '#/types'
 import type { ChatResponse } from '#/types/chat-api'
+import type { ImageGenerationResponse } from '#/types/image-generation-api'
 
 const CONVERSATION_TITLE_MAX_LENGTH = 10
 
@@ -41,7 +42,7 @@ export function createAssistantMessage({
   assistantMessageId: string
   result: ChatResponse
   apiMode: Settings['apiMode']
-  responseTimeMs: number
+  responseTimeMs?: number
   imageContext?: ImageContextSummary
   apiContextMessages?: ApiChatMessage[]
 }): Message {
@@ -54,7 +55,7 @@ export function createAssistantMessage({
       model: result.model,
       apiMode,
       finishReason: result.finishReason,
-      responseTimeMs,
+      responseTimeMs: responseTimeMs ?? 0,
       usage: {
         promptTokens: result.usage?.promptTokens || 0,
         completionTokens: result.usage?.completionTokens || 0,
@@ -63,6 +64,33 @@ export function createAssistantMessage({
       },
       imageContext,
       apiContextMessages,
+    },
+  }
+}
+
+export function createImageGenerationAssistantMessage({
+  assistantMessageId,
+  result,
+  responseTimeMs,
+}: {
+  assistantMessageId: string
+  result: ImageGenerationResponse
+  responseTimeMs?: number
+}): Message {
+  return {
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    metadata: {
+      model: result.model,
+      finishReason: 'stop',
+      responseTimeMs: responseTimeMs ?? 0,
+      usage: {
+        promptTokens: result.usage.inputTokens ?? 0,
+        completionTokens: result.usage.outputTokens ?? 0,
+        totalTokens: result.usage.totalTokens ?? 0,
+      },
+      generatedImages: [result.image],
     },
   }
 }

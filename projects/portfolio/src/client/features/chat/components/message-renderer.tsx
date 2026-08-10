@@ -16,6 +16,7 @@ import {
   type CodeBlockOpenBlocks,
   type CodeBlockOpenChangeHandler,
 } from '#/client/features/chat/components/code-block-renderer'
+import { ImageAssetPreview } from '#/client/features/chat/components/image-asset-preview'
 import { ReasoningSection } from '#/client/features/chat/components/reasoning-section'
 import { getUserMessageText } from '#/client/features/chat/lib/edit-message'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
@@ -170,7 +171,8 @@ function MessageRendererComponent({
   }
 
   if (message.role === 'user') {
-    const canSaveEdit = editText.trim().length > 0 && !disabled && !isSavingEdit
+    const canEditImagePrompt = message.metadata.imageGenerationMode !== true
+    const canSaveEdit = canEditImagePrompt && editText.trim().length > 0 && !disabled && !isSavingEdit
     const userMessageText = getUserMessageText(message)
 
     const handleStartEdit = () => {
@@ -254,13 +256,15 @@ function MessageRendererComponent({
             ) : (
               <>
                 <CopyMessageButton copied={copied} onClick={() => onCopyMessage(userMessageText, index)} />
-                <IconButton
-                  label='Edit message'
-                  onClick={handleStartEdit}
-                  className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
-                >
-                  <EditIcon size={20} className='stroke-current' />
-                </IconButton>
+                {canEditImagePrompt && (
+                  <IconButton
+                    label='Edit message'
+                    onClick={handleStartEdit}
+                    className='h-8 w-8 rounded-full text-gray-500 transition-[background-color,color] duration-200 ease-out hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
+                  >
+                    <EditIcon size={20} className='stroke-current' />
+                  </IconButton>
+                )}
                 <IconButton
                   label='Delete message'
                   onClick={() => onDeleteMessage?.(index)}
@@ -277,6 +281,7 @@ function MessageRendererComponent({
   }
 
   const generatedFiles = message.role === 'assistant' ? (message.metadata.generatedFiles ?? []) : []
+  const generatedImages = message.role === 'assistant' ? (message.metadata.generatedImages ?? []) : []
   const assistantContextValue =
     message.role === 'assistant' && message.id && conversationId && onSaveGeneratedFile
       ? {
@@ -334,6 +339,7 @@ function MessageRendererComponent({
             </p>
           </div>
         )}
+        <ImageAssetPreview images={generatedImages} />
         <MessageActionBar copied={copied}>
           <CopyMessageButton copied={copied} onClick={() => onCopyMessage(message.content, index)} />
         </MessageActionBar>

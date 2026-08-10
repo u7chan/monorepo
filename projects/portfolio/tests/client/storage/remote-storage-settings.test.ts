@@ -168,6 +168,26 @@ describe('remote-storage-settings', () => {
     expect('interactiveMode' in stored).toBe(false)
   })
 
+  it('旧画像専用履歴キーを共有設定へ反映せず読み込み後に除去する', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: '1.4.0',
+        includeChatHistory: false,
+        includeImageGenerationHistory: true,
+      })
+    )
+
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
+    const settings = readFromLocalStorage()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+
+    expect(settings.includeChatHistory).toBe(false)
+    expect('includeImageGenerationHistory' in settings).toBe(false)
+    expect(stored.includeChatHistory).toBe(false)
+    expect('includeImageGenerationHistory' in stored).toBe(false)
+  })
+
   it('responses では fakeMode を false に正規化する', async () => {
     localStorage.setItem(
       STORAGE_KEY,

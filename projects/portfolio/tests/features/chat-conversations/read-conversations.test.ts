@@ -226,4 +226,49 @@ describe('readConversations', () => {
       ])
     }
   })
+
+  it('画像 assistant の responseTimeMs を再読込時も保持する', async () => {
+    const { readConversations } = await importSubject({
+      users: [{ id: 'user-1', email: 'test@example.com' }],
+      rows: [
+        {
+          conversationId: 'conversation-1',
+          conversationTitle: '画像生成',
+          conversationCreatedAt: new Date(),
+          conversationUpdatedAt: new Date('2026-08-10T00:00:00.000Z'),
+          messageId: 'assistant-1',
+          messageRole: 'assistant',
+          messageContent: '',
+          messageReasoningContent: '',
+          messageMetadata: {
+            model: 'gpt-image-2',
+            responseTimeMs: 1_345,
+            usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+            generatedImages: [
+              {
+                fileName: 'image-1.png',
+                publicPath: '/public/portfolio/conversation-1/image-1.png',
+                previewUrl: 'http://internal-file-server/public/portfolio/conversation-1/image-1.png',
+                contentType: 'image/png',
+                createdAt: '2026-08-10T00:00:00.000Z',
+              },
+            ],
+          },
+          messageCreatedAt: new Date(),
+        },
+      ],
+    })
+
+    const result = await readConversations('postgres://db', 'test@example.com', 'https://files.example.com')
+    const message = result?.[0].messages[0]
+
+    expect(message?.role).toBe('assistant')
+    if (message?.role === 'assistant') {
+      expect(message.metadata.responseTimeMs).toBe(1_345)
+      expect(message.metadata.generatedImages?.[0]).toMatchObject({
+        publicPath: '/public/portfolio/conversation-1/image-1.png',
+        previewUrl: 'https://files.example.com/public/portfolio/conversation-1/image-1.png',
+      })
+    }
+  })
 })

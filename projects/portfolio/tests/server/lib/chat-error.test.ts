@@ -1,6 +1,6 @@
 import { APIError } from 'openai'
 import { describe, expect, it } from 'vitest'
-import { toChatError } from '#/server/lib/chat-error'
+import { getSafeUpstreamErrorLogFields, toChatError } from '#/server/lib/chat-error'
 
 describe('toChatError', () => {
   describe('provider error classification', () => {
@@ -60,8 +60,33 @@ describe('toChatError', () => {
 
     expect(JSON.stringify(toChatError(error))).not.toContain(rawMessage)
   })
+
+  describe('safe upstream diagnostic fields', () => {
+    it('status・code・type・param・request IDだけを抽出し、provider本文を含めない', () => {
+      const rawMessage = 'raw provider body with secret details'
+      const error = createApiError(
+        400,
+        {
+          message: rawMessage,
+          code: 'invalid_request_error',
+          type: 'invalid_request_error',
+          param: 'output_format',
+        },
+        'req_image_123'
+      )
+
+      expect(getSafeUpstreamErrorLogFields(error)).toEqual({
+        status: 400,
+        code: 'invalid_request_error',
+        type: 'invalid_request_error',
+        param: 'output_format',
+        requestId: 'req_image_123',
+      })
+      expect(JSON.stringify(getSafeUpstreamErrorLogFields(error))).not.toContain(rawMessage)
+    })
+  })
 })
 
-function createApiError(status: number, body: Record<string, unknown>): APIError {
-  return new APIError(status, body, undefined, new Headers())
+function createApiError(status: number, body: Record<string, unknown>, requestId?: string): APIError {
+  return new APIError(status, body, undefined, new Headers(requestId ? { 'x-request-id': requestId } : undefined))
 }

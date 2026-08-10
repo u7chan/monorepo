@@ -105,4 +105,59 @@ describe('app', () => {
     expect(res.status).toBe(200)
     expectSecurityHeaders(res)
   })
+
+  describe('Content-Security-Policy img-src', () => {
+    it('FILE_SERVER_PUBLIC_URL の http originだけを追加し、pathとqueryを含めない', async () => {
+      vi.stubEnv('FILE_SERVER_PUBLIC_URL', 'http://files.example.com/public/portfolio?cache=1')
+      const { app } = await importSubject()
+      const res = await app.request('/auth-ok')
+      const policy = res.headers.get('Content-Security-Policy')
+
+      expect(policy).toContain("img-src 'self' data: https: http://files.example.com;")
+      expect(policy).not.toContain('/public/portfolio')
+      expect(policy).not.toContain('?cache=1')
+      expect(policy).toContain("connect-src 'self'; frame-src 'self'")
+      expect(policy).not.toContain("connect-src 'self' http://files.example.com")
+    })
+
+    it('FILE_SERVER_PUBLIC_URL が空または未設定なら file-server originを追加しない', async () => {
+      const { app: unsetApp } = await importSubject()
+      const unsetResponse = await unsetApp.request('/auth-ok')
+      expect(unsetResponse.headers.get('Content-Security-Policy')).toBe(
+        "base-uri 'self'; default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-src 'self'"
+      )
+
+      vi.stubEnv('FILE_SERVER_PUBLIC_URL', '')
+      const { app } = await importSubject()
+      const response = await app.request('/auth-ok')
+
+      expect(response.headers.get('Content-Security-Policy')).toBe(
+        "base-uri 'self'; default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-src 'self'"
+      )
+    })
+
+    it('不正な URL または非 HTTP(S) URLを img-src に追加しない', async () => {
+      vi.stubEnv('FILE_SERVER_PUBLIC_URL', 'not a url')
+      const { app: invalidApp } = await importSubject()
+      const invalidResponse = await invalidApp.request('/auth-ok')
+      expect(invalidResponse.headers.get('Content-Security-Policy')).not.toContain('not a url')
+
+      vi.stubEnv('FILE_SERVER_PUBLIC_URL', 'ftp://files.example.com/public')
+      const { app } = await importSubject()
+      const response = await app.request('/auth-ok')
+
+      expect(response.headers.get('Content-Security-Policy')).not.toContain('ftp://files.example.com')
+      expect(response.headers.get('Content-Security-Policy')).toContain("img-src 'self' data: https:;")
+    })
+
+    it('credentials付きURLを追加せず、既存のsecurity directivesとconnect-srcを維持する', async () => {
+      vi.stubEnv('FILE_SERVER_PUBLIC_URL', 'http://user:password@files.example.com:8010/public')
+      const { app } = await importSubject()
+      const res = await app.request('/auth-ok')
+
+      expect(res.headers.get('Content-Security-Policy')).toBe(
+        "base-uri 'self'; default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-src 'self'"
+      )
+    })
+  })
 })

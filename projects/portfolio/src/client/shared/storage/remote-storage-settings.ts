@@ -21,6 +21,7 @@ export interface Settings {
   streamMode: boolean
   includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
+  imageGenerationMode: boolean
   sidebarOpen: boolean
   templateModels: {
     [key: string]: {
@@ -32,6 +33,7 @@ export interface Settings {
 type StoredSettings = Partial<Settings> & {
   schemaVersion?: string
   interactiveMode?: boolean
+  includeImageGenerationHistory?: unknown
 }
 
 const defaultSettings: Settings = {
@@ -51,6 +53,7 @@ const defaultSettings: Settings = {
   streamMode: true,
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
+  imageGenerationMode: false,
   sidebarOpen: true,
   templateModels: {},
 }
@@ -105,8 +108,19 @@ function parseStoredSettings(value: string | null): StoredSettings | null {
   }
 }
 
-function mergeSettings(settings: Partial<Settings> & { interactiveMode?: unknown; mcpServerURLs?: unknown }): Settings {
-  const { interactiveMode, mcpServerURLs: _dropped, ...rest } = settings
+function mergeSettings(
+  settings: Partial<Settings> & {
+    interactiveMode?: unknown
+    mcpServerURLs?: unknown
+    includeImageGenerationHistory?: unknown
+  }
+): Settings {
+  const {
+    interactiveMode,
+    mcpServerURLs: _dropped,
+    includeImageGenerationHistory: _legacyImageGenerationHistory,
+    ...rest
+  } = settings
   const apiMode = normalizeApiMode(rest.apiMode)
   const includeChatHistory =
     rest.includeChatHistory ??
@@ -160,6 +174,8 @@ function shouldPersistNormalizedSettings(
     settings.includeChatHistory !== normalized.includeChatHistory ||
     'interactiveMode' in settings ||
     settings.sendImagesOnlyOnce !== normalized.sendImagesOnlyOnce ||
+    settings.imageGenerationMode !== normalized.imageGenerationMode ||
+    'includeImageGenerationHistory' in settings ||
     'mcpServerURLs' in settings
   )
 }

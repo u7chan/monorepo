@@ -179,6 +179,82 @@ describe('useStreamProcessor', () => {
     )
   })
 
+  it('画像生成成功時は API 成功応答までの responseTimeMs を返す', async () => {
+    const nowMock = vi.spyOn(Date, 'now').mockReturnValueOnce(1_000).mockReturnValueOnce(2_345)
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'image-1',
+        created: 1700000000,
+        model: 'gpt-image-2',
+        image: {
+          fileName: 'image-1.png',
+          publicPath: '/public/portfolio/conversation-1/image-1.png',
+          previewUrl: 'https://files.example.com/public/portfolio/conversation-1/image-1.png',
+          contentType: 'image/png',
+          createdAt: '2026-08-10T00:00:00.000Z',
+        },
+        usage: {
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+        },
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { useStreamProcessor } = await importSubject()
+    const { result } = renderHook(() => useStreamProcessor())
+
+    let response: Awaited<ReturnType<typeof result.current.submitImageGeneration>> | undefined
+    await act(async () => {
+      response = await result.current.submitImageGeneration({
+        header: { apiKey: 'api-key', baseURL: 'https://example.com' },
+        prompt: '青い円を描く',
+        conversationId: 'conversation-1',
+        assistantMessageId: 'assistant-1',
+      })
+    })
+
+    expect(response).toMatchObject({
+      result: {
+        id: 'image-1',
+        model: 'gpt-image-2',
+      },
+      error: null,
+      responseTimeMs: 1_345,
+    })
+    nowMock.mockRestore()
+  })
+
+  it('画像生成失敗時は responseTimeMs を返さない', async () => {
+    const nowMock = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('upstream failed')))
+
+    const { useStreamProcessor } = await importSubject()
+    const { result } = renderHook(() => useStreamProcessor())
+
+    let response: Awaited<ReturnType<typeof result.current.submitImageGeneration>> | undefined
+    await act(async () => {
+      response = await result.current.submitImageGeneration({
+        header: { apiKey: 'api-key', baseURL: 'https://example.com' },
+        prompt: '青い円を描く',
+        conversationId: 'conversation-1',
+        assistantMessageId: 'assistant-1',
+      })
+    })
+
+    expect(response).toEqual({
+      result: null,
+      error: {
+        code: 'UNKNOWN_UPSTREAM_ERROR',
+        message: 'LLM の応答取得中にエラーが発生しました。しばらく待ってから再試行してください。',
+        retryable: true,
+      },
+    })
+    nowMock.mockRestore()
+  })
+
   it('stream の reasoning-only 応答を保持する', async () => {
     const { useStreamProcessor, chatStreamPostMock } = await importSubject()
     const encoder = new TextEncoder()

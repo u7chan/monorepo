@@ -6,17 +6,16 @@ import { useModelFetching } from './use-model-fetching'
 import { useSettingsHandlers } from './use-settings-handlers'
 
 interface UseChatSettingsOptions {
+  settings: Settings
   showPopup?: boolean
   onChange?: (settings: Settings) => void
 }
 
-export function useChatSettings(options: UseChatSettingsOptions = {}): ChatSettingsContextValue {
-  const { showPopup, onChange } = options
-
+export function useChatSettings({ settings, showPopup, onChange }: UseChatSettingsOptions): ChatSettingsContextValue {
   useLockBodyScroll(showPopup ?? false)
 
   const storage = useLocalStorageSettings({ onChange })
-  const models = useModelFetching({ autoModel: storage.autoModel })
+  const models = useModelFetching({ autoModel: settings.autoModel })
   const handlers = useSettingsHandlers({
     setModel: storage.setModel,
     setTemperature: storage.setTemperature,
@@ -30,31 +29,31 @@ export function useChatSettings(options: UseChatSettingsOptions = {}): ChatSetti
     setSendImagesOnlyOnce: storage.setSendImagesOnlyOnce,
     setReasoningEffort: storage.setReasoningEffort,
     setReasoningEffortEnabled: storage.setReasoningEffortEnabled,
-    temperatureEnabled: storage.temperatureEnabled,
-    autoModel: storage.autoModel,
-    apiMode: storage.apiMode,
-    fakeMode: storage.fakeMode,
-    markdownPreview: storage.markdownPreview,
-    streamMode: storage.streamMode,
-    includeChatHistory: storage.includeChatHistory,
-    sendImagesOnlyOnce: storage.sendImagesOnlyOnce,
-    reasoningEffortEnabled: storage.reasoningEffortEnabled,
+    temperatureEnabled: settings.temperatureEnabled,
+    autoModel: settings.autoModel,
+    apiMode: settings.apiMode,
+    fakeMode: settings.fakeMode,
+    markdownPreview: settings.markdownPreview,
+    streamMode: settings.streamMode,
+    includeChatHistory: settings.includeChatHistory,
+    sendImagesOnlyOnce: settings.sendImagesOnlyOnce,
+    reasoningEffortEnabled: settings.reasoningEffortEnabled,
     updateSetting: storage.updateSetting,
   })
 
   return {
-    settings: storage.settings,
-    temperature: storage.temperature,
-    temperatureEnabled: storage.temperatureEnabled,
-    autoModel: storage.autoModel,
-    apiMode: storage.apiMode,
-    fakeMode: storage.fakeMode,
-    markdownPreview: storage.markdownPreview,
-    streamMode: storage.streamMode,
-    includeChatHistory: storage.includeChatHistory,
-    sendImagesOnlyOnce: storage.sendImagesOnlyOnce,
-    reasoningEffort: storage.reasoningEffort,
-    reasoningEffortEnabled: storage.reasoningEffortEnabled,
+    settings,
+    temperature: settings.temperature,
+    temperatureEnabled: settings.temperatureEnabled,
+    autoModel: settings.autoModel,
+    apiMode: settings.apiMode,
+    fakeMode: settings.fakeMode,
+    markdownPreview: settings.markdownPreview,
+    streamMode: settings.streamMode,
+    includeChatHistory: settings.includeChatHistory,
+    sendImagesOnlyOnce: settings.sendImagesOnlyOnce,
+    reasoningEffort: settings.reasoningEffort,
+    reasoningEffortEnabled: settings.reasoningEffortEnabled,
     ...models,
     ...handlers,
   }

@@ -51,6 +51,12 @@ export function useChatPageState(selectedConversationId: string | null) {
     setSettings(nextSettings)
   }, [])
 
+  const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
+    const nextSettings = saveToLocalStorage({ [key]: value })
+    setSettings(nextSettings)
+    return nextSettings
+  }, [])
+
   return {
     selectedConversationId,
     isSettingsPopupOpen,
@@ -65,5 +71,6 @@ export function useChatPageState(selectedConversationId: string | null) {
     closeSettingsPopup,
     setSubmitting,
     updateSettings,
+    updateSetting,
   }
 }
