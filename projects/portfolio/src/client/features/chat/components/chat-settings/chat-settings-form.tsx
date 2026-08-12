@@ -79,27 +79,29 @@ export function ChatSettingsForm({
       <section className='space-y-3'>
         <SectionHeading>API Configuration</SectionHeading>
         <div className='space-y-3'>
-          <div className='space-y-2'>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>API Mode</label>
-            <div className='relative'>
-              <select
-                value={apiMode}
-                onChange={handleChangeApiMode}
-                className='w-full appearance-none rounded-md border border-gray-300 bg-white px-3 py-2 pr-9 text-sm text-gray-900 outline-none transition-all duration-200 hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
-              >
-                <option value='chat_completions'>Chat Completions</option>
-                <option value='responses'>Responses</option>
-              </select>
-              <svg
-                viewBox='0 0 20 20'
-                aria-hidden='true'
-                className='pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 stroke-gray-600 dark:stroke-gray-300'
-                fill='none'
-              >
-                <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
-              </svg>
+          {!imageGenerationMode && (
+            <div className='space-y-2'>
+              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>API Mode</label>
+              <div className='relative'>
+                <select
+                  value={apiMode}
+                  onChange={handleChangeApiMode}
+                  className='w-full appearance-none rounded-md border border-gray-300 bg-white px-3 py-2 pr-9 text-sm text-gray-900 outline-none transition-all duration-200 hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-blue-800'
+                >
+                  <option value='chat_completions'>Chat Completions</option>
+                  <option value='responses'>Responses</option>
+                </select>
+                <svg
+                  viewBox='0 0 20 20'
+                  aria-hidden='true'
+                  className='pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 stroke-gray-600 dark:stroke-gray-300'
+                  fill='none'
+                >
+                  <path d='M5 7.5L10 12.5L15 7.5' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' />
+                </svg>
+              </div>
             </div>
-          </div>
+          )}
 
           <TextInput
             name='baseURL'

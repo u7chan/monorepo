@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 
 const useChatSettingsContextMock = vi.hoisted(() => vi.fn())
+const handleChangeApiModeMock = vi.hoisted(() => vi.fn())
 
 vi.mock('#/client/features/chat/components/chat-settings/chat-settings-context', () => ({
   useChatSettingsContext: useChatSettingsContextMock,
@@ -60,7 +61,7 @@ describe('ChatSettingsForm', () => {
       sendImagesOnlyOnce: settings.sendImagesOnlyOnce,
       handleChangeBaseURL: vi.fn(),
       handleChangeApiKey: vi.fn(),
-      handleChangeApiMode: vi.fn(),
+      handleChangeApiMode: handleChangeApiModeMock,
       handleChangeMaxTokens: vi.fn(),
       handleToggleFakeMode: vi.fn(),
       handleToggleMarkdownPreview: vi.fn(),
@@ -98,10 +99,13 @@ describe('ChatSettingsForm', () => {
   describe('セクション表示', () => {
     it('画像生成モードではAPI設定とContext Optionsだけを表示する', async () => {
       const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
-      render(<ChatSettingsForm imageGenerationMode />)
+      const { container } = render(<ChatSettingsForm imageGenerationMode />)
 
       expect(screen.queryByRole('heading', { name: 'Model' })).toBeNull()
       expect(screen.getByRole('heading', { name: 'API Configuration' })).toBeTruthy()
+      expect(container.querySelector("input[name='baseURL']")).toBeTruthy()
+      expect(container.querySelector("input[name='apiKey']")).toBeTruthy()
+      expect(screen.queryByRole('combobox')).toBeNull()
       expect(screen.queryByRole('heading', { name: 'Parameters' })).toBeNull()
       expect(screen.queryByRole('heading', { name: 'Display Options' })).toBeNull()
       expect(screen.getByRole('heading', { name: 'Context Options' })).toBeTruthy()
@@ -122,6 +126,11 @@ describe('ChatSettingsForm', () => {
       expect(screen.getByText('Include chat history')).toBeTruthy()
       expect(screen.getByText('Send attached images only once')).toBeTruthy()
       expect(screen.getByRole('heading', { name: 'Debug Options' })).toBeTruthy()
+      const apiModeSelect = screen.getByRole('combobox') as HTMLSelectElement
+      expect(apiModeSelect.value).toBe('chat_completions')
+
+      fireEvent.change(apiModeSelect, { target: { value: 'responses' } })
+      expect(handleChangeApiModeMock).toHaveBeenCalled()
     })
   })
 })
