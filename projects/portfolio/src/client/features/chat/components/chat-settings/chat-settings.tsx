@@ -3,6 +3,7 @@ import { GearIcon } from '#/client/shared/icons/gear-icon'
 import { NewChatIcon } from '#/client/shared/icons/new-chat-icon'
 import { SidebarIcon } from '#/client/shared/icons/sidebar-icon'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
+import type { ChatError } from '#/types/chat-api'
 import { ChatSettingsProvider } from './chat-settings-context'
 import { ChatSettingsForm } from './chat-settings-form'
 import { ChatSettingsPanel } from './chat-settings-panel'
@@ -21,6 +22,7 @@ interface Props {
   onChange?: (settings: Settings) => void
   onHidePopup?: () => void
   imageGenerationMode?: boolean
+  settingsError?: ChatError | null
   settings: Settings
 }
 
@@ -37,6 +39,7 @@ export function ChatSettings({
   onChange,
   onHidePopup,
   imageGenerationMode = false,
+  settingsError,
   settings,
 }: Props) {
   const contextValue = useChatSettings({ showPopup, onChange, settings })
@@ -82,15 +85,13 @@ export function ChatSettings({
                     ? 'Fake Mode'
                     : contextValue.settings.model}
               </span>
-              {!imageGenerationMode && (
-                <IconButton
-                  label='Settings'
-                  onClick={onShowMenu}
-                  className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                >
-                  <GearIcon className='text-[#5D5D5D] dark:text-gray-300' />
-                </IconButton>
-              )}
+              <IconButton
+                label='Settings'
+                onClick={onShowMenu}
+                className='rounded-md p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+              >
+                <GearIcon className='text-[#5D5D5D] dark:text-gray-300' />
+              </IconButton>
             </div>
           </>
         )}
@@ -98,8 +99,8 @@ export function ChatSettings({
 
       {/* Settings Panel */}
       <ChatSettingsProvider value={contextValue}>
-        <ChatSettingsPanel show={!imageGenerationMode && (showPopup ?? false)} onClose={onHidePopup ?? (() => {})}>
-          <ChatSettingsForm />
+        <ChatSettingsPanel show={showPopup ?? false} onClose={onHidePopup ?? (() => {})}>
+          <ChatSettingsForm imageGenerationMode={imageGenerationMode} settingsError={settingsError} />
         </ChatSettingsPanel>
       </ChatSettingsProvider>
     </>

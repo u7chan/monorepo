@@ -125,13 +125,15 @@ function mergeSettings(
   const includeChatHistory =
     rest.includeChatHistory ??
     (typeof interactiveMode === 'boolean' ? interactiveMode : defaultSettings.includeChatHistory)
+  const imageGenerationMode = rest.imageGenerationMode ?? defaultSettings.imageGenerationMode
 
   return {
     ...defaultSettings,
     ...rest,
     includeChatHistory,
     apiMode,
-    fakeMode: apiMode === 'responses' ? false : (rest.fakeMode ?? defaultSettings.fakeMode),
+    imageGenerationMode,
+    fakeMode: apiMode === 'responses' || imageGenerationMode ? false : (rest.fakeMode ?? defaultSettings.fakeMode),
     schemaVersion: SCHEMA_VERSION,
   }
 }
@@ -171,6 +173,7 @@ function shouldPersistNormalizedSettings(
     settings.schemaVersion !== SCHEMA_VERSION ||
     !ApiModeSchema.safeParse(settings.apiMode).success ||
     (normalized.apiMode === 'responses' && settings.fakeMode === true) ||
+    (normalized.imageGenerationMode && settings.fakeMode === true) ||
     settings.includeChatHistory !== normalized.includeChatHistory ||
     'interactiveMode' in settings ||
     settings.sendImagesOnlyOnce !== normalized.sendImagesOnlyOnce ||

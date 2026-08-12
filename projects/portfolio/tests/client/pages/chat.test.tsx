@@ -55,6 +55,7 @@ const clearActiveChatSessionMock = vi.fn()
 let hasActiveChatSessionMock = false
 
 let chatMainProps: Record<string, unknown> | null = null
+let chatSettingsProps: Record<string, unknown> | null = null
 let conversationHistoryProps: Record<string, unknown> | null = null
 
 const createDeferred = <T,>() => {
@@ -106,7 +107,10 @@ vi.mock('#/client/features/chat/components/chat-layout', () => ({
 }))
 
 vi.mock('#/client/features/chat/components/chat-settings', () => ({
-  ChatSettings: () => null,
+  ChatSettings: (props: Record<string, unknown>) => {
+    chatSettingsProps = props
+    return null
+  },
 }))
 
 vi.mock('#/client/features/chat/components/chat-main', () => ({
@@ -157,6 +161,7 @@ describe('Chat page', () => {
     vi.clearAllMocks()
     hasActiveChatSessionMock = false
     chatMainProps = null
+    chatSettingsProps = null
     conversationHistoryProps = null
     useMetaPropsMock.mockReturnValue({ email: 'test@example.com' })
     useSearchMock.mockReturnValue({})
@@ -334,6 +339,28 @@ describe('Chat page', () => {
       to: '/chat',
       search: { conversationId: undefined },
       replace: true,
+    })
+  })
+
+  it('設定エラー通知時は既存設定パネルを自動表示してエラーを渡す', async () => {
+    const { Chat } = await import('#/client/features/chat/page')
+    render(<Chat />)
+
+    const error = {
+      code: 'VALIDATION_ERROR',
+      message: 'Base URL と API Key を設定してください。',
+      retryable: false,
+    }
+    const onSettingsError = chatMainProps?.onSettingsError as ((nextError: typeof error) => void) | undefined
+    expect(onSettingsError).toBeTypeOf('function')
+
+    onSettingsError?.(error)
+
+    await waitFor(() => {
+      expect(chatSettingsProps).toMatchObject({
+        showPopup: true,
+        settingsError: error,
+      })
     })
   })
 })

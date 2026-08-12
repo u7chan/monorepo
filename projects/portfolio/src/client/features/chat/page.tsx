@@ -25,6 +25,8 @@ export function Chat() {
     isSidebarOpen,
     newChatTrigger,
     settings,
+    settingsError,
+    showSettingsError,
     showSettingsActions,
     startNewConversation,
     toggleSidebar,
@@ -219,6 +221,7 @@ export function Chat() {
         onChange={updateSettings}
         onHidePopup={closeSettingsPopup}
         imageGenerationMode={settings.imageGenerationMode}
+        settingsError={settingsError}
         settings={settings}
       />
       {isResolvingConversation ? (
@@ -237,6 +240,7 @@ export function Chat() {
           onSessionCompleted={handleSessionCompleted}
           onDeleteMessages={handleDeleteConversationMessage}
           onUpdateSetting={updateSetting}
+          onSettingsError={showSettingsError}
         />
       )}
     </ChatLayout>

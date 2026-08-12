@@ -205,4 +205,26 @@ describe('remote-storage-settings', () => {
     expect(settings.apiMode).toBe('responses')
     expect(settings.fakeMode).toBe(false)
   })
+
+  it('画像生成モードでは fakeMode を false に正規化して保存する', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: '1.4.0',
+        model: 'gpt-4.1-mini',
+        apiMode: 'chat_completions',
+        fakeMode: true,
+        imageGenerationMode: true,
+      })
+    )
+
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
+    const settings = readFromLocalStorage()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+
+    expect(settings.imageGenerationMode).toBe(true)
+    expect(settings.fakeMode).toBe(false)
+    expect(stored.imageGenerationMode).toBe(true)
+    expect(stored.fakeMode).toBe(false)
+  })
 })
