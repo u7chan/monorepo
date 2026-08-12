@@ -34,7 +34,9 @@ vi.mock('#/client/features/chat/components/chat-settings/hooks/use-chat-settings
 }))
 
 vi.mock('#/client/features/chat/components/chat-settings/chat-settings-form', () => ({
-  ChatSettingsForm: () => null,
+  ChatSettingsForm: ({ imageGenerationMode }: { imageGenerationMode?: boolean }) => (
+    <div data-testid='settings-form' data-image-generation-mode={String(!!imageGenerationMode)} />
+  ),
 }))
 
 vi.mock('#/client/features/chat/components/chat-settings/chat-settings-panel', () => ({
@@ -89,5 +91,6 @@ describe('ChatSettings', () => {
 
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
     expect(screen.getByTestId('settings-panel').dataset.show).toBe('true')
+    expect(screen.getByTestId('settings-form').dataset.imageGenerationMode).toBe('true')
   })
 })

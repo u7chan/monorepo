@@ -75,21 +75,53 @@ describe('ChatSettingsForm', () => {
     vi.clearAllMocks()
   })
 
-  it('空の baseURL は既定 URL に置き換えず、設定エラーをパネル内に表示する', async () => {
-    const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
-    const { container } = render(
-      <ChatSettingsForm
-        settingsError={{
-          code: 'VALIDATION_ERROR',
-          message: 'Base URL と API Key を設定してください。',
-          retryable: false,
-        }}
-      />
-    )
+  describe('設定エラー', () => {
+    it('空の baseURL は既定 URL に置き換えず、設定エラーをパネル内に表示する', async () => {
+      const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
+      const { container } = render(
+        <ChatSettingsForm
+          settingsError={{
+            code: 'VALIDATION_ERROR',
+            message: 'Base URL と API Key を設定してください。',
+            retryable: false,
+          }}
+        />
+      )
 
-    const baseUrlInput = container.querySelector<HTMLInputElement>("input[name='baseURL']")
-    expect(baseUrlInput?.value).toBe('')
-    expect(baseUrlInput?.placeholder).not.toContain('api.openai.com')
-    expect(screen.getByRole('alert').textContent).toBe('Base URL と API Key を設定してください。')
+      const baseUrlInput = container.querySelector<HTMLInputElement>("input[name='baseURL']")
+      expect(baseUrlInput?.value).toBe('')
+      expect(baseUrlInput?.placeholder).not.toContain('api.openai.com')
+      expect(screen.getByRole('alert').textContent).toBe('Base URL と API Key を設定してください。')
+    })
+  })
+
+  describe('セクション表示', () => {
+    it('画像生成モードではAPI設定とContext Optionsだけを表示する', async () => {
+      const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
+      render(<ChatSettingsForm imageGenerationMode />)
+
+      expect(screen.queryByRole('heading', { name: 'Model' })).toBeNull()
+      expect(screen.getByRole('heading', { name: 'API Configuration' })).toBeTruthy()
+      expect(screen.queryByRole('heading', { name: 'Parameters' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Display Options' })).toBeNull()
+      expect(screen.getByRole('heading', { name: 'Context Options' })).toBeTruthy()
+      expect(screen.getByText('Include chat history')).toBeTruthy()
+      expect(screen.queryByText('Send attached images only once')).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Debug Options' })).toBeNull()
+    })
+
+    it('通常対話モードでは全セクションとContext Optionsの項目を表示する', async () => {
+      const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
+      render(<ChatSettingsForm />)
+
+      expect(screen.getByRole('heading', { name: 'Model' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'API Configuration' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Parameters' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Display Options' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Context Options' })).toBeTruthy()
+      expect(screen.getByText('Include chat history')).toBeTruthy()
+      expect(screen.getByText('Send attached images only once')).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Debug Options' })).toBeTruthy()
+    })
   })
 })

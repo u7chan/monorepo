@@ -100,7 +100,7 @@ export function ChatSettings({
       {/* Settings Panel */}
       <ChatSettingsProvider value={contextValue}>
         <ChatSettingsPanel show={showPopup ?? false} onClose={onHidePopup ?? (() => {})}>
-          <ChatSettingsForm settingsError={settingsError} />
+          <ChatSettingsForm imageGenerationMode={imageGenerationMode} settingsError={settingsError} />
         </ChatSettingsPanel>
       </ChatSettingsProvider>
     </>

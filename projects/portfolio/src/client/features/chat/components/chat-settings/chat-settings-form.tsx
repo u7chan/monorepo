@@ -16,7 +16,13 @@ function SectionHeading({ children }: { children: string }) {
   )
 }
 
-export function ChatSettingsForm({ settingsError }: { settingsError?: ChatError | null }) {
+export function ChatSettingsForm({
+  imageGenerationMode = false,
+  settingsError,
+}: {
+  imageGenerationMode?: boolean
+  settingsError?: ChatError | null
+}) {
   const {
     settings,
     apiMode,
@@ -48,24 +54,26 @@ export function ChatSettingsForm({ settingsError }: { settingsError?: ChatError 
         </div>
       )}
 
-      {/* Model Section */}
-      <section className='space-y-3'>
-        <SectionHeading>Model</SectionHeading>
-        <div className='space-y-3'>
-          {/* Model Selection */}
-          <div className='space-y-2'>
-            <label
-              className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
-            >
-              Model
-            </label>
-            <ModelSelector />
-          </div>
+      {!imageGenerationMode && (
+        /* Model Section */
+        <section className='space-y-3'>
+          <SectionHeading>Model</SectionHeading>
+          <div className='space-y-3'>
+            {/* Model Selection */}
+            <div className='space-y-2'>
+              <label
+                className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+              >
+                Model
+              </label>
+              <ModelSelector />
+            </div>
 
-          {/* Auto Model Toggle */}
-          <AutoModelToggle />
-        </div>
-      </section>
+            {/* Auto Model Toggle */}
+            <AutoModelToggle />
+          </div>
+        </section>
+      )}
 
       {/* API Configuration */}
       <section className='space-y-3'>
@@ -124,45 +132,49 @@ export function ChatSettingsForm({ settingsError }: { settingsError?: ChatError 
         </div>
       </section>
 
-      {/* Parameters */}
-      <section className='space-y-3'>
-        <SectionHeading>Parameters</SectionHeading>
-        <div className='space-y-4'>
-          <TemperatureSlider />
+      {!imageGenerationMode && (
+        /* Parameters */
+        <section className='space-y-3'>
+          <SectionHeading>Parameters</SectionHeading>
+          <div className='space-y-4'>
+            <TemperatureSlider />
 
-          <TextInput
-            name='maxTokens'
-            label='Max Tokens'
-            type='number'
-            min={1}
-            max={4096}
-            defaultValue={settings.maxTokens?.toString()}
-            placeholder='Max tokens'
-            onChange={handleChangeMaxTokens}
-          />
+            <TextInput
+              name='maxTokens'
+              label='Max Tokens'
+              type='number'
+              min={1}
+              max={4096}
+              defaultValue={settings.maxTokens?.toString()}
+              placeholder='Max tokens'
+              onChange={handleChangeMaxTokens}
+            />
 
-          <ReasoningEffort />
-        </div>
-      </section>
+            <ReasoningEffort />
+          </div>
+        </section>
+      )}
 
-      {/* Display Options */}
-      <section className='space-y-3'>
-        <SectionHeading>Display Options</SectionHeading>
-        <div className='space-y-3'>
-          <ToggleInput
-            label='Markdown Preview'
-            labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-            value={markdownPreview}
-            onClick={handleToggleMarkdownPreview}
-          />
-          <ToggleInput
-            label='Stream Mode'
-            labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-            value={streamMode}
-            onClick={handleToggleStreamMode}
-          />
-        </div>
-      </section>
+      {!imageGenerationMode && (
+        /* Display Options */
+        <section className='space-y-3'>
+          <SectionHeading>Display Options</SectionHeading>
+          <div className='space-y-3'>
+            <ToggleInput
+              label='Markdown Preview'
+              labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+              value={markdownPreview}
+              onClick={handleToggleMarkdownPreview}
+            />
+            <ToggleInput
+              label='Stream Mode'
+              labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+              value={streamMode}
+              onClick={handleToggleStreamMode}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Context Options */}
       <section className='space-y-3'>
@@ -179,34 +191,40 @@ export function ChatSettingsForm({ settingsError }: { settingsError?: ChatError 
             <br />
             OFF の場合、今回の入力のみを送信します。
           </p>
-          <ToggleInput
-            label='Send attached images only once'
-            labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-            value={sendImagesOnlyOnce}
-            onClick={handleToggleSendImagesOnlyOnce}
-          />
-          <p className='text-xs text-gray-500 dark:text-gray-400'>
-            ON の場合、保存済み履歴の画像は次回以降の API コンテキストから除外します。
-          </p>
-        </div>
-      </section>
-
-      {/* Debug Options */}
-      <section className='space-y-3'>
-        <SectionHeading>Debug Options</SectionHeading>
-        <div className='space-y-2'>
-          <ToggleInput
-            label='Fake Mode'
-            labelClassName={`text-sm font-medium ${apiMode === 'responses' ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}
-            value={fakeMode}
-            disabled={apiMode === 'responses'}
-            onClick={handleToggleFakeMode}
-          />
-          {apiMode === 'responses' && (
-            <p className='text-xs text-gray-500 dark:text-gray-400'>Responses では Fake Mode を利用できません。</p>
+          {!imageGenerationMode && (
+            <>
+              <ToggleInput
+                label='Send attached images only once'
+                labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                value={sendImagesOnlyOnce}
+                onClick={handleToggleSendImagesOnlyOnce}
+              />
+              <p className='text-xs text-gray-500 dark:text-gray-400'>
+                ON の場合、保存済み履歴の画像は次回以降の API コンテキストから除外します。
+              </p>
+            </>
           )}
         </div>
       </section>
+
+      {!imageGenerationMode && (
+        /* Debug Options */
+        <section className='space-y-3'>
+          <SectionHeading>Debug Options</SectionHeading>
+          <div className='space-y-2'>
+            <ToggleInput
+              label='Fake Mode'
+              labelClassName={`text-sm font-medium ${apiMode === 'responses' ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}
+              value={fakeMode}
+              disabled={apiMode === 'responses'}
+              onClick={handleToggleFakeMode}
+            />
+            {apiMode === 'responses' && (
+              <p className='text-xs text-gray-500 dark:text-gray-400'>Responses では Fake Mode を利用できません。</p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Bottom spacing for safe area */}
       <div className='h-6' />
