@@ -198,7 +198,7 @@ export function SendButton({ color = 'blue', loading, disabled, handleClickStop 
       onClick={handleClickStop}
       className={`h-8 w-8 rounded-full focus:outline-hidden focus:ring-2 focus:ring-gray-400 dark:bg-primary-700 dark:hover:bg-primary-600 dark:disabled:hover:bg-primary-700 ${classes}`}
     >
-      <StopIcon className='text-white' size={18} />
+      <StopIcon className='-translate-x-[0.5px] translate-y-[0.5px] text-white' size={18} />
     </IconButton>
   ) : (
     <IconButton
