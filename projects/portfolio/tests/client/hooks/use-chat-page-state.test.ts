@@ -158,4 +158,27 @@ describe('useChatPageState', () => {
     expect(result.current.isSettingsPopupOpen).toBe(false)
     expect(result.current.newChatTrigger).toBe(300)
   })
+
+  it('設定エラーを保存して設定パネルを開き、設定変更時に消去する', async () => {
+    const useChatPageState = await importHook()
+    const { result } = renderHook(() => useChatPageState(null))
+    const error = {
+      code: 'VALIDATION_ERROR' as const,
+      message: 'Base URL と API Key を設定してください。',
+      retryable: false,
+    }
+
+    act(() => {
+      result.current.showSettingsError(error)
+    })
+
+    expect(result.current.isSettingsPopupOpen).toBe(true)
+    expect(result.current.settingsError).toEqual(error)
+
+    act(() => {
+      result.current.updateSetting('apiKey', 'api-key')
+    })
+
+    expect(result.current.settingsError).toBeNull()
+  })
 })

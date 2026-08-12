@@ -134,8 +134,8 @@ const imageGenerationResult: ImageGenerationResponse = {
 const settings: Settings = {
   schemaVersion: '1.4.0',
   model: 'gpt-4.1-mini',
-  baseURL: '',
-  apiKey: '',
+  baseURL: 'https://example.com',
+  apiKey: 'api-key',
   apiMode: 'chat_completions',
   temperature: 0.7,
   temperatureEnabled: false,
@@ -511,6 +511,10 @@ describe('ChatMain', () => {
     await waitFor(() => expect(onConversationChange).toHaveBeenCalledTimes(1))
     expect(submitImageGenerationMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        header: {
+          apiKey: 'api-key',
+          baseURL: 'https://example.com',
+        },
         prompt: '白い背景に青い円を1つ',
         conversationId: 'conversation-1',
       })
@@ -531,6 +535,80 @@ describe('ChatMain', () => {
         ],
       })
     )
+  })
+
+  it('設定不備では画像生成 API を呼ばず prompt を保持し、設定後に同じ prompt を再送できる', async () => {
+    chatFormInputMock = '設定後に再送する画像 prompt'
+    const onSettingsError = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const view = render(
+      <ChatMain
+        settings={{ ...settings, baseURL: '', apiKey: '', imageGenerationMode: true }}
+        onSettingsError={onSettingsError}
+      />
+    )
+
+    fireEvent.submit(view.container.querySelector('form')!)
+
+    await waitFor(() =>
+      expect(onSettingsError).toHaveBeenCalledWith(expect.objectContaining({ code: 'VALIDATION_ERROR' }))
+    )
+    expect(submitImageGenerationMock).not.toHaveBeenCalled()
+    expect(resetAfterSubmitMock).not.toHaveBeenCalled()
+
+    view.rerender(<ChatMain settings={{ ...settings, imageGenerationMode: true }} onSettingsError={onSettingsError} />)
+    fireEvent.submit(view.container.querySelector('form')!)
+
+    await waitFor(() => expect(submitImageGenerationMock).toHaveBeenCalledTimes(1))
+    expect(submitImageGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        header: {
+          apiKey: 'api-key',
+          baseURL: 'https://example.com',
+        },
+        prompt: '設定後に再送する画像 prompt',
+      })
+    )
+  })
+
+  it('通常対話も設定不備では completion API を呼ばず設定エラーを通知する', async () => {
+    buildChatMessagesMock.mockReturnValue({
+      model: 'gpt-test',
+      apiMessages: [{ role: 'user', content: '設定不備の質問' }],
+      draftUserMessage: createUserMessage('message-user-3', '設定不備の質問'),
+      imageContext: { policy: 'send_once', sent: 0, historyOnly: 0 },
+    })
+    const onSettingsError = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain settings={{ ...settings, baseURL: '', apiKey: '' }} onSettingsError={onSettingsError} />
+    )
+
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() =>
+      expect(onSettingsError).toHaveBeenCalledWith(expect.objectContaining({ code: 'VALIDATION_ERROR' }))
+    )
+    expect(buildChatMessagesMock).not.toHaveBeenCalled()
+    expect(submitChatCompletionMock).not.toHaveBeenCalled()
+    expect(resetAfterSubmitMock).not.toHaveBeenCalled()
+  })
+
+  it('画像生成モードへ切り替えると Fake Mode を解除して保存する', async () => {
+    const onUpdateSetting = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain
+        settings={{ ...settings, fakeMode: true, imageGenerationMode: false }}
+        onUpdateSetting={onUpdateSetting}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '画像生成モード On/Off' }))
+
+    expect(onUpdateSetting).toHaveBeenNthCalledWith(1, 'fakeMode', false)
+    expect(onUpdateSetting).toHaveBeenNthCalledWith(2, 'imageGenerationMode', true)
   })
 
   it('共有履歴設定が Off の画像生成では過去の画像 prompt を送らない', async () => {

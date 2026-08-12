@@ -9,6 +9,7 @@ import {
   createImageGenerationAssistantMessage,
   resolveChatRequestSettings,
 } from '#/client/features/chat/lib/chat-message-factory'
+import { validateChatSettings } from '#/client/features/chat/lib/chat-settings-validation'
 import {
   buildEditedHistory,
   buildEditedSendMessages,
@@ -44,6 +45,7 @@ interface UseChatActionsParams {
     onConversationChange?: (conversation: Conversation) => Promise<void> | void
     onSessionCompleted?: (conversation: Conversation) => Promise<void> | void
     onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
+    onSettingsError?: (error: ChatError) => void
   }
 }
 
@@ -69,12 +71,18 @@ export function useChatActions({
   const { loading, stream, submitChatCompletion, submitImageGeneration } = streamProcessor
   const { canSaveGeneratedFile, currentConversation, onConversationChange, onSessionCompleted, onDeleteMessages } =
     callbacks
+  const { onSettingsError } = callbacks
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
       if (settings.imageGenerationMode) {
         void handleImageGenerationSubmit()
+        return
+      }
+      const settingsError = validateChatSettings(settings, { allowFakeMode: !settings.imageGenerationMode })
+      if (settingsError) {
+        onSettingsError?.(settingsError)
         return
       }
       const requestSettings = resolveChatRequestSettings(settings)
@@ -187,6 +195,7 @@ export function useChatActions({
       setStreamMessageId,
       setGenerationError,
       settings,
+      onSettingsError,
       submitChatCompletion,
     ]
   )
@@ -194,6 +203,12 @@ export function useChatActions({
   async function handleImageGenerationSubmit() {
     const prompt = buildImageGenerationPrompt(messages, formState.input, settings.includeChatHistory)
     if (!prompt || !submitImageGeneration) {
+      return
+    }
+
+    const settingsError = validateChatSettings(settings)
+    if (settingsError) {
+      onSettingsError?.(settingsError)
       return
     }
 
@@ -325,6 +340,12 @@ export function useChatActions({
         return
       }
 
+      const settingsError = validateChatSettings(settings, { allowFakeMode: !settings.imageGenerationMode })
+      if (settingsError) {
+        onSettingsError?.(settingsError)
+        return
+      }
+
       const editedMessages = buildEditedHistory(messages, index, nextText)
       const editedUserMessage = editedMessages?.at(-1)
       if (!editedMessages || !editedUserMessage || editedUserMessage.role !== 'user') {
@@ -419,6 +440,7 @@ export function useChatActions({
       messages,
       onConversationChange,
       onSessionCompleted,
+      onSettingsError,
       setConversationId,
       setIsSavingConversation,
       setMessages,

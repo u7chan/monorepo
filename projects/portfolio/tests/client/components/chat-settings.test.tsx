@@ -38,7 +38,11 @@ vi.mock('#/client/features/chat/components/chat-settings/chat-settings-form', ()
 }))
 
 vi.mock('#/client/features/chat/components/chat-settings/chat-settings-panel', () => ({
-  ChatSettingsPanel: ({ children }: { children: ReactNode }) => <>{children}</>,
+  ChatSettingsPanel: ({ children, show }: { children: ReactNode; show: boolean }) => (
+    <div data-testid='settings-panel' data-show={show}>
+      {children}
+    </div>
+  ),
 }))
 
 import { ChatSettings } from '#/client/features/chat/components/chat-settings/chat-settings'
@@ -69,5 +73,21 @@ describe('ChatSettings', () => {
 
     expect(screen.getByText('gpt-image-2')).toBeTruthy()
     expect(screen.queryByText('画像生成モード')).toBeNull()
+  })
+
+  it('画像生成モード時も Settings ボタンから既存パネルを開ける', () => {
+    render(
+      <ChatSettings
+        settings={settings}
+        showActions={true}
+        showPopup={true}
+        showNewChat={false}
+        showSidebarToggle={false}
+        imageGenerationMode={true}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
+    expect(screen.getByTestId('settings-panel').dataset.show).toBe('true')
   })
 })

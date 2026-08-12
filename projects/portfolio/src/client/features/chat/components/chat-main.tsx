@@ -11,6 +11,7 @@ import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { ArrowDownIcon } from '#/client/shared/icons/arrow-down-icon'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { Conversation } from '#/types'
+import type { ChatError } from '#/types/chat-api'
 
 interface Props {
   initTrigger?: number
@@ -22,6 +23,7 @@ interface Props {
   onSessionCompleted?: (conversation: Conversation) => Promise<void> | void
   onDeleteMessages?: (messageIds: string[], isConversationEmpty: boolean) => void
   onUpdateSetting?: <K extends keyof Settings>(key: K, value: Settings[K]) => Settings
+  onSettingsError?: (error: ChatError) => void
 }
 
 export function ChatMain({
@@ -34,6 +36,7 @@ export function ChatMain({
   onSessionCompleted,
   onDeleteMessages,
   onUpdateSetting,
+  onSettingsError,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
   const prevConversationIdRef = useRef<string | null>(null)
@@ -83,11 +86,16 @@ export function ChatMain({
       onConversationChange,
       onSessionCompleted,
       onDeleteMessages,
+      onSettingsError,
     },
   })
 
   const toggleImageGenerationMode = useCallback(() => {
-    onUpdateSetting?.('imageGenerationMode', !settings.imageGenerationMode)
+    const nextImageGenerationMode = !settings.imageGenerationMode
+    if (nextImageGenerationMode) {
+      onUpdateSetting?.('fakeMode', false)
+    }
+    onUpdateSetting?.('imageGenerationMode', nextImageGenerationMode)
   }, [onUpdateSetting, settings.imageGenerationMode])
 
   const toggleChatHistory = useCallback(() => {

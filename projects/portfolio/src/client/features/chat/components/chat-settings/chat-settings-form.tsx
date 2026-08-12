@@ -1,4 +1,5 @@
 import { ToggleInput } from '#/client/shared/components/input/toggle-input'
+import type { ChatError } from '#/types/chat-api'
 import { useChatSettingsContext } from './chat-settings-context'
 import { ModelSelector } from './model-selector'
 import { AutoModelToggle } from './settings/auto-model-toggle'
@@ -15,7 +16,7 @@ function SectionHeading({ children }: { children: string }) {
   )
 }
 
-export function ChatSettingsForm() {
+export function ChatSettingsForm({ settingsError }: { settingsError?: ChatError | null }) {
   const {
     settings,
     apiMode,
@@ -37,6 +38,16 @@ export function ChatSettingsForm() {
 
   return (
     <div className='flex flex-col gap-5'>
+      {settingsError && (
+        <div
+          role='alert'
+          aria-live='assertive'
+          className='rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200'
+        >
+          {settingsError.message}
+        </div>
+      )}
+
       {/* Model Section */}
       <section className='space-y-3'>
         <SectionHeading>Model</SectionHeading>
@@ -85,8 +96,7 @@ export function ChatSettingsForm() {
           <TextInput
             name='baseURL'
             label='Base URL'
-            defaultValue={settings.baseURL || 'https://api.openai.com/v1'}
-            placeholder='https://api.openai.com/v1'
+            defaultValue={settings.baseURL}
             disabled={fakeMode}
             onChange={handleChangeBaseURL}
           />
