@@ -11,6 +11,7 @@ export type Env = Partial<{
   COOKIE_SECRET: string
   COOKIE_NAME: string
   COOKIE_EXPIRES: string
+  COOKIE_SECURE: string
   LOG_LEVEL: string
   LOG_FILE: string
   FILE_SERVER_URL: string

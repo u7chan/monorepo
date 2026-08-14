@@ -159,4 +159,5 @@ order by display_order, id;
 
 - サインイン時は `users.password_hash` を使ってパスワードを検証します
 - `db:user:add` は平文パスワードを対話入力または標準入力で受け取り、ハッシュ化して登録します
+- `COOKIE_SECURE` は認証Cookieの `Secure` 属性を制御します。HTTPで直接公開する場合は `false`、HTTPSまたはTLS終端プロキシ経由で公開する場合は `true` に設定します。未設定時は `false` です
 - チャット設定の `apiKey` はブラウザの `localStorage` に保存されます。安全な秘密情報ストアではありません

@@ -44,6 +44,7 @@ describe('authRoutes', () => {
     vi.stubEnv('COOKIE_SECRET', 'secret')
     vi.stubEnv('COOKIE_NAME', 'session')
     vi.stubEnv('COOKIE_EXPIRES', '1d')
+    vi.stubEnv('COOKIE_SECURE', 'false')
 
     const res = await authRoutes.request(
       '/api/signin',
@@ -74,14 +75,15 @@ describe('authRoutes', () => {
     )
   })
 
-  it('HTTPS の認証成功時は secure cookie を設定する', async () => {
+  it('TLS 終端プロキシ経由では COOKIE_SECURE に従って secure cookie を設定する', async () => {
     vi.stubEnv('DATABASE_URL', 'postgres://db')
     vi.stubEnv('COOKIE_SECRET', 'secret')
     vi.stubEnv('COOKIE_NAME', 'session')
     vi.stubEnv('COOKIE_EXPIRES', '1d')
+    vi.stubEnv('COOKIE_SECURE', 'true')
 
     const res = await authRoutes.request(
-      'https://example.com/api/signin',
+      'http://internal.example/api/signin',
       {
         method: 'POST',
         headers: {

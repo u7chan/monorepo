@@ -16,10 +16,16 @@ const SignInBodySchema = z.object({
 const authRoutes = new Hono<HonoEnv>()
   .post('/api/signin', sValidator('json', SignInBodySchema), signinRateLimit, async (c) => {
     const { email, password } = c.req.valid('json')
-    const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = getServerEnv(c)
+    const {
+      DATABASE_URL = '',
+      COOKIE_SECRET = '',
+      COOKIE_NAME = '',
+      COOKIE_EXPIRES = '1d',
+      COOKIE_SECURE = 'false',
+    } = getServerEnv(c)
 
     await auth.login(DATABASE_URL, email, password)
-    const secure = new URL(c.req.url).protocol === 'https:'
+    const secure = COOKIE_SECURE.toLowerCase() === 'true'
     await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, cookie.createOptions(COOKIE_EXPIRES, secure))
 
     return c.json({})
