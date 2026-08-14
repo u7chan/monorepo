@@ -41,7 +41,7 @@ describe('cookie.createOptions', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-16T00:00:00.000Z'))
 
-    const options = cookie.createOptions('1d')
+    const options = cookie.createOptions('1d', false)
 
     expect(options).toMatchObject({
       path: '/',
@@ -53,10 +53,8 @@ describe('cookie.createOptions', () => {
     expect(options.expires.toISOString()).toBe('2026-03-17T00:00:00.000Z')
   })
 
-  it('production では secure を有効にする', () => {
-    vi.stubEnv('NODE_ENV', 'production')
-
-    const options = cookie.createOptions('1d')
+  it('HTTPS 用の options では secure を有効にする', () => {
+    const options = cookie.createOptions('1d', true)
 
     expect(options.secure).toBe(true)
   })

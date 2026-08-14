@@ -44,6 +44,7 @@ describe('authRoutes', () => {
     vi.stubEnv('COOKIE_SECRET', 'secret')
     vi.stubEnv('COOKIE_NAME', 'session')
     vi.stubEnv('COOKIE_EXPIRES', '1d')
+    vi.stubEnv('COOKIE_SECURE', 'false')
 
     const res = await authRoutes.request(
       '/api/signin',
@@ -69,6 +70,41 @@ describe('authRoutes', () => {
       'secret',
       expect.objectContaining({
         maxAge: 86400,
+        secure: false,
+      })
+    )
+  })
+
+  it('TLS 終端プロキシ経由では COOKIE_SECURE に従って secure cookie を設定する', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://db')
+    vi.stubEnv('COOKIE_SECRET', 'secret')
+    vi.stubEnv('COOKIE_NAME', 'session')
+    vi.stubEnv('COOKIE_EXPIRES', '1d')
+    vi.stubEnv('COOKIE_SECURE', 'true')
+
+    const res = await authRoutes.request(
+      'http://internal.example/api/signin',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'test@example.com',
+          password: 'testexample',
+        }),
+      },
+      createNodeEnv('192.0.2.10')
+    )
+
+    expect(res.status).toBe(200)
+    expect(setSignedCookieMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'session',
+      'test@example.com',
+      'secret',
+      expect.objectContaining({
+        secure: true,
       })
     )
   })
