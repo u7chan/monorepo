@@ -8,14 +8,14 @@ interface CookieOptions {
 }
 
 interface Cookie {
-  createOptions(duration: string): CookieOptions
+  createOptions(duration: string, secure: boolean): CookieOptions
 }
 export const cookie: Cookie = {
-  createOptions(duration: string): CookieOptions {
+  createOptions(duration: string, secure: boolean): CookieOptions {
     const cookieExpiresSec = parseDurationToSeconds(duration)
     return {
       path: '/',
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       httpOnly: true,
       maxAge: cookieExpiresSec,
       expires: new Date(Date.now() + cookieExpiresSec * 1000),

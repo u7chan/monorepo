@@ -69,6 +69,40 @@ describe('authRoutes', () => {
       'secret',
       expect.objectContaining({
         maxAge: 86400,
+        secure: false,
+      })
+    )
+  })
+
+  it('HTTPS の認証成功時は secure cookie を設定する', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://db')
+    vi.stubEnv('COOKIE_SECRET', 'secret')
+    vi.stubEnv('COOKIE_NAME', 'session')
+    vi.stubEnv('COOKIE_EXPIRES', '1d')
+
+    const res = await authRoutes.request(
+      'https://example.com/api/signin',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'test@example.com',
+          password: 'testexample',
+        }),
+      },
+      createNodeEnv('192.0.2.10')
+    )
+
+    expect(res.status).toBe(200)
+    expect(setSignedCookieMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'session',
+      'test@example.com',
+      'secret',
+      expect.objectContaining({
+        secure: true,
       })
     )
   })

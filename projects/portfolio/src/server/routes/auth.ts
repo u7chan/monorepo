@@ -19,7 +19,8 @@ const authRoutes = new Hono<HonoEnv>()
     const { DATABASE_URL = '', COOKIE_SECRET = '', COOKIE_NAME = '', COOKIE_EXPIRES = '1d' } = getServerEnv(c)
 
     await auth.login(DATABASE_URL, email, password)
-    await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, cookie.createOptions(COOKIE_EXPIRES))
+    const secure = new URL(c.req.url).protocol === 'https:'
+    await setSignedCookie(c, COOKIE_NAME, email, COOKIE_SECRET, cookie.createOptions(COOKIE_EXPIRES, secure))
 
     return c.json({})
   })
