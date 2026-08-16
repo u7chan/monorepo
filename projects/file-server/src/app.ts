@@ -7,6 +7,7 @@ import apiRoutes from "./routes/api"
 import authRoutes from "./routes/auth"
 import browseRoutes from "./routes/browse"
 import fileRoutes from "./routes/file"
+import healthzRoutes from "./routes/healthz"
 import publicRoutes from "./routes/public"
 import type { AppBindings } from "./types"
 import {
@@ -47,6 +48,8 @@ export async function createApp(
   }
 
   const app = new Hono<AppBindings>()
+
+  app.route("/", healthzRoutes)
 
   app.use("*", authMiddleware)
   app.use("*", requireAuthMiddleware)
