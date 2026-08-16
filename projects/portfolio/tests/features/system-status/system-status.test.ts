@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { checkFileExistsMock, dbExecuteMock, getDatabaseMock, loginToFileServerMock, readFileServerApiMock } =
+const { dbEndMock, dbExecuteMock, fetchMock, getDatabaseMock, loginToFileServerMock, readFileServerApiMock } =
   vi.hoisted(() => ({
-    checkFileExistsMock: vi.fn(),
+    dbEndMock: vi.fn(),
     dbExecuteMock: vi.fn(),
+    fetchMock: vi.fn(),
     getDatabaseMock: vi.fn(),
     loginToFileServerMock: vi.fn(),
     readFileServerApiMock: vi.fn(),
@@ -20,7 +21,6 @@ vi.mock('#/server/features/chat-conversations/file-server-client', async () => {
 
   return {
     ...actual,
-    checkFileExists: checkFileExistsMock,
     loginToFileServer: loginToFileServerMock,
     readFileServerApi: readFileServerApiMock,
   }
@@ -67,18 +67,20 @@ const schemaRows = [
 describe('getSystemStatus', () => {
   beforeEach(() => {
     resetSystemStatusCacheForTests()
+    dbEndMock.mockReset()
     dbExecuteMock.mockReset()
+    fetchMock.mockReset()
     getDatabaseMock.mockReset()
     loginToFileServerMock.mockReset()
     readFileServerApiMock.mockReset()
-    checkFileExistsMock.mockReset()
 
-    getDatabaseMock.mockReturnValue({ execute: dbExecuteMock })
+    getDatabaseMock.mockReturnValue({ execute: dbExecuteMock, $client: { end: dbEndMock } })
+    dbEndMock.mockResolvedValue(undefined)
     dbExecuteMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: schemaRows })
     loginToFileServerMock.mockResolvedValue('session-value')
     readFileServerApiMock.mockResolvedValue(undefined)
-    checkFileExistsMock.mockResolvedValue(true)
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ status: 'ok' }), { status: 200 })))
+    vi.stubGlobal('fetch', fetchMock)
   })
 
   it('DB・file-server API・公開URLが正常なら ok を返す', async () => {
@@ -91,6 +93,19 @@ describe('getSystemStatus', () => {
     expect(result.checks.fileServerHealth.status).toBe('ok')
     expect(result.checks.fileServerApi.status).toBe('ok')
     expect(result.checks.fileServerPublic.status).toBe('ok')
+    expect(dbEndMock).toHaveBeenCalledTimes(1)
+    expect(getDatabaseMock).toHaveBeenCalledWith(
+      env.DATABASE_URL,
+      expect.objectContaining({
+        connectionTimeoutMillis: expect.any(Number),
+        query_timeout: expect.any(Number),
+        statement_timeout: expect.any(Number),
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${env.FILE_SERVER_PUBLIC_URL}/healthz`,
+      expect.objectContaining({ method: 'GET', redirect: 'manual' })
+    )
     expect(JSON.stringify(result)).not.toContain('db.internal')
     expect(JSON.stringify(result)).not.toContain('super-secret')
     expect(JSON.stringify(result)).not.toContain('file-server:3000')
@@ -107,6 +122,7 @@ describe('getSystemStatus', () => {
     expect(result.checks.database.schema).toEqual(
       expect.objectContaining({ status: 'error', reason: 'schema-check-failed' })
     )
+    expect(dbEndMock).toHaveBeenCalledTimes(1)
   })
 
   it('file-server ログインに失敗した場合は読み取り系への影響を示す', async () => {
@@ -124,6 +140,26 @@ describe('getSystemStatus', () => {
       expect.objectContaining({ status: 'error', reason: 'login-failed' })
     )
     expect(readFileServerApiMock).not.toHaveBeenCalled()
+    expect(dbEndMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('公開URLのルートが成功しても公開healthzが失敗した場合は異常として返す', async () => {
+    fetchMock.mockImplementation(async (input: unknown) => {
+      if (String(input) === `${env.FILE_SERVER_PUBLIC_URL}/healthz`) {
+        return new Response(JSON.stringify({ status: 'unavailable' }), { status: 503 })
+      }
+
+      return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+    })
+
+    const result = await getSystemStatus(env)
+
+    expect(result.status).toBe('degraded')
+    expect(result.checks.fileServerPublic).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'public-unavailable' })
+    )
+    expect(fetchMock).not.toHaveBeenCalledWith(`${env.FILE_SERVER_PUBLIC_URL}/`, expect.anything())
+    expect(dbEndMock).toHaveBeenCalledTimes(1)
   })
 
   it('チェックが応答しない場合はタイムアウトとして返す', async () => {
@@ -138,6 +174,7 @@ describe('getSystemStatus', () => {
 
       expect(result.checks.database.connection).toEqual(expect.objectContaining({ status: 'error', reason: 'timeout' }))
       expect(result.checks.database.schema).toEqual(expect.objectContaining({ status: 'error', reason: 'timeout' }))
+      expect(dbEndMock).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
@@ -149,15 +186,17 @@ describe('getSystemStatus', () => {
 
     expect(cached).toBe(first)
     expect(dbExecuteMock).toHaveBeenCalledTimes(2)
+    expect(dbEndMock).toHaveBeenCalledTimes(1)
     expect(loginToFileServerMock).toHaveBeenCalledTimes(1)
-    expect(checkFileExistsMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
 
     dbExecuteMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: schemaRows })
     const refreshed = await getSystemStatus(env, { force: true })
 
     expect(refreshed).not.toBe(first)
     expect(dbExecuteMock).toHaveBeenCalledTimes(4)
+    expect(dbEndMock).toHaveBeenCalledTimes(2)
     expect(loginToFileServerMock).toHaveBeenCalledTimes(2)
-    expect(checkFileExistsMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 })

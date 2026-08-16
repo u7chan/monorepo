@@ -1,7 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '#/db'
 import {
-  checkFileExists,
   loginToFileServer,
   readFileServerApi,
   resolveFileServerBaseUrl,
@@ -18,7 +17,15 @@ import type {
 } from '#/types'
 
 const CHECK_TIMEOUT_MS = 3_000
+const DATABASE_QUERY_TIMEOUT_MS = 2_500
 const CACHE_TTL_MS = 5_000
+
+const databasePoolOptions = {
+  connectionTimeoutMillis: DATABASE_QUERY_TIMEOUT_MS,
+  query_timeout: DATABASE_QUERY_TIMEOUT_MS,
+  statement_timeout: DATABASE_QUERY_TIMEOUT_MS,
+  max: 2,
+} as const
 
 const requiredSchema = {
   users: ['id', 'email', 'password_hash', 'created_at'],
@@ -85,8 +92,21 @@ function notConfiguredOutcome(): CheckOutcome {
   return outcome('not-configured', 'not-configured')
 }
 
+function isCheckTimeoutError(error: unknown): boolean {
+  if (error instanceof CheckTimeoutError) {
+    return true
+  }
+
+  return (
+    error instanceof Error &&
+    /^(?:Query read timeout|timeout exceeded when trying to connect|Connection terminated due to connection timeout)/i.test(
+      error.message
+    )
+  )
+}
+
 function failedOutcome(error: unknown, fallbackReason: string): CheckOutcome {
-  return outcome('error', error instanceof CheckTimeoutError ? 'timeout' : fallbackReason)
+  return outcome('error', isCheckTimeoutError(error) ? 'timeout' : fallbackReason)
 }
 
 function toCheck(value: CheckOutcome, checkedAt: string): SystemCheck {
@@ -138,6 +158,13 @@ function aggregateOutcome(children: CheckOutcome[], fallbackReason: string): Che
   return okOutcome()
 }
 
+async function closeDatabase(database: ReturnType<typeof getDatabase>): Promise<void> {
+  const client = (database as unknown as { $client?: { end?: () => Promise<void> } }).$client
+  if (typeof client?.end === 'function') {
+    await client.end()
+  }
+}
+
 async function checkDatabase(databaseUrl: string | undefined, checkedAt: string): Promise<DatabaseSystemStatus> {
   if (!databaseUrl?.trim()) {
     const connection = toCheck(notConfiguredOutcome(), checkedAt)
@@ -151,7 +178,7 @@ async function checkDatabase(databaseUrl: string | undefined, checkedAt: string)
 
   let database: ReturnType<typeof getDatabase>
   try {
-    database = getDatabase(databaseUrl)
+    database = getDatabase(databaseUrl, databasePoolOptions)
   } catch {
     const connection = toCheck(outcome('error', 'connection-failed'), checkedAt)
     const schema = toCheck(outcome('error', 'schema-check-failed'), checkedAt)
@@ -162,47 +189,51 @@ async function checkDatabase(databaseUrl: string | undefined, checkedAt: string)
     }
   }
 
-  const [connectionOutcome, schemaOutcome] = await Promise.all([
-    runCheck(async () => {
-      await database.execute(sql`SELECT 1`)
-    }, 'connection-failed'),
-    runCheck(async () => {
-      const result = await database.execute(sql`
-        SELECT table_name, column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-      `)
-      const columns = new Map<string, Set<string>>()
+  try {
+    const [connectionOutcome, schemaOutcome] = await Promise.all([
+      runCheck(async () => {
+        await database.execute(sql`SELECT 1`)
+      }, 'connection-failed'),
+      runCheck(async () => {
+        const result = await database.execute(sql`
+          SELECT table_name, column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+        `)
+        const columns = new Map<string, Set<string>>()
 
-      for (const row of getRows(result)) {
-        const tableName = typeof row.table_name === 'string' ? row.table_name : null
-        const columnName = typeof row.column_name === 'string' ? row.column_name : null
-        if (!tableName || !columnName) {
-          continue
+        for (const row of getRows(result)) {
+          const tableName = typeof row.table_name === 'string' ? row.table_name : null
+          const columnName = typeof row.column_name === 'string' ? row.column_name : null
+          if (!tableName || !columnName) {
+            continue
+          }
+
+          const tableColumns = columns.get(tableName) ?? new Set<string>()
+          tableColumns.add(columnName)
+          columns.set(tableName, tableColumns)
         }
 
-        const tableColumns = columns.get(tableName) ?? new Set<string>()
-        tableColumns.add(columnName)
-        columns.set(tableName, tableColumns)
-      }
+        const schemaIsComplete = Object.entries(requiredSchema).every(([tableName, requiredColumns]) => {
+          const tableColumns = columns.get(tableName)
+          return tableColumns && requiredColumns.every((columnName) => tableColumns.has(columnName))
+        })
 
-      const schemaIsComplete = Object.entries(requiredSchema).every(([tableName, requiredColumns]) => {
-        const tableColumns = columns.get(tableName)
-        return tableColumns && requiredColumns.every((columnName) => tableColumns.has(columnName))
-      })
+        if (!schemaIsComplete) {
+          throw new Error('database schema is incomplete')
+        }
+      }, 'schema-check-failed'),
+    ])
 
-      if (!schemaIsComplete) {
-        throw new Error('database schema is incomplete')
-      }
-    }, 'schema-check-failed'),
-  ])
-
-  const connection = toCheck(connectionOutcome, checkedAt)
-  const schema = toCheck(schemaOutcome, checkedAt)
-  return {
-    ...toCheck(aggregateOutcome([connectionOutcome, schemaOutcome], 'database-unavailable'), checkedAt),
-    connection,
-    schema,
+    const connection = toCheck(connectionOutcome, checkedAt)
+    const schema = toCheck(schemaOutcome, checkedAt)
+    return {
+      ...toCheck(aggregateOutcome([connectionOutcome, schemaOutcome], 'database-unavailable'), checkedAt),
+      connection,
+      schema,
+    }
+  } finally {
+    await closeDatabase(database).catch(() => undefined)
   }
 }
 
@@ -292,9 +323,20 @@ async function checkFileServerPublic(env: SystemStatusEnv, checkedAt: string): P
   }
 
   const result = await runCheck(async (signal) => {
-    const exists = await checkFileExists(publicBaseUrl, '/', { signal })
-    if (!exists) {
-      throw new Error('file-server public endpoint is unavailable')
+    const response = await fetch(`${publicBaseUrl}/healthz`, {
+      method: 'GET',
+      redirect: 'manual',
+      headers: { accept: 'application/json' },
+      signal,
+    })
+
+    if (!response.ok || response.status !== 200) {
+      throw new Error(`file-server public healthz returned ${response.status}`)
+    }
+
+    const payload = (await response.json().catch(() => null)) as { status?: unknown } | null
+    if (!payload || payload.status !== 'ok') {
+      throw new Error('file-server public healthz returned an invalid response')
     }
   }, 'public-unavailable')
 
