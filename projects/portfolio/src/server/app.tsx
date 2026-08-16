@@ -14,6 +14,7 @@ import { modelsRoutes } from './routes/models'
 import { promptTemplatesRoutes } from './routes/prompt-templates'
 import type { HonoEnv } from './routes/shared'
 import { getServerEnv } from './routes/shared'
+import { systemStatusRoutes } from './routes/system-status'
 
 const securityHeaders = {
   'X-Content-Type-Options': 'nosniff',
@@ -104,6 +105,7 @@ const routes = app
   .route('/', conversationsRoutes)
   .route('/', modelsRoutes)
   .route('/', promptTemplatesRoutes)
+  .route('/', systemStatusRoutes)
   .route('/', htmlRoutes)
 
 export type AppType = typeof routes
