@@ -2,6 +2,7 @@ import { hc } from 'hono/client'
 import { type FormEvent, useState } from 'react'
 import { useMetaProps } from '#/client/shared/hooks/use-meta-props'
 import type { AppType } from '#/server/app.d'
+import { SystemStatusWidget } from './system-status-widget'
 
 const client = hc<AppType>('/')
 
@@ -60,25 +61,28 @@ export function Home() {
         )}
 
         {email ? (
-          <div className='space-y-4'>
-            <p className='text-center text-gray-700 text-lg dark:text-gray-300'>
-              <span className='font-semibold'>User：</span>
-              <span className='break-all font-mono text-gray-600 dark:text-gray-400'>{email}</span>
-            </p>
-            {loginExpiresLabel && (
-              <p className='text-center text-gray-500 text-sm dark:text-gray-400'>
-                <span className='font-medium'>ログイン有効期限：</span>
-                <span>{loginExpiresLabel}</span>
+          <>
+            <div className='space-y-4'>
+              <p className='text-center text-gray-700 text-lg dark:text-gray-300'>
+                <span className='font-semibold'>User：</span>
+                <span className='break-all font-mono text-gray-600 dark:text-gray-400'>{email}</span>
               </p>
-            )}
-            <button
-              type='button'
-              onClick={handleSignOut}
-              className='w-full cursor-pointer rounded-sm border border-gray-300 p-2 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
-            >
-              Sign Out
-            </button>
-          </div>
+              {loginExpiresLabel && (
+                <p className='text-center text-gray-500 text-sm dark:text-gray-400'>
+                  <span className='font-medium'>ログイン有効期限：</span>
+                  <span>{loginExpiresLabel}</span>
+                </p>
+              )}
+              <button
+                type='button'
+                onClick={handleSignOut}
+                className='w-full cursor-pointer rounded-sm border border-gray-300 p-2 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
+              >
+                Sign Out
+              </button>
+            </div>
+            <SystemStatusWidget />
+          </>
         ) : (
           <form onSubmit={handleSubmit} className='space-y-4'>
             <div>

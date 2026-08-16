@@ -18,6 +18,10 @@ export interface FileServerEnv {
   FILE_SERVER_ADMIN_PASSWORD?: string
 }
 
+export interface FileServerRequestOptions {
+  signal?: AbortSignal
+}
+
 export function resolveFileServerBaseUrl(env: Pick<FileServerEnv, 'FILE_SERVER_URL'>): string | null {
   const baseUrl = (env.FILE_SERVER_URL ?? '').trim()
 
@@ -67,8 +71,17 @@ export function buildFileServerPreviewUrl(publicBaseUrl: string, publicPath: str
   return `${publicBaseUrl}${publicPath}`
 }
 
-export async function checkFileExists(publicBaseUrl: string, publicPath: string): Promise<boolean> {
-  const res = await fetch(buildFileServerPreviewUrl(publicBaseUrl, publicPath), { method: 'HEAD' })
+export async function checkFileExists(
+  publicBaseUrl: string,
+  publicPath: string,
+  options: FileServerRequestOptions = {}
+): Promise<boolean> {
+  const request: RequestInit = { method: 'HEAD' }
+  if (options.signal) {
+    request.signal = options.signal
+  }
+
+  const res = await fetch(buildFileServerPreviewUrl(publicBaseUrl, publicPath), request)
   return res.ok
 }
 
@@ -114,18 +127,26 @@ function extractSessionCookie(setCookieHeader: string | null): string | null {
 /**
  * file-server に POST /login して session cookie の値を取得する。
  */
-export async function loginToFileServer(config: FileServerConfig): Promise<string> {
+export async function loginToFileServer(
+  config: FileServerConfig,
+  options: FileServerRequestOptions = {}
+): Promise<string> {
   const form = new URLSearchParams()
   form.set('username', config.credentials.username)
   form.set('password', config.credentials.password)
   form.set('returnTo', '/')
 
-  const res = await fetch(`${config.baseUrl}/login`, {
+  const request: RequestInit = {
     method: 'POST',
     body: form,
     redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-  })
+  }
+  if (options.signal) {
+    request.signal = options.signal
+  }
+
+  const res = await fetch(`${config.baseUrl}/login`, request)
 
   if (res.status !== 302 && res.status !== 303 && !res.ok) {
     const text = await res.text().catch(() => '')
@@ -138,6 +159,36 @@ export async function loginToFileServer(config: FileServerConfig): Promise<strin
     throw new Error('file-server login did not return session cookie')
   }
   return session
+}
+
+/**
+ * file-server の読み取りAPIに GET して、JSON のファイル一覧を確認する。
+ */
+export async function readFileServerApi(
+  config: FileServerConfig,
+  session: string,
+  options: FileServerRequestOptions = {}
+): Promise<void> {
+  const request: RequestInit = {
+    method: 'GET',
+    headers: {
+      cookie: `${SESSION_COOKIE_NAME}=${session}`,
+      accept: 'application/json',
+    },
+  }
+  if (options.signal) {
+    request.signal = options.signal
+  }
+
+  const res = await fetch(`${config.baseUrl}/api/`, request)
+  if (!res.ok) {
+    throw new Error(`file-server read failed: ${res.status}`)
+  }
+
+  const payload = (await res.json().catch(() => null)) as { files?: unknown } | null
+  if (!payload || !Array.isArray(payload.files)) {
+    throw new Error('file-server read returned an invalid response')
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
-import { HonoEnv } from './routes/shared';
-declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema, "/", "*">;
-declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
+import type { HonoEnv } from './routes/shared';
+declare const app: import("hono/hono-base").HonoBase<HonoEnv, import("hono/types").BlankSchema, "/", "*">;
+declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/types").BlankSchema | import("hono/types").MergeSchemaPath<{
     "/api/signin": {
         $post: {
             input: {
@@ -25,7 +25,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {};
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -34,10 +34,106 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             input: {};
             output: {};
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
-}, "/"> | import('hono/types').MergeSchemaPath<{
+}, "/"> | import("hono/types").MergeSchemaPath<{
+    "/api/image/generations": {
+        $post: {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    prompt: string;
+                    conversationId: string;
+                    assistantMessageId: string;
+                };
+            };
+            output: {
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    prompt: string;
+                    conversationId: string;
+                    assistantMessageId: string;
+                };
+            };
+            output: {
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
+            };
+            outputFormat: "json";
+            status: 503;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    prompt: string;
+                    conversationId: string;
+                    assistantMessageId: string;
+                };
+            };
+            output: {
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
+            };
+            outputFormat: "json";
+            status: 502;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            } & {
+                json: {
+                    prompt: string;
+                    conversationId: string;
+                    assistantMessageId: string;
+                };
+            };
+            output: {
+                id: string;
+                created: number;
+                model: string;
+                image: {
+                    fileName: string;
+                    publicPath: string;
+                    contentType: string;
+                    createdAt: string;
+                    previewUrl?: string | undefined;
+                };
+                usage: {
+                    inputTokens?: number | undefined;
+                    outputTokens?: number | undefined;
+                    totalTokens?: number | undefined;
+                };
+            };
+            outputFormat: "json";
+            status: import("hono/utils/http-status").ContentfulStatusCode;
+        };
+    };
+} & {
     "/api/chat": {
         $post: {
             input: {
@@ -73,8 +169,9 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-                code: "VALIDATION_ERROR";
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
             };
             outputFormat: "json";
             status: 400;
@@ -112,11 +209,12 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-                code: "VALIDATION_ERROR";
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
             };
             outputFormat: "json";
-            status: 400;
+            status: 502;
         } | {
             input: {
                 header: {
@@ -167,46 +265,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 } | null;
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
-        } | {
-            input: {
-                header: {
-                    'api-key': string;
-                    'base-url': string;
-                };
-            } & {
-                json: {
-                    messages: ({
-                        role: "user";
-                        content: string | ({
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                            };
-                        } | {
-                            type: "text";
-                            text: string;
-                        })[];
-                    } | {
-                        role: "assistant";
-                        content: string;
-                    } | {
-                        role: "system";
-                        content: string;
-                    })[];
-                    model: string;
-                    apiMode?: "chat_completions" | "responses" | undefined;
-                    temperature?: number | undefined;
-                    maxTokens?: number | undefined;
-                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                };
-            };
-            output: {
-                error: string;
-                code: "UPSTREAM_ERROR";
-            };
-            outputFormat: "json";
-            status: 502;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -245,47 +304,9 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-                code: "VALIDATION_ERROR";
-            };
-            outputFormat: "json";
-            status: 400;
-        } | {
-            input: {
-                header: {
-                    'api-key': string;
-                    'base-url': string;
-                };
-            } & {
-                json: {
-                    messages: ({
-                        role: "user";
-                        content: string | ({
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                            };
-                        } | {
-                            type: "text";
-                            text: string;
-                        })[];
-                    } | {
-                        role: "assistant";
-                        content: string;
-                    } | {
-                        role: "system";
-                        content: string;
-                    })[];
-                    model: string;
-                    apiMode?: "chat_completions" | "responses" | undefined;
-                    temperature?: number | undefined;
-                    maxTokens?: number | undefined;
-                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                };
-            };
-            output: {
-                error: string;
-                code: "VALIDATION_ERROR";
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
             };
             outputFormat: "json";
             status: 400;
@@ -324,7 +345,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {};
             outputFormat: string;
-            status: import('hono/utils/http-status').StatusCode;
+            status: import("hono/utils/http-status").StatusCode;
         };
     };
 } & {
@@ -378,6 +399,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 maxTokens?: number | undefined;
                                 reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                                 sendImagesOnlyOnce?: boolean | undefined;
+                                imageGenerationMode?: boolean | undefined;
                             };
                             id?: string | undefined;
                             reasoningContent?: string | undefined;
@@ -403,6 +425,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                     previewUrl: string;
                                     contentType: string;
                                     createdAt: string;
+                                }[] | undefined;
+                                generatedImages?: {
+                                    fileName: string;
+                                    publicPath: string;
+                                    contentType: string;
+                                    createdAt: string;
+                                    previewUrl?: string | undefined;
                                 }[] | undefined;
                                 imageContext?: {
                                     policy: "send_once" | "full_history";
@@ -447,8 +476,9 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-                code: "VALIDATION_ERROR";
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
             };
             outputFormat: "json";
             status: 400;
@@ -501,6 +531,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 maxTokens?: number | undefined;
                                 reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                                 sendImagesOnlyOnce?: boolean | undefined;
+                                imageGenerationMode?: boolean | undefined;
                             };
                             id?: string | undefined;
                             reasoningContent?: string | undefined;
@@ -527,128 +558,12 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                     contentType: string;
                                     createdAt: string;
                                 }[] | undefined;
-                                imageContext?: {
-                                    policy: "send_once" | "full_history";
-                                    sent: number;
-                                    historyOnly: number;
-                                } | undefined;
-                                apiContextMessages?: ({
-                                    role: "user";
-                                    content: string | ({
-                                        type: "image_url";
-                                        image_url: {
-                                            url: string;
-                                        };
-                                    } | {
-                                        type: "text";
-                                        text: string;
-                                    })[];
-                                } | {
-                                    role: "assistant";
-                                    content: string;
-                                } | {
-                                    role: "system";
-                                    content: string;
-                                })[] | undefined;
-                            };
-                            id?: string | undefined;
-                            reasoningContent?: string | undefined;
-                        } | {
-                            role: "system";
-                            content: string;
-                            id?: string | undefined;
-                            reasoningContent?: string | undefined;
-                            metadata?: Record<string, never> | undefined;
-                        })[];
-                        updatedAt?: unknown;
-                    };
-                    assistantMessageId: string;
-                    apiMode?: "chat_completions" | "responses" | undefined;
-                    temperature?: number | undefined;
-                    maxTokens?: number | undefined;
-                    reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                };
-            };
-            output: {
-                error: string;
-                code: "VALIDATION_ERROR";
-            };
-            outputFormat: "json";
-            status: 400;
-        } | {
-            input: {
-                header: {
-                    'api-key': string;
-                    'base-url': string;
-                };
-            } & {
-                json: {
-                    messages: ({
-                        role: "user";
-                        content: string | ({
-                            type: "image_url";
-                            image_url: {
-                                url: string;
-                            };
-                        } | {
-                            type: "text";
-                            text: string;
-                        })[];
-                    } | {
-                        role: "assistant";
-                        content: string;
-                    } | {
-                        role: "system";
-                        content: string;
-                    })[];
-                    model: string;
-                    conversation: {
-                        id: string;
-                        title: string;
-                        messages: ({
-                            role: "user";
-                            content: string | ({
-                                type: "image_url";
-                                image_url: {
-                                    url: string;
-                                };
-                            } | {
-                                type: "text";
-                                text: string;
-                            })[];
-                            metadata: {
-                                model: string;
-                                apiMode?: "chat_completions" | "responses" | undefined;
-                                stream?: boolean | undefined;
-                                temperature?: number | undefined;
-                                maxTokens?: number | undefined;
-                                reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
-                                sendImagesOnlyOnce?: boolean | undefined;
-                            };
-                            id?: string | undefined;
-                            reasoningContent?: string | undefined;
-                        } | {
-                            role: "assistant";
-                            content: string;
-                            metadata: {
-                                model: string;
-                                usage: {
-                                    completionTokens?: number | undefined;
-                                    promptTokens?: number | undefined;
-                                    totalTokens?: number | undefined;
-                                    reasoningTokens?: number | undefined;
-                                };
-                                apiMode?: "chat_completions" | "responses" | undefined;
-                                finishReason?: string | undefined;
-                                responseTimeMs?: number | undefined;
-                                generatedFiles?: {
-                                    blockIndex: number;
-                                    language: string;
+                                generatedImages?: {
                                     fileName: string;
                                     publicPath: string;
-                                    previewUrl: string;
                                     contentType: string;
                                     createdAt: string;
+                                    previewUrl?: string | undefined;
                                 }[] | undefined;
                                 imageContext?: {
                                     policy: "send_once" | "full_history";
@@ -697,7 +612,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 status: "error" | "running" | "completed" | "cancelled";
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -709,8 +624,9 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-                code: "VALIDATION_ERROR";
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
             };
             outputFormat: "json";
             status: 404;
@@ -746,6 +662,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 maxTokens?: number | undefined;
                                 reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                                 sendImagesOnlyOnce?: boolean | undefined;
+                                imageGenerationMode?: boolean | undefined;
                             };
                             id?: string | undefined;
                             reasoningContent?: string | undefined;
@@ -771,6 +688,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                     previewUrl: string;
                                     contentType: string;
                                     createdAt: string;
+                                }[] | undefined;
+                                generatedImages?: {
+                                    fileName: string;
+                                    publicPath: string;
+                                    contentType: string;
+                                    createdAt: string;
+                                    previewUrl?: string | undefined;
                                 }[] | undefined;
                                 imageContext?: {
                                     policy: "send_once" | "full_history";
@@ -814,11 +738,15 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     createdAt: string;
                     updatedAt: string;
                     completedAt: string | null;
-                    error: string | null;
+                    error: {
+                        code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                        message: string;
+                        retryable: boolean;
+                    } | null;
                 };
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -831,7 +759,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {};
             outputFormat: string;
-            status: import('hono/utils/http-status').StatusCode;
+            status: import("hono/utils/http-status").StatusCode;
         };
     };
 } & {
@@ -843,8 +771,9 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             output: {
-                error: string;
-                code: "VALIDATION_ERROR";
+                code: "VALIDATION_ERROR" | "AUTHENTICATION_FAILED" | "MODEL_ACCESS_DENIED" | "INSUFFICIENT_CREDIT" | "RATE_LIMITED" | "INVALID_REQUEST" | "UPSTREAM_UNAVAILABLE" | "UNKNOWN_UPSTREAM_ERROR" | "IMAGE_STORAGE_NOT_CONFIGURED" | "IMAGE_STORAGE_FAILED" | "IMAGE_MODEL_ENDPOINT_INCOMPATIBLE" | "IMAGE_REQUEST_INVALID" | "IMAGE_PROVIDER_REJECTED";
+                message: string;
+                retryable: boolean;
             };
             outputFormat: "json";
             status: 404;
@@ -858,7 +787,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 status: "error" | "running" | "completed" | "cancelled";
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -932,10 +861,10 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {};
             outputFormat: string;
-            status: import('hono/utils/http-status').StatusCode;
+            status: import("hono/utils/http-status").StatusCode;
         };
     };
-}, "/"> | import('hono/types').MergeSchemaPath<{
+}, "/"> | import("hono/types").MergeSchemaPath<{
     "/api/conversations": {
         $get: {
             input: {};
@@ -962,6 +891,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             maxTokens?: number | undefined;
                             reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                             sendImagesOnlyOnce?: boolean | undefined;
+                            imageGenerationMode?: boolean | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -987,6 +917,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 previewUrl: string;
                                 contentType: string;
                                 createdAt: string;
+                            }[] | undefined;
+                            generatedImages?: {
+                                fileName: string;
+                                publicPath: string;
+                                contentType: string;
+                                createdAt: string;
+                                previewUrl?: string | undefined;
                             }[] | undefined;
                             imageContext?: {
                                 policy: "send_once" | "full_history";
@@ -1025,7 +962,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 }[];
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -1054,6 +991,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             maxTokens?: number | undefined;
                             reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                             sendImagesOnlyOnce?: boolean | undefined;
+                            imageGenerationMode?: boolean | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -1079,6 +1017,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 previewUrl: string;
                                 contentType: string;
                                 createdAt: string;
+                            }[] | undefined;
+                            generatedImages?: {
+                                fileName: string;
+                                publicPath: string;
+                                contentType: string;
+                                createdAt: string;
+                                previewUrl?: string | undefined;
                             }[] | undefined;
                             imageContext?: {
                                 policy: "send_once" | "full_history";
@@ -1147,6 +1092,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             maxTokens?: number | undefined;
                             reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
                             sendImagesOnlyOnce?: boolean | undefined;
+                            imageGenerationMode?: boolean | undefined;
                         };
                         id?: string | undefined;
                         reasoningContent?: string | undefined;
@@ -1172,6 +1118,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                                 previewUrl: string;
                                 contentType: string;
                                 createdAt: string;
+                            }[] | undefined;
+                            generatedImages?: {
+                                fileName: string;
+                                publicPath: string;
+                                contentType: string;
+                                createdAt: string;
+                                previewUrl?: string | undefined;
                             }[] | undefined;
                             imageContext?: {
                                 policy: "send_once" | "full_history";
@@ -1213,7 +1166,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 conversationId: string;
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -1243,7 +1196,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 failedIds: string[];
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -1274,7 +1227,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 deletedConversationIds: string[];
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -1304,6 +1257,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             contentType: string;
                             createdAt: string;
                         }[] | undefined;
+                        generatedImages?: {
+                            fileName: string;
+                            publicPath: string;
+                            contentType: string;
+                            createdAt: string;
+                            previewUrl?: string | undefined;
+                        }[] | undefined;
                     };
                 };
             };
@@ -1339,6 +1299,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             contentType: string;
                             createdAt: string;
                         }[] | undefined;
+                        generatedImages?: {
+                            fileName: string;
+                            publicPath: string;
+                            contentType: string;
+                            createdAt: string;
+                            previewUrl?: string | undefined;
+                        }[] | undefined;
                     };
                 };
             };
@@ -1371,6 +1338,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             previewUrl: string;
                             contentType: string;
                             createdAt: string;
+                        }[] | undefined;
+                        generatedImages?: {
+                            fileName: string;
+                            publicPath: string;
+                            contentType: string;
+                            createdAt: string;
+                            previewUrl?: string | undefined;
                         }[] | undefined;
                     };
                 };
@@ -1405,6 +1379,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             contentType: string;
                             createdAt: string;
                         }[] | undefined;
+                        generatedImages?: {
+                            fileName: string;
+                            publicPath: string;
+                            contentType: string;
+                            createdAt: string;
+                            previewUrl?: string | undefined;
+                        }[] | undefined;
                     };
                 };
             };
@@ -1438,6 +1419,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                             contentType: string;
                             createdAt: string;
                         }[] | undefined;
+                        generatedImages?: {
+                            fileName: string;
+                            publicPath: string;
+                            contentType: string;
+                            createdAt: string;
+                            previewUrl?: string | undefined;
+                        }[] | undefined;
                     };
                 };
             };
@@ -1461,6 +1449,13 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                         previewUrl: string;
                         contentType: string;
                         createdAt: string;
+                    }[] | undefined;
+                    generatedImages?: {
+                        fileName: string;
+                        publicPath: string;
+                        contentType: string;
+                        createdAt: string;
+                        previewUrl?: string | undefined;
                     }[] | undefined;
                     imageContext?: {
                         policy: "send_once" | "full_history";
@@ -1488,7 +1483,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 };
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
 } & {
@@ -1501,6 +1496,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1518,6 +1514,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1533,6 +1530,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1548,6 +1546,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1563,6 +1562,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1578,6 +1578,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1593,6 +1594,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                     blockIndex: number;
                     language: string;
                     content: string;
+                    force?: boolean | undefined;
                 };
             };
             output: {
@@ -1608,10 +1610,10 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
                 alreadyExisted: boolean;
             };
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
-}, "/"> | import('hono/types').MergeSchemaPath<{
+}, "/"> | import("hono/types").MergeSchemaPath<{
     "/api/fetch-models": {
         $get: {
             input: {
@@ -1634,16 +1636,94 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: string[];
             outputFormat: "json";
-            status: import('hono/utils/http-status').ContentfulStatusCode;
+            status: import("hono/utils/http-status").ContentfulStatusCode;
         };
     };
-}, "/"> | import('hono/types').MergeSchemaPath<{
+}, "/"> | import("hono/types").MergeSchemaPath<{
+    "/api/prompt-templates": {
+        $get: {
+            input: {};
+            output: {
+                data: {
+                    id: string;
+                    inputType: "text" | "textarea";
+                    title: string;
+                    placeholder: string;
+                    prompt: string;
+                }[];
+            };
+            outputFormat: "json";
+            status: import("hono/utils/http-status").ContentfulStatusCode;
+        };
+    };
+}, "/"> | import("hono/types").MergeSchemaPath<{
+    "/api/system-status": {
+        $get: {
+            input: {};
+            output: {
+                status: "ok" | "degraded";
+                checkedAt: string;
+                checks: {
+                    database: {
+                        connection: {
+                            status: import("../types").SystemCheckStatus;
+                            reason: string;
+                            checkedAt: string;
+                        };
+                        schema: {
+                            status: import("../types").SystemCheckStatus;
+                            reason: string;
+                            checkedAt: string;
+                        };
+                        status: import("../types").SystemCheckStatus;
+                        reason: string;
+                        checkedAt: string;
+                    };
+                    fileServerHealth: {
+                        status: import("../types").SystemCheckStatus;
+                        reason: string;
+                        checkedAt: string;
+                    };
+                    fileServerApi: {
+                        login: {
+                            status: import("../types").SystemCheckStatus;
+                            reason: string;
+                            checkedAt: string;
+                        };
+                        read: {
+                            status: import("../types").SystemCheckStatus;
+                            reason: string;
+                            checkedAt: string;
+                        };
+                        status: import("../types").SystemCheckStatus;
+                        reason: string;
+                        checkedAt: string;
+                    };
+                    fileServerPublic: {
+                        status: import("../types").SystemCheckStatus;
+                        reason: string;
+                        checkedAt: string;
+                    };
+                };
+            };
+            outputFormat: "json";
+            status: import("hono/utils/http-status").ContentfulStatusCode;
+        } | {
+            input: {};
+            output: {
+                error: string;
+            };
+            outputFormat: "json";
+            status: 503;
+        };
+    };
+}, "/"> | import("hono/types").MergeSchemaPath<{
     "*": {
         $get: {
             input: {};
             output: {};
             outputFormat: string;
-            status: import('hono/utils/http-status').StatusCode;
+            status: import("hono/utils/http-status").StatusCode;
         };
     };
 }, "/">, "/", "*">;

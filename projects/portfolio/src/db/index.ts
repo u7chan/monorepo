@@ -1,6 +1,16 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
+import type { PoolConfig } from 'pg'
 
-export function getDatabase(databaseUrl: string) {
-  const db = drizzle(databaseUrl)
-  return db
+export type DatabasePoolOptions = Pick<
+  PoolConfig,
+  'connectionTimeoutMillis' | 'query_timeout' | 'statement_timeout' | 'max'
+>
+
+export function getDatabase(databaseUrl: string, options: DatabasePoolOptions = {}) {
+  return drizzle({
+    connection: {
+      connectionString: databaseUrl,
+      ...options,
+    },
+  })
 }
