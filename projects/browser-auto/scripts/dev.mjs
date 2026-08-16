@@ -16,9 +16,16 @@ async function buildJs() {
 await copyHtml()
 await buildJs()
 
+let buildQueue = Promise.resolve()
+
+function queueBuild() {
+  buildQueue = buildQueue.then(() => buildJs())
+  return buildQueue
+}
+
 watch("src/client", { recursive: true }, (_event, filename) => {
   if (filename?.endsWith(".tsx") || filename?.endsWith(".ts")) {
-    void buildJs()
+    void queueBuild()
   }
   if (filename?.endsWith(".html")) {
     void copyHtml()
