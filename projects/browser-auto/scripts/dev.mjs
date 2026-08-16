@@ -1,42 +1,40 @@
-import { spawn, execSync } from "node:child_process"
 import { watch, mkdirSync } from "node:fs"
 
-function copyHtml() {
+async function copyHtml() {
   mkdirSync("dist/client", { recursive: true })
-  execSync("cp src/client/index.html dist/client/index.html", { stdio: "inherit" })
+  await Bun.$`cp src/client/index.html dist/client/index.html`
 }
 
-function buildJs() {
+async function buildJs() {
   try {
-    execSync("bun build src/client/app.tsx --outdir dist/client --minify --production", {
-      stdio: "inherit",
-    })
+    await Bun.$`bun build src/client/app.tsx --outdir dist/client --minify --production`
   } catch {
     // build failed, keep watching
   }
 }
 
-copyHtml()
-buildJs()
+await copyHtml()
+await buildJs()
 
 watch("src/client", { recursive: true }, (_event, filename) => {
   if (filename?.endsWith(".tsx") || filename?.endsWith(".ts")) {
-    buildJs()
+    void buildJs()
   }
   if (filename?.endsWith(".html")) {
-    copyHtml()
+    void copyHtml()
   }
 })
 
 const processes = [
-  spawn(
-    "bunx",
-    ["tailwindcss", "-i", "src/client/app.css", "-o", "dist/client/app.css", "--watch"],
+  Bun.spawn(
+    ["bunx", "tailwindcss", "-i", "src/client/app.css", "-o", "dist/client/app.css", "--watch"],
     {
-      stdio: "inherit",
+      stdio: ["inherit", "inherit", "inherit"],
     },
   ),
-  spawn("bun", ["--watch", "src/server/bun-server.ts"], { stdio: "inherit" }),
+  Bun.spawn(["bun", "--watch", "src/server/bun-server.ts"], {
+    stdio: ["inherit", "inherit", "inherit"],
+  }),
 ]
 
 function cleanup() {
@@ -49,8 +47,8 @@ process.on("SIGINT", cleanup)
 process.on("SIGTERM", cleanup)
 
 for (const proc of processes) {
-  proc.on("exit", (code) => {
-    if (code !== null && code !== 0) {
+  void proc.exited.then((code) => {
+    if (proc.signalCode === null && code !== 0) {
       cleanup()
       process.exit(code)
     }
