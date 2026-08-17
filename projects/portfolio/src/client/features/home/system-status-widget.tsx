@@ -1,7 +1,17 @@
 import { hc } from 'hono/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { IconButton } from '#/client/shared/components/icon-button/icon-button'
+import { CheckIcon } from '#/client/shared/icons/check-icon'
+import { CopyIcon } from '#/client/shared/icons/copy-icon'
+import { copyToClipboard } from '#/client/shared/lib/copy-to-clipboard'
 import type { AppType } from '#/server/app.d'
-import type { SystemCheck, SystemStatus, SystemStatusReason } from '#/types'
+import type {
+  DatabaseSystemStatus,
+  FileServerApiSystemStatus,
+  SystemCheck,
+  SystemStatus,
+  SystemStatusReason,
+} from '#/types'
 
 const client = hc<AppType>('/')
 
@@ -46,6 +56,64 @@ function formatCheckedAt(value: string): string {
   }).format(date)
 }
 
+type SystemStatusCopyInput = Omit<SystemStatus, 'checks'> & {
+  checks?: {
+    database?: Omit<DatabaseSystemStatus, 'connection' | 'schema'> & {
+      connection?: SystemCheck
+      schema?: SystemCheck
+    }
+    fileServerHealth?: SystemCheck
+    fileServerApi?: Omit<FileServerApiSystemStatus, 'login' | 'read'> & {
+      login?: SystemCheck
+      read?: SystemCheck
+    }
+    fileServerPublic?: SystemCheck
+  }
+}
+
+function formatCheckDetails(check: SystemCheck): string {
+  return [`- status: ${check.status}`, `- reason: ${check.reason}`, `- checkedAt: ${check.checkedAt}`].join('\n')
+}
+
+function formatCheckSection(
+  label: string,
+  check: SystemCheck | undefined,
+  nested: readonly [string, SystemCheck | undefined][] = []
+): string | null {
+  if (!check) return null
+
+  return [
+    `### ${label}`,
+    formatCheckDetails(check),
+    ...nested.flatMap(([nestedLabel, nestedCheck]) =>
+      nestedCheck ? [`#### ${nestedLabel}`, formatCheckDetails(nestedCheck)] : []
+    ),
+  ].join('\n\n')
+}
+
+export function formatSystemStatusForCopy(status: SystemStatusCopyInput): string {
+  const checks = status.checks
+  const sections = [
+    formatCheckSection('PostgreSQL (`checks.database`)', checks?.database, [
+      ['connection', checks?.database?.connection],
+      ['schema', checks?.database?.schema],
+    ]),
+    formatCheckSection('file-server 稼働 (`checks.fileServerHealth`)', checks?.fileServerHealth),
+    formatCheckSection('file-server API (`checks.fileServerApi`)', checks?.fileServerApi, [
+      ['login', checks?.fileServerApi?.login],
+      ['read', checks?.fileServerApi?.read],
+    ]),
+    formatCheckSection('公開URL (`checks.fileServerPublic`)', checks?.fileServerPublic),
+  ].filter((section): section is string => section !== null)
+
+  const lines = ['# System status', `- status: ${status.status}`, `- checkedAt: ${status.checkedAt}`]
+  if (sections.length > 0) {
+    lines.push('', '## Checks', '', sections.join('\n\n'))
+  }
+
+  return `${lines.join('\n')}\n`
+}
+
 function CheckRow({ label, check }: { label: string; check: SystemCheck }) {
   const isHealthy = check.status === 'ok'
   return (
@@ -60,10 +128,14 @@ function CheckRow({ label, check }: { label: string; check: SystemCheck }) {
   )
 }
 
+type CopyState = 'idle' | 'copying' | 'copied'
+
 export function SystemStatusWidget() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
+  const [copyState, setCopyState] = useState<CopyState>('idle')
+  const [copyError, setCopyError] = useState(false)
   const requestRef = useRef<AbortController | null>(null)
 
   const loadStatus = useCallback(async (refresh: boolean) => {
@@ -74,6 +146,7 @@ export function SystemStatusWidget() {
     requestRef.current = controller
     setLoading(true)
     setError(false)
+    setCopyError(false)
 
     try {
       const response = await systemStatusEndpoint.$get(refresh ? { query: { refresh: '1' } } : undefined)
@@ -103,7 +176,29 @@ export function SystemStatusWidget() {
     return () => requestRef.current?.abort()
   }, [loadStatus])
 
+  useEffect(() => {
+    if (copyState !== 'copied') return
+
+    const timer = setTimeout(() => setCopyState('idle'), 2000)
+    return () => clearTimeout(timer)
+  }, [copyState])
+
+  const handleCopy = useCallback(async () => {
+    if (!status || loading || copyState !== 'idle') return
+
+    setCopyError(false)
+    setCopyState('copying')
+    try {
+      await copyToClipboard(formatSystemStatusForCopy(status))
+      setCopyState('copied')
+    } catch {
+      setCopyState('idle')
+      setCopyError(true)
+    }
+  }, [copyState, loading, status])
+
   const isHealthy = status?.status === 'ok'
+  const copyLabel = copyState === 'copied' ? 'コピー済み' : copyState === 'copying' ? 'コピー中…' : 'ステータスをコピー'
   const database = status?.checks.database
   const fileServerHealth = status?.checks.fileServerHealth
   const fileServerApi = status?.checks.fileServerApi
@@ -126,14 +221,43 @@ export function SystemStatusWidget() {
             {isHealthy ? 'システム正常' : status ? 'システム要確認' : 'システム状態'}
           </h2>
         </div>
-        <button
-          type='button'
-          onClick={() => void loadStatus(true)}
-          disabled={loading || !systemStatusEndpoint}
-          className='shrink-0 rounded border border-gray-300 px-2 py-1 text-gray-700 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
-        >
-          {loading ? '確認中…' : '再確認'}
-        </button>
+        <div className='flex shrink-0 items-center gap-1'>
+          <IconButton
+            label={copyLabel}
+            onClick={() => void handleCopy()}
+            disabled={!status || loading || copyState !== 'idle'}
+            className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out dark:text-gray-300 disabled:opacity-100 ${
+              copyState === 'copied'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
+            }`}
+          >
+            <span
+              aria-hidden='true'
+              className={`absolute transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+                copyState === 'copied' ? '-translate-y-0.5 scale-90 opacity-0' : 'translate-y-0 scale-100 opacity-100'
+              }`}
+            >
+              <CopyIcon size={18} className='stroke-current' />
+            </span>
+            <span
+              aria-hidden='true'
+              className={`absolute transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+                copyState === 'copied' ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-0.5 scale-90 opacity-0'
+              }`}
+            >
+              <CheckIcon size={18} className='stroke-current' />
+            </span>
+          </IconButton>
+          <button
+            type='button'
+            onClick={() => void loadStatus(true)}
+            disabled={loading || !systemStatusEndpoint}
+            className='shrink-0 rounded border border-gray-300 px-2 py-1 text-gray-700 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
+          >
+            {loading ? '確認中…' : '再確認'}
+          </button>
+        </div>
       </div>
 
       {status ? (
@@ -145,16 +269,16 @@ export function SystemStatusWidget() {
             {database && <CheckRow label='PostgreSQL' check={database} />}
             {database && (
               <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
-                <CheckRow label='接続' check={database.connection} />
-                <CheckRow label='スキーマ' check={database.schema} />
+                {database.connection && <CheckRow label='接続' check={database.connection} />}
+                {database.schema && <CheckRow label='スキーマ' check={database.schema} />}
               </div>
             )}
             {fileServerHealth && <CheckRow label='file-server 稼働' check={fileServerHealth} />}
             {fileServerApi && <CheckRow label='file-server API' check={fileServerApi} />}
             {fileServerApi && (
               <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
-                <CheckRow label='ログイン' check={fileServerApi.login} />
-                <CheckRow label='読み取り' check={fileServerApi.read} />
+                {fileServerApi.login && <CheckRow label='ログイン' check={fileServerApi.login} />}
+                {fileServerApi.read && <CheckRow label='読み取り' check={fileServerApi.read} />}
               </div>
             )}
             {fileServerPublic && <CheckRow label='公開URL' check={fileServerPublic} />}
@@ -164,6 +288,11 @@ export function SystemStatusWidget() {
         <p className='mt-2 text-gray-500 text-xs dark:text-gray-400'>状態を確認しています。</p>
       )}
 
+      {copyError && (
+        <p role='alert' className='mt-2 text-red-700 text-xs dark:text-red-400'>
+          ステータスをコピーできませんでした。
+        </p>
+      )}
       {error && <p className='mt-2 text-red-700 text-xs dark:text-red-400'>状態を取得できませんでした。</p>}
     </section>
   )
