@@ -78,10 +78,12 @@ export {
   type ImageGenerationUsage,
 } from './image-generation-api.js'
 
-export type {
-  DatabaseSystemStatus,
-  FileServerApiSystemStatus,
-  SystemCheck,
-  SystemCheckStatus,
-  SystemStatus,
+export {
+  SYSTEM_STATUS_REASONS,
+  type DatabaseSystemStatus,
+  type FileServerApiSystemStatus,
+  type SystemCheck,
+  type SystemCheckStatus,
+  type SystemStatus,
+  type SystemStatusReason,
 } from './system-status.js'

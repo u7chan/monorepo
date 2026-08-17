@@ -64,6 +64,14 @@ const schemaRows = [
   { table_name: 'prompt_templates', column_name: 'updated_at' },
 ]
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve
+  })
+  return { promise, resolve }
+}
+
 describe('getSystemStatus', () => {
   beforeEach(() => {
     resetSystemStatusCacheForTests()
@@ -180,23 +188,149 @@ describe('getSystemStatus', () => {
     }
   })
 
-  it('同じ設定では短時間キャッシュを利用し、force 時だけ再確認する', async () => {
+  it('同じ設定の逐次呼び出しでは正常・degradedの結果を5秒キャッシュする', async () => {
+    loginToFileServerMock.mockRejectedValue(new Error('invalid credentials'))
+
     const first = await getSystemStatus(env)
     const cached = await getSystemStatus(env)
 
     expect(cached).toBe(first)
+    expect(cached.status).toBe('degraded')
     expect(dbExecuteMock).toHaveBeenCalledTimes(2)
     expect(dbEndMock).toHaveBeenCalledTimes(1)
     expect(loginToFileServerMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledTimes(2)
 
-    dbExecuteMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: schemaRows })
-    const refreshed = await getSystemStatus(env, { force: true })
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'))
+      resetSystemStatusCacheForTests()
+      loginToFileServerMock.mockResolvedValue('session-value')
+      dbExecuteMock.mockReset()
+      dbExecuteMock.mockResolvedValue({ rows: schemaRows })
 
-    expect(refreshed).not.toBe(first)
-    expect(dbExecuteMock).toHaveBeenCalledTimes(4)
+      const fresh = await getSystemStatus(env)
+      vi.advanceTimersByTime(4_999)
+      const beforeExpiry = await getSystemStatus(env)
+      vi.advanceTimersByTime(1)
+      const atExpiry = await getSystemStatus(env)
+
+      expect(beforeExpiry).toBe(fresh)
+      expect(atExpiry).not.toBe(fresh)
+      expect(dbExecuteMock).toHaveBeenCalledTimes(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('同時呼び出しでは依存チェックの開始を1回にまとめる', async () => {
+    const connection = createDeferred<{ rows: Array<Record<string, string>> }>()
+    const schema = createDeferred<{ rows: Array<Record<string, string>> }>()
+    dbExecuteMock.mockReset()
+    dbExecuteMock.mockImplementationOnce(() => connection.promise).mockImplementationOnce(() => schema.promise)
+
+    const firstPromise = getSystemStatus(env)
+    const secondPromise = getSystemStatus(env)
+
+    expect(getDatabaseMock).toHaveBeenCalledTimes(1)
+    expect(dbExecuteMock).toHaveBeenCalledTimes(2)
+    expect(loginToFileServerMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    connection.resolve({ rows: [] })
+    schema.resolve({ rows: schemaRows })
+    const [first, second] = await Promise.all([firstPromise, secondPromise])
+
+    expect(first).toBe(second)
+    expect(dbEndMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('設定keyが異なる場合は別々にチェックする', async () => {
+    const otherEnv = { ...env, DATABASE_URL: 'postgresql://other.internal:5432/portfolio' }
+
+    await Promise.all([getSystemStatus(env), getSystemStatus(otherEnv)])
+
+    expect(getDatabaseMock).toHaveBeenCalledTimes(2)
+    expect(getDatabaseMock).toHaveBeenNthCalledWith(1, env.DATABASE_URL, expect.anything())
+    expect(getDatabaseMock).toHaveBeenNthCalledWith(2, otherEnv.DATABASE_URL, expect.anything())
     expect(dbEndMock).toHaveBeenCalledTimes(2)
-    expect(loginToFileServerMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('top-level reject は固定エラーとし、完了から5秒 negative cooldown を適用する', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const dateError = new Error('postgres://secret/internal')
+    const toISOStringSpy = vi.spyOn(Date.prototype, 'toISOString').mockImplementation(() => {
+      throw dateError
+    })
+
+    try {
+      await expect(getSystemStatus(env)).rejects.toThrow('System status unavailable')
+      await expect(getSystemStatus(env)).rejects.toThrow('System status unavailable')
+      expect(getDatabaseMock).not.toHaveBeenCalled()
+
+      toISOStringSpy.mockRestore()
+      vi.setSystemTime(5_000)
+      dbExecuteMock.mockResolvedValue({ rows: schemaRows })
+      await expect(getSystemStatus(env)).resolves.toMatchObject({ status: 'ok' })
+      expect(getDatabaseMock).toHaveBeenCalledTimes(1)
+    } finally {
+      toISOStringSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('reset は pending の古い完了結果を再投入しない', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'))
+    const firstConnection = createDeferred<{ rows: Array<Record<string, string>> }>()
+    const firstSchema = createDeferred<{ rows: Array<Record<string, string>> }>()
+    let queryCount = 0
+    dbExecuteMock.mockReset()
+    dbExecuteMock.mockImplementation(() => {
+      queryCount += 1
+      if (queryCount === 1) return firstConnection.promise
+      if (queryCount === 2) return firstSchema.promise
+      return Promise.resolve({ rows: schemaRows })
+    })
+
+    try {
+      const oldResultPromise = getSystemStatus(env)
+      resetSystemStatusCacheForTests()
+      vi.setSystemTime(new Date('2026-04-19T00:00:01.000Z'))
+      const newResult = await getSystemStatus(env)
+
+      firstConnection.resolve({ rows: [] })
+      firstSchema.resolve({ rows: schemaRows })
+      await oldResultPromise
+
+      const cached = await getSystemStatus(env)
+      expect(cached).toBe(newResult)
+      expect(cached.checkedAt).toBe('2026-04-19T00:00:01.000Z')
+      expect(queryCount).toBe(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reset は正常結果と negative cooldown の両方を消去する', async () => {
+    vi.useFakeTimers()
+    const toISOStringSpy = vi.spyOn(Date.prototype, 'toISOString').mockImplementation(() => {
+      throw new Error('temporary failure')
+    })
+
+    try {
+      await expect(getSystemStatus(env)).rejects.toThrow('System status unavailable')
+      resetSystemStatusCacheForTests()
+      toISOStringSpy.mockRestore()
+      dbExecuteMock.mockResolvedValue({ rows: schemaRows })
+
+      const result = await getSystemStatus(env)
+      expect(result.status).toBe('ok')
+      expect(getDatabaseMock).toHaveBeenCalledTimes(1)
+    } finally {
+      toISOStringSpy.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })

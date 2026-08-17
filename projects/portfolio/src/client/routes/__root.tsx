@@ -46,7 +46,7 @@ function Root() {
           <Outlet />
         </Suspense>
       </AppLayout>
-      <TanStackRouterDevtoolsPanel position='bottom-right' />
+      <TanStackRouterDevtoolsPanel position='top-right' />
     </>
   )
 }

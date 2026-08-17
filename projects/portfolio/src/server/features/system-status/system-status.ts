@@ -8,17 +8,20 @@ import {
   type FileServerConfig,
 } from '#/server/features/chat-conversations/file-server-client'
 import type { Env } from '#/server/routes/shared'
+import { SYSTEM_STATUS_REASONS } from '#/types'
 import type {
   DatabaseSystemStatus,
   FileServerApiSystemStatus,
   SystemCheck,
   SystemCheckStatus,
   SystemStatus,
+  SystemStatusReason,
 } from '#/types'
 
 const CHECK_TIMEOUT_MS = 3_000
 const DATABASE_QUERY_TIMEOUT_MS = 2_500
 const CACHE_TTL_MS = 5_000
+const SYSTEM_STATUS_UNAVAILABLE_MESSAGE = 'System status unavailable'
 
 const databasePoolOptions = {
   connectionTimeoutMillis: DATABASE_QUERY_TIMEOUT_MS,
@@ -59,10 +62,23 @@ type CachedStatus = {
   value: SystemStatus
 }
 
+type NegativeCooldown = {
+  expiresAt: number
+}
+
 class CheckTimeoutError extends Error {}
 
+class SystemStatusUnavailableError extends Error {
+  constructor() {
+    super(SYSTEM_STATUS_UNAVAILABLE_MESSAGE)
+    this.name = 'SystemStatusUnavailableError'
+  }
+}
+
 const statusCache = new Map<string, CachedStatus>()
+const negativeCooldowns = new Map<string, NegativeCooldown>()
 const inFlightChecks = new Map<string, Promise<SystemStatus>>()
+let cacheGeneration = 0
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -80,7 +96,7 @@ function getRows(value: unknown): Array<Record<string, unknown>> {
   return []
 }
 
-function outcome(status: SystemCheckStatus, reason: string): CheckOutcome {
+function outcome(status: SystemCheckStatus, reason: SystemStatusReason): CheckOutcome {
   return { status, reason }
 }
 
@@ -105,7 +121,7 @@ function isCheckTimeoutError(error: unknown): boolean {
   )
 }
 
-function failedOutcome(error: unknown, fallbackReason: string): CheckOutcome {
+function failedOutcome(error: unknown, fallbackReason: SystemStatusReason): CheckOutcome {
   return outcome('error', isCheckTimeoutError(error) ? 'timeout' : fallbackReason)
 }
 
@@ -135,7 +151,7 @@ async function withCheckTimeout<T>(operation: (signal: AbortSignal) => Promise<T
 
 async function runCheck(
   operation: (signal: AbortSignal) => Promise<void>,
-  fallbackReason: string
+  fallbackReason: SystemStatusReason
 ): Promise<CheckOutcome> {
   try {
     await withCheckTimeout(operation)
@@ -145,7 +161,7 @@ async function runCheck(
   }
 }
 
-function aggregateOutcome(children: CheckOutcome[], fallbackReason: string): CheckOutcome {
+function aggregateOutcome(children: CheckOutcome[], fallbackReason: SystemStatusReason): CheckOutcome {
   const failed = children.find((child) => child.status === 'error')
   if (failed) {
     return outcome('error', failed.reason || fallbackReason)
@@ -372,31 +388,107 @@ function buildCacheKey(env: SystemStatusEnv): string {
   ].join('\u0000')
 }
 
-export async function getSystemStatus(env: SystemStatusEnv, options: { force?: boolean } = {}): Promise<SystemStatus> {
+function isSystemStatusReason(value: unknown): value is SystemStatusReason {
+  return typeof value === 'string' && (SYSTEM_STATUS_REASONS as readonly string[]).includes(value)
+}
+
+function toPublicCheck(check: SystemCheck): SystemCheck {
+  return {
+    status: check.status,
+    reason: isSystemStatusReason(check.reason) ? check.reason : 'check-failed',
+    checkedAt: check.checkedAt,
+  }
+}
+
+export function toPublicSystemStatus(status: SystemStatus): SystemStatus {
+  const database = status.checks.database
+  const fileServerApi = status.checks.fileServerApi
+
+  return {
+    status: status.status,
+    checkedAt: status.checkedAt,
+    checks: {
+      database: {
+        ...toPublicCheck(database),
+        connection: toPublicCheck(database.connection),
+        schema: toPublicCheck(database.schema),
+      },
+      fileServerHealth: toPublicCheck(status.checks.fileServerHealth),
+      fileServerApi: {
+        ...toPublicCheck(fileServerApi),
+        login: toPublicCheck(fileServerApi.login),
+        read: toPublicCheck(fileServerApi.read),
+      },
+      fileServerPublic: toPublicCheck(status.checks.fileServerPublic),
+    },
+  }
+}
+
+export async function getSystemStatus(env: SystemStatusEnv): Promise<SystemStatus> {
   const key = buildCacheKey(env)
   const pending = inFlightChecks.get(key)
   if (pending) {
     return pending
   }
 
+  const now = Date.now()
   const cached = statusCache.get(key)
-  if (!options.force && cached && cached.expiresAt > Date.now()) {
-    return cached.value
+  if (cached) {
+    if (now < cached.expiresAt) {
+      return cached.value
+    }
+    statusCache.delete(key)
   }
+
+  const negativeCooldown = negativeCooldowns.get(key)
+  if (negativeCooldown) {
+    if (now < negativeCooldown.expiresAt) {
+      throw new SystemStatusUnavailableError()
+    }
+    negativeCooldowns.delete(key)
+  }
+
+  const generation = cacheGeneration
+  let resolvePending!: (value: SystemStatus | PromiseLike<SystemStatus>) => void
+  let rejectPending!: (reason?: unknown) => void
+  const pendingCheck = new Promise<SystemStatus>((resolve, reject) => {
+    resolvePending = resolve
+    rejectPending = reject
+  })
+  inFlightChecks.set(key, pendingCheck)
 
   const check = runSystemStatus(env)
-  inFlightChecks.set(key, check)
+  void check
+    .then(
+      (value) => {
+        const completedAt = Date.now()
+        if (cacheGeneration === generation) {
+          statusCache.set(key, { expiresAt: completedAt + CACHE_TTL_MS, value })
+          negativeCooldowns.delete(key)
+        }
+        resolvePending(value)
+      },
+      () => {
+        const completedAt = Date.now()
+        if (cacheGeneration === generation) {
+          statusCache.delete(key)
+          negativeCooldowns.set(key, { expiresAt: completedAt + CACHE_TTL_MS })
+        }
+        rejectPending(new SystemStatusUnavailableError())
+      }
+    )
+    .finally(() => {
+      if (inFlightChecks.get(key) === pendingCheck) {
+        inFlightChecks.delete(key)
+      }
+    })
 
-  try {
-    const value = await check
-    statusCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value })
-    return value
-  } finally {
-    inFlightChecks.delete(key)
-  }
+  return pendingCheck
 }
 
 export function resetSystemStatusCacheForTests(): void {
+  cacheGeneration += 1
   statusCache.clear()
+  negativeCooldowns.clear()
   inFlightChecks.clear()
 }

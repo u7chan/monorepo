@@ -1,7 +1,7 @@
 import { hc } from 'hono/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppType } from '#/server/app.d'
-import type { SystemCheck, SystemStatus } from '#/types'
+import type { SystemCheck, SystemStatus, SystemStatusReason } from '#/types'
 
 const client = hc<AppType>('/')
 
@@ -11,19 +11,19 @@ type SystemStatusEndpoint = {
 
 const systemStatusEndpoint = (client.api as unknown as { 'system-status'?: SystemStatusEndpoint })['system-status']
 
-const reasonLabels: Record<string, string> = {
+const reasonLabels: Record<SystemStatusReason, string> = {
   ok: '応答あり',
   'not-configured': '設定なし',
+  timeout: 'タイムアウト',
   'connection-failed': '接続失敗',
   'schema-check-failed': 'スキーマ確認失敗',
-  'schema-incomplete': 'スキーマ不備',
   'database-unavailable': 'データベース利用不可',
-  timeout: 'タイムアウト',
   'healthz-unavailable': 'ヘルスチェック失敗',
   'login-failed': 'ログイン失敗',
   'read-failed': '読み取り失敗',
   'file-server-api-unavailable': 'API利用不可',
   'public-unavailable': '公開配信不可',
+  'check-failed': '確認失敗',
 }
 
 function getStatusLabel(status: SystemCheck['status']): string {
@@ -32,7 +32,7 @@ function getStatusLabel(status: SystemCheck['status']): string {
   return '異常'
 }
 
-function getReasonLabel(reason: string): string {
+function getReasonLabel(reason: SystemStatusReason): string {
   return reasonLabels[reason] ?? '確認失敗'
 }
 
