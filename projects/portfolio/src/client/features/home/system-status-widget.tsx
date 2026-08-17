@@ -252,7 +252,7 @@ export function SystemStatusWidget() {
           <button
             type='button'
             onClick={() => void loadStatus(true)}
-            disabled={loading || !systemStatusEndpoint}
+            disabled={loading || !systemStatusEndpoint || copyState !== 'idle'}
             className='shrink-0 rounded border border-gray-300 px-2 py-1 text-gray-700 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
           >
             {loading ? '確認中…' : '再確認'}

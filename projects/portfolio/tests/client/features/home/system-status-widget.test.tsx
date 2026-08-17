@@ -127,6 +127,54 @@ describe('SystemStatusWidget', () => {
     expect((screen.getByRole('button', { name: 'コピー済み' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('コピー中と成功表示中は再確認を無効化し、解除後のrefreshで古い成功表示を残さない', async () => {
+    let resolveCopy: (() => void) | undefined
+    let resolveRefresh: ((response: Response) => void) | undefined
+    const refreshedBody = structuredClone(responseBody)
+    refreshedBody.status = 'degraded'
+    systemStatusGetMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 200 }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveRefresh = resolve
+          })
+      )
+    copyToClipboardMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCopy = resolve
+        })
+    )
+
+    render(<SystemStatusWidget />)
+    await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'ステータスをコピー' }))
+    await waitFor(() => expect(copyToClipboardMock).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('button', { name: 'コピー中…' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: '再確認' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+    expect(systemStatusGetMock).toHaveBeenCalledTimes(1)
+
+    expect(resolveCopy).toBeTypeOf('function')
+    resolveCopy?.()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'コピー済み' })).toBeTruthy())
+    expect((screen.getByRole('button', { name: '再確認' }) as HTMLButtonElement).disabled).toBe(true)
+
+    await new Promise((resolve) => setTimeout(resolve, 2100))
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '再確認' }) as HTMLButtonElement).disabled).toBe(false)
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+    await waitFor(() => expect(systemStatusGetMock).toHaveBeenCalledTimes(2))
+    expect(resolveRefresh).toBeTypeOf('function')
+    resolveRefresh?.(new Response(JSON.stringify(refreshedBody), { status: 200 }))
+    await waitFor(() => expect(screen.getByText('システム要確認')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'コピー済み' })).toBeNull()
+  })
+
   it('コピー失敗時も状態表示と再確認を維持する', async () => {
     systemStatusGetMock.mockImplementation(() =>
       Promise.resolve(
