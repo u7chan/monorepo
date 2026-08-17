@@ -80,8 +80,14 @@ export {
 
 export {
   SYSTEM_STATUS_REASONS,
+  PublicSystemStatusSchema,
+  SystemStatusReasonSchema,
   type DatabaseSystemStatus,
   type FileServerApiSystemStatus,
+  type PublicDatabaseSystemStatus,
+  type PublicFileServerApiSystemStatus,
+  type PublicSystemCheck,
+  type PublicSystemStatus,
   type SystemCheck,
   type SystemCheckStatus,
   type SystemStatus,

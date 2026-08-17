@@ -12,6 +12,8 @@ import { SYSTEM_STATUS_REASONS } from '#/types'
 import type {
   DatabaseSystemStatus,
   FileServerApiSystemStatus,
+  PublicSystemCheck,
+  PublicSystemStatus,
   SystemCheck,
   SystemCheckStatus,
   SystemStatus,
@@ -392,7 +394,7 @@ function isSystemStatusReason(value: unknown): value is SystemStatusReason {
   return typeof value === 'string' && (SYSTEM_STATUS_REASONS as readonly string[]).includes(value)
 }
 
-function toPublicCheck(check: SystemCheck): SystemCheck {
+function toPublicCheck(check: SystemCheck): PublicSystemCheck {
   return {
     status: check.status,
     reason: isSystemStatusReason(check.reason) ? check.reason : 'check-failed',
@@ -400,7 +402,7 @@ function toPublicCheck(check: SystemCheck): SystemCheck {
   }
 }
 
-export function toPublicSystemStatus(status: SystemStatus): SystemStatus {
+export function toPublicSystemStatus(status: SystemStatus): PublicSystemStatus {
   const database = status.checks.database
   const fileServerApi = status.checks.fileServerApi
 

@@ -1,6 +1,6 @@
-import type { HonoEnv } from './routes/shared';
-declare const app: import("hono/hono-base").HonoBase<HonoEnv, import("hono/types").BlankSchema, "/", "*">;
-declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/types").BlankSchema | import("hono/types").MergeSchemaPath<{
+import { HonoEnv } from './routes/shared';
+declare const app: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema, "/", "*">;
+declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/types').BlankSchema | import('hono/types').MergeSchemaPath<{
     "/api/signin": {
         $post: {
             input: {
@@ -25,7 +25,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             };
             output: {};
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -34,10 +34,10 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             input: {};
             output: {};
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-}, "/"> | import("hono/types").MergeSchemaPath<{
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/image/generations": {
         $post: {
             input: {
@@ -130,7 +130,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 };
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -265,7 +265,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 } | null;
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -345,7 +345,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             };
             output: {};
             outputFormat: string;
-            status: import("hono/utils/http-status").StatusCode;
+            status: import('hono/utils/http-status').StatusCode;
         };
     };
 } & {
@@ -612,7 +612,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 status: "error" | "running" | "completed" | "cancelled";
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -746,7 +746,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 };
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -759,7 +759,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             };
             output: {};
             outputFormat: string;
-            status: import("hono/utils/http-status").StatusCode;
+            status: import('hono/utils/http-status').StatusCode;
         };
     };
 } & {
@@ -787,7 +787,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 status: "error" | "running" | "completed" | "cancelled";
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -861,10 +861,10 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             };
             output: {};
             outputFormat: string;
-            status: import("hono/utils/http-status").StatusCode;
+            status: import('hono/utils/http-status').StatusCode;
         };
     };
-}, "/"> | import("hono/types").MergeSchemaPath<{
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/conversations": {
         $get: {
             input: {};
@@ -962,7 +962,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 }[];
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -1166,7 +1166,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 conversationId: string;
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -1196,7 +1196,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 failedIds: string[];
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -1227,7 +1227,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 deletedConversationIds: string[];
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -1483,7 +1483,7 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 };
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
 } & {
@@ -1610,10 +1610,10 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 alreadyExisted: boolean;
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-}, "/"> | import("hono/types").MergeSchemaPath<{
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/fetch-models": {
         $get: {
             input: {
@@ -1636,10 +1636,10 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             };
             output: string[];
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-}, "/"> | import("hono/types").MergeSchemaPath<{
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/prompt-templates": {
         $get: {
             input: {};
@@ -1653,10 +1653,10 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 }[];
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: import('hono/utils/http-status').ContentfulStatusCode;
         };
     };
-}, "/"> | import("hono/types").MergeSchemaPath<{
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/system-status": {
         $get: {
             input: {};
@@ -1665,49 +1665,49 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
                 checkedAt: string;
                 checks: {
                     database: {
+                        status: "error" | "ok" | "not-configured";
+                        reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
+                        checkedAt: string;
                         connection: {
-                            status: import("../types").SystemCheckStatus;
-                            reason: string;
+                            status: "error" | "ok" | "not-configured";
+                            reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
                             checkedAt: string;
                         };
                         schema: {
-                            status: import("../types").SystemCheckStatus;
-                            reason: string;
+                            status: "error" | "ok" | "not-configured";
+                            reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
                             checkedAt: string;
                         };
-                        status: import("../types").SystemCheckStatus;
-                        reason: string;
-                        checkedAt: string;
                     };
                     fileServerHealth: {
-                        status: import("../types").SystemCheckStatus;
-                        reason: string;
+                        status: "error" | "ok" | "not-configured";
+                        reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
                         checkedAt: string;
                     };
                     fileServerApi: {
+                        status: "error" | "ok" | "not-configured";
+                        reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
+                        checkedAt: string;
                         login: {
-                            status: import("../types").SystemCheckStatus;
-                            reason: string;
+                            status: "error" | "ok" | "not-configured";
+                            reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
                             checkedAt: string;
                         };
                         read: {
-                            status: import("../types").SystemCheckStatus;
-                            reason: string;
+                            status: "error" | "ok" | "not-configured";
+                            reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
                             checkedAt: string;
                         };
-                        status: import("../types").SystemCheckStatus;
-                        reason: string;
-                        checkedAt: string;
                     };
                     fileServerPublic: {
-                        status: import("../types").SystemCheckStatus;
-                        reason: string;
+                        status: "error" | "ok" | "not-configured";
+                        reason: "ok" | "not-configured" | "timeout" | "connection-failed" | "schema-check-failed" | "database-unavailable" | "healthz-unavailable" | "login-failed" | "read-failed" | "file-server-api-unavailable" | "public-unavailable" | "check-failed";
                         checkedAt: string;
                     };
                 };
             };
             outputFormat: "json";
-            status: import("hono/utils/http-status").ContentfulStatusCode;
+            status: 200;
         } | {
             input: {};
             output: {
@@ -1717,13 +1717,13 @@ declare const routes: import("hono/hono-base").HonoBase<HonoEnv, import("hono/ty
             status: 503;
         };
     };
-}, "/"> | import("hono/types").MergeSchemaPath<{
+}, "/"> | import('hono/types').MergeSchemaPath<{
     "*": {
         $get: {
             input: {};
             output: {};
             outputFormat: string;
-            status: import("hono/utils/http-status").StatusCode;
+            status: import('hono/utils/http-status').StatusCode;
         };
     };
 }, "/">, "/", "*">;
