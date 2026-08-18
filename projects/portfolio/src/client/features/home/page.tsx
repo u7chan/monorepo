@@ -81,7 +81,6 @@ export function Home() {
                 Sign Out
               </button>
             </div>
-            <SystemStatusWidget />
           </>
         ) : (
           <form onSubmit={handleSubmit} className='space-y-4'>
@@ -119,6 +118,7 @@ export function Home() {
             </button>
           </form>
         )}
+        <SystemStatusWidget />
       </div>
     </div>
   )

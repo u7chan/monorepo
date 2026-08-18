@@ -5,8 +5,13 @@ export async function copyToClipboard(text: string) {
     const input = document.createElement('textarea')
     input.value = text
     document.body.appendChild(input)
-    input.select()
-    document.execCommand('copy')
-    document.body.removeChild(input)
+    try {
+      input.select()
+      if (!document.execCommand('copy')) {
+        throw new Error('Failed to copy text to clipboard')
+      }
+    } finally {
+      document.body.removeChild(input)
+    }
   }
 }

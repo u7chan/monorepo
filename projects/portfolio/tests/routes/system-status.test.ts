@@ -1,95 +1,121 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getSignedCookieMock, getSystemStatusMock } = vi.hoisted(() => ({
-  getSignedCookieMock: vi.fn(),
+const { getSystemStatusMock } = vi.hoisted(() => ({
   getSystemStatusMock: vi.fn(),
 }))
 
-vi.mock('hono/cookie', async () => {
-  const actual = await vi.importActual<typeof import('hono/cookie')>('hono/cookie')
+vi.mock('#/server/features/system-status/system-status', async () => {
+  const actual = await vi.importActual<typeof import('#/server/features/system-status/system-status')>(
+    '#/server/features/system-status/system-status'
+  )
 
   return {
     ...actual,
-    getSignedCookie: getSignedCookieMock,
+    getSystemStatus: getSystemStatusMock,
   }
 })
 
-vi.mock('#/server/features/system-status/system-status', () => ({
-  getSystemStatus: getSystemStatusMock,
-}))
-
 import { systemStatusRoutes } from '#/server/routes/system-status'
 
+const checkedAt = '2026-04-19T00:00:00.000Z'
 const status = {
   status: 'ok' as const,
-  checkedAt: '2026-04-19T00:00:00.000Z',
+  checkedAt,
   checks: {
     database: {
       status: 'ok' as const,
-      reason: 'ok',
-      checkedAt: '2026-04-19T00:00:00.000Z',
-      connection: { status: 'ok' as const, reason: 'ok', checkedAt: '2026-04-19T00:00:00.000Z' },
-      schema: { status: 'ok' as const, reason: 'ok', checkedAt: '2026-04-19T00:00:00.000Z' },
+      reason: 'ok' as const,
+      checkedAt,
+      connection: { status: 'ok' as const, reason: 'ok' as const, checkedAt },
+      schema: { status: 'ok' as const, reason: 'future-reason', checkedAt },
     },
-    fileServerHealth: { status: 'ok' as const, reason: 'ok', checkedAt: '2026-04-19T00:00:00.000Z' },
+    fileServerHealth: { status: 'ok' as const, reason: 'ok' as const, checkedAt },
     fileServerApi: {
       status: 'ok' as const,
-      reason: 'ok',
-      checkedAt: '2026-04-19T00:00:00.000Z',
-      login: { status: 'ok' as const, reason: 'ok', checkedAt: '2026-04-19T00:00:00.000Z' },
-      read: { status: 'ok' as const, reason: 'ok', checkedAt: '2026-04-19T00:00:00.000Z' },
+      reason: 'ok' as const,
+      checkedAt,
+      login: { status: 'ok' as const, reason: 'ok' as const, checkedAt },
+      read: { status: 'ok' as const, reason: 'ok' as const, checkedAt },
     },
-    fileServerPublic: { status: 'ok' as const, reason: 'ok', checkedAt: '2026-04-19T00:00:00.000Z' },
+    fileServerPublic: { status: 'ok' as const, reason: 'ok' as const, checkedAt },
+  },
+  secret: 'password',
+  internalUrl: 'http://file-server:3000',
+  responseBody: { token: 'token' },
+  stack: 'Error: secret',
+}
+
+const expectedPublicStatus = {
+  status: 'ok',
+  checkedAt,
+  checks: {
+    database: {
+      status: 'ok',
+      reason: 'ok',
+      checkedAt,
+      connection: { status: 'ok', reason: 'ok', checkedAt },
+      schema: { status: 'ok', reason: 'check-failed', checkedAt },
+    },
+    fileServerHealth: { status: 'ok', reason: 'ok', checkedAt },
+    fileServerApi: {
+      status: 'ok',
+      reason: 'ok',
+      checkedAt,
+      login: { status: 'ok', reason: 'ok', checkedAt },
+      read: { status: 'ok', reason: 'ok', checkedAt },
+    },
+    fileServerPublic: { status: 'ok', reason: 'ok', checkedAt },
   },
 }
 
 describe('systemStatusRoutes', () => {
   beforeEach(() => {
-    getSignedCookieMock.mockReset()
     getSystemStatusMock.mockReset()
-    vi.stubEnv('COOKIE_SECRET', 'secret')
-    vi.stubEnv('COOKIE_NAME', 'session')
   })
 
-  it('未認証の GET は 401 を返し、system status を実行しない', async () => {
-    getSignedCookieMock.mockResolvedValue(null)
-
-    const res = await systemStatusRoutes.request('/api/system-status')
-
-    expect(res.status).toBe(401)
-    await expect(res.json()).resolves.toEqual({ error: 'Authentication error' })
-    expect(getSystemStatusMock).not.toHaveBeenCalled()
-  })
-
-  it('認証済みの GET は status と no-store を返す', async () => {
-    getSignedCookieMock.mockResolvedValue('test@example.com')
+  it('Cookie の有無や内容にかかわらず公開 status を返す', async () => {
     getSystemStatusMock.mockResolvedValue(status)
 
-    const res = await systemStatusRoutes.request('/api/system-status')
+    for (const cookie of [undefined, 'session=valid', 'session=invalid']) {
+      const res = await systemStatusRoutes.request('/api/system-status', {
+        headers: cookie ? { Cookie: cookie } : undefined,
+      })
 
-    expect(res.status).toBe(200)
-    expect(res.headers.get('cache-control')).toBe('no-store')
-    await expect(res.json()).resolves.toEqual(status)
-    expect(getSystemStatusMock).toHaveBeenCalledWith(expect.objectContaining({}), { force: false })
+      expect(res.status).toBe(200)
+      expect(res.headers.get('cache-control')).toBe('no-store')
+      await expect(res.json()).resolves.toEqual(expectedPublicStatus)
+    }
+
+    expect(getSystemStatusMock).toHaveBeenCalledTimes(3)
+    expect(getSystemStatusMock).toHaveBeenCalledWith(expect.objectContaining({}))
   })
 
-  it('予期しないエラーでも機密情報を返さず 503 にする', async () => {
-    getSignedCookieMock.mockResolvedValue('test@example.com')
+  it('通常 GET と refresh query は同じ処理を実行し force を渡さない', async () => {
+    getSystemStatusMock.mockResolvedValue(status)
+
+    const normal = await systemStatusRoutes.request('/api/system-status')
+    const refreshOne = await systemStatusRoutes.request('/api/system-status?refresh=1')
+    const refreshTrue = await systemStatusRoutes.request('/api/system-status?refresh=true')
+
+    expect(normal.status).toBe(200)
+    expect(refreshOne.status).toBe(200)
+    expect(refreshTrue.status).toBe(200)
+    expect(getSystemStatusMock).toHaveBeenCalledTimes(3)
+    for (const call of getSystemStatusMock.mock.calls) {
+      expect(call).toHaveLength(1)
+      expect(call[0]).toEqual(expect.objectContaining({}))
+    }
+  })
+
+  it('予期しないエラーでも機密情報を返さず固定 503 にする', async () => {
     getSystemStatusMock.mockRejectedValue(new Error('postgres://secret/internal'))
 
     const res = await systemStatusRoutes.request('/api/system-status')
 
     expect(res.status).toBe(503)
-    await expect(res.json()).resolves.toEqual({ error: 'System status unavailable' })
-  })
-
-  it('refresh=1 はサーバーキャッシュを bypass する', async () => {
-    getSignedCookieMock.mockResolvedValue('test@example.com')
-    getSystemStatusMock.mockResolvedValue(status)
-
-    const res = await systemStatusRoutes.request('/api/system-status?refresh=1')
-
-    expect(res.status).toBe(200)
-    expect(getSystemStatusMock).toHaveBeenCalledWith(expect.objectContaining({}), { force: true })
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    const body = await res.json()
+    expect(body).toEqual({ error: 'System status unavailable' })
+    expect(JSON.stringify(body)).not.toContain('postgres://secret/internal')
   })
 })

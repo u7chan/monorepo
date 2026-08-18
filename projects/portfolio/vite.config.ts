@@ -1,13 +1,23 @@
+import { cp, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import devServer from '@hono/vite-dev-server'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import dts from 'vite-plugin-dts'
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 const sourceAlias = {
   '#': resolve(rootDir, 'src'),
+}
+const typegenOutputDir = resolve(rootDir, '.typegen')
+
+const copyGeneratedAppDeclaration: Plugin = {
+  name: 'copy-generated-app-declaration',
+  async closeBundle() {
+    await cp(resolve(typegenOutputDir, 'server/app.d.ts'), resolve(rootDir, 'src/server/app.d.ts'))
+    await rm(typegenOutputDir, { recursive: true, force: true })
+  },
 }
 
 export default defineConfig(({ mode }) => {
@@ -16,14 +26,15 @@ export default defineConfig(({ mode }) => {
       return {
         plugins: [
           dts({
-            include: resolve(rootDir, 'src/server/app.tsx'),
-            outDirs: rootDir,
+            outDirs: resolve(rootDir, '.typegen'),
             declarationOnly: true,
             insertTypesEntry: false,
             bundleTypes: false,
             copyDtsFiles: false,
+            include: resolve(rootDir, 'src/server/app.tsx'),
             entryRoot: resolve(rootDir, 'src'),
           }),
+          copyGeneratedAppDeclaration,
         ],
         resolve: {
           alias: sourceAlias,
