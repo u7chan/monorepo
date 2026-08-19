@@ -1,8 +1,10 @@
 import { hc } from 'hono/client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
+import { ChevronRightIcon } from '#/client/shared/icons/chevron-right-icon'
 import { CopyIcon } from '#/client/shared/icons/copy-icon'
+import { SpinnerIcon } from '#/client/shared/icons/spinner-icon'
 import { copyToClipboard } from '#/client/shared/lib/copy-to-clipboard'
 import type { AppType } from '#/server/app.d'
 import type {
@@ -14,6 +16,27 @@ import type {
 } from '#/types'
 
 const client = hc<AppType>('/')
+
+const COLLAPSED_STORAGE_KEY = 'portfolio.system-status-widget.collapsed'
+
+// 再確認の通信が一瞬で終わってもスピナーが見えるようにする最小表示時間
+const MIN_REFRESH_DURATION_MS = 400
+
+function readCollapsedFromLocalStorage(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writeCollapsedToLocalStorage(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, String(collapsed))
+  } catch {
+    // ストレージが利用できない場合は永続化を諦める（表示のみ切り替え）
+  }
+}
 
 type SystemStatusEndpoint = {
   $get: (options?: { query?: { refresh?: string } }) => Promise<Response>
@@ -136,10 +159,19 @@ export function SystemStatusWidget() {
   const [error, setError] = useState(false)
   const [copyState, setCopyState] = useState<CopyState>('idle')
   const [copyError, setCopyError] = useState(false)
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsedFromLocalStorage())
   const requestRef = useRef<AbortController | null>(null)
+  const detailsId = useId()
+
+  const toggleCollapsed = useCallback(() => {
+    const next = !collapsed
+    writeCollapsedToLocalStorage(next)
+    setCollapsed(next)
+  }, [collapsed])
 
   const loadStatus = useCallback(async (refresh: boolean) => {
     if (!systemStatusEndpoint) return
+    const startedAt = performance.now()
 
     requestRef.current?.abort()
     const controller = new AbortController()
@@ -162,11 +194,21 @@ export function SystemStatusWidget() {
     } catch {
       if (!controller.signal.aborted) {
         setError(true)
+        // 折りたたみ中はエラー表示（詳細領域）が見えないため、エラー時に自動展開する。
+        // 展開は一時的で localStorage には書き込まない（次回ロードはユーザーの折りたたみ設定に従う）
+        setCollapsed(false)
       }
     } finally {
       if (requestRef.current === controller) {
         requestRef.current = null
-        setLoading(false)
+        const remaining = refresh ? MIN_REFRESH_DURATION_MS - (performance.now() - startedAt) : 0
+        if (remaining > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remaining))
+        }
+        // 最小表示時間の待機中に新しいリクエストが開始された場合は、そちらの finally に loading 解除を委ねる（防御的ガード）
+        if (requestRef.current === null) {
+          setLoading(false)
+        }
       }
     }
   }, [])
@@ -194,6 +236,9 @@ export function SystemStatusWidget() {
     } catch {
       setCopyState('idle')
       setCopyError(true)
+      // 折りたたみ中のコピー失敗もエラー表示が見えるように自動展開する。
+      // 展開は一時的で localStorage には書き込まない（次回ロードはユーザーの折りたたみ設定に従う）
+      setCollapsed(false)
     }
   }, [copyState, loading, status])
 
@@ -210,7 +255,23 @@ export function SystemStatusWidget() {
       className='fixed right-2 bottom-2 z-40 w-[calc(100%-1rem)] max-w-xs rounded-lg border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-800/95 sm:right-4 sm:bottom-4'
     >
       <div className='flex items-center justify-between gap-3'>
-        <div className='flex min-w-0 items-center gap-2'>
+        <div className='flex min-w-0 items-center gap-1'>
+          <IconButton
+            label={collapsed ? '展開する' : '折りたたむ'}
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-controls={detailsId}
+            className='h-8 w-8 shrink-0 rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
+          >
+            <span
+              aria-hidden='true'
+              className={`inline-flex transition-transform duration-200 ease-out motion-reduce:transition-none ${
+                collapsed ? '' : 'rotate-90'
+              }`}
+            >
+              <ChevronRightIcon size={16} strokeWidth={0.75} />
+            </span>
+          </IconButton>
           <span
             aria-hidden='true'
             className={`h-2.5 w-2.5 shrink-0 rounded-full ${
@@ -222,15 +283,16 @@ export function SystemStatusWidget() {
           </h2>
         </div>
         <div className='flex shrink-0 items-center gap-1'>
+          {/* コピー中・コピー済みは進行/成功フィードバックを見せるため減光しない（基底の disabled:opacity-50 を disabled:opacity-100 で上書き） */}
           <IconButton
             label={copyLabel}
             onClick={() => void handleCopy()}
             disabled={!status || loading || copyState !== 'idle'}
-            className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out dark:text-gray-300 disabled:opacity-100 ${
-              copyState === 'copied'
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
-            }`}
+            className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform,opacity] duration-200 ease-out dark:text-gray-300 ${
+              copyState !== 'idle'
+                ? 'disabled:opacity-100'
+                : 'enabled:hover:bg-gray-100 enabled:hover:text-gray-700 dark:enabled:hover:bg-gray-700 dark:enabled:hover:text-white'
+            } ${copyState === 'copied' ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
           >
             <span
               aria-hidden='true'
@@ -253,47 +315,63 @@ export function SystemStatusWidget() {
             type='button'
             onClick={() => void loadStatus(true)}
             disabled={loading || !systemStatusEndpoint || copyState !== 'idle'}
-            className='shrink-0 rounded border border-gray-300 px-2 py-1 text-gray-700 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
+            aria-label={loading ? '確認中' : '再確認'}
+            className={`flex min-w-14 shrink-0 items-center justify-center rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 ${
+              loading
+                ? 'text-gray-700 dark:text-gray-200'
+                : 'text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-700'
+            }`}
           >
-            {loading ? '確認中…' : '再確認'}
+            {loading ? <SpinnerIcon size={14} className='text-gray-700 dark:text-gray-200' /> : '再確認'}
           </button>
         </div>
       </div>
 
-      {status ? (
-        <>
-          <p className='mt-2 text-gray-500 text-[11px] dark:text-gray-400'>
-            最終確認：{formatCheckedAt(status.checkedAt)}
-          </p>
-          <div className='mt-2 space-y-1.5 border-t border-gray-100 pt-2 dark:border-gray-700'>
-            {database && <CheckRow label='PostgreSQL' check={database} />}
-            {database && (
-              <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
-                {database.connection && <CheckRow label='接続' check={database.connection} />}
-                {database.schema && <CheckRow label='スキーマ' check={database.schema} />}
+      <div
+        id={detailsId}
+        aria-hidden={collapsed}
+        aria-busy={loading}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
+          collapsed ? 'mt-0 grid-rows-[0fr] opacity-0' : 'mt-2 grid-rows-[1fr] opacity-100'
+        }`}
+      >
+        <div className='min-h-0'>
+          {status ? (
+            <>
+              <p className='text-right text-gray-500 text-[11px] dark:text-gray-400'>
+                最終確認：{formatCheckedAt(status.checkedAt)}
+              </p>
+              <div className='mt-2 space-y-1.5 border-t border-gray-100 pt-2 dark:border-gray-700'>
+                {database && <CheckRow label='PostgreSQL' check={database} />}
+                {database && (
+                  <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
+                    {database.connection && <CheckRow label='接続' check={database.connection} />}
+                    {database.schema && <CheckRow label='スキーマ' check={database.schema} />}
+                  </div>
+                )}
+                {fileServerHealth && <CheckRow label='file-server 稼働' check={fileServerHealth} />}
+                {fileServerApi && <CheckRow label='file-server API' check={fileServerApi} />}
+                {fileServerApi && (
+                  <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
+                    {fileServerApi.login && <CheckRow label='ログイン' check={fileServerApi.login} />}
+                    {fileServerApi.read && <CheckRow label='読み取り' check={fileServerApi.read} />}
+                  </div>
+                )}
+                {fileServerPublic && <CheckRow label='公開URL' check={fileServerPublic} />}
               </div>
-            )}
-            {fileServerHealth && <CheckRow label='file-server 稼働' check={fileServerHealth} />}
-            {fileServerApi && <CheckRow label='file-server API' check={fileServerApi} />}
-            {fileServerApi && (
-              <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
-                {fileServerApi.login && <CheckRow label='ログイン' check={fileServerApi.login} />}
-                {fileServerApi.read && <CheckRow label='読み取り' check={fileServerApi.read} />}
-              </div>
-            )}
-            {fileServerPublic && <CheckRow label='公開URL' check={fileServerPublic} />}
-          </div>
-        </>
-      ) : (
-        <p className='mt-2 text-gray-500 text-xs dark:text-gray-400'>状態を確認しています。</p>
-      )}
+            </>
+          ) : (
+            <p className='text-gray-500 text-xs dark:text-gray-400'>状態を確認しています。</p>
+          )}
 
-      {copyError && (
-        <p role='alert' className='mt-2 text-red-700 text-xs dark:text-red-400'>
-          ステータスをコピーできませんでした。
-        </p>
-      )}
-      {error && <p className='mt-2 text-red-700 text-xs dark:text-red-400'>状態を取得できませんでした。</p>}
+          {copyError && (
+            <p role='alert' className='mt-2 text-red-700 text-xs dark:text-red-400'>
+              ステータスをコピーできませんでした。
+            </p>
+          )}
+          {error && <p className='mt-2 text-red-700 text-xs dark:text-red-400'>状態を取得できませんでした。</p>}
+        </div>
+      </div>
     </section>
   )
 }

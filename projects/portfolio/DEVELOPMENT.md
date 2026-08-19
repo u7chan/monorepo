@@ -42,6 +42,8 @@ bun run format
 bun run test
 ```
 
+Node 24+ が必要です。Node 25+ は不完全なグローバル `localStorage` を提供し jsdom 環境を汚染するため（[vitest-dev/vitest#8757](https://github.com/vitest-dev/vitest/issues/8757)）、`test` 系スクリプトは `NODE_OPTIONS=--no-experimental-webstorage` で無効化しています（Node 24/25 で有効）。
+
 ### Test Coverage
 
 ```sh
