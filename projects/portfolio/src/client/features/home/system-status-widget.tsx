@@ -194,7 +194,8 @@ export function SystemStatusWidget() {
     } catch {
       if (!controller.signal.aborted) {
         setError(true)
-        // 折りたたみ中はエラー表示（詳細領域）が見えないため、エラー時に自動展開する
+        // 折りたたみ中はエラー表示（詳細領域）が見えないため、エラー時に自動展開する。
+        // 展開は一時的で localStorage には書き込まない（次回ロードはユーザーの折りたたみ設定に従う）
         setCollapsed(false)
       }
     } finally {
@@ -235,7 +236,8 @@ export function SystemStatusWidget() {
     } catch {
       setCopyState('idle')
       setCopyError(true)
-      // 折りたたみ中のコピー失敗もエラー表示が見えるように自動展開する
+      // 折りたたみ中のコピー失敗もエラー表示が見えるように自動展開する。
+      // 展開は一時的で localStorage には書き込まない（次回ロードはユーザーの折りたたみ設定に従う）
       setCollapsed(false)
     }
   }, [copyState, loading, status])

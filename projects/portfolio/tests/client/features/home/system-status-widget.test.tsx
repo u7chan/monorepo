@@ -362,10 +362,12 @@ describe('SystemStatusWidget', () => {
         )
 
         render(<SystemStatusWidget />)
+        // 初回ロードのモック応答（microtask）をフラッシュする
         await act(async () => {})
         expect(screen.getByText('システム正常')).toBeTruthy()
 
         fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+        // 再確認のモック応答（microtask）をフラッシュする
         await act(async () => {})
 
         // resolve 直後: 最小表示時間が経過していないためスピナーが残る
@@ -379,6 +381,52 @@ describe('SystemStatusWidget', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+  })
+
+  describe('エラー時の自動展開', () => {
+    beforeEach(() => {
+      localStorage.clear()
+    })
+
+    afterEach(() => {
+      localStorage.clear()
+    })
+
+    it('折りたたみ中に再確認が失敗すると自動展開する', async () => {
+      systemStatusGetMock
+        .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 200 }))
+        .mockRejectedValueOnce(new Error('network error'))
+
+      render(<SystemStatusWidget />)
+      await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }))
+      expect(screen.getByRole('button', { name: '展開する' }).getAttribute('aria-expanded')).toBe('false')
+
+      fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+
+      await waitFor(() => expect(screen.getByText('状態を取得できませんでした。')).toBeTruthy())
+      expect(screen.getByRole('button', { name: '折りたたむ' }).getAttribute('aria-expanded')).toBe('true')
+    })
+
+    it('折りたたみ中にコピーが失敗すると自動展開する', async () => {
+      systemStatusGetMock.mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(responseBody), { status: 200, headers: { 'content-type': 'application/json' } })
+        )
+      )
+      copyToClipboardMock.mockRejectedValueOnce(new Error('clipboard unavailable'))
+
+      render(<SystemStatusWidget />)
+      await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'ステータスをコピー' }))
+
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toContain('ステータスをコピーできませんでした。')
+      )
+      expect(screen.getByRole('button', { name: '折りたたむ' }).getAttribute('aria-expanded')).toBe('true')
     })
   })
 })
