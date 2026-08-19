@@ -315,7 +315,7 @@ export function SystemStatusWidget() {
         <div className='min-h-0'>
           {status ? (
             <>
-              <p className='text-gray-500 text-[11px] dark:text-gray-400'>
+              <p className='text-right text-gray-500 text-[11px] dark:text-gray-400'>
                 最終確認：{formatCheckedAt(status.checkedAt)}
               </p>
               <div className='mt-2 space-y-1.5 border-t border-gray-100 pt-2 dark:border-gray-700'>
