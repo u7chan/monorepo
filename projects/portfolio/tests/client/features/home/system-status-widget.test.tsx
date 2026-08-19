@@ -318,4 +318,38 @@ describe('SystemStatusWidget', () => {
       await waitFor(() => expect(copyToClipboardMock).toHaveBeenCalledWith(formatSystemStatusForCopy(responseBody)))
     })
   })
+
+  describe('再確認中の表示', () => {
+    it('通信中は再確認ボタンをスピナー表示にし、コピーボタンを無効化する', async () => {
+      let resolveRefresh: ((response: Response) => void) | undefined
+      systemStatusGetMock
+        .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 200 }))
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              resolveRefresh = resolve
+            })
+        )
+
+      render(<SystemStatusWidget />)
+      await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+
+      fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+
+      // 通信中: ボタンはスピナーを表示し、コピーは無効
+      const refreshButton = screen.getByRole('button', { name: '再確認' })
+      expect(refreshButton.querySelector('.animate-spin')).toBeTruthy()
+      expect((screen.getByRole('button', { name: 'ステータスをコピー' }) as HTMLButtonElement).disabled).toBe(true)
+
+      // 応答後: スピナーを解除し、コピーを再有効化
+      expect(resolveRefresh).toBeTypeOf('function')
+      resolveRefresh?.(new Response(JSON.stringify(responseBody), { status: 200 }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '再確認' }).querySelector('.animate-spin')).toBeNull()
+      )
+      await waitFor(() =>
+        expect((screen.getByRole('button', { name: 'ステータスをコピー' }) as HTMLButtonElement).disabled).toBe(false)
+      )
+    })
+  })
 })

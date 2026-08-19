@@ -4,6 +4,7 @@ import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
 import { ChevronRightIcon } from '#/client/shared/icons/chevron-right-icon'
 import { CopyIcon } from '#/client/shared/icons/copy-icon'
+import { SpinnerIcon } from '#/client/shared/icons/spinner-icon'
 import { copyToClipboard } from '#/client/shared/lib/copy-to-clipboard'
 import type { AppType } from '#/server/app.d'
 import type {
@@ -17,6 +18,9 @@ import type {
 const client = hc<AppType>('/')
 
 const COLLAPSED_STORAGE_KEY = 'portfolio.system-status-widget.collapsed'
+
+// 再確認の通信が一瞬で終わってもスピナーが見えるようにする最小表示時間
+const MIN_REFRESH_DURATION_MS = 400
 
 function readCollapsedFromLocalStorage(): boolean {
   try {
@@ -169,6 +173,7 @@ export function SystemStatusWidget() {
 
   const loadStatus = useCallback(async (refresh: boolean) => {
     if (!systemStatusEndpoint) return
+    const startedAt = performance.now()
 
     requestRef.current?.abort()
     const controller = new AbortController()
@@ -195,7 +200,13 @@ export function SystemStatusWidget() {
     } finally {
       if (requestRef.current === controller) {
         requestRef.current = null
-        setLoading(false)
+        const remaining = refresh ? MIN_REFRESH_DURATION_MS - (performance.now() - startedAt) : 0
+        if (remaining > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remaining))
+        }
+        if (requestRef.current === null) {
+          setLoading(false)
+        }
       }
     }
   }, [])
@@ -298,9 +309,15 @@ export function SystemStatusWidget() {
             type='button'
             onClick={() => void loadStatus(true)}
             disabled={loading || !systemStatusEndpoint || copyState !== 'idle'}
-            className='shrink-0 rounded border border-gray-300 px-2 py-1 text-gray-700 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'
+            aria-label='再確認'
+            aria-busy={loading}
+            className={`flex min-w-14 shrink-0 items-center justify-center rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 ${
+              loading
+                ? 'text-gray-700 dark:text-gray-200'
+                : 'text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-700'
+            }`}
           >
-            {loading ? '確認中…' : '再確認'}
+            {loading ? <SpinnerIcon size={14} className='text-gray-700 dark:text-gray-200' /> : '再確認'}
           </button>
         </div>
       </div>
