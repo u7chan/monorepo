@@ -253,7 +253,7 @@ export function SystemStatusWidget() {
                 collapsed ? '' : 'rotate-90'
               }`}
             >
-              <ChevronRightIcon size={16} />
+              <ChevronRightIcon size={16} strokeWidth={0.75} />
             </span>
           </IconButton>
           <span
