@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { copyToClipboardMock, systemStatusGetMock } = vi.hoisted(() => ({
@@ -234,7 +234,7 @@ describe('SystemStatusWidget', () => {
     expect(screen.getByText(/読み取り失敗/)).toBeTruthy()
     expect(screen.getByText(/公開配信不可/)).toBeTruthy()
   })
-  describe('SystemStatusWidget 折りたたみ', () => {
+  describe('折りたたみ', () => {
     beforeEach(() => {
       systemStatusGetMock.mockReset()
       copyToClipboardMock.mockReset()
@@ -337,7 +337,7 @@ describe('SystemStatusWidget', () => {
       fireEvent.click(screen.getByRole('button', { name: '再確認' }))
 
       // 通信中: ボタンはスピナーを表示し、コピーは無効
-      const refreshButton = screen.getByRole('button', { name: '再確認' })
+      const refreshButton = screen.getByRole('button', { name: '確認中' })
       expect(refreshButton.querySelector('.animate-spin')).toBeTruthy()
       expect((screen.getByRole('button', { name: 'ステータスをコピー' }) as HTMLButtonElement).disabled).toBe(true)
 
@@ -350,6 +350,35 @@ describe('SystemStatusWidget', () => {
       await waitFor(() =>
         expect((screen.getByRole('button', { name: 'ステータスをコピー' }) as HTMLButtonElement).disabled).toBe(false)
       )
+    })
+
+    it('応答が一瞬でもスピナーを最小表示時間だけ維持する', async () => {
+      vi.useFakeTimers()
+      try {
+        systemStatusGetMock.mockImplementation(() =>
+          Promise.resolve(
+            new Response(JSON.stringify(responseBody), { status: 200, headers: { 'content-type': 'application/json' } })
+          )
+        )
+
+        render(<SystemStatusWidget />)
+        await act(async () => {})
+        expect(screen.getByText('システム正常')).toBeTruthy()
+
+        fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+        await act(async () => {})
+
+        // resolve 直後: 最小表示時間が経過していないためスピナーが残る
+        expect(screen.getByRole('button', { name: '確認中' }).querySelector('.animate-spin')).toBeTruthy()
+
+        // 最小表示時間の経過でスピナーが解除される
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(400)
+        })
+        expect(screen.getByRole('button', { name: '再確認' }).querySelector('.animate-spin')).toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })

@@ -164,12 +164,10 @@ export function SystemStatusWidget() {
   const detailsId = useId()
 
   const toggleCollapsed = useCallback(() => {
-    setCollapsed((prev) => {
-      const next = !prev
-      writeCollapsedToLocalStorage(next)
-      return next
-    })
-  }, [])
+    const next = !collapsed
+    writeCollapsedToLocalStorage(next)
+    setCollapsed(next)
+  }, [collapsed])
 
   const loadStatus = useCallback(async (refresh: boolean) => {
     if (!systemStatusEndpoint) return
@@ -196,6 +194,8 @@ export function SystemStatusWidget() {
     } catch {
       if (!controller.signal.aborted) {
         setError(true)
+        // 折りたたみ中はエラー表示（詳細領域）が見えないため、エラー時に自動展開する
+        setCollapsed(false)
       }
     } finally {
       if (requestRef.current === controller) {
@@ -204,6 +204,7 @@ export function SystemStatusWidget() {
         if (remaining > 0) {
           await new Promise((resolve) => setTimeout(resolve, remaining))
         }
+        // 最小表示時間の待機中に新しいリクエストが開始された場合は、そちらの finally に loading 解除を委ねる（防御的ガード）
         if (requestRef.current === null) {
           setLoading(false)
         }
@@ -234,6 +235,8 @@ export function SystemStatusWidget() {
     } catch {
       setCopyState('idle')
       setCopyError(true)
+      // 折りたたみ中のコピー失敗もエラー表示が見えるように自動展開する
+      setCollapsed(false)
     }
   }, [copyState, loading, status])
 
@@ -278,15 +281,16 @@ export function SystemStatusWidget() {
           </h2>
         </div>
         <div className='flex shrink-0 items-center gap-1'>
+          {/* コピー中・コピー済みは進行/成功フィードバックを見せるため減光しない（基底の disabled:opacity-50 を disabled:opacity-100 で上書き） */}
           <IconButton
             label={copyLabel}
             onClick={() => void handleCopy()}
             disabled={!status || loading || copyState !== 'idle'}
             className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform,opacity] duration-200 ease-out dark:text-gray-300 ${
-              copyState === 'copied'
-                ? 'text-emerald-600 disabled:opacity-100 dark:text-emerald-400'
+              copyState !== 'idle'
+                ? 'disabled:opacity-100'
                 : 'enabled:hover:bg-gray-100 enabled:hover:text-gray-700 dark:enabled:hover:bg-gray-700 dark:enabled:hover:text-white'
-            }`}
+            } ${copyState === 'copied' ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
           >
             <span
               aria-hidden='true'
@@ -309,8 +313,7 @@ export function SystemStatusWidget() {
             type='button'
             onClick={() => void loadStatus(true)}
             disabled={loading || !systemStatusEndpoint || copyState !== 'idle'}
-            aria-label='再確認'
-            aria-busy={loading}
+            aria-label={loading ? '確認中' : '再確認'}
             className={`flex min-w-14 shrink-0 items-center justify-center rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 ${
               loading
                 ? 'text-gray-700 dark:text-gray-200'
@@ -325,6 +328,7 @@ export function SystemStatusWidget() {
       <div
         id={detailsId}
         aria-hidden={collapsed}
+        aria-busy={loading}
         className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
           collapsed ? 'mt-0 grid-rows-[0fr] opacity-0' : 'mt-2 grid-rows-[1fr] opacity-100'
         }`}
