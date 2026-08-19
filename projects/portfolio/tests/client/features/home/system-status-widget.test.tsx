@@ -407,6 +407,8 @@ describe('SystemStatusWidget', () => {
 
       await waitFor(() => expect(screen.getByText('状態を取得できませんでした。')).toBeTruthy())
       expect(screen.getByRole('button', { name: '折りたたむ' }).getAttribute('aria-expanded')).toBe('true')
+      // 自動展開は永続化しない: 折りたたみ設定は localStorage に残り、次回ロード時に復元される
+      expect(localStorage.getItem('portfolio.system-status-widget.collapsed')).toBe('true')
     })
 
     it('折りたたみ中にコピーが失敗すると自動展開する', async () => {
@@ -427,6 +429,8 @@ describe('SystemStatusWidget', () => {
         expect(screen.getByRole('alert').textContent).toContain('ステータスをコピーできませんでした。')
       )
       expect(screen.getByRole('button', { name: '折りたたむ' }).getAttribute('aria-expanded')).toBe('true')
+      // 自動展開は永続化しない: 折りたたみ設定は localStorage に残り、次回ロード時に復元される
+      expect(localStorage.getItem('portfolio.system-status-widget.collapsed')).toBe('true')
     })
   })
 })
