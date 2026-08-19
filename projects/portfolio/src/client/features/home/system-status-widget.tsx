@@ -282,10 +282,10 @@ export function SystemStatusWidget() {
             label={copyLabel}
             onClick={() => void handleCopy()}
             disabled={!status || loading || copyState !== 'idle'}
-            className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform] duration-200 ease-out dark:text-gray-300 disabled:opacity-100 ${
+            className={`relative h-8 w-8 rounded-full text-gray-500 transition-[background-color,color,transform,opacity] duration-200 ease-out dark:text-gray-300 ${
               copyState === 'copied'
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white'
+                ? 'text-emerald-600 disabled:opacity-100 dark:text-emerald-400'
+                : 'enabled:hover:bg-gray-100 enabled:hover:text-gray-700 dark:enabled:hover:bg-gray-700 dark:enabled:hover:text-white'
             }`}
           >
             <span
