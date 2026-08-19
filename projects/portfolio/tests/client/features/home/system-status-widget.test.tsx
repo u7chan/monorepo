@@ -234,4 +234,88 @@ describe('SystemStatusWidget', () => {
     expect(screen.getByText(/読み取り失敗/)).toBeTruthy()
     expect(screen.getByText(/公開配信不可/)).toBeTruthy()
   })
+  describe('SystemStatusWidget 折りたたみ', () => {
+    beforeEach(() => {
+      systemStatusGetMock.mockReset()
+      copyToClipboardMock.mockReset()
+      copyToClipboardMock.mockResolvedValue(undefined)
+      localStorage.clear()
+    })
+
+    afterEach(() => {
+      localStorage.clear()
+      cleanup()
+    })
+
+    function mockOkResponse() {
+      systemStatusGetMock.mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(responseBody), { status: 200, headers: { 'content-type': 'application/json' } })
+        )
+      )
+    }
+
+    function getDetailsContainer(): HTMLElement {
+      const toggle = screen.getByRole('button', { name: /折りたたむ|展開する/ })
+      const detailsId = toggle.getAttribute('aria-controls')
+      const container = detailsId ? document.getElementById(detailsId) : null
+      expect(container).not.toBeNull()
+      return container as HTMLElement
+    }
+
+    it('折りたたみボタンで詳細を非表示にし、再レンダリング後も状態を保持する', async () => {
+      mockOkResponse()
+
+      render(<SystemStatusWidget />)
+      await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+
+      // 初期状態は展開
+      expect(screen.getByText(/最終確認/)).toBeTruthy()
+      const collapseButton = screen.getByRole('button', { name: '折りたたむ' })
+      expect(collapseButton.getAttribute('aria-expanded')).toBe('true')
+      expect(getDetailsContainer().getAttribute('aria-hidden')).toBe('false')
+
+      fireEvent.click(collapseButton)
+
+      // 詳細は折りたたまれ、タイトルと操作ボタンは残る
+      const expandButton = screen.getByRole('button', { name: '展開する' })
+      expect(expandButton.getAttribute('aria-expanded')).toBe('false')
+      expect(getDetailsContainer().getAttribute('aria-hidden')).toBe('true')
+      expect(getDetailsContainer().className).toContain('grid-rows-[0fr]')
+      expect(screen.getByText('システム正常')).toBeTruthy()
+      expect(screen.getByRole('button', { name: '再確認' })).toBeTruthy()
+
+      // localStorage により再レンダリング後も折りたたみ状態を保持
+      cleanup()
+      render(<SystemStatusWidget />)
+      await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+      expect(screen.getByRole('button', { name: '展開する' }).getAttribute('aria-expanded')).toBe('false')
+      expect(getDetailsContainer().getAttribute('aria-hidden')).toBe('true')
+
+      // 展開ボタンで詳細が再表示される
+      fireEvent.click(screen.getByRole('button', { name: '展開する' }))
+      expect(screen.getByText(/最終確認/)).toBeTruthy()
+      expect(screen.getByRole('button', { name: '折りたたむ' }).getAttribute('aria-expanded')).toBe('true')
+      expect(getDetailsContainer().getAttribute('aria-hidden')).toBe('false')
+    })
+
+    it('折りたたみ中でもコピーと再確認を利用できる', async () => {
+      mockOkResponse()
+
+      render(<SystemStatusWidget />)
+      await waitFor(() => expect(screen.getByText('システム正常')).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }))
+
+      // 再確認はヘッダーに残り、折りたたみ中でも実行できる
+      fireEvent.click(screen.getByRole('button', { name: '再確認' }))
+      await waitFor(() => expect(systemStatusGetMock).toHaveBeenCalledTimes(2))
+
+      // コピーもヘッダーに残り、折りたたみ中でも実行できる
+      await waitFor(() =>
+        expect((screen.getByRole('button', { name: 'ステータスをコピー' }) as HTMLButtonElement).disabled).toBe(false)
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'ステータスをコピー' }))
+      await waitFor(() => expect(copyToClipboardMock).toHaveBeenCalledWith(formatSystemStatusForCopy(responseBody)))
+    })
+  })
 })

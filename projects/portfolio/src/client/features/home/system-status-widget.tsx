@@ -1,7 +1,8 @@
 import { hc } from 'hono/client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { CheckIcon } from '#/client/shared/icons/check-icon'
+import { ChevronRightIcon } from '#/client/shared/icons/chevron-right-icon'
 import { CopyIcon } from '#/client/shared/icons/copy-icon'
 import { copyToClipboard } from '#/client/shared/lib/copy-to-clipboard'
 import type { AppType } from '#/server/app.d'
@@ -14,6 +15,24 @@ import type {
 } from '#/types'
 
 const client = hc<AppType>('/')
+
+const COLLAPSED_STORAGE_KEY = 'portfolio.system-status-widget.collapsed'
+
+function readCollapsedFromLocalStorage(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writeCollapsedToLocalStorage(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, String(collapsed))
+  } catch {
+    // ストレージが利用できない場合は永続化を諦める（表示のみ切り替え）
+  }
+}
 
 type SystemStatusEndpoint = {
   $get: (options?: { query?: { refresh?: string } }) => Promise<Response>
@@ -136,7 +155,17 @@ export function SystemStatusWidget() {
   const [error, setError] = useState(false)
   const [copyState, setCopyState] = useState<CopyState>('idle')
   const [copyError, setCopyError] = useState(false)
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsedFromLocalStorage())
   const requestRef = useRef<AbortController | null>(null)
+  const detailsId = useId()
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev
+      writeCollapsedToLocalStorage(next)
+      return next
+    })
+  }, [])
 
   const loadStatus = useCallback(async (refresh: boolean) => {
     if (!systemStatusEndpoint) return
@@ -210,7 +239,23 @@ export function SystemStatusWidget() {
       className='fixed right-2 bottom-2 z-40 w-[calc(100%-1rem)] max-w-xs rounded-lg border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-800/95 sm:right-4 sm:bottom-4'
     >
       <div className='flex items-center justify-between gap-3'>
-        <div className='flex min-w-0 items-center gap-2'>
+        <div className='flex min-w-0 items-center gap-1'>
+          <IconButton
+            label={collapsed ? '展開する' : '折りたたむ'}
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-controls={detailsId}
+            className='h-8 w-8 shrink-0 rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
+          >
+            <span
+              aria-hidden='true'
+              className={`inline-flex transition-transform duration-200 ease-out motion-reduce:transition-none ${
+                collapsed ? '' : 'rotate-90'
+              }`}
+            >
+              <ChevronRightIcon size={16} />
+            </span>
+          </IconButton>
           <span
             aria-hidden='true'
             className={`h-2.5 w-2.5 shrink-0 rounded-full ${
@@ -260,40 +305,50 @@ export function SystemStatusWidget() {
         </div>
       </div>
 
-      {status ? (
-        <>
-          <p className='mt-2 text-gray-500 text-[11px] dark:text-gray-400'>
-            最終確認：{formatCheckedAt(status.checkedAt)}
-          </p>
-          <div className='mt-2 space-y-1.5 border-t border-gray-100 pt-2 dark:border-gray-700'>
-            {database && <CheckRow label='PostgreSQL' check={database} />}
-            {database && (
-              <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
-                {database.connection && <CheckRow label='接続' check={database.connection} />}
-                {database.schema && <CheckRow label='スキーマ' check={database.schema} />}
+      <div
+        id={detailsId}
+        aria-hidden={collapsed}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out motion-reduce:transition-none ${
+          collapsed ? 'mt-0 grid-rows-[0fr] opacity-0' : 'mt-2 grid-rows-[1fr] opacity-100'
+        }`}
+      >
+        <div className='min-h-0'>
+          {status ? (
+            <>
+              <p className='text-gray-500 text-[11px] dark:text-gray-400'>
+                最終確認：{formatCheckedAt(status.checkedAt)}
+              </p>
+              <div className='mt-2 space-y-1.5 border-t border-gray-100 pt-2 dark:border-gray-700'>
+                {database && <CheckRow label='PostgreSQL' check={database} />}
+                {database && (
+                  <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
+                    {database.connection && <CheckRow label='接続' check={database.connection} />}
+                    {database.schema && <CheckRow label='スキーマ' check={database.schema} />}
+                  </div>
+                )}
+                {fileServerHealth && <CheckRow label='file-server 稼働' check={fileServerHealth} />}
+                {fileServerApi && <CheckRow label='file-server API' check={fileServerApi} />}
+                {fileServerApi && (
+                  <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
+                    {fileServerApi.login && <CheckRow label='ログイン' check={fileServerApi.login} />}
+                    {fileServerApi.read && <CheckRow label='読み取り' check={fileServerApi.read} />}
+                  </div>
+                )}
+                {fileServerPublic && <CheckRow label='公開URL' check={fileServerPublic} />}
               </div>
-            )}
-            {fileServerHealth && <CheckRow label='file-server 稼働' check={fileServerHealth} />}
-            {fileServerApi && <CheckRow label='file-server API' check={fileServerApi} />}
-            {fileServerApi && (
-              <div className='ml-3 space-y-1 border-l border-gray-200 pl-2 dark:border-gray-600'>
-                {fileServerApi.login && <CheckRow label='ログイン' check={fileServerApi.login} />}
-                {fileServerApi.read && <CheckRow label='読み取り' check={fileServerApi.read} />}
-              </div>
-            )}
-            {fileServerPublic && <CheckRow label='公開URL' check={fileServerPublic} />}
-          </div>
-        </>
-      ) : (
-        <p className='mt-2 text-gray-500 text-xs dark:text-gray-400'>状態を確認しています。</p>
-      )}
+            </>
+          ) : (
+            <p className='text-gray-500 text-xs dark:text-gray-400'>状態を確認しています。</p>
+          )}
 
-      {copyError && (
-        <p role='alert' className='mt-2 text-red-700 text-xs dark:text-red-400'>
-          ステータスをコピーできませんでした。
-        </p>
-      )}
-      {error && <p className='mt-2 text-red-700 text-xs dark:text-red-400'>状態を取得できませんでした。</p>}
+          {copyError && (
+            <p role='alert' className='mt-2 text-red-700 text-xs dark:text-red-400'>
+              ステータスをコピーできませんでした。
+            </p>
+          )}
+          {error && <p className='mt-2 text-red-700 text-xs dark:text-red-400'>状態を取得できませんでした。</p>}
+        </div>
+      </div>
     </section>
   )
 }
