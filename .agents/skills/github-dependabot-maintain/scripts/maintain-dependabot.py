@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Maintain .github/dependabot.yml based on projects/* lockfiles."""
 
+import json
 import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 CONFIG = Path(".github/dependabot.yml")
 PROJECTS = Path("projects")
+REQUIRED_LABEL = "dependabot-auto-process"
 
 
 def detect_ecosystem(project_dir: Path) -> str | None:
@@ -63,7 +67,7 @@ def parse_entries(text: str) -> tuple[str, dict[str, list[str]]]:
 
 
 def normalize_block(block: list[str], ecosystem: str, directory: str) -> list[str]:
-    """Update package-ecosystem, directory, and groups in an existing block."""
+    """Update an existing block while adding the required processing label."""
     name = directory.split("/")[-1]
     new_block: list[str] = []
     in_groups = False
@@ -101,7 +105,89 @@ def normalize_block(block: list[str], ecosystem: str, directory: str) -> list[st
 
         new_block.append(line)
 
-    return new_block
+    return ensure_required_label(new_block)
+
+
+def _entry_from_block(block: list[str]) -> dict[str, Any]:
+    """Parse one text entry using the same YAML rules as the final config."""
+    parsed = yaml.safe_load("updates:\n" + "\n".join(block))
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("updates"), list):
+        raise ValueError("entry block is not a YAML updates entry")
+    if len(parsed["updates"]) != 1 or not isinstance(parsed["updates"][0], dict):
+        raise ValueError("entry block does not contain exactly one mapping")
+    return parsed["updates"][0]
+
+
+def _format_label(label: Any) -> str:
+    """Render a label as a YAML scalar suitable for a list item."""
+    if isinstance(label, str):
+        return json.dumps(label, ensure_ascii=False)
+    return yaml.safe_dump(label, default_flow_style=True).strip().removesuffix(
+        "\n..."
+    )
+
+
+def ensure_required_label(block: list[str]) -> list[str]:
+    """Add ``REQUIRED_LABEL`` to a block without dropping existing labels."""
+    entry = _entry_from_block(block)
+    labels = entry.get("labels")
+    if isinstance(labels, list) and REQUIRED_LABEL in labels:
+        return block
+
+    labels_match: int | None = None
+    for index, line in enumerate(block):
+        if re.match(r"^    labels:\s*", line):
+            labels_match = index
+            break
+
+    if labels_match is None:
+        insert_at = next(
+            (
+                index
+                for index, line in enumerate(block)
+                if line.startswith("    groups:")
+            ),
+            len(block),
+        )
+        while insert_at > 0 and block[insert_at - 1] == "":
+            insert_at -= 1
+        return (
+            block[:insert_at]
+            + ["    labels:", f'      - "{REQUIRED_LABEL}"']
+            + block[insert_at:]
+        )
+
+    labels_line = block[labels_match]
+    labels_value = labels_line.split(":", 1)[1].strip()
+    if labels_value:
+        # Inline labels cannot accept another indented list item. Expand the
+        # existing values while keeping their order, then append the required
+        # selector label.
+        existing_labels = labels if isinstance(labels, list) else [labels]
+        expanded = ["    labels:"] + [
+            f"      - {_format_label(label)}" for label in existing_labels
+        ]
+        expanded.append(f'      - "{REQUIRED_LABEL}"')
+        return block[:labels_match] + expanded + block[labels_match + 1 :]
+
+    # Block-style labels: insert after their nested values and before the next
+    # top-level entry field. Blank lines are kept with the following field.
+    insert_at = labels_match + 1
+    while insert_at < len(block):
+        line = block[insert_at]
+        if line == "" or line.startswith("      ") or line.startswith("\t"):
+            insert_at += 1
+            continue
+        if re.match(r"^    \S", line):
+            break
+        insert_at += 1
+    while insert_at > labels_match + 1 and block[insert_at - 1] == "":
+        insert_at -= 1
+    return (
+        block[:insert_at]
+        + [f'      - "{REQUIRED_LABEL}"']
+        + block[insert_at:]
+    )
 
 
 def build_new_block(ecosystem: str, directory: str) -> list[str]:
@@ -113,6 +199,8 @@ def build_new_block(ecosystem: str, directory: str) -> list[str]:
         '      interval: "weekly"',
         '    open-pull-requests-limit: 1',
         '    rebase-strategy: "disabled"',
+        '    labels:',
+        f'      - "{REQUIRED_LABEL}"',
         '    groups:',
         f'      {name}-minor-and-patch:',
         '        applies-to: version-updates',
@@ -122,6 +210,58 @@ def build_new_block(ecosystem: str, directory: str) -> list[str]:
         '          - "minor"',
         '          - "patch"',
     ]
+
+
+def coverage_errors(config: Any, detected: dict[str, str]) -> list[str]:
+    """Return coverage and required-label errors for a parsed config."""
+    errors: list[str] = []
+    if not isinstance(config, dict):
+        return ["configuration root must be a mapping"]
+
+    updates = config.get("updates")
+    if not isinstance(updates, list):
+        return ["configuration must contain an updates list"]
+
+    directory_counts: Counter[str] = Counter()
+    for index, entry in enumerate(updates, start=1):
+        if not isinstance(entry, dict):
+            errors.append(f"updates entry {index} must be a mapping")
+            continue
+
+        directory = entry.get("directory")
+        if isinstance(directory, str):
+            directory_counts[directory] += 1
+            entry_name = directory
+        else:
+            entry_name = f"entry {index}"
+
+        labels = entry.get("labels")
+        if not isinstance(labels, list) or REQUIRED_LABEL not in labels:
+            errors.append(
+                f"{entry_name} is missing required label {REQUIRED_LABEL!r}"
+            )
+
+    for directory in sorted(detected):
+        count = directory_counts[directory]
+        if count == 0:
+            errors.append(f"missing updates entry for {directory}")
+        elif count != 1:
+            errors.append(
+                f"{directory} must have exactly one updates entry (found {count})"
+            )
+
+    for directory in sorted(set(directory_counts) - set(detected)):
+        errors.append(f"stale updates entry for {directory}")
+
+    return errors
+
+
+def validate_coverage(config: Any, detected: dict[str, str]) -> None:
+    """Raise ``ValueError`` when entries or required labels are incomplete."""
+    errors = coverage_errors(config, detected)
+    if errors:
+        details = "\n".join(f"- {error}" for error in errors)
+        raise ValueError(f"coverage validation failed:\n{details}")
 
 
 def main() -> int:
@@ -193,23 +333,24 @@ def main() -> int:
         print("Aborted. Preview kept at:", preview_path)
         return 0
 
+    # Validate the preview before writing it. This keeps a template or future
+    # edit from silently producing an entry without the selector label.
+    try:
+        validate_coverage(yaml.safe_load(desired_text), detected)
+    except (ValueError, yaml.YAMLError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+
     # 9. Apply and validate
     CONFIG.write_text(desired_text, encoding="utf-8")
     preview_path.unlink()
-    yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
-    print("Updated and validated:", CONFIG)
-
-    # 10. Recheck coverage
     final = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
-    final_dirs = {entry["directory"] for entry in final.get("updates", [])}
-    missing = set(detected.keys()) - final_dirs
-    extra = final_dirs - set(detected.keys())
-    if missing or extra:
-        print(
-            f"ERROR: coverage mismatch. missing={missing}, extra={extra}",
-            file=sys.stderr,
-        )
+    try:
+        validate_coverage(final, detected)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
         return 1
+    print("Updated and validated:", CONFIG)
 
     return 0
 

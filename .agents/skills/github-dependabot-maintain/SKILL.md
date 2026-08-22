@@ -11,7 +11,8 @@ description: >
 
 Keep `.github/dependabot.yml` in sync with the actual `projects/` layout.
 Adds missing Dependabot entries, removes stale entries, normalizes group names,
-and sorts entries alphabetically by `directory`.
+sorts entries alphabetically by `directory`, and requires the
+`dependabot-auto-process` label on every entry.
 
 ## When to Use This Skill
 
@@ -92,6 +93,8 @@ For each detected project, build an entry:
         interval: "weekly"
       open-pull-requests-limit: 1
       rebase-strategy: "disabled"
+      labels:
+        - "dependabot-auto-process"
       groups:
         {name}-minor-and-patch:
           applies-to: version-updates
@@ -113,7 +116,9 @@ When an entry already exists for a scanned directory, keep its existing values f
 - `rebase-strategy`
 - any other custom fields
 
-Only normalize the group name to `{name}-minor-and-patch` if it differs.
+Add `dependabot-auto-process` to `labels` when it is absent, preserving any
+existing labels and custom fields. Only normalize the group name to
+`{name}-minor-and-patch` if it differs.
 
 ### Step 5: Diff and Propose
 
@@ -128,6 +133,13 @@ After approval, write `.github/dependabot.yml`. Then run:
 
 Finally, rerun the scan from Step 2 and confirm every detected project has exactly one entry.
 
+Coverage validation must also confirm that every entry contains
+`dependabot-auto-process`; a missing label is a validation error.
+
+Run the skill tests with:
+
+    python3 -m unittest discover -s .agents/skills/github-dependabot-maintain/tests -p 'test_*.py'
+
 ## Quality Check
 
 - [ ] No uncommitted changes existed before editing
@@ -135,10 +147,12 @@ Finally, rerun the scan from Step 2 and confirm every detected project has exact
 - [ ] `_labs/` and `_samples/` were excluded
 - [ ] Ecosystems were detected from lockfiles
 - [ ] Existing entry settings were preserved except group names
+- [ ] `dependabot-auto-process` is present on every generated and existing entry
 - [ ] Entries are sorted alphabetically by `directory`
 - [ ] User approved the diff before writing
 - [ ] YAML syntax passes `python3 -c "import yaml; yaml.safe_load(...)"`
 - [ ] Scan results and entries are 1:1 after writing
+- [ ] Coverage validation detects a missing required label
 
 ## References
 

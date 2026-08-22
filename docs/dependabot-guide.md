@@ -56,6 +56,8 @@ Dependabot PR が作成されたら、次の順に確認します。
     interval: "weekly"
   open-pull-requests-limit: 1
   rebase-strategy: "disabled"
+  labels:
+    - "dependabot-auto-process"
   groups:
     your-bun-project-minor-and-patch:
       applies-to: version-updates
@@ -75,6 +77,8 @@ Dependabot PR が作成されたら、次の順に確認します。
     interval: "weekly"
   open-pull-requests-limit: 1
   rebase-strategy: "disabled"
+  labels:
+    - "dependabot-auto-process"
   groups:
     your-uv-project-minor-and-patch:
       applies-to: version-updates
@@ -165,8 +169,12 @@ ignore:
 
 ```yaml
 labels:
-  - "dependencies"
+  - "dependabot-auto-process"
 ```
+
+`dependabot-auto-process` は一括処理の候補を選ぶためのラベルです。
+ラベルだけで信頼性を判断せず、Dependabot の作成者、base、head、CI などを
+別途確認します。既存の Dependabot PR へは設定変更だけでは遡及適用されません。
 
 ## PR が作成されないとき
 
