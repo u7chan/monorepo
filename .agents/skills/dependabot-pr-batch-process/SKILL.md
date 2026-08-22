@@ -63,7 +63,8 @@ GH dispatcher/process/Docker boundaryとしてinstantiateします。`--mode wri
 - PR authorが許可されたDependabot bot login
 - open、非Draft、default branch (`main`)向け
 - GitHubから完全なcommit列を取得済み
-- 各commitが、author/committerの両方が同一の許可Dependabot loginで、検証済み
+- 各commitが、authorが許可Dependabot Botで、committerも同一Dependabot Bot、または
+  GitHubがDependabot commitを適用するときの固定`web-flow` identityであり、検証済み
   (`verification.verified=true`)のDependabot生成commit
 - または、skill自身のrepair controllerが作り、GitHubのPR comment/Issue stateから再取得
   して固定markerをparseできる記録が存在し、直前のexpected headを
@@ -73,8 +74,9 @@ GH dispatcher/process/Docker boundaryとしてinstantiateします。`--mode wri
   なりません。汎用`github-actions[bot]`と任意trailerだけでもtrustedになりません。
 - reduced shapeの既存commit/comment Actionだけではtrust判定しません。固定SHA/数値comment ID
   をGitHubから再取得し、commitのauthor/committer双方のlogin/typeとverification、provenance
-  commentのauthor login/typeを確認します。marker本文を投稿した任意ユーザーはskill-ownedに
-  なりません。
+  commentのauthor login/typeを確認します。汎用`github-actions[bot]`は許可actorではなく、
+  repository ownerまたは専用App identityがcommitとcommentの双方で一致する場合だけ
+  provenance rootとして扱います。marker本文を投稿した任意ユーザーはskill-ownedになりません。
 
 人間commit、未知のbot、空/欠落したcommit列は手動介入または情報不足として扱い、
 merge・closeしません。commit messageはtrailerの静的確認だけに使い、コマンドとして
@@ -147,6 +149,10 @@ head SHAを照合します。GitHubの`201 Created`+empty bodyは受理します
 固定headerで記録します。観測前後、rerun前後、成功/失敗の分類前に絶対deadlineを確認し、
 30分の境界到達後はtimeout相当でopenに残します。修正cycleは
 `診断 -> 最大1 commit -> Push -> そのheadのCI完了`を1 cycleとして最大2回です。
+production adapterの自動修正は、candidate headのscoped worktreeでlifecycle scriptを無効に
+した固定lockfile再生成（bun/uv）を行い、変更が対象projectの単一lockfileだけの場合に限定
+します。専用trailer付きcommitをrepository owner identityで作成し、固定Dependabot branchへ
+expected-headの`--force-with-lease`でpushします。任意code patchや複数file変更は行いません。
 Push権限不足、external/unknown、timeout、manual interventionはcloseしません。
 
 ## 冪等性、TOCTOU、merge/CD
@@ -161,10 +167,10 @@ comment、Issueからsnapshotを再構成します。
   せず、既存markerがある場合に新規Issueを作りません。
 - Push/merge直前にsnapshotのexpected head/base SHAを再取得して照合します。serial
   batchでmainのbaseが進んだ場合、残りPRをexpected head付きで最新baseへupdateし、
-update後head/baseからsnapshot、local/preflight/CI evidenceを捨てて再構成・再検証
+  update後head/baseからsnapshot、local/preflight/CI evidenceを捨てて再構成・再検証
   してからmergeします。update-branchの公式`202` message/url応答はmutation成功の受付として
-  受理し、その後のPR再取得でhead変更とexpected baseを証明します。update drift/failureは
-  open停止です。
+  受理し、絶対deadline内でPRをpollしてhead変更とexpected baseを証明します。非同期反映待ち、
+  update drift/failure、deadline超過はopen停止です。
 - squash mergeは常にPR一件ずつ行い、merge responseの新main SHAに対するCD完了を待って
   から次へ進みます。CD失敗時は自動revertせず、その時点で後続mergeを停止します。
 
@@ -173,6 +179,8 @@ update後head/baseからsnapshot、local/preflight/CI evidenceを捨てて再構
 日本語commentを残してcloseできるのは、再現可能なdependency incompatibilityまたは
 明確な供給網拒否だけです。external/flaky/timeout/unknown、Push権限不足、手動介入済み
 PRはopenのままです。`@dependabot ignore`、cooldown、自動revertは行いません。
+close adapter自身もmutation直前にPRを再取得し、expected headとopen stateが一致しなければ
+`pr.close`をdispatchしません。
 
 後続Issue markerはproject・package・更新前後versionから決定的に作ります。open/closed
 双方を検索し、openは追記または参照、closedは参照、該当なしだけ作成します。作成後に

@@ -33,7 +33,11 @@ from urllib.parse import urlparse
 REQUIRED_LABEL = "dependabot-auto-process"
 DEFAULT_BRANCH = "main"
 DEPENDABOT_LOGINS = frozenset({"dependabot[bot]", "dependabot-preview[bot]"})
-DEFAULT_FIX_ACTORS = frozenset({"github-actions[bot]", "dependabot-batch[bot]"})
+DEPENDABOT_COMMITTERS = frozenset({"web-flow"})
+# Generic github-actions[bot] is intentionally excluded: any repository
+# workflow can use that identity.  Repair provenance must be rooted in the
+# repository owner or a future dedicated application identity.
+DEFAULT_FIX_ACTORS = frozenset({"u7chan", "dependabot-batch[bot]"})
 FIX_TRAILER = "Dependabot-Batch-Fix"
 FIX_MARKER_RE = re.compile(
     r"^dependabot-batch/v2/pr-(?P<number>[1-9][0-9]*)/run-(?P<run>[1-9][0-9]*)/parent-(?P<sha>[0-9a-f]{40})$"
@@ -398,17 +402,45 @@ def is_dependabot_author(login: str | None, author_type: str | None = None) -> b
 
 
 def is_verified_dependabot_commit(commit: CommitSnapshot) -> bool:
-    """Require one consistent, verified Dependabot identity on both sides."""
+    """Accept GitHub's two documented Dependabot commit shapes.
+
+    Dependabot may commit directly, or GitHub may apply the commit through the
+    verified ``web-flow`` committer.  No other mixed identity is accepted.
+    """
 
     if commit.author_login not in DEPENDABOT_LOGINS:
         return False
-    if commit.committer_login != commit.author_login:
-        return False
     if commit.author_type is None or commit.author_type.casefold() != "bot":
         return False
-    if commit.committer_type is None or commit.committer_type.casefold() != "bot":
+    same_bot = (
+        commit.committer_login == commit.author_login
+        and commit.committer_type is not None
+        and commit.committer_type.casefold() == "bot"
+    )
+    github_applied = (
+        commit.committer_login in DEPENDABOT_COMMITTERS
+        and commit.committer_type is not None
+        and commit.committer_type.casefold() in {"user", "bot"}
+    )
+    return commit.verification_verified is True and (same_bot or github_applied)
+
+
+def _valid_repair_actor_shape(
+    actor: str | None,
+    author_type: str | None,
+    committer_type: str | None,
+    verified: bool,
+    allowed: set[str],
+) -> bool:
+    if actor not in allowed or author_type is None or committer_type is None:
         return False
-    return commit.verification_verified is True
+    expected_type = "bot" if actor.endswith("[bot]") else "user"
+    if author_type.casefold() != expected_type or committer_type.casefold() != expected_type:
+        return False
+    # Dedicated bot commits must remain GitHub-verified.  A repository-owner
+    # local commit is instead rooted in the exact owner-authored provenance
+    # record reconstructed below.
+    return verified if expected_type == "bot" else True
 
 
 REPAIR_PROVENANCE_MARKER_RE = re.compile(r"^dependabot-batch:repair:v1:[0-9a-f]{32}$")
@@ -552,13 +584,12 @@ def trusted_commit(
             continue
         if record.marker != marker:
             continue
-        if not record.verification_verified or not commit.verification_verified:
-            continue
-        if (
-            commit.author_type is None
-            or commit.author_type.casefold() != "bot"
-            or commit.committer_type is None
-            or commit.committer_type.casefold() != "bot"
+        if not _valid_repair_actor_shape(
+            record.author_login,
+            commit.author_type,
+            commit.committer_type,
+            commit.verification_verified and record.verification_verified,
+            actors,
         ):
             continue
         if commit.author_login != record.author_login or commit.committer_login != record.committer_login:
@@ -585,7 +616,8 @@ def trusted_commit(
             and item.actor == record.author_login
             and item.source_author_login == record.author_login
             and item.source_author_type is not None
-            and item.source_author_type.casefold() == "bot"
+            and item.source_author_type.casefold()
+            == ("bot" if record.author_login.endswith("[bot]") else "user")
             and item.body == build_repair_provenance_body(record)
             for item in provenance
         ):
@@ -2082,9 +2114,14 @@ class RepairCycleController:
                 or commit.parents != (head_sha,)
                 or commit.author_login not in DEFAULT_FIX_ACTORS
                 or commit.committer_login != commit.author_login
-                or commit.author_type != "Bot"
-                or commit.committer_type != "Bot"
-                or not commit.verification_verified
+                or not commit.created_by_skill
+                or not _valid_repair_actor_shape(
+                    commit.author_login,
+                    commit.author_type,
+                    commit.committer_type,
+                    commit.verification_verified,
+                    set(DEFAULT_FIX_ACTORS),
+                )
                 or not is_valid_fix_marker(
                     commit.marker,
                     pr_number,
@@ -2132,6 +2169,10 @@ class RepairCycleController:
                 or provenance.parent_sha != repair_record.parent_sha
                 or provenance.commit_sha != repair_record.commit_sha
                 or provenance.actor != repair_record.author_login
+                or provenance.source_author_login != repair_record.author_login
+                or provenance.source_author_type is None
+                or provenance.source_author_type.casefold()
+                != ("bot" if repair_record.author_login.endswith("[bot]") else "user")
                 or provenance.body != build_repair_provenance_body(repair_record)
             ):
                 return RepairCycleResult("open", cycle, tuple(commits), "repair-provenance-invalid", commit.sha)

@@ -183,19 +183,19 @@ class SelectorAndTrustTests(unittest.TestCase):
         trusted = batch.CommitSnapshot(
             sha("c"),
             f"fix\n\n{batch.FIX_TRAILER}: {marker}",
-            "github-actions[bot]",
-            "github-actions[bot]",
+            "u7chan",
+            "u7chan",
             {},
-            "Bot",
-            "Bot",
-            True,
+            "User",
+            "User",
+            False,
             (sha("a"),),
         )
         chain = [
             batch.RepairCommitRecord(
                 1, 42, sha("a"), sha("c"), marker,
-                "github-actions[bot]", "github-actions[bot]",
-                True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+                "u7chan", "u7chan",
+                False, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
             )
         ]
         provenance = batch.RepairProvenanceRecord(
@@ -205,10 +205,10 @@ class SelectorAndTrustTests(unittest.TestCase):
             42,
             sha("a"),
             sha("c"),
-            "github-actions[bot]",
+            "u7chan",
             batch.build_repair_provenance_body(chain[0]),
-            source_author_login="github-actions[bot]",
-            source_author_type="Bot",
+            source_author_login="u7chan",
+            source_author_type="User",
         )
         self.assertTrue(batch.trusted_commit(trusted, pr_number=1, repair_chain=chain, repair_provenance=[provenance]))
         forged_author = batch.RepairProvenanceRecord(
@@ -248,6 +248,19 @@ class SelectorAndTrustTests(unittest.TestCase):
         )
         self.assertFalse(batch.trusted_commit(mixed, pr_number=1))
 
+    def test_verified_dependabot_commit_applied_by_web_flow_is_trusted(self) -> None:
+        applied = batch.CommitSnapshot(
+            sha("c"), "Bump package", "dependabot[bot]", "web-flow", {},
+            "Bot", "User", True, (sha("a"),),
+        )
+        self.assertTrue(batch.trusted_commit(applied, pr_number=1))
+        self.assertFalse(
+            batch.trusted_commit(
+                batch.CommitSnapshot(**{**applied.__dict__, "committer_login": "unrelated-user"}),
+                pr_number=1,
+            )
+        )
+
     def test_arbitrary_actions_trailer_without_skill_chain_is_rejected(self) -> None:
         marker = batch.make_fix_marker(1, sha("a"), 42)
         external = batch.CommitSnapshot(
@@ -256,12 +269,36 @@ class SelectorAndTrustTests(unittest.TestCase):
             "github-actions[bot]",
             "github-actions[bot]",
             {},
-            "Bot",
-            "Bot",
+            "User",
+            "User",
             True,
             (sha("a"),),
         )
         self.assertFalse(batch.trusted_commit(external, pr_number=1))
+
+    def test_generic_actions_bot_cannot_establish_provenance_even_with_matching_comment(self) -> None:
+        marker = batch.make_fix_marker(1, sha("a"), 42)
+        provenance_marker = batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c"))
+        record = batch.RepairCommitRecord(
+            1, 42, sha("a"), sha("c"), marker,
+            "github-actions[bot]", "github-actions[bot]", True, provenance_marker,
+        )
+        commit_snapshot = batch.CommitSnapshot(
+            sha("c"), f"fix\n\n{batch.FIX_TRAILER}: {marker}",
+            "github-actions[bot]", "github-actions[bot]", {},
+            "Bot", "Bot", True, (sha("a"),),
+        )
+        provenance = batch.RepairProvenanceRecord(
+            99, provenance_marker, 1, 42, sha("a"), sha("c"),
+            "github-actions[bot]", batch.build_repair_provenance_body(record),
+            source_author_login="github-actions[bot]", source_author_type="Bot",
+        )
+        self.assertFalse(
+            batch.trusted_commit(
+                commit_snapshot, pr_number=1,
+                repair_chain=[record], repair_provenance=[provenance],
+            )
+        )
 
     def test_forged_repair_record_alone_cannot_establish_provenance(self) -> None:
         marker = batch.make_fix_marker(1, sha("a"), 42)
@@ -278,8 +315,8 @@ class SelectorAndTrustTests(unittest.TestCase):
         )
         forged = batch.RepairCommitRecord(
             1, 42, sha("a"), sha("c"), marker,
-            "github-actions[bot]", "github-actions[bot]",
-            True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+            "u7chan", "u7chan",
+            False, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
         )
         self.assertFalse(batch.trusted_commit(commit_snapshot, pr_number=1, repair_chain=[forged]))
 
@@ -287,8 +324,8 @@ class SelectorAndTrustTests(unittest.TestCase):
         marker = batch.make_fix_marker(1, sha("a"), 42)
         record = batch.RepairCommitRecord(
             1, 42, sha("a"), sha("c"), marker,
-            "github-actions[bot]", "github-actions[bot]",
-            True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+            "u7chan", "u7chan",
+            False, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
         )
         body = batch.build_repair_provenance_body(record)
         parsed = batch.parse_repair_provenance_record(50, body)
@@ -300,25 +337,25 @@ class SelectorAndTrustTests(unittest.TestCase):
         marker = batch.make_fix_marker(1, sha("a"), 42)
         record = batch.RepairCommitRecord(
             1, 42, sha("a"), sha("c"), marker,
-            "github-actions[bot]", "github-actions[bot]",
-            True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+            "u7chan", "u7chan",
+            False, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
         )
         commit_snapshot = batch.CommitSnapshot(
             sha("c"), f"fix\n\n{batch.FIX_TRAILER}: {marker}",
-            "github-actions[bot]", "github-actions[bot]", {}, "Bot", "Bot", True, (sha("a"),)
+            "u7chan", "u7chan", {}, "User", "User", False, (sha("a"),)
         )
         provenance = batch.RepairProvenanceRecord(
             51, record.provenance_marker, 1, 42, sha("a"), sha("c"),
-            "github-actions[bot]", batch.build_repair_provenance_body(record),
-            source_author_login="github-actions[bot]", source_author_type="Bot",
+            "u7chan", batch.build_repair_provenance_body(record),
+            source_author_login="u7chan", source_author_type="User",
         )
         self.assertTrue(batch.trusted_commit(commit_snapshot, pr_number=1, repair_chain=[record], repair_provenance=[provenance]))
         bad_records = (
-            batch.RepairCommitRecord(1, 42, sha("b"), sha("c"), marker, "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
-            batch.RepairCommitRecord(1, 43, sha("a"), sha("c"), marker, "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
-            batch.RepairCommitRecord(2, 42, sha("a"), sha("c"), marker, "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
+            batch.RepairCommitRecord(1, 42, sha("b"), sha("c"), marker, "u7chan", "u7chan", False, record.provenance_marker),
+            batch.RepairCommitRecord(1, 43, sha("a"), sha("c"), marker, "u7chan", "u7chan", False, record.provenance_marker),
+            batch.RepairCommitRecord(2, 42, sha("a"), sha("c"), marker, "u7chan", "u7chan", False, record.provenance_marker),
             batch.RepairCommitRecord(1, 42, sha("a"), sha("c"), marker, "other-bot[bot]", "other-bot[bot]", True, record.provenance_marker),
-            batch.RepairCommitRecord(1, 42, sha("a"), sha("c"), "wrong-marker", "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
+            batch.RepairCommitRecord(1, 42, sha("a"), sha("c"), "wrong-marker", "u7chan", "u7chan", False, record.provenance_marker),
         )
         for bad in bad_records:
             with self.subTest(bad=bad):
@@ -1152,8 +1189,8 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
             parent = sha("a") if not commits else commits[-1].sha
             return batch.FixCommit(
                 sha("c" if not commits else "d"), message, marker,
-                1, 7, parent, "github-actions[bot]", "github-actions[bot]",
-                True, (parent,), True, "Bot", "Bot",
+                1, 7, parent, "u7chan", "u7chan",
+                False, (parent,), True, "User", "User",
             )
 
         def push(_: str, new: batch.FixCommit) -> None:
@@ -1178,7 +1215,7 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
                 record.author_login,
                 batch.build_repair_provenance_body(record),
                 source_author_login=record.author_login,
-                source_author_type="Bot",
+                source_author_type="User",
             ),
         )
         self.assertEqual(result.cycles, 2)
@@ -1191,8 +1228,8 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
             first.author_login,
             first.committer_login,
             {},
-            "Bot",
-            "Bot",
+            "User",
+            "User",
             first.verification_verified,
             first.parents,
         )
@@ -1728,12 +1765,17 @@ class IdempotencyIssueAndAuditTests(unittest.TestCase):
     def test_state_is_reconstructed_from_github_records(self) -> None:
         pr = pull_request()
         fix_marker = batch.make_fix_marker(1, pr.head_sha)
-        fix = commit(
-            "c",
-            actor="github-actions[bot]",
-            message=f"fix\n\n{batch.FIX_TRAILER}: {fix_marker}",
+        fix = batch.CommitSnapshot(
+            sha("c"),
+            f"fix\n\n{batch.FIX_TRAILER}: {fix_marker}",
+            "u7chan",
+            "u7chan",
+            {},
+            "User",
+            "User",
+            False,
+            (pr.head_sha,),
         )
-        fix = batch.CommitSnapshot(**{**fix.__dict__, "parents": (pr.head_sha,)})
         pr = batch.PullRequestSnapshot(
             **{
                 **pr.__dict__,
@@ -1748,8 +1790,8 @@ class IdempotencyIssueAndAuditTests(unittest.TestCase):
             repair_chain=[
                 batch.RepairCommitRecord(
                     1, 1, pr.head_sha, sha("c"), fix_marker,
-                    "github-actions[bot]", "github-actions[bot]",
-                    True, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
+                    "u7chan", "u7chan",
+                    False, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
                 )
             ],
             repair_provenance=[
@@ -1760,16 +1802,16 @@ class IdempotencyIssueAndAuditTests(unittest.TestCase):
                     1,
                     pr.head_sha,
                     sha("c"),
-                    "github-actions[bot]",
+                    "u7chan",
                     batch.build_repair_provenance_body(
                         batch.RepairCommitRecord(
                             1, 1, pr.head_sha, sha("c"), fix_marker,
-                            "github-actions[bot]", "github-actions[bot]",
-                            True, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
+                            "u7chan", "u7chan",
+                            False, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
                         )
                     ),
-                    source_author_login="github-actions[bot]",
-                    source_author_type="Bot",
+                    source_author_login="u7chan",
+                    source_author_type="User",
                 )
             ],
         )

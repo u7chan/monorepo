@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -58,6 +59,44 @@ from github_boundary import FixedGhApi, FixedOperation, ExistingGhSkillClient
 
 class ConcreteAdapterError(RuntimeError):
     """The concrete boundary returned incomplete or unsafe state."""
+
+
+class FixedGitPushRunner:
+    """Run only an expected-SHA Dependabot branch push.
+
+    Dependency commands retain ``SecureProcessRunner``'s isolated HOME.  This
+    separate mutation boundary may access the operator's Git credential store,
+    but never passes a token in argv/environment and accepts no arbitrary git
+    subcommand or ref.
+    """
+
+    def run(self, argv, *, cwd, timeout_seconds, env=None):  # type: ignore[no-untyped-def]
+        command = tuple(argv)
+        if (
+            len(command) != 6
+            or command[:2] != ("git", "push")
+            or not re.fullmatch(r"--force-with-lease=refs/heads/dependabot/[A-Za-z0-9._/-]+:[0-9a-f]{40}", command[2])
+            or command[3] != "--"
+            or command[4] != "origin"
+            or not re.fullmatch(r"[0-9a-f]{40}:refs/heads/dependabot/[A-Za-z0-9._/-]+", command[5])
+            or ".." in command[2]
+            or ".." in command[5]
+        ):
+            raise ConcreteAdapterError("unsafe git push mutation")
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            env={
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "HOME": os.environ.get("HOME", str(Path.home())),
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
 
 
 class GhSkillProcessDispatcher:
@@ -115,6 +154,11 @@ class ConcreteBatchAdapter:
         matrix_path: Path | None = None,
         process_runner: Any | None = None,
         fixed_api: FixedGhApi | None = None,
+        git_mutation_runner: Any | None = None,
+        update_timeout_seconds: float = 120,
+        update_poll_seconds: float = 1,
+        monotonic: Any = time.monotonic,
+        sleeper: Any = time.sleep,
     ) -> None:
         self.gh = ExistingGhSkillClient(dispatcher)
         self.fixed = fixed_api or FixedGhApi(owner, repository, cwd=repository_root)
@@ -123,9 +167,17 @@ class ConcreteBatchAdapter:
             repository_root / ".agents/skills/dependabot-pr-batch-process/verification-matrix.json"
         )
         self.process_runner = process_runner or SecureProcessRunner()
+        self.git_mutation_runner = git_mutation_runner or FixedGitPushRunner()
+        if update_timeout_seconds <= 0 or update_poll_seconds < 0:
+            raise ValueError("branch update timing must be non-negative")
+        self.update_timeout_seconds = update_timeout_seconds
+        self.update_poll_seconds = update_poll_seconds
+        self.monotonic = monotonic
+        self.sleeper = sleeper
         self._gate: MutationGate | None = None
         self._check_urls: dict[int, tuple[str, ...]] = {}
         self._run_ids: dict[int, tuple[int, ...]] = {}
+        self._repair_worktrees: dict[int, tuple[Path, DockerBatchRunner]] = {}
 
     def bind_gate(self, gate: MutationGate) -> None:
         self._gate = gate
@@ -579,15 +631,155 @@ class ConcreteBatchAdapter:
         run_ids = self._run_ids.get(pr.number, ())
         return run_ids[0] if run_ids else 1
 
+    def _cleanup_repair_worktree(self, number: int) -> None:
+        state = self._repair_worktrees.pop(number, None)
+        if state is None:
+            return
+        path, owner = state
+        if path in owner.tracked_worktrees:
+            try:
+                owner.cleaner.remove_worktree(path)
+            finally:
+                owner.tracked_worktrees.discard(path)
+
+    @staticmethod
+    def _repair_project(pr: PullRequestSnapshot) -> str | None:
+        projects = {
+            parts[1]
+            for item in pr.changed_files
+            if len(parts := Path(item).parts) >= 3 and parts[0] == "projects"
+        }
+        return next(iter(projects)) if len(projects) == 1 else None
+
+    def _repair_changed_paths(self, path: Path) -> tuple[str, ...]:
+        completed = self.process_runner.run(
+            ("git", "status", "--porcelain", "--untracked-files=no"),
+            cwd=path,
+            timeout_seconds=60,
+        )
+        if getattr(completed, "returncode", None) != 0:
+            raise ConcreteAdapterError("repair status inspection failed")
+        result: list[str] = []
+        for line in str(getattr(completed, "stdout", "")).splitlines():
+            if len(line) < 4:
+                raise ConcreteAdapterError("repair status output is malformed")
+            candidate = line[3:]
+            if " -> " in candidate or candidate.startswith("/") or ".." in Path(candidate).parts:
+                raise ConcreteAdapterError("repair changed an unsafe path")
+            result.append(candidate)
+        return tuple(result)
+
     def diagnose_repair(self, pr: PullRequestSnapshot, cycle: int, head_sha: str) -> RepairDiagnosis:
-        return RepairDiagnosis(False, False, "no fixed repair patch adapter is available")
+        if not SHA_RE.fullmatch(head_sha) or cycle not in {1, 2}:
+            return RepairDiagnosis(False, False, "repair context does not match candidate head")
+        self._cleanup_repair_worktree(pr.number)
+        project = self._repair_project(pr)
+        if project is None:
+            return RepairDiagnosis(True, False, "repair requires exactly one project footprint")
+        raw = json.loads(self.matrix_path.read_text(encoding="utf-8"))
+        matrix = VerificationMatrix.from_mapping(raw)
+        definition = matrix.projects.get(project)
+        if definition is None:
+            return RepairDiagnosis(True, False, "repair project is absent from matrix")
+        path, owner = self.create_scoped_worktree(pr.number, head_sha)
+        command = (
+            ("bun", "install", "--lockfile-only", "--ignore-scripts")
+            if definition.ecosystem == "bun"
+            else ("uv", "lock")
+        )
+        completed = self.process_runner.run(
+            command,
+            cwd=path / definition.path,
+            timeout_seconds=900,
+        )
+        if getattr(completed, "returncode", None) != 0:
+            owner.cleaner.remove_worktree(path)
+            owner.tracked_worktrees.discard(path)
+            return RepairDiagnosis(True, False, "fixed lockfile regeneration failed")
+        changed = self._repair_changed_paths(path)
+        allowed = f"{definition.path}/{'bun.lock' if definition.ecosystem == 'bun' else 'uv.lock'}"
+        if not changed or any(item != allowed for item in changed):
+            owner.cleaner.remove_worktree(path)
+            owner.tracked_worktrees.discard(path)
+            return RepairDiagnosis(True, False, "no isolated lockfile repair is available")
+        self._repair_worktrees[pr.number] = (path, owner)
+        return RepairDiagnosis(True, True, f"regenerate {allowed} without lifecycle scripts")
 
     def create_fix_commit(self, pr: PullRequestSnapshot, diagnosis: RepairDiagnosis, marker: str, message: str) -> FixCommit:
-        raise ConcreteAdapterError("repair commit creation requires a reviewed fixed patch")
+        state = self._repair_worktrees.get(pr.number)
+        if state is None or not diagnosis.fix_available:
+            raise ConcreteAdapterError("repair worktree is unavailable")
+        path, _ = state
+        marker_match = re.fullmatch(
+            rf"dependabot-batch/v2/pr-{pr.number}/run-([1-9][0-9]*)/parent-([0-9a-f]{{40}})",
+            marker,
+        )
+        if marker_match is None:
+            raise ConcreteAdapterError("repair marker context is invalid")
+        run_id = int(marker_match.group(1))
+        parent_sha = marker_match.group(2)
+        changed = self._repair_changed_paths(path)
+        if len(changed) != 1:
+            raise ConcreteAdapterError("repair must contain exactly one lockfile")
+        added = self.process_runner.run(
+            ("git", "add", "--", changed[0]), cwd=path, timeout_seconds=60,
+        )
+        if getattr(added, "returncode", None) != 0:
+            raise ConcreteAdapterError("repair staging failed")
+        committed = self.process_runner.run(
+            (
+                "git", "-c", "user.name=u7chan", "-c",
+                "user.email=u7chan@users.noreply.github.com", "commit", "-m", message,
+            ),
+            cwd=path,
+            timeout_seconds=120,
+        )
+        if getattr(committed, "returncode", None) != 0:
+            raise ConcreteAdapterError("repair commit failed")
+        resolved = self.process_runner.run(
+            ("git", "rev-parse", "HEAD"), cwd=path, timeout_seconds=60,
+        )
+        commit_sha = str(getattr(resolved, "stdout", "")).strip().casefold()
+        if getattr(resolved, "returncode", None) != 0 or not SHA_RE.fullmatch(commit_sha):
+            raise ConcreteAdapterError("repair commit SHA is unavailable")
+        return FixCommit(
+            commit_sha,
+            message,
+            marker,
+            pr.number,
+            run_id,
+            parent_sha,
+            "u7chan",
+            "u7chan",
+            False,
+            (parent_sha,),
+            True,
+            "User",
+            "User",
+        )
 
     def push_fix(self, pr: PullRequestSnapshot, expected_head_sha: str, commit: FixCommit) -> None:
         self._gate_write("push-fix")
-        raise ConcreteAdapterError("no unreviewed arbitrary git push is permitted")
+        state = self._repair_worktrees.get(pr.number)
+        if state is None:
+            raise ConcreteAdapterError("repair worktree is unavailable")
+        path, _ = state
+        if not re.fullmatch(r"dependabot/[A-Za-z0-9._/-]+", pr.head_ref) or ".." in Path(pr.head_ref).parts:
+            raise ConcreteAdapterError("repair target is not a fixed Dependabot branch")
+        target = f"refs/heads/{pr.head_ref}"
+        try:
+            completed = self.git_mutation_runner.run(
+                (
+                    "git", "push", f"--force-with-lease={target}:{expected_head_sha}",
+                    "--", "origin", f"{commit.sha}:{target}",
+                ),
+                cwd=path,
+                timeout_seconds=120,
+            )
+            if getattr(completed, "returncode", None) != 0:
+                raise ConcreteAdapterError("repair push failed")
+        finally:
+            self._cleanup_repair_worktree(pr.number)
 
     def update_branch(self, number: int, expected_head_sha: str, expected_base_sha: str) -> PullRequestSnapshot:
         self.fixed.execute(
@@ -596,12 +788,16 @@ class ConcreteBatchAdapter:
             number=number,
             expected_head_sha=expected_head_sha,
         )
-        updated = self.read_current_pr(number)
-        if updated.head_sha.casefold() == expected_head_sha.casefold():
-            raise ConcreteAdapterError("branch update did not produce a new head")
-        if updated.base_sha.casefold() != expected_base_sha.casefold():
-            raise ConcreteAdapterError("branch update refetch did not confirm expected base")
-        return updated
+        deadline = self.monotonic() + self.update_timeout_seconds
+        while True:
+            updated = self.read_current_pr(number)
+            if updated.base_sha.casefold() != expected_base_sha.casefold():
+                raise ConcreteAdapterError("branch update refetch did not confirm expected base")
+            if updated.head_sha.casefold() != expected_head_sha.casefold():
+                return updated
+            if self.monotonic() >= deadline:
+                raise ConcreteAdapterError("branch update did not produce a new head before deadline")
+            self.sleeper(min(self.update_poll_seconds, max(0, deadline - self.monotonic())))
 
     def rebuild_snapshot(self, pr: PullRequestSnapshot) -> PullRequestSnapshot:
         return self.read_current_pr(pr.number)
@@ -706,6 +902,9 @@ class ConcreteBatchAdapter:
         return IssueRecord(number, str(data.get("state", "open")), str(data.get("body", body)), str(data.get("html_url", "")))
 
     def close_pr(self, number: int, expected_head_sha: str) -> None:
+        current = self.read_current_pr(number)
+        if current.head_sha.casefold() != expected_head_sha.casefold() or not current.is_open():
+            raise ConcreteAdapterError("refusing to close a changed or non-open pull request")
         self.gh.write("pr.close", {"number": number}, gate=self._gate_write("close-pr"))
 
     def check_urls(self, pr: PullRequestSnapshot) -> tuple[str, ...]:

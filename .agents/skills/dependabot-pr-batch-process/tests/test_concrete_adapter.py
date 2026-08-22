@@ -103,6 +103,11 @@ class FixedApiStub:
                 "id": 7, "name": "ci", "status": "completed", "conclusion": "success",
                 "details_url": "https://github.com/u7chan/monorepo/actions/runs/42/job/7",
             }]})
+        if operation is concrete.FixedOperation.UPDATE_PULL_REQUEST_BRANCH:
+            return SimpleNamespace(payload={
+                "message": "Updating pull request branch.",
+                "url": "https://api.github.com/repos/u7chan/monorepo/pulls/1",
+            })
         raise AssertionError(f"unexpected fixed operation: {operation}")
 
 
@@ -146,6 +151,23 @@ class GitObjectRunner:
             value = self.objects.get(command[2])
             return SimpleNamespace(returncode=0 if value is not None else 1, stdout=value or "")
         raise AssertionError(command)
+
+
+class RepairRunner:
+    def __init__(self) -> None:
+        self.commands: list[tuple[str, ...]] = []
+
+    def run(self, argv, *, cwd, timeout_seconds, env=None):  # type: ignore[no-untyped-def]
+        command = tuple(argv)
+        self.commands.append(command)
+        if command[:4] == ("git", "worktree", "add", "--detach"):
+            destination = Path(command[4])
+            (destination / "projects/example").mkdir(parents=True)
+        if command[:3] == ("git", "status", "--porcelain"):
+            return SimpleNamespace(returncode=0, stdout=" M projects/example/bun.lock\n")
+        if command[:3] == ("git", "rev-parse", "HEAD"):
+            return SimpleNamespace(returncode=0, stdout=sha("c") + "\n")
+        return SimpleNamespace(returncode=0, stdout="")
 
 
 class ConcreteAdapterTests(unittest.TestCase):
@@ -264,7 +286,7 @@ class ConcreteAdapterTests(unittest.TestCase):
             adapter = concrete.ConcreteBatchAdapter(
                 owner="u7chan", repository="monorepo", dispatcher=Dispatcher(),
                 repository_root=root, matrix_path=matrix_path,
-                process_runner=runner, fixed_api=FixedApiStub(),
+                process_runner=runner, fixed_api=FixedApiStub(), git_mutation_runner=runner,
             )
             pr = batch.PullRequestSnapshot(
                 1, "https://github.com/pull/1", "open", False, False,
@@ -295,6 +317,75 @@ class ConcreteAdapterTests(unittest.TestCase):
         self.assertEqual(observation.head_sha, sha("b"))
         self.assertEqual(observation.checks[0].run_id, 42)
         self.assertEqual(fixed.calls[-1], (concrete.FixedOperation.READ_CHECK_RUNS, {"expected_head_sha": sha("b")}))
+
+    def test_update_branch_waits_for_async_head_visibility(self) -> None:
+        fixed = FixedApiStub()
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = concrete.ConcreteBatchAdapter(
+                owner="u7chan", repository="monorepo", dispatcher=Dispatcher(),
+                repository_root=Path(directory), fixed_api=fixed,
+                update_timeout_seconds=5, update_poll_seconds=0,
+            )
+            old = batch.PullRequestSnapshot(
+                1, "https://github.com/pull/1", "open", False, False,
+                (batch.REQUIRED_LABEL,), "dependabot[bot]", "Bot", "main", sha("a"), "head", sha("b"),
+            )
+            updated = batch.PullRequestSnapshot(**{**old.__dict__, "head_sha": sha("c")})
+            snapshots = iter((old, updated))
+            adapter.read_current_pr = lambda _: next(snapshots)  # type: ignore[method-assign]
+            adapter.bind_gate(batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs")))
+            result = adapter.update_branch(1, sha("b"), sha("a"))
+        self.assertEqual(result.head_sha, sha("c"))
+
+    def test_repair_regenerates_only_lockfile_commits_and_pushes_with_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                '{"version":1,"docker":{"max_concurrency":2,"default_timeout_seconds":30},'
+                '"projects":{"example":{"path":"projects/example","ecosystem":"bun","checks":[],'
+                '"docker":{"test":{"target":"test","required":false,"timeout_seconds":30},'
+                '"final":{"target":"final","required":false,"timeout_seconds":30}}}}}',
+                encoding="utf-8",
+            )
+            runner = RepairRunner()
+            adapter = concrete.ConcreteBatchAdapter(
+                owner="u7chan", repository="monorepo", dispatcher=Dispatcher(),
+                repository_root=root, matrix_path=matrix_path,
+                process_runner=runner, fixed_api=FixedApiStub(), git_mutation_runner=runner,
+            )
+            adapter.bind_gate(batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs")))
+            pr = batch.PullRequestSnapshot(
+                1, "https://github.com/pull/1", "open", False, False,
+                (batch.REQUIRED_LABEL,), "dependabot[bot]", "Bot", "main", sha("a"),
+                "dependabot/example", sha("b"), changed_files=("projects/example/bun.lock",),
+            )
+            diagnosis = adapter.diagnose_repair(pr, 1, pr.head_sha)
+            marker = batch.make_fix_marker(pr.number, pr.head_sha, 1)
+            message = batch.make_fix_commit_message(diagnosis.summary, marker)
+            commit = adapter.create_fix_commit(pr, diagnosis, marker, message)
+            adapter.push_fix(pr, pr.head_sha, commit)
+        self.assertTrue(diagnosis.fix_available)
+        self.assertEqual((commit.author_login, commit.author_type, commit.verification_verified), ("u7chan", "User", False))
+        self.assertIn(("bun", "install", "--lockfile-only", "--ignore-scripts"), runner.commands)
+        self.assertTrue(any(command[:2] == ("git", "push") and "--force-with-lease=" in command[2] for command in runner.commands))
+
+    def test_close_refetches_expected_head_before_dispatch(self) -> None:
+        dispatcher = Dispatcher()
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = concrete.ConcreteBatchAdapter(
+                owner="u7chan", repository="monorepo", dispatcher=dispatcher,
+                repository_root=Path(directory), fixed_api=FixedApiStub(),
+            )
+            adapter.bind_gate(batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs")))
+            drifted = batch.PullRequestSnapshot(
+                1, "https://github.com/pull/1", "open", False, False,
+                (batch.REQUIRED_LABEL,), "dependabot[bot]", "Bot", "main", sha("a"), "head", sha("c"),
+            )
+            adapter.read_current_pr = lambda _: drifted  # type: ignore[method-assign]
+            with self.assertRaises(concrete.ConcreteAdapterError):
+                adapter.close_pr(1, sha("b"))
+        self.assertFalse(any(action == "pr.close" for action, _ in dispatcher.calls))
 
     def test_external_write_request_downgrades_to_static_audit_with_rows_and_no_writes(self) -> None:
         dispatcher = Dispatcher()
