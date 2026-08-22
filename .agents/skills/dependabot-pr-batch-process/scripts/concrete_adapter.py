@@ -682,30 +682,45 @@ class ConcreteBatchAdapter:
         if definition is None:
             return RepairDiagnosis(True, False, "repair project is absent from matrix")
         path, owner = self.create_scoped_worktree(pr.number, head_sha)
-        command = (
-            ("bun", "install", "--lockfile-only", "--ignore-scripts")
-            if definition.ecosystem == "bun"
-            else ("uv", "lock")
-        )
-        completed = self.process_runner.run(
-            command,
-            cwd=path / definition.path,
-            timeout_seconds=900,
-        )
-        if getattr(completed, "returncode", None) != 0:
-            owner.cleaner.remove_worktree(path)
-            owner.tracked_worktrees.discard(path)
-            return RepairDiagnosis(True, False, "fixed lockfile regeneration failed")
-        changed = self._repair_changed_paths(path)
-        allowed = f"{definition.path}/{'bun.lock' if definition.ecosystem == 'bun' else 'uv.lock'}"
-        if not changed or any(item != allowed for item in changed):
-            owner.cleaner.remove_worktree(path)
-            owner.tracked_worktrees.discard(path)
-            return RepairDiagnosis(True, False, "no isolated lockfile repair is available")
-        self._repair_worktrees[pr.number] = (path, owner)
-        return RepairDiagnosis(True, True, f"regenerate {allowed} without lifecycle scripts")
+        retained = False
+        try:
+            command = (
+                ("bun", "install", "--lockfile-only", "--ignore-scripts")
+                if definition.ecosystem == "bun"
+                else ("uv", "lock")
+            )
+            completed = self.process_runner.run(
+                command,
+                cwd=path / definition.path,
+                timeout_seconds=900,
+            )
+            if getattr(completed, "returncode", None) != 0:
+                return RepairDiagnosis(True, False, "fixed lockfile regeneration failed")
+            changed = self._repair_changed_paths(path)
+            allowed = f"{definition.path}/{'bun.lock' if definition.ecosystem == 'bun' else 'uv.lock'}"
+            if not changed or any(item != allowed for item in changed):
+                return RepairDiagnosis(True, False, "no isolated lockfile repair is available")
+            self._repair_worktrees[pr.number] = (path, owner)
+            retained = True
+            return RepairDiagnosis(True, True, f"regenerate {allowed} without lifecycle scripts")
+        except subprocess.TimeoutExpired:
+            return RepairDiagnosis(True, False, "fixed lockfile regeneration timed out")
+        except Exception as exc:
+            return RepairDiagnosis(
+                True,
+                False,
+                f"fixed lockfile repair failed:{type(exc).__name__}",
+            )
+        finally:
+            if not retained and path in owner.tracked_worktrees:
+                try:
+                    owner.cleaner.remove_worktree(path)
+                except Exception:
+                    pass
+                finally:
+                    owner.tracked_worktrees.discard(path)
 
-    def create_fix_commit(self, pr: PullRequestSnapshot, diagnosis: RepairDiagnosis, marker: str, message: str) -> FixCommit:
+    def _create_fix_commit_in_worktree(self, pr: PullRequestSnapshot, diagnosis: RepairDiagnosis, marker: str, message: str) -> FixCommit:
         state = self._repair_worktrees.get(pr.number)
         if state is None or not diagnosis.fix_available:
             raise ConcreteAdapterError("repair worktree is unavailable")
@@ -757,6 +772,13 @@ class ConcreteBatchAdapter:
             "User",
             "User",
         )
+
+    def create_fix_commit(self, pr: PullRequestSnapshot, diagnosis: RepairDiagnosis, marker: str, message: str) -> FixCommit:
+        try:
+            return self._create_fix_commit_in_worktree(pr, diagnosis, marker, message)
+        except Exception:
+            self._cleanup_repair_worktree(pr.number)
+            raise
 
     def push_fix(self, pr: PullRequestSnapshot, expected_head_sha: str, commit: FixCommit) -> None:
         self._gate_write("push-fix")

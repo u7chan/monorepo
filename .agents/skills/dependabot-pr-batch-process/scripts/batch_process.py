@@ -2105,7 +2105,20 @@ class RepairCycleController:
                 marker = make_fix_marker(pr_number, head_sha, run_id)
             except ValueError:
                 return RepairCycleResult("open", cycle - 1, tuple(commits), "invalid-repair-context", head_sha)
-            commit = create_commit(diagnosis, marker, make_fix_commit_message(diagnosis.summary, marker))
+            try:
+                commit = create_commit(
+                    diagnosis,
+                    marker,
+                    make_fix_commit_message(diagnosis.summary, marker),
+                )
+            except Exception as exc:
+                return RepairCycleResult(
+                    "open",
+                    cycle - 1,
+                    tuple(commits),
+                    f"fix-commit-failed:{type(exc).__name__}",
+                    head_sha,
+                )
             if (
                 not SHA_RE.fullmatch(commit.sha)
                 or commit.pr_number != pr_number
@@ -3058,6 +3071,37 @@ class BatchOrchestrator:
             ci_result,
         )
 
+    def _wait_for_repair_ci(
+        self,
+        number: int,
+        head_sha: str,
+        gate: MutationGate,
+    ) -> CIResult:
+        """Bind post-push CI observation to a freshly fetched repair head."""
+
+        try:
+            repaired = self.adapter.read_current_pr(number)
+        except Exception as exc:
+            return CIResult(
+                CIClassification.EXTERNAL_UNKNOWN,
+                f"repair-head-refetch-failed:{type(exc).__name__}",
+                head_sha,
+            )
+        if repaired.head_sha.casefold() != head_sha.casefold():
+            return CIResult(
+                CIClassification.EXTERNAL_UNKNOWN,
+                "repair-head-not-visible-or-drifted",
+                head_sha,
+            )
+        return self.ci_waiter.wait(
+            head_sha,
+            lambda expected: self.adapter.observe_ci(repaired, expected),
+            lambda observation: self.adapter.rerun_ci(
+                repaired, observation, head_sha
+            ),
+            gate=gate,
+        )
+
     def _record_failure_disposition(
         self,
         gate: MutationGate,
@@ -3323,11 +3367,8 @@ class BatchOrchestrator:
                             diagnose=lambda cycle, head, pr=pr: self.adapter.diagnose_repair(pr, cycle, head),
                             create_commit=lambda diagnosis, marker, message, pr=pr: self.adapter.create_fix_commit(pr, diagnosis, marker, message),
                             push=lambda old_head, commit, pr=pr: self.adapter.push_fix(pr, old_head, commit),
-                            wait_for_ci=lambda head: self.ci_waiter.wait(
-                                head,
-                                lambda expected, pr=pr: self.adapter.observe_ci(pr, expected),
-                                lambda observation, head=head: self.adapter.rerun_ci(pr, observation, head),
-                                gate=gate,
+                            wait_for_ci=lambda head, number=pr.number: self._wait_for_repair_ci(
+                                number, head, gate
                             ),
                             record_provenance=lambda record, pr=pr: self.adapter.record_repair_provenance(pr, record),
                         )

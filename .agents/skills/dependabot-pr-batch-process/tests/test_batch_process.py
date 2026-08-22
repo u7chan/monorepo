@@ -1492,6 +1492,8 @@ class FakeBatchAdapter:
         return not self.local_failure
 
     def observe_ci(self, pr, expected_head_sha):
+        if pr.head_sha != expected_head_sha:
+            raise AssertionError("CI candidate snapshot is stale")
         self.events.append(f"observe-ci:{expected_head_sha[0]}")
         if self.ci_mode == "unknown":
             return batch.CIObservation(
@@ -1618,6 +1620,20 @@ class FakeBatchAdapter:
 
 
 class OrchestrationTests(unittest.TestCase):
+    def test_post_repair_ci_refetches_snapshot_for_new_head(self) -> None:
+        adapter = FakeBatchAdapter()
+        repaired = batch.PullRequestSnapshot(
+            **{**adapter.current[1].__dict__, "head_sha": sha("d")}
+        )
+        adapter.current[1] = repaired
+        gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
+        result = batch.BatchOrchestrator(
+            adapter,
+            ci_waiter=batch.CIWaiter(poll_seconds=0, deadline_seconds=1),
+        )._wait_for_repair_ci(1, sha("d"), gate)
+        self.assertEqual(result.classification, batch.CIClassification.SUCCESS)
+        self.assertIn("observe-ci:d", adapter.events)
+
     def test_write_state_machine_orders_complete_preflight_before_execution_and_merges(self) -> None:
         adapter = FakeBatchAdapter()
         result = batch.execute_batch(

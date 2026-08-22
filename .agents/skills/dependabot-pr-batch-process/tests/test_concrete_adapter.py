@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -167,6 +168,19 @@ class RepairRunner:
             return SimpleNamespace(returncode=0, stdout=" M projects/example/bun.lock\n")
         if command[:3] == ("git", "rev-parse", "HEAD"):
             return SimpleNamespace(returncode=0, stdout=sha("c") + "\n")
+        return SimpleNamespace(returncode=0, stdout="")
+
+
+class TimeoutRepairRunner(RepairRunner):
+    def run(self, argv, *, cwd, timeout_seconds, env=None):  # type: ignore[no-untyped-def]
+        command = tuple(argv)
+        self.commands.append(command)
+        if command[:4] == ("git", "worktree", "add", "--detach"):
+            destination = Path(command[4])
+            (destination / "projects/example").mkdir(parents=True)
+            return SimpleNamespace(returncode=0, stdout="")
+        if command[:2] == ("bun", "install"):
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
         return SimpleNamespace(returncode=0, stdout="")
 
 
@@ -369,6 +383,34 @@ class ConcreteAdapterTests(unittest.TestCase):
         self.assertEqual((commit.author_login, commit.author_type, commit.verification_verified), ("u7chan", "User", False))
         self.assertIn(("bun", "install", "--lockfile-only", "--ignore-scripts"), runner.commands)
         self.assertTrue(any(command[:2] == ("git", "push") and "--force-with-lease=" in command[2] for command in runner.commands))
+
+    def test_repair_timeout_cleans_owned_worktree_before_returning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                '{"version":1,"docker":{"max_concurrency":2,"default_timeout_seconds":30},'
+                '"projects":{"example":{"path":"projects/example","ecosystem":"bun","checks":[],'
+                '"docker":{"test":{"target":"test","required":false,"timeout_seconds":30},'
+                '"final":{"target":"final","required":false,"timeout_seconds":30}}}}}',
+                encoding="utf-8",
+            )
+            runner = TimeoutRepairRunner()
+            adapter = concrete.ConcreteBatchAdapter(
+                owner="u7chan", repository="monorepo", dispatcher=Dispatcher(),
+                repository_root=root, matrix_path=matrix_path,
+                process_runner=runner, fixed_api=FixedApiStub(),
+            )
+            pr = batch.PullRequestSnapshot(
+                1, "https://github.com/pull/1", "open", False, False,
+                (batch.REQUIRED_LABEL,), "dependabot[bot]", "Bot", "main", sha("a"),
+                "dependabot/example", sha("b"), changed_files=("projects/example/bun.lock",),
+            )
+            diagnosis = adapter.diagnose_repair(pr, 1, pr.head_sha)
+        self.assertFalse(diagnosis.fix_available)
+        self.assertIn("timed out", diagnosis.summary)
+        self.assertTrue(any(command[:3] == ("git", "worktree", "remove") for command in runner.commands))
+        self.assertEqual(adapter._repair_worktrees, {})
 
     def test_close_refetches_expected_head_before_dispatch(self) -> None:
         dispatcher = Dispatcher()

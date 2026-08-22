@@ -153,6 +153,8 @@ production adapterの自動修正は、candidate headのscoped worktreeでlifecy
 した固定lockfile再生成（bun/uv）を行い、変更が対象projectの単一lockfileだけの場合に限定
 します。専用trailer付きcommitをrepository owner identityで作成し、固定Dependabot branchへ
 expected-headの`--force-with-lease`でpushします。任意code patchや複数file変更は行いません。
+push後は新headをGitHubから再取得し、そのsnapshotに固定したCIだけを判定します。lock再生成・
+status・commit・pushのtimeout/例外でも、作成済みowned worktreeをcleanupします。
 Push権限不足、external/unknown、timeout、manual interventionはcloseしません。
 
 ## 冪等性、TOCTOU、merge/CD
