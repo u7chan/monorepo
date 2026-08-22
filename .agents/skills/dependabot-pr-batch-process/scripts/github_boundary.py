@@ -17,7 +17,7 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -183,9 +183,9 @@ class FixedGhApi:
             return self._request(operation, endpoint, "GET")
         if operation is FixedOperation.RERUN_FAILED_JOBS:
             run_id = _validated_number(kwargs.get("run_id"), "workflow run ID")
-            _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
+            expected = _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
             endpoint = self._endpoint(f"/actions/runs/{run_id}/rerun-failed-jobs")
-            return self._request(operation, endpoint, "POST", {})
+            return self._request(operation, endpoint, "POST", {}, expected_head_sha=expected)
         if operation is FixedOperation.MERGE_PULL_REQUEST:
             number = _validated_number(kwargs.get("number"), "pull request number")
             expected = _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
@@ -204,6 +204,8 @@ class FixedGhApi:
         endpoint: str,
         method: str,
         body: Mapping[str, Any] | None = None,
+        *,
+        expected_head_sha: str | None = None,
     ) -> ApiRequest:
         if method not in {"GET", "POST", "PUT"}:
             raise BoundaryError("HTTP method is not allowlisted")
@@ -220,6 +222,13 @@ class FixedGhApi:
         if body is not None:
             stdin_json = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
             argv.extend(("--input", "-"))
+        if expected_head_sha is not None:
+            argv.extend(
+                (
+                    "--header",
+                    f"X-Dependabot-Batch-Expected-Head-SHA: {_validated_sha(expected_head_sha, 'expected head SHA')}",
+                )
+            )
         return ApiRequest(operation, tuple(argv), stdin_json, endpoint)
 
     def execute(
@@ -290,14 +299,23 @@ class FixedGhApi:
                     raise BoundaryError("workflow job entry lacks id/name")
             return
         if operation is FixedOperation.RERUN_FAILED_JOBS:
-            # GitHub may return the run object or an empty object for this
-            # endpoint.  Both are JSON-validated; no free-form message drives
-            # a later action.
-            if "head_sha" in payload:
-                head_sha = payload.get("head_sha")
-                expected = kwargs.get("expected_head_sha")
-                if not isinstance(head_sha, str) or not SHA_RE.fullmatch(head_sha) or head_sha.casefold() != str(expected).casefold():
-                    raise BoundaryError("rerun response head SHA does not match expected SHA")
+            # Empty JSON is not evidence that the mutation happened.  The
+            # adapter requires a fixed, schema-checked queued run response.
+            if not isinstance(payload.get("id"), int) or payload.get("id") < 1:
+                raise BoundaryError("rerun response lacks a valid run ID")
+            if payload.get("id") != kwargs.get("run_id"):
+                raise BoundaryError("rerun response run ID does not match requested run")
+            if not isinstance(payload.get("status"), str) or not payload.get("status"):
+                raise BoundaryError("rerun response lacks status")
+            head_sha = payload.get("head_sha")
+            expected = kwargs.get("expected_head_sha")
+            if (
+                not isinstance(head_sha, str)
+                or not SHA_RE.fullmatch(head_sha)
+                or not isinstance(expected, str)
+                or head_sha.casefold() != expected.casefold()
+            ):
+                raise BoundaryError("rerun response head SHA does not match expected SHA")
             return
         if operation is FixedOperation.MERGE_PULL_REQUEST:
             if payload.get("merged") is not True:
@@ -314,6 +332,49 @@ class FixedGhApi:
                 raise BoundaryError("merge request did not carry expected SHA")
             return
         raise BoundaryError("unvalidated operation response")
+
+    def rerun_failed_jobs(
+        self,
+        *,
+        run_id: int,
+        expected_head_sha: str,
+        gate: MutationAuthorizer,
+        refetch_run: Callable[[], Mapping[str, Any] | ApiResponse] | None = None,
+    ) -> ApiResponse:
+        """Refetch and validate a run immediately before the POST mutation.
+
+        ``refetch_run`` is an injectable read adapter for the normal GH skill
+        action.  If it is absent, this fixed boundary reads the run itself.
+        The POST carries the expected SHA in a constrained header as an audit
+        trace; the response must identify a queued run with the same SHA.
+        """
+
+        run_id = _validated_number(run_id, "workflow run ID")
+        expected = _validated_sha(expected_head_sha, "expected head SHA")
+        raw = (
+            self.execute(FixedOperation.READ_WORKFLOW_RUN, run_id=run_id)
+            if refetch_run is None
+            else refetch_run()
+        )
+        payload = raw.payload if isinstance(raw, ApiResponse) else raw
+        if not isinstance(payload, Mapping):
+            raise BoundaryError("workflow run refetch did not return an object")
+        self._validate_response(
+            FixedOperation.READ_WORKFLOW_RUN,
+            payload,
+            {"run_id": run_id},
+        )
+        if payload.get("id") != run_id:
+            raise BoundaryError("workflow run ID changed before rerun")
+        if str(payload.get("head_sha", "")).casefold() != expected.casefold():
+            raise BoundaryError("workflow run head SHA changed before rerun")
+        # No call that can mutate occurs between this read and execute().
+        return self.execute(
+            FixedOperation.RERUN_FAILED_JOBS,
+            gate=gate,
+            run_id=run_id,
+            expected_head_sha=expected,
+        )
 
 
 class GhCommandRunner(Protocol):
@@ -345,6 +406,15 @@ class SubprocessGhCommandRunner:
             raise BoundaryError("gh argv must be a string array")
         if any(item in {"--shell", "--jq", "--template"} for item in argv):
             raise BoundaryError("free-form gh output flags are forbidden")
+        headers = [argv[index + 1] for index, item in enumerate(argv[:-1]) if item == "--header"]
+        if any(
+            not re.fullmatch(
+                r"X-Dependabot-Batch-Expected-Head-SHA: [0-9a-fA-F]{40}",
+                header,
+            )
+            for header in headers
+        ):
+            raise BoundaryError("unexpected gh header")
         completed = subprocess.run(
             list(argv),
             cwd=cwd,

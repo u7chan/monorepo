@@ -47,10 +47,12 @@ python3 .agents/skills/dependabot-pr-batch-process/scripts/batch_process.py \
   --snapshot /path/to/read-only-snapshot.json --mode audit-only
 ```
 
-`batch_process.py`のCLIはsnapshotの監査表を出すだけで、writeモードを指定しても
-ネットワーク・git・Docker・GitHub mutationは行いません。live adapterを追加する
-場合も、このskill内の決定的コンポーネントとboundaryを組み合わせ、任意のshell/API
-ラッパーを作らないでください。
+`batch_process.py`のsnapshot CLIはaudit-onlyです。`--mode write`を指定しても、
+独立した`BatchAdapter`が注入されない限り実行を拒否します。実行用の
+`execute_batch(adapter, ...)` / `BatchOrchestrator`は、テストまたは固定GH adapterを
+明示注入した場合だけ、下記の状態機械を動かします。live adapterを追加する場合も、
+このskill内の決定的コンポーネントとboundaryを組み合わせ、任意のshell/APIラッパーを
+作らないでください。
 
 ## 対象PRとcommitの信頼条件
 
@@ -60,9 +62,12 @@ python3 .agents/skills/dependabot-pr-batch-process/scripts/batch_process.py \
 - PR authorが許可されたDependabot bot login
 - open、非Draft、default branch (`main`)向け
 - GitHubから完全なcommit列を取得済み
-- 各commitがDependabot生成commit、または許可されたskill actorによる
-  `Dependabot-Batch-Fix: dependabot-batch/v1/pr-<number>/source-<sha>` trailer付き
-  修正commit
+- 各commitが、author/committerの両方が同一の許可Dependabot loginで、検証済み
+  (`verification.verified=true`)のDependabot生成commit
+- または、skill自身のrepair controllerが作った記録が存在し、直前のexpected headを
+  parentとして、PR番号・repair run ID・parent SHAを含む
+  `Dependabot-Batch-Fix: dependabot-batch/v2/pr-<number>/run-<id>/parent-<sha>` trailerを
+  持つ修正commit。汎用`github-actions[bot]`と任意trailerだけではtrustedになりません。
 
 人間commit、未知のbot、空/欠落したcommit列は手動介入または情報不足として扱い、
 merge・closeしません。commit messageはtrailerの静的確認だけに使い、コマンドとして
@@ -70,15 +75,17 @@ merge・closeしません。commit messageはtrailerの静的確認だけに使�
 
 ## 処理順序
 
-`BatchProcessor`は次の順序を崩しません。
+`BatchOrchestrator`は次の順序を崩しません。
 
 ```text
 GitHub snapshot
   -> selector/trust check
+  -> 全候補のgrouped manifest/lock再構成
+  -> 全候補の全member supply-chain preflight
   -> expected head/base再確認
-  -> supply-chain preflight
-  -> expected head/base再確認
+  -> footprint waves
   -> project verification matrix
+  -> Docker test/final
   -> CI classification/wait/rerun
   -> 最大2回の修正cycle
   -> expected SHA再確認
@@ -86,8 +93,11 @@ GitHub snapshot
   -> exact merge SHAのCD完了待ち
 ```
 
-install、通常Docker build、test、lint、typecheckより前にpreflightを完了します。
-registry/package identity、更新前後version、HTTPS取得URL、integrity/checksum、追加・
+install、通常Docker build、test、lint、typecheckより前に、選択されたgrouped PRの全
+member preflightを完了します。manifest/lock diffからdirect、added、removed、
+lock-only transitive memberを再構成し、いずれか一件でもunknown/rejected、registry/
+package/version/source/integrity/script欠落、manifest/lock不整合があれば、そのgroupの
+install/build/testを実行しません。registry/package identity、更新前後version、HTTPS取得URL、integrity/checksum、追加・
 削除package、git/path dependency、manifest/lock整合性、lifecycle script変更を静的に
 確認します。registry metadataの取得は初回を含め最大3回（retry最大2回）です。取得不能
 は`unknown`としてopenに残し、依存コードを実行しません。不審registry、integrity不一致、
@@ -101,11 +111,13 @@ projectについて、test、lint、typecheck、OSS license、Docker `test`/`fin
 明示します。対象projectを追加・削除したらmatrixも同じPRで更新します。
 
 - Docker buildの並列数は常に2。3以上はmatrix validationで拒否します。
-- buildごとにtimeoutを設定します。
+- buildごとにrun固有のinvocation ID、image tag、ownership label、timeoutを設定します。
 - `--secret`、`--ssh`、`--mount`、Dockerのvolume、credential、host mountを渡しません。
 - test targetが必要なのに無い場合は失敗です。通常buildへのfallbackをtest成功とは
   数えません。targetが不要と明示されたprojectはskipであり、passではありません。
-- cleanupはこのrunが生成したimage tagと、このrunが登録したworktreeだけに限定します。
+- build前に衝突tagを拒否し、build後にownership labelを実検証できたimageだけを記録・
+  cleanupします。失敗/timeout、衝突、ownership probe失敗では外部imageを削除しません。
+  worktreeも作成前に不存在を確認して実際に登録したものだけをcleanupします。
   `docker system prune`は呼びません。
 
 ## footprintとCI
@@ -118,7 +130,9 @@ footprintは直列wave、異なるprojectだけを同一waveに置きます。ru
 CI分類は`transient`（allowlistのtimeout/cancel/runner障害/registry 5xx）、
 `dependency-caused`（最新main成功、PR headで再現、依存更新との因果関係の3条件）、
 `external/unknown`の三種類です。CIはhead SHAを固定して30分を絶対deadlineにします。
-transientだけ最大1回rerunし、deadline超過はunknown相当でopenに残します。修正cycleは
+transientだけ最大1回rerunし、POST直前に固定runを再取得してrun ID・schema・expected
+head SHAを照合します。requestにはexpected SHAを固定headerで記録し、空/不一致response
+は成功とみなしません。deadline超過はunknown相当でopenに残します。修正cycleは
 `診断 -> 最大1 commit -> Push -> そのheadのCI完了`を1 cycleとして最大2回です。
 Push権限不足、external/unknown、timeout、manual interventionはcloseしません。
 
@@ -132,7 +146,10 @@ comment、Issueからsnapshotを再構成します。
 - 同一markerのcommentは最も古いものをupdateし、新規重複を作りません。
 - open Issueは再利用・参照し、closed Issueは参照だけにします。closed Issueをreopen
   せず、既存markerがある場合に新規Issueを作りません。
-- Push/merge直前にsnapshotのexpected head/base SHAを再取得して照合します。
+- Push/merge直前にsnapshotのexpected head/base SHAを再取得して照合します。serial
+  batchでmainのbaseが進んだ場合、残りPRをexpected head付きで最新baseへupdateし、
+  update後head/baseからsnapshot、local/preflight/CI evidenceを捨てて再構成・再検証
+  してからmergeします。update drift/failureはopen停止です。
 - squash mergeは常にPR一件ずつ行い、merge responseの新main SHAに対するCD完了を待って
   から次へ進みます。CD失敗時は自動revertせず、その時点で後続mergeを停止します。
 
@@ -187,6 +204,18 @@ GitHubのjob log endpointが返すraw text/zipは取得・保存しません。`
 固定されたcheck/run URLだけをCIの根拠にし、raw logが必要なケースは
 `external/unknown`としてopenに残します。これによりログ中のsecretを実行判断や監査表へ
 流しません。
+
+## 実行可能な注入境界と失敗時状態
+
+`BatchAdapter`は、PR snapshot/commit chain、trusted manifest-lock diff、matrix/Docker
+runner、footprint、CI observe/rerun、repair commit/push、comment/Issue marker、
+disposition、serial base update、merge、CDを個別の注入メソッドとして要求します。
+`BatchOrchestrator`はwrite認可を最初に独立判定し、audit-onlyでは依存実行・comment・
+Issue・close・mergeを呼びません。write modeでも、全grouped preflight完了前に
+matrix/Dockerを呼びません。external/unknown/manual、TOCTOU drift、検証失敗、CI/CD
+失敗はPRをopenに保持し、merge後CD失敗では後続mergeを停止します。これは分離helper
+のreportではなく、fake adapterでstage orderingとmutation境界を実行できるentry point
+です。
 
 ## 監査表
 

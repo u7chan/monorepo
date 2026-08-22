@@ -21,6 +21,7 @@ import re
 import subprocess
 import time
 import unicodedata
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
@@ -35,7 +36,7 @@ DEPENDABOT_LOGINS = frozenset({"dependabot[bot]", "dependabot-preview[bot]"})
 DEFAULT_FIX_ACTORS = frozenset({"github-actions[bot]", "dependabot-batch[bot]"})
 FIX_TRAILER = "Dependabot-Batch-Fix"
 FIX_MARKER_RE = re.compile(
-    r"^dependabot-batch/v1/pr-(?P<number>[1-9][0-9]*)/source-(?P<sha>[0-9a-f]{7,64})$"
+    r"^dependabot-batch/v2/pr-(?P<number>[1-9][0-9]*)/run-(?P<run>[1-9][0-9]*)/parent-(?P<sha>[0-9a-f]{40})$"
 )
 IDEMPOTENCY_MARKER_RE = re.compile(
     r"<!--\s*(?P<marker>dependabot-batch:v1:[a-f0-9]{32})\s*-->"
@@ -43,6 +44,8 @@ IDEMPOTENCY_MARKER_RE = re.compile(
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 SAFE_PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 SAFE_IMAGE_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9./:_-]{0,127}$")
+SAFE_INVOCATION_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{7,63}$")
+DOCKER_OWNERSHIP_LABEL = "com.u7chan.dependabot-batch.invocation"
 
 
 def _has_forbidden_mount_or_secret_flag(argv: Sequence[str]) -> bool:
@@ -222,6 +225,10 @@ class CommitSnapshot:
     author_login: str | None = None
     committer_login: str | None = None
     trailers: Mapping[str, str] = field(default_factory=dict)
+    author_type: str | None = None
+    committer_type: str | None = None
+    verification_verified: bool = False
+    parents: tuple[str, ...] = ()
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "CommitSnapshot":
@@ -229,8 +236,22 @@ class CommitSnapshot:
         raw_commit = raw_commit if isinstance(raw_commit, Mapping) else {}
         message = value.get("message") or raw_commit.get("message")
         message = message if isinstance(message, str) else ""
-        author = _login(value.get("author")) or _login(raw_commit.get("author"))
-        committer = _login(value.get("committer")) or _login(raw_commit.get("committer"))
+        raw_author = value.get("author") if isinstance(value.get("author"), Mapping) else {}
+        raw_committer = value.get("committer") if isinstance(value.get("committer"), Mapping) else {}
+        author = _login(raw_author) or _login(raw_commit.get("author"))
+        committer = _login(raw_committer) or _login(raw_commit.get("committer"))
+        author_type = raw_author.get("type") if isinstance(raw_author.get("type"), str) else None
+        committer_type = raw_committer.get("type") if isinstance(raw_committer.get("type"), str) else None
+        raw_verification = value.get("verification")
+        if not isinstance(raw_verification, Mapping):
+            raw_verification = raw_commit.get("verification")
+        verified = isinstance(raw_verification, Mapping) and raw_verification.get("verified") is True
+        raw_parents = value.get("parents")
+        parents = tuple(
+            item if isinstance(item, str) else item.get("sha")
+            for item in (raw_parents if isinstance(raw_parents, list) else [])
+            if isinstance(item, str) or (isinstance(item, Mapping) and isinstance(item.get("sha"), str))
+        )
         raw_trailers = value.get("trailers")
         trailers: dict[str, str] = {}
         if isinstance(raw_trailers, Mapping):
@@ -245,7 +266,17 @@ class CommitSnapshot:
         sha = value.get("sha")
         if not isinstance(sha, str) or not sha:
             raise ValueError("commit snapshot requires a non-empty sha")
-        return cls(sha, message, author, committer, trailers)
+        return cls(
+            sha,
+            message,
+            author,
+            committer,
+            trailers,
+            author_type,
+            committer_type,
+            verified,
+            parents,
+        )
 
 
 def parse_commit_trailers(message: str) -> dict[str, str]:
@@ -332,15 +363,32 @@ class PullRequestSnapshot:
         return self.state.casefold() == "open" and not self.merged
 
 
-def make_fix_marker(pr_number: int, source_head_sha: str) -> str:
-    if pr_number < 1 or not source_head_sha or not re.fullmatch(r"[0-9a-fA-F]{7,64}", source_head_sha):
+def make_fix_marker(pr_number: int, source_head_sha: str, run_id: int = 1) -> str:
+    if (
+        pr_number < 1
+        or run_id < 1
+        or not source_head_sha
+        or not re.fullmatch(r"[0-9a-fA-F]{40}", source_head_sha)
+    ):
         raise ValueError("invalid source for fix marker")
-    return f"dependabot-batch/v1/pr-{pr_number}/source-{source_head_sha.lower()}"
+    return f"dependabot-batch/v2/pr-{pr_number}/run-{run_id}/parent-{source_head_sha.lower()}"
 
 
-def is_valid_fix_marker(marker: str, pr_number: int) -> bool:
+def is_valid_fix_marker(
+    marker: str,
+    pr_number: int,
+    *,
+    source_head_sha: str | None = None,
+    run_id: int | None = None,
+) -> bool:
     match = FIX_MARKER_RE.fullmatch(marker)
-    return bool(match and int(match.group("number")) == pr_number)
+    if not match or int(match.group("number")) != pr_number:
+        return False
+    if source_head_sha is not None and match.group("sha") != source_head_sha.casefold():
+        return False
+    if run_id is not None and int(match.group("run")) != run_id:
+        return False
+    return True
 
 
 def is_dependabot_author(login: str | None, author_type: str | None = None) -> bool:
@@ -349,21 +397,72 @@ def is_dependabot_author(login: str | None, author_type: str | None = None) -> b
     return login in DEPENDABOT_LOGINS
 
 
+def is_verified_dependabot_commit(commit: CommitSnapshot) -> bool:
+    """Require one consistent, verified Dependabot identity on both sides."""
+
+    if commit.author_login not in DEPENDABOT_LOGINS:
+        return False
+    if commit.committer_login != commit.author_login:
+        return False
+    if commit.author_type is not None and commit.author_type.casefold() != "bot":
+        return False
+    if commit.committer_type is not None and commit.committer_type.casefold() != "bot":
+        return False
+    return commit.verification_verified is True
+
+
+@dataclass(frozen=True)
+class RepairCommitRecord:
+    """Skill-owned evidence for one repair commit in a PR-local chain."""
+
+    pr_number: int
+    run_id: int
+    parent_sha: str
+    commit_sha: str
+    marker: str
+    author_login: str
+    committer_login: str
+    verification_verified: bool = True
+    created_by_skill: bool = True
+
+
 def trusted_commit(
     commit: CommitSnapshot,
     *,
     pr_number: int,
     fix_actors: Iterable[str] = DEFAULT_FIX_ACTORS,
+    repair_chain: Iterable[RepairCommitRecord] = (),
 ) -> bool:
-    if is_dependabot_author(commit.author_login) or is_dependabot_author(commit.committer_login):
+    if is_verified_dependabot_commit(commit):
         return True
     marker = commit.trailers.get(FIX_TRAILER) or parse_commit_trailers(commit.message).get(FIX_TRAILER)
     actors = set(fix_actors)
-    return bool(
-        marker
-        and is_valid_fix_marker(marker, pr_number)
-        and (commit.author_login in actors or commit.committer_login in actors)
-    )
+    if not marker:
+        return False
+    for record in repair_chain:
+        if not record.created_by_skill:
+            continue
+        if record.pr_number != pr_number or record.commit_sha.casefold() != commit.sha.casefold():
+            continue
+        if record.author_login not in actors or record.committer_login != record.author_login:
+            continue
+        if not record.verification_verified or not commit.verification_verified:
+            continue
+        if commit.author_login != record.author_login or commit.committer_login != record.committer_login:
+            continue
+        if marker != record.marker:
+            continue
+        if not is_valid_fix_marker(
+            marker,
+            pr_number,
+            source_head_sha=record.parent_sha,
+            run_id=record.run_id,
+        ):
+            continue
+        if commit.parents != (record.parent_sha,):
+            continue
+        return True
+    return False
 
 
 def trust_reasons(
@@ -371,6 +470,7 @@ def trust_reasons(
     *,
     required_label: str = REQUIRED_LABEL,
     fix_actors: Iterable[str] = DEFAULT_FIX_ACTORS,
+    repair_chain: Iterable[RepairCommitRecord] = (),
 ) -> list[str]:
     reasons: list[str] = []
     if required_label not in pr.labels:
@@ -391,7 +491,12 @@ def trust_reasons(
         unknown = [
             commit.sha
             for commit in pr.commits
-            if not trusted_commit(commit, pr_number=pr.number, fix_actors=fix_actors)
+            if not trusted_commit(
+                commit,
+                pr_number=pr.number,
+                fix_actors=fix_actors,
+                repair_chain=repair_chain,
+            )
         ]
         if unknown:
             reasons.append("unknown-commit:" + ",".join(sorted(unknown)))
@@ -410,6 +515,7 @@ def select_pull_requests(
     required_label: str = REQUIRED_LABEL,
     default_branch: str = DEFAULT_BRANCH,
     fix_actors: Iterable[str] = DEFAULT_FIX_ACTORS,
+    repair_chains: Mapping[int, Iterable[RepairCommitRecord]] | None = None,
 ) -> SelectionResult:
     selected: list[PullRequestSnapshot] = []
     rejected: dict[int, tuple[str, ...]] = {}
@@ -419,12 +525,22 @@ def select_pull_requests(
         if pr.default_branch != default_branch:
             reasons = list(
                 dict.fromkeys(
-                    trust_reasons(pr, required_label=required_label, fix_actors=fix_actors)
+                    trust_reasons(
+                        pr,
+                        required_label=required_label,
+                        fix_actors=fix_actors,
+                        repair_chain=(repair_chains or {}).get(pr.number, ()),
+                    )
                     + ["default-branch-mismatch"]
                 )
             )
         else:
-            reasons = trust_reasons(pr, required_label=required_label, fix_actors=fix_actors)
+            reasons = trust_reasons(
+                pr,
+                required_label=required_label,
+                fix_actors=fix_actors,
+                repair_chain=(repair_chains or {}).get(pr.number, ()),
+            )
         if reasons:
             rejected[pr.number] = tuple(reasons)
         else:
@@ -485,6 +601,118 @@ class DependencyChange:
     added_packages: tuple[str, ...] = ()
     removed_packages: tuple[str, ...] = ()
     metadata: PackageMetadata | None = None
+    direct: bool = True
+
+
+@dataclass(frozen=True)
+class ManifestLockDiff:
+    """Trusted, static manifest/lock maps captured from one PR diff.
+
+    The maps contain resolved package versions.  A lock-only member is a
+    transitive change; a manifest member is direct.  The caller must obtain
+    these maps from the trusted PR diff adapter, never from a comment or PR
+    body.
+    """
+
+    project: str
+    ecosystem: str
+    manifest_before: Mapping[str, str]
+    manifest_after: Mapping[str, str]
+    lock_before: Mapping[str, str]
+    lock_after: Mapping[str, str]
+    metadata: Mapping[str, PackageMetadata]
+    script_changes: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    source_types: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class GroupedReconstruction:
+    changes: tuple[DependencyChange, ...]
+    errors: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        return bool(self.changes) and not self.errors
+
+
+def reconstruct_grouped_changes(diff: ManifestLockDiff) -> GroupedReconstruction:
+    """Reconstruct every direct, added/removed, and lock-only member.
+
+    No package is silently copied from an ``added_packages`` hint.  Missing
+    metadata, malformed script maps, and manifest/lock disagreement are
+    explicit reconstruction errors and must stop all dependency execution.
+    """
+
+    errors: list[str] = []
+    names = sorted(
+        {
+            name
+            for mapping_before, mapping_after in (
+                (diff.manifest_before, diff.manifest_after),
+                (diff.lock_before, diff.lock_after),
+            )
+            for name in set(mapping_before) | set(mapping_after)
+            if mapping_before.get(name) != mapping_after.get(name)
+        }
+    )
+    if not names:
+        return GroupedReconstruction((), ("no-dependency-change",))
+    changes: list[DependencyChange] = []
+    known_scripts = set(diff.script_changes)
+    for name in names:
+        manifest_before = diff.manifest_before.get(name)
+        manifest_after = diff.manifest_after.get(name)
+        lock_before = diff.lock_before.get(name)
+        lock_after = diff.lock_after.get(name)
+        if manifest_before is not None and lock_before is not None and manifest_before != lock_before:
+            errors.append(f"manifest-lock-mismatch:{name}:before")
+        if manifest_after is not None and lock_after is not None and manifest_after != lock_after:
+            errors.append(f"manifest-lock-mismatch:{name}:after")
+        from_version = manifest_before or lock_before or "absent"
+        to_version = manifest_after or lock_after or "absent"
+        if from_version == "absent" and to_version == "absent":
+            errors.append(f"incomplete-version-member:{name}")
+            continue
+        package_metadata = diff.metadata.get(name)
+        if package_metadata is None:
+            errors.append(f"missing-package-metadata:{name}")
+            continue
+        expected_metadata_version = to_version if to_version != "absent" else from_version
+        if package_metadata.version != expected_metadata_version:
+            errors.append(f"package-version-mismatch:{name}")
+        if not package_metadata.registry or not package_metadata.download_url:
+            errors.append(f"missing-package-source:{name}")
+        if not package_metadata.integrity:
+            errors.append(f"missing-package-integrity:{name}")
+        source_type = diff.source_types.get(name, package_metadata.source_type)
+        scripts = diff.script_changes.get(name, {})
+        if not isinstance(scripts, Mapping) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in scripts.items()
+        ):
+            errors.append(f"invalid-script-member:{name}")
+            scripts = {}
+        changes.append(
+            DependencyChange(
+                project=diff.project,
+                package=name,
+                from_version=from_version,
+                to_version=to_version,
+                ecosystem=diff.ecosystem,
+                manifest_version=manifest_after,
+                lock_version=lock_after,
+                expected_integrity=package_metadata.integrity,
+                source_type=source_type,
+                registry=package_metadata.registry,
+                download_url=package_metadata.download_url,
+                script_changes=dict(scripts),
+                metadata=package_metadata,
+                direct=name in diff.manifest_before or name in diff.manifest_after,
+            )
+        )
+    for unknown_script_name in sorted(known_scripts - set(names)):
+        errors.append(f"script-without-dependency-member:{unknown_script_name}")
+    return GroupedReconstruction(tuple(changes), tuple(dict.fromkeys(errors)))
 
 
 class MetadataUnavailable(RuntimeError):
@@ -560,6 +788,18 @@ class PreflightResult:
     removed_packages: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class GroupedPreflightResult:
+    status: PreflightStatus
+    reasons: tuple[str, ...]
+    member_results: tuple[PreflightResult, ...]
+    changes: tuple[DependencyChange, ...]
+
+    @property
+    def complete(self) -> bool:
+        return self.status is PreflightStatus.PASS and len(self.member_results) == len(self.changes)
+
+
 class SupplyChainPreflight:
     """Static supply-chain gate that runs before install, build, or test."""
 
@@ -585,6 +825,13 @@ class SupplyChainPreflight:
     def check(self, change: DependencyChange) -> PreflightResult:
         reasons: list[str] = []
         source_type = change.source_type.casefold()
+        if not change.package or not change.ecosystem or not change.from_version or not change.to_version:
+            return PreflightResult(
+                PreflightStatus.BLOCKED,
+                ("incomplete-dependency-member",),
+                added_packages=change.added_packages,
+                removed_packages=change.removed_packages,
+            )
         if source_type not in {"registry", "index"}:
             return PreflightResult(
                 PreflightStatus.BLOCKED,
@@ -644,7 +891,10 @@ class SupplyChainPreflight:
                     removed_packages=change.removed_packages,
                 )
 
-        if metadata.name != change.package or metadata.version != change.to_version:
+        expected_metadata_version = (
+            change.from_version if change.to_version == "absent" else change.to_version
+        )
+        if metadata.name != change.package or metadata.version != expected_metadata_version:
             reasons.append("package-identity-or-version-mismatch")
         registry_host = _host(metadata.registry)
         allowed_hosts = self.allowed_registry_hosts.get(change.ecosystem, frozenset())
@@ -687,6 +937,30 @@ class SupplyChainPreflight:
             added_packages=change.added_packages,
             removed_packages=change.removed_packages,
         )
+
+    def check_grouped(
+        self,
+        changes: Iterable[DependencyChange],
+        *,
+        reconstruction_errors: Iterable[str] = (),
+    ) -> GroupedPreflightResult:
+        """Run every member gate before any install/build/test callback."""
+
+        members = tuple(changes)
+        reconstruction = tuple(reconstruction_errors)
+        reasons = list(reconstruction)
+        member_results: list[PreflightResult] = []
+        for member in members:
+            result = self.check(member)
+            member_results.append(result)
+            reasons.extend(f"{member.package}:{reason}" for reason in result.reasons)
+        if reconstruction or any(result.status is PreflightStatus.BLOCKED for result in member_results):
+            status = PreflightStatus.BLOCKED
+        elif any(result.status is PreflightStatus.UNKNOWN for result in member_results):
+            status = PreflightStatus.UNKNOWN
+        else:
+            status = PreflightStatus.PASS
+        return GroupedPreflightResult(status, tuple(dict.fromkeys(reasons)), tuple(member_results), members)
 
 
 @dataclass(frozen=True)
@@ -937,12 +1211,17 @@ class DockerBuildSpec:
     image_tag: str
     commit_sha: str
     timeout_seconds: int
+    invocation_id: str = ""
 
     def argv(self) -> tuple[str, ...]:
         if not SAFE_PROJECT_RE.fullmatch(self.project):
             raise BoundaryError("unsafe Docker project name")
         if not SAFE_IMAGE_TAG_RE.fullmatch(self.image_tag):
             raise BoundaryError("unsafe Docker image tag")
+        if not SAFE_INVOCATION_RE.fullmatch(self.invocation_id):
+            raise BoundaryError("Docker invocation id is missing or unsafe")
+        if f"/{self.invocation_id}/" not in self.image_tag:
+            raise BoundaryError("Docker image tag is not owned by this invocation")
         if self.stage not in {"test", "final"}:
             raise BoundaryError("Docker stage is not allowlisted")
         if self.timeout_seconds <= 0:
@@ -956,6 +1235,8 @@ class DockerBuildSpec:
             "plain",
             "--build-arg",
             f"COMMIT_HASH={self.commit_sha}",
+            "--label",
+            f"{DOCKER_OWNERSHIP_LABEL}={self.invocation_id}",
             "--target",
             self.stage,
             "--tag",
@@ -970,11 +1251,15 @@ def docker_specs_for_project(
     *,
     repository_root: Path,
     commit_sha: str,
+    invocation_id: str | None = None,
 ) -> tuple[DockerBuildSpec, ...]:
     if project not in matrix.projects:
         raise MatrixError(f"project is not in verification matrix: {project}")
     definition = matrix.projects[project]
     stages = parse_docker_stages(repository_root / definition.path / "Dockerfile")
+    invocation_id = invocation_id or uuid.uuid4().hex
+    if not SAFE_INVOCATION_RE.fullmatch(invocation_id):
+        raise BoundaryError("Docker invocation id is missing or unsafe")
     result: list[DockerBuildSpec] = []
     for stage_name in ("test", "final"):
         stage = definition.docker[stage_name]
@@ -984,7 +1269,7 @@ def docker_specs_for_project(
             # There is intentionally no normal-build fallback here.  An
             # absent optional target is skipped, not reported as a test pass.
             continue
-        image_tag = f"dependabot-batch/{project}/{stage_name}:{commit_sha[:12]}"
+        image_tag = f"dependabot-batch/{invocation_id}/{project}/{stage_name}:{commit_sha[:12]}"
         result.append(
             DockerBuildSpec(
                 project,
@@ -993,6 +1278,7 @@ def docker_specs_for_project(
                 image_tag,
                 commit_sha,
                 stage.timeout_seconds,
+                invocation_id,
             )
         )
     return tuple(result)
@@ -1101,6 +1387,15 @@ class MatrixCheckRunner:
 
 
 class ResourceCleaner(Protocol):
+    def image_exists(self, image_tag: str) -> bool:
+        ...
+
+    def image_owned(self, image_tag: str, invocation_id: str) -> bool:
+        ...
+
+    def worktree_exists(self, path: Path) -> bool:
+        ...
+
     def remove_image(self, image_tag: str) -> None:
         ...
 
@@ -1114,6 +1409,43 @@ class DockerResourceCleaner:
     def __init__(self, runner: ProcessRunner, repository_root: Path) -> None:
         self.runner = runner
         self.repository_root = repository_root
+
+    def image_exists(self, image_tag: str) -> bool:
+        if not SAFE_IMAGE_TAG_RE.fullmatch(image_tag):
+            raise BoundaryError("refusing to inspect an unsafe image tag")
+        completed = self.runner.run(
+            ("docker", "image", "inspect", image_tag),
+            cwd=self.repository_root,
+            timeout_seconds=60,
+        )
+        return getattr(completed, "returncode", None) == 0
+
+    def image_owned(self, image_tag: str, invocation_id: str) -> bool:
+        if not SAFE_IMAGE_TAG_RE.fullmatch(image_tag) or not SAFE_INVOCATION_RE.fullmatch(invocation_id):
+            raise BoundaryError("refusing to inspect an unsafe Docker resource")
+        completed = self.runner.run(
+            (
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                f"{{{{ index .Config.Labels \"{DOCKER_OWNERSHIP_LABEL}\" }}}}",
+                image_tag,
+            ),
+            cwd=self.repository_root,
+            timeout_seconds=60,
+        )
+        return (
+            getattr(completed, "returncode", None) == 0
+            and getattr(completed, "stdout", "").strip() == invocation_id
+        )
+
+    def worktree_exists(self, path: Path) -> bool:
+        resolved = path.resolve()
+        root = self.repository_root.resolve()
+        if root not in resolved.parents:
+            raise BoundaryError("refusing to inspect a worktree outside the repository")
+        return resolved.exists()
 
     def remove_image(self, image_tag: str) -> None:
         if not SAFE_IMAGE_TAG_RE.fullmatch(image_tag):
@@ -1144,6 +1476,10 @@ class DockerBuildResult:
     returncode: int | None
     timed_out: bool = False
     error: str | None = None
+    image_preexisting: bool = False
+    image_created: bool = False
+    cleanup_attempted: bool = False
+    cleanup_succeeded: bool = False
 
 
 class DockerBatchRunner:
@@ -1156,6 +1492,7 @@ class DockerBatchRunner:
         *,
         repository_root: Path,
         max_concurrency: int = 2,
+        invocation_id: str | None = None,
     ) -> None:
         if max_concurrency != 2:
             raise MatrixError("Docker max concurrency must be exactly 2")
@@ -1163,41 +1500,112 @@ class DockerBatchRunner:
         self.cleaner = cleaner
         self.repository_root = repository_root
         self.max_concurrency = max_concurrency
+        self.invocation_id = invocation_id or uuid.uuid4().hex
+        if not SAFE_INVOCATION_RE.fullmatch(self.invocation_id):
+            raise BoundaryError("Docker invocation id is missing or unsafe")
         self.tracked_worktrees: set[Path] = set()
 
-    def track_worktree(self, path: Path) -> None:
+    def track_worktree(self, path: Path) -> bool:
         resolved = path.resolve()
         root = self.repository_root.resolve()
         if root not in resolved.parents:
             raise BoundaryError("worktree is outside repository")
+        if self.cleaner.worktree_exists(resolved):
+            return False
         self.tracked_worktrees.add(resolved)
+        return True
+
+    def _image_exists(self, image_tag: str) -> bool:
+        exists = self.cleaner.image_exists(image_tag)
+        if not isinstance(exists, bool):
+            raise BoundaryError("Docker image probe returned a non-boolean result")
+        return exists
+
+    def _image_owned(self, image_tag: str) -> bool:
+        owned = self.cleaner.image_owned(image_tag, self.invocation_id)
+        if not isinstance(owned, bool):
+            raise BoundaryError("Docker ownership probe returned a non-boolean result")
+        return owned
 
     def _one(self, spec: DockerBuildSpec) -> DockerBuildResult:
+        if spec.invocation_id != self.invocation_id:
+            return DockerBuildResult(spec.project, spec.stage, "failed", None, error="invocation-id-mismatch")
+        if not SAFE_INVOCATION_RE.fullmatch(spec.invocation_id):
+            return DockerBuildResult(spec.project, spec.stage, "failed", None, error="invalid-invocation-id")
+        image_preexisting = False
+        image_created = False
+        cleanup_attempted = False
+        cleanup_succeeded = False
+        returncode: int | None = None
+        status = "failed"
+        timed_out = False
+        error: str | None = None
         try:
-            completed = self.runner.run(
-                spec.argv(),
-                cwd=self.repository_root,
-                timeout_seconds=spec.timeout_seconds,
-            )
-            returncode = getattr(completed, "returncode", None)
-            status = "passed" if returncode == 0 else "failed"
-            return DockerBuildResult(spec.project, spec.stage, status, returncode)
-        except subprocess.TimeoutExpired:
-            return DockerBuildResult(spec.project, spec.stage, "timeout", None, timed_out=True)
-        except Exception as exc:
-            return DockerBuildResult(spec.project, spec.stage, "failed", None, error=type(exc).__name__)
-        finally:
-            # The image tag is deterministic and belongs exclusively to this
-            # build.  Do not delete arbitrary images or call docker prune.
+            image_preexisting = self._image_exists(spec.image_tag)
+            if image_preexisting:
+                return DockerBuildResult(
+                    spec.project,
+                    spec.stage,
+                    "collision",
+                    None,
+                    error="image-tag-already-exists",
+                    image_preexisting=True,
+                )
             try:
-                self.cleaner.remove_image(spec.image_tag)
-            except Exception:
-                # Cleanup failures remain visible in the result only through
-                # the audit boundary; they must not trigger broad cleanup.
-                pass
+                completed = self.runner.run(
+                    spec.argv(),
+                    cwd=self.repository_root,
+                    timeout_seconds=spec.timeout_seconds,
+                )
+                returncode = getattr(completed, "returncode", None)
+                status = "passed" if returncode == 0 else "failed"
+            except subprocess.TimeoutExpired:
+                status = "timeout"
+                timed_out = True
+            except Exception as exc:
+                status = "failed"
+                error = type(exc).__name__
+            # A successful/failed build is not ownership evidence.  Only a
+            # post-build probe proving that the previously absent tag now
+            # exists grants this invocation permission to remove it.
+            try:
+                image_created = self._image_owned(spec.image_tag)
+            except Exception as exc:
+                error = error or f"image-probe:{type(exc).__name__}"
+                image_created = False
+            if status == "passed" and not image_created:
+                status = "failed"
+                error = error or "image-not-created"
+        except Exception as exc:
+            status = "failed"
+            error = error or type(exc).__name__
+        finally:
+            if image_created and not image_preexisting:
+                cleanup_attempted = True
+                try:
+                    self.cleaner.remove_image(spec.image_tag)
+                    cleanup_succeeded = True
+                except Exception as exc:
+                    error = error or f"image-cleanup:{type(exc).__name__}"
+        return DockerBuildResult(
+            spec.project,
+            spec.stage,
+            status,
+            returncode,
+            timed_out,
+            error,
+            image_preexisting,
+            image_created,
+            cleanup_attempted,
+            cleanup_succeeded,
+        )
 
     def run(self, specs: Iterable[DockerBuildSpec]) -> tuple[DockerBuildResult, ...]:
         ordered = tuple(specs)
+        if len({spec.image_tag for spec in ordered}) != len(ordered):
+            raise BoundaryError("duplicate Docker resource tag in one invocation")
+        if any(spec.invocation_id != self.invocation_id for spec in ordered):
+            raise BoundaryError("Docker specs do not belong to this invocation")
         results: dict[int, DockerBuildResult] = {}
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
             futures = {executor.submit(self._one, spec): index for index, spec in enumerate(ordered)}
@@ -1336,6 +1744,14 @@ class FixCommit:
     sha: str
     message: str
     marker: str
+    pr_number: int = 0
+    run_id: int = 0
+    parent_sha: str = ""
+    author_login: str = ""
+    committer_login: str = ""
+    verification_verified: bool = False
+    parents: tuple[str, ...] = ()
+    created_by_skill: bool = False
 
 
 def make_fix_commit_message(summary: str, marker: str) -> str:
@@ -1357,11 +1773,13 @@ class RepairCycleController:
 
     def __init__(self, gate: MutationGate) -> None:
         self.gate = gate
+        self.repair_chain: list[RepairCommitRecord] = []
 
     def run(
         self,
         *,
         pr_number: int,
+        run_id: int,
         initial_head_sha: str,
         current_head: Callable[[], str],
         diagnose: Callable[[int, str], RepairDiagnosis],
@@ -1383,11 +1801,28 @@ class RepairCycleController:
                 self.gate.require_write("create-fix-commit")
             except WriteDenied:
                 return RepairCycleResult("open", cycle - 1, tuple(commits), "write-not-authorized", head_sha)
-            marker = make_fix_marker(pr_number, head_sha)
+            try:
+                marker = make_fix_marker(pr_number, head_sha, run_id)
+            except ValueError:
+                return RepairCycleResult("open", cycle - 1, tuple(commits), "invalid-repair-context", head_sha)
             commit = create_commit(diagnosis, marker, make_fix_commit_message(diagnosis.summary, marker))
             if (
                 not SHA_RE.fullmatch(commit.sha)
-                or not is_valid_fix_marker(commit.marker, pr_number)
+                or commit.pr_number != pr_number
+                or commit.run_id != run_id
+                or commit.parent_sha != head_sha
+                or commit.parents != (head_sha,)
+                or commit.author_login not in DEFAULT_FIX_ACTORS
+                or commit.committer_login != commit.author_login
+                or not commit.verification_verified
+                or not commit.created_by_skill
+                or not is_valid_fix_marker(
+                    commit.marker,
+                    pr_number,
+                    source_head_sha=head_sha,
+                    run_id=run_id,
+                )
+                or commit.marker != marker
                 or f"{FIX_TRAILER}: {commit.marker}" not in commit.message
             ):
                 return RepairCycleResult("open", cycle - 1, tuple(commits), "fix-commit-marker-invalid", head_sha)
@@ -1401,6 +1836,19 @@ class RepairCycleController:
             except Exception as exc:
                 return RepairCycleResult("open", cycle - 1, tuple(commits), f"push-failed:{type(exc).__name__}", head_sha)
             commits.append(commit)
+            self.repair_chain.append(
+                RepairCommitRecord(
+                    pr_number,
+                    run_id,
+                    head_sha,
+                    commit.sha,
+                    commit.marker,
+                    commit.author_login,
+                    commit.committer_login,
+                    commit.verification_verified,
+                    commit.created_by_skill,
+                )
+            )
             head_sha = commit.sha
             ci_result = wait_for_ci(head_sha)
             if ci_result.classification is CIClassification.SUCCESS:
@@ -1463,35 +1911,99 @@ class SerialMerger:
         ci_success_for_head: Callable[[str], bool],
         merge: Callable[[str], str],
         wait_for_cd: Callable[[str], bool],
+        update_branch: Callable[[int, str, str], PullRequestSnapshot] | None = None,
+        rebuild_snapshot: Callable[[PullRequestSnapshot], PullRequestSnapshot] | None = None,
+        revalidate: Callable[[PullRequestSnapshot], bool] | None = None,
     ) -> tuple[MergeResult, ...]:
         results: list[MergeResult] = []
+
+        def refresh_base(
+            expected: PullRequestSnapshot,
+            current: PullRequestSnapshot,
+        ) -> PullRequestSnapshot | None:
+            if current.head_sha != expected.head_sha:
+                return None
+            if current.base_sha == expected.base_sha:
+                return current
+            if update_branch is None or revalidate is None:
+                return None
+            # Refetch immediately before the fixed expected-head mutation so
+            # a changed head/base cannot be hidden by a stale diagnosis read.
+            before_update = refetch(expected.number)
+            if before_update.head_sha != expected.head_sha or before_update.base_sha != current.base_sha:
+                return None
+            try:
+                self.gate.require_write("update-branch")
+                updated = update_branch(
+                    expected.number,
+                    before_update.head_sha,
+                    before_update.base_sha,
+                )
+            except (WriteDenied, SnapshotDrift):
+                return None
+            except Exception:
+                return None
+            if (
+                updated.number != expected.number
+                or updated.base_sha != before_update.base_sha
+                or updated.head_sha == expected.head_sha
+                or not updated.is_open()
+            ):
+                return None
+            # The returned object is only a mutation response.  Rebuild it
+            # from the live snapshot, discard all old local/CI evidence, and
+            # run the complete validation adapter against the new pair.
+            rebuilt = rebuild_snapshot(updated) if rebuild_snapshot else refetch(expected.number)
+            if rebuilt.number != updated.number or rebuilt.head_sha != updated.head_sha or rebuilt.base_sha != updated.base_sha:
+                return None
+            if not revalidate(rebuilt):
+                return None
+            return rebuilt
+
         for expected in sorted(prs, key=lambda item: item.number):
             if not self.gate.can_write():
                 results.append(MergeResult(expected.number, Status.OPEN.value, "write-not-authorized"))
                 continue
             current = refetch(expected.number)
-            try:
-                assert_expected_snapshot(expected, current)
-            except SnapshotDrift as exc:
-                results.append(MergeResult(expected.number, Status.OPEN.value, str(exc)))
+            working = refresh_base(expected, current)
+            if working is None:
+                reason = "head SHA changed" if current.head_sha != expected.head_sha else "base-freshness-update-failed"
+                results.append(MergeResult(expected.number, Status.OPEN.value, reason))
                 continue
-            if current.mergeable not in {"MERGEABLE", "mergeable"}:
+            if working.mergeable not in {"MERGEABLE", "mergeable"}:
                 results.append(MergeResult(expected.number, Status.OPEN.value, "merge-conflict"))
                 continue
-            if not ci_success_for_head(current.head_sha):
-                results.append(MergeResult(expected.number, Status.OPEN.value, "required-ci-not-success"))
+            refreshed_during_merge = False
+            ready_to_merge = False
+            while True:
+                if not ci_success_for_head(working.head_sha):
+                    results.append(MergeResult(expected.number, Status.OPEN.value, "required-ci-not-success"))
+                    break
+                # The read here is immediately before the expected-SHA
+                # mutation.  A base advance triggers a fresh branch update,
+                # not a merge using stale local or CI evidence.
+                latest = refetch(expected.number)
+                if latest.head_sha == working.head_sha and latest.base_sha == working.base_sha:
+                    try:
+                        self.gate.require_write("squash-merge")
+                    except WriteDenied as exc:
+                        results.append(MergeResult(expected.number, Status.OPEN.value, str(exc)))
+                        break
+                    ready_to_merge = True
+                    break
+                if latest.head_sha != working.head_sha:
+                    results.append(MergeResult(expected.number, Status.OPEN.value, "head SHA changed"))
+                    break
+                next_working = refresh_base(working, latest)
+                if next_working is None or refreshed_during_merge:
+                    results.append(MergeResult(expected.number, Status.OPEN.value, "base-freshness-update-failed"))
+                    break
+                working = next_working
+                refreshed_during_merge = True
+            if not ready_to_merge:
                 continue
-            # A second read is intentional: the first read is for diagnosis;
-            # this read is immediately before the expected-SHA mutation.
-            latest = refetch(expected.number)
             try:
-                assert_expected_snapshot(current, latest)
-                self.gate.require_write("squash-merge")
-            except (SnapshotDrift, WriteDenied) as exc:
-                results.append(MergeResult(expected.number, Status.OPEN.value, str(exc)))
-                continue
-            try:
-                merge_sha = merge(current.head_sha)
+                merge_sha = merge(working.head_sha)
             except Exception as exc:
                 results.append(MergeResult(expected.number, Status.OPEN.value, f"merge-failed:{type(exc).__name__}"))
                 continue
@@ -1867,6 +2379,7 @@ def reconstruct_state(
     *,
     comments: Iterable[CommentRecord] = (),
     issues: Iterable[IssueRecord] = (),
+    repair_chain: Iterable[RepairCommitRecord] = (),
 ) -> ReconstructedState:
     """Rebuild idempotency evidence from GitHub, not a local durable store."""
 
@@ -1878,7 +2391,9 @@ def reconstruct_state(
                 commit.trailers.get(FIX_TRAILER)
                 or parse_commit_trailers(commit.message).get(FIX_TRAILER),
             )
-            if marker and is_valid_fix_marker(marker, pr.number)
+            if marker
+            and is_valid_fix_marker(marker, pr.number)
+            and trusted_commit(commit, pr_number=pr.number, repair_chain=repair_chain)
         }
     )
 
@@ -2004,6 +2519,459 @@ class BatchProcessor:
         return tuple(reports)
 
 
+class BatchAdapter(Protocol):
+    """Explicit live boundary consumed by :class:`BatchOrchestrator`.
+
+    A production adapter must implement these methods with the existing GH
+    skill and fixed fallback.  Tests provide an in-memory adapter; this module
+    never discovers or shells out to a live GitHub client implicitly.
+    """
+
+    def read_pull_requests(self) -> Iterable[PullRequestSnapshot]: ...
+    def read_repair_chain(self, pr: PullRequestSnapshot) -> Iterable[RepairCommitRecord]: ...
+    def read_dependency_diff(self, pr: PullRequestSnapshot) -> ManifestLockDiff: ...
+    def footprint(self, pr: PullRequestSnapshot, diff: ManifestLockDiff) -> FootprintedItem: ...
+    def run_matrix_and_docker(self, pr: PullRequestSnapshot, changes: tuple[DependencyChange, ...]) -> bool: ...
+    def observe_ci(self, expected_head_sha: str) -> CIObservation: ...
+    def rerun_ci(self, pr: PullRequestSnapshot, observation: CIObservation, expected_head_sha: str) -> None: ...
+    def repair_run_id(self, pr: PullRequestSnapshot) -> int: ...
+    def diagnose_repair(self, pr: PullRequestSnapshot, cycle: int, head_sha: str) -> RepairDiagnosis: ...
+    def create_fix_commit(self, pr: PullRequestSnapshot, diagnosis: RepairDiagnosis, marker: str, message: str) -> FixCommit: ...
+    def push_fix(self, pr: PullRequestSnapshot, expected_head_sha: str, commit: FixCommit) -> None: ...
+    def read_current_pr(self, number: int) -> PullRequestSnapshot: ...
+    def update_branch(self, number: int, expected_head_sha: str, expected_base_sha: str) -> PullRequestSnapshot: ...
+    def rebuild_snapshot(self, pr: PullRequestSnapshot) -> PullRequestSnapshot: ...
+    def revalidate(self, pr: PullRequestSnapshot, changes: tuple[DependencyChange, ...]) -> bool: ...
+    def ci_success_for_head(self, head_sha: str) -> bool: ...
+    def merge_pr(self, number: int, expected_head_sha: str) -> str: ...
+    def wait_for_cd(self, merge_sha: str) -> bool: ...
+    def read_comments(self, number: int) -> Iterable[CommentRecord]: ...
+    def create_comment(self, number: int, body: str) -> CommentRecord: ...
+    def update_comment(self, comment_id: int, body: str) -> CommentRecord: ...
+    def read_followup_issues(self) -> Iterable[IssueRecord]: ...
+    def create_followup_issue(self, body: str) -> IssueRecord: ...
+    def update_followup_issue(self, number: int, body: str) -> IssueRecord: ...
+    def close_pr(self, number: int, expected_head_sha: str) -> None: ...
+
+
+@dataclass(frozen=True)
+class OrchestrationCandidate:
+    pr: PullRequestSnapshot
+    diff: ManifestLockDiff
+    changes: tuple[DependencyChange, ...]
+    preflight: GroupedPreflightResult
+    footprint: FootprintedItem
+
+
+@dataclass(frozen=True)
+class BatchExecutionResult:
+    status: str
+    authorization: AuthorizationDecision
+    reports: tuple[CandidateReport, ...]
+    merge_results: tuple[MergeResult, ...]
+    audit_markdown: str
+    events: tuple[str, ...]
+
+
+def make_grouped_idempotency_marker(
+    project: str,
+    changes: Iterable[DependencyChange],
+) -> str:
+    canonical = [
+        {
+            "package": change.package,
+            "from": change.from_version,
+            "to": change.to_version,
+            "integrity": change.expected_integrity or "",
+        }
+        for change in sorted(changes, key=lambda item: item.package)
+    ]
+    digest = hashlib.sha256(
+        json.dumps([project, canonical], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:32]
+    return f"dependabot-batch:v1:{digest}"
+
+
+class BatchOrchestrator:
+    """Executable state machine for one deterministic, injectable batch.
+
+    The ordering is deliberately two-phase: all selected candidates must pass
+    complete grouped static preflight before any local dependency execution;
+    only then are footprint waves, Docker/matrix, CI, bounded repair, marker
+    writes, disposition, and serial merge/CD adapters called.
+    """
+
+    def __init__(
+        self,
+        adapter: BatchAdapter,
+        *,
+        preflight: SupplyChainPreflight | None = None,
+        ci_waiter: CIWaiter | None = None,
+        required_label: str = REQUIRED_LABEL,
+    ) -> None:
+        self.adapter = adapter
+        self.preflight = preflight or SupplyChainPreflight()
+        self.ci_waiter = ci_waiter or CIWaiter()
+        self.required_label = required_label
+        self.events: list[str] = []
+
+    class _IssueWriter:
+        def __init__(self, adapter: BatchAdapter) -> None:
+            self.adapter = adapter
+
+        def create(self, body: str) -> IssueRecord:
+            return self.adapter.create_followup_issue(body)
+
+        def update(self, number: int, body: str) -> IssueRecord:
+            return self.adapter.update_followup_issue(number, body)
+
+    def _comment_writer(
+        self,
+        gate: MutationGate,
+        pr: PullRequestSnapshot,
+        marker: str,
+        body: str,
+        comments: tuple[CommentRecord, ...],
+    ) -> Callable[[str], Any]:
+        def write(_: str) -> Any:
+            mutation = plan_idempotent_comment(marker, body, comments)
+            if mutation.action == "create":
+                gate.require_write("comment-create")
+                self.events.append(f"comment-create:{pr.number}")
+                return self.adapter.create_comment(pr.number, mutation.body)
+            gate.require_write("comment-update")
+            self.events.append(f"comment-update:{pr.number}")
+            return self.adapter.update_comment(mutation.comment_id or 0, mutation.body)
+
+        return write
+
+    def _ensure_open_comment(
+        self,
+        gate: MutationGate,
+        pr: PullRequestSnapshot,
+        marker: str,
+        body: str,
+        comments: tuple[CommentRecord, ...],
+    ) -> bool:
+        try:
+            self._comment_writer(gate, pr, marker, body, comments)(body)
+        except WriteDenied:
+            return False
+        except Exception:
+            return False
+        return True
+
+    def run(
+        self,
+        *,
+        current_turn_instruction: str | None,
+        mode: Mode | str = Mode.WRITE,
+        instruction_source: str = "current_turn_human",
+    ) -> BatchExecutionResult:
+        self.events = []
+        requested_mode = Mode(mode)
+        authorization = evaluate_authorization(
+            current_turn_instruction,
+            source=instruction_source,
+            requested_mode=mode,
+        )
+        gate = MutationGate(authorization)
+        self.events.append("authorization")
+        prs = tuple(self.adapter.read_pull_requests())
+        self.events.append("snapshot-read")
+        repair_chains = {
+            pr.number: tuple(self.adapter.read_repair_chain(pr))
+            for pr in prs
+        }
+        selection = select_pull_requests(
+            prs,
+            required_label=self.required_label,
+            repair_chains=repair_chains,
+        )
+        self.events.append("selector-trust")
+        aggregator = AuditAggregator()
+        reports: dict[int, CandidateReport] = {}
+        for number, reasons in sorted(selection.rejected.items()):
+            pr = next(item for item in prs if item.number == number)
+            reports[number] = CandidateReport(number, Status.SKIPPED.value, ",".join(reasons))
+        if requested_mode is Mode.WRITE and not authorization.allows_write:
+            for number, report in reports.items():
+                pr = next(item for item in prs if item.number == number)
+                aggregator.add(
+                    AuditRecord(number, pr.html_url, pr.base_sha, pr.head_sha, report.status, report.reason)
+                )
+            self.events.append("write-denied-before-state-machine")
+            return BatchExecutionResult(
+                "blocked",
+                authorization,
+                tuple(reports.values()),
+                (),
+                aggregator.render_markdown(),
+                tuple(self.events),
+            )
+
+        prepared: dict[int, OrchestrationCandidate] = {}
+        for pr in selection.selected:
+            try:
+                diff = self.adapter.read_dependency_diff(pr)
+                reconstruction = reconstruct_grouped_changes(diff)
+                grouped = self.preflight.check_grouped(
+                    reconstruction.changes,
+                    reconstruction_errors=reconstruction.errors,
+                )
+                self.events.append(f"grouped-preflight:{pr.number}")
+                if not grouped.complete:
+                    reason = "grouped-preflight:" + ",".join(grouped.reasons)
+                    reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, reason, grouped)
+                    continue
+                item = self.adapter.footprint(pr, diff)
+                prepared[pr.number] = OrchestrationCandidate(
+                    pr,
+                    diff,
+                    grouped.changes,
+                    grouped,
+                    item,
+                )
+            except Exception as exc:
+                reason = f"grouped-preflight-error:{type(exc).__name__}"
+                reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, reason)
+        self.events.append("all-grouped-preflight-complete")
+        merge_candidates: dict[int, OrchestrationCandidate] = {}
+        if authorization.mode is Mode.AUDIT_ONLY:
+            for candidate in prepared.values():
+                reason = "audit-only: no matrix/docker/ci/dependency execution"
+                reports[candidate.pr.number] = CandidateReport(
+                    candidate.pr.number,
+                    Status.OPEN.value,
+                    reason,
+                    candidate.preflight,
+                    False,
+                )
+        else:
+            waves = schedule_footprints(candidate.footprint for candidate in prepared.values())
+            self.events.append("footprint-waves")
+            for wave in waves:
+                for item in wave:
+                    candidate = prepared[int(item.identifier)]
+                    pr = candidate.pr
+                    self.events.append(f"snapshot-recheck:{pr.number}")
+                    try:
+                        assert_expected_snapshot(pr, self.adapter.read_current_pr(pr.number))
+                    except SnapshotDrift as exc:
+                        reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, str(exc), candidate.preflight, False)
+                        continue
+                    self.events.append(f"matrix-docker:{pr.number}")
+                    try:
+                        local_ok = bool(self.adapter.run_matrix_and_docker(pr, candidate.changes))
+                    except Exception as exc:
+                        local_ok = False
+                        local_reason = f"matrix-docker-error:{type(exc).__name__}"
+                    else:
+                        local_reason = "local-verification-passed" if local_ok else "local-verification-failed"
+                    if not local_ok:
+                        reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, local_reason, candidate.preflight, True)
+                        marker = make_grouped_idempotency_marker(candidate.diff.project, candidate.changes)
+                        comment_body = f"Dependabot batch result for PR #{pr.number}: {local_reason}"
+                        self._ensure_open_comment(
+                            gate,
+                            pr,
+                            marker,
+                            comment_body,
+                            tuple(self.adapter.read_comments(pr.number)),
+                        )
+                        issue_body = build_followup_issue_body(
+                            summary=comment_body,
+                            pr_url=pr.html_url,
+                            project=candidate.diff.project,
+                            package=candidate.changes[0].package,
+                            from_version=candidate.changes[0].from_version,
+                            to_version=candidate.changes[0].to_version,
+                            base_sha=pr.base_sha,
+                            head_sha=pr.head_sha,
+                            check_urls=(),
+                            classification="external/unknown",
+                            attempts=(local_reason,),
+                            reproduction="adapter-provided deterministic reproduction",
+                            recommendation="review the retained open PR",
+                            close_reason="",
+                            marker=marker,
+                        )
+                        FollowupIssueManager(gate).ensure(
+                            marker,
+                            issue_body,
+                            search_all=self.adapter.read_followup_issues,
+                            writer=self._IssueWriter(self.adapter),
+                        )
+                        continue
+                    self.events.append(f"ci-wait:{pr.number}")
+                    ci_result = self.ci_waiter.wait(
+                        pr.head_sha,
+                        self.adapter.observe_ci,
+                        lambda observation, pr=pr: self.adapter.rerun_ci(pr, observation, pr.head_sha),
+                        gate=gate,
+                    )
+                    final_head = pr.head_sha
+                    if ci_result.classification is CIClassification.DEPENDENCY_CAUSED:
+                        self.events.append(f"repair:{pr.number}")
+                        controller = RepairCycleController(gate)
+                        repair = controller.run(
+                            pr_number=pr.number,
+                            run_id=self.adapter.repair_run_id(pr),
+                            initial_head_sha=pr.head_sha,
+                            current_head=lambda pr=pr: self.adapter.read_current_pr(pr.number).head_sha,
+                            diagnose=lambda cycle, head, pr=pr: self.adapter.diagnose_repair(pr, cycle, head),
+                            create_commit=lambda diagnosis, marker, message, pr=pr: self.adapter.create_fix_commit(pr, diagnosis, marker, message),
+                            push=lambda old_head, commit, pr=pr: self.adapter.push_fix(pr, old_head, commit),
+                            wait_for_ci=lambda head: self.ci_waiter.wait(
+                                head,
+                                self.adapter.observe_ci,
+                                lambda observation, head=head: self.adapter.rerun_ci(pr, observation, head),
+                                gate=gate,
+                            ),
+                        )
+                        final_head = repair.final_head_sha
+                        if repair.status == Status.SUCCESS.value:
+                            ci_result = CIResult(CIClassification.SUCCESS, repair.reason, final_head, ci_result.reruns)
+                            repaired_pr = self.adapter.read_current_pr(pr.number)
+                            candidate = OrchestrationCandidate(
+                                repaired_pr,
+                                candidate.diff,
+                                candidate.changes,
+                                candidate.preflight,
+                                candidate.footprint,
+                            )
+                            prepared[pr.number] = candidate
+                            pr = repaired_pr
+                        else:
+                            ci_result = CIResult(CIClassification.DEPENDENCY_CAUSED, repair.reason, final_head, ci_result.reruns)
+                    if ci_result.classification is CIClassification.SUCCESS:
+                        reports[pr.number] = CandidateReport(pr.number, Status.SUCCESS.value, "verification-passed", candidate.preflight, True)
+                        merge_candidates[pr.number] = candidate
+                    else:
+                        reason = f"ci:{ci_result.classification.value}:{ci_result.reason}"
+                        reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, reason, candidate.preflight, True)
+                    marker = make_grouped_idempotency_marker(candidate.diff.project, candidate.changes)
+                    comment_body = f"Dependabot batch result for PR #{pr.number}: {reports[pr.number].reason}"
+                    comments = tuple(self.adapter.read_comments(pr.number))
+                    disposition = disposition_for(classification=ci_result.classification.value)
+                    if disposition == "close":
+                        close_result = DispositionExecutor(gate).apply(
+                            pr,
+                            disposition=disposition,
+                            read_current=lambda pr=pr: self.adapter.read_current_pr(pr.number),
+                            comment=self._comment_writer(gate, pr, marker, comment_body, comments),
+                            close=lambda expected_head, pr=pr: self.adapter.close_pr(pr.number, expected_head),
+                            comment_body=comment_body,
+                        )
+                        self.events.append(f"disposition:{pr.number}:{close_result}")
+                    else:
+                        self._ensure_open_comment(gate, pr, marker, comment_body, comments)
+                    if ci_result.classification is not CIClassification.SUCCESS:
+                        issue_body = build_followup_issue_body(
+                            summary=comment_body,
+                            pr_url=pr.html_url,
+                            project=candidate.diff.project,
+                            package=candidate.changes[0].package,
+                            from_version=candidate.changes[0].from_version,
+                            to_version=candidate.changes[0].to_version,
+                            base_sha=pr.base_sha,
+                            head_sha=final_head,
+                            check_urls=(),
+                            classification=ci_result.classification.value,
+                            attempts=(ci_result.reason,),
+                            reproduction="adapter-provided deterministic reproduction",
+                            recommendation="review the retained open PR",
+                            close_reason="",
+                            marker=marker,
+                        )
+                        self.events.append(f"issue:{pr.number}")
+                        FollowupIssueManager(gate).ensure(
+                            marker,
+                            issue_body,
+                            search_all=self.adapter.read_followup_issues,
+                            writer=self._IssueWriter(self.adapter),
+                        )
+        self.events.append("serial-merge-cd")
+        merge_results: tuple[MergeResult, ...] = ()
+        if merge_candidates and authorization.allows_write:
+            def merge_by_head(head_sha: str) -> str:
+                for number in sorted(merge_candidates):
+                    current = self.adapter.read_current_pr(number)
+                    if current.head_sha == head_sha:
+                        return self.adapter.merge_pr(number, head_sha)
+                raise SnapshotDrift("merge head does not belong to a candidate")
+
+            merge_results = SerialMerger(gate).merge_in_order(
+                tuple(candidate.pr for candidate in merge_candidates.values()),
+                refetch=self.adapter.read_current_pr,
+                ci_success_for_head=self.adapter.ci_success_for_head,
+                merge=merge_by_head,
+                wait_for_cd=self.adapter.wait_for_cd,
+                update_branch=self.adapter.update_branch,
+                rebuild_snapshot=self.adapter.rebuild_snapshot,
+                revalidate=lambda updated: self.adapter.revalidate(
+                    updated,
+                    prepared[updated.number].changes,
+                ),
+            )
+        for result in merge_results:
+            if result.pr_number in reports:
+                previous = reports[result.pr_number]
+                reports[result.pr_number] = CandidateReport(
+                    result.pr_number,
+                    result.status,
+                    result.reason,
+                    previous.preflight,
+                    previous.verification_ran,
+                )
+        by_number = {pr.number: pr for pr in prs}
+        for number, report in reports.items():
+            pr = by_number.get(number)
+            if pr is None:
+                continue
+            aggregator.add(
+                AuditRecord(
+                    number,
+                    pr.html_url,
+                    pr.base_sha,
+                    pr.head_sha,
+                    report.status,
+                    report.reason,
+                    mutation_result=report.status,
+                )
+            )
+        return BatchExecutionResult(
+            "completed",
+            authorization,
+            tuple(reports[number] for number in sorted(reports)),
+            merge_results,
+            aggregator.render_markdown(),
+            tuple(self.events),
+        )
+
+
+def execute_batch(
+    adapter: BatchAdapter,
+    *,
+    current_turn_instruction: str | None,
+    mode: Mode | str = Mode.WRITE,
+    instruction_source: str = "current_turn_human",
+    preflight: SupplyChainPreflight | None = None,
+    ci_waiter: CIWaiter | None = None,
+) -> BatchExecutionResult:
+    """Public executable entry point for a fully injected adapter."""
+
+    return BatchOrchestrator(
+        adapter,
+        preflight=preflight,
+        ci_waiter=ci_waiter,
+    ).run(
+        current_turn_instruction=current_turn_instruction,
+        mode=mode,
+        instruction_source=instruction_source,
+    )
+
+
 def load_snapshot(path: Path) -> tuple[PullRequestSnapshot, ...]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     values = raw.get("pull_requests") if isinstance(raw, Mapping) else raw
@@ -2056,12 +3024,22 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    requested_mode = Mode(args.mode)
     authorization = evaluate_authorization(
         args.current_turn_instruction,
         source=args.instruction_source,
-        requested_mode=Mode(args.mode),
+        requested_mode=requested_mode,
     )
     prs = load_snapshot(args.snapshot)
+    if requested_mode is Mode.WRITE:
+        if not authorization.allows_write:
+            print(f"mode=blocked reason={authorization.reason}")
+            return 2
+        print(
+            "mode=blocked reason=write mode requires an explicitly injected BatchAdapter; "
+            "the snapshot CLI will not guess a live writer",
+        )
+        return 2
     report = build_audit_snapshot_report(prs, default_branch=args.default_branch)
     print(f"mode={authorization.mode.value} reason={authorization.reason}")
     print(report.render_markdown())

@@ -116,6 +116,47 @@ class FixedBoundaryTests(unittest.TestCase):
                 expected_head_sha=sha("a"),
             )
 
+    def test_rerun_refetches_matching_run_immediately_and_carries_expected_sha(self) -> None:
+        runner = RecordingRunner({"id": 10, "status": "queued", "head_sha": sha("a")})
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        gate = AllowGate()
+        response = api.rerun_failed_jobs(
+            run_id=10,
+            expected_head_sha=sha("a"),
+            gate=gate,
+            refetch_run=lambda: {"id": 10, "status": "completed", "head_sha": sha("a")},
+        )
+        self.assertEqual(response.payload["head_sha"], sha("a"))
+        self.assertEqual(gate.operations, ["github-fallback:rerun-failed-jobs"])
+        argv, _ = runner.calls[0]
+        self.assertIn(
+            f"X-Dependabot-Batch-Expected-Head-SHA: {sha('a')}",
+            argv,
+        )
+
+    def test_rerun_refetch_sha_drift_rejects_without_post(self) -> None:
+        runner = RecordingRunner({"id": 10, "status": "queued", "head_sha": sha("a")})
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        with self.assertRaises(gh.BoundaryError):
+            api.rerun_failed_jobs(
+                run_id=10,
+                expected_head_sha=sha("a"),
+                gate=AllowGate(),
+                refetch_run=lambda: {"id": 10, "status": "completed", "head_sha": sha("b")},
+            )
+        self.assertEqual(runner.calls, [])
+
+    def test_rerun_rejects_empty_or_schema_incomplete_mutation_outcome(self) -> None:
+        runner = RecordingRunner({})
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        with self.assertRaises(gh.BoundaryError):
+            api.rerun_failed_jobs(
+                run_id=10,
+                expected_head_sha=sha("a"),
+                gate=AllowGate(),
+                refetch_run=lambda: {"id": 10, "status": "completed", "head_sha": sha("a")},
+            )
+
 
 class ExistingGHBoundaryTests(unittest.TestCase):
     def test_existing_read_action_is_preferred(self) -> None:
