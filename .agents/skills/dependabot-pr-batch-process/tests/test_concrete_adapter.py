@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
@@ -81,15 +83,40 @@ class Dispatcher:
         raise AssertionError(f"unexpected dispatcher action: {action}")
 
 
+class FixedApiStub:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, dict[str, object]]] = []
+
+    def execute(self, operation, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append((operation, kwargs))
+        if operation is concrete.FixedOperation.READ_COMMIT:
+            commit_sha = kwargs["commit_sha"]
+            return SimpleNamespace(payload={
+                "sha": commit_sha,
+                "author": {"login": "dependabot[bot]", "type": "Bot"},
+                "committer": {"login": "dependabot[bot]", "type": "Bot"},
+                "parents": [{"sha": sha("a")}],
+                "commit": {"message": "Bump package", "verification": {"verified": True}},
+            })
+        if operation is concrete.FixedOperation.READ_CHECK_RUNS:
+            return SimpleNamespace(payload={"check_runs": [{
+                "id": 7, "name": "ci", "status": "completed", "conclusion": "success",
+                "details_url": "https://github.com/u7chan/monorepo/actions/runs/42/job/7",
+            }]})
+        raise AssertionError(f"unexpected fixed operation: {operation}")
+
+
 class ProcessRecorder:
     def __init__(self, invocation: str) -> None:
         self.invocation = invocation
         self.commands: list[tuple[str, ...]] = []
+        self.command_cwds: list[Path] = []
         self.built = False
 
     def run(self, argv, *, cwd, timeout_seconds, env=None):  # type: ignore[no-untyped-def]
         command = tuple(argv)
         self.commands.append(command)
+        self.command_cwds.append(Path(cwd))
         if command[:3] == ("docker", "image", "inspect") and "--format" not in command:
             return SimpleNamespace(returncode=1, stdout="")
         if command[:3] == ("docker", "image", "inspect") and "--format" in command:
@@ -98,7 +125,27 @@ class ProcessRecorder:
             return SimpleNamespace(returncode=0 if self.built else 1, stdout=owner if self.built else "")
         if command[:3] == ("docker", "build", "--progress"):
             self.built = True
+        if command[:4] == ("git", "worktree", "add", "--detach"):
+            destination = Path(command[4])
+            destination.mkdir(parents=True)
+            shutil.copytree(Path(cwd) / "projects", destination / "projects")
         return SimpleNamespace(returncode=0, stdout="")
+
+
+class GitObjectRunner:
+    def __init__(self, objects: dict[str, str]) -> None:
+        self.objects = objects
+        self.commands: list[tuple[str, ...]] = []
+
+    def run(self, argv, *, cwd, timeout_seconds, env=None):  # type: ignore[no-untyped-def]
+        command = tuple(argv)
+        self.commands.append(command)
+        if command[:2] == ("git", "fetch"):
+            return SimpleNamespace(returncode=0, stdout="")
+        if command[:2] == ("git", "show"):
+            value = self.objects.get(command[2])
+            return SimpleNamespace(returncode=0 if value is not None else 1, stdout=value or "")
+        raise AssertionError(command)
 
 
 class ConcreteAdapterTests(unittest.TestCase):
@@ -110,6 +157,7 @@ class ConcreteAdapterTests(unittest.TestCase):
                 repository="monorepo",
                 dispatcher=dispatcher,
                 repository_root=Path(directory),
+                fixed_api=FixedApiStub(),
             )
             prs = adapter.read_pull_requests()
         self.assertEqual([pr.number for pr in prs], [1])
@@ -153,6 +201,7 @@ class ConcreteAdapterTests(unittest.TestCase):
                 repository_root=root,
                 matrix_path=matrix_path,
                 process_runner=recorder,
+                fixed_api=FixedApiStub(),
             )
             changes = (
                 batch.DependencyChange("example", "pkg", "1", "2", "bun", metadata=batch.PackageMetadata(
@@ -171,23 +220,91 @@ class ConcreteAdapterTests(unittest.TestCase):
         self.assertTrue(all(isinstance(command, tuple) for command in recorder.commands))
         self.assertFalse(any("--secret" in command or "--mount" in command or "--volume" in command for command in recorder.commands))
         self.assertFalse(any("prune" in command for command in recorder.commands))
+        docker_cwds = [cwd for command, cwd in zip(recorder.commands, recorder.command_cwds) if command[:2] == ("docker", "build")]
+        self.assertTrue(docker_cwds)
+        self.assertTrue(all("dependabot-batch" in cwd.parts for cwd in docker_cwds))
 
     def test_write_requires_bound_gate_and_dispatcher_is_not_called_when_denied(self) -> None:
         dispatcher = Dispatcher()
         with tempfile.TemporaryDirectory() as directory:
             adapter = concrete.ConcreteBatchAdapter(
-                owner="u7chan", repository="monorepo", dispatcher=dispatcher, repository_root=Path(directory)
+                owner="u7chan",
+                repository="monorepo",
+                dispatcher=dispatcher,
+                repository_root=Path(directory),
+                fixed_api=FixedApiStub(),
             )
             adapter.bind_gate(batch.MutationGate(batch.evaluate_authorization(None, requested_mode=batch.Mode.AUDIT_ONLY)))
             with self.assertRaises(batch.WriteDenied):
                 adapter.create_comment(1, "body")
         self.assertEqual(dispatcher.calls, [])
 
+    def test_dependency_diff_is_rebuilt_from_fixed_base_and_head_objects(self) -> None:
+        base_manifest = '{"dependencies":{"pkg":"^1.0.0"}}'
+        head_manifest = '{"dependencies":{"pkg":"^2.0.0"}}'
+        base_lock = '{\n  "packages": {\n    "pkg": ["pkg@1.0.0", "", {}, "sha512-old"],\n  },\n}'
+        head_lock = '{\n  "packages": {\n    "pkg": ["pkg@2.0.0", "", {}, "sha512-new"],\n  },\n}'
+        objects = {
+            f"{sha('a')}:projects/example/package.json": base_manifest,
+            f"{sha('b')}:projects/example/package.json": head_manifest,
+            f"{sha('a')}:projects/example/bun.lock": base_lock,
+            f"{sha('b')}:projects/example/bun.lock": head_lock,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                '{"version":1,"docker":{"max_concurrency":2,"default_timeout_seconds":30},'
+                '"projects":{"example":{"path":"projects/example","ecosystem":"bun","checks":[],'
+                '"docker":{"test":{"target":"test","required":false,"timeout_seconds":30},'
+                '"final":{"target":"final","required":false,"timeout_seconds":30}}}}}',
+                encoding="utf-8",
+            )
+            runner = GitObjectRunner(objects)
+            adapter = concrete.ConcreteBatchAdapter(
+                owner="u7chan", repository="monorepo", dispatcher=Dispatcher(),
+                repository_root=root, matrix_path=matrix_path,
+                process_runner=runner, fixed_api=FixedApiStub(),
+            )
+            pr = batch.PullRequestSnapshot(
+                1, "https://github.com/pull/1", "open", False, False,
+                (batch.REQUIRED_LABEL,), "dependabot[bot]", "Bot", "main", sha("a"),
+                "head", sha("b"), changed_files=("projects/example/package.json", "projects/example/bun.lock"),
+            )
+            with mock.patch.object(concrete.ConcreteBatchAdapter, "_npm_scripts", return_value={}):
+                diff = adapter.read_dependency_diff(pr)
+        reconstruction = batch.reconstruct_grouped_changes(diff)
+        self.assertTrue(reconstruction.complete)
+        self.assertEqual([(item.package, item.from_version, item.to_version) for item in reconstruction.changes], [("pkg", "1.0.0", "2.0.0")])
+        self.assertIn(("git", "fetch", "--no-tags", "origin", "refs/pull/1/head"), runner.commands)
+
+    def test_ci_observation_is_bound_to_candidate_number_and_exact_head(self) -> None:
+        fixed = FixedApiStub()
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = concrete.ConcreteBatchAdapter(
+                owner="u7chan", repository="monorepo", dispatcher=Dispatcher(),
+                repository_root=Path(directory), fixed_api=fixed,
+            )
+            pr = batch.PullRequestSnapshot(
+                9, "https://github.com/pull/9", "open", False, False,
+                (batch.REQUIRED_LABEL,), "dependabot[bot]", "Bot", "main", sha("a"), "head", sha("b"),
+            )
+            observation = adapter.observe_ci(pr, sha("b"))
+            with self.assertRaises(concrete.ConcreteAdapterError):
+                adapter.observe_ci(pr, sha("c"))
+        self.assertEqual(observation.head_sha, sha("b"))
+        self.assertEqual(observation.checks[0].run_id, 42)
+        self.assertEqual(fixed.calls[-1], (concrete.FixedOperation.READ_CHECK_RUNS, {"expected_head_sha": sha("b")}))
+
     def test_external_write_request_downgrades_to_static_audit_with_rows_and_no_writes(self) -> None:
         dispatcher = Dispatcher()
         with tempfile.TemporaryDirectory() as directory:
             adapter = concrete.ConcreteBatchAdapter(
-                owner="u7chan", repository="monorepo", dispatcher=dispatcher, repository_root=Path(directory)
+                owner="u7chan",
+                repository="monorepo",
+                dispatcher=dispatcher,
+                repository_root=Path(directory),
+                fixed_api=FixedApiStub(),
             )
             result = batch.execute_batch(
                 adapter,

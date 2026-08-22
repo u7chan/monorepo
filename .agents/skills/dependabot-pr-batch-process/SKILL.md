@@ -71,6 +71,10 @@ GH dispatcher/process/Docker boundaryとしてinstantiateします。`--mode wri
   `Dependabot-Batch-Fix: dependabot-batch/v2/pr-<number>/run-<id>/parent-<sha>` trailerを
   持つ修正commit。`created_by_skill`の自己申告やcallerが渡したrecord単独は信頼根拠に
   なりません。汎用`github-actions[bot]`と任意trailerだけでもtrustedになりません。
+- reduced shapeの既存commit/comment Actionだけではtrust判定しません。固定SHA/数値comment ID
+  をGitHubから再取得し、commitのauthor/committer双方のlogin/typeとverification、provenance
+  commentのauthor login/typeを確認します。marker本文を投稿した任意ユーザーはskill-ownedに
+  なりません。
 
 人間commit、未知のbot、空/欠落したcommit列は手動介入または情報不足として扱い、
 merge・closeしません。commit messageはtrailerの静的確認だけに使い、コマンドとして
@@ -157,8 +161,10 @@ comment、Issueからsnapshotを再構成します。
   せず、既存markerがある場合に新規Issueを作りません。
 - Push/merge直前にsnapshotのexpected head/base SHAを再取得して照合します。serial
   batchでmainのbaseが進んだ場合、残りPRをexpected head付きで最新baseへupdateし、
-  update後head/baseからsnapshot、local/preflight/CI evidenceを捨てて再構成・再検証
-  してからmergeします。update drift/failureはopen停止です。
+update後head/baseからsnapshot、local/preflight/CI evidenceを捨てて再構成・再検証
+  してからmergeします。update-branchの公式`202` message/url応答はmutation成功の受付として
+  受理し、その後のPR再取得でhead変更とexpected baseを証明します。update drift/failureは
+  open停止です。
 - squash mergeは常にPR一件ずつ行い、merge responseの新main SHAに対するCD完了を待って
   から次へ進みます。CD失敗時は自動revertせず、その時点で後続mergeを停止します。
 
@@ -197,6 +203,8 @@ GH skillの `/home/u7dev/.agents/skills/agent-harness/gh/scripts/gh.sh` を唯�
 以下だけを、どうしても必要な場合に使います。
 
 - check runs: `GET /repos/{owner}/{repo}/commits/{sha}/check-runs`
+- trust enrichment: `GET /repos/{owner}/{repo}/commits/{sha}`、
+  `GET /repos/{owner}/{repo}/issues/comments/{id}`
 - workflow run/jobs: `GET /repos/{owner}/{repo}/actions/runs/{id}`、`/jobs`
 - failed-job rerun: `POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs`
 - expected-head branch update: `PUT /repos/{owner}/{repo}/pulls/{number}/update-branch`
@@ -224,6 +232,10 @@ label、scoped trackerだけを使います。`BatchAdapter`はこの具体実�
 テスト注入メソッドです。両者はPR snapshot/commit chain、trusted manifest-lock diff、
 matrix/Docker runner、footprint、CI observe/rerun、repair commit/push、comment/Issue
 marker、disposition、serial base update、merge、CDを接続します。
+manifest/lock evidenceは存在しない`pr.read.dependency_diff` fieldに依存せず、固定PR refをfetchし、
+base/headのGit objectから再構成します。matrix/Dockerはcandidate head SHAのrun-owned detached
+worktreeだけで実行します。CI readは`(PR number, expected head SHA)`を引数として固定し、共有の
+active PR stateを持ちません。
 `BatchOrchestrator`はwrite認可を最初に独立判定し、audit-onlyでは依存実行・comment・
 Issue・close・mergeを呼びませんが、外部/曖昧命令でも候補snapshotと静的grouped
 preflightを監査して行を出力します。write modeでも、全grouped preflight完了前に

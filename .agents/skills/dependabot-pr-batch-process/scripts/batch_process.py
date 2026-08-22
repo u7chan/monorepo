@@ -458,9 +458,17 @@ class RepairProvenanceRecord:
     actor: str
     body: str
     source: str = "github-state"
+    source_author_login: str | None = None
+    source_author_type: str | None = None
 
 
-def parse_repair_provenance_record(record_id: int, body: str) -> RepairProvenanceRecord | None:
+def parse_repair_provenance_record(
+    record_id: int,
+    body: str,
+    *,
+    source_author_login: str | None = None,
+    source_author_type: str | None = None,
+) -> RepairProvenanceRecord | None:
     """Parse only the fixed marker record returned by a GH read adapter."""
 
     if record_id < 1 or not isinstance(body, str):
@@ -501,6 +509,9 @@ def parse_repair_provenance_record(record_id: int, body: str) -> RepairProvenanc
         commit_sha,
         actor,
         body,
+        "github-state",
+        source_author_login,
+        source_author_type,
     )
 
 
@@ -572,6 +583,9 @@ def trusted_commit(
             and item.parent_sha == record.parent_sha
             and item.commit_sha == record.commit_sha
             and item.actor == record.author_login
+            and item.source_author_login == record.author_login
+            and item.source_author_type is not None
+            and item.source_author_type.casefold() == "bot"
             and item.body == build_repair_provenance_body(record)
             for item in provenance
         ):
@@ -677,6 +691,7 @@ class PackageMetadata:
     integrity: str | None
     source_type: str = "registry"
     lifecycle_scripts: Mapping[str, str] = field(default_factory=dict)
+    lifecycle_scripts_known: bool = True
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "PackageMetadata":
@@ -686,6 +701,7 @@ class PackageMetadata:
         download_url = value.get("download_url") or value.get("url")
         if not all(isinstance(item, str) and item for item in (name, version, registry, download_url)):
             raise ValueError("package metadata requires name, version, registry and download_url")
+        scripts_known = "lifecycle_scripts" in value and isinstance(value.get("lifecycle_scripts"), Mapping)
         scripts = value.get("lifecycle_scripts")
         lifecycle = (
             {str(key): str(item) for key, item in scripts.items()}
@@ -701,6 +717,7 @@ class PackageMetadata:
             integrity=integrity if isinstance(integrity, str) else None,
             source_type=str(value.get("source_type") or "registry"),
             lifecycle_scripts=lifecycle,
+            lifecycle_scripts_known=scripts_known,
         )
 
 
@@ -813,6 +830,8 @@ def reconstruct_grouped_changes(diff: ManifestLockDiff) -> GroupedReconstruction
             errors.append(f"missing-package-source:{name}")
         if not package_metadata.integrity:
             errors.append(f"missing-package-integrity:{name}")
+        if not package_metadata.lifecycle_scripts_known:
+            errors.append(f"unknown-lifecycle-script-state:{name}")
         source_type = diff.source_types.get(name, package_metadata.source_type)
         scripts = diff.script_changes.get(name, {})
         script_evidence = diff.lifecycle_scripts.get(name)
@@ -1659,7 +1678,7 @@ class DockerBatchRunner:
     def track_worktree(self, path: Path) -> bool:
         resolved = path.resolve()
         root = self.repository_root.resolve()
-        if root not in resolved.parents:
+        if root not in resolved.parents and resolved != root:
             raise BoundaryError("worktree is outside repository")
         if self.cleaner.worktree_exists(resolved):
             return False
@@ -1767,6 +1786,8 @@ class DockerBatchRunner:
                 self.cleaner.remove_worktree(path)
             except Exception:
                 pass
+            finally:
+                self.tracked_worktrees.discard(path)
         return tuple(results[index] for index in range(len(ordered)))
 
 
@@ -2822,7 +2843,7 @@ class BatchAdapter(Protocol):
     def read_dependency_diff(self, pr: PullRequestSnapshot) -> ManifestLockDiff: ...
     def footprint(self, pr: PullRequestSnapshot, diff: ManifestLockDiff) -> FootprintedItem: ...
     def run_matrix_and_docker(self, pr: PullRequestSnapshot, changes: tuple[DependencyChange, ...]) -> bool: ...
-    def observe_ci(self, expected_head_sha: str) -> CIObservation: ...
+    def observe_ci(self, pr: PullRequestSnapshot, expected_head_sha: str) -> CIObservation: ...
     def rerun_ci(self, pr: PullRequestSnapshot, observation: CIObservation, expected_head_sha: str) -> None: ...
     def repair_run_id(self, pr: PullRequestSnapshot) -> int: ...
     def diagnose_repair(self, pr: PullRequestSnapshot, cycle: int, head_sha: str) -> RepairDiagnosis: ...
@@ -2981,7 +3002,7 @@ class BatchOrchestrator:
             return None
         ci_result = self.ci_waiter.wait(
             pr.head_sha,
-            self.adapter.observe_ci,
+            lambda head: self.adapter.observe_ci(pr, head),
             lambda observation: self.adapter.rerun_ci(pr, observation, pr.head_sha),
             gate=gate,
         )
@@ -3244,7 +3265,7 @@ class BatchOrchestrator:
                     self.events.append(f"ci-wait:{pr.number}")
                     ci_result = self.ci_waiter.wait(
                         pr.head_sha,
-                        self.adapter.observe_ci,
+                        lambda head, pr=pr: self.adapter.observe_ci(pr, head),
                         lambda observation, pr=pr: self.adapter.rerun_ci(pr, observation, pr.head_sha),
                         gate=gate,
                     )
@@ -3263,7 +3284,7 @@ class BatchOrchestrator:
                             push=lambda old_head, commit, pr=pr: self.adapter.push_fix(pr, old_head, commit),
                             wait_for_ci=lambda head: self.ci_waiter.wait(
                                 head,
-                                self.adapter.observe_ci,
+                                lambda expected, pr=pr: self.adapter.observe_ci(pr, expected),
                                 lambda observation, head=head: self.adapter.rerun_ci(pr, observation, head),
                                 gate=gate,
                             ),

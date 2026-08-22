@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Narrow GitHub boundary for operations missing from the repository GH skill.
+"""Narrow GitHub boundary for operations/data missing from the repository GH skill.
 
-Reads should normally be dispatched through the existing GH skill actions.  The
+Reads should normally be dispatched through the existing GH skill actions. Trust
+enrichment is the exception when their reduced output omits required fields. The
 fallback here is intentionally not a generic ``gh api`` wrapper: callers pick
 one of a fixed operation names, endpoints are constructed from validated
 owner/repository/IDs, arguments are an array, and every response is parsed as
@@ -30,6 +31,8 @@ class BoundaryError(ValueError):
 
 
 class FixedOperation(str, Enum):
+    READ_COMMIT = "read-commit"
+    READ_ISSUE_COMMENT = "read-issue-comment"
     READ_CHECK_RUNS = "read-check-runs"
     READ_WORKFLOW_RUN = "read-workflow-run"
     READ_WORKFLOW_JOBS = "read-workflow-jobs"
@@ -180,6 +183,12 @@ class FixedGhApi:
             sha = _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
             endpoint = self._endpoint(f"/commits/{sha}/check-runs")
             return self._request(operation, endpoint, "GET")
+        if operation is FixedOperation.READ_COMMIT:
+            sha = _validated_sha(kwargs.get("commit_sha"), "commit SHA")
+            return self._request(operation, self._endpoint(f"/commits/{sha}"), "GET")
+        if operation is FixedOperation.READ_ISSUE_COMMENT:
+            comment_id = _validated_number(kwargs.get("comment_id"), "issue comment ID")
+            return self._request(operation, self._endpoint(f"/issues/comments/{comment_id}"), "GET")
         if operation is FixedOperation.READ_WORKFLOW_RUN:
             run_id = _validated_number(kwargs.get("run_id"), "workflow run ID")
             endpoint = self._endpoint(f"/actions/runs/{run_id}")
@@ -272,6 +281,8 @@ class FixedGhApi:
             timeout_seconds=self.api_timeout_seconds,
         )
         status_code, text = raw
+        if operation is FixedOperation.UPDATE_PULL_REQUEST_BRANCH and status_code != 202:
+            raise BoundaryError(f"update-branch endpoint returned unexpected HTTP status {status_code}")
         if operation is FixedOperation.RERUN_FAILED_JOBS:
             if status_code != 201:
                 raise BoundaryError(f"rerun endpoint returned unexpected HTTP status {status_code}")
@@ -306,6 +317,25 @@ class FixedGhApi:
                 if check.get("conclusion") is not None and not isinstance(check.get("conclusion"), str):
                     raise BoundaryError("check-run conclusion is not a string or null")
             return
+        if operation is FixedOperation.READ_COMMIT:
+            if payload.get("sha") != kwargs.get("commit_sha"):
+                raise BoundaryError("commit response SHA does not match requested commit")
+            for key in ("author", "committer"):
+                actor = payload.get(key)
+                if not isinstance(actor, Mapping) or not isinstance(actor.get("login"), str) or not isinstance(actor.get("type"), str):
+                    raise BoundaryError(f"commit response lacks {key} identity/type")
+            commit = payload.get("commit")
+            verification = commit.get("verification") if isinstance(commit, Mapping) else None
+            if not isinstance(verification, Mapping) or not isinstance(verification.get("verified"), bool):
+                raise BoundaryError("commit response lacks verification state")
+            return
+        if operation is FixedOperation.READ_ISSUE_COMMENT:
+            if payload.get("id") != kwargs.get("comment_id") or not isinstance(payload.get("body"), str):
+                raise BoundaryError("issue comment response does not match requested comment")
+            actor = payload.get("user")
+            if not isinstance(actor, Mapping) or not isinstance(actor.get("login"), str) or not isinstance(actor.get("type"), str):
+                raise BoundaryError("issue comment response lacks author identity/type")
+            return
         if operation is FixedOperation.READ_WORKFLOW_RUN:
             if not isinstance(payload.get("id"), int) or not isinstance(payload.get("status"), str):
                 raise BoundaryError("workflow run response lacks id/status")
@@ -337,10 +367,12 @@ class FixedGhApi:
                     raise BoundaryError("rerun response run ID does not match requested run")
             return
         if operation is FixedOperation.UPDATE_PULL_REQUEST_BRANCH:
-            if not isinstance(payload.get("head"), Mapping) or not isinstance(payload["head"].get("sha"), str):
-                raise BoundaryError("branch update response lacks head SHA")
-            if not SHA_RE.fullmatch(payload["head"]["sha"]):
-                raise BoundaryError("branch update response has invalid head SHA")
+            # GitHub's documented 202 response contains only message/url.  A
+            # caller must refetch the PR and prove the resulting head/base.
+            if not isinstance(payload.get("message"), str) or not payload["message"]:
+                raise BoundaryError("branch update response lacks message")
+            if not isinstance(payload.get("url"), str) or not payload["url"].startswith("https://api.github.com/"):
+                raise BoundaryError("branch update response lacks API URL")
             return
         if operation is FixedOperation.MERGE_PULL_REQUEST:
             if payload.get("merged") is not True:

@@ -124,7 +124,10 @@ class FixedBoundaryTests(unittest.TestCase):
             )
 
     def test_update_branch_uses_fixed_expected_head_mutation(self) -> None:
-        runner = RecordingRunner({"head": {"sha": sha("d")}})
+        runner = RecordingRunner(
+            {"message": "Updating pull request branch.", "url": "https://api.github.com/repos/u7chan/monorepo/pulls/2"},
+            status_code=202,
+        )
         api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
         response = api.execute(
             gh.FixedOperation.UPDATE_PULL_REQUEST_BRANCH,
@@ -132,10 +135,30 @@ class FixedBoundaryTests(unittest.TestCase):
             number=2,
             expected_head_sha=sha("c"),
         )
-        self.assertEqual(response.payload["head"]["sha"], sha("d"))
+        self.assertIn("Updating", response.payload["message"])
         argv, stdin = runner.calls[0]
         self.assertIn("/repos/u7chan/monorepo/pulls/2/update-branch", argv)
         self.assertEqual(json.loads(stdin or "{}"), {"expected_head_sha": sha("c"), "update_method": "merge"})
+
+    def test_commit_and_comment_enrichment_require_actor_type_and_verification(self) -> None:
+        commit_runner = RecordingRunner({
+            "sha": sha("a"),
+            "author": {"login": "dependabot[bot]", "type": "Bot"},
+            "committer": {"login": "dependabot[bot]", "type": "Bot"},
+            "commit": {"verification": {"verified": True}},
+        })
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=commit_runner)
+        api.execute(gh.FixedOperation.READ_COMMIT, commit_sha=sha("a"))
+        self.assertIn(f"/repos/u7chan/monorepo/commits/{sha('a')}", commit_runner.calls[0][0])
+
+        comment_runner = RecordingRunner({
+            "id": 9,
+            "body": "marker",
+            "user": {"login": "github-actions[bot]", "type": "Bot"},
+        })
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=comment_runner)
+        api.execute(gh.FixedOperation.READ_ISSUE_COMMENT, comment_id=9)
+        self.assertIn("/repos/u7chan/monorepo/issues/comments/9", comment_runner.calls[0][0])
 
     def test_rerun_refetches_matching_run_immediately_and_carries_expected_sha(self) -> None:
         runner = EmptyRunner({}, status_code=201)

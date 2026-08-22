@@ -207,8 +207,26 @@ class SelectorAndTrustTests(unittest.TestCase):
             sha("c"),
             "github-actions[bot]",
             batch.build_repair_provenance_body(chain[0]),
+            source_author_login="github-actions[bot]",
+            source_author_type="Bot",
         )
         self.assertTrue(batch.trusted_commit(trusted, pr_number=1, repair_chain=chain, repair_provenance=[provenance]))
+        forged_author = batch.RepairProvenanceRecord(
+            **{
+                **provenance.__dict__,
+                "record_id": 11,
+                "source_author_login": "untrusted-user",
+                "source_author_type": "User",
+            }
+        )
+        self.assertFalse(
+            batch.trusted_commit(
+                trusted,
+                pr_number=1,
+                repair_chain=chain,
+                repair_provenance=[forged_author],
+            )
+        )
         self.assertFalse(batch.trusted_commit(trusted, pr_number=1))
         self.assertFalse(batch.trusted_commit(trusted, pr_number=1, repair_chain=chain))
         forged = batch.CommitSnapshot(
@@ -292,6 +310,7 @@ class SelectorAndTrustTests(unittest.TestCase):
         provenance = batch.RepairProvenanceRecord(
             51, record.provenance_marker, 1, 42, sha("a"), sha("c"),
             "github-actions[bot]", batch.build_repair_provenance_body(record),
+            source_author_login="github-actions[bot]", source_author_type="Bot",
         )
         self.assertTrue(batch.trusted_commit(commit_snapshot, pr_number=1, repair_chain=[record], repair_provenance=[provenance]))
         bad_records = (
@@ -551,6 +570,23 @@ class GroupedDependencyTests(unittest.TestCase):
             ).status,
             batch.PreflightStatus.BLOCKED,
         )
+
+    def test_omitted_lifecycle_metadata_field_is_unknown_not_authoritative_empty(self) -> None:
+        base = grouped_diff(package_count=1)
+        raw = {
+            "name": "package-0",
+            "version": "2.0.0",
+            "registry": "https://registry.npmjs.org",
+            "download_url": "https://registry.npmjs.org/package-0.tgz",
+            "integrity": "sha512-package-0",
+        }
+        metadata = dict(base.metadata)
+        metadata["package-0"] = batch.PackageMetadata.from_mapping(raw)
+        reconstruction = batch.reconstruct_grouped_changes(
+            batch.ManifestLockDiff(**{**base.__dict__, "metadata": metadata})
+        )
+        self.assertIn("unknown-lifecycle-script-state:package-0", reconstruction.errors)
+        self.assertFalse(reconstruction.complete)
 
     def test_benign_unchanged_lifecycle_script_is_cross_checked(self) -> None:
         base = grouped_diff(package_count=3)
@@ -1141,6 +1177,8 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
                 record.commit_sha,
                 record.author_login,
                 batch.build_repair_provenance_body(record),
+                source_author_login=record.author_login,
+                source_author_type="Bot",
             ),
         )
         self.assertEqual(result.cycles, 2)
@@ -1416,7 +1454,7 @@ class FakeBatchAdapter:
             self.active_matrix -= 1
         return not self.local_failure
 
-    def observe_ci(self, expected_head_sha):
+    def observe_ci(self, pr, expected_head_sha):
         self.events.append(f"observe-ci:{expected_head_sha[0]}")
         if self.ci_mode == "unknown":
             return batch.CIObservation(
@@ -1467,6 +1505,8 @@ class FakeBatchAdapter:
             record.commit_sha,
             record.author_login,
             batch.build_repair_provenance_body(record),
+            source_author_login=record.author_login,
+            source_author_type="Bot",
         )
 
     def read_current_pr(self, number):
@@ -1728,6 +1768,8 @@ class IdempotencyIssueAndAuditTests(unittest.TestCase):
                             True, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
                         )
                     ),
+                    source_author_login="github-actions[bot]",
+                    source_author_type="Bot",
                 )
             ],
         )
