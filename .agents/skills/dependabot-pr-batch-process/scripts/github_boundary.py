@@ -34,11 +34,16 @@ class FixedOperation(str, Enum):
     READ_WORKFLOW_RUN = "read-workflow-run"
     READ_WORKFLOW_JOBS = "read-workflow-jobs"
     RERUN_FAILED_JOBS = "rerun-failed-jobs"
+    UPDATE_PULL_REQUEST_BRANCH = "update-pull-request-branch"
     MERGE_PULL_REQUEST = "merge-pull-request"
 
 
 MUTATING_OPERATIONS = frozenset(
-    {FixedOperation.RERUN_FAILED_JOBS, FixedOperation.MERGE_PULL_REQUEST}
+    {
+        FixedOperation.RERUN_FAILED_JOBS,
+        FixedOperation.UPDATE_PULL_REQUEST_BRANCH,
+        FixedOperation.MERGE_PULL_REQUEST,
+    }
 )
 
 
@@ -119,7 +124,9 @@ class ExistingGhSkillClient:
         if action not in EXISTING_GH_WRITE_ACTIONS:
             raise BoundaryError(f"action is not an existing write action: {action}")
         gate.require_write(f"gh:{action}")
-        return self.dispatcher(action, payload)
+        request = dict(payload)
+        request.setdefault("grant", "write")
+        return self.dispatcher(action, request)
 
 
 def _validated_identifier(value: str, pattern: re.Pattern[str], label: str) -> str:
@@ -141,7 +148,7 @@ def _validated_sha(value: str, label: str) -> str:
 
 
 class FixedGhApi:
-    """Build and execute only the five documented fallback operations."""
+    """Build and execute only the documented fixed fallback operations."""
 
     def __init__(
         self,
@@ -186,6 +193,17 @@ class FixedGhApi:
             expected = _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
             endpoint = self._endpoint(f"/actions/runs/{run_id}/rerun-failed-jobs")
             return self._request(operation, endpoint, "POST", {}, expected_head_sha=expected)
+        if operation is FixedOperation.UPDATE_PULL_REQUEST_BRANCH:
+            number = _validated_number(kwargs.get("number"), "pull request number")
+            expected = _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
+            endpoint = self._endpoint(f"/pulls/{number}/update-branch")
+            return self._request(
+                operation,
+                endpoint,
+                "PUT",
+                {"expected_head_sha": expected, "update_method": "merge"},
+                expected_head_sha=expected,
+            )
         if operation is FixedOperation.MERGE_PULL_REQUEST:
             number = _validated_number(kwargs.get("number"), "pull request number")
             expected = _validated_sha(kwargs.get("expected_head_sha"), "expected head SHA")
@@ -254,6 +272,11 @@ class FixedGhApi:
             timeout_seconds=self.api_timeout_seconds,
         )
         status_code, text = raw
+        if operation is FixedOperation.RERUN_FAILED_JOBS:
+            if status_code != 201:
+                raise BoundaryError(f"rerun endpoint returned unexpected HTTP status {status_code}")
+            if not text.strip():
+                return ApiResponse(status_code, {})
         try:
             payload = json.loads(text)
         except (TypeError, json.JSONDecodeError) as exc:
@@ -289,6 +312,12 @@ class FixedGhApi:
             head_sha = payload.get("head_sha")
             if not isinstance(head_sha, str) or not SHA_RE.fullmatch(head_sha):
                 raise BoundaryError("workflow run response lacks a valid head SHA")
+            if "run_attempt" in payload and (
+                not isinstance(payload.get("run_attempt"), int) or payload.get("run_attempt") < 1
+            ):
+                raise BoundaryError("workflow run response has invalid run_attempt")
+            if "updated_at" in payload and not isinstance(payload.get("updated_at"), str):
+                raise BoundaryError("workflow run response has invalid updated_at")
             return
         if operation is FixedOperation.READ_WORKFLOW_JOBS:
             jobs = payload.get("jobs")
@@ -299,23 +328,19 @@ class FixedGhApi:
                     raise BoundaryError("workflow job entry lacks id/name")
             return
         if operation is FixedOperation.RERUN_FAILED_JOBS:
-            # Empty JSON is not evidence that the mutation happened.  The
-            # adapter requires a fixed, schema-checked queued run response.
-            if not isinstance(payload.get("id"), int) or payload.get("id") < 1:
-                raise BoundaryError("rerun response lacks a valid run ID")
-            if payload.get("id") != kwargs.get("run_id"):
-                raise BoundaryError("rerun response run ID does not match requested run")
-            if not isinstance(payload.get("status"), str) or not payload.get("status"):
-                raise BoundaryError("rerun response lacks status")
-            head_sha = payload.get("head_sha")
-            expected = kwargs.get("expected_head_sha")
-            if (
-                not isinstance(head_sha, str)
-                or not SHA_RE.fullmatch(head_sha)
-                or not isinstance(expected, str)
-                or head_sha.casefold() != expected.casefold()
-            ):
-                raise BoundaryError("rerun response head SHA does not match expected SHA")
+            # GitHub documents 201 Created with no response object.  The
+            # caller must refetch the fixed run and prove a new attempt/state.
+            if payload:
+                if not isinstance(payload.get("id"), int) or payload.get("id") < 1:
+                    raise BoundaryError("rerun response lacks a valid run ID")
+                if payload.get("id") != kwargs.get("run_id"):
+                    raise BoundaryError("rerun response run ID does not match requested run")
+            return
+        if operation is FixedOperation.UPDATE_PULL_REQUEST_BRANCH:
+            if not isinstance(payload.get("head"), Mapping) or not isinstance(payload["head"].get("sha"), str):
+                raise BoundaryError("branch update response lacks head SHA")
+            if not SHA_RE.fullmatch(payload["head"]["sha"]):
+                raise BoundaryError("branch update response has invalid head SHA")
             return
         if operation is FixedOperation.MERGE_PULL_REQUEST:
             if payload.get("merged") is not True:
@@ -351,30 +376,52 @@ class FixedGhApi:
 
         run_id = _validated_number(run_id, "workflow run ID")
         expected = _validated_sha(expected_head_sha, "expected head SHA")
-        raw = (
-            self.execute(FixedOperation.READ_WORKFLOW_RUN, run_id=run_id)
-            if refetch_run is None
-            else refetch_run()
-        )
-        payload = raw.payload if isinstance(raw, ApiResponse) else raw
-        if not isinstance(payload, Mapping):
-            raise BoundaryError("workflow run refetch did not return an object")
-        self._validate_response(
-            FixedOperation.READ_WORKFLOW_RUN,
-            payload,
-            {"run_id": run_id},
-        )
-        if payload.get("id") != run_id:
-            raise BoundaryError("workflow run ID changed before rerun")
-        if str(payload.get("head_sha", "")).casefold() != expected.casefold():
-            raise BoundaryError("workflow run head SHA changed before rerun")
+        def read_run() -> Mapping[str, Any]:
+            raw = (
+                self.execute(FixedOperation.READ_WORKFLOW_RUN, run_id=run_id)
+                if refetch_run is None
+                else refetch_run()
+            )
+            payload = raw.payload if isinstance(raw, ApiResponse) else raw
+            if not isinstance(payload, Mapping):
+                raise BoundaryError("workflow run refetch did not return an object")
+            self._validate_response(FixedOperation.READ_WORKFLOW_RUN, payload, {"run_id": run_id})
+            if payload.get("id") != run_id:
+                raise BoundaryError("workflow run ID changed before/after rerun")
+            if str(payload.get("head_sha", "")).casefold() != expected.casefold():
+                raise BoundaryError("workflow run head SHA changed before/after rerun")
+            return payload
+
+        before = read_run()
         # No call that can mutate occurs between this read and execute().
-        return self.execute(
+        response = self.execute(
             FixedOperation.RERUN_FAILED_JOBS,
             gate=gate,
             run_id=run_id,
             expected_head_sha=expected,
         )
+        after = read_run()
+        before_attempt = before.get("run_attempt")
+        after_attempt = after.get("run_attempt")
+        new_attempt = (
+            isinstance(before_attempt, int)
+            and isinstance(after_attempt, int)
+            and after_attempt > before_attempt
+        )
+        new_state = (
+            after.get("status") in {"queued", "in_progress"}
+            and (
+                before.get("status") != after.get("status")
+                or (
+                    isinstance(before.get("updated_at"), str)
+                    and isinstance(after.get("updated_at"), str)
+                    and before.get("updated_at") != after.get("updated_at")
+                )
+            )
+        )
+        if not new_attempt and not new_state:
+            raise BoundaryError("rerun outcome unknown: no new attempt or state")
+        return ApiResponse(response.status_code, after)
 
 
 class GhCommandRunner(Protocol):

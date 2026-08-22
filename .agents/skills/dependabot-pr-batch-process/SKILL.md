@@ -45,14 +45,15 @@ python3 -m unittest discover \
   -s .agents/skills/dependabot-pr-batch-process/tests -p 'test_*.py'
 python3 .agents/skills/dependabot-pr-batch-process/scripts/batch_process.py \
   --snapshot /path/to/read-only-snapshot.json --mode audit-only
+python3 .agents/skills/dependabot-pr-batch-process/scripts/batch_process.py \
+  --live --owner u7chan --repository monorepo --mode audit-only
 ```
 
-`batch_process.py`のsnapshot CLIはaudit-onlyです。`--mode write`を指定しても、
-独立した`BatchAdapter`が注入されない限り実行を拒否します。実行用の
-`execute_batch(adapter, ...)` / `BatchOrchestrator`は、テストまたは固定GH adapterを
-明示注入した場合だけ、下記の状態機械を動かします。live adapterを追加する場合も、
-このskill内の決定的コンポーネントとboundaryを組み合わせ、任意のshell/APIラッパーを
-作らないでください。
+`batch_process.py --live`は、`concrete_adapter.py`の`ConcreteBatchAdapter`を正規の
+GH dispatcher/process/Docker boundaryとしてinstantiateします。`--mode write`は
+`current_turn_human`の完全一致命令が直接渡された場合だけ動作し、それ以外は候補を
+静的snapshot/preflightまで監査してaudit-onlyへ降格します。`execute_batch(adapter, ...)`
+はテスト用の明示注入点です。いずれも任意のshell/APIラッパーを作りません。
 
 ## 対象PRとcommitの信頼条件
 
@@ -64,10 +65,12 @@ python3 .agents/skills/dependabot-pr-batch-process/scripts/batch_process.py \
 - GitHubから完全なcommit列を取得済み
 - 各commitが、author/committerの両方が同一の許可Dependabot loginで、検証済み
   (`verification.verified=true`)のDependabot生成commit
-- または、skill自身のrepair controllerが作った記録が存在し、直前のexpected headを
+- または、skill自身のrepair controllerが作り、GitHubのPR comment/Issue stateから再取得
+  して固定markerをparseできる記録が存在し、直前のexpected headを
   parentとして、PR番号・repair run ID・parent SHAを含む
   `Dependabot-Batch-Fix: dependabot-batch/v2/pr-<number>/run-<id>/parent-<sha>` trailerを
-  持つ修正commit。汎用`github-actions[bot]`と任意trailerだけではtrustedになりません。
+  持つ修正commit。`created_by_skill`の自己申告やcallerが渡したrecord単独は信頼根拠に
+  なりません。汎用`github-actions[bot]`と任意trailerだけでもtrustedになりません。
 
 人間commit、未知のbot、空/欠落したcommit列は手動介入または情報不足として扱い、
 merge・closeしません。commit messageはtrailerの静的確認だけに使い、コマンドとして
@@ -84,8 +87,8 @@ GitHub snapshot
   -> 全候補の全member supply-chain preflight
   -> expected head/base再確認
   -> footprint waves
-  -> project verification matrix
-  -> Docker test/final
+  -> project verification matrix/local process
+  -> Docker test/final (独立footprint wave内はbounded worker 2)
   -> CI classification/wait/rerun
   -> 最大2回の修正cycle
   -> expected SHA再確認
@@ -102,7 +105,10 @@ install/build/testを実行しません。registry/package identity、更新前�
 確認します。registry metadataの取得は初回を含め最大3回（retry最大2回）です。取得不能
 は`unknown`としてopenに残し、依存コードを実行しません。不審registry、integrity不一致、
 git/path dependency、悪性script疑いはblockedです。lifecycle scriptを一律拒否する
-実装にはしていませんが、静的に安全性を説明できないscriptは実行前に停止します。
+実装にはしていませんが、registry metadataの`lifecycle_scripts`とmanifest/lockの
+before/after script evidence、script diffをmemberごとに相互照合します。追加・削除・
+変更・不一致・省略されたscript state、静的に安全性を説明できないscriptは実行前に
+停止します。
 
 ## project verification matrixとDocker
 
@@ -131,8 +137,11 @@ CI分類は`transient`（allowlistのtimeout/cancel/runner障害/registry 5xx）
 `dependency-caused`（最新main成功、PR headで再現、依存更新との因果関係の3条件）、
 `external/unknown`の三種類です。CIはhead SHAを固定して30分を絶対deadlineにします。
 transientだけ最大1回rerunし、POST直前に固定runを再取得してrun ID・schema・expected
-head SHAを照合します。requestにはexpected SHAを固定headerで記録し、空/不一致response
-は成功とみなしません。deadline超過はunknown相当でopenに残します。修正cycleは
+head SHAを照合します。GitHubの`201 Created`+empty bodyは受理しますが、POST後に
+同じrunを再取得してrun_attempt増加またはqueued/in_progressへの新しい状態遷移を
+確認できなければunknownとし、同じmutationをretryしません。requestにはexpected SHAを
+固定headerで記録します。観測前後、rerun前後、成功/失敗の分類前に絶対deadlineを確認し、
+30分の境界到達後はtimeout相当でopenに残します。修正cycleは
 `診断 -> 最大1 commit -> Push -> そのheadのCI完了`を1 cycleとして最大2回です。
 Push権限不足、external/unknown、timeout、manual interventionはcloseしません。
 
@@ -190,6 +199,7 @@ GH skillの `/home/u7dev/.agents/skills/agent-harness/gh/scripts/gh.sh` を唯�
 - check runs: `GET /repos/{owner}/{repo}/commits/{sha}/check-runs`
 - workflow run/jobs: `GET /repos/{owner}/{repo}/actions/runs/{id}`、`/jobs`
 - failed-job rerun: `POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs`
+- expected-head branch update: `PUT /repos/{owner}/{repo}/pulls/{number}/update-branch`
 - squash merge: `PUT /repos/{owner}/{repo}/pulls/{number}/merge`
 
 owner/repository/ID/SHAを検証し、endpointは上記固定形だけを構築します。`gh api`の
@@ -207,12 +217,18 @@ GitHubのjob log endpointが返すraw text/zipは取得・保存しません。`
 
 ## 実行可能な注入境界と失敗時状態
 
-`BatchAdapter`は、PR snapshot/commit chain、trusted manifest-lock diff、matrix/Docker
-runner、footprint、CI observe/rerun、repair commit/push、comment/Issue marker、
-disposition、serial base update、merge、CDを個別の注入メソッドとして要求します。
+`ConcreteBatchAdapter`は、既存GH dispatcherでsnapshot/commit/files/checks/comment/Issue/
+PR操作を行い、fixed boundaryでworkflow rerun、branch update、merge、check-run/CDを行い
+ます。process/Docker/worktreeは`SecureProcessRunner`、引数配列、timeout、ownership
+label、scoped trackerだけを使います。`BatchAdapter`はこの具体実装を差し替えるための
+テスト注入メソッドです。両者はPR snapshot/commit chain、trusted manifest-lock diff、
+matrix/Docker runner、footprint、CI observe/rerun、repair commit/push、comment/Issue
+marker、disposition、serial base update、merge、CDを接続します。
 `BatchOrchestrator`はwrite認可を最初に独立判定し、audit-onlyでは依存実行・comment・
-Issue・close・mergeを呼びません。write modeでも、全grouped preflight完了前に
-matrix/Dockerを呼びません。external/unknown/manual、TOCTOU drift、検証失敗、CI/CD
+Issue・close・mergeを呼びませんが、外部/曖昧命令でも候補snapshotと静的grouped
+preflightを監査して行を出力します。write modeでも、全grouped preflight完了前に
+matrix/Dockerを呼びません。独立footprint waveのlocal/Dockerだけをworker 2まで並列化し、
+結果をPR番号順に集約し、merge/CDは常にserialです。external/unknown/manual、TOCTOU drift、検証失敗、CI/CD
 失敗はPRをopenに保持し、merge後CD失敗では後続mergeを停止します。これは分離helper
 のreportではなく、fake adapterでstage orderingとmutation境界を実行できるentry point
 です。

@@ -24,13 +24,20 @@ def sha(letter: str) -> str:
 
 
 class RecordingRunner:
-    def __init__(self, payload: object) -> None:
+    def __init__(self, payload: object, *, status_code: int = 200) -> None:
         self.payload = payload
+        self.status_code = status_code
         self.calls: list[tuple[tuple[str, ...], str | None]] = []
 
     def run(self, argv, *, stdin_json, cwd, timeout_seconds):  # type: ignore[no-untyped-def]
         self.calls.append((tuple(argv), stdin_json))
-        return 200, json.dumps(self.payload)
+        return self.status_code, json.dumps(self.payload)
+
+
+class EmptyRunner(RecordingRunner):
+    def run(self, argv, *, stdin_json, cwd, timeout_seconds):  # type: ignore[no-untyped-def]
+        self.calls.append((tuple(argv), stdin_json))
+        return self.status_code, ""
 
 
 class AllowGate:
@@ -116,16 +123,37 @@ class FixedBoundaryTests(unittest.TestCase):
                 expected_head_sha=sha("a"),
             )
 
+    def test_update_branch_uses_fixed_expected_head_mutation(self) -> None:
+        runner = RecordingRunner({"head": {"sha": sha("d")}})
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        response = api.execute(
+            gh.FixedOperation.UPDATE_PULL_REQUEST_BRANCH,
+            gate=AllowGate(),
+            number=2,
+            expected_head_sha=sha("c"),
+        )
+        self.assertEqual(response.payload["head"]["sha"], sha("d"))
+        argv, stdin = runner.calls[0]
+        self.assertIn("/repos/u7chan/monorepo/pulls/2/update-branch", argv)
+        self.assertEqual(json.loads(stdin or "{}"), {"expected_head_sha": sha("c"), "update_method": "merge"})
+
     def test_rerun_refetches_matching_run_immediately_and_carries_expected_sha(self) -> None:
-        runner = RecordingRunner({"id": 10, "status": "queued", "head_sha": sha("a")})
+        runner = EmptyRunner({}, status_code=201)
         api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
         gate = AllowGate()
+        observations = iter(
+            (
+                {"id": 10, "status": "completed", "head_sha": sha("a"), "run_attempt": 1, "updated_at": "1"},
+                {"id": 10, "status": "queued", "head_sha": sha("a"), "run_attempt": 2, "updated_at": "2"},
+            )
+        )
         response = api.rerun_failed_jobs(
             run_id=10,
             expected_head_sha=sha("a"),
             gate=gate,
-            refetch_run=lambda: {"id": 10, "status": "completed", "head_sha": sha("a")},
+            refetch_run=lambda: next(observations),
         )
+        self.assertEqual(response.status_code, 201)
         self.assertEqual(response.payload["head_sha"], sha("a"))
         self.assertEqual(gate.operations, ["github-fallback:rerun-failed-jobs"])
         argv, _ = runner.calls[0]
@@ -147,15 +175,66 @@ class FixedBoundaryTests(unittest.TestCase):
         self.assertEqual(runner.calls, [])
 
     def test_rerun_rejects_empty_or_schema_incomplete_mutation_outcome(self) -> None:
-        runner = RecordingRunner({})
+        runner = EmptyRunner({}, status_code=201)
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        observations = iter(
+            (
+                {"id": 10, "status": "completed", "head_sha": sha("a"), "run_attempt": 1, "updated_at": "1"},
+                {"id": 10, "status": "completed", "head_sha": sha("a"), "run_attempt": 1, "updated_at": "1"},
+            )
+        )
+        with self.assertRaises(gh.BoundaryError):
+            api.rerun_failed_jobs(
+                run_id=10,
+                expected_head_sha=sha("a"),
+                gate=AllowGate(),
+                refetch_run=lambda: next(observations),
+            )
+
+    def test_rerun_rejects_wrong_http_status_without_retry(self) -> None:
+        runner = EmptyRunner({}, status_code=200)
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        observations = iter(
+            ({"id": 10, "status": "completed", "head_sha": sha("a"), "run_attempt": 1, "updated_at": "1"},)
+        )
+        with self.assertRaises(gh.BoundaryError):
+            api.rerun_failed_jobs(
+                run_id=10,
+                expected_head_sha=sha("a"),
+                gate=AllowGate(),
+                refetch_run=lambda: next(observations),
+            )
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_rerun_post_refetch_head_drift_is_unknown_and_not_repeated(self) -> None:
+        runner = EmptyRunner({}, status_code=201)
+        api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
+        observations = iter(
+            (
+                {"id": 10, "status": "completed", "head_sha": sha("a"), "run_attempt": 1, "updated_at": "1"},
+                {"id": 10, "status": "queued", "head_sha": sha("b"), "run_attempt": 2, "updated_at": "2"},
+            )
+        )
+        with self.assertRaises(gh.BoundaryError):
+            api.rerun_failed_jobs(
+                run_id=10,
+                expected_head_sha=sha("a"),
+                gate=AllowGate(),
+                refetch_run=lambda: next(observations),
+            )
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_rerun_malformed_pre_or_post_refetch_never_mutates_or_retries(self) -> None:
+        runner = EmptyRunner({}, status_code=201)
         api = gh.FixedGhApi("u7chan", "monorepo", runner=runner)
         with self.assertRaises(gh.BoundaryError):
             api.rerun_failed_jobs(
                 run_id=10,
                 expected_head_sha=sha("a"),
                 gate=AllowGate(),
-                refetch_run=lambda: {"id": 10, "status": "completed", "head_sha": sha("a")},
+                refetch_run=lambda: {"id": 10, "status": "completed"},
             )
+        self.assertEqual(runner.calls, [])
 
 
 class ExistingGHBoundaryTests(unittest.TestCase):

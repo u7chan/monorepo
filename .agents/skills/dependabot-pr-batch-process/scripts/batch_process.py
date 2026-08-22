@@ -404,16 +404,109 @@ def is_verified_dependabot_commit(commit: CommitSnapshot) -> bool:
         return False
     if commit.committer_login != commit.author_login:
         return False
-    if commit.author_type is not None and commit.author_type.casefold() != "bot":
+    if commit.author_type is None or commit.author_type.casefold() != "bot":
         return False
-    if commit.committer_type is not None and commit.committer_type.casefold() != "bot":
+    if commit.committer_type is None or commit.committer_type.casefold() != "bot":
         return False
     return commit.verification_verified is True
 
 
+REPAIR_PROVENANCE_MARKER_RE = re.compile(r"^dependabot-batch:repair:v1:[0-9a-f]{32}$")
+
+
+def make_repair_provenance_marker(
+    pr_number: int,
+    run_id: int,
+    parent_sha: str,
+    commit_sha: str,
+) -> str:
+    if (
+        pr_number < 1
+        or run_id < 1
+        or not SHA_RE.fullmatch(parent_sha)
+        or not SHA_RE.fullmatch(commit_sha)
+    ):
+        raise ValueError("invalid repair provenance context")
+    canonical = "\x1f".join((str(pr_number), str(run_id), parent_sha.lower(), commit_sha.lower()))
+    return "dependabot-batch:repair:v1:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+
+def build_repair_provenance_body(record: "RepairCommitRecord") -> str:
+    """Build the exact marker record written to GitHub after a repair push."""
+
+    return (
+        f"<!-- {record.provenance_marker} -->\n"
+        "Dependabot batch repair provenance\n"
+        f"- pr: {record.pr_number}\n"
+        f"- run: {record.run_id}\n"
+        f"- parent: {record.parent_sha}\n"
+        f"- commit: {record.commit_sha}\n"
+        f"- actor: {record.author_login}\n"
+    )
+
+
+@dataclass(frozen=True)
+class RepairProvenanceRecord:
+    """A provenance record parsed from a fetched GitHub comment/Issue."""
+
+    record_id: int
+    marker: str
+    pr_number: int
+    run_id: int
+    parent_sha: str
+    commit_sha: str
+    actor: str
+    body: str
+    source: str = "github-state"
+
+
+def parse_repair_provenance_record(record_id: int, body: str) -> RepairProvenanceRecord | None:
+    """Parse only the fixed marker record returned by a GH read adapter."""
+
+    if record_id < 1 or not isinstance(body, str):
+        return None
+    marker_match = re.search(r"<!--\s*(dependabot-batch:repair:v1:[0-9a-f]{32})\s*-->", body)
+    fields = dict(
+        re.findall(
+            r"(?m)^-\s*(pr|run|parent|commit|actor):\s*([^\n]+?)\s*$",
+            body,
+        )
+    )
+    if not marker_match or not REPAIR_PROVENANCE_MARKER_RE.fullmatch(marker_match.group(1)):
+        return None
+    try:
+        pr_number = int(fields["pr"])
+        run_id = int(fields["run"])
+    except (KeyError, ValueError):
+        return None
+    parent_sha = fields.get("parent", "").casefold()
+    commit_sha = fields.get("commit", "").casefold()
+    actor = fields.get("actor", "")
+    marker = marker_match.group(1)
+    if (
+        pr_number < 1
+        or run_id < 1
+        or not SHA_RE.fullmatch(parent_sha)
+        or not SHA_RE.fullmatch(commit_sha)
+        or not actor
+        or marker != make_repair_provenance_marker(pr_number, run_id, parent_sha, commit_sha)
+    ):
+        return None
+    return RepairProvenanceRecord(
+        record_id,
+        marker,
+        pr_number,
+        run_id,
+        parent_sha,
+        commit_sha,
+        actor,
+        body,
+    )
+
+
 @dataclass(frozen=True)
 class RepairCommitRecord:
-    """Skill-owned evidence for one repair commit in a PR-local chain."""
+    """Commit-side evidence; it is never trusted without fetched provenance."""
 
     pr_number: int
     run_id: int
@@ -423,7 +516,7 @@ class RepairCommitRecord:
     author_login: str
     committer_login: str
     verification_verified: bool = True
-    created_by_skill: bool = True
+    provenance_marker: str = ""
 
 
 def trusted_commit(
@@ -432,6 +525,7 @@ def trusted_commit(
     pr_number: int,
     fix_actors: Iterable[str] = DEFAULT_FIX_ACTORS,
     repair_chain: Iterable[RepairCommitRecord] = (),
+    repair_provenance: Iterable[RepairProvenanceRecord] = (),
 ) -> bool:
     if is_verified_dependabot_commit(commit):
         return True
@@ -439,14 +533,22 @@ def trusted_commit(
     actors = set(fix_actors)
     if not marker:
         return False
+    provenance = tuple(repair_provenance)
     for record in repair_chain:
-        if not record.created_by_skill:
-            continue
         if record.pr_number != pr_number or record.commit_sha.casefold() != commit.sha.casefold():
             continue
         if record.author_login not in actors or record.committer_login != record.author_login:
             continue
+        if record.marker != marker:
+            continue
         if not record.verification_verified or not commit.verification_verified:
+            continue
+        if (
+            commit.author_type is None
+            or commit.author_type.casefold() != "bot"
+            or commit.committer_type is None
+            or commit.committer_type.casefold() != "bot"
+        ):
             continue
         if commit.author_login != record.author_login or commit.committer_login != record.committer_login:
             continue
@@ -461,6 +563,19 @@ def trusted_commit(
             continue
         if commit.parents != (record.parent_sha,):
             continue
+        if not any(
+            item.source == "github-state"
+            and item.record_id > 0
+            and item.marker == record.provenance_marker
+            and item.pr_number == record.pr_number
+            and item.run_id == record.run_id
+            and item.parent_sha == record.parent_sha
+            and item.commit_sha == record.commit_sha
+            and item.actor == record.author_login
+            and item.body == build_repair_provenance_body(record)
+            for item in provenance
+        ):
+            continue
         return True
     return False
 
@@ -471,6 +586,7 @@ def trust_reasons(
     required_label: str = REQUIRED_LABEL,
     fix_actors: Iterable[str] = DEFAULT_FIX_ACTORS,
     repair_chain: Iterable[RepairCommitRecord] = (),
+    repair_provenance: Iterable[RepairProvenanceRecord] = (),
 ) -> list[str]:
     reasons: list[str] = []
     if required_label not in pr.labels:
@@ -496,6 +612,7 @@ def trust_reasons(
                 pr_number=pr.number,
                 fix_actors=fix_actors,
                 repair_chain=repair_chain,
+                repair_provenance=repair_provenance,
             )
         ]
         if unknown:
@@ -516,6 +633,7 @@ def select_pull_requests(
     default_branch: str = DEFAULT_BRANCH,
     fix_actors: Iterable[str] = DEFAULT_FIX_ACTORS,
     repair_chains: Mapping[int, Iterable[RepairCommitRecord]] | None = None,
+    repair_provenance: Mapping[int, Iterable[RepairProvenanceRecord]] | None = None,
 ) -> SelectionResult:
     selected: list[PullRequestSnapshot] = []
     rejected: dict[int, tuple[str, ...]] = {}
@@ -530,6 +648,7 @@ def select_pull_requests(
                         required_label=required_label,
                         fix_actors=fix_actors,
                         repair_chain=(repair_chains or {}).get(pr.number, ()),
+                        repair_provenance=(repair_provenance or {}).get(pr.number, ()),
                     )
                     + ["default-branch-mismatch"]
                 )
@@ -540,6 +659,7 @@ def select_pull_requests(
                 required_label=required_label,
                 fix_actors=fix_actors,
                 repair_chain=(repair_chains or {}).get(pr.number, ()),
+                repair_provenance=(repair_provenance or {}).get(pr.number, ()),
             )
         if reasons:
             rejected[pr.number] = tuple(reasons)
@@ -623,6 +743,15 @@ class ManifestLockDiff:
     metadata: Mapping[str, PackageMetadata]
     script_changes: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     source_types: Mapping[str, str] = field(default_factory=dict)
+    lifecycle_scripts: Mapping[str, "LifecycleScriptEvidence"] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LifecycleScriptEvidence:
+    """Manifest/lock script state captured alongside a member diff."""
+
+    before: Mapping[str, str]
+    after: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -686,12 +815,34 @@ def reconstruct_grouped_changes(diff: ManifestLockDiff) -> GroupedReconstruction
             errors.append(f"missing-package-integrity:{name}")
         source_type = diff.source_types.get(name, package_metadata.source_type)
         scripts = diff.script_changes.get(name, {})
-        if not isinstance(scripts, Mapping) or any(
-            not isinstance(key, str) or not isinstance(value, str)
-            for key, value in scripts.items()
-        ):
-            errors.append(f"invalid-script-member:{name}")
+        script_evidence = diff.lifecycle_scripts.get(name)
+        if script_evidence is None:
+            # Empty registry metadata is an authoritative no-script state;
+            # any omitted/changed script claim for a package with scripts is
+            # unknown and therefore blocks before execution.
+            if package_metadata.lifecycle_scripts or name in diff.script_changes:
+                errors.append(f"missing-lifecycle-script-evidence:{name}")
             scripts = {}
+        elif not isinstance(script_evidence, LifecycleScriptEvidence):
+            errors.append(f"invalid-lifecycle-script-evidence:{name}")
+            scripts = {}
+        else:
+            if any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for mapping in (script_evidence.before, script_evidence.after)
+                for key, value in mapping.items()
+            ):
+                errors.append(f"invalid-lifecycle-script-evidence:{name}")
+            if dict(script_evidence.after) != dict(package_metadata.lifecycle_scripts):
+                errors.append(f"lifecycle-script-metadata-mismatch:{name}")
+            expected_changed = {
+                key: value
+                for key, value in script_evidence.after.items()
+                if script_evidence.before.get(key) != value
+            }
+            if not isinstance(scripts, Mapping) or dict(scripts) != expected_changed:
+                errors.append(f"lifecycle-script-diff-mismatch:{name}")
+            scripts = dict(script_evidence.after)
         changes.append(
             DependencyChange(
                 project=diff.project,
@@ -1646,6 +1797,61 @@ class CIResult:
     reruns: int = 0
 
 
+@dataclass(frozen=True)
+class CandidateEvidence:
+    """Immutable proof bundle tied to exactly one PR base/head pair."""
+
+    pr: PullRequestSnapshot
+    diff: ManifestLockDiff
+    changes: tuple[DependencyChange, ...]
+    preflight: GroupedPreflightResult
+    local_verification: bool
+    ci_result: CIResult
+    evidence_token: str
+
+    @classmethod
+    def create(
+        cls,
+        pr: PullRequestSnapshot,
+        diff: ManifestLockDiff,
+        changes: Iterable[DependencyChange],
+        preflight: GroupedPreflightResult,
+        local_verification: bool,
+        ci_result: CIResult,
+    ) -> "CandidateEvidence":
+        frozen_changes = tuple(changes)
+        canonical = {
+            "pr": pr.number,
+            "base": pr.base_sha,
+            "head": pr.head_sha,
+            "project": diff.project,
+            "members": [
+                (item.package, item.from_version, item.to_version, item.expected_integrity or "")
+                for item in frozen_changes
+            ],
+            "preflight": preflight.status.value,
+            "local": local_verification,
+            "ci_head": ci_result.head_sha,
+            "ci": ci_result.classification.value,
+        }
+        token = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return cls(pr, diff, frozen_changes, preflight, local_verification, ci_result, token)
+
+    def matches(self, pr: PullRequestSnapshot) -> bool:
+        return (
+            self.pr.number == pr.number
+            and self.pr.base_sha == pr.base_sha
+            and self.pr.head_sha == pr.head_sha
+            and self.pr.mergeable == pr.mergeable
+            and self.ci_result.head_sha == pr.head_sha
+            and self.preflight.complete
+            and self.local_verification
+            and self.ci_result.classification is CIClassification.SUCCESS
+        )
+
+
 TRANSIENT_FAILURE_CODES = frozenset({"timeout", "cancelled", "runner-failure", "registry-5xx"})
 
 
@@ -1705,30 +1911,67 @@ class CIWaiter:
     ) -> CIResult:
         started = self.clock.monotonic()
         reruns = 0
+
+        def over_deadline() -> bool:
+            # At the boundary the budget is exhausted: do not start another
+            # observation or mutation at exactly 30 minutes.
+            return self.clock.monotonic() - started >= self.deadline_seconds
+
+        def timeout_result() -> CIResult:
+            return CIResult(
+                CIClassification.TIMEOUT,
+                "30-minute CI deadline exceeded",
+                expected_head_sha,
+                reruns,
+            )
+
         while True:
+            if over_deadline():
+                return timeout_result()
             try:
                 observation = observe(expected_head_sha)
             except Exception as exc:
+                if over_deadline():
+                    return timeout_result()
                 return CIResult(CIClassification.EXTERNAL_UNKNOWN, f"observation-error:{type(exc).__name__}", expected_head_sha, reruns)
+            # An injected/live observer may spend the entire remaining
+            # budget before returning a seemingly successful observation.
+            if over_deadline():
+                return timeout_result()
             classification = classify_ci(observation, expected_head_sha=expected_head_sha)
             if classification is CIClassification.SUCCESS:
+                if over_deadline():
+                    return timeout_result()
                 return CIResult(classification, "all-required-checks-succeeded", expected_head_sha, reruns)
             if classification is CIClassification.RUNNING:
                 elapsed = self.clock.monotonic() - started
                 if elapsed >= self.deadline_seconds:
-                    return CIResult(CIClassification.TIMEOUT, "30-minute CI deadline exceeded", expected_head_sha, reruns)
+                    return timeout_result()
                 self.clock.sleep(min(self.poll_seconds, self.deadline_seconds - elapsed))
                 continue
             if classification is CIClassification.TRANSIENT and reruns < self.max_reruns:
+                if over_deadline():
+                    return timeout_result()
                 try:
                     gate.require_write("rerun-ci")
                 except WriteDenied:
                     return CIResult(CIClassification.WRITE_NOT_AUTHORIZED, "transient CI cannot be rerun in audit-only mode", expected_head_sha, reruns)
-                rerun(observation)
+                try:
+                    rerun(observation)
+                except Exception as exc:
+                    if over_deadline():
+                        return timeout_result()
+                    return CIResult(CIClassification.EXTERNAL_UNKNOWN, f"rerun-error:{type(exc).__name__}", expected_head_sha, reruns)
                 reruns += 1
+                if over_deadline():
+                    return timeout_result()
                 continue
             if classification is CIClassification.TRANSIENT:
+                if over_deadline():
+                    return timeout_result()
                 return CIResult(classification, "transient failure after rerun limit", expected_head_sha, reruns)
+            if over_deadline():
+                return timeout_result()
             return CIResult(classification, "CI failure is not an allowlisted transient or proven dependency failure", expected_head_sha, reruns)
 
 
@@ -1752,6 +1995,8 @@ class FixCommit:
     verification_verified: bool = False
     parents: tuple[str, ...] = ()
     created_by_skill: bool = False
+    author_type: str | None = None
+    committer_type: str | None = None
 
 
 def make_fix_commit_message(summary: str, marker: str) -> str:
@@ -1774,6 +2019,7 @@ class RepairCycleController:
     def __init__(self, gate: MutationGate) -> None:
         self.gate = gate
         self.repair_chain: list[RepairCommitRecord] = []
+        self.repair_provenance: list[RepairProvenanceRecord] = []
 
     def run(
         self,
@@ -1786,6 +2032,7 @@ class RepairCycleController:
         create_commit: Callable[[RepairDiagnosis, str, str], FixCommit],
         push: Callable[[str, FixCommit], None],
         wait_for_ci: Callable[[str], CIResult],
+        record_provenance: Callable[[RepairCommitRecord], RepairProvenanceRecord] | None = None,
     ) -> RepairCycleResult:
         head_sha = initial_head_sha
         commits: list[FixCommit] = []
@@ -1814,8 +2061,9 @@ class RepairCycleController:
                 or commit.parents != (head_sha,)
                 or commit.author_login not in DEFAULT_FIX_ACTORS
                 or commit.committer_login != commit.author_login
+                or commit.author_type != "Bot"
+                or commit.committer_type != "Bot"
                 or not commit.verification_verified
-                or not commit.created_by_skill
                 or not is_valid_fix_marker(
                     commit.marker,
                     pr_number,
@@ -1836,19 +2084,38 @@ class RepairCycleController:
             except Exception as exc:
                 return RepairCycleResult("open", cycle - 1, tuple(commits), f"push-failed:{type(exc).__name__}", head_sha)
             commits.append(commit)
-            self.repair_chain.append(
-                RepairCommitRecord(
-                    pr_number,
-                    run_id,
-                    head_sha,
-                    commit.sha,
-                    commit.marker,
-                    commit.author_login,
-                    commit.committer_login,
-                    commit.verification_verified,
-                    commit.created_by_skill,
-                )
+            repair_record = RepairCommitRecord(
+                pr_number,
+                run_id,
+                head_sha,
+                commit.sha,
+                commit.marker,
+                commit.author_login,
+                commit.committer_login,
+                commit.verification_verified,
+                make_repair_provenance_marker(pr_number, run_id, head_sha, commit.sha),
             )
+            if record_provenance is None:
+                return RepairCycleResult("open", cycle, tuple(commits), "repair-provenance-unavailable", commit.sha)
+            try:
+                self.gate.require_write("record-repair-provenance")
+                provenance = record_provenance(repair_record)
+            except Exception as exc:
+                return RepairCycleResult("open", cycle, tuple(commits), f"repair-provenance-failed:{type(exc).__name__}", commit.sha)
+            if (
+                provenance.source != "github-state"
+                or provenance.record_id < 1
+                or provenance.marker != repair_record.provenance_marker
+                or provenance.pr_number != repair_record.pr_number
+                or provenance.run_id != repair_record.run_id
+                or provenance.parent_sha != repair_record.parent_sha
+                or provenance.commit_sha != repair_record.commit_sha
+                or provenance.actor != repair_record.author_login
+                or provenance.body != build_repair_provenance_body(repair_record)
+            ):
+                return RepairCycleResult("open", cycle, tuple(commits), "repair-provenance-invalid", commit.sha)
+            self.repair_chain.append(repair_record)
+            self.repair_provenance.append(provenance)
             head_sha = commit.sha
             ci_result = wait_for_ci(head_sha)
             if ci_result.classification is CIClassification.SUCCESS:
@@ -1905,7 +2172,7 @@ class SerialMerger:
 
     def merge_in_order(
         self,
-        prs: Iterable[PullRequestSnapshot],
+        evidence: Iterable[CandidateEvidence],
         *,
         refetch: Callable[[int], PullRequestSnapshot],
         ci_success_for_head: Callable[[str], bool],
@@ -1913,18 +2180,19 @@ class SerialMerger:
         wait_for_cd: Callable[[str], bool],
         update_branch: Callable[[int, str, str], PullRequestSnapshot] | None = None,
         rebuild_snapshot: Callable[[PullRequestSnapshot], PullRequestSnapshot] | None = None,
-        revalidate: Callable[[PullRequestSnapshot], bool] | None = None,
+        revalidate: Callable[[PullRequestSnapshot], CandidateEvidence | None] | None = None,
     ) -> tuple[MergeResult, ...]:
         results: list[MergeResult] = []
 
         def refresh_base(
-            expected: PullRequestSnapshot,
+            expected_evidence: CandidateEvidence,
             current: PullRequestSnapshot,
-        ) -> PullRequestSnapshot | None:
+        ) -> CandidateEvidence | None:
+            expected = expected_evidence.pr
             if current.head_sha != expected.head_sha:
                 return None
             if current.base_sha == expected.base_sha:
-                return current
+                return expected_evidence if expected_evidence.matches(current) else None
             if update_branch is None or revalidate is None:
                 return None
             # Refetch immediately before the fixed expected-head mutation so
@@ -1956,20 +2224,27 @@ class SerialMerger:
             rebuilt = rebuild_snapshot(updated) if rebuild_snapshot else refetch(expected.number)
             if rebuilt.number != updated.number or rebuilt.head_sha != updated.head_sha or rebuilt.base_sha != updated.base_sha:
                 return None
-            if not revalidate(rebuilt):
+            rebuilt_evidence = revalidate(rebuilt)
+            if not isinstance(rebuilt_evidence, CandidateEvidence) or not rebuilt_evidence.matches(rebuilt):
                 return None
-            return rebuilt
+            return rebuilt_evidence
 
-        for expected in sorted(prs, key=lambda item: item.number):
+        ordered = tuple(evidence)
+        for initial_evidence in sorted(ordered, key=lambda item: item.pr.number):
+            expected = initial_evidence.pr
+            if not initial_evidence.matches(expected):
+                results.append(MergeResult(expected.number, Status.OPEN.value, "evidence-invalid"))
+                continue
             if not self.gate.can_write():
                 results.append(MergeResult(expected.number, Status.OPEN.value, "write-not-authorized"))
                 continue
             current = refetch(expected.number)
-            working = refresh_base(expected, current)
-            if working is None:
+            working_evidence = refresh_base(initial_evidence, current)
+            if working_evidence is None:
                 reason = "head SHA changed" if current.head_sha != expected.head_sha else "base-freshness-update-failed"
                 results.append(MergeResult(expected.number, Status.OPEN.value, reason))
                 continue
+            working = working_evidence.pr
             if working.mergeable not in {"MERGEABLE", "mergeable"}:
                 results.append(MergeResult(expected.number, Status.OPEN.value, "merge-conflict"))
                 continue
@@ -1984,6 +2259,9 @@ class SerialMerger:
                 # not a merge using stale local or CI evidence.
                 latest = refetch(expected.number)
                 if latest.head_sha == working.head_sha and latest.base_sha == working.base_sha:
+                    if not working_evidence.matches(latest):
+                        results.append(MergeResult(expected.number, Status.OPEN.value, "evidence-drift"))
+                        break
                     try:
                         self.gate.require_write("squash-merge")
                     except WriteDenied as exc:
@@ -1994,11 +2272,12 @@ class SerialMerger:
                 if latest.head_sha != working.head_sha:
                     results.append(MergeResult(expected.number, Status.OPEN.value, "head SHA changed"))
                     break
-                next_working = refresh_base(working, latest)
-                if next_working is None or refreshed_during_merge:
+                next_evidence = refresh_base(working_evidence, latest)
+                if next_evidence is None or refreshed_during_merge:
                     results.append(MergeResult(expected.number, Status.OPEN.value, "base-freshness-update-failed"))
                     break
-                working = next_working
+                working_evidence = next_evidence
+                working = working_evidence.pr
                 refreshed_during_merge = True
             if not ready_to_merge:
                 continue
@@ -2031,10 +2310,10 @@ def disposition_for(
         return "open"
     if preflight and preflight.status is PreflightStatus.BLOCKED:
         if any(
-            reason.startswith("unsupported-dependency-source:")
-            or reason == "integrity-mismatch"
-            or reason == "unexpected-registry"
-            or reason.startswith("suspicious-lifecycle-script:")
+            "unsupported-dependency-source:" in reason
+            or reason.endswith("integrity-mismatch")
+            or "unexpected-registry" in reason
+            or "suspicious-lifecycle-script:" in reason
             for reason in preflight.reasons
         ):
             return "close"
@@ -2380,6 +2659,7 @@ def reconstruct_state(
     comments: Iterable[CommentRecord] = (),
     issues: Iterable[IssueRecord] = (),
     repair_chain: Iterable[RepairCommitRecord] = (),
+    repair_provenance: Iterable[RepairProvenanceRecord] = (),
 ) -> ReconstructedState:
     """Rebuild idempotency evidence from GitHub, not a local durable store."""
 
@@ -2393,7 +2673,12 @@ def reconstruct_state(
             )
             if marker
             and is_valid_fix_marker(marker, pr.number)
-            and trusted_commit(commit, pr_number=pr.number, repair_chain=repair_chain)
+            and trusted_commit(
+                commit,
+                pr_number=pr.number,
+                repair_chain=repair_chain,
+                repair_provenance=repair_provenance,
+            )
         }
     )
 
@@ -2425,6 +2710,10 @@ class CandidateReport:
     reason: str
     preflight: PreflightResult | None = None
     verification_ran: bool = False
+    check_urls: tuple[str, ...] = ()
+    fix_commit: str | None = None
+    issue_url: str | None = None
+    remaining: str = ""
 
 
 class BatchProcessor:
@@ -2529,6 +2818,7 @@ class BatchAdapter(Protocol):
 
     def read_pull_requests(self) -> Iterable[PullRequestSnapshot]: ...
     def read_repair_chain(self, pr: PullRequestSnapshot) -> Iterable[RepairCommitRecord]: ...
+    def read_repair_provenance(self, pr: PullRequestSnapshot) -> Iterable[RepairProvenanceRecord]: ...
     def read_dependency_diff(self, pr: PullRequestSnapshot) -> ManifestLockDiff: ...
     def footprint(self, pr: PullRequestSnapshot, diff: ManifestLockDiff) -> FootprintedItem: ...
     def run_matrix_and_docker(self, pr: PullRequestSnapshot, changes: tuple[DependencyChange, ...]) -> bool: ...
@@ -2538,10 +2828,10 @@ class BatchAdapter(Protocol):
     def diagnose_repair(self, pr: PullRequestSnapshot, cycle: int, head_sha: str) -> RepairDiagnosis: ...
     def create_fix_commit(self, pr: PullRequestSnapshot, diagnosis: RepairDiagnosis, marker: str, message: str) -> FixCommit: ...
     def push_fix(self, pr: PullRequestSnapshot, expected_head_sha: str, commit: FixCommit) -> None: ...
+    def record_repair_provenance(self, pr: PullRequestSnapshot, record: RepairCommitRecord) -> RepairProvenanceRecord: ...
     def read_current_pr(self, number: int) -> PullRequestSnapshot: ...
     def update_branch(self, number: int, expected_head_sha: str, expected_base_sha: str) -> PullRequestSnapshot: ...
     def rebuild_snapshot(self, pr: PullRequestSnapshot) -> PullRequestSnapshot: ...
-    def revalidate(self, pr: PullRequestSnapshot, changes: tuple[DependencyChange, ...]) -> bool: ...
     def ci_success_for_head(self, head_sha: str) -> bool: ...
     def merge_pr(self, number: int, expected_head_sha: str) -> str: ...
     def wait_for_cd(self, merge_sha: str) -> bool: ...
@@ -2552,6 +2842,7 @@ class BatchAdapter(Protocol):
     def create_followup_issue(self, body: str) -> IssueRecord: ...
     def update_followup_issue(self, number: int, body: str) -> IssueRecord: ...
     def close_pr(self, number: int, expected_head_sha: str) -> None: ...
+    def check_urls(self, pr: PullRequestSnapshot) -> Iterable[str]: ...
 
 
 @dataclass(frozen=True)
@@ -2561,6 +2852,7 @@ class OrchestrationCandidate:
     changes: tuple[DependencyChange, ...]
     preflight: GroupedPreflightResult
     footprint: FootprintedItem
+    evidence: CandidateEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -2661,6 +2953,114 @@ class BatchOrchestrator:
             return False
         return True
 
+    def _rebuild_candidate_evidence(
+        self,
+        pr: PullRequestSnapshot,
+        gate: MutationGate,
+    ) -> CandidateEvidence | None:
+        """Rebuild every input/evidence stage from a freshly fetched PR."""
+
+        chains = tuple(self.adapter.read_repair_chain(pr))
+        provenance = tuple(self.adapter.read_repair_provenance(pr))
+        if trust_reasons(
+            pr,
+            required_label=self.required_label,
+            repair_chain=chains,
+            repair_provenance=provenance,
+        ):
+            return None
+        diff = self.adapter.read_dependency_diff(pr)
+        reconstruction = reconstruct_grouped_changes(diff)
+        grouped = self.preflight.check_grouped(
+            reconstruction.changes,
+            reconstruction_errors=reconstruction.errors,
+        )
+        if not grouped.complete:
+            return None
+        if not self.adapter.run_matrix_and_docker(pr, grouped.changes):
+            return None
+        ci_result = self.ci_waiter.wait(
+            pr.head_sha,
+            self.adapter.observe_ci,
+            lambda observation: self.adapter.rerun_ci(pr, observation, pr.head_sha),
+            gate=gate,
+        )
+        if ci_result.classification is not CIClassification.SUCCESS:
+            return None
+        return CandidateEvidence.create(
+            pr,
+            diff,
+            grouped.changes,
+            grouped,
+            True,
+            ci_result,
+        )
+
+    def _record_failure_disposition(
+        self,
+        gate: MutationGate,
+        *,
+        pr: PullRequestSnapshot,
+        project: str,
+        changes: tuple[DependencyChange, ...],
+        classification: str,
+        reason: str,
+        preflight: PreflightResult | None,
+        audit_only: bool,
+    ) -> tuple[str, str | None]:
+        """Apply the fixed comment/Issue/close contract for one outcome."""
+
+        if audit_only:
+            return Status.OPEN.value, None
+        marker = make_grouped_idempotency_marker(project, changes)
+        comment_body = f"Dependabot batch処理結果: PR #{pr.number}\n判定: {reason}"
+        comments = tuple(self.adapter.read_comments(pr.number))
+        disposition = disposition_for(
+            classification=classification,
+            preflight=preflight,
+        )
+        status = Status.OPEN.value
+        if disposition == "close":
+            status = DispositionExecutor(gate).apply(
+                pr,
+                disposition="close",
+                read_current=lambda: self.adapter.read_current_pr(pr.number),
+                comment=self._comment_writer(gate, pr, marker, comment_body, comments),
+                close=lambda expected_head: self.adapter.close_pr(pr.number, expected_head),
+                comment_body=comment_body,
+            )
+        else:
+            self._ensure_open_comment(gate, pr, marker, comment_body, comments)
+        issue_url: str | None = None
+        if status == Status.OPEN.value:
+            first = changes[0] if changes else DependencyChange(project, "group", "", "", "unknown")
+            issue_body = build_followup_issue_body(
+                summary=comment_body,
+                pr_url=pr.html_url,
+                project=project,
+                package=first.package,
+                from_version=first.from_version,
+                to_version=first.to_version,
+                base_sha=pr.base_sha,
+                head_sha=pr.head_sha,
+                check_urls=getattr(self.adapter, "check_urls", lambda _: ()) (pr),
+                classification=classification,
+                attempts=(reason,),
+                reproduction="固定adapterの再現手順を参照",
+                recommendation="PRをopenのまま手動確認",
+                close_reason="",
+                marker=marker,
+            )
+            plan = FollowupIssueManager(gate).ensure(
+                marker,
+                issue_body,
+                search_all=self.adapter.read_followup_issues,
+                writer=self._IssueWriter(self.adapter),
+            )
+            if plan.issue is not None:
+                issue_url = plan.issue.html_url
+        return status, issue_url
+
     def run(
         self,
         *,
@@ -2676,6 +3076,9 @@ class BatchOrchestrator:
             requested_mode=mode,
         )
         gate = MutationGate(authorization)
+        bind_gate = getattr(self.adapter, "bind_gate", None)
+        if callable(bind_gate):
+            bind_gate(gate)
         self.events.append("authorization")
         prs = tuple(self.adapter.read_pull_requests())
         self.events.append("snapshot-read")
@@ -2683,10 +3086,15 @@ class BatchOrchestrator:
             pr.number: tuple(self.adapter.read_repair_chain(pr))
             for pr in prs
         }
+        repair_provenance = {
+            pr.number: tuple(self.adapter.read_repair_provenance(pr))
+            for pr in prs
+        }
         selection = select_pull_requests(
             prs,
             required_label=self.required_label,
             repair_chains=repair_chains,
+            repair_provenance=repair_provenance,
         )
         self.events.append("selector-trust")
         aggregator = AuditAggregator()
@@ -2694,21 +3102,9 @@ class BatchOrchestrator:
         for number, reasons in sorted(selection.rejected.items()):
             pr = next(item for item in prs if item.number == number)
             reports[number] = CandidateReport(number, Status.SKIPPED.value, ",".join(reasons))
-        if requested_mode is Mode.WRITE and not authorization.allows_write:
-            for number, report in reports.items():
-                pr = next(item for item in prs if item.number == number)
-                aggregator.add(
-                    AuditRecord(number, pr.html_url, pr.base_sha, pr.head_sha, report.status, report.reason)
-                )
-            self.events.append("write-denied-before-state-machine")
-            return BatchExecutionResult(
-                "blocked",
-                authorization,
-                tuple(reports.values()),
-                (),
-                aggregator.render_markdown(),
-                tuple(self.events),
-            )
+        audit_only = authorization.mode is Mode.AUDIT_ONLY or not authorization.allows_write
+        if requested_mode is Mode.WRITE and audit_only:
+            self.events.append("write-denied-downgraded-to-audit-only")
 
         prepared: dict[int, OrchestrationCandidate] = {}
         for pr in selection.selected:
@@ -2722,7 +3118,27 @@ class BatchOrchestrator:
                 self.events.append(f"grouped-preflight:{pr.number}")
                 if not grouped.complete:
                     reason = "grouped-preflight:" + ",".join(grouped.reasons)
-                    reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, reason, grouped)
+                    synthetic_preflight = PreflightResult(grouped.status, grouped.reasons)
+                    disposition_status, issue_url = self._record_failure_disposition(
+                        gate,
+                        pr=pr,
+                        project=diff.project,
+                        changes=grouped.changes,
+                        classification="external/unknown",
+                        reason=reason,
+                        preflight=synthetic_preflight,
+                        audit_only=audit_only,
+                    )
+                    reports[pr.number] = CandidateReport(
+                        pr.number,
+                        disposition_status,
+                        reason,
+                        grouped,
+                        False,
+                        tuple(getattr(self.adapter, "check_urls", lambda _: ()) (pr)),
+                        None,
+                        issue_url,
+                    )
                     continue
                 item = self.adapter.footprint(pr, diff)
                 prepared[pr.number] = OrchestrationCandidate(
@@ -2734,10 +3150,15 @@ class BatchOrchestrator:
                 )
             except Exception as exc:
                 reason = f"grouped-preflight-error:{type(exc).__name__}"
-                reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, reason)
+                reports[pr.number] = CandidateReport(
+                    pr.number,
+                    Status.OPEN.value,
+                    reason,
+                    check_urls=tuple(getattr(self.adapter, "check_urls", lambda _: ()) (pr)),
+                )
         self.events.append("all-grouped-preflight-complete")
-        merge_candidates: dict[int, OrchestrationCandidate] = {}
-        if authorization.mode is Mode.AUDIT_ONLY:
+        merge_candidates: dict[int, CandidateEvidence] = {}
+        if audit_only:
             for candidate in prepared.values():
                 reason = "audit-only: no matrix/docker/ci/dependency execution"
                 reports[candidate.pr.number] = CandidateReport(
@@ -2751,56 +3172,73 @@ class BatchOrchestrator:
             waves = schedule_footprints(candidate.footprint for candidate in prepared.values())
             self.events.append("footprint-waves")
             for wave in waves:
-                for item in wave:
+                eligible: list[OrchestrationCandidate] = []
+                for item in sorted(wave, key=lambda value: str(value.identifier)):
                     candidate = prepared[int(item.identifier)]
                     pr = candidate.pr
                     self.events.append(f"snapshot-recheck:{pr.number}")
                     try:
                         assert_expected_snapshot(pr, self.adapter.read_current_pr(pr.number))
                     except SnapshotDrift as exc:
-                        reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, str(exc), candidate.preflight, False)
+                        reports[pr.number] = CandidateReport(
+                            pr.number,
+                            Status.OPEN.value,
+                            str(exc),
+                            candidate.preflight,
+                            False,
+                        )
+                        continue
+                    eligible.append(candidate)
+                local_results: dict[int, tuple[bool, str]] = {}
+                if eligible:
+                    # Independent footprint work is the only concurrent part;
+                    # all GH writes and the merge/CD phase remain serial.
+                    with ThreadPoolExecutor(max_workers=min(2, len(eligible))) as executor:
+                        futures = {
+                            executor.submit(
+                                self.adapter.run_matrix_and_docker,
+                                candidate.pr,
+                                candidate.changes,
+                            ): candidate.pr.number
+                            for candidate in eligible
+                        }
+                        for future in as_completed(futures):
+                            number = futures[future]
+                            try:
+                                local_ok = bool(future.result())
+                                local_results[number] = (
+                                    local_ok,
+                                    "local-verification-passed" if local_ok else "local-verification-failed",
+                                )
+                            except Exception as exc:
+                                local_results[number] = (False, f"matrix-docker-error:{type(exc).__name__}")
+                for item in wave:
+                    candidate = prepared[int(item.identifier)]
+                    pr = candidate.pr
+                    if pr.number not in local_results:
                         continue
                     self.events.append(f"matrix-docker:{pr.number}")
-                    try:
-                        local_ok = bool(self.adapter.run_matrix_and_docker(pr, candidate.changes))
-                    except Exception as exc:
-                        local_ok = False
-                        local_reason = f"matrix-docker-error:{type(exc).__name__}"
-                    else:
-                        local_reason = "local-verification-passed" if local_ok else "local-verification-failed"
+                    local_ok, local_reason = local_results[pr.number]
                     if not local_ok:
-                        reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, local_reason, candidate.preflight, True)
-                        marker = make_grouped_idempotency_marker(candidate.diff.project, candidate.changes)
-                        comment_body = f"Dependabot batch result for PR #{pr.number}: {local_reason}"
-                        self._ensure_open_comment(
+                        disposition_status, issue_url = self._record_failure_disposition(
                             gate,
-                            pr,
-                            marker,
-                            comment_body,
-                            tuple(self.adapter.read_comments(pr.number)),
-                        )
-                        issue_body = build_followup_issue_body(
-                            summary=comment_body,
-                            pr_url=pr.html_url,
+                            pr=pr,
                             project=candidate.diff.project,
-                            package=candidate.changes[0].package,
-                            from_version=candidate.changes[0].from_version,
-                            to_version=candidate.changes[0].to_version,
-                            base_sha=pr.base_sha,
-                            head_sha=pr.head_sha,
-                            check_urls=(),
+                            changes=candidate.changes,
                             classification="external/unknown",
-                            attempts=(local_reason,),
-                            reproduction="adapter-provided deterministic reproduction",
-                            recommendation="review the retained open PR",
-                            close_reason="",
-                            marker=marker,
+                            reason=local_reason,
+                            preflight=None,
+                            audit_only=audit_only,
                         )
-                        FollowupIssueManager(gate).ensure(
-                            marker,
-                            issue_body,
-                            search_all=self.adapter.read_followup_issues,
-                            writer=self._IssueWriter(self.adapter),
+                        reports[pr.number] = CandidateReport(
+                            pr.number,
+                            disposition_status,
+                            local_reason,
+                            candidate.preflight,
+                            True,
+                            tuple(getattr(self.adapter, "check_urls", lambda _: ()) (pr)),
+                            None,
+                            issue_url,
                         )
                         continue
                     self.events.append(f"ci-wait:{pr.number}")
@@ -2811,6 +3249,7 @@ class BatchOrchestrator:
                         gate=gate,
                     )
                     final_head = pr.head_sha
+                    fix_commit_sha: str | None = None
                     if ci_result.classification is CIClassification.DEPENDENCY_CAUSED:
                         self.events.append(f"repair:{pr.number}")
                         controller = RepairCycleController(gate)
@@ -2828,68 +3267,83 @@ class BatchOrchestrator:
                                 lambda observation, head=head: self.adapter.rerun_ci(pr, observation, head),
                                 gate=gate,
                             ),
+                            record_provenance=lambda record, pr=pr: self.adapter.record_repair_provenance(pr, record),
                         )
                         final_head = repair.final_head_sha
+                        if repair.commits:
+                            fix_commit_sha = repair.commits[-1].sha
                         if repair.status == Status.SUCCESS.value:
-                            ci_result = CIResult(CIClassification.SUCCESS, repair.reason, final_head, ci_result.reruns)
                             repaired_pr = self.adapter.read_current_pr(pr.number)
-                            candidate = OrchestrationCandidate(
-                                repaired_pr,
-                                candidate.diff,
-                                candidate.changes,
-                                candidate.preflight,
-                                candidate.footprint,
-                            )
-                            prepared[pr.number] = candidate
-                            pr = repaired_pr
+                            rebuilt_evidence = self._rebuild_candidate_evidence(repaired_pr, gate)
+                            if rebuilt_evidence is None:
+                                ci_result = CIResult(
+                                    CIClassification.EXTERNAL_UNKNOWN,
+                                    "repair-evidence-rebuild-failed",
+                                    final_head,
+                                    ci_result.reruns,
+                                )
+                            else:
+                                ci_result = rebuilt_evidence.ci_result
+                                candidate = OrchestrationCandidate(
+                                    repaired_pr,
+                                    rebuilt_evidence.diff,
+                                    rebuilt_evidence.changes,
+                                    rebuilt_evidence.preflight,
+                                    candidate.footprint,
+                                    rebuilt_evidence,
+                                )
+                                prepared[pr.number] = candidate
+                                pr = repaired_pr
                         else:
                             ci_result = CIResult(CIClassification.DEPENDENCY_CAUSED, repair.reason, final_head, ci_result.reruns)
                     if ci_result.classification is CIClassification.SUCCESS:
-                        reports[pr.number] = CandidateReport(pr.number, Status.SUCCESS.value, "verification-passed", candidate.preflight, True)
-                        merge_candidates[pr.number] = candidate
+                        reports[pr.number] = CandidateReport(
+                            pr.number,
+                            Status.SUCCESS.value,
+                            "verification-passed",
+                            candidate.preflight,
+                            True,
+                            tuple(getattr(self.adapter, "check_urls", lambda _: ()) (pr)),
+                            fix_commit_sha,
+                        )
+                        evidence = candidate.evidence or CandidateEvidence.create(
+                            pr,
+                            candidate.diff,
+                            candidate.changes,
+                            candidate.preflight,
+                            True,
+                            ci_result,
+                        )
+                        merge_candidates[pr.number] = evidence
+                        marker = make_grouped_idempotency_marker(candidate.diff.project, candidate.changes)
+                        self._ensure_open_comment(
+                            gate,
+                            pr,
+                            marker,
+                            f"Dependabot batch処理結果: PR #{pr.number}\n判定: verification-passed",
+                            tuple(self.adapter.read_comments(pr.number)),
+                        )
                     else:
                         reason = f"ci:{ci_result.classification.value}:{ci_result.reason}"
-                        reports[pr.number] = CandidateReport(pr.number, Status.OPEN.value, reason, candidate.preflight, True)
-                    marker = make_grouped_idempotency_marker(candidate.diff.project, candidate.changes)
-                    comment_body = f"Dependabot batch result for PR #{pr.number}: {reports[pr.number].reason}"
-                    comments = tuple(self.adapter.read_comments(pr.number))
-                    disposition = disposition_for(classification=ci_result.classification.value)
-                    if disposition == "close":
-                        close_result = DispositionExecutor(gate).apply(
-                            pr,
-                            disposition=disposition,
-                            read_current=lambda pr=pr: self.adapter.read_current_pr(pr.number),
-                            comment=self._comment_writer(gate, pr, marker, comment_body, comments),
-                            close=lambda expected_head, pr=pr: self.adapter.close_pr(pr.number, expected_head),
-                            comment_body=comment_body,
-                        )
-                        self.events.append(f"disposition:{pr.number}:{close_result}")
-                    else:
-                        self._ensure_open_comment(gate, pr, marker, comment_body, comments)
-                    if ci_result.classification is not CIClassification.SUCCESS:
-                        issue_body = build_followup_issue_body(
-                            summary=comment_body,
-                            pr_url=pr.html_url,
+                        disposition_status, issue_url = self._record_failure_disposition(
+                            gate,
+                            pr=pr,
                             project=candidate.diff.project,
-                            package=candidate.changes[0].package,
-                            from_version=candidate.changes[0].from_version,
-                            to_version=candidate.changes[0].to_version,
-                            base_sha=pr.base_sha,
-                            head_sha=final_head,
-                            check_urls=(),
+                            changes=candidate.changes,
                             classification=ci_result.classification.value,
-                            attempts=(ci_result.reason,),
-                            reproduction="adapter-provided deterministic reproduction",
-                            recommendation="review the retained open PR",
-                            close_reason="",
-                            marker=marker,
+                            reason=reason,
+                            preflight=None,
+                            audit_only=audit_only,
                         )
-                        self.events.append(f"issue:{pr.number}")
-                        FollowupIssueManager(gate).ensure(
-                            marker,
-                            issue_body,
-                            search_all=self.adapter.read_followup_issues,
-                            writer=self._IssueWriter(self.adapter),
+                        reports[pr.number] = CandidateReport(
+                            pr.number,
+                            disposition_status,
+                            reason,
+                            candidate.preflight,
+                            True,
+                            tuple(getattr(self.adapter, "check_urls", lambda _: ()) (pr)),
+                            fix_commit_sha,
+                            issue_url,
                         )
         self.events.append("serial-merge-cd")
         merge_results: tuple[MergeResult, ...] = ()
@@ -2902,17 +3356,14 @@ class BatchOrchestrator:
                 raise SnapshotDrift("merge head does not belong to a candidate")
 
             merge_results = SerialMerger(gate).merge_in_order(
-                tuple(candidate.pr for candidate in merge_candidates.values()),
+                tuple(merge_candidates.values()),
                 refetch=self.adapter.read_current_pr,
                 ci_success_for_head=self.adapter.ci_success_for_head,
                 merge=merge_by_head,
                 wait_for_cd=self.adapter.wait_for_cd,
                 update_branch=self.adapter.update_branch,
                 rebuild_snapshot=self.adapter.rebuild_snapshot,
-                revalidate=lambda updated: self.adapter.revalidate(
-                    updated,
-                    prepared[updated.number].changes,
-                ),
+                revalidate=lambda updated: self._rebuild_candidate_evidence(updated, gate),
             )
         for result in merge_results:
             if result.pr_number in reports:
@@ -2929,6 +3380,7 @@ class BatchOrchestrator:
             pr = by_number.get(number)
             if pr is None:
                 continue
+            check_urls = report.check_urls or tuple(getattr(self.adapter, "check_urls", lambda _: ()) (pr))
             aggregator.add(
                 AuditRecord(
                     number,
@@ -2937,7 +3389,11 @@ class BatchOrchestrator:
                     pr.head_sha,
                     report.status,
                     report.reason,
+                    check_urls=check_urls,
+                    fix_commit=report.fix_commit,
                     mutation_result=report.status,
+                    issue_url=report.issue_url,
+                    remaining=report.remaining,
                 )
             )
         return BatchExecutionResult(
@@ -3014,7 +3470,10 @@ def build_audit_snapshot_report(prs: Iterable[PullRequestSnapshot], *, default_b
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--snapshot", type=Path, required=True, help="read-only GitHub snapshot JSON")
+    parser.add_argument("--snapshot", type=Path, help="read-only GitHub snapshot JSON")
+    parser.add_argument("--live", action="store_true", help="use the concrete GH/process adapter")
+    parser.add_argument("--owner", default="u7chan")
+    parser.add_argument("--repository", default="monorepo")
     parser.add_argument("--mode", choices=[mode.value for mode in Mode], default=Mode.AUDIT_ONLY.value)
     parser.add_argument("--instruction-source", default="current_turn_human")
     parser.add_argument("--current-turn-instruction")
@@ -3030,11 +3489,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         source=args.instruction_source,
         requested_mode=requested_mode,
     )
+    if args.live:
+        from concrete_adapter import ConcreteBatchAdapter, GhSkillProcessDispatcher
+
+        dispatcher = GhSkillProcessDispatcher(
+            Path("/home/u7dev/.agents/skills/agent-harness/gh/scripts/gh.sh"),
+            cwd=Path.cwd(),
+        )
+        adapter = ConcreteBatchAdapter(
+            owner=args.owner,
+            repository=args.repository,
+            dispatcher=dispatcher,
+            repository_root=Path.cwd(),
+        )
+        result = execute_batch(
+            adapter,
+            current_turn_instruction=args.current_turn_instruction,
+            mode=requested_mode,
+            instruction_source=args.instruction_source,
+        )
+        print(f"mode={result.authorization.mode.value} status={result.status}")
+        print(result.audit_markdown)
+        return 0 if result.status == "completed" else 2
+    if args.snapshot is None:
+        print("mode=blocked reason=--snapshot is required without --live")
+        return 2
     prs = load_snapshot(args.snapshot)
     if requested_mode is Mode.WRITE:
         if not authorization.allows_write:
-            print(f"mode=blocked reason={authorization.reason}")
-            return 2
+            report = build_audit_snapshot_report(prs, default_branch=args.default_branch)
+            print(f"mode=audit-only reason={authorization.reason}")
+            print(report.render_markdown())
+            return 0
         print(
             "mode=blocked reason=write mode requires an explicitly injected BatchAdapter; "
             "the snapshot CLI will not guess a live writer",
