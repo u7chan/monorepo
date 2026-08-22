@@ -11,6 +11,8 @@ The complete maintenance script is at:
 It loads the existing `.github/dependabot.yml`, preserves settings for
 directories that are still present, adds missing entries, removes stale entries,
 normalizes group names, and waits for explicit approval before writing the file.
+Every generated or existing entry contains the required
+`dependabot-auto-process` label while preserving any other labels.
 
 ## Running the script
 
@@ -50,3 +52,23 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 - If no lockfile is found, the directory is excluded from Dependabot.
 - If an existing entry points to a directory that no longer exists, it is removed.
 - If an existing entry points to a directory whose lockfile is gone, it is removed.
+
+## Required label and coverage validation
+
+The generated template includes:
+
+```yaml
+labels:
+  - "dependabot-auto-process"
+```
+
+When an existing entry already has labels, the script preserves them and adds
+the required label if necessary. After YAML parsing, coverage validation
+requires exactly one entry for every detected project and the required label
+on every entry. A missing label causes validation to fail.
+
+Run the focused tests with:
+
+```bash
+python3 -m unittest discover -s .agents/skills/github-dependabot-maintain/tests -p 'test_*.py'
+```
