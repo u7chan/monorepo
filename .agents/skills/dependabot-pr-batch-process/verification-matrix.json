@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "docker": {
+    "max_concurrency": 2,
+    "default_timeout_seconds": 1800
+  },
+  "projects": {
+    "browser-auto": {
+      "path": "projects/browser-auto",
+      "ecosystem": "bun",
+      "checks": [
+        {"id": "test", "kind": "test", "required": true, "argv": ["bun", "test"], "cwd": "projects/browser-auto", "timeout_seconds": 900},
+        {"id": "lint", "kind": "lint", "required": true, "argv": ["bun", "run", "lint"], "cwd": "projects/browser-auto", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": true, "argv": ["bunx", "tsc", "--noEmit"], "cwd": "projects/browser-auto", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/browser-auto"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": true, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    },
+    "edit-vid": {
+      "path": "projects/edit-vid",
+      "ecosystem": "uv",
+      "checks": [
+        {"id": "test", "kind": "test", "required": false, "argv": [], "cwd": "projects/edit-vid", "timeout_seconds": 900},
+        {"id": "lint", "kind": "lint", "required": false, "argv": ["uv", "run", "ruff", "check", "."], "cwd": "projects/edit-vid", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": false, "argv": ["uv", "run", "ty", "check", "."], "cwd": "projects/edit-vid", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/edit-vid"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": false, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    },
+    "edit-vid2": {
+      "path": "projects/edit-vid2",
+      "ecosystem": "bun",
+      "checks": [
+        {"id": "test", "kind": "test", "required": true, "argv": ["bun", "run", "test:unit"], "cwd": "projects/edit-vid2", "timeout_seconds": 1200},
+        {"id": "lint", "kind": "lint", "required": true, "argv": ["bun", "run", "lint"], "cwd": "projects/edit-vid2", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": true, "argv": ["bunx", "tsc", "--noEmit"], "cwd": "projects/edit-vid2", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/edit-vid2"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": true, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    },
+    "file-server": {
+      "path": "projects/file-server",
+      "ecosystem": "bun",
+      "checks": [
+        {"id": "test", "kind": "test", "required": true, "argv": ["bun", "test"], "cwd": "projects/file-server", "timeout_seconds": 900},
+        {"id": "lint", "kind": "lint", "required": true, "argv": ["bun", "run", "lint"], "cwd": "projects/file-server", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": true, "argv": ["bunx", "tsc", "--noEmit"], "cwd": "projects/file-server", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/file-server"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": true, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    },
+    "portal": {
+      "path": "projects/portal",
+      "ecosystem": "bun",
+      "checks": [
+        {"id": "test", "kind": "test", "required": false, "argv": [], "cwd": "projects/portal", "timeout_seconds": 900},
+        {"id": "lint", "kind": "lint", "required": true, "argv": ["bun", "run", "lint"], "cwd": "projects/portal", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": false, "argv": ["bunx", "tsc", "--noEmit"], "cwd": "projects/portal", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/portal"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": true, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    },
+    "portfolio": {
+      "path": "projects/portfolio",
+      "ecosystem": "bun",
+      "checks": [
+        {"id": "test", "kind": "test", "required": true, "argv": ["bun", "run", "test:coverage"], "cwd": "projects/portfolio", "timeout_seconds": 1200},
+        {"id": "lint", "kind": "lint", "required": true, "argv": ["bun", "run", "lint"], "cwd": "projects/portfolio", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": true, "argv": ["bunx", "tsc", "--noEmit"], "cwd": "projects/portfolio", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/portfolio"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": true, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    },
+    "simple-agent-poc": {
+      "path": "projects/simple-agent-poc",
+      "ecosystem": "uv",
+      "checks": [
+        {"id": "test", "kind": "test", "required": true, "argv": ["uv", "run", "pytest", "-v"], "cwd": "projects/simple-agent-poc", "timeout_seconds": 1200},
+        {"id": "lint", "kind": "lint", "required": true, "argv": ["uv", "run", "ruff", "check", "."], "cwd": "projects/simple-agent-poc", "timeout_seconds": 900},
+        {"id": "typecheck", "kind": "typecheck", "required": true, "argv": ["uv", "run", "ty", "check", "."], "cwd": "projects/simple-agent-poc", "timeout_seconds": 900},
+        {"id": "license", "kind": "license", "required": true, "argv": ["./scripts/check-licenses", "--target", "projects/simple-agent-poc"], "cwd": ".", "timeout_seconds": 900}
+      ],
+      "docker": {
+        "test": {"target": "test", "required": true, "timeout_seconds": 1800},
+        "final": {"target": "final", "required": true, "timeout_seconds": 1800}
+      }
+    }
+  }
+}
