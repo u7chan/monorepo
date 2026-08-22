@@ -92,7 +92,10 @@ repository固有例外として、このrepositoryで継続運用してきた次
 CI greenが一般にbreaking changeの不存在を証明する一般規則ではない。
 
 - `oxfmt`のsemver 0.x minor増加
-- `oxlint`への更新に対応付けできる対象release note内の定常的な`BREAKING CHANGE(S)`表記
+- `oxlint`への更新に対応付けできる対象release note内の定常的な`BREAKING CHANGE(S)`表記。
+  「定常的」とは、人間が例外判断済みの#1184/#1185/#1187/#1190と同種、すなわちルール追加・
+  分割などmigration指示を伴わない表記を意味し、同種と判定できない場合は
+  「判定不能のため保留」とする
 
 この例外でも、`oxfmt`/`oxlint`のmajor増加、必須migration、manual migration、説明不能な変更、
 allowlist外差分、checks不成立、head driftは従来どおり保留する。
