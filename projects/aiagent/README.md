@@ -45,7 +45,7 @@ docker build -t aiagent --target=test .   # CI相当(lint + test)
 docker build -t aiagent .                 # 本番イメージ(final)
 docker run -p 3000:3000 \
   -e OPENCODE_API_KEY=sk-... \
-  -e AIAGENT_MODEL=opencode-go/deepseek-v4-pro \
+  -e AIAGENT_MODEL=opencode-go/deepseek-v4-flash \
   aiagent
 ```
 
@@ -53,7 +53,7 @@ docker run -p 3000:3000 \
 
 | 変数 | 必須 | 内容 |
 | --- | --- | --- |
-| `AIAGENT_MODEL` | 推奨 | モデルを CLI 形式で固定する (例: `opencode-go/deepseek-v4-pro`、`:low` などの思考レベルサフィックス可)。未指定なら pi の設定・デフォルトに従う |
+| `AIAGENT_MODEL` | 推奨 | モデルを CLI 形式で固定する (例: `opencode-go/deepseek-v4-flash`、`:low` などの思考レベルサフィックス可)。未指定なら pi の設定・デフォルトに従う |
 | `OPENCODE_API_KEY` 等 | 要 | プロバイダ固有の API キー環境変数。Pi SDK が auth.json → 環境変数の順で自動解決する |
 
 コンテナ内には `~/.pi/agent/auth.json` が無いため、API キーは環境変数で渡す。

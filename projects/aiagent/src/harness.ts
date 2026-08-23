@@ -12,7 +12,7 @@ export interface Harness {
 }
 
 export interface HarnessOptions {
-  // "provider/model" 形式 (例: opencode-go/deepseek-v4-pro)、":level" サフィックス可
+  // "provider/model" 形式 (例: opencode-go/deepseek-v4-flash)、":level" サフィックス可
   model?: string
 }
 
