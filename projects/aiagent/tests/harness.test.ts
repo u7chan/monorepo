@@ -20,6 +20,8 @@ interface FakeOptions {
   modelRuntime?: unknown
   sessionManager?: unknown
   noTools?: unknown
+  model?: unknown
+  thinkingLevel?: unknown
 }
 
 let capturedOptions: FakeOptions | undefined
@@ -63,6 +65,30 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
   SessionManager: {
     inMemory: () => "in-memory",
   },
+  resolveCliModel: ({ cliModel }: { cliModel?: string }) => {
+    if (cliModel === "opencode-go/deepseek-v4-pro") {
+      return {
+        model: { kind: "fake-model" },
+        thinkingLevel: undefined,
+        warning: undefined,
+        error: undefined,
+      }
+    }
+    if (cliModel === "opencode-go/deepseek-v4-pro:low") {
+      return {
+        model: { kind: "fake-model" },
+        thinkingLevel: "low",
+        warning: undefined,
+        error: undefined,
+      }
+    }
+    return {
+      model: undefined,
+      thinkingLevel: undefined,
+      warning: undefined,
+      error: `unknown model: "${cliModel}"`,
+    }
+  },
   createAgentSession: async (options: FakeOptions) => {
     capturedOptions = options
     return { session: createFakeSession() }
@@ -89,6 +115,26 @@ describe("createHarness()", () => {
       sessionManager: "in-memory",
       noTools: "all",
     })
+  })
+
+  it("resolves the given model spec and passes it to the session", async () => {
+    await createHarness({ model: "opencode-go/deepseek-v4-pro" })
+
+    expect(capturedOptions?.model).toEqual({ kind: "fake-model" })
+    expect(capturedOptions?.thinkingLevel).toBeUndefined()
+  })
+
+  it("applies the thinking level from the model spec", async () => {
+    await createHarness({ model: "opencode-go/deepseek-v4-pro:low" })
+
+    expect(capturedOptions?.model).toEqual({ kind: "fake-model" })
+    expect(capturedOptions?.thinkingLevel).toBe("low")
+  })
+
+  it("rejects an unknown model spec at creation time", async () => {
+    await expect(createHarness({ model: "bad/spec" })).rejects.toThrow(
+      'unknown model: "bad/spec"',
+    )
   })
 
   it("returns the assistant's reply text from prompt()", async () => {
