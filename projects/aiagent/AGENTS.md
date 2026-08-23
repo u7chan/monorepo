@@ -5,6 +5,7 @@
 - Bun
 - TypeScript
 - Hono
+- Pi (`@earendil-works/pi-coding-agent`)
 
 ## Why / What / Constraints First
 
@@ -20,6 +21,11 @@ How は設計とコードで表現すること。
 ## Test Policy
 
 テストケースは生きるドキュメント(仕様書)として設計してください。
+
+## Comment Policy
+
+- ドキュメントコメントは書かない (膨らみ、コードと矛盾するため)
+- 意図・前提は対象箇所に 1 行コメント、将来の改善は `// TODO:` / `// TBD:` で残す
 
 ## Review Policy
 
