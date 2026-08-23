@@ -23,6 +23,18 @@ curl -X POST localhost:3000/prompt \
 - 現時点は最小構成: セッションは in-memory(永続化なし)・ツール無効(会話のみ)
 - GUI・ストリーミング・ツールは今後この層に追加する
 
+## ロギング
+
+- [pino](https://getpino.io) ベースの構造化ロギング。stdout と `logs/aiagent-YYYYMMDD.log` に同内容の JSONL を出力する（ファイル出力はデフォルト ON）
+- 主用途は障害事後調査。タイムスタンプが固定幅ローカルISO（例: `2026-02-15T14:03:21.123+09:00`）のため、次の読み方で解析できる:
+
+```sh
+grep '"time":"2026-02-15T14:03' logs/aiagent-20260215.log | grep 'bash'
+```
+
+- レベル配分: start/end/tool=info、failed=error、retry=warn、prompt preview=debug
+- ローテートは起動時に日付確定・以降追記のみ。日跨ぎランタイムロールは未対応
+
 ## 開発
 
 ```sh
@@ -55,6 +67,8 @@ docker run -p 3000:3000 \
 | --- | --- | --- |
 | `AIAGENT_MODEL` | 推奨 | モデルを CLI 形式で固定する (例: `opencode-go/deepseek-v4-flash`、`:low` などの思考レベルサフィックス可)。未指定なら pi の設定・デフォルトに従う |
 | `OPENCODE_API_KEY` 等 | 要 | プロバイダ固有の API キー環境変数。Pi SDK が auth.json → 環境変数の順で自動解決する |
+| `LOG_LEVEL` | 任意 | ログレベル (default: `info`) |
+| `LOG_FILE` | 任意 | ログファイルパス (default: `logs/aiagent-YYYYMMDD.log`)。空文字でファイル出力を無効化 |
 
 コンテナ内には `~/.pi/agent/auth.json` が無いため、API キーは環境変数で渡す。
 
