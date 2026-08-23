@@ -6,41 +6,27 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent"
 
-/**
- * aiagent のハーネスが満たす最小インターフェース。
- * セッション管理・ストリーミング・ツールは将来の拡張点としてここに足していく。
- */
 export interface Harness {
-  /** プロンプトを送り、完了後のアシスタント応答テキストを返す */
   prompt(text: string): Promise<string>
-  /** 内部リソース(Pi セッション)を解放する */
   dispose(): void
 }
 
 export interface HarnessOptions {
-  /**
-   * モデル指定 (CLI 形式: "provider/model"、":level" サフィックス可)。
-   * 未指定なら pi の設定(defaultModel)または最初の利用可能モデルに従う。
-   */
+  // "provider/model" 形式 (例: opencode-go/deepseek-v4-pro)、":level" サフィックス可
   model?: string
 }
 
-/**
- * Pi SDK 上に最小のハーネスを作る。
- *
- * - セッションは in-memory(ディスクに永続化しない)
- * - ツールは無効(現時点では会話のみ。ツールは後段で追加する)
- * - API キーは明示しない: ModelRuntime が auth.json → 環境変数
- *   (例: OPENCODE_API_KEY)の順で自動解決する
- */
 export async function createHarness(
   options: HarnessOptions = {},
 ): Promise<Harness> {
+  // API キーは自前で扱わない: ModelRuntime が auth.json → 環境変数
+  // (例: OPENCODE_API_KEY) の順で自動解決する
   const modelRuntime = await ModelRuntime.create()
 
   const sessionOptions: CreateAgentSessionOptions = {
     modelRuntime,
-    sessionManager: SessionManager.inMemory(),
+    sessionManager: SessionManager.inMemory(), // 永続化しない
+    // TODO: ツール実行は後段で追加する (それまで会話のみ)
     noTools: "all",
   }
 
