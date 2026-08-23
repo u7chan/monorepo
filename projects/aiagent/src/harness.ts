@@ -16,6 +16,16 @@ export interface HarnessOptions {
   model?: string
 }
 
+// エージェントの進行状況を stdout へ出力する (POC のため console を直接使う)
+function logAgent(message: string) {
+  console.log(`[agent] ${new Date().toISOString()} ${message}`)
+}
+
+function logAgentPrompt(text: string) {
+  const preview = text.length > 80 ? `${text.slice(0, 80)}...` : text
+  logAgent(`prompt: "${preview}"`)
+}
+
 export async function createHarness(
   options: HarnessOptions = {},
 ): Promise<Harness> {
@@ -53,11 +63,46 @@ export async function createHarness(
       event.assistantMessageEvent.type === "text_delta"
     ) {
       current += event.assistantMessageEvent.delta
+      return
+    }
+
+    // テキスト生成以外の主要イベントをログへ (ツール実行は後段で有効化)
+    switch (event.type) {
+      case "agent_start":
+        logAgent("start")
+        break
+      case "turn_end":
+        if (
+          event.message.role === "assistant" &&
+          (event.message.stopReason === "error" ||
+            event.message.stopReason === "aborted")
+        ) {
+          const reason = event.message.errorMessage ?? "(no error message)"
+          logAgent(`failed: stopReason=${event.message.stopReason} ${reason}`)
+        }
+        break
+      case "auto_retry_start":
+        logAgent(
+          `retry ${event.attempt}/${event.maxAttempts} in ${event.delayMs}ms: ${event.errorMessage}`,
+        )
+        break
+      case "tool_execution_start":
+        logAgent(`tool start: ${event.toolName}`)
+        break
+      case "tool_execution_end":
+        logAgent(
+          `tool end: ${event.toolName}${event.isError ? " (error)" : ""}`,
+        )
+        break
+      case "agent_end":
+        logAgent("end")
+        break
     }
   })
 
   return {
     async prompt(text) {
+      logAgentPrompt(text)
       current = ""
       await session.prompt(text)
       return current

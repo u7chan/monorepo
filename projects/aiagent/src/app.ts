@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { logger } from "hono/logger"
 import type { Harness } from "./harness"
 
 export interface AppDeps {
@@ -8,6 +9,9 @@ export interface AppDeps {
 export function createApp(deps: AppDeps) {
   const { harness } = deps
   const app = new Hono()
+
+  // アクセスログを stdout へ出力する (method / path / status / 所要時間)
+  app.use(logger())
 
   app.get("/", (c) => {
     return c.text("Hello Hono!")
