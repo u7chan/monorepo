@@ -1,5 +1,6 @@
 import { createApp } from "./app"
+import { createHarness } from "./harness"
 
-const app = createApp()
+const harness = await createHarness()
 
-export default app
+export default createApp({ harness })
