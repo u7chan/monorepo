@@ -5,6 +5,7 @@ import {
   resolveCliModel,
   SessionManager,
 } from "@earendil-works/pi-coding-agent"
+import { logAgent, logAgentPrompt } from "./logger"
 
 export interface Harness {
   prompt(text: string): Promise<string>
@@ -14,16 +15,6 @@ export interface Harness {
 export interface HarnessOptions {
   // "provider/model" 形式 (例: opencode-go/deepseek-v4-flash)、":level" サフィックス可
   model?: string
-}
-
-// エージェントの進行状況を stdout へ出力する (POC のため console を直接使う)
-function logAgent(message: string) {
-  console.log(`[agent] ${new Date().toISOString()} ${message}`)
-}
-
-function logAgentPrompt(text: string) {
-  const preview = text.length > 80 ? `${text.slice(0, 80)}...` : text
-  logAgent(`prompt: "${preview}"`)
 }
 
 export async function createHarness(
