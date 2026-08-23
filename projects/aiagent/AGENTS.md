@@ -5,6 +5,7 @@
 - Bun
 - TypeScript
 - Hono
+- Pi (`@earendil-works/pi-coding-agent`)
 
 ## Why / What / Constraints First
 
