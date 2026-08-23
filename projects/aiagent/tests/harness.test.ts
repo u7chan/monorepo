@@ -66,7 +66,8 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
     inMemory: () => "in-memory",
   },
   resolveCliModel: ({ cliModel }: { cliModel?: string }) => {
-    if (cliModel === "opencode-go/deepseek-v4-flash") {
+    // 実在のプロバイダー・モデルに依存させず、架空のマスタで検証する
+    if (cliModel === "fake-provider/fake-model") {
       return {
         model: { kind: "fake-model" },
         thinkingLevel: undefined,
@@ -74,7 +75,7 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
         error: undefined,
       }
     }
-    if (cliModel === "opencode-go/deepseek-v4-flash:low") {
+    if (cliModel === "fake-provider/fake-model:low") {
       return {
         model: { kind: "fake-model" },
         thinkingLevel: "low",
@@ -118,14 +119,14 @@ describe("createHarness()", () => {
   })
 
   it("resolves the given model spec and passes it to the session", async () => {
-    await createHarness({ model: "opencode-go/deepseek-v4-flash" })
+    await createHarness({ model: "fake-provider/fake-model" })
 
     expect(capturedOptions?.model).toEqual({ kind: "fake-model" })
     expect(capturedOptions?.thinkingLevel).toBeUndefined()
   })
 
   it("applies the thinking level from the model spec", async () => {
-    await createHarness({ model: "opencode-go/deepseek-v4-flash:low" })
+    await createHarness({ model: "fake-provider/fake-model:low" })
 
     expect(capturedOptions?.model).toEqual({ kind: "fake-model" })
     expect(capturedOptions?.thinkingLevel).toBe("low")
