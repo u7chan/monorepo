@@ -27,6 +27,7 @@ curl -X POST localhost:3000/prompt \
 
 ```sh
 bun install
+cp .env.example .env   # 必要に応じて編集 (Bun が .env を自動で読み込む)
 bun run dev
 ```
 
