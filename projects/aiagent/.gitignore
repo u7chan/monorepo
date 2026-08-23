@@ -1,0 +1,8 @@
+# deps
+node_modules/
+# build / temp
+tmp/
+tmp-test*/
+dist/
+.env
+.env.*

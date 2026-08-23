@@ -1,0 +1,10 @@
+node_modules
+tmp
+tmp-test*
+dist
+.env
+.env.*
+Dockerfile
+.dockerignore
+.gitignore
+README.md
