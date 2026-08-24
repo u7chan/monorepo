@@ -1,10 +1,4 @@
-// エージェント進行状況の構造化ロギング (pino)。
-// 障害調査の読み方を「タイムスタンプで絞ってから grep」に決め打ちした設計:
-//   - stdout と logs/aiagent-YYYYMMDD.log へ同内容の JSONL を出力 (ファイル出力はデフォルト ON)
-//   - タイムスタンプは固定幅ローカルISOなので、sed/awk のプレフィックス一致で時刻絞りできる
-//   - レベル配分: start/end/tool=info、failed=error、retry=warn、prompt preview=debug
-// worker transport は使わない (in-process の pino.destination + multistream のみ)。
-// 呼び出し側はこのファイルの関数経由のみとする。
+// エージェント進行状況の JSONL ロギング。主用途は「時刻絞り → grep」の障害調査 (設計詳細は README「ロギング」)
 import pino from "pino"
 
 const pad = (value: number, width: number) => String(value).padStart(width, "0")
