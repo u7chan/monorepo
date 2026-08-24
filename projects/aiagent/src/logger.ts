@@ -100,18 +100,25 @@ export function createAgentLogger(
   )
 }
 
-const agentLogger = createAgentLogger()
+let agentLogger: pino.Logger | undefined
+
+function getAgentLogger(): pino.Logger {
+  if (agentLogger === undefined) {
+    agentLogger = createAgentLogger()
+  }
+  return agentLogger
+}
 
 export function logAgent(
   message: string,
-  logger: pino.Logger = agentLogger,
+  logger: pino.Logger = getAgentLogger(),
 ): void {
   logger[eventLevel(message)](message)
 }
 
 export function logAgentPrompt(
   text: string,
-  logger: pino.Logger = agentLogger,
+  logger: pino.Logger = getAgentLogger(),
 ): void {
   const preview = text.length > 80 ? `${text.slice(0, 80)}...` : text
   logger.debug(`prompt: "${preview}"`)
