@@ -25,7 +25,8 @@ curl -X POST localhost:3000/prompt \
 
 ## ロギング
 
-- [pino](https://getpino.io) ベースの構造化ロギング。stdout と `logs/aiagent-YYYYMMDD.log` に同内容の JSONL を出力する（ファイル出力はデフォルト ON）
+- [pino](https://getpino.io) ベースの構造化ロギング。エージェントログは stdout と `logs/aiagent-YYYYMMDD.log`、アクセスログは stdout と `logs/aiagent-access-YYYYMMDD.log` に同内容の JSONL を出力する（ファイル出力はデフォルト ON）
+- アクセスログには `method` / `path` / `status` / `durationMs` を記録する。エージェントログとアクセスログは障害解析対象を分けるため別ファイルに出力する
 - 主用途は障害事後調査。タイムスタンプが固定幅ローカルISO（例: `2026-02-15T14:03:21.123+09:00`）のため、次の読み方で解析できる:
 
 ```sh
@@ -69,6 +70,6 @@ docker run -p 3000:3000 \
 | `OPENCODE_API_KEY` 等 | 要 | プロバイダ固有の API キー環境変数。Pi SDK が auth.json → 環境変数の順で自動解決する |
 | `LOG_LEVEL` | 任意 | ログレベル (default: `info`) |
 | `LOG_FILE` | 任意 | ログファイルパス (default: `logs/aiagent-YYYYMMDD.log`)。空文字でファイル出力を無効化 |
+| `LOG_ACCESS_FILE` | 任意 | アクセスログファイルパス (default: `logs/aiagent-access-YYYYMMDD.log`)。空文字でファイル出力を無効化 |
 
 コンテナ内には `~/.pi/agent/auth.json` が無いため、API キーは環境変数で渡す。
-

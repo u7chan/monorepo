@@ -1,17 +1,25 @@
 import { Hono } from "hono"
-import { logger } from "hono/logger"
+import {
+  accessLogMiddleware,
+  createAccessLogger,
+  type AccessLogger,
+  type CreateAccessLoggerOptions,
+} from "./access-logger"
 import type { Harness } from "./harness"
 
 export interface AppDeps {
   harness: Harness
+  accessLogger?: AccessLogger
+  accessLoggerOptions?: CreateAccessLoggerOptions
 }
 
 export function createApp(deps: AppDeps) {
   const { harness } = deps
   const app = new Hono()
 
-  // アクセスログを stdout へ出力する (method / path / status / 所要時間)
-  app.use(logger())
+  const accessLogger =
+    deps.accessLogger ?? createAccessLogger(deps.accessLoggerOptions)
+  app.use(accessLogMiddleware(accessLogger))
 
   app.get("/", (c) => {
     return c.text("Hello Hono!")
