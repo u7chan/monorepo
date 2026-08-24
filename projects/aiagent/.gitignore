@@ -4,6 +4,7 @@ node_modules/
 tmp/
 tmp-test*/
 dist/
+logs/
 .env
 .env.*
 !.env.example
