@@ -211,10 +211,13 @@ describe("LOG_FILE", () => {
     )
   })
 
-  it("disables file output when LOG_FILE is an empty string", async () => {
+  it("resolves an empty-string LOG_FILE to null", () => {
+    // 空文字=ファイル出力無効。createAgentLogger の両経路 (env / option) はこの契約に従う
     expect(resolveLogFilePath({ LOG_FILE: "" })).toBeNull()
+  })
 
-    // 無効化しても stdout へのロギング自体は生き続ける
+  it("disables file output when the option is an empty string", async () => {
+    // option 直渡しも env と同じ契約 (空文字=出力無効) に正規化される
     const stdoutPath = path.join(workDir, "stdout.jsonl")
     const logger = createAgentLogger({
       logFile: "",
@@ -224,6 +227,25 @@ describe("LOG_FILE", () => {
 
     expect(await readdir(workDir)).toEqual(["stdout.jsonl"])
     expect(await readRecords(stdoutPath)).toHaveLength(1)
+  })
+
+  it("disables file output when the LOG_FILE environment variable is an empty string", async () => {
+    const previous = process.env.LOG_FILE
+    process.env.LOG_FILE = ""
+    try {
+      const stdoutPath = path.join(workDir, "stdout.jsonl")
+      const logger = createAgentLogger({
+        stdout: pino.destination({ dest: stdoutPath, sync: true }),
+      })
+      logAgent("start", logger)
+
+      // resolveLogFilePath が null を返し、ファイルストリーム自体が作られない
+      expect(await readdir(workDir)).toEqual(["stdout.jsonl"])
+      expect(await readRecords(stdoutPath)).toHaveLength(1)
+    } finally {
+      if (previous === undefined) delete process.env.LOG_FILE
+      else process.env.LOG_FILE = previous
+    }
   })
 
   it("uses the LOG_FILE path verbatim when set", () => {

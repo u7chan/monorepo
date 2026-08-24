@@ -28,7 +28,7 @@ export function dailyLogFileName(date: Date): string {
   return `aiagent-${date.getFullYear()}${pad(date.getMonth() + 1, 2)}${pad(date.getDate(), 2)}.log`
 }
 
-/** LOG_FILE の解釈: 未設定=デフォルトパス / 空文字=ファイル出力無効 / 非空=そのパス */
+// LOG_FILE の解釈: 未設定=デフォルトパス / 空文字=ファイル出力無効 / 非空=そのパス
 export function resolveLogFilePath(
   env: Record<string, string | undefined>,
   now: Date = new Date(),
@@ -47,11 +47,10 @@ export function eventLevel(message: string): "info" | "warn" | "error" {
 }
 
 export interface CreateAgentLoggerOptions {
-  /** LOG_LEVEL 相当。未指定なら環境変数、それも未指定なら "info" */
   level?: string
-  /** LOG_FILE 相当。null でファイル出力を無効化 */
+  // null でファイル出力を無効化する
   logFile?: string | null
-  /** stdout 出力先 (テストでの差し替え用)。未指定なら fd 1 */
+  // テストでの差し替え用。未指定なら fd 1
   stdout?: pino.DestinationStream
 }
 
@@ -62,10 +61,12 @@ export function createAgentLogger(
 
   // ファイルパスは起動時に確定し、以降は追記のみ
   // TODO: 書き込みごとの日付チェックによる日跨ぎランタイムローテートは先送り
-  const logFilePath =
+  const requestedLogFile =
     options.logFile !== undefined
       ? options.logFile
       : resolveLogFilePath(process.env)
+  // 空文字は pino に渡すと fd 1 扱いになるため、env 経由と同じ「出力無効」(null) へ正規化する
+  const logFilePath = requestedLogFile === "" ? null : requestedLogFile
 
   // sync: true で開くことで pino.destination の非同期 open レース
   // (起動即 exit 時の "not ready yet") を構造的に回避する。ログ量は同期書き込みで十分
