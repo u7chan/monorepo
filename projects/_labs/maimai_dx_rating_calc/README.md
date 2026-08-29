@@ -11,7 +11,7 @@
 - maimai でらっくす 公式サイト: https://maimai.sega.jp/（あそびかた: https://maimai.sega.jp/play/other1/ ）
 - 公式おしらせ（CiRCLE 稼働・RATING 調整）: https://info-maimai.sega.jp/7725/
 - 公式おしらせ（CiRCLE PLUS 稼働・RATING 強化/色表）: https://info-maimai.sega.jp/8674/
-- 楽曲マスタ JSON（公式配信・1571曲・version は内部コード）: https://maimai.sega.jp/data/maimai_songs.json
+- 楽曲マスタ JSON（公式配信・1571 曲・version は内部コード）: https://maimai.sega.jp/data/maimai_songs.json
 
 ## 決定事項
 
@@ -23,7 +23,7 @@
 - [x] 公式情報源の引用・楽曲マスタの取り扱い整理（docs/domain.md の『公式情報源（一次ソース）』『公式 楽曲マスタ JSON』の節）
 - [ ] 計算コア（単曲レート → 枠選定 → RATING）
 - [ ] CSV 入力
-- [ ] 定数DB（公式マスタに定数は無い。DX 定数 970 曲分は別途収集が必要。docs/domain.md の『注意・データギャップ』参照）
+- [ ] 定数 DB（公式マスタに定数は無い。DX 定数 970 曲分は別途収集が必要。docs/domain.md の『注意・データギャップ』参照）
 - [ ] 出力（RATING / 内訳 / 色）
 
 ## 調査完了（別ペイン委譲 2026-08-29）
