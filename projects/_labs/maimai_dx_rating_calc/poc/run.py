@@ -148,17 +148,21 @@ def build_master_index(songs: list[dict]) -> dict[tuple[str, str, str], dict]:
         for system, prefix in _SYSTEM_PREFIXES:
             for difficulty, suffix in _DIFFICULTY_KEYS:
                 key = f"{prefix}{suffix}"
-                if key in song:
-                    entry = index.setdefault(
-                        (title, system, difficulty),
-                        {"song": title, "system": system, "difficulty": difficulty,
-                         "level": song[key], "version": version,
-                         # ウィンドウ判定用の帯（例: 26012 → 26000 = CiRCLE）
-                         "version_floor": rc.version_floor(version)},
-                    )
-                    # 同一キーが複数曲ある場合（曲名重複）は最初の 1 件を採用し、
-                    # 重複フラグを持たせる（domain.md『注意・データギャップ』）
-                    entry.setdefault("duplicate_titles", []).append(version)
+                if key not in song:
+                    continue
+                entry_key = (title, system, difficulty)
+                existing = index.get(entry_key)
+                if existing is None:
+                    index[entry_key] = {
+                        "song": title, "system": system, "difficulty": difficulty,
+                        "level": song[key], "version": version,
+                        # ウィンドウ判定用の帯（例: 26012 → 26000 = CiRCLE）
+                        "version_floor": rc.version_floor(version),
+                    }
+                else:
+                    # 曲名重複（Link 2 件・宴 5 件など）: 2 件目以降を記録する。
+                    # 照合は先頭の 1 件を採用（domain.md『注意・データギャップ』）。
+                    existing.setdefault("duplicate_versions", []).append(version)
     return index
 
 
@@ -442,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("output_dir", help="CSV の出力先ディレクトリ")
     parser.add_argument(
         "--master", default=None,
-        help=f"公式マスタ JSON のパスまたは URL（既定: {DEFAULT_MASTER_CACHE} があれば使用、"
+        help=f"公式マスタ JSON のパス（既定: {DEFAULT_MASTER_CACHE} があれば使用、"
              f"なければ {DEFAULT_MASTER_URL} から取得）",
     )
     parser.add_argument(
