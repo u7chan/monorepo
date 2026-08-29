@@ -24,6 +24,12 @@
 
 - ST = スタンダード譜面 / DX = でらっくす譜面（説明: [domain.md](domain.md) の『譜面の 2 系統: ST（スタンダード）と DX（でらっくす）』参照）
 
+## 技術決定の記録（ADR）
+
+- 技術スタック・アーキテクチャに関する決定は、[docs/adr/](adr/README.md) に ADR（Architecture Decision Record）として記録する
+- 採番は連番（0001〜）、テンプレートは [docs/adr/template.md](adr/template.md) に従う
+- ステータス: Proposed → Accepted → Superseded。決定が覆ったら元の ADR を Superseded にし、新しい ADR を立てる（元の ADR は書き換えない）
+
 ## 作業フロー
 
 - 調査・実装の結果は**ローカルコミットまで**とし、push はユーザーから指示があるまで行わない
