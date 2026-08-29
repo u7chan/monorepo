@@ -13,3 +13,12 @@ maimai でらっくす RATING 計算ツールのワークスペース。
 
 - 作業前に [docs/conventions.md](docs/conventions.md) を読むこと
 - 共通ルール（ブランチ命名・コミット・PR）はリポジトリルートの AGENTS.md に従う
+
+## ADR 一覧（技術決定）
+
+| 番号 | 題名 | ステータス |
+| --- | --- | --- |
+| [0001](docs/adr/0001-constant-db-format.md) | 定数 DB は JSON で開始し、ビューア実装時に RDB へ移行 | Accepted |
+| [0002](docs/adr/0002-tech-stack-undecided.md) | 技術スタックはビューア設計時に決定（現時点では未決定） | Accepted |
+
+（運用ルール・テンプレートは [docs/adr/](docs/adr/README.md) 参照。決定が変わったら一覧も更新する）
