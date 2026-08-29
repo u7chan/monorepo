@@ -557,5 +557,91 @@ class TestRunPipeline(unittest.TestCase):
         self.assertEqual(rows[-1][8], run_mod.FRAME_CONFLICT)
 
 
+try:
+    from . import run as run_mod
+except ImportError:  # スクリプト直接実行のとき
+    import run as run_mod
+
+
+class TestNetParserVersionPage(unittest.TestCase):
+    """NET バージョン別ページ（record/musicVersion、ヘッダ=バージョン名）のパース。"""
+
+    def test_version_header_detection(self):
+        text = (
+            "CiRCLE PLUS\n"
+            "47/68\n"
+            "CiRCLE PLUS\n"
+            "13\n"
+            "Colorful Starting Line\n"
+            "100.5609%2,417 / 2,664\n"
+            "13+\n"
+            "KNØCK ØUT!!\n"
+            "97.7450%2,182 / 2,622\n"
+        )
+        result = np.parse_paste(text)
+        self.assertEqual(result.version_sections, ["CiRCLE PLUS", "CiRCLE PLUS"])
+        self.assertEqual(len(result.records), 2)
+        self.assertEqual(result.records[0].page_version, "CiRCLE PLUS")
+        self.assertEqual(result.records[1].page_version, "CiRCLE PLUS")
+
+    def test_level_section_resets_page_version(self):
+        # LEVEL ページが後続した場合、page_version はリセットされる
+        text = (
+            "CiRCLE PLUS\n"
+            "13\n"
+            "Colorful Starting Line\n"
+            "100.5000%2,417 / 2,664\n"
+            "LEVEL 13\n"
+            "13\n"
+            "Overdose\n"
+            "99.4035%1,243 / 1,404\n"
+        )
+        result = np.parse_paste(text)
+        self.assertEqual(result.records[0].page_version, "CiRCLE PLUS")
+        self.assertIsNone(result.records[1].page_version)
+
+
+class TestRunExtensions(unittest.TestCase):
+    """run.py のバージョン別ページ対応（difficulty 指定・ページ version 優先）。"""
+
+    def _entry(self, system, difficulty, level="13", constant=13.5):
+        return {
+            "song": "テスト曲", "system": system, "difficulty": difficulty,
+            "level": level, "constant": constant,
+        }
+
+    def test_resolve_difficulty_filter(self):
+        constants = [self._entry("ST", "Re:MASTER"), self._entry("DX", "MASTER")]
+        rec = np.ScoreRecord(song_name="テスト曲", display_level="13", level_index=19,
+                             achievement=99.0)
+        parsed = np.ParseResult(records=[rec])
+        # 難易度不明（LEVEL ページ）→ 2 候補で衝突
+        resolved, _unresolved, conflicted = run_mod.resolve_scores(parsed, constants)
+        self.assertEqual(len(resolved), 0)
+        self.assertEqual(len(conflicted), 1)
+        # 難易度指定（バージョン別ページ相当）→ DX MASTER に確定
+        rec.difficulty = "MASTER"
+        resolved, _unresolved, conflicted = run_mod.resolve_scores(parsed, constants)
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(resolved[0][1]["difficulty"], "MASTER")
+        self.assertEqual(len(conflicted), 0)
+
+    def test_page_version_priority_in_to_scored_chart(self):
+        master_index = {
+            ("テスト曲", "ST", "MASTER"): {"version_floor": 12000},
+        }
+        entry = self._entry("ST", "MASTER")
+        rec = np.ScoreRecord(song_name="テスト曲", display_level="13", level_index=19,
+                             achievement=99.0, page_version="CiRCLE PLUS")
+        chart, in_master = run_mod.to_scored_chart(rec, entry, master_index)
+        self.assertEqual(chart.added_version, 26500)  # ページ version 優先
+        self.assertEqual(chart.song_base_version, 12000)  # Re:M 例外判定はマスタ基準
+        self.assertTrue(in_master)
+
+        rec.page_version = None  # LEVEL ページ → マスタ version で代用
+        chart, _in_master = run_mod.to_scored_chart(rec, entry, master_index)
+        self.assertEqual(chart.added_version, 12000)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -52,7 +52,7 @@ _SYSTEM_PREFIXES = (("ST", "lev_"), ("DX", "dx_lev_"))
 
 DETAIL_COLUMNS = [
     "曲名", "譜面系統", "譜面難易度", "表示Lv", "達成率", "定数", "係数",
-    "単曲レート", "枠", "APフラグ",
+    "単曲レート", "枠", "APフラグ", "追加バージョン",
 ]
 SUMMARY_COLUMNS = [
     "RATING値", "新曲枠合計", "ベスト枠合計", "APボーナス数", "対象譜面数", "使用バージョン",
@@ -222,6 +222,9 @@ def resolve_scores(
     - 同一 (表示Lv, 曲名) のスコア行がコピペ内に複数ある
       （例: MASTER と Re:MASTER が同 Lv で別行に並ぶ）
     コピペだけではどちらの譜面のスコアか確定できないため、RATING 計算から除外して報告する。
+
+    バージョン別ページ（--difficulty 指定）では record.difficulty が判明しているため、
+    候補を譜面難易度で絞り込む（例: ST Re:M と DX MASTER の同居が解消される）。
     """
     const_index: dict[tuple[str, str], list[dict]] = {}
     for entry in constants:
@@ -236,7 +239,10 @@ def resolve_scores(
     unresolved: list[np.ScoreRecord] = []
     conflicted: list[tuple[np.ScoreRecord, list[dict]]] = []
     for record in parsed.records:
-        candidates = const_index.get((record.song_name, record.display_level), [])
+        candidates = [
+            e for e in const_index.get((record.song_name, record.display_level), [])
+            if record.difficulty is None or e["difficulty"] == record.difficulty
+        ]
         if not candidates:
             unresolved.append(record)
         elif len(candidates) > 1 or paste_counts[(record.display_level, record.song_name)] > 1:
@@ -246,22 +252,35 @@ def resolve_scores(
     return resolved, unresolved, conflicted
 
 
-def to_scored_chart(record: np.ScoreRecord, entry: dict, master_index: dict) -> tuple[rc.ScoredChart, bool]:
+def to_scored_chart(
+    record: np.ScoreRecord, entry: dict, master_index: dict, log=None
+) -> tuple[rc.ScoredChart, bool]:
     """(スコア, 定数エントリ) を単曲レート値計算済みの ScoredChart にする。
 
     戻り値: (ScoredChart, マスタ登録有無)
     - マスタ未登録の譜面は追加バージョン不明として扱い、新曲枠の候補にしない
-    - マスタの version は系統・譜面難易度によらず曲単位の値のため、
-      added_version と song_base_version（B〜M 追加バージョンの代理）は同じ値になる。
-      この近似により『Re:MASTER の例外』がマスタデータからは発動しないが、
-      現行ウィンドウでは Re:M の後から追加の例が無いため影響しない
-      （domain.md『Re:MASTER の例外』参照。ロジック自体は rating_core が保持）
+    - 追加バージョンは次の優先順で決める:
+      1. NET バージョン別ページの版（record.page_version、譜面単位で正確）
+      2. マスタの version の帯（ST 譜面セット基準。DX 後追加を見逃す近似）
+      実測: 魔理沙は大変なものを盗んでいきました DX MASTER 13+ はマスタ version=12002
+      （GreeN）だが NET バージョン別ページでは CiRCLE PLUS に掲載される。
+      （domain.md『version フィールドの意味（確定）』『スコア入力フォーマット』参照）
     """
     rate = rc.single_rate(entry["constant"], record.achievement)
     is_ap = record.achievement >= 100.0
     master = master_index.get((entry["song"], entry["system"], entry["difficulty"]))
-    # 枠判定には version コードの帯（フロア判定値）を使う
-    added_version = master["version_floor"] if master else None
+    added_version: int | None = None
+    if record.page_version:
+        try:
+            added_version = rc.version_floor(rc.version_code_from(record.page_version))
+        except ValueError as exc:
+            if log is not None:
+                log(f"[警告] ページのバージョン名が不明: {record.page_version!r} ({exc}) → マスタ値で代用")
+    if added_version is None and master is not None:
+        added_version = master["version_floor"]
+    # Re:M 例外の判定用: 楽曲の BASIC〜MASTER 追加バージョンはマスタ基準のまま使う
+    # （『Re:MASTER の例外』は「楽曲の B〜M 追加より後から付いた Re:M」を除外するため）。
+    song_base_version = master["version_floor"] if master else added_version
     chart = rc.ScoredChart(
         song_name=entry["song"],
         system=entry["system"],
@@ -272,7 +291,7 @@ def to_scored_chart(record: np.ScoreRecord, entry: dict, master_index: dict) -> 
         rate=rate,
         is_ap=is_ap,
         added_version=added_version,
-        song_base_version=added_version,
+        song_base_version=song_base_version,
     )
     return chart, master is not None
 
@@ -282,9 +301,14 @@ def run_pipeline(
     constants_path: str,
     master_source: str | None = None,
     current_version: str = rc.CURRENT_VERSION_NAME,
+    difficulty: str | None = None,
     log=None,
 ) -> dict:
-    """コピペテキスト → RATING 計算までの全体フローを実行して結果を返す。"""
+    """コピペテキスト → RATING 計算までの全体フローを実行して結果を返す。
+
+    difficulty: バージョン別ページ（record/musicVersion）のコピペに、全スコア行の
+    譜面難易度を指定する（コピペテキストに難易度は含まれないため）。
+    """
     if log is None:
         def log(_message: str) -> None:
             pass
@@ -296,6 +320,12 @@ def run_pipeline(
 
     constants = load_constants(constants_path)
     parsed = np.parse_paste(paste_text)
+    if difficulty is not None:
+        for record in parsed.records:
+            record.difficulty = difficulty
+        log(f"[情報] 難易度指定: {difficulty}")
+    if parsed.version_sections:
+        log(f"[情報] バージョン別ページ検出: {', '.join(parsed.version_sections)}")
     for warning in parsed.warnings:
         log(f"[警告] パース: {warning}")
 
@@ -304,7 +334,7 @@ def run_pipeline(
     scored: list[rc.ScoredChart] = []
     master_missing: list[str] = []
     for record, entry in resolved:
-        chart, in_master = to_scored_chart(record, entry, master_index)
+        chart, in_master = to_scored_chart(record, entry, master_index, log=log)
         scored.append(chart)
         if not in_master:
             master_missing.append(f"{entry['song']} ({entry['system']} {entry['difficulty']})")
@@ -371,6 +401,7 @@ def _detail_row(chart: rc.ScoredChart, frame: str) -> list[str]:
         str(chart.rate),
         frame,
         "true" if chart.is_ap else "false",
+        rc.version_name(chart.added_version) if chart.added_version is not None else "",
     ]
 
 
@@ -390,6 +421,7 @@ def build_detail_rows(result: dict) -> list[list[str]]:
             f"{record.achievement:.4f}", "", "", "",
             FRAME_CONFLICT,
             "true" if record.is_ap_like else "false",
+            record.page_version or "",
         ])
     for record in result["unresolved"]:
         rows.append([
@@ -397,6 +429,7 @@ def build_detail_rows(result: dict) -> list[list[str]]:
             f"{record.achievement:.4f}", "", "", "",
             FRAME_UNRESOLVED,
             "true" if record.is_ap_like else "false",
+            record.page_version or "",
         ])
     return rows
 
@@ -447,6 +480,12 @@ def main(argv: list[str] | None = None) -> int:
              f"なければ {DEFAULT_MASTER_URL} から取得）",
     )
     parser.add_argument(
+        "--difficulty", default=None,
+        choices=["BASIC", "ADVANCED", "EXPERT", "MASTER", "Re:MASTER"],
+        help="バージョン別ページ（musicVersion）のコピペ用: 全スコア行にこの譜面難易度を付与する"
+             "（コピペテキストに難易度は含まれないため）。既定: 指定なし",
+    )
+    parser.add_argument(
         "--constants", default=None,
         help="譜面定数 JSON（既定: スクリプト同梱の constants.json）",
     )
@@ -476,6 +515,7 @@ def main(argv: list[str] | None = None) -> int:
             constants_path,
             master_source=args.master,
             current_version=args.current_version,
+            difficulty=args.difficulty,
             log=log,
         )
     except (OSError, ValueError, RuntimeError) as exc:

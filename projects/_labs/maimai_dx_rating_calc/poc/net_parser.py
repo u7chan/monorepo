@@ -23,6 +23,15 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
+try:
+    from . import rating_core as rc
+except ImportError:  # スクリプト直接実行のとき
+    import rating_core as rc
+
+# バージョン別ページ（record/musicVersion）のヘッダ行: バージョン名そのもの
+# （例: 'CiRCLE PLUS'）。LEVEL 一覧の 'LEVEL 13' ヘッダに相当する位置に出る。
+_VERSION_NAMES = frozenset(name for name, _code in rc.VERSION_CODES)
+
 # ---------------------------------------------------------------------------
 # 表示 Lv → 内部 Lv インデックス変換（domain.md『スコア入力フォーマット』）
 # ---------------------------------------------------------------------------
@@ -68,6 +77,8 @@ class ScoreRecord:
     perfect_notes: int | None = None  # Perfect 数（任意）
     total_notes: int | None = None    # 総ノーツ数（任意）
     source_line: int = 0     # 元テキストの行番号（1 始まり・診断用）
+    difficulty: str | None = None  # 譜面難易度（バージョン別ページで判明する場合）
+    page_version: str | None = None  # バージョン別ページの版（例: 'CiRCLE PLUS'）
 
     @property
     def is_ap_like(self) -> bool:
@@ -87,6 +98,8 @@ class ParseResult:
     warnings: list[str] = field(default_factory=list)
     # 読み取った LEVEL ヘッダの一覧 (ラベル, 内部インデックス)
     level_sections: list[tuple[str, int]] = field(default_factory=list)
+    # 読み取ったバージョンヘッダの一覧（例: ['CiRCLE PLUS']。バージョン別ページ用）
+    version_sections: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -114,16 +127,25 @@ def parse_paste(text: str) -> ParseResult:
     lines = text.splitlines()
     header_label: str | None = None
     header_index: int | None = None
+    page_version: str | None = None
 
     for i, raw in enumerate(lines):
         line = raw.strip()
         if not line:
             continue
 
+        # バージョン別ページ（record/musicVersion）のヘッダ行（例: 'CiRCLE PLUS'）。
+        # コピペ本文にバージョン名のみの行はここ以外に現れない想定。
+        if line in _VERSION_NAMES:
+            page_version = line
+            result.version_sections.append(line)
+            continue
+
         m = _HEADER_RE.match(line)
         if m:
             label = m.group(1) + m.group(2)
             header_label, header_index = label, display_level_to_index(label)
+            page_version = None  # LEVEL ページの途中からの混在に備え、バージョン情報をリセット
             result.level_sections.append((label, header_index))
             continue
 
@@ -192,6 +214,7 @@ def parse_paste(text: str) -> ParseResult:
                 perfect_notes=perfect,
                 total_notes=total,
                 source_line=i + 1,
+                page_version=page_version,
             )
         )
 
