@@ -514,9 +514,10 @@ class TestRunPipeline(unittest.TestCase):
     """run_pipeline の統合テスト（example_paste.txt + constants.json + 公式マスタ）。"""
 
     POC_DIR = os.path.dirname(os.path.abspath(__file__))
-    MASTER_EXISTS = os.path.isfile("/tmp/maimai_songs.json")
+    MASTER_PATH = os.path.join(os.path.dirname(POC_DIR), "data", "maimai_songs.json")
+    MASTER_EXISTS = os.path.isfile(MASTER_PATH)
 
-    @unittest.skipUnless(MASTER_EXISTS, "/tmp/maimai_songs.json が無いためスキップ")
+    @unittest.skipUnless(MASTER_EXISTS, "data/maimai_songs.json が無いためスキップ")
     def test_example_paste_end_to_end(self):
         try:
             from . import run as run_mod
@@ -529,7 +530,7 @@ class TestRunPipeline(unittest.TestCase):
         result = run_mod.run_pipeline(
             paste_text,
             os.path.join(self.POC_DIR, "constants.json"),
-            master_source="/tmp/maimai_songs.json",
+            master_source=run_mod.DEFAULT_MASTER_CACHE,
             log=logs.append,
         )
         # 11 行のスコアがパースされる

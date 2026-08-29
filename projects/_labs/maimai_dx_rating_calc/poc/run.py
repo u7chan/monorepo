@@ -37,7 +37,12 @@ except ImportError:  # スクリプト直接実行（python3 poc/run.py ...）�
     import rating_core as rc
 
 DEFAULT_MASTER_URL = "https://maimai.sega.jp/data/maimai_songs.json"
-DEFAULT_MASTER_CACHE = "/tmp/maimai_songs.json"
+# 公式マスタのキャッシュ先: プロジェクト内 data/（.gitignore 除外・DB 設計時に再整理）。
+# 旧来の /tmp キャッシュがあればそちらも参照する（移行用）。
+_POC_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.path.dirname(_POC_DIR), "data")
+DEFAULT_MASTER_CACHE = os.path.join(DATA_DIR, "maimai_songs.json")
+LEGACY_MASTER_CACHE = "/tmp/maimai_songs.json"
 DEFAULT_CONSTANTS_FILENAME = "constants.json"
 
 # 公式マスタの譜面キー → 譜面難易度（domain.md『譜面の 2 系統』）
@@ -72,16 +77,17 @@ FRAME_UNRESOLVED = "未解決(定数なし)"
 def load_master(source: str | None = None) -> tuple[list[dict], str]:
     """公式マスタ JSON を読み込み (楽曲リスト, 取得元の説明) を返す。
 
-    優先順位: 明示指定 > キャッシュ (/tmp/maimai_songs.json) > 公式 URL から取得。
-    取得に成功したらキャッシュに保存して再取得を避ける（公式側の負荷に配慮）。
+    優先順位: 明示指定 > プロジェクト data/ キャッシュ > 旧 /tmp キャッシュ > 公式 URL から取得。
+    取得に成功したら data/ キャッシュに保存して再取得を避ける（公式側の負荷に配慮）。
     """
     if source:
         with open(source, "rb") as fh:
             return json.loads(fh.read().decode("utf-8")), f"file: {source}"
 
-    if os.path.isfile(DEFAULT_MASTER_CACHE):
-        with open(DEFAULT_MASTER_CACHE, "rb") as fh:
-            return json.loads(fh.read().decode("utf-8")), f"cache: {DEFAULT_MASTER_CACHE}"
+    for path in (DEFAULT_MASTER_CACHE, LEGACY_MASTER_CACHE):
+        if os.path.isfile(path):
+            with open(path, "rb") as fh:
+                return json.loads(fh.read().decode("utf-8")), f"cache: {path}"
 
     data = _download_master(DEFAULT_MASTER_URL)
     with open(DEFAULT_MASTER_CACHE, "wb") as fh:

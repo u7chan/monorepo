@@ -45,15 +45,22 @@ python3 poc/run.py poc/example_paste.txt /tmp/rating_out
   - `--constants PATH`: 譜面定数 JSON のパス（既定: poc 同梱の `constants.json`）
   - `--current-version NAME_OR_CODE`: 現行バージョン（既定: `CiRCLE PLUS`。コード指定も可。例: `26500`）
 
-### 3. 楽曲マスタ JSON の取得
+### 3. 楽曲マスタ JSON と定数 DB のデータ置き場
+
+コピペ・マスタ・定数などの**外部データは `data/` に置いて gitignore で除外**している
+（プロジェクト外の `/tmp` に置くと消えるため。DB 設計時に再整理する予定）。
+
+- `data/maimai_songs.json`: 公式楽曲マスタ（下記の順で自動用意）
+- `data/maimai_constants.json`: 譜面定数 DB（別途収集したデータ。`--constants` で指定）
+- `data/pastes/`: NET のコピペテキスト（個人データのため git 管理しない）
 
 `run.py` は次の順でマスタを用意する。
 
 1. 明示指定（`--master`）
-2. キャッシュ `/tmp/maimai_songs.json` があればそれを使用
+2. キャッシュ `data/maimai_songs.json` があればそれを使用（旧 `/tmp/maimai_songs.json` も参照）
 3. 公式 URL（https://maimai.sega.jp/data/maimai_songs.json）から 1 回だけ取得してキャッシュに保存
    - TLS 検証で失敗する環境では検証を無効化して再試行し、それでも失敗したら `curl -k` による取得を試す
-   - 手動で用意する場合は `curl -k -o /tmp/maimai_songs.json https://maimai.sega.jp/data/maimai_songs.json`
+   - 手動で用意する場合は `curl -k -o data/maimai_songs.json https://maimai.sega.jp/data/maimai_songs.json`
 
 ### 4. NET からのコピペ手順（入力データの作り方）
 

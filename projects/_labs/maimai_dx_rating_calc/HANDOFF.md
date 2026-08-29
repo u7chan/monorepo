@@ -29,18 +29,18 @@ maimai でらっくす RATING 計算ツールの **Python3 PoC を実装・実�
 実行例:
 ```bash
 cd projects/_labs/maimai_dx_rating_calc
-python3 poc/run.py <コピペファイル> <出力先> --constants /tmp/maimai_constants.json
-python3 poc/run.py <コピペファイル> <出力先> --constants /tmp/maimai_constants.json --difficulty MASTER   # バージョン別ページ用
+python3 poc/run.py data/pastes/lv14.txt <出力先> --constants data/maimai_constants.json
+python3 poc/run.py data/pastes/circleplus_master.txt <出力先> --constants data/maimai_constants.json --difficulty MASTER   # バージョン別ページ用
 ```
 
-## 3. データファイル（/tmp のみ・追跡対象外）
+## 3. データファイル（data/ に集約・.gitignore 除外）
 
 | ファイル | 内容 | 扱い |
 | --- | --- | --- |
-| `/tmp/maimai_constants.json` | **譜面定数 DB 6364 譜面 / 1480 曲**（非公式データ収集、CiRCLE PLUS 時点、0.1 刻み・全難易度・表示Lv はマスタと 6364/6364 一致確認済み） | 内部利用のみ・**リポジトリ取り込みはユーザー判断待ち**。出典サイト名は文書に記載しない |
-| `/tmp/maimai_songs.json` | 公式楽曲マスタ 1571 曲（run.py が自動キャッシュ） | 公式データ |
-| `/tmp/maimai_lv14_paste.txt` | **ユーザーの実スコア（Lv14 一覧）** | **個人情報。Git 管理禁止（ユーザー明示）** |
-| `/tmp/maimai_circleplus_master_paste.txt` | **ユーザーの実スコア（CiRCLE PLUS / MASTER ページ）** | 同上 |
+| `data/maimai_constants.json` | **譜面定数 DB 6364 譜面 / 1480 曲**（非公式データ収集、CiRCLE PLUS 時点、0.1 刻み・全難易度・表示Lv はマスタと 6364/6364 一致確認済み） | 内部利用のみ・**git 除外**。出典サイト名は文書に記載しない。DB 設計時に再整理 |
+| `data/maimai_songs.json` | 公式楽曲マスタ 1571 曲（run.py が自動キャッシュ） | 公式データ・git 除外 |
+| `data/pastes/lv14.txt` | **ユーザーの実スコア（Lv14 一覧）** | **個人情報。git 除外（ユーザー明示）** |
+| `data/pastes/circleplus_master.txt` | **ユーザーの実スコア（CiRCLE PLUS / MASTER ページ）** | 同上 |
 
 ## 4. 実データ検証の結果（2026-08-30）
 
@@ -59,22 +59,22 @@ python3 poc/run.py <コピペファイル> <出力先> --constants /tmp/maimai_c
 
 ## 6. ユーザー待ち・未着手
 
-1. **12+ / 13 / 13+ のコピペ**（ユーザーが貼る予定。Lv13 が一番スコアを埋めている）。到着したら /tmp に保存し、LEVEL/バージョンページを問わず一括計算
+1. **12+ / 13 / 13+ のコピペ**（ユーザーが貼る予定。Lv13 が一番スコアを埋めている）。到着したら `data/pastes/` に保存し、LEVEL/バージョンページを問わず一括計算
 2. **ユーザーの RATING 実値**（NET 表示。較正の基準になる。まだ未入手）
-3. **定数 DB のリポジトリ取り込み可否**（ADR-0001 の JSON 先行に沿えば `poc/constants_full.json` 等で取り込む想定。ユーザー判断待ち）
+3. **データの GitHub 不保持方針（決定）+ 取り込みツール（構想）**: マスタ・定数 DB は GitHub に持たない（`data/` を .gitignore 除外、既に移設済み）。再現性のため**取り込みコマンド（公式 URL 取得・定数収集の自動化）を検討中**（ぼんやり構想）。DB 設計（ADR-0001 の RDB 移行）時に整理する
 4. **docs/domain.md 更新（未実施）**: §9 にバージョン別ページの仕様（URL・diff/version パラメータ・魔理沙ケース）を追記、§7.4 の仮定見直し、§10 未確定の更新
-5. **poc/README.md 更新（未実施）**: `--difficulty` の使い方、仮定 3/4 の修正、CSV の「追加バージョン」列
+5. **poc/README.md 更新（一部実施済み）**: `--difficulty` の使い方・仮定 3/4 の修正・CSV の「追加バージョン」列は未反映（データ置き場の説明は反映済み）
 6. 曲名重複（Link 2 曲・無題曲）の照合キー強化（id 導入）は本実装時
 7. PR 作成・push 判断はユーザー指示待ち（現状: ブランチへの commit + push のみ）
 
 ## 7. 次にやること（引き継ぎ先向け）
 
-1. ユーザーから 12+/13/13+ のコピペをもらい `/tmp/` に保存
-2. `python3 poc/run.py <統合コピペ> /tmp/rating_all --constants /tmp/maimai_constants.json` で統合 RATING を出す
+1. ユーザーから 12+/13/13+ のコピペをもらい `data/pastes/` に保存
+2. `python3 poc/run.py <統合コピペ> <出力先> --constants data/maimai_constants.json` で統合 RATING を出す
    - バージョン別ページのコピペが混ざる場合はセクションごとに分けて実行し、結果を統合するか、`--difficulty` を都度指定して別々に出力して比較
 3. ユーザーの RATING 実値と突き合わせ（較正の第一歩。ズレの原因候補: 単曲切捨位置・寸止め係数・枠判定・衝突除外の影響）
 4. domain.md / README の更新（上記 4・5）を実施し、コミット
-5. 定数 DB 取り込みの判断をユーザーに確認
+5. 取り込みツールの構想を具体化（マスタ取得コマンド → 定数収集の自動化 → DB 設計時に整理）
 
 ## 8. 環境メモ
 
