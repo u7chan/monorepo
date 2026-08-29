@@ -3,7 +3,7 @@
 自分の maimai でらっくす RATING を計算する自作ツール。
 
 - 計算仕様: [docs/domain.md](docs/domain.md)（[公式情報源](https://maimai.sega.jp/) の引用・楽曲マスタ JSON の扱いを含む）
-- 文書作成ルール: [docs/conventions.md](docs/conventions.md)（§使用禁止・出典方針・用語）
+- 文書作成ルール: [docs/conventions.md](docs/conventions.md)
 - スコア入力: [maimai でらっくすNET](https://maimaidx.jp/) にログイン →「レコード」>「楽曲スコア」>「LEVEL」の Lv 毎一覧を Ctrl+A / Ctrl+C でコピーしたテキストを受け取る想定（手順は docs/domain.md の『スコア入力フォーマット』参照）
 - 認証つきの自動取得は将来ステップ
 
