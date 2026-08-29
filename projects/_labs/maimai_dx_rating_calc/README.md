@@ -4,7 +4,7 @@
 
 - 計算仕様: [docs/domain.md](docs/domain.md)（[公式情報源](https://maimai.sega.jp/) の引用・楽曲マスタ JSON の扱いを含む）
 - 文書作成ルール: [docs/conventions.md](docs/conventions.md)（§使用禁止・出典方針・用語）
-- スコア入力: 最初は [maimai でらっくすNET](https://maimaidx.jp/)（公式マイページ）の Lv 毎スコア一覧からコピペしたテキストを受け取る想定（実測フォーマットは docs/domain.md の『スコア入力フォーマット』参照）
+- スコア入力: [maimai でらっくすNET](https://maimaidx.jp/) にログイン →「レコード」>「楽曲スコア」>「LEVEL」の Lv 毎一覧を Ctrl+A / Ctrl+C でコピーしたテキストを受け取る想定（手順は docs/domain.md の『スコア入力フォーマット』参照）
 - 認証つきの自動取得は将来ステップ
 
 ## 参考リンク
@@ -23,7 +23,7 @@
 - [x] ドメイン整理（docs/domain.md）
 - [x] 公式情報源の引用・楽曲マスタの取り扱い整理（docs/domain.md の『公式情報源（一次ソース）』『公式 楽曲マスタ JSON』の節）
 - [ ] 計算コア（単曲レート → 枠選定 → RATING）
-- [ ] CSV 入力
+- [ ] スコア入力（NET の Lv 毎リストをコピペ → パース）
 - [ ] 定数 DB（公式マスタに定数は無い。DX 定数 970 曲分は別途収集が必要。docs/domain.md の『注意・データギャップ』参照）
 - [ ] 出力（RATING / 内訳 / 色）
 - [ ] 楽曲ビューア（ジャケット画像の事前ダウンロード。仕様メモ: docs/domain.md の『楽曲画像（image_url）の取得』）
