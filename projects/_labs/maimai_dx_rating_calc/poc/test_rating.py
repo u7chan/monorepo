@@ -13,8 +13,10 @@ import unittest
 
 try:
     from . import rating_core as rc
+    from . import net_parser as np
 except ImportError:  # スクリプト直接実行（python3 poc/test_rating.py）のとき
     import rating_core as rc
+    import net_parser as np
 
 
 class TestRankCoefficient(unittest.TestCase):
@@ -329,6 +331,183 @@ class TestCalcRating(unittest.TestCase):
         self.assertEqual(
             rc.calc_rating([chart(316)] * 15, [chart(316)] * 35), 15800
         )
+
+
+STATS_BLOCK = """538/560
+CLEAR! 500/560
+CLEAR 420/560
+S 350/560
+S+ 300/560
+SS 250/560
+SS+ 180/560
+SSS 100/560
+SSS+ 30/560
+FC 120/560
+FC+ 80/560
+AP 40/560
+AP+ 10/560
+SYNC PLAY 200/560
+FS 100/560
+FS+ 60/560
+FDX 30/560
+★1 150/560
+★2 120/560
+★3 90/560
+★4 60/560
+★5 30/560"""
+
+
+def make_paste(sections: list[tuple[str, list[tuple[str, str, str]]]]) -> str:
+    """テスト用のコピペテキストを組み立てる。
+
+    sections: [(LEVEL ヘッダラベル, [(レベル行, 曲名, 達成率行), ...]), ...]
+    """
+    parts = []
+    for label, songs in sections:
+        parts.append(f"LEVEL {label}")
+        parts.append(STATS_BLOCK)
+        for lv, name, ach in songs:
+            parts.append(lv)
+            parts.append(name)
+            parts.append(ach)
+    return "\n".join(parts) + "\n"
+
+
+class TestDisplayLevelToIndex(unittest.TestCase):
+    """表示 Lv → 内部 Lv インデックス変換（domain.md『スコア入力フォーマット』）。"""
+
+    def test_examples(self):
+        cases = [
+            ("6", 6),
+            ("7", 7),
+            ("7+", 8),
+            ("13", 19),  # 実測例
+            ("13+", 20),
+            ("14", 21),
+            ("14+", 22),
+            ("15", 23),  # 実測例
+        ]
+        for label, index in cases:
+            with self.subTest(level=label):
+                self.assertEqual(np.display_level_to_index(label), index)
+
+    def test_formula(self):
+        # レベル = N + max(0, N − 7)
+        for n in range(1, 16):
+            self.assertEqual(np.display_level_to_index(str(n)), n + max(0, n - 7))
+
+    def test_invalid(self):
+        for label in ("0", "16", "6+", "15+", "abc", "", "13++"):
+            with self.subTest(level=label):
+                with self.assertRaises(ValueError):
+                    np.display_level_to_index(label)
+
+
+class TestParsePaste(unittest.TestCase):
+    """NET コピペテキストのパース。"""
+
+    def test_basic(self):
+        text = make_paste(
+            [
+                (
+                    "13",
+                    [
+                        ("13", "Overdose", "99.4035%1,243 / 1,404"),
+                        ("13", "Colorful Starting Line", "100.5609%2,417 / 2,664"),
+                    ],
+                )
+            ]
+        )
+        result = np.parse_paste(text)
+        self.assertEqual(len(result.records), 2)
+        r0, r1 = result.records
+        self.assertEqual(r0.song_name, "Overdose")
+        self.assertEqual(r0.display_level, "13")
+        self.assertEqual(r0.level_index, 19)
+        self.assertAlmostEqual(r0.achievement, 99.4035)
+        self.assertEqual(r0.perfect_notes, 1243)
+        self.assertEqual(r0.total_notes, 1404)
+        self.assertFalse(r0.is_ap_like)
+        self.assertEqual(r1.song_name, "Colorful Starting Line")
+        self.assertAlmostEqual(r1.achievement, 100.5609)
+        self.assertTrue(r1.is_ap_like)
+        self.assertEqual(result.conflicts, [])
+
+    def test_stats_block_skipped(self):
+        text = make_paste([("13", [("13", "Overdose", "99.4035%1,243 / 1,404")])])
+        result = np.parse_paste(text)
+        names = [r.song_name for r in result.records]
+        self.assertEqual(names, ["Overdose"])  # 統計行（CLEAR! など）は曲名にならない
+        for line in STATS_BLOCK.splitlines():
+            self.assertTrue(np.is_stats_line(line), line)
+
+    def test_multiple_level_sections(self):
+        text = make_paste(
+            [
+                ("13", [("13", "Song A", "99.0000%100 / 200")]),
+                ("13+", [("13+", "Song B", "98.0000%100 / 200")]),
+                ("14", [("14", "Song C", "97.0000%100 / 200")]),
+            ]
+        )
+        result = np.parse_paste(text)
+        self.assertEqual([r.display_level for r in result.records], ["13", "13+", "14"])
+        self.assertEqual([r.level_index for r in result.records], [19, 20, 21])
+        self.assertEqual(result.level_sections, [("13", 19), ("13+", 20), ("14", 21)])
+
+    def test_plus_level_in_triple(self):
+        text = make_paste([("13+", [("13+", "Song B", "98.0000%100 / 200")])])
+        result = np.parse_paste(text)
+        self.assertEqual(result.records[0].display_level, "13+")
+        self.assertEqual(result.records[0].level_index, 20)
+
+    def test_numeric_song_name(self):
+        # 曲名が数字だけの曲（例: '190'）でも 3 行組を正しく認識する
+        text = make_paste([("14", [("14", "190", "99.5000%1,000 / 1,200")])])
+        result = np.parse_paste(text)
+        self.assertEqual(len(result.records), 1)
+        self.assertEqual(result.records[0].song_name, "190")
+        self.assertEqual(result.records[0].display_level, "14")
+        self.assertEqual(result.records[0].level_index, 21)
+
+    def test_conflict_detection(self):
+        # 同一 (表示Lv, 曲名) が複数 → 衝突として検出（譜面難易度・ST/DX が判別できない）
+        text = make_paste(
+            [
+                (
+                    "13",
+                    [
+                        ("13", "BAD∞END∞NIGHT", "98.9999%1,000 / 1,212"),
+                        ("13", "BAD∞END∞NIGHT", "100.0000%1,100 / 1,212"),
+                    ],
+                )
+            ]
+        )
+        result = np.parse_paste(text)
+        self.assertEqual(len(result.records), 2)  # 両方の行は保持する
+        self.assertEqual(result.conflicts, [("13", "BAD∞END∞NIGHT", 2)])
+        self.assertTrue(any("衝突" in w for w in result.warnings))
+
+    def test_missing_level_line_falls_back_to_header(self):
+        text = make_paste([("13", [("", "Overdose", "99.4035%1,243 / 1,404")])])
+        # レベル行を空にする（3 行組の 1 行目がない形）
+        result = np.parse_paste(text)
+        self.assertEqual(len(result.records), 1)
+        self.assertEqual(result.records[0].display_level, "13")  # ヘッダから補完
+        self.assertTrue(result.warnings)
+
+    def test_no_notes_part(self):
+        text = make_paste([("13", [("13", "Overdose", "99.4035%")])])
+        result = np.parse_paste(text)
+        self.assertEqual(len(result.records), 1)
+        self.assertIsNone(result.records[0].perfect_notes)
+        self.assertIsNone(result.records[0].total_notes)
+
+    def test_empty_and_garbage(self):
+        self.assertEqual(np.parse_paste("").records, [])
+        self.assertEqual(np.parse_paste("ただの文章\nだけのテキスト").records, [])
+        result = np.parse_paste("LEVEL 13\n13\nBroken\nnot-a-score\n")
+        self.assertEqual(result.records, [])
+
 
 
 if __name__ == "__main__":
