@@ -17,6 +17,7 @@
   - https://maimai.sega.jp/（公式サイト）
   - https://info-maimai.sega.jp/（公式おしらせ）
   - https://maimaidx.jp/（maimai でらっくすNET）
+  - https://otogame-net.com/（ゲキチュウマイ-NET。オンゲキ / CHUNITHM / maimai の公式ポータル）
   - https://www.sega.jp/（SEGA 製品ページ）
 - 第三者サイトの情報から得た知見を文書に含める場合は、サイト名を書かず「別ペイン調査」「コミュニティ調査」「調査整理」等の無難な表現にする
 
