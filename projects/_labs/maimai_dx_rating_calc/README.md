@@ -2,7 +2,7 @@
 
 自分の maimai でらっくす RATING を計算するツール（ラボ）。
 
-- 計算仕様: [docs/domain.md](docs/domain.md)（攻略wiki + 既存ツールの実装を整理）
+- 計算仕様: [docs/domain.md](docs/domain.md)
 - スコア入力: 最初は maimai.net（公式マイページ）から取得したスコア一覧を CSV で受け取る想定（Lv毎）
 - 認証つきの自動取得は将来ステップ
 
@@ -17,4 +17,3 @@
 ## 決定待ち
 
 - 現行バージョン名（新曲枠判定に必要）
-- フォルダ名リネーム先（`maimai_dx_best_calc_tools` → ?）
