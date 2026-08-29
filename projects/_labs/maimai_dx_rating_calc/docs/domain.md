@@ -178,7 +178,7 @@ is_new_candidate(chart) =
   "title": "True Love Song",       // 曲名
   "artist": "Kai/クラシック「G線上のアリア」",
   "catcode": "maimai",            // ジャンルカテゴリ
-  "image_url": "c7cfd8a91e0436ac.png",
+  "image_url": "c7cfd8a91e0436ac.png", // 曲ジャケット画像（ファイル名のみ。フル URL は『楽曲画像（image_url）の取得』参照）
   "release": "000000",            // 配信日 YYYYMMDD（古い曲は 000000。新曲のみ値あり）
   "version": "10000",             // 追加バージョンの内部コード（下記参照）
   "sort": "1165",                 // 表示順
@@ -266,6 +266,18 @@ maimai でらっくすでは、1 曲に対して 2 系統の譜面セットが�
   - ST 譜面の後からの追加（version が更新されるので検出可能）: 全歴史で 8 曲のみ（Technicians High / Destr0yer / Halcyon / サンバランド / VIIIbit Explorer / 渦状銀河 / 華の集落 / プリズム△▽リズム）
   - Re:MASTER の後からの追加: 2019〜2024 年で打ち止め、現行ウィンドウ該当ゼロ（『Re:MASTER の例外』参照）
 - 公式マスタの `release`（YYYYMMDD）は **BUDDiES（2023/09/14）以降の 156 曲のみ実値**、それ以前は 000000。古い曲の配信日が必要な場合は公式マスタ外の情報による（コラボ曲は原典ゲームの初出日が混ざる場合があるため注意）
+
+### 7.5 楽曲画像（image_url）の取得（ビューア用メモ）
+
+`image_url` はファイル名のみで、フル URL は **maimai でらっくすNET の画像パスを基底**とする（2026-08-29 取得確認済み。PNG 190×190 のジャケット画像）。
+
+```
+https://maimaidx.jp/maimai-mobile/img/Music/{image_url}
+例: https://maimaidx.jp/maimai-mobile/img/Music/0db5f376fe40a376.png
+```
+
+- ビューアを実装する際は、マスタの `image_url` 一覧から事前に一括ダウンロードしてローカル保持する想定
+- `date: "NEW"` は最新追加の一時マーク（対象は直近の配信バッチのみ。2026-08-29 時点では release=260821 の 4 曲に付与）
 
 ## 8. データモデル（実装用）
 
