@@ -1,6 +1,6 @@
 # maimai_dx_rating_calc
 
-maimai でらっくす RATING 計算ツール（ラボ）のワークスペース。
+maimai でらっくす RATING 計算ツールのワークスペース。
 
 ## ドキュメント索引
 

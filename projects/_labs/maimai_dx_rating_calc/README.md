@@ -1,6 +1,6 @@
 # maimai_dx_rating_calc（仮）
 
-自分の maimai でらっくす RATING を計算するツール（ラボ）。
+自分の maimai でらっくす RATING を計算する自作ツール。
 
 - 計算仕様: [docs/domain.md](docs/domain.md)（[公式情報源](https://maimai.sega.jp/) の引用・楽曲マスタ JSON の扱いを含む）
 - 文書作成ルール: [docs/conventions.md](docs/conventions.md)（§使用禁止・出典方針・用語）
