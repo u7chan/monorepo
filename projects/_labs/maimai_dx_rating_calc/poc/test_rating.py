@@ -111,7 +111,7 @@ class TestSingleRate(unittest.TestCase):
         # 13.0 × 0.97 × 20.0 = 252.2 → 252
         self.assertEqual(rc.single_rate(13.0, 97.0), 252)
         # 切捨確認: 端数があれば切り捨て
-        self.assertEqual(rc.single_rate(13.3, 99.4035), 274)
+        self.assertEqual(rc.single_rate(13.3, 98.7654), 266)
         # 13.3 × 0.994035 × 20.8 = 274.989… → 274
 
     def test_ap_bonus(self):
@@ -136,7 +136,7 @@ class TestSingleRate(unittest.TestCase):
         with self.assertRaises(ValueError):
             rc.single_rate(13.33, 99.0)
         with self.assertRaises(ValueError):
-            rc.single_rate(13.0, 99.40355)
+            rc.single_rate(13.0, 98.76545)
 
     def test_zero_cases(self):
         self.assertEqual(rc.single_rate(0.0, 100.0), 1)  # 0 × … = 0 +1（AP）
@@ -412,8 +412,8 @@ class TestParsePaste(unittest.TestCase):
                 (
                     "13",
                     [
-                        ("13", "Overdose", "99.4035%1,243 / 1,404"),
-                        ("13", "Colorful Starting Line", "100.5609%2,417 / 2,664"),
+                        ("13", "Overdose", "98.7654%1,234 / 1,345"),
+                        ("13", "Colorful Starting Line", "100.4321%2,400 / 2,650"),
                     ],
                 )
             ]
@@ -424,17 +424,17 @@ class TestParsePaste(unittest.TestCase):
         self.assertEqual(r0.song_name, "Overdose")
         self.assertEqual(r0.display_level, "13")
         self.assertEqual(r0.level_index, 19)
-        self.assertAlmostEqual(r0.achievement, 99.4035)
-        self.assertEqual(r0.perfect_notes, 1243)
-        self.assertEqual(r0.total_notes, 1404)
+        self.assertAlmostEqual(r0.achievement, 98.7654)
+        self.assertEqual(r0.perfect_notes, 1234)
+        self.assertEqual(r0.total_notes, 1345)
         self.assertFalse(r0.is_ap_like)
         self.assertEqual(r1.song_name, "Colorful Starting Line")
-        self.assertAlmostEqual(r1.achievement, 100.5609)
+        self.assertAlmostEqual(r1.achievement, 100.4321)
         self.assertTrue(r1.is_ap_like)
         self.assertEqual(result.conflicts, [])
 
     def test_stats_block_skipped(self):
-        text = make_paste([("13", [("13", "Overdose", "99.4035%1,243 / 1,404")])])
+        text = make_paste([("13", [("13", "Overdose", "98.7654%1,234 / 1,345")])])
         result = np.parse_paste(text)
         names = [r.song_name for r in result.records]
         self.assertEqual(names, ["Overdose"])  # 統計行（CLEAR! など）は曲名にならない
@@ -488,7 +488,7 @@ class TestParsePaste(unittest.TestCase):
         self.assertTrue(any("衝突" in w for w in result.warnings))
 
     def test_missing_level_line_falls_back_to_header(self):
-        text = make_paste([("13", [("", "Overdose", "99.4035%1,243 / 1,404")])])
+        text = make_paste([("13", [("", "Overdose", "98.7654%1,234 / 1,345")])])
         # レベル行を空にする（3 行組の 1 行目がない形）
         result = np.parse_paste(text)
         self.assertEqual(len(result.records), 1)
@@ -496,7 +496,7 @@ class TestParsePaste(unittest.TestCase):
         self.assertTrue(result.warnings)
 
     def test_no_notes_part(self):
-        text = make_paste([("13", [("13", "Overdose", "99.4035%")])])
+        text = make_paste([("13", [("13", "Overdose", "98.7654%")])])
         result = np.parse_paste(text)
         self.assertEqual(len(result.records), 1)
         self.assertIsNone(result.records[0].perfect_notes)
@@ -569,14 +569,14 @@ class TestNetParserVersionPage(unittest.TestCase):
     def test_version_header_detection(self):
         text = (
             "CiRCLE PLUS\n"
-            "47/68\n"
+            "40/100\n"
             "CiRCLE PLUS\n"
             "13\n"
             "Colorful Starting Line\n"
-            "100.5609%2,417 / 2,664\n"
+            "100.4321%2,400 / 2,650\n"
             "13+\n"
             "KNØCK ØUT!!\n"
-            "97.7450%2,182 / 2,622\n"
+            "96.5432%2,100 / 2,500\n"
         )
         result = np.parse_paste(text)
         self.assertEqual(result.version_sections, ["CiRCLE PLUS", "CiRCLE PLUS"])
@@ -590,11 +590,11 @@ class TestNetParserVersionPage(unittest.TestCase):
             "CiRCLE PLUS\n"
             "13\n"
             "Colorful Starting Line\n"
-            "100.5000%2,417 / 2,664\n"
+            "100.5000%2,400 / 2,650\n"
             "LEVEL 13\n"
             "13\n"
             "Overdose\n"
-            "99.4035%1,243 / 1,404\n"
+            "98.7654%1,234 / 1,345\n"
         )
         result = np.parse_paste(text)
         self.assertEqual(result.records[0].page_version, "CiRCLE PLUS")
