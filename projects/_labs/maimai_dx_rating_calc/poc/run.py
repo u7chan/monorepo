@@ -177,7 +177,6 @@ def load_constants(path: str) -> list[dict]:
     entries = data.get("charts")
     if not isinstance(entries, list):
         raise ValueError(f"{path}: 'charts' array is missing")
-    seen: set[tuple[str, str, str]] = set()
     validated: list[dict] = []
     for i, entry in enumerate(entries):
         try:
@@ -197,10 +196,8 @@ def load_constants(path: str) -> list[dict]:
             rc.single_rate(constant, 50.0)  # 定数の桁数・非負の検証を兼ねる
         except ValueError as exc:
             raise ValueError(f"{path}: charts[{i}].constant: {exc}") from exc
-        key = (song, system, difficulty)
-        if key in seen:
-            raise ValueError(f"{path}: duplicate chart entry: {key}")
-        seen.add(key)
+        # 同名異曲（Link 2 曲など）は同一 (song, system, difficulty) が合法に重複する。
+        # 照合時は resolve_scores が複数候補を衝突として検出・報告する（domain.md『既知の課題』）。
         validated.append({
             "song": song, "system": system, "difficulty": difficulty,
             "level": level, "constant": constant, "note": entry.get("note"),
