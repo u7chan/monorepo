@@ -4,7 +4,10 @@
 
 - 計算仕様: [docs/domain.md](docs/domain.md)（[公式情報源](https://maimai.sega.jp/) の引用・楽曲マスタ JSON の扱いを含む）
 - 文書作成ルール: [docs/conventions.md](docs/conventions.md)
-- スコア入力: [maimai でらっくすNET](https://maimaidx.jp/) にログイン →「レコード」>「楽曲スコア」>「LEVEL」の Lv 毎一覧を Ctrl+A / Ctrl+C でコピーしたテキストを受け取る想定（手順は docs/domain.md の『スコア入力フォーマット』参照）
+- スコア入力: [maimai でらっくすNET](https://maimaidx.jp/) の Lv 毎スコア一覧をコピペで受け取る想定
+  - ログイン →「レコード」→「楽曲スコア」→「LEVEL」で Lv 毎一覧を開く
+  - 一覧を Ctrl+A / Ctrl+C でコピーしたテキストをそのまま渡す
+  - 手順の詳細は docs/domain.md の『スコア入力フォーマット』参照
 - 認証つきの自動取得は将来ステップ
 
 ## 参考リンク
