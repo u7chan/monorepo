@@ -6,7 +6,7 @@ maimai でらっくす（SEGA AC音楽ゲーム）の RATING 計算仕様の整�
 
 | 略称 | 出典 | 内容 |
 | --- | --- | --- |
-| 攻略wiki | 舞萌DX攻略wiki「でらっくすRATING」（2026/03/19時点の要約をユーザー共有） | 計算式・係数表・枠定義・RATINGカラー |
+| 攻略wiki | 攻略wiki「でらっくすRATING」（2026/03/19時点の要約をユーザー共有） | 計算式・係数表・枠定義・RATINGカラー |
 | ツールB | [PancakeKunJapan/maimai-RATING-Caliculator](https://github.com/PancakeKunJapan/maimai-RATING-Caliculator) `script.js` | 単曲レート計算・係数ステップ関数の実装 |
 
 両者で一致する内容を基準とし、差異・曖昧な点は「未確定ポイント」に記載する。
