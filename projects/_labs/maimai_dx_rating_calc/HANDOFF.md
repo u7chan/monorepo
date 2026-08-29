@@ -29,8 +29,8 @@ maimai でらっくす RATING 計算ツールの **Python3 PoC を実装・実�
 実行例:
 ```bash
 cd projects/_labs/maimai_dx_rating_calc
-python3 poc/run.py data/pastes/lv14.txt <出力先> --constants data/maimai_constants.json
-python3 poc/run.py data/pastes/circleplus_master.txt <出力先> --constants data/maimai_constants.json --difficulty MASTER   # バージョン別ページ用
+python3 poc/run.py data/pastes/level_list.txt <出力先> --constants data/maimai_constants.json
+python3 poc/run.py data/pastes/version_master.txt <出力先> --constants data/maimai_constants.json --difficulty MASTER   # バージョン別ページ用
 ```
 
 ## 3. データファイル（data/ に集約・.gitignore 除外）
@@ -39,15 +39,15 @@ python3 poc/run.py data/pastes/circleplus_master.txt <出力先> --constants dat
 | --- | --- | --- |
 | `data/maimai_constants.json` | **譜面定数 DB 6364 譜面 / 1480 曲**（非公式データ収集、CiRCLE PLUS 時点、0.1 刻み・全難易度・表示Lv はマスタと 6364/6364 一致確認済み） | 内部利用のみ・**git 除外**。出典サイト名は文書に記載しない。DB 設計時に再整理 |
 | `data/maimai_songs.json` | 公式楽曲マスタ 1571 曲（run.py が自動キャッシュ） | 公式データ・git 除外 |
-| `data/pastes/lv14.txt` | **ユーザーの実スコア（Lv14 一覧）** | **個人情報。git 除外（ユーザー明示）** |
-| `data/pastes/circleplus_master.txt` | **ユーザーの実スコア（CiRCLE PLUS / MASTER ページ）** | 同上 |
+| `data/pastes/level_list.txt` | **ユーザーの実スコア（LEVEL 一覧ページのコピペ）** | **個人情報。git 除外（ユーザー明示）** |
+| `data/pastes/version_master.txt` | **ユーザーの実スコア（バージョン別・MASTER ページ）** | 同上 |
 
 ## 4. 実データ検証の結果（2026-08-30）
 
-- **Lv14 一覧のみ**: RATING 10001（新曲枠 718 / ベスト枠 9283 / AP 0）。プレイ済み全曲のパース・定数照合に成功
+- **単一 LEVEL の一覧のみ**: RATING 10001（新曲枠 718 / ベスト枠 9283 / AP 0）。プレイ済み全曲のパース・定数照合に成功
 - **CiRCLE PLUS / MASTER ページ + `--difficulty MASTER`**: RATING 4433（新曲枠 15 満杯 / ベスト枠 0 / AP 14）→ このページの曲は全員新曲枠候補で正しい
 - **新発見（重要）**: 魔理沙は大変なものを盗んでいきました DX MASTER 13+ は、公式マスタの version=12002（GreeN 帯）だが **NET バージョン別ページでは CiRCLE PLUS 掲載** → マスタ version は「ST 譜面セット追加バージョン」であり **DX 譜面の後からの追加は拾えない実例**（domain.md 仮定 4 を反証）。**NET バージョン別ページが譜面単位の追加バージョンの正**。コードはページ version 優先で対応済み（`to_scored_chart`）
-- 衝突 3 曲（Lv14、難易度不明のため除外）: 火炎地獄 / ジングルベル / System "Z"（ST/DX が同一 Lv14 MASTER）。ジングルベルは難易度別ページで解消可、残り 2 曲は ST/DX 判別が必要
+- 衝突 3 曲（難易度不明のため除外）: 火炎地獄 / ジングルベル / System "Z"（いずれも ST/DX が同一 LEVEL の MASTER 譜面）。ジングルベルは難易度別ページで解消可、残り 2 曲は ST/DX 判別が必要
 
 ## 5. NET の URL 仕様（実測）
 
