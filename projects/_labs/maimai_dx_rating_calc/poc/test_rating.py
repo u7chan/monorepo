@@ -510,5 +510,52 @@ class TestParsePaste(unittest.TestCase):
 
 
 
+class TestRunPipeline(unittest.TestCase):
+    """run_pipeline の統合テスト（example_paste.txt + constants.json + 公式マスタ）。"""
+
+    POC_DIR = os.path.dirname(os.path.abspath(__file__))
+    MASTER_EXISTS = os.path.isfile("/tmp/maimai_songs.json")
+
+    @unittest.skipUnless(MASTER_EXISTS, "/tmp/maimai_songs.json が無いためスキップ")
+    def test_example_paste_end_to_end(self):
+        try:
+            from . import run as run_mod
+        except ImportError:  # スクリプト直接実行のとき
+            import run as run_mod
+
+        with open(os.path.join(self.POC_DIR, "example_paste.txt"), encoding="utf-8") as fh:
+            paste_text = fh.read()
+        logs: list[str] = []
+        result = run_mod.run_pipeline(
+            paste_text,
+            os.path.join(self.POC_DIR, "constants.json"),
+            master_source="/tmp/maimai_songs.json",
+            log=logs.append,
+        )
+        # 11 行のスコアがパースされる
+        self.assertEqual(len(result["parsed"].records), 11)
+        # BAD∞END∞NIGHT は定数 DB に ST/DX 両方あり衝突で除外
+        self.assertEqual([r.song_name for r, _c in result["conflicted"]], ["BAD∞END∞NIGHT"])
+        # 架空曲はマスタ未登録として警告が出る
+        self.assertTrue(any("マスタ未登録" in m for m in logs))
+        # 枠: 新曲枠 4 譜面（KNØCK ØUT!! / 真空都市 / オールマスター / Paranoia）
+        new_names = {c.song_name for c in result["new_frame"]}
+        self.assertEqual(new_names, {"KNØCK ØUT!!", "真空都市", "オールマスター", "Paranoia"})
+        # ベスト枠に Re:M（ワールズエンド・ダンスホール）とマスタ未登録曲が入る
+        best_names = {c.song_name for c in result["best_frame"]}
+        self.assertIn("ワールズエンド・ダンスホール", best_names)
+        self.assertIn("(PoCテスト) マスタ未登録曲", best_names)
+        # 枠内譜面は衝突行を含まない（10 譜面）
+        self.assertEqual(len(result["new_frame"]) + len(result["best_frame"]), 10)
+        # 単曲レート値の目視較正值（KNØCK ØUT!! 13.8@100.5% = 310 +1）
+        knock = next(c for c in result["scored"] if c.song_name == "KNØCK ØUT!!")
+        self.assertEqual(knock.rate, 311)
+        self.assertTrue(knock.is_ap)
+        # CSV 行の組み立てまで通る（10 枠内 + 衝突 1、圏外・未解決は 0）
+        rows = run_mod.build_detail_rows(result)
+        self.assertEqual(len(rows), 11)
+        self.assertEqual(rows[-1][8], run_mod.FRAME_CONFLICT)
+
+
 if __name__ == "__main__":
     unittest.main()

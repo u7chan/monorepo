@@ -236,7 +236,7 @@ class ScoredChart:
     achievement: float     # 達成率（%）
     rate: int              # 単曲レート値（AP ボーナス込み）
     is_ap: bool            # AP ボーナスが付いたか
-    added_version: int | None  # この譜面の追加バージョンコード（未登録は None）
+    added_version: int | None  # この譜面の追加バージョン（基準コード帯。未登録は None）
     song_base_version: int | None  # 楽曲の BASIC〜MASTER 追加バージョン（Re:M 例外判定用）
 
 
@@ -249,12 +249,14 @@ def is_new_candidate(chart: ScoredChart, current_version: int) -> bool:
                   AND song の BASIC〜MASTER の最古追加version < chart.added_version )
 
     added_version が不明（マスタ未登録など）の譜面は新曲枠の候補としない。
+    added_version は基準コード帯（26500 等）を想定するが、生のコード
+    （26501 等の小数点コード）が入ってもフロア判定で正規化して比較する。
     """
     if chart.added_version is None:
         return False
     prev = previous_version_code(current_version)
     window = {version_floor(current_version), prev}
-    if chart.added_version not in window:
+    if version_floor(chart.added_version) not in window:
         return False
     if chart.difficulty == DIFFICULTY_REMASTER:
         if chart.song_base_version is None:
