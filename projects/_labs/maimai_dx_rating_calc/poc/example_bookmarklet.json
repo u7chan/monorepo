@@ -1,0 +1,12 @@
+{
+  "source": "https://maimaidx.jp/maimai-mobile/record/musicLevel/search/?level=19",
+  "page": { "level": "19", "version": null, "diff": null },
+  "entries": [
+    { "song": "BAD∞END∞NIGHT", "level": "13", "difficulty": "MASTER", "system": "ST",
+      "achievement": 98.7654, "perfect": 1234, "total": 1345, "idx": "dummyidx1" },
+    { "song": "BAD∞END∞NIGHT", "level": "13", "difficulty": "MASTER", "system": "DX",
+      "achievement": 97.6543, "perfect": 1000, "total": 1200, "idx": "dummyidx2" },
+    { "song": "Axeria", "level": "14", "difficulty": "MASTER", "system": "ST",
+      "achievement": null, "perfect": null, "total": null, "idx": "dummyidx3" }
+  ]
+}

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -789,6 +790,76 @@ class TestResolveScores(unittest.TestCase):
         self.assertEqual(resolved, [])
         self.assertEqual(unresolved, [])
         self.assertEqual(len(conflicted), 2)
+
+
+class TestParseBookmarkJson(unittest.TestCase):
+    """tools/bookmarklet.html が出力する JSON のパース。"""
+
+    def _data(self, entries):
+        return json.dumps({
+            "source": "https://maimaidx.jp/maimai-mobile/record/musicLevel/search/?level=23",
+            "page": {"level": "23", "version": None, "diff": None},
+            "entries": entries,
+        }, ensure_ascii=False)
+
+    def test_st_dx_pair_and_unplayed(self):
+        data = self._data([
+            {"song": "ダミー曲A", "level": "15", "difficulty": "Re:MASTER",
+             "system": "ST", "achievement": 99.1234, "perfect": 1111, "total": 1222,
+             "idx": "dummy1"},
+            {"song": "ダミー曲A", "level": "15", "difficulty": "Re:MASTER",
+             "system": "DX", "achievement": 98.4321, "perfect": 2222, "total": 2333,
+             "idx": "dummy2"},
+            {"song": "ダミー曲B", "level": "15", "difficulty": "Re:MASTER",
+             "system": "DX", "achievement": None, "perfect": None, "total": None,
+             "idx": "dummy3"},
+        ])
+        result = np.parse_bookmark_json(data)
+        self.assertEqual(len(result.records), 2)
+        self.assertEqual(len(result.unplayed), 1)
+        self.assertEqual(result.conflicts, [])
+        r0, r1 = result.records
+        self.assertEqual((r0.system, r1.system), ("ST", "DX"))
+        self.assertEqual(r0.difficulty, "Re:MASTER")
+        self.assertEqual(r0.display_level, "15")
+        self.assertEqual(r0.level_index, 23)
+        self.assertAlmostEqual(r0.achievement, 99.1234)
+        self.assertEqual((r0.perfect_notes, r0.total_notes), (1111, 1222))
+        u = result.unplayed[0]
+        self.assertEqual(
+            (u.song_name, u.display_level, u.difficulty, u.system),
+            ("ダミー曲B", "15", "Re:MASTER", "DX"),
+        )
+
+    def test_invalid_input_raises(self):
+        with self.assertRaises(ValueError):
+            np.parse_bookmark_json("{broken")
+        with self.assertRaises(ValueError):
+            np.parse_bookmark_json('{"foo": 1}')
+
+    def test_unknown_system_and_difficulty_warn(self):
+        data = self._data([
+            {"song": "ダミー曲C", "level": "13", "difficulty": "ULTRA",
+             "system": "XP", "achievement": 97.6543, "perfect": 1234, "total": 1345,
+             "idx": "dummy4"},
+        ])
+        result = np.parse_bookmark_json(data)
+        self.assertEqual(len(result.records), 1)
+        record = result.records[0]
+        self.assertIsNone(record.system)
+        self.assertIsNone(record.difficulty)
+        self.assertEqual(record.display_level, "13")
+        self.assertEqual(record.level_index, 19)
+        self.assertTrue(any("system" in w for w in result.warnings))
+        self.assertTrue(any("difficulty" in w for w in result.warnings))
+
+    def test_looks_like_bookmark_json(self):
+        self.assertTrue(np.looks_like_bookmark_json(self._data([])))
+        self.assertFalse(np.looks_like_bookmark_json("LEVEL 13\n...\n"))
+        self.assertFalse(np.looks_like_bookmark_json("[]"))
+        html = make_entry_html("ダミー曲A", "15", "diff_master", "music_dx",
+                               achievement="99.0000%", notes="1,000 / 1,100")
+        self.assertFalse(np.looks_like_bookmark_json(html))
 
 
 if __name__ == "__main__":

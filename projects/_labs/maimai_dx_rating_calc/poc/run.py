@@ -336,12 +336,20 @@ def run_pipeline(
 
     constants = load_constants(constants_path)
     is_html = np.looks_like_html(paste_text)
-    parsed = np.parse_html(paste_text) if is_html else np.parse_paste(paste_text)
+    is_bookmark_json = not is_html and np.looks_like_bookmark_json(paste_text)
+    if is_html:
+        parsed = np.parse_html(paste_text)
+        log("[情報] HTML 入力（ページ保存方式）を検出: 譜面難易度・ST/DX を画像から判別")
+    elif is_bookmark_json:
+        parsed = np.parse_bookmark_json(paste_text)
+        log("[情報] ブックマークレット JSON 入力を検出")
+    else:
+        parsed = np.parse_paste(paste_text)
     if difficulty is not None:
-        if is_html:
+        if is_html or is_bookmark_json:
             log(
                 f"[警告] 難易度指定はコピペテキスト入力時のみ適用されます"
-                f"（HTML 入力のため無視しました）: {difficulty}"
+                f"（HTML / JSON 入力のため無視しました）: {difficulty}"
             )
         else:
             for record in parsed.records:
@@ -505,7 +513,9 @@ def main(argv: list[str] | None = None) -> int:
         description="maimai でらっくす RATING 計算 PoC（NET コピペ + 検証用定数 → CSV）"
     )
     parser.add_argument(
-        "paste_file", help="NET からコピーしたテキスト、またはページ保存した HTML ファイル"
+        "paste_file",
+        help="NET からコピーしたテキスト、ページ保存した HTML、"
+             "またはブックマークレット出力の JSON ファイル",
     )
     parser.add_argument("output_dir", help="CSV の出力先ディレクトリ")
     parser.add_argument(

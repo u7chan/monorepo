@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import html.parser
+import json
 import os
 import re
 from collections import Counter
@@ -420,9 +421,17 @@ def parse_html(html_text: str) -> ParseResult:
     parser.feed(html_text)
     parser.close()
 
-    # 衝突検出: 同一 (表示Lv, 曲名, 系統, 譜面難易度) が 2 エントリ以上
-    # （HTML では画像 src から譜面が確定するため、コピペの (表示Lv, 曲名)
-    # キーより細かいキーで数える。conflicts の形式は parse_paste と同様）
+    _detect_conflicts(result)
+    return result
+
+
+def _detect_conflicts(result: ParseResult) -> None:
+    """同一 (表示Lv, 曲名, 系統, 譜面難易度) の重複を衝突として検出する。
+
+    parse_html / parse_bookmark_json 共通。HTML・JSON はコピペと違い譜面が
+    確定するため、コピペの (表示Lv, 曲名) キーより細かいキーで数える。
+    conflicts のタプル形式は parse_paste と同様 (表示Lv, 曲名, 件数)。
+    """
     counts = Counter(
         (r.display_level, r.song_name, r.system, r.difficulty) for r in result.records
     )
@@ -436,6 +445,111 @@ def parse_html(html_text: str) -> ParseResult:
             f"衝突: LEVEL {lv} の『{name}』が {n} エントリあります"
             "（同一の表示Lv・曲名・系統・譜面難易度の重複）"
         )
+
+
+# ---------------------------------------------------------------------------
+# ブックマークレット JSON 入力（tools/bookmarklet.html）
+# ---------------------------------------------------------------------------
+
+_BOOKMARK_DIFFICULTIES = frozenset(_DIFFICULTY_IMG_NAMES.values())
+
+
+def looks_like_bookmark_json(text: str) -> bool:
+    """ブックマークレット出力の JSON かどうかを大まかに判定する。"""
+    head = text.lstrip()
+    return head.startswith("{") and '"entries"' in text[:2000]
+
+
+def parse_bookmark_json(json_text: str) -> ParseResult:
+    """ブックマークレット出力のスコア JSON をパースする。
+
+    形式（tools/bookmarklet.html の出力仕様）:
+        {"source": "...", "page": {"level": 19, ...}, "entries": [
+            {"song": "曲名", "level": "13+", "difficulty": "MASTER",
+             "system": "DX", "achievement": 98.7654,
+             "perfect": 1234, "total": 1345, "idx": "..."}
+        ]}
+    HTML 入力と同様、画像情報から譜面難易度・ST/DX が確定済みのデータ。
+    achievement が無いエントリは未プレイ曲として unplayed に記録する。
+    """
+    try:
+        data = json.loads(json_text)
+    except ValueError as exc:
+        raise ValueError(f"ブックマークレット JSON をパースできません: {exc}") from exc
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("ブックマークレット JSON に 'entries' 配列がありません")
+    result = ParseResult()
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            result.warnings.append(f"エントリ {i}: dict ではありません（スキップ）")
+            continue
+        song = entry.get("song")
+        level_label = entry.get("level")
+        if not (isinstance(song, str) and song):
+            result.warnings.append(f"エントリ {i}: song が読めません（スキップ）")
+            continue
+        if not (isinstance(level_label, str) and level_label):
+            result.warnings.append(f"エントリ {i}: level が読めません: {song}（スキップ）")
+            continue
+        system = entry.get("system")
+        if system not in ("ST", "DX", None):
+            result.warnings.append(f"エントリ {i}: system が不明です: {system!r}（無視します）")
+            system = None
+        difficulty = entry.get("difficulty")
+        if difficulty not in _BOOKMARK_DIFFICULTIES and difficulty is not None:
+            result.warnings.append(
+                f"エントリ {i}: difficulty が不明です: {difficulty!r}（無視します）"
+            )
+            difficulty = None
+        achievement = entry.get("achievement")
+        if achievement is None:
+            result.unplayed.append(
+                UnplayedChart(
+                    song_name=song, display_level=level_label,
+                    difficulty=difficulty, system=system, source_line=i + 1,
+                )
+            )
+            continue
+        try:
+            achievement = float(achievement)
+        except (TypeError, ValueError):
+            result.warnings.append(
+                f"エントリ {i}: achievement が数値でありません: {achievement!r}（スキップ）"
+            )
+            continue
+
+        def _int_field(key: str) -> int | None:
+            value = entry.get(key)
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                result.warnings.append(
+                    f"エントリ {i}: {key} が数値でありません: {value!r}（無視します）"
+                )
+                return None
+
+        try:
+            level_index = display_level_to_index(level_label)
+        except ValueError as exc:
+            level_index = None
+            result.warnings.append(f"エントリ {i}: {exc}")
+        result.records.append(
+            ScoreRecord(
+                song_name=song,
+                display_level=level_label,
+                level_index=level_index,
+                achievement=achievement,
+                perfect_notes=_int_field("perfect"),
+                total_notes=_int_field("total"),
+                source_line=i + 1,
+                difficulty=difficulty,
+                system=system,
+            )
+        )
+    _detect_conflicts(result)
     return result
 
 
