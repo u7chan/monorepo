@@ -79,7 +79,7 @@ class TestSingleRate(unittest.TestCase):
         (100.0000, 302),  # 14.0 × 1.0      × 21.6 = 302.4   → 302（AP 自動付加はない）
         (100.4999, 312),  # 14.0 × 1.004999 × 22.2 = 312.353… → 312（SSS 寸止め係数）
         (100.5000, 315),  # 14.0 × 1.005    × 22.4 = 315.168… → 315（SSS+ 係数）
-        (100.5001, 315),  # 100.5% で cap され 100.5000 と同一結果
+        (100.5001, 315),  # 100.5% で切り詰められ 100.5000 と同一結果
         (101.0000, 315),  # 同上（101% 理論値も天井）
     ]
 
@@ -122,11 +122,11 @@ class TestSingleRate(unittest.TestCase):
         # 全ノーツ PERFECT を意味しないため自動では付けない（domain.md『AP ボーナス』）。
         self.assertEqual(rc.single_rate(14.0, 99.9999), 299)
         self.assertEqual(rc.single_rate(14.0, 100.0), 302)  # 100% でも自動 +1 なし
-        self.assertEqual(rc.single_rate(14.0, 101.0), 315)  # 101% も同様（100.5% cap）
+        self.assertEqual(rc.single_rate(14.0, 101.0), 315)  # 101% も同様（100.5% へ切り詰め）
         # 明示フラグでは +1（達成率が 100 未満でも付く）
         self.assertEqual(rc.single_rate(14.0, 99.5, is_ap=True), 294)
         self.assertEqual(rc.single_rate(14.0, 99.5), 293)
-        # 101%（AP+ 理論値）も cap される（14.0 × 1.005 × 22.4 = 315.168… → 315）
+        # 101%（AP+ 理論値）も 100.5% に切り詰められる（14.0 × 1.005 × 22.4 = 315.168… → 315）
         self.assertEqual(rc.single_rate(14.0, 101.0), 315)
 
     def test_input_validation(self):

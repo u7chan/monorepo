@@ -2,7 +2,7 @@
 
 仕様の正: projects/_labs/maimai_dx_rating_calc/docs/domain.md
 - 『単曲レート値』: floor(譜面定数 × 達成率(実数) × Rank係数) + APボーナス
-- 『達成率』: 入力 0〜101%、算出時に 100.5% (=1.005) で cap
+- 『達成率』: 入力 0〜101%、算出時に 100.5% (=1.005) へ切り詰め（上限）
 - 『Rank係数』: 昇順しきい値テーブル + 逆順ループ（境界の寸止め行を含む）
 - 『枠の定義（新曲枠 / ベスト枠）』: 新曲枠 15 / ベスト枠 35、Re:MASTER の例外あり
 
@@ -72,7 +72,7 @@ _COEF_TABLE_X: tuple[tuple[int, int], ...] = tuple(
 def capped_achievement(achievement: float) -> float:
     """達成率(%)を入力範囲で検証し、算出用の値（100.5% 天井）で返す。
 
-    domain.md『達成率』: 入力は 0〜101% を受け付け、算出時に 100.5% で cap する。
+    domain.md『達成率』: 入力は 0〜101% を受け付け、算出時に 100.5% に切り詰める（上限）。
     """
     if not (ACHIEVEMENT_INPUT_MIN <= achievement <= ACHIEVEMENT_INPUT_MAX):
         raise ValueError(
@@ -82,7 +82,7 @@ def capped_achievement(achievement: float) -> float:
 
 
 def rank_coefficient(achievement: float) -> float:
-    """達成率(%)に対応する Rank係数を返す（100.5% cap 適用後）。
+    """達成率(%)に対応する Rank係数を返す（100.5% への切り詰め適用後）。
 
     昇順しきい値テーブルを逆順ループし、ach >= しきい値 となる最大のしきい値の
     係数を返す（domain.md『Rank係数』の実装指示どおり）。
