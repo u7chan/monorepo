@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maimai でらっくすNET スコア抽出ブックマークレット</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; line-height: 1.7; }
+  code, pre, textarea { background: #f4f4f4; border-radius: 4px; }
+  code { padding: 0.1em 0.3em; }
+  pre, textarea { padding: 0.8em; overflow-x: auto; }
+  textarea { width: 100%; box-sizing: border-box; font-size: 11px; white-space: pre; }
+  .bk { display: inline-block; padding: 0.6em 1.2em; background: #51bcf3; color: #fff; border-radius: 6px; text-decoration: none; font-weight: bold; }
+  .bk:hover { background: #3aa8e0; }
+</style>
+</head>
+<body>
+<h1>maimai でらっくすNET スコア抽出ブックマークレット</h1>
+
+<p>「レコード → 楽曲スコア」の一覧ページ（LEVEL / バージョン別）で実行すると、
+各譜面のスコアを <strong>JSON ファイルとしてダウンロード</strong>するブックマークレットです。
+譜面難易度（BASIC〜Re:MASTER）と ST/DX はページ上の画像から判別して JSON に含めます。
+（ログイン: <a href="https://maimaidx.jp/maimai-mobile">maimai でらっくすNET</a>）</p>
+
+<h2>インストール</h2>
+<ol>
+  <li>下のリンクをブックマークバーへドラッグ（または右クリック → ブックマークに追加）</li>
+  <li><a href="https://maimaidx.jp/maimai-mobile">maimai でらっくすNET</a> にログインし、一覧ページ（例: LEVEL 13 のページ）を開く</li>
+  <li>ブックマークをクリック → <code>maimai_level19_YYYY-MM-DD.json</code> のような JSON がダウンロードされる</li>
+</ol>
+
+<p><a class="bk" id="bookmarklet" href="javascript:(()=>{const forms=Array.from(document.querySelectorAll('form')).filter(f=>(f.getAttribute('action')||'').toLowerCase().includes('musicdetail'));if(!forms.length){alert('譜面エントリが見つかりません（一覧ページで実行してください）');return}const one=(s,f)=>{const e=f.querySelector(s);if(!e)return null;const raw=e.textContent||'';const t=raw.trim();return t?t:(raw.indexOf('\u3000')>=0?'\u3000':t)};const has=(f,n)=>Array.from(f.querySelectorAll('img')).some(i=>(i.getAttribute('src')||'').endsWith(n));const D_MAP={basic:'BASIC',advanced:'ADVANCED',expert:'EXPERT',master:'MASTER',remaster:'Re:MASTER'};const entries=forms.map(f=>{const diff=Object.keys(D_MAP).find(k=>has(f,'diff_'+k+'.png'));const system=has(f,'music_dx.png')?'DX':has(f,'music_standard.png')?'ST':null;const scores=Array.from(f.querySelectorAll('.music_score_block')).map(e=>(e.textContent||'').trim());const pct=scores.find(s=>/%$/.test(s))||null;const notes=scores.find(s=>/^\d[\d,]*\s*\/\s*\d[\d,]*$/.test(s))||null;const nt=notes?notes.split('/').map(x=>parseInt(x.replace(/,/g,''),10)):[null,null];const idxEl=f.querySelector('input[name=idx]');return{song:one('.music_name_block',f),level:one('.music_lv_block',f),difficulty:diff?D_MAP[diff]:null,system:system,achievement:pct!==null?parseFloat(pct):null,perfect:nt[0],total:nt[1],idx:idxEl?idxEl.value:null}});const u=new URL(location.href);const level=u.searchParams.get('level');const version=u.searchParams.get('version');const diff=u.searchParams.get('diff');const tag=(level?'level'+level:version?'version'+version:'scores')+(diff?'_d'+diff:'');const data={source:location.href,page:{level:level,version:version,diff:diff},entries:entries};const blob=new Blob([JSON.stringify(data,null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='maimai_'+tag+'_'+new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href)},1000)})();">maimai スコア抽出</a></p>
+<p><strong>このボタンはクリックするものではありません</strong>。ドラッグしてブックマークバーへ追加し、
+maimaiNET の一覧ページを開いた状態でそのブックマークをクリックして使います
+（このページ上でクリックしても何も起きません）。</p>
+
+<p>※ ドラッグができない環境（モバイル等）では、下のコードをコピーして
+「ブックマークの編集 → URL 欄に貼り付け」でも登録できます。</p>
+
+<h2>コード（コピー用）</h2>
+<textarea rows="8" readonly onclick="this.select()">javascript:(()=>{const forms=Array.from(document.querySelectorAll('form')).filter(f=>(f.getAttribute('action')||'').toLowerCase().includes('musicdetail'));if(!forms.length){alert('譜面エントリが見つかりません（一覧ページで実行してください）');return}const one=(s,f)=>{const e=f.querySelector(s);if(!e)return null;const raw=e.textContent||'';const t=raw.trim();return t?t:(raw.indexOf('\u3000')>=0?'\u3000':t)};const has=(f,n)=>Array.from(f.querySelectorAll('img')).some(i=>(i.getAttribute('src')||'').endsWith(n));const D_MAP={basic:'BASIC',advanced:'ADVANCED',expert:'EXPERT',master:'MASTER',remaster:'Re:MASTER'};const entries=forms.map(f=>{const diff=Object.keys(D_MAP).find(k=>has(f,'diff_'+k+'.png'));const system=has(f,'music_dx.png')?'DX':has(f,'music_standard.png')?'ST':null;const scores=Array.from(f.querySelectorAll('.music_score_block')).map(e=>(e.textContent||'').trim());const pct=scores.find(s=>/%$/.test(s))||null;const notes=scores.find(s=>/^\d[\d,]*\s*\/\s*\d[\d,]*$/.test(s))||null;const nt=notes?notes.split('/').map(x=>parseInt(x.replace(/,/g,''),10)):[null,null];const idxEl=f.querySelector('input[name=idx]');return{song:one('.music_name_block',f),level:one('.music_lv_block',f),difficulty:diff?D_MAP[diff]:null,system:system,achievement:pct!==null?parseFloat(pct):null,perfect:nt[0],total:nt[1],idx:idxEl?idxEl.value:null}});const u=new URL(location.href);const level=u.searchParams.get('level');const version=u.searchParams.get('version');const diff=u.searchParams.get('diff');const tag=(level?'level'+level:version?'version'+version:'scores')+(diff?'_d'+diff:'');const data={source:location.href,page:{level:level,version:version,diff:diff},entries:entries};const blob=new Blob([JSON.stringify(data,null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='maimai_'+tag+'_'+new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href)},1000)})();</textarea>
+
+<h2>出力 JSON の形式</h2>
+<pre>{
+  "source": "https://maimaidx.jp/maimai-mobile/record/musicLevel/search/?level=23",
+  "page": { "level": "23", "version": null, "diff": null },
+  "entries": [
+    { "song": "曲名", "level": "15", "difficulty": "Re:MASTER",
+      "system": "DX", "achievement": 98.7654,
+      "perfect": 1234, "total": 1345,
+      "idx": "楽曲詳細ページのトークン（将来用）" }
+  ]
+}</pre>
+<ul>
+  <li><code>achievement: null</code> のエントリは「未プレイの曲」（スコア表示が無い）</li>
+  <li><code>level</code> は表示 Lv のテキスト（例: <code>13+</code>）</li>
+</ul>
+
+<h2>取り込み（WSL 側）</h2>
+<p>ダウンロードした JSON を WSL の任意の場所（例: <code>/tmp/</code>）に置き、
+当プロジェクトの <code>poc/run.py</code> に渡すだけで計算できます（拡張子・内容で自動判定）。</p>
+<pre>cd projects/_labs/maimai_dx_rating_calc
+cp /mnt/c/Users/&lt;ユーザー名&gt;/Downloads/maimai_level19_*.json /tmp/
+python3 poc/run.py /tmp/maimai_level19_2026-08-31.json /tmp/rating_out --constants data/maimai_constants.json</pre>
+<p>ファイルをエージェント（Pi 等）に渡す場合も、パスを伝えるだけで中身を貼り付ける必要はありません。</p>
+
+<h2>注意</h2>
+<ul>
+  <li>一覧ページ以外（楽曲詳細ページ等）で実行すると譜面エントリが無く、警告ダイアログが出ます</li>
+  <li>ダウンロードした JSON は実スコアを含む個人データです。取り扱いに注意し、Git には入れないでください（当プロジェクトでは <code>data/</code> 配下が git 除外済み）</li>
+  <li>出力には <code>idx</code>（楽曲詳細ページのトークン）が含まれます。取り扱いは自己責任でお願いします</li>
+</ul>
+</body>
+</html>

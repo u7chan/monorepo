@@ -1,0 +1,24 @@
+{
+  "_description": "検証用の譜面定数サンプル（手入力）。定数は公式マスタに含まれないため、コミュニティ調査の値を踏まえた目安を手入力した PoC 用サンプル値。本実装では収集・較正が必要（docs/domain.md の『注意・データギャップ』参照）。マスタ照合は (song, system, difficulty) で行い、level は表示 Lv の整合チェックに使う。",
+  "_schema": {
+    "song": "曲名（公式マスタの title と一致させる。マスタに無い曲は『マスタ未登録』扱い）",
+    "system": "譜面系統: ST（スタンダード）| DX（でらっくす）",
+    "difficulty": "譜面難易度: BASIC | ADVANCED | EXPERT | MASTER | Re:MASTER",
+    "level": "表示Lv（例: 13, 13+）",
+    "constant": "譜面定数（小数第1位まで）"
+  },
+  "charts": [
+    { "song": "KNØCK ØUT!!", "system": "DX", "difficulty": "MASTER", "level": "13+", "constant": 13.8 },
+    { "song": "オールマスター", "system": "DX", "difficulty": "MASTER", "level": "13", "constant": 13.5 },
+    { "song": "真空都市", "system": "DX", "difficulty": "MASTER", "level": "13", "constant": 13.6 },
+    { "song": "Paranoia", "system": "ST", "difficulty": "MASTER", "level": "13+", "constant": 13.9 },
+    { "song": "ナイト・オブ・ナイツ", "system": "ST", "difficulty": "MASTER", "level": "13", "constant": 13.4 },
+    { "song": "セツナトリップ", "system": "ST", "difficulty": "MASTER", "level": "13", "constant": 13.7 },
+    { "song": "ワールズエンド・ダンスホール", "system": "ST", "difficulty": "Re:MASTER", "level": "13", "constant": 13.5 },
+    { "song": "BAD∞END∞NIGHT", "system": "ST", "difficulty": "MASTER", "level": "13", "constant": 13.0 },
+    { "song": "BAD∞END∞NIGHT", "system": "DX", "difficulty": "MASTER", "level": "13", "constant": 13.0 },
+    { "song": "火炎地獄", "system": "ST", "difficulty": "MASTER", "level": "14", "constant": 14.2 },
+    { "song": "Axeria", "system": "ST", "difficulty": "MASTER", "level": "14", "constant": 14.5 },
+    { "song": "(PoCテスト) マスタ未登録曲", "system": "DX", "difficulty": "MASTER", "level": "13", "constant": 13.5, "note": "マスタに存在しない架空曲。未登録時の扱い（新曲枠の候補にしない）を確認するためのダミー" }
+  ]
+}
