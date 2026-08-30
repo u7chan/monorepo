@@ -1,7 +1,7 @@
 # HANDOFF — maimai でらっくす RATING 計算ツール（PoC 検証中）
 
 > 引き継ぎ用メモ。ブランチ: `feat/maimai-dx-rating-poc`（origin/main 起点、**PR 未作成**）
-> 最新コミット: `03e4e403``3f1bc5b5`（全コミット push 済み）
+> 最新コミット: `8582fa55`（全コミット push 済み）
 > 作成: 2026-08-30 / 更新: 2026-08-31
 
 ## 1. プロジェクトの現状
