@@ -109,8 +109,10 @@ def single_rate(const: float, achievement: float, is_ap: bool = False) -> int:
 
     単曲レート値 = floor(譜面定数 × 達成率(実数) × Rank係数) + APボーナス
     - 達成率(実数) = 達成率(%) / 100、天井 100.5%（domain.md『達成率』）
-    - APボーナス = 1（achievement >= 100.00 または is_ap、domain.md『AP ボーナス』）
-      ※ achievement >= 100.00 は AP の近似判定（domain.md『AP ボーナス』参照）
+    - APボーナス = is_ap のときのみ +1（domain.md『AP ボーナス』）
+      ※ 達成率 100% 超えは BREAK ノーツの CP ボーナス（最大 +1%）によるもので、
+      全ノーツ PERFECT（= AP）を意味しないため、達成率からの自動判定はしない。
+      判定は入力側の perfect == total（NET の PERFECT 数 / 総ノーツ数）で行う。
     - 譜面定数は小数第 1 位まで（domain.md『譜面定数』）
 
     全て整数演算で計算するため、境界値でも浮動小数誤差が発生しない。
@@ -126,7 +128,7 @@ def single_rate(const: float, achievement: float, is_ap: bool = False) -> int:
             coef_x = c_x
             break
     rate = (const_x * ach_x * coef_x) // _RATE_DENOMINATOR
-    if ach_x >= 1_000_000 or is_ap:  # 達成率 100.0000% 以上で AP ボーナス
+    if is_ap:
         rate += 1
     return rate
 

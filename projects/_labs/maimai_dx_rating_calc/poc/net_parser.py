@@ -90,8 +90,17 @@ class ScoreRecord:
 
     @property
     def is_ap_like(self) -> bool:
-        """達成率 100.00% 以上か（AP の近似判定。domain.md『AP ボーナス』参照）。"""
-        return self.achievement >= 100.0
+        """全ノーツ PERFECT かどうか（AP ボーナスの判定条件）。
+
+        perfect / total が両方あるときのみ判定できる。達成率 100% 超えは
+        BREAK ノーツの CP ボーナス（最大 +1%）によるもので、全ノーツ PERFECT
+        を意味しないため達成率では判定しない（domain.md『AP ボーナス』『達成率』）。
+        """
+        return (
+            self.perfect_notes is not None
+            and self.total_notes is not None
+            and self.perfect_notes == self.total_notes
+        )
 
 
 @dataclass

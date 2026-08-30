@@ -281,8 +281,11 @@ def to_scored_chart(
       （GreeN）だが NET バージョン別ページでは CiRCLE PLUS に掲載される。
       （domain.md『version フィールドの意味（確定）』『スコア入力フォーマット』参照）
     """
-    rate = rc.single_rate(entry["constant"], record.achievement)
-    is_ap = record.achievement >= 100.0
+    # AP は「全ノーツ PERFECT」（perfect == total、NET の PERFECT 数/総ノーツ数）でのみ判定。
+    # 達成率 100% 超えは BREAK の CP ボーナスによるもので AP を意味しない
+    # （domain.md『AP ボーナス』『達成率』。2026-08-31 実データで較正済み）。
+    is_ap = record.is_ap_like
+    rate = rc.single_rate(entry["constant"], record.achievement, is_ap=is_ap)
     master = master_index.get((entry["song"], entry["system"], entry["difficulty"]))
     added_version: int | None = None
     if record.page_version:

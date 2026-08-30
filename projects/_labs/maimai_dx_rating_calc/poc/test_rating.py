@@ -76,11 +76,11 @@ class TestSingleRate(unittest.TestCase):
         (99.4999, 289),   # 14.0 × 0.994999 × 20.8 = 289.743… → 289（SS 係数）
         (99.5000, 293),   # 14.0 × 0.995    × 21.1 = 293.923… → 293（SS+ 係数）
         (99.9999, 299),   # 14.0 × 0.999999 × 21.4 = 299.599… → 299（SS+ 寸止め係数）
-        (100.0000, 303),  # 14.0 × 1.0      × 21.6 = 302.4   → 302 +1（AP ボーナス）
-        (100.4999, 313),  # 14.0 × 1.004999 × 22.2 = 312.353… → 312 +1（SSS 寸止め係数）
-        (100.5000, 316),  # 14.0 × 1.005    × 22.4 = 315.168… → 315 +1（SSS+ 係数）
-        (100.5001, 316),  # 100.5% で cap され 100.5000 と同一結果
-        (101.0000, 316),  # 同上（101% 理論値も天井）
+        (100.0000, 302),  # 14.0 × 1.0      × 21.6 = 302.4   → 302（AP 自動付加はない）
+        (100.4999, 312),  # 14.0 × 1.004999 × 22.2 = 312.353… → 312（SSS 寸止め係数）
+        (100.5000, 315),  # 14.0 × 1.005    × 22.4 = 315.168… → 315（SSS+ 係数）
+        (100.5001, 315),  # 100.5% で cap され 100.5000 と同一結果
+        (101.0000, 315),  # 同上（101% 理論値も天井）
     ]
 
     def test_achievement_boundaries_const14(self):
@@ -105,10 +105,11 @@ class TestSingleRate(unittest.TestCase):
                 self.assertEqual(rc.single_rate(10.0, ach), expected)
 
     def test_floor_behavior(self):
-        # 13.0 × 1.005 × 22.4 = 292.656 → 292 +1 = 293（domain.md の目安値計算と整合）
-        self.assertEqual(rc.single_rate(13.0, 100.5), 293)
-        # 14.0 × 1.005 × 22.4 = 315.168 → 315 +1 = 316
-        self.assertEqual(rc.single_rate(14.0, 100.5), 316)
+        # 13.0 × 1.005 × 22.4 = 292.656 → 292（AP なし。domain.md の目安値は AP 込みの概算）
+        self.assertEqual(rc.single_rate(13.0, 100.5), 292)
+        # 14.0 × 1.005 × 22.4 = 315.168 → 315
+        self.assertEqual(rc.single_rate(14.0, 100.5), 315)
+        self.assertEqual(rc.single_rate(14.0, 100.5, is_ap=True), 316)  # AP 込み
         # 13.0 × 0.97 × 20.0 = 252.2 → 252
         self.assertEqual(rc.single_rate(13.0, 97.0), 252)
         # 切捨確認: 端数があれば切り捨て
@@ -116,15 +117,17 @@ class TestSingleRate(unittest.TestCase):
         # 13.3 × 0.994035 × 20.8 = 274.989… → 274
 
     def test_ap_bonus(self):
-        # 達成率 100.00 以上で +1（近似判定）
+        # AP ボーナスは is_ap フラグ（= 全ノーツ PERFECT）のときのみ +1。
+        # 達成率 100% 超えは BREAK ノーツの CP ボーナス（最大 +1%）によるもので、
+        # 全ノーツ PERFECT を意味しないため自動では付けない（domain.md『AP ボーナス』）。
         self.assertEqual(rc.single_rate(14.0, 99.9999), 299)
-        self.assertEqual(rc.single_rate(14.0, 100.0), 303)
-        # 明示フラグでも +1（達成率が 100 未満でも付く）
+        self.assertEqual(rc.single_rate(14.0, 100.0), 302)  # 100% でも自動 +1 なし
+        self.assertEqual(rc.single_rate(14.0, 101.0), 315)  # 101% も同様（100.5% cap）
+        # 明示フラグでは +1（達成率が 100 未満でも付く）
         self.assertEqual(rc.single_rate(14.0, 99.5, is_ap=True), 294)
         self.assertEqual(rc.single_rate(14.0, 99.5), 293)
-        # 101%（AP+ 理論値）は cap されて AP ボーナス込み
-        self.assertEqual(rc.single_rate(13.5, 101.0), 304)
-        # 13.5 × 1.005 × 22.4 = 303.912… → 303 +1
+        # 101%（AP+ 理論値）も cap される（14.0 × 1.005 × 22.4 = 315.168… → 315）
+        self.assertEqual(rc.single_rate(14.0, 101.0), 315)
 
     def test_input_validation(self):
         for bad_ach in (-0.1, 101.5, -1.0, 1000.0):
@@ -140,7 +143,8 @@ class TestSingleRate(unittest.TestCase):
             rc.single_rate(13.0, 98.76545)
 
     def test_zero_cases(self):
-        self.assertEqual(rc.single_rate(0.0, 100.0), 1)  # 0 × … = 0 +1（AP）
+        self.assertEqual(rc.single_rate(0.0, 100.0), 0)   # 0 × … = 0（AP 自動付加はない）
+        self.assertEqual(rc.single_rate(0.0, 100.0, is_ap=True), 1)  # is_ap のみ +1
         self.assertEqual(rc.single_rate(13.0, 0.0), 0)   # 係数 0
 
 
@@ -431,8 +435,17 @@ class TestParsePaste(unittest.TestCase):
         self.assertFalse(r0.is_ap_like)
         self.assertEqual(r1.song_name, "Colorful Starting Line")
         self.assertAlmostEqual(r1.achievement, 100.4321)
-        self.assertTrue(r1.is_ap_like)
+        # 達成率 100% 超えでも perfect != total（GREAT 混じり）なら AP でない
+        self.assertFalse(r1.is_ap_like)
         self.assertEqual(result.conflicts, [])
+
+    def test_is_ap_like_requires_full_perfect(self):
+        # 達成率 100% 超えでも perfect != total なら AP でない（BREAK の CP ボーナス）
+        text = make_paste([("13", [("13", "Overdose", "100.4321%2,400 / 2,650")])])
+        self.assertFalse(np.parse_paste(text).records[0].is_ap_like)
+        # perfect == total（全ノーツ PERFECT）なら達成率が 100% 未満でも AP
+        text = make_paste([("13", [("13", "Overdose", "99.5000%1,404 / 1,404")])])
+        self.assertTrue(np.parse_paste(text).records[0].is_ap_like)
 
     def test_stats_block_skipped(self):
         text = make_paste([("13", [("13", "Overdose", "98.7654%1,234 / 1,345")])])
