@@ -53,11 +53,11 @@ python3 poc/run.py <コピペ or HTML or JSON> <出力先> --constants data/maim
 | `data/maimai_songs.json` | 公式楽曲マスタ 1571 曲（run.py が自動キャッシュ） | 公式データ・git 除外 |
 | `data/pastes/level_list.txt` | **ユーザーの実スコア（LEVEL 一覧ページのコピペ）** | **個人情報。git 除外（ユーザー明示）** |
 | `data/pastes/version_master.txt` | **ユーザーの実スコア（バージョン別・MASTER ページ）** | 同上 |
-| `/tmp/maimainet/`（リポジトリ外） | **ユーザーの実スコア（ブックマークレット JSON: LEVEL ページ保存分・level インデックス名）** | 同上（git 対象外の /tmp にあり。level 番号の対応は domain.md『スコア入力フォーマット』） |
+| `data/score_dump/`（ブックマークレット JSON + out_* 出力） | **ユーザーの実スコア（ブックマークレット JSON: LEVEL ページ保存分・level インデックス名）と計算結果 CSV** | 同上（git 除外。2026-08-31 に /tmp から移設。level 番号の対応は domain.md『スコア入力フォーマット』） |
 
 ## 4. 実データ検証の結果（2026-08-30〜31）
 
-（実スコア・計算値は個人データのため、本メモには数値を記載しない。出力 CSV は /tmp にあり）
+（実スコア・計算値は個人データのため、本メモには数値を記載しない。出力 CSV は `data/score_dump/out_fixed/` にあり）
 
 - **単一 LEVEL の一覧のみ**（コピペ）: プレイ済み全曲のパース・定数照合に成功（較正の基準値として利用）
 - **CiRCLE PLUS / MASTER ページ + `--difficulty MASTER`**（コピペ）: このページの曲は全員新曲枠候補になることを確認（仕様どおり）
