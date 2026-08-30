@@ -1,10 +1,13 @@
-"""maimai でらっくすNET のコピペテキストをパースする（PoC）。
+"""maimai でらっくすNET のスコアをパースする（PoC）。
 
-入力は maimai でらっくすNET「レコード → 楽曲スコア → LEVEL」の一覧画面を
-Ctrl+A / Ctrl+C でコピーしたテキスト（domain.md『スコア入力フォーマット』の
-実測形式）を想定する。
+入力は 2 種類:
+- コピペテキスト: 「レコード → 楽曲スコア → LEVEL」の一覧画面を Ctrl+A / Ctrl+C で
+  コピーしたテキスト（domain.md『スコア入力フォーマット』の実測形式）。
+- ページ保存 HTML: 同じ一覧画面をブラウザでページ保存した HTML。
+  画像 src（diff_*.png / music_dx.png / music_standard.png）から
+  譜面難易度と ST/DX を確定できる。
 
-構造（実測仕様）:
+コピペテキスト構造（実測仕様）:
     LEVEL 13                ← LEVEL ヘッダ（LEVEL クエリは内部 Lv インデックス）
     538/560                 ← 統計ブロック（CLEAR! 等の分母付きカウント、実測 21 行）
     ...
@@ -15,10 +18,13 @@ Ctrl+A / Ctrl+C でコピーしたテキスト（domain.md『スコア入力フ�
 既知の課題（domain.md『既知の課題』）:
     コピペテキストには譜面難易度（BASIC〜Re:MASTER）と ST/DX の区別が含まれない。
     → 同一 (表示Lv, 曲名) に複数譜面がぶつかる衝突を検出して報告する。
+    （HTML パースでは画像 src から確定できるため衝突にならない）
 """
 
 from __future__ import annotations
 
+import html.parser
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -78,6 +84,7 @@ class ScoreRecord:
     total_notes: int | None = None    # 総ノーツ数（任意）
     source_line: int = 0     # 元テキストの行番号（1 始まり・診断用）
     difficulty: str | None = None  # 譜面難易度（バージョン別ページで判明する場合）
+    system: str | None = None  # 'ST' | 'DX'（HTML パースで判明する場合）
     page_version: str | None = None  # バージョン別ページの版（例: 'CiRCLE PLUS'）
 
     @property
@@ -87,8 +94,23 @@ class ScoreRecord:
 
 
 @dataclass
+class UnplayedChart:
+    """スコア記録のない（未プレイの）譜面エントリ。
+
+    実測では未プレイ曲はスコアブロック自体が存在しないため、達成率を
+    読み取れないエントリとして検出される（RATING 対象外）。
+    """
+
+    song_name: str
+    display_level: str
+    difficulty: str | None = None
+    system: str | None = None
+    source_line: int = 0
+
+
+@dataclass
 class ParseResult:
-    """コピペテキストのパース結果。"""
+    """コピペテキスト / HTML のパース結果。"""
 
     records: list[ScoreRecord] = field(default_factory=list)
     # 衝突（同一 表示Lv + 曲名 が複数行）の検出結果。
@@ -100,6 +122,8 @@ class ParseResult:
     level_sections: list[tuple[str, int]] = field(default_factory=list)
     # 読み取ったバージョンヘッダの一覧（例: ['CiRCLE PLUS']。バージョン別ページ用）
     version_sections: list[str] = field(default_factory=list)
+    # 未プレイ（スコア記録なし）の譜面エントリ（HTML パースで検出）
+    unplayed: list[UnplayedChart] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +251,190 @@ def parse_paste(text: str) -> ParseResult:
         result.warnings.append(
             f"衝突: LEVEL {lv} の『{name}』が {n} 行あります"
             "（譜面難易度 / ST・DX の区別はコピペに含まれないため確定できません）"
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# HTML パース（ページ保存したレコード一覧）
+# ---------------------------------------------------------------------------
+
+# 画像 src のファイル名（拡張子 .png を除いた部分）→ 譜面難易度 / 系統
+_DIFFICULTY_IMG_NAMES = {
+    "diff_basic": "BASIC",
+    "diff_advanced": "ADVANCED",
+    "diff_expert": "EXPERT",
+    "diff_master": "MASTER",
+    "diff_remaster": "Re:MASTER",
+}
+_SYSTEM_IMG_NAMES = {
+    "music_dx": "DX",
+    "music_standard": "ST",
+}
+# スコアブロック内のノーツ数行: 例 '2,188 / 4,026'（カンマ区切り許容）
+_NOTES_RE = re.compile(r"^([\d,]+)\s*/\s*([\d,]+)$")
+
+
+def looks_like_html(text: str) -> bool:
+    """ページ保存 HTML かどうかを判別する（実測マーカー: musicDetail フォームの存在）。"""
+    return "<form" in text and "musicDetail" in text
+
+
+class _MusicDetailParser(html.parser.HTMLParser):
+    """record/musicLevel の譜面エントリを収集する HTML パーサ。
+
+    1 譜面 = 1 <form action=".../record/musicDetail/"> を単位とし、
+    フォーム開始で新しいエントリ、</form> で確定する。Lv 選択フォーム等の
+    他フォームは action に musicDetail を含まないため対象外。
+    """
+
+    _MUSIC_FORM_ACTION = "musicdetail"
+    _LV_CLASS = "music_lv_block"
+    _NAME_CLASS = "music_name_block"
+    _SCORE_CLASS = "music_score_block"
+
+    def __init__(self, result: ParseResult) -> None:
+        super().__init__(convert_charrefs=True)
+        self.result = result
+        self.in_entry = False
+        self.entry_line = 0
+        self._current: dict[str, object] | None = None
+        # フォーム内で開いている div のスタック（(class 文字列, 収集テキスト)）
+        self._div_stack: list[tuple[str, list[str]]] = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form":
+            if self._MUSIC_FORM_ACTION in attrs.get("action", "").lower():
+                self.in_entry = True
+                self.entry_line = self.getpos()[0]
+                self._div_stack.clear()  # 直前エントリの残骸を掃除
+                self._current = {
+                    "difficulty": None, "system": None,
+                    "display_level": None, "song_name": None,
+                    "achievement": None, "perfect_notes": None, "total_notes": None,
+                }
+            return
+        if not self.in_entry:
+            return
+        if tag == "img":
+            base = os.path.basename(attrs.get("src", "").split("?", 1)[0])
+            if base.endswith(".png"):
+                base = base[:-4]
+            if base in _DIFFICULTY_IMG_NAMES:
+                self._current["difficulty"] = _DIFFICULTY_IMG_NAMES[base]
+            elif base in _SYSTEM_IMG_NAMES:
+                self._current["system"] = _SYSTEM_IMG_NAMES[base]
+            return
+        if tag == "div":
+            self._div_stack.append((attrs.get("class", ""), []))
+
+    def handle_data(self, data):
+        if self.in_entry and self._div_stack:
+            self._div_stack[-1][1].append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            if self.in_entry:
+                self._finalize_entry()
+                self.in_entry = False
+                self._current = None
+            return
+        if tag == "div" and self.in_entry and self._div_stack:
+            classes, parts = self._div_stack.pop()
+            self._apply_div_text(classes, "".join(parts).strip())
+
+    def _apply_div_text(self, classes: str, text: str) -> None:
+        if self._current is None:
+            return
+        if self._LV_CLASS in classes:
+            self._current["display_level"] = text
+        elif self._NAME_CLASS in classes:
+            self._current["song_name"] = text
+        elif self._SCORE_CLASS in classes:
+            m = _ACHIEVEMENT_RE.match(text)
+            if m:
+                self._current["achievement"] = float(m.group(1))
+            else:
+                m = _NOTES_RE.match(text)
+                if m:
+                    self._current["perfect_notes"] = int(m.group(1).replace(",", ""))
+                    self._current["total_notes"] = int(m.group(2).replace(",", ""))
+
+    def _finalize_entry(self) -> None:
+        cur = self._current
+        assert cur is not None
+        line = self.entry_line
+        if cur["song_name"] is None:
+            self.result.warnings.append(
+                f"line {line}: 曲名が見つからずスキップしました（HTML エントリ）"
+            )
+            return
+        if cur["display_level"] is None:
+            self.result.warnings.append(
+                f"line {line}: Lv が見つからずスキップしました: {cur['song_name']}"
+            )
+            return
+        if cur["achievement"] is None:
+            # 未プレイ曲はスコアブロック自体が存在しない（実測事実）→ RATING 対象外
+            self.result.unplayed.append(
+                UnplayedChart(
+                    song_name=cur["song_name"],
+                    display_level=cur["display_level"],
+                    difficulty=cur["difficulty"],
+                    system=cur["system"],
+                    source_line=line,
+                )
+            )
+            return
+        try:
+            level_index = display_level_to_index(cur["display_level"])
+        except ValueError as exc:
+            level_index = None
+            self.result.warnings.append(f"line {line}: {exc}")
+        self.result.records.append(
+            ScoreRecord(
+                song_name=cur["song_name"],
+                display_level=cur["display_level"],
+                level_index=level_index,
+                achievement=cur["achievement"],
+                perfect_notes=cur["perfect_notes"],
+                total_notes=cur["total_notes"],
+                source_line=line,
+                difficulty=cur["difficulty"],
+                system=cur["system"],
+            )
+        )
+
+
+def parse_html(html_text: str) -> ParseResult:
+    """ページ保存した HTML からスコアをパースする。
+
+    record/musicLevel（LEVEL 一覧）の「1 譜面 = 1 musicDetail フォーム」構造を
+    パースし、画像 src（diff_*.png / music_dx.png / music_standard.png）から
+    譜面難易度と ST/DX を確定する（コピペテキストで確定できない課題の解消）。
+    達成率の無いエントリは未プレイ曲として unplayed に記録する。
+    """
+    result = ParseResult()
+    parser = _MusicDetailParser(result)
+    parser.feed(html_text)
+    parser.close()
+
+    # 衝突検出: 同一 (表示Lv, 曲名, 系統, 譜面難易度) が 2 エントリ以上
+    # （HTML では画像 src から譜面が確定するため、コピペの (表示Lv, 曲名)
+    # キーより細かいキーで数える。conflicts の形式は parse_paste と同様）
+    counts = Counter(
+        (r.display_level, r.song_name, r.system, r.difficulty) for r in result.records
+    )
+    result.conflicts = [
+        (lv, name, n)
+        for (lv, name, _system, _difficulty), n in sorted(counts.items())
+        if n >= 2
+    ]
+    for lv, name, n in result.conflicts:
+        result.warnings.append(
+            f"衝突: LEVEL {lv} の『{name}』が {n} エントリあります"
+            "（同一の表示Lv・曲名・系統・譜面難易度の重複）"
         )
     return result
 

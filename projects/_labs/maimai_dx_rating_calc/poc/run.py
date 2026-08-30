@@ -231,14 +231,18 @@ def resolve_scores(
 
     バージョン別ページ（--difficulty 指定）では record.difficulty が判明しているため、
     候補を譜面難易度で絞り込む（例: ST Re:M と DX MASTER の同居が解消される）。
+    ページ保存 HTML 由来（record.system 確定）のスコアは system でも絞り込むため、
+    ST / DX の同居も衝突にならない。コピペ側の重複判定キーは
+    (表示Lv, 曲名, system, difficulty) で数える（system / difficulty が不明な
+    コピペ由来の行は None になり、従来どおり (表示Lv, 曲名) 単位で衝突する）。
     """
     const_index: dict[tuple[str, str], list[dict]] = {}
     for entry in constants:
         const_index.setdefault((entry["song"], entry["level"]), []).append(entry)
 
-    paste_counts: dict[tuple[str, str], int] = {}
+    paste_counts: dict[tuple[str, str, str | None, str | None], int] = {}
     for record in parsed.records:
-        key = (record.display_level, record.song_name)
+        key = (record.display_level, record.song_name, record.system, record.difficulty)
         paste_counts[key] = paste_counts.get(key, 0) + 1
 
     resolved: list[tuple[np.ScoreRecord, dict]] = []
@@ -249,9 +253,14 @@ def resolve_scores(
             e for e in const_index.get((record.song_name, record.display_level), [])
             if record.difficulty is None or e["difficulty"] == record.difficulty
         ]
+        candidates = [
+            e for e in candidates
+            if record.system is None or e["system"] == record.system
+        ]
+        key = (record.display_level, record.song_name, record.system, record.difficulty)
         if not candidates:
             unresolved.append(record)
-        elif len(candidates) > 1 or paste_counts[(record.display_level, record.song_name)] > 1:
+        elif len(candidates) > 1 or paste_counts[key] > 1:
             conflicted.append((record, candidates))
         else:
             resolved.append((record, candidates[0]))
@@ -310,10 +319,11 @@ def run_pipeline(
     difficulty: str | None = None,
     log=None,
 ) -> dict:
-    """コピペテキスト → RATING 計算までの全体フローを実行して結果を返す。
+    """コピペテキストまたはページ保存 HTML → RATING 計算までの全体フローを実行して結果を返す。
 
     difficulty: バージョン別ページ（record/musicVersion）のコピペに、全スコア行の
     譜面難易度を指定する（コピペテキストに難易度は含まれないため）。
+    HTML 入力時は画像 src から難易度が確定するため適用されない（警告のみ）。
     """
     if log is None:
         def log(_message: str) -> None:
@@ -325,13 +335,27 @@ def run_pipeline(
     prev_code = rc.previous_version_code(current_code)
 
     constants = load_constants(constants_path)
-    parsed = np.parse_paste(paste_text)
+    is_html = np.looks_like_html(paste_text)
+    parsed = np.parse_html(paste_text) if is_html else np.parse_paste(paste_text)
     if difficulty is not None:
-        for record in parsed.records:
-            record.difficulty = difficulty
-        log(f"[情報] 難易度指定: {difficulty}")
+        if is_html:
+            log(
+                f"[警告] 難易度指定はコピペテキスト入力時のみ適用されます"
+                f"（HTML 入力のため無視しました）: {difficulty}"
+            )
+        else:
+            for record in parsed.records:
+                record.difficulty = difficulty
+            log(f"[情報] 難易度指定: {difficulty}")
     if parsed.version_sections:
         log(f"[情報] バージョン別ページ検出: {', '.join(parsed.version_sections)}")
+    for unplayed in parsed.unplayed:
+        label = f"Lv{unplayed.display_level}"
+        if unplayed.system:
+            label += f" {unplayed.system}"
+        if unplayed.difficulty:
+            label += f" {unplayed.difficulty}"
+        log(f"[情報] 未プレイ（RATING 対象外）: {unplayed.song_name} ({label})")
     for warning in parsed.warnings:
         log(f"[警告] パース: {warning}")
 
@@ -423,7 +447,8 @@ def build_detail_rows(result: dict) -> list[list[str]]:
     parsed = result["parsed"]
     for record, _candidates in result["conflicted"]:
         rows.append([
-            record.song_name, "", "", record.display_level,
+            record.song_name, record.system or "", record.difficulty or "",
+            record.display_level,
             f"{record.achievement:.4f}", "", "", "",
             FRAME_CONFLICT,
             "true" if record.is_ap_like else "false",
@@ -431,7 +456,8 @@ def build_detail_rows(result: dict) -> list[list[str]]:
         ])
     for record in result["unresolved"]:
         rows.append([
-            record.song_name, "", "", record.display_level,
+            record.song_name, record.system or "", record.difficulty or "",
+            record.display_level,
             f"{record.achievement:.4f}", "", "", "",
             FRAME_UNRESOLVED,
             "true" if record.is_ap_like else "false",
@@ -478,7 +504,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="maimai でらっくす RATING 計算 PoC（NET コピペ + 検証用定数 → CSV）"
     )
-    parser.add_argument("paste_file", help="NET からコピーしたテキストファイル")
+    parser.add_argument(
+        "paste_file", help="NET からコピーしたテキスト、またはページ保存した HTML ファイル"
+    )
     parser.add_argument("output_dir", help="CSV の出力先ディレクトリ")
     parser.add_argument(
         "--master", default=None,

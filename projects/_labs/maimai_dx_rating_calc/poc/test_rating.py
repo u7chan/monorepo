@@ -644,5 +644,152 @@ class TestRunExtensions(unittest.TestCase):
         self.assertEqual(chart.added_version, 12000)
 
 
+def make_entry_html(
+    song_name: str,
+    level: str,
+    diff_img: str,
+    system_img: str,
+    achievement: str | None = None,
+    notes: str | None = None,
+) -> str:
+    """実測構造（data/pastes/level15_entries_sample.html）を模したダミー HTML エントリ。
+
+    値はすべて架空・ダミー（実スコアは使わない）。diff_img / system_img は
+    画像 src のファイル名（例: 'diff_remaster' / 'music_dx'）。
+    achievement が None のときはスコアブロック自体を出さない（未プレイ曲の実測構造）。
+    """
+    if achievement is not None:
+        score_blocks = (
+            f'                    <div class="music_score_block w_112 t_r f_l f_12">{achievement}</div>\n'
+            '                    <div class="music_score_block w_190 t_r f_l f_12">\n'
+            '                        <img src="https://maimaidx.jp/maimai-mobile/img/deluxscore.png" class="v_b f_l">\n'
+            f'                        {notes}\n'
+            '                    </div>\n'
+        )
+    else:
+        score_blocks = ""
+    return (
+        '            <div class="music_remaster_score_back pointer w_450 m_15 p_3 f_0">\n'
+        '                <form action="https://maimaidx.jp/maimai-mobile/record/musicDetail/"'
+        ' method="get" accept-charset="utf-8">\n'
+        f'                    <img src="https://maimaidx.jp/maimai-mobile/img/{diff_img}.png" class="h_20 f_l">\n'
+        f'                    <img src="https://maimaidx.jp/maimai-mobile/img/{system_img}.png" class="music_kind_icon f_r">\n'
+        '                    <div class="clearfix"></div>\n'
+        f'                    <div class="music_lv_block f_r t_c f_14">{level}</div>\n'
+        f'                    <div class="music_name_block t_l f_13 break">{song_name}</div>\n'
+        f'{score_blocks}'
+        '                    <input type="hidden" name="idx" value="dummyidx">\n'
+        '                </form>\n'
+        '            </div>'
+    )
+
+
+class TestParseHtml(unittest.TestCase):
+    """ページ保存 HTML（record/musicLevel）のパース。"""
+
+    def test_st_dx_pair_parsed_as_separate_records(self):
+        # 同一 (表示Lv, 曲名) でも ST / DX の画像で別レコードに確定する
+        html = (
+            make_entry_html("ダミー曲A", "15", "diff_remaster", "music_standard",
+                            achievement="99.1234%", notes="1,111 / 1,222")
+            + "\n"
+            + make_entry_html("ダミー曲A", "15", "diff_remaster", "music_dx",
+                              achievement="98.4321%", notes="2,222 / 2,333")
+        )
+        result = np.parse_html(html)
+        self.assertEqual(len(result.records), 2)
+        self.assertEqual(result.unplayed, [])
+        self.assertEqual(result.conflicts, [])
+        r0, r1 = result.records
+        self.assertEqual(r0.song_name, "ダミー曲A")
+        self.assertEqual(r0.display_level, "15")
+        self.assertEqual(r0.level_index, 23)
+        self.assertEqual(r0.system, "ST")
+        self.assertEqual(r0.difficulty, "Re:MASTER")
+        self.assertAlmostEqual(r0.achievement, 99.1234)
+        self.assertEqual((r0.perfect_notes, r0.total_notes), (1111, 1222))
+        self.assertEqual(r1.system, "DX")
+        self.assertEqual(r1.difficulty, "Re:MASTER")
+        self.assertAlmostEqual(r1.achievement, 98.4321)
+        self.assertEqual((r1.perfect_notes, r1.total_notes), (2222, 2333))
+
+    def test_no_score_entry_goes_to_unplayed(self):
+        # スコアブロックが無い（未プレイの実測構造）→ unplayed に入り records に入らない
+        html = make_entry_html("ダミー曲B", "15", "diff_remaster", "music_dx")
+        result = np.parse_html(html)
+        self.assertEqual(result.records, [])
+        self.assertEqual(len(result.unplayed), 1)
+        u = result.unplayed[0]
+        self.assertEqual(
+            (u.song_name, u.display_level, u.difficulty, u.system),
+            ("ダミー曲B", "15", "Re:MASTER", "DX"),
+        )
+
+    def test_non_music_form_is_ignored(self):
+        # Lv 選択等の musicDetail 以外のフォームはエントリとして扱わない
+        html = (
+            '<form action="https://maimaidx.jp/maimai-mobile/record/musicLevel/search/"'
+            ' method="post">\n'
+            '<select name="level"><option value="23">LEVEL 15</option></select>\n'
+            '</form>\n'
+            + make_entry_html("ダミー曲C", "13", "diff_master", "music_standard",
+                              achievement="97.6543%", notes="1,234 / 1,345")
+        )
+        result = np.parse_html(html)
+        self.assertEqual(len(result.records), 1)
+        self.assertEqual(result.records[0].song_name, "ダミー曲C")
+        self.assertEqual(result.records[0].display_level, "13")
+        self.assertEqual(result.records[0].level_index, 19)
+
+    def test_looks_like_html(self):
+        html = make_entry_html("ダミー曲A", "15", "diff_master", "music_standard",
+                               achievement="99.0000%", notes="1,000 / 1,100")
+        self.assertTrue(np.looks_like_html(html))
+        paste = make_paste([("13", [("13", "Overdose", "98.7654%1,234 / 1,345")])])
+        self.assertFalse(np.looks_like_html(paste))
+
+
+class TestResolveScores(unittest.TestCase):
+    """run.resolve_scores の ST/DX 同居の扱い（HTML 由来 vs コピペ由来）。"""
+
+    def _entry(self, system, difficulty, level="15", constant=15.0):
+        return {
+            "song": "ダミー曲A", "system": system, "difficulty": difficulty,
+            "level": level, "constant": constant,
+        }
+
+    def test_html_system_resolves_st_dx_pair(self):
+        # HTML 由来（system 確定）: 同一 (表示Lv, 曲名) の ST / DX 同居が両方確定する
+        constants = [self._entry("ST", "Re:MASTER"), self._entry("DX", "Re:MASTER")]
+        records = [
+            np.ScoreRecord(song_name="ダミー曲A", display_level="15", level_index=23,
+                           achievement=99.1234, system="ST", difficulty="Re:MASTER"),
+            np.ScoreRecord(song_name="ダミー曲A", display_level="15", level_index=23,
+                           achievement=98.4321, system="DX", difficulty="Re:MASTER"),
+        ]
+        parsed = np.ParseResult(records=records)
+        resolved, unresolved, conflicted = run_mod.resolve_scores(parsed, constants)
+        self.assertEqual(len(resolved), 2)
+        self.assertEqual({c[0].system for c in resolved}, {"ST", "DX"})
+        self.assertEqual([c[1]["system"] for c in resolved], ["ST", "DX"])
+        self.assertEqual(unresolved, [])
+        self.assertEqual(conflicted, [])
+
+    def test_text_without_system_stays_conflicted(self):
+        # コピペ由来（system=None）: 同一 (表示Lv, 曲名) の同居は従来どおり衝突
+        constants = [self._entry("ST", "Re:MASTER"), self._entry("DX", "Re:MASTER")]
+        records = [
+            np.ScoreRecord(song_name="ダミー曲A", display_level="15", level_index=23,
+                           achievement=99.1234),
+            np.ScoreRecord(song_name="ダミー曲A", display_level="15", level_index=23,
+                           achievement=98.4321),
+        ]
+        parsed = np.ParseResult(records=records)
+        resolved, unresolved, conflicted = run_mod.resolve_scores(parsed, constants)
+        self.assertEqual(resolved, [])
+        self.assertEqual(unresolved, [])
+        self.assertEqual(len(conflicted), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
