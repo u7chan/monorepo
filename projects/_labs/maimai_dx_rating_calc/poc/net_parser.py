@@ -343,7 +343,13 @@ class _MusicDetailParser(html.parser.HTMLParser):
             return
         if tag == "div" and self.in_entry and self._div_stack:
             classes, parts = self._div_stack.pop()
-            self._apply_div_text(classes, "".join(parts).strip())
+            raw = "".join(parts)
+            text = raw.strip()
+            if not text and self._NAME_CLASS in classes and "\u3000" in raw:
+                # タイトルなし曲（x0o0x_ 氏の楽曲）: NET は全角スペース 1 文字で表示
+                # （domain.md『注意・データギャップ』）。定数 DB・公式マスタも同表記。
+                text = "\u3000"
+            self._apply_div_text(classes, text)
 
     def _apply_div_text(self, classes: str, text: str) -> None:
         if self._current is None:

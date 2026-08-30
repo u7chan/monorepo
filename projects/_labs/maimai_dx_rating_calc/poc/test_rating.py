@@ -749,6 +749,16 @@ class TestParseHtml(unittest.TestCase):
         paste = make_paste([("13", [("13", "Overdose", "98.7654%1,234 / 1,345")])])
         self.assertFalse(np.looks_like_html(paste))
 
+    def test_blank_title_song_kept(self):
+        # タイトルなし曲（NET は全角スペース 1 文字で表示）: trim で消さず曲名として保持
+        html = make_entry_html("　", "12+", "diff_master", "music_dx",
+                               achievement="99.1234%", notes="1,111 / 1,222")
+        result = np.parse_html(html)
+        self.assertEqual(len(result.records), 1)
+        self.assertEqual(result.records[0].song_name, "　")
+        self.assertEqual(result.records[0].display_level, "12+")
+        self.assertEqual(result.records[0].level_index, 18)
+
 
 class TestResolveScores(unittest.TestCase):
     """run.resolve_scores の ST/DX 同居の扱い（HTML 由来 vs コピペ由来）。"""
@@ -860,6 +870,19 @@ class TestParseBookmarkJson(unittest.TestCase):
         html = make_entry_html("ダミー曲A", "15", "diff_master", "music_dx",
                                achievement="99.0000%", notes="1,000 / 1,100")
         self.assertFalse(np.looks_like_bookmark_json(html))
+
+    def test_blank_title_song_json(self):
+        # タイトルなし曲（全角スペース 1 文字）のエントリを曲名として受け付ける
+        data = self._data([
+            {"song": "　", "level": "12+", "difficulty": "MASTER",
+             "system": "DX", "achievement": 99.1234, "perfect": 1111, "total": 1222,
+             "idx": "dummy5"},
+        ])
+        result = np.parse_bookmark_json(data)
+        self.assertEqual(len(result.records), 1)
+        self.assertEqual(result.records[0].song_name, "　")
+        self.assertEqual(result.records[0].display_level, "12+")
+        self.assertEqual(result.records[0].level_index, 18)
 
 
 if __name__ == "__main__":
