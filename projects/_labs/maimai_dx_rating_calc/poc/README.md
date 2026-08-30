@@ -1,7 +1,7 @@
 # maimai でらっくす RATING 計算 PoC（Python3）
 
-[maimai でらっくすNET](https://maimaidx.jp/) のコピペテキストと検証用の譜面定数から
-RATING を計算する PoC。仕様の正は [docs/domain.md](../docs/domain.md)。
+[maimai でらっくすNET](https://maimaidx.jp/) のスコアデータ（コピペテキスト / ページ保存 HTML /
+ブックマークレット JSON）と譜面定数から RATING を計算する PoC。仕様の正は [docs/domain.md](../docs/domain.md)。
 
 - 実装: Python 3 標準ライブラリのみ（サードパーティ依存なし）
 - このディレクトリのコードは **PoC（動作検証用の試作）** であり、本実装ではない。
@@ -14,11 +14,12 @@ RATING を計算する PoC。仕様の正は [docs/domain.md](../docs/domain.md)
 | ファイル | 内容 |
 | --- | --- |
 | `rating_core.py` | 計算コア（純関数のみ・外部状態なし）。単曲レート値、Rank係数テーブル、枠選定、version コード判定 |
-| `net_parser.py` | NET の LEVEL 毎スコア一覧をコピーしたテキストのパーサ。表示 Lv → 内部 Lv インデックス変換を含む |
+| `net_parser.py` | スコア入力のパーサ。コピペテキスト（`parse_paste`）・ページ保存 HTML（`parse_html`）・ブックマークレット JSON（`parse_bookmark_json`）に対応し、表示 Lv → 内部 Lv インデックス変換を含む |
 | `constants.json` | 検証用の譜面定数サンプル（手入力 12 譜面。ST/DX・新旧バージョン・Re:MASTER・マスタ未登録ダミーを含む） |
 | `run.py` | 全体フロー実行。マスタ JSON 取得 → パース → 照合 → 枠選定 → CSV 出力 |
 | `test_rating.py` | unittest（標準ライブラリのみで動作）。境界値テスト込み |
 | `example_paste.txt` | 動作確認用のサンプルコピペ（NET の実測形式に合わせて作成したダミーデータ） |
+| `example_bookmarklet.json` | 動作確認用のブックマークレット出力サンプル（ダミーデータ。ST/DX 同居と未プレイを含む） |
 
 ## 使い方
 
@@ -36,14 +37,18 @@ python3 poc/test_rating.py
 ```bash
 cd projects/_labs/maimai_dx_rating_calc
 python3 poc/run.py poc/example_paste.txt /tmp/rating_out
+python3 poc/run.py poc/example_bookmarklet.json /tmp/rating_out2   # JSON 入力も可
 ```
 
-- 第 1 引数: NET からコピーしたテキストを保存したファイル
+- 第 1 引数: NET からコピーしたテキスト・ページ保存した HTML・ブックマークレット出力の JSON のいずれか
+  （拡張子・内容で自動判定。HTML / JSON では譜面難易度と ST/DX も確定できる）
 - 第 2 引数: CSV の出力先ディレクトリ（無ければ作成する）
 - オプション:
   - `--master PATH`: 公式マスタ JSON のパスを明示指定する場合
   - `--constants PATH`: 譜面定数 JSON のパス（既定: poc 同梱の `constants.json`）
   - `--current-version NAME_OR_CODE`: 現行バージョン（既定: `CiRCLE PLUS`。コード指定も可。例: `26500`）
+  - `--difficulty {BASIC,ADVANCED,EXPERT,MASTER,Re:MASTER}`: バージョン別ページ（musicVersion）の**コピペ**用。
+    全スコア行にこの譜面難易度を付与する（コピペテキストに難易度は含まれないため。HTML / JSON 入力では指定不要）
 
 ### 3. 楽曲マスタ JSON と定数 DB のデータ置き場
 
@@ -62,7 +67,11 @@ python3 poc/run.py poc/example_paste.txt /tmp/rating_out
    - TLS 検証で失敗する環境では検証を無効化して再試行し、それでも失敗したら `curl -k` による取得を試す
    - 手動で用意する場合は `curl -k -o data/maimai_songs.json https://maimai.sega.jp/data/maimai_songs.json`
 
-### 4. NET からのコピペ手順（入力データの作り方）
+### 4. NET からの入力データの作り方
+
+入力方式は 3 種類（いずれも 2026-08-29〜31 実測。詳細は domain.md『スコア入力フォーマット』）。
+
+**方式 A: コピペテキスト**（譜面難易度・ST/DX は含まれない）
 
 1. [maimai でらっくすNET](https://maimaidx.jp/maimai-mobile/) にログイン
 2. 「レコード」→「楽曲スコア」→ カテゴリ「LEVEL」で対象 Lv を開く
@@ -73,9 +82,21 @@ python3 poc/run.py poc/example_paste.txt /tmp/rating_out
 見取り方は `poc/example_paste.txt` を参照。LEVEL ヘッダ → 統計ブロック（実測 21 行）→
 「レベル / 曲名 / 達成率%＋ノーツ数」の 3 行組が曲ごとに続く形式。
 
+**方式 B: ページ保存 HTML**（難易度・ST/DX が画像から確定できる）
+
+同じ一覧画面をブラウザの Ctrl+S で HTML 保存し、そのファイルをそのまま `run.py` に渡す
+（1 譜面 = 1 フォームの構造をパース。未プレイ曲はスコア無しエントリとして分離される）。
+
+**方式 C: ブックマークレット JSON**（方式 B と同じ情報 + idx トークン）
+
+[tools/bookmarklet.html](../tools/bookmarklet.html) をブラウザで開き、
+「maimai スコア抽出」リンクをブックマークバーへドラッグして登録する。
+一覧ページでそのブックマークをクリックするとスコアの JSON がダウンロードされ、
+そのまま `run.py` に渡せる（ファイル名例: `maimai_level19_2026-08-30-17-01-30.json`）。
+
 ### 5. 出力 CSV
 
-- `rating_detail.csv`: 曲名, 譜面系統, 譜面難易度, 表示Lv, 達成率, 定数, 係数, 単曲レート, 枠, APフラグ
+- `rating_detail.csv`: 曲名, 譜面系統, 譜面難易度, 表示Lv, 達成率, 定数, 係数, 単曲レート, 枠, APフラグ, 追加バージョン
   - 枠の値: `新曲` / `ベスト` / `圏外`（枠から漏れた譜面）/ `未確定(衝突)` / `未解決(定数なし)`
 - `rating_summary.csv`: RATING値, 新曲枠合計, ベスト枠合計, APボーナス数, 対象譜面数, 使用バージョン
 - どちらも UTF-8（BOM 付き）で出力する（Excel での閲覧を想定）
@@ -115,15 +136,20 @@ python3 poc/run.py poc/example_paste.txt /tmp/rating_out
    rating_core が保持し、単体テストで両パターン（We Gonna Party 型 / Blows Up Everything 型）を確認。
    ※ タスク指示の要約では「Re:M 譜面は常にベスト枠」とあったが、仕様の正である
    domain.md の条件付きルール（楽曲の B〜M 追加より後ならベスト枠候補）を採用した。
-4. **DX 譜面の追加バージョン**: マスタの `version`（ST 譜面基準の値。ST を持たない曲は
-   DX 譜面の値）を全譜面で使用する。旧曲への DX 後追加は現行ウィンドウに該当ゼロという
-   調査（domain.md『注意・データギャップ』）に基づく近似。
+4. **DX 譜面の追加バージョン**: 追加バージョンは次の優先順で決める（`to_scored_chart` 実装済み）:
+   1. NET バージョン別ページの版（record.page_version。譜面単位で正確。LEVEL ページには無い）
+   2. マスタの `version` の帯（ST 譜面セット基準の値。DX 後追加を見逃す近似）
+   実測: 魔理沙は大変なものを盗んでいきました DX MASTER 13+ はマスタ version=12002
+   （GreeN）だが NET バージョン別ページでは CiRCLE PLUS に掲載される
+   （domain.md『version フィールドの意味（確定）』『スコア入力フォーマット』参照）。
 5. **マスタ未登録の曲**: 定数 DB にのみ存在する曲（架空曲を含む）は追加バージョン不明として
    新曲枠の候補にせず、ベスト枠のみ候補にする。警告を出力する。
 6. **衝突の扱い**: 同一 (表示Lv, 曲名) に複数の譜面がぶつかる場合（ST/DX 同 Lv、
    MASTER/Re:M 同 Lv、曲名重複など）は、どちらのスコアか確定できないため
    RATING 計算から除外して報告する（domain.md『既知の課題』の対応候補 (b) 方針。
    「全譜面を同一達成率で扱う近似はしない」）。
+   ※ コピペテキスト入力時のみ。HTML / JSON 入力では画像 src / DOM から ST/DX・
+   譜面難易度が確定するため、同 Lv の ST/DX 同居は衝突にならず両方計算される。
 7. **曲名照合**: コピペの曲名と定数 DB・マスタの title を（前後の空白を除き）完全一致で照合する。
    表記ゆれ・正規化はしない。曲名重複（`Link` 等）への対応は未実装。
 8. **統計ブロック**: 行数（実測 21 行）に依存せず、行パターンで判定して読み飛ばす。
@@ -138,11 +164,12 @@ python3 poc/run.py poc/example_paste.txt /tmp/rating_out
 - **譜面定数の収集**: 本 PoC の constants.json は手入力 12 譜面のサンプル。
   実 RATING の較正には (1) 全譜面の定数（DX 譜面 970 曲分はコミュニティ調査が唯一の入手手段、
   domain.md『注意・データギャップ』）、(2) 自分の実 RATING との突き合わせ、が必要。
-- **切捨位置・係数の較正**: 単曲切捨をデフォルトとして実装済み。実 RATING と数値が
-  ずれた場合の「切捨位置」の再較正には、実スコア（複数 LEVEL 分のコピペ）と
-  NET に表示される実 RATING 値、そして枠内 50 譜面の特定が必要。
-- **衝突の解消**: 楽曲詳細画面のコピペ対応や、Playwright などによる認証付き
-  HTML パース（画像の alt/src から ST/DX・譜面難易度を判別）で解消できる見込み。
+- **切捨位置・係数の較正**: 単曲切捨をデフォルトとして実装済み。12+〜13+ の実スコアで
+  算出した値は NET 表示の実 RATING とズレがある（2026-08-31 時点。ズレの原因候補:
+  新曲枠判定・AP 近似・係数表・切捨位置）。枠内 50 譜面の正解データが得られれば確定できる。
+- **衝突の解消**: ほぼ解決済み（HTML / JSON 入力で ST/DX・譜面難易度が確定するため）。
+  残るは同名異曲（`Link` 等）と、コピペ入力時のみ。楽曲詳細画面の対応や Playwright による
+  認証付き HTML パースは将来ステップのまま。
 - **曲名重複への対応**: 照合キーに Lv 構成や `kanji` などの補助情報を追加する。
 - **出力の拡張**: RATING 色テーブル（『RATING と色』）での色表示、枠候補の全リスト出力、
   正規化 CSV（『正規化 CSV』）のファイル出力など。
@@ -151,8 +178,11 @@ python3 poc/run.py poc/example_paste.txt /tmp/rating_out
 
 ## 既知の制限
 
-- コピペテキストには譜面難易度と ST/DX の区別が含まれないため、同一 (表示Lv, 曲名) に
+- **コピペテキスト**には譜面難易度と ST/DX の区別が含まれないため、同一 (表示Lv, 曲名) に
   複数譜面があると衝突として除外される（example_paste.txt の BAD∞END∞NIGHT がその例）。
+  HTML / JSON 入力では解決済み（2026-08-31）。
+- タイトルなし曲（曲名が全角スペース 1 文字の曲）はコピペテキストではパースできないが、
+  HTML / JSON 入力では曲名として保持され定数 DB と照合できる（domain.md『注意・データギャップ』）。
 - 1 曲名につき 1 エントリの前提でマスタ索引を作るため、曲名重複（`Link` 2 件など）の
   照合は最初のエントリを採用する（警告なしに間違う可能性がある）。
 - 宴譜面・オトモダチ対戦などの特殊譜面は RATING 対象外（マスタ上通常の譜面キーを
