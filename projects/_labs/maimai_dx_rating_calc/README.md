@@ -2,13 +2,24 @@
 
 自分の maimai でらっくす RATING を計算する自作ツール。
 
-- 計算仕様: [docs/domain.md](docs/domain.md)（[公式情報源](https://maimai.sega.jp/) の引用・楽曲マスタ JSON の扱いを含む）
+- 計算仕様: [docs/domain.md](docs/domain.md)（公式情報源の引用・楽曲マスタ JSON の扱いを含む）
+- 実装（PoC・Python3）: [poc/README.md](poc/README.md)
 - 文書作成ルール: [docs/conventions.md](docs/conventions.md)
-- スコア入力: [maimai でらっくすNET](https://maimaidx.jp/) の Lv 毎スコア一覧をコピペで受け取る想定
-  - ログイン →「レコード」→「楽曲スコア」→「LEVEL」で Lv 毎一覧を開く
-  - 一覧を Ctrl+A / Ctrl+C でコピーしたテキストをそのまま渡す
-  - 手順の詳細は docs/domain.md の『スコア入力フォーマット』参照
-- 認証つきの自動取得は将来ステップ（Playwright での自動取得も現時点では未検討）
+- 引き継ぎメモ（作業履歴・残課題・NET URL 仕様）: [HANDOFF.md](HANDOFF.md)
+
+## スコア入力
+
+[maimai でらっくすNET](https://maimaidx.jp/) からスコアを取得し、次の 3 方式のいずれかでツールに渡す
+（手順の詳細は [poc/README.md](poc/README.md)『NET からの入力データの作り方』・
+[docs/domain.md](docs/domain.md)『スコア入力フォーマット』）。
+
+1. **コピペテキスト**: ログイン →「レコード」→「楽曲スコア」→「LEVEL」で Lv 毎一覧を開き、
+   Ctrl+A / Ctrl+C したテキストをそのまま渡す（譜面難易度・ST/DX は含まれない）
+2. **ページ保存 HTML**: 同じ一覧画面を Ctrl+S で保存した HTML を渡す（譜面難易度・ST/DX も確定できる）
+3. **ブックマークレット JSON**: [tools/bookmarklet.html](tools/bookmarklet.html) のブックマークレットで
+   一覧から JSON をダウンロードして渡す（方式 2 と同じ情報 + 楽曲詳細ページ用トークン）
+
+認証つきの自動取得（Playwright 等）は将来ステップ。
 
 ## 参考リンク
 
@@ -20,21 +31,29 @@
 ## 決定事項
 
 - 現行バージョン名: **CiRCLE PLUS**（2026-03-19 稼働。前バージョン: CiRCLE）→ 新曲枠判定に使用
-- 定数 DB の形式: 最初は **JSON ファイル**（git 管理）で用意し、ビューア実装時に **SQLite / PostgreSQL へ移行**（ビューアの技術スタックが未定のため、移行先はその設計時に決定。JSON をシードとして投入）
-- 技術スタック: **未決定**（docs/domain.md のデータモデルは TypeScript 表記の例示であり、実装言語を約束するものではない）
+- 定数 DB の形式: **JSON ファイルで開始済み**。実データは `data/` に置き **git 除外**
+  （第三者サイト等から収集したデータで出典サイト名を記載しない規則のため git 管理しない。ADR-0001 の追記参照）。
+  ビューア実装時に **SQLite / PostgreSQL へ移行**し、JSON をシードとして投入する
+  （移行先はビューアの技術スタックが未定のため、その設計時に決定）
+- 技術スタック: **未決定**（ADR-0002。docs/domain.md のデータモデルは TypeScript 表記の例示であり、実装言語を約束するものではない）
 
-## 現状
+## 現状（2026-08-31）
 
-- [x] ドメイン整理（docs/domain.md）
-- [x] 公式情報源の引用・楽曲マスタの取り扱い整理（docs/domain.md の『公式情報源（一次ソース）』『公式 楽曲マスタ JSON』の節）
-- [ ] 計算コア（単曲レート → 枠選定 → RATING）
-- [ ] スコア入力（NET の Lv 毎リストをコピペ → パース）
-- [ ] 定数 DB（JSON で用意。公式マスタに定数は無い。DX 定数 970 曲分は別途収集が必要。docs/domain.md の『注意・データギャップ』参照）
-- [ ] 出力（RATING / 内訳 / 色）
-- [ ] 楽曲ビューア（ジャケット画像の事前ダウンロード。仕様メモ: docs/domain.md の『楽曲画像（image_url）の取得』）
+- [x] ドメイン整理・公式情報源の引用・楽曲マスタの取り扱い整理（docs/domain.md）
+- [x] **PoC 実装・実データ較正済み**（poc/）: 計算コア（単曲レート → 枠選定 → RATING）+ スコア入力 3 方式 + CSV 出力。
+  計算値は実 RATING と完全一致、新曲枠の判定も NET のバージョン別ページ掲載と全曲一致（詳細は HANDOFF.md『実データ検証の結果』）
+- [x] 定数 DB の収集: `data/maimai_constants.json`（CiRCLE PLUS 時点・6364 譜面 / 1479 曲名）。
+  **収集過程に再現性はない**（下記『定数 DB の再現性について』）
+- [ ] 楽曲ビューア: デザイン仕様 [docs/gui-design-spec.md](docs/gui-design-spec.md) + モック
+  [docs/mockup/rating_viewer.html](docs/mockup/rating_viewer.html) まで。実装未着手・技術スタック未決定
+- [ ] RATING 分析のスキル化: アイデア段階（[docs/skill-braindump.md](docs/skill-braindump.md)）
 
-## 調査完了（別ペイン委譲 2026-08-29）
+### 定数 DB の再現性について
 
-- 公式マスタ JSON の `version` フィールドの意味を確定: 「ST 譜面（BASIC〜MASTER）の追加バージョン。ST を持たない曲は DX 譜面の追加バージョン」。Re:MASTER 追加・旧曲への DX 追加・レベル改訂では変化しない（9 事例の照合で確定）
-- 新曲枠判定に必要な譜面単位の追加バージョンは、現行ウィンドウ（CiRCLE PLUS / CiRCLE）では追加調査ほぼ不要と判明（詳細は docs/domain.md の『version フィールドの意味（確定）』『注意・データギャップ』の節）
-- 残るデータギャップは **DX 譜面の定数（970 曲分、公式マスタ外の収集が必要）**
+- 譜面定数は公式マスタに含まれないため、DX 譜面 970 曲分などは**第三者サイト等を参照した手作業収集**で用意した
+  （壁打ちで検証しながら収集。出典サイト名は [docs/conventions.md](docs/conventions.md)『出典』の規則により記載しない）
+- 収集結果は `data/maimai_constants.json`（**git 除外**・内部利用のみ）に保存済み。
+  **収集手順の再現性はなく、再取得・更新は手作業になる**
+- 再現性の確保（公式マスタ取得 + 定数収集の自動化 = 取り込みツール）は構想段階。
+  DB 設計（ADR-0001 の RDB 移行）時に整理する予定。詳細は HANDOFF.md『次にやること』
+- 実データ（スコア・マスタ・定数）は全て `data/` 配下・git 除外（docs/conventions.md『プライバシー』参照）
