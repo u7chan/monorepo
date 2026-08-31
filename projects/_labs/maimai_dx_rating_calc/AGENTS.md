@@ -14,6 +14,7 @@ maimai でらっくす RATING 計算ツールのワークスペース。
 - 作業前に [docs/conventions.md](docs/conventions.md) を読むこと
 - **ユーザーの実スコア・プレイ傾向は Git 管理しない**（実データは `data/` に置き .gitignore で除外済み。詳細は conventions の『プライバシー』参照）
 - 共通ルール（ブランチ命名・コミット・PR）はリポジトリルートの AGENTS.md に従う
+- PR タイトルは英語でつける（本文は日本語。コミットメッセージ同様にプレフィックス付きを推奨）
 
 ## ADR 一覧（技術決定）
 
