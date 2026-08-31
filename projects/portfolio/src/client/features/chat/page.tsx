@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChatLayout } from '#/client/features/chat/components/chat-layout'
 import { ChatMain } from '#/client/features/chat/components/chat-main'
 import { ChatSettings } from '#/client/features/chat/components/chat-settings'
@@ -18,6 +18,7 @@ const client = hc<AppType>('/')
 export function Chat() {
   const { conversationId } = Route.useSearch()
   const navigate = Route.useNavigate()
+  const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const {
     selectedConversationId,
     isSettingsPopupOpen,
@@ -52,9 +53,11 @@ export function Chat() {
 
   const conversations = query.data ?? []
   const currentConversation = conversations.find(({ id }) => id === selectedConversationId) || null
+  const isPendingConversation = selectedConversationId !== null && pendingConversationId === selectedConversationId
   const isResolvingConversation =
-    selectedConversationId !== null && currentConversation === null && !hasActiveChatSession()
+    selectedConversationId !== null && currentConversation === null && !hasActiveChatSession() && !isPendingConversation
   const navigateToNewConversation = useCallback(() => {
+    setPendingConversationId(null)
     startNewConversation()
     void navigate({
       to: '/chat',
@@ -87,7 +90,7 @@ export function Chat() {
       return
     }
 
-    if (query.isLoading || hasActiveChatSession()) {
+    if (query.isLoading || query.isFetching || hasActiveChatSession() || isPendingConversation) {
       return
     }
 
@@ -100,7 +103,23 @@ export function Chat() {
       search: { conversationId: undefined },
       replace: true,
     })
-  }, [conversations, isAuthenticated, navigate, query.isLoading, selectedConversationId])
+  }, [
+    conversations,
+    isAuthenticated,
+    isPendingConversation,
+    navigate,
+    query.isFetching,
+    query.isLoading,
+    selectedConversationId,
+  ])
+
+  useEffect(() => {
+    if (!pendingConversationId || !conversations.some(({ id }) => id === pendingConversationId)) {
+      return
+    }
+
+    setPendingConversationId(null)
+  }, [conversations, pendingConversationId])
 
   const handleDeleteConversation = (conversationId: string) => {
     if (!email) {
@@ -154,10 +173,12 @@ export function Chat() {
 
   const handleConversationChange = async (conversation: Conversation): Promise<void> => {
     const shouldReplace = !selectedConversationId
+    const shouldNavigate = conversation.id !== selectedConversationId
     if (!email) return
 
     try {
-      if (conversation.id !== selectedConversationId) {
+      if (shouldNavigate) {
+        setPendingConversationId(conversation.id)
         navigateToConversation(conversation.id, shouldReplace)
       }
 
@@ -166,8 +187,13 @@ export function Chat() {
         // 成功した場合は、会話履歴を再取得
         await query.refetch()
         clearActiveChatSession()
+      } else if (shouldNavigate) {
+        setPendingConversationId(null)
       }
     } catch (error) {
+      if (shouldNavigate) {
+        setPendingConversationId(null)
+      }
       console.error('Error updating conversation:', error)
     }
   }
@@ -176,10 +202,19 @@ export function Chat() {
     if (!email) return
 
     const shouldReplace = !selectedConversationId
-    if (conversation.id !== selectedConversationId) {
+    const shouldNavigate = conversation.id !== selectedConversationId
+    if (shouldNavigate) {
+      setPendingConversationId(conversation.id)
       navigateToConversation(conversation.id, shouldReplace)
     }
-    await query.refetch()
+    try {
+      await query.refetch()
+    } catch (error) {
+      if (shouldNavigate) {
+        setPendingConversationId(null)
+      }
+      throw error
+    }
   }
 
   return (

@@ -116,7 +116,7 @@ vi.mock('#/client/features/chat/components/chat-settings', () => ({
 vi.mock('#/client/features/chat/components/chat-main', () => ({
   ChatMain: (props: Record<string, unknown>) => {
     chatMainProps = props
-    return null
+    return <div data-testid='chat-main' />
   },
 }))
 
@@ -267,6 +267,63 @@ describe('Chat page', () => {
     await savePromise
 
     expect(clearActiveChatSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('新規会話の保存中は未反映の conversationId を /chat へ戻さず ChatMain を維持する', async () => {
+    const deferred = createDeferred<{ data: typeof conversations }>()
+    const refetchMock = vi.fn().mockReturnValue(deferred.promise)
+    const newConversation = { ...conversations[0], id: 'conversation-new' }
+    useQueryMock.mockReturnValue({
+      data: conversations,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMock,
+    })
+
+    const { Chat } = await import('#/client/features/chat/page')
+    const view = render(<Chat />)
+    const onConversationChange = chatMainProps?.onConversationChange as
+      | ((conversation: (typeof conversations)[number]) => Promise<void>)
+      | undefined
+
+    const savePromise = onConversationChange?.(newConversation)
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith({
+        to: '/chat',
+        search: { conversationId: 'conversation-new' },
+        replace: true,
+      })
+    })
+
+    useSearchMock.mockReturnValue({ conversationId: 'conversation-new' })
+    useQueryMock.mockReturnValue({
+      data: conversations,
+      isLoading: false,
+      isFetching: true,
+      refetch: refetchMock,
+    })
+    view.rerender(<Chat />)
+
+    expect(view.getByTestId('chat-main')).toBeTruthy()
+    expect(navigateMock).not.toHaveBeenCalledWith({
+      to: '/chat',
+      search: { conversationId: undefined },
+      replace: true,
+    })
+
+    const savedConversations = [...conversations, newConversation]
+    deferred.resolve({ data: savedConversations as typeof conversations })
+    useQueryMock.mockReturnValue({
+      data: savedConversations,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMock,
+    })
+    view.rerender(<Chat />)
+    await savePromise
+
+    expect(view.getByTestId('chat-main')).toBeTruthy()
+    expect(chatMainProps?.currentConversation).toEqual(newConversation)
   })
 
   it('会話履歴選択時は conversationId 付き URL へ遷移する', async () => {
