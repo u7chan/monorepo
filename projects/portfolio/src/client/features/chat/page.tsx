@@ -176,6 +176,7 @@ export function Chat() {
     const shouldNavigate = conversation.id !== selectedConversationId
     if (!email) return
 
+    let conversationSaved = false
     try {
       if (shouldNavigate) {
         setPendingConversationId(conversation.id)
@@ -184,14 +185,19 @@ export function Chat() {
 
       const res = await client.api.conversations.$post({ json: conversation })
       if (res.status === 200) {
+        conversationSaved = true
         // 成功した場合は、会話履歴を再取得
-        await query.refetch()
+        const refetchResult = await query.refetch()
+        if (refetchResult.error) {
+          // refetch はエラー時も reject せず結果を返すため、会話一覧に反映されるまで pending を維持する
+          console.error('Error refreshing conversations:', refetchResult.error)
+        }
         clearActiveChatSession()
       } else if (shouldNavigate) {
         setPendingConversationId(null)
       }
     } catch (error) {
-      if (shouldNavigate) {
+      if (shouldNavigate && !conversationSaved) {
         setPendingConversationId(null)
       }
       console.error('Error updating conversation:', error)
@@ -207,13 +213,10 @@ export function Chat() {
       setPendingConversationId(conversation.id)
       navigateToConversation(conversation.id, shouldReplace)
     }
-    try {
-      await query.refetch()
-    } catch (error) {
-      if (shouldNavigate) {
-        setPendingConversationId(null)
-      }
-      throw error
+    const refetchResult = await query.refetch()
+    if (refetchResult.error) {
+      // 会話が保存済みでも、一覧に反映されるまで pending を維持して URL を保護する
+      console.error('Error refreshing conversations:', refetchResult.error)
     }
   }
 
