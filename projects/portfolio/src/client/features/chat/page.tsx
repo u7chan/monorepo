@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { hc } from 'hono/client'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChatLayout } from '#/client/features/chat/components/chat-layout'
 import { ChatMain } from '#/client/features/chat/components/chat-main'
 import { ChatSettings } from '#/client/features/chat/components/chat-settings'
@@ -18,6 +18,7 @@ const client = hc<AppType>('/')
 export function Chat() {
   const { conversationId } = Route.useSearch()
   const navigate = Route.useNavigate()
+  const [pendingConversationId, setPendingConversationId] = useState<string | null>(null)
   const {
     selectedConversationId,
     isSettingsPopupOpen,
@@ -52,9 +53,14 @@ export function Chat() {
 
   const conversations = query.data ?? []
   const currentConversation = conversations.find(({ id }) => id === selectedConversationId) || null
+  // pendingConversationId is an event-owned optimistic navigation marker. It only guards the page
+  // while the selected conversation is still absent from the query data.
+  const isPendingConversation =
+    selectedConversationId !== null && currentConversation === null && pendingConversationId === selectedConversationId
   const isResolvingConversation =
-    selectedConversationId !== null && currentConversation === null && !hasActiveChatSession()
+    selectedConversationId !== null && currentConversation === null && !hasActiveChatSession() && !isPendingConversation
   const navigateToNewConversation = useCallback(() => {
+    setPendingConversationId(null)
     startNewConversation()
     void navigate({
       to: '/chat',
@@ -87,7 +93,7 @@ export function Chat() {
       return
     }
 
-    if (query.isLoading || hasActiveChatSession()) {
+    if (query.isLoading || query.isFetching || hasActiveChatSession() || isPendingConversation) {
       return
     }
 
@@ -100,7 +106,15 @@ export function Chat() {
       search: { conversationId: undefined },
       replace: true,
     })
-  }, [conversations, isAuthenticated, navigate, query.isLoading, selectedConversationId])
+  }, [
+    conversations,
+    isAuthenticated,
+    isPendingConversation,
+    navigate,
+    query.isFetching,
+    query.isLoading,
+    selectedConversationId,
+  ])
 
   const handleDeleteConversation = (conversationId: string) => {
     if (!email) {
@@ -154,20 +168,33 @@ export function Chat() {
 
   const handleConversationChange = async (conversation: Conversation): Promise<void> => {
     const shouldReplace = !selectedConversationId
+    const shouldNavigate = conversation.id !== selectedConversationId
     if (!email) return
 
+    let conversationSaved = false
     try {
-      if (conversation.id !== selectedConversationId) {
+      if (shouldNavigate) {
+        setPendingConversationId(conversation.id)
         navigateToConversation(conversation.id, shouldReplace)
       }
 
       const res = await client.api.conversations.$post({ json: conversation })
       if (res.status === 200) {
+        conversationSaved = true
         // 成功した場合は、会話履歴を再取得
-        await query.refetch()
+        const refetchResult = await query.refetch()
+        if (refetchResult.error) {
+          // refetch はエラー時も reject せず結果を返すため、会話一覧に反映されるまで pending を維持する
+          console.error('Error refreshing conversations:', refetchResult.error)
+        }
         clearActiveChatSession()
+      } else if (shouldNavigate) {
+        setPendingConversationId(null)
       }
     } catch (error) {
+      if (shouldNavigate && !conversationSaved) {
+        setPendingConversationId(null)
+      }
       console.error('Error updating conversation:', error)
     }
   }
@@ -176,10 +203,16 @@ export function Chat() {
     if (!email) return
 
     const shouldReplace = !selectedConversationId
-    if (conversation.id !== selectedConversationId) {
+    const shouldNavigate = conversation.id !== selectedConversationId
+    if (shouldNavigate) {
+      setPendingConversationId(conversation.id)
       navigateToConversation(conversation.id, shouldReplace)
     }
-    await query.refetch()
+    const refetchResult = await query.refetch()
+    if (refetchResult.error) {
+      // 会話が保存済みでも、一覧に反映されるまで pending を維持して URL を保護する
+      console.error('Error refreshing conversations:', refetchResult.error)
+    }
   }
 
   return (
