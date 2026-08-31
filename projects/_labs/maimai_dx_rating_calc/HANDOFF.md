@@ -121,6 +121,7 @@ python3 poc/run.py <コピペ or HTML or JSON> <出力先> --constants data/maim
 - [x] 衝突 3 曲（火炎地獄 / ジングルベル / System "Z"）: ブックマークレット JSON で ST/DX 確定により実質解決（コピペ時のみ衝突のまま）
 - [x] タイトルなし曲: 定数 DB・マスタ・NET が同表記（全角スペース 1 文字）のため照合可能（コピペのみパース不可）
 - [x] ドキュメント整備（2026-08-31）: README の現状更新・domain.md の定数 DB 事情（再現性なし）追記・ADR-0001 に git 除外の追記・HANDOFF 更新
+- [x] ガードレール点検スキル追加（2026-08-31）: `.agents/skills/guardrail-check/`（SKILL.md + check.sh）。コミット前の個人情報・第三者サイト名・機密パターン等を点検。実データ候補は data/ から動的抽出（ハードコードなし）
 
 ### 未実施（優先度順）
 
