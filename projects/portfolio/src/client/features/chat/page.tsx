@@ -53,7 +53,10 @@ export function Chat() {
 
   const conversations = query.data ?? []
   const currentConversation = conversations.find(({ id }) => id === selectedConversationId) || null
-  const isPendingConversation = selectedConversationId !== null && pendingConversationId === selectedConversationId
+  // pendingConversationId is an event-owned optimistic navigation marker. It only guards the page
+  // while the selected conversation is still absent from the query data.
+  const isPendingConversation =
+    selectedConversationId !== null && currentConversation === null && pendingConversationId === selectedConversationId
   const isResolvingConversation =
     selectedConversationId !== null && currentConversation === null && !hasActiveChatSession() && !isPendingConversation
   const navigateToNewConversation = useCallback(() => {
@@ -112,14 +115,6 @@ export function Chat() {
     query.isLoading,
     selectedConversationId,
   ])
-
-  useEffect(() => {
-    if (!pendingConversationId || !conversations.some(({ id }) => id === pendingConversationId)) {
-      return
-    }
-
-    setPendingConversationId(null)
-  }, [conversations, pendingConversationId])
 
   const handleDeleteConversation = (conversationId: string) => {
     if (!email) {
