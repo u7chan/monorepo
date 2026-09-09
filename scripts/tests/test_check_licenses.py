@@ -18,8 +18,18 @@ SPEC.loader.exec_module(check_licenses)
 
 
 POLICY = {
-    "allowed": ["MIT", "Apache-2.0", "BSD-*", "ISC", "0BSD", "Unlicense", "Python-2.0", "BlueOak-*"],
-    "review": ["LGPL-*", "MPL-*", "EPL-*", "CDDL-*"],
+    "allowed": [
+        "MIT",
+        "Apache-2.0",
+        "BSD-*",
+        "ISC",
+        "0BSD",
+        "Unlicense",
+        "Python-2.0",
+        "BlueOak-*",
+        "MPL-2.0",
+    ],
+    "review": ["LGPL-*", "MPL-1.*", "EPL-*", "CDDL-*"],
     "denied": ["AGPL-*", "GPL-*", "SSPL-*", "Commons Clause"],
     "overrides": [],
 }
@@ -66,8 +76,14 @@ class LicenseExpressionTest(unittest.TestCase):
     def test_allowed_wildcard_license_passes(self) -> None:
         self.assertEqual(self.classify("BSD-*"), ("PASS", "LICENSE_ALLOWED"))
 
+    def test_mpl_2_0_is_allowed(self) -> None:
+        self.assertEqual(self.classify("MPL-2.0"), ("PASS", "LICENSE_ALLOWED"))
+
     def test_allowed_and_review_warns(self) -> None:
-        self.assertEqual(self.classify("MIT AND MPL-2.0"), ("WARN", "LICENSE_REVIEW_REQUIRED"))
+        self.assertEqual(self.classify("MIT AND EPL-2.0"), ("WARN", "LICENSE_REVIEW_REQUIRED"))
+
+    def test_mpl_1_1_requires_review(self) -> None:
+        self.assertEqual(self.classify("MPL-1.1"), ("WARN", "LICENSE_REVIEW_REQUIRED"))
 
     def test_allowed_and_denied_fails(self) -> None:
         self.assertEqual(self.classify("MIT AND AGPL-3.0-only"), ("FAIL", "LICENSE_DENIED"))
