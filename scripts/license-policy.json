@@ -7,11 +7,12 @@
     "0BSD",
     "Unlicense",
     "Python-2.0",
-    "BlueOak-*"
+    "BlueOak-*",
+    "MPL-2.0"
   ],
   "review": [
     "LGPL-*",
-    "MPL-*",
+    "MPL-1.*",
     "EPL-*",
     "CDDL-*"
   ],

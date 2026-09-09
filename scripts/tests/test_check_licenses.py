@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -18,14 +19,41 @@ SPEC.loader.exec_module(check_licenses)
 
 
 POLICY = {
-    "allowed": ["MIT", "Apache-2.0", "BSD-*", "ISC", "0BSD", "Unlicense", "Python-2.0", "BlueOak-*"],
-    "review": ["LGPL-*", "MPL-*", "EPL-*", "CDDL-*"],
+    "allowed": [
+        "MIT",
+        "Apache-2.0",
+        "BSD-*",
+        "ISC",
+        "0BSD",
+        "Unlicense",
+        "Python-2.0",
+        "BlueOak-*",
+        "MPL-2.0",
+    ],
+    "review": ["LGPL-*", "MPL-1.*", "EPL-*", "CDDL-*"],
     "denied": ["AGPL-*", "GPL-*", "SSPL-*", "Commons Clause"],
     "overrides": [],
 }
 
 
 class PolicyValidationTest(unittest.TestCase):
+    def test_repository_policy_mpl_classification(self) -> None:
+        policy_path = MODULE_PATH.with_name("license-policy.json")
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        self.assertEqual(check_licenses.validate_policy(policy), [])
+        cases = {
+            "MPL-2.0": ("PASS", "LICENSE_ALLOWED"),
+            "MPL-1.0": ("WARN", "LICENSE_REVIEW_REQUIRED"),
+            "MPL-1.1": ("WARN", "LICENSE_REVIEW_REQUIRED"),
+            "MIT AND MPL-2.0": ("PASS", "LICENSE_ALLOWED"),
+            "MPL-2.0 AND GPL-3.0-only": ("FAIL", "LICENSE_DENIED"),
+            "MPL-2.0 AND EPL-2.0": ("WARN", "LICENSE_REVIEW_REQUIRED"),
+        }
+        for expression, expected in cases.items():
+            with self.subTest(expression=expression):
+                package = check_licenses.PackageInfo("npm", "example", "1.0.0", expression)
+                self.assertEqual(check_licenses.classify_license(policy, package), expected)
+
     def test_valid_policy_passes(self) -> None:
         self.assertEqual(check_licenses.validate_policy(POLICY), [])
 
@@ -66,8 +94,14 @@ class LicenseExpressionTest(unittest.TestCase):
     def test_allowed_wildcard_license_passes(self) -> None:
         self.assertEqual(self.classify("BSD-*"), ("PASS", "LICENSE_ALLOWED"))
 
+    def test_mpl_2_0_is_allowed(self) -> None:
+        self.assertEqual(self.classify("MPL-2.0"), ("PASS", "LICENSE_ALLOWED"))
+
     def test_allowed_and_review_warns(self) -> None:
-        self.assertEqual(self.classify("MIT AND MPL-2.0"), ("WARN", "LICENSE_REVIEW_REQUIRED"))
+        self.assertEqual(self.classify("MIT AND EPL-2.0"), ("WARN", "LICENSE_REVIEW_REQUIRED"))
+
+    def test_mpl_1_1_requires_review(self) -> None:
+        self.assertEqual(self.classify("MPL-1.1"), ("WARN", "LICENSE_REVIEW_REQUIRED"))
 
     def test_allowed_and_denied_fails(self) -> None:
         self.assertEqual(self.classify("MIT AND AGPL-3.0-only"), ("FAIL", "LICENSE_DENIED"))

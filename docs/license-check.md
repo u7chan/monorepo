@@ -100,9 +100,11 @@ PR の CI では、`oven-sh/setup-bun@v2` と `astral-sh/setup-uv@v6` を使っ�
 
 | 区分 | ライセンス |
 | --- | --- |
-| `allowed` | `MIT`、`Apache-2.0`、`BSD-*`、`ISC`、`0BSD`、`Unlicense`、`Python-2.0`、`BlueOak-*` |
-| `review` | `LGPL-*`、`MPL-*`、`EPL-*`、`CDDL-*` |
+| `allowed` | `MIT`、`Apache-2.0`、`BSD-*`、`ISC`、`0BSD`、`Unlicense`、`Python-2.0`、`BlueOak-*`、`MPL-2.0` |
+| `review` | `LGPL-*`、`MPL-1.*`、`EPL-*`、`CDDL-*` |
 | `denied` | `AGPL-*`、`GPL-*`、`SSPL-*`、`Commons Clause` |
+
+MPL-2.0 は通常の依存・ビルドツール利用を許可する。MPL 対象コードを改変して配布する場合や、MPL 対象物を成果物として再配布する場合は個別に確認する。
 
 ポリシーを編集したら、構文と必須項目を検証します。
 
