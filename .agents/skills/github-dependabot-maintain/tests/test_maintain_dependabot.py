@@ -30,12 +30,16 @@ class MaintainDependabotTests(unittest.TestCase):
             self.assertEqual(MAINTAIN.detect_ecosystem(project_dir), "npm")
 
     def test_bun_is_prioritized_over_pnpm(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_dir = Path(temp_dir)
-            (project_dir / "bun.lockb").touch()
-            (project_dir / "pnpm-lock.yaml").touch()
+        for lockfile in ("bun.lock", "bun.lockb"):
+            with self.subTest(lockfile=lockfile):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    project_dir = Path(temp_dir)
+                    (project_dir / lockfile).touch()
+                    (project_dir / "pnpm-lock.yaml").touch()
 
-            self.assertEqual(MAINTAIN.detect_ecosystem(project_dir), "bun")
+                    self.assertEqual(
+                        MAINTAIN.detect_ecosystem(project_dir), "bun"
+                    )
 
     def test_uv_and_missing_lockfiles_are_detected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

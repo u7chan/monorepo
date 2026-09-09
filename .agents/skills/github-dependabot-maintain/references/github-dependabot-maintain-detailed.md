@@ -54,6 +54,8 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 - If a project has `bun.lock` or `bun.lockb` and `pnpm-lock.yaml`, the script
   picks `bun` because it is checked first. Review the result manually if this
   happens.
+- If a project has both `pnpm-lock.yaml` and `uv.lock`, the script picks `npm`
+  because pnpm is checked first. Review the result manually if this happens.
 - If no lockfile is found, the directory is excluded from Dependabot.
 - If an existing entry points to a directory that no longer exists, it is removed.
 - If an existing entry points to a directory whose lockfile is gone, it is removed.
