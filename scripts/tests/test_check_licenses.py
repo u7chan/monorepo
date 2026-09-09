@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "check_licenses.py"
@@ -118,6 +120,13 @@ class TargetDetectionTest(unittest.TestCase):
             (target / "package-lock.json").write_text("{}\n", encoding="utf-8")
             self.assertEqual(check_licenses.detect_target_managers(target), [("npm", None)])
 
+    def test_pnpm_lockfile_uses_pnpm_manager(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text('{"dependencies":{"left-pad":"1.3.0"}}\n', encoding="utf-8")
+            (target / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+            self.assertEqual(check_licenses.detect_target_managers(target), [("pnpm", None)])
+
     def test_package_json_with_dependency_still_requires_supported_lockfile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
@@ -186,6 +195,106 @@ class TargetDetectionTest(unittest.TestCase):
                 [(package.name, package.version) for package in packages],
                 [("package-a", "1.0.0"), ("package-a", "2.0.0")],
             )
+
+    def test_pnpm_virtual_store_packages_are_scanned_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            node_modules = Path(tmp) / "node_modules"
+            virtual_store = node_modules / ".pnpm"
+
+            left_pad = virtual_store / "left-pad@1.3.0" / "node_modules" / "left-pad" / "package.json"
+            left_pad.parent.mkdir(parents=True)
+            left_pad.write_text('{"name":"left-pad","version":"1.3.0","license":"WTFPL"}\n', encoding="utf-8")
+            os.symlink(
+                Path(".pnpm") / "left-pad@1.3.0" / "node_modules" / "left-pad",
+                node_modules / "left-pad",
+            )
+
+            scoped = virtual_store / "@scope+pkg@2.0.0" / "node_modules" / "@scope" / "pkg" / "package.json"
+            scoped.parent.mkdir(parents=True)
+            scoped.write_text('{"name":"@scope/pkg","version":"2.0.0","license":"MIT"}\n', encoding="utf-8")
+            scope = node_modules / "@scope"
+            scope.mkdir()
+            os.symlink(
+                Path("..") / ".pnpm" / "@scope+pkg@2.0.0" / "node_modules" / "@scope" / "pkg",
+                scope / "pkg",
+            )
+
+            parent = virtual_store / "parent@3.0.0" / "node_modules" / "parent"
+            parent_package = parent / "package.json"
+            parent_package.parent.mkdir(parents=True)
+            parent_package.write_text('{"name":"parent","version":"3.0.0","license":"MIT"}\n', encoding="utf-8")
+            child = parent / "node_modules" / "child" / "package.json"
+            child.parent.mkdir(parents=True)
+            child.write_text('{"name":"child","version":"1.0.0","license":"MIT"}\n', encoding="utf-8")
+
+            child_v2 = virtual_store / "child@2.0.0" / "node_modules" / "child" / "package.json"
+            child_v2.parent.mkdir(parents=True)
+            child_v2.write_text('{"name":"child","version":"2.0.0","license":"MIT"}\n', encoding="utf-8")
+
+            internal = parent / "dist" / "package.json"
+            internal.parent.mkdir(parents=True)
+            internal.write_text('{"name":"parent-internal","version":"3.0.0","license":"MIT"}\n', encoding="utf-8")
+
+            packages = check_licenses.scan_node_modules(node_modules)
+            self.assertEqual(
+                sorted((package.name, package.version) for package in packages),
+                [
+                    ("@scope/pkg", "2.0.0"),
+                    ("child", "1.0.0"),
+                    ("child", "2.0.0"),
+                    ("left-pad", "1.3.0"),
+                    ("parent", "3.0.0"),
+                ],
+            )
+
+    def test_collect_node_packages_uses_manager_specific_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "package.json").write_text('{"dependencies":{"example":"1.0.0"}}\n', encoding="utf-8")
+
+            expected_commands = {
+                "bun": [
+                    "bun",
+                    "install",
+                    "--frozen-lockfile",
+                    "--production",
+                    "--ignore-scripts",
+                ],
+                "npm": [
+                    "npm",
+                    "ci",
+                    "--omit=dev",
+                    "--ignore-scripts",
+                    "--no-audit",
+                    "--no-fund",
+                    "--cache",
+                ],
+                "pnpm": [
+                    "pnpm",
+                    "install",
+                    "--frozen-lockfile",
+                    "--prod",
+                    "--ignore-scripts",
+                ],
+            }
+
+            for manager, expected_prefix in expected_commands.items():
+                with self.subTest(manager=manager), mock.patch.object(
+                    check_licenses,
+                    "run_command",
+                    return_value=mock.Mock(returncode=0, stdout=""),
+                ) as run_command:
+                    check_licenses.collect_node_packages(target, manager)
+
+                command = run_command.call_args.args[0]
+                self.assertEqual(command[: len(expected_prefix)], expected_prefix)
+                self.assertEqual(len(command), len(expected_prefix) + 1)
+                if manager == "pnpm":
+                    self.assertTrue(any(argument.startswith("--config.store-dir=") for argument in command))
+                elif manager == "bun":
+                    self.assertTrue(command[-1].startswith("--cache-dir="))
+                else:
+                    self.assertTrue(command[-1].endswith("/npm-cache"))
 
 
 class PythonVersionSelectionTest(unittest.TestCase):

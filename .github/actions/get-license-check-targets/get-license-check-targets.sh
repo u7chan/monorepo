@@ -7,6 +7,7 @@ MANIFEST_FILES=(
   "bun.lock"
   "bun.lockb"
   "package-lock.json"
+  "pnpm-lock.yaml"
   "pyproject.toml"
   "uv.lock"
 )
@@ -100,14 +101,23 @@ sort -u "$targets_tmp" > license_check_targets.txt
 rm -f "$targets_tmp"
 
 license_check_targets="$(paste -sd, license_check_targets.txt)"
+pnpm_required="false"
+while IFS= read -r target; do
+  if [[ -f "$target/pnpm-lock.yaml" ]]; then
+    pnpm_required="true"
+    break
+  fi
+done < license_check_targets.txt
 
 echo "> license check targets"
 cat license_check_targets.txt
 echo ""
 echo "LICENSE_CHECK_TARGETS: $license_check_targets"
 echo "LICENSE_CHECK_VALIDATION_REQUIRED: $validation_required"
+echo "LICENSE_CHECK_PNPM_REQUIRED: $pnpm_required"
 
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   echo "LICENSE_CHECK_TARGETS=$license_check_targets" >> "$GITHUB_ENV"
   echo "LICENSE_CHECK_VALIDATION_REQUIRED=$validation_required" >> "$GITHUB_ENV"
+  echo "LICENSE_CHECK_PNPM_REQUIRED=$pnpm_required" >> "$GITHUB_ENV"
 fi
