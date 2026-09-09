@@ -34,8 +34,8 @@ REASON_NOT_SUPPORTED = "NOT_SUPPORTED"
 REASON_INSTALL_FAILED = "INSTALL_FAILED"
 REASON_NO_DEPENDENCIES = "NO_DEPENDENCIES"
 
-SUPPORTED_NODE_LOCKS = ("bun.lock", "bun.lockb", "package-lock.json")
-UNSUPPORTED_NODE_LOCKS = ("yarn.lock", "pnpm-lock.yaml")
+SUPPORTED_NODE_LOCKS = ("bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml")
+UNSUPPORTED_NODE_LOCKS = ("yarn.lock",)
 NODE_DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
 SUPPORTED_PYTHON_LOCKS = ("uv.lock",)
 UNSUPPORTED_PYTHON_LOCKS = ("requirements.txt", "poetry.lock", "Pipfile.lock")
@@ -301,6 +301,8 @@ def detect_target_managers(target: Path) -> list[tuple[str, str | None]]:
             managers.append(("bun", None))
         elif (target / "package-lock.json").exists():
             managers.append(("npm", None))
+        elif (target / "pnpm-lock.yaml").exists():
+            managers.append(("pnpm", None))
         elif not has_node_dependencies(target / "package.json"):
             managers.append(("node-empty", None))
         else:
@@ -352,6 +354,15 @@ def collect_node_packages(target: Path, manager: str) -> tuple[list[PackageInfo]
                 "--production",
                 "--ignore-scripts",
                 f"--cache-dir={Path(tmp) / 'bun-cache'}",
+            ]
+        elif manager == "pnpm":
+            command = [
+                "pnpm",
+                "install",
+                "--frozen-lockfile",
+                "--prod",
+                "--ignore-scripts",
+                f"--config.store-dir={Path(tmp) / 'pnpm-store'}",
             ]
         else:
             command = [
@@ -570,7 +581,7 @@ def check_target(target: Path, policy: dict) -> TargetSummary:
         if unsupported_reason:
             items.append(CheckItem(STATUS_FAIL, REASON_NOT_SUPPORTED, None, f"{target}: {unsupported_reason}"))
             continue
-        if manager in ("bun", "npm"):
+        if manager in ("bun", "npm", "pnpm"):
             collected, install_error = collect_node_packages(target, manager)
         elif manager == "node-empty":
             items.append(

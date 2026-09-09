@@ -52,6 +52,12 @@ jobs:
         if: env.LICENSE_CHECK_TARGETS != ''
         uses: astral-sh/setup-uv@v6
 
+      - name: Set up pnpm for License Check
+        if: env.LICENSE_CHECK_PNPM_REQUIRED == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Validate License Check
         if: env.LICENSE_CHECK_VALIDATION_REQUIRED == 'true'
         run: |
