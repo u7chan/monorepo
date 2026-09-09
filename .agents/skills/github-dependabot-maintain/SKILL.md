@@ -57,7 +57,10 @@ Use lockfiles only:
 | Lockfile | Ecosystem |
 |----------|-----------|
 | `bun.lock` or `bun.lockb` | `bun` |
+| `pnpm-lock.yaml` | `npm` |
 | `uv.lock` | `uv` |
+
+> **pnpm に関する注記:** Dependabot には pnpm 専用の `package-ecosystem` 値がないため、`package-ecosystem: "npm"` を使用する。Dependabot の version updates は pnpm に対応しているが、security updates（セキュリティアップデート）は対象外である。出典は GitHub 公式 docs（パッケージマネージャ pnpm の ecosystem は npm）と GitHub changelog（2023-06-12）。pnpm プロジェクトを `projects/` に追加したときは、この skill の通常フローに従い `.github/dependabot.yml` に `package-ecosystem: "npm"` のエントリを追加する。
 
 ## Step Details
 
@@ -78,6 +81,8 @@ List candidate directories:
       [[ "$name" == "_labs" || "$name" == "_samples" ]] && continue
       if [[ -f "$dir/bun.lock" || -f "$dir/bun.lockb" ]]; then
         echo "bun /projects/$name"
+      elif [[ -f "$dir/pnpm-lock.yaml" ]]; then
+        echo "npm /projects/$name"
       elif [[ -f "$dir/uv.lock" ]]; then
         echo "uv /projects/$name"
       fi
