@@ -12,6 +12,7 @@ ref: #1220
 | `package.json`      | pnpm、oxlint、Vitest、TypeScript、Prettier の設定 |
 | `pnpm-lock.yaml`    | pnpm 10 で固定した依存関係                        |
 | `tsconfig.json`     | NodeNext 向け TypeScript 設定                     |
+| `vitest.config.ts`  | Vitest のテスト対象を `src` に限定する設定        |
 | `src/greet.ts`      | Node 組み込み API に依存しない純粋関数            |
 | `src/greet.test.ts` | `greet` の Vitest テスト                          |
 | `src/main.ts`       | `greet` を呼び出すエントリポイント                |
