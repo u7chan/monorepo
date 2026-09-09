@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -36,6 +37,23 @@ POLICY = {
 
 
 class PolicyValidationTest(unittest.TestCase):
+    def test_repository_policy_mpl_classification(self) -> None:
+        policy_path = MODULE_PATH.with_name("license-policy.json")
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        self.assertEqual(check_licenses.validate_policy(policy), [])
+        cases = {
+            "MPL-2.0": ("PASS", "LICENSE_ALLOWED"),
+            "MPL-1.0": ("WARN", "LICENSE_REVIEW_REQUIRED"),
+            "MPL-1.1": ("WARN", "LICENSE_REVIEW_REQUIRED"),
+            "MIT AND MPL-2.0": ("PASS", "LICENSE_ALLOWED"),
+            "MPL-2.0 AND GPL-3.0-only": ("FAIL", "LICENSE_DENIED"),
+            "MPL-2.0 AND EPL-2.0": ("WARN", "LICENSE_REVIEW_REQUIRED"),
+        }
+        for expression, expected in cases.items():
+            with self.subTest(expression=expression):
+                package = check_licenses.PackageInfo("npm", "example", "1.0.0", expression)
+                self.assertEqual(check_licenses.classify_license(policy, package), expected)
+
     def test_valid_policy_passes(self) -> None:
         self.assertEqual(check_licenses.validate_policy(POLICY), [])
 
