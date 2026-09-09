@@ -53,6 +53,7 @@ PR の CI では、`projects/` 配下にある次のファイルが変わった�
 - `bun.lock`
 - `bun.lockb`
 - `package-lock.json`
+- `pnpm-lock.yaml`
 - `pyproject.toml`
 - `uv.lock`
 
@@ -64,11 +65,14 @@ README、`docs/`、アプリケーションコードだけの変更では実ス�
 | --- | --- | --- |
 | Node.js / Bun | `bun.lock` または `bun.lockb` | `bun install --frozen-lockfile --production --ignore-scripts` |
 | Node.js / npm | `package-lock.json` | `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` |
+| Node.js / pnpm | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile --prod --ignore-scripts` |
 | Python / uv | `uv.lock` | `uv sync --frozen --no-dev --no-install-project --no-install-workspace --python <version>` |
+
+ロックファイルが複数ある場合は、Bun、npm、pnpm の順に判定します。
 
 次の構成には対応していません。
 
-- Yarn、pnpm
+- Yarn
 - 依存パッケージがあるにもかかわらず、対応する Node.js ロックファイルがない構成
 - `requirements.txt`、Poetry、Pipenv
 - `uv.lock` がない Python プロジェクト
@@ -82,12 +86,13 @@ README、`docs/`、アプリケーションコードだけの変更では実ス�
 - Python 3.11 以上
 - `bun`
 - `npm`
+- `pnpm`
 - `uv`
 
-`scripts/check_licenses.py` 自体は Python の標準ライブラリだけで動作します。依存パッケージのメタデータを収集するときに、対象に応じて `bun`、`npm`、`uv` を外部コマンドとして実行します。
+`scripts/check_licenses.py` 自体は Python の標準ライブラリだけで動作します。依存パッケージのメタデータを収集するときに、対象に応じて `bun`、`npm`、`pnpm`、`uv` を外部コマンドとして実行します。
 
 Python のバージョンは、対象ディレクトリの `.python-version` を優先します。利用できる指定がなければ、`pyproject.toml` の `requires-python` をもとに選びます。
-PR の CI では、`oven-sh/setup-bun@v2` と `astral-sh/setup-uv@v6` を使って Bun と uv を準備します。
+PR の CI では、`oven-sh/setup-bun@v2` と `astral-sh/setup-uv@v6` を使って Bun と uv を準備します。pnpm は、検出した対象に `pnpm-lock.yaml` がある場合だけ `pnpm/action-setup@v4`（バージョン 10 系）で準備します。
 
 ## 判定ポリシー
 
@@ -208,7 +213,7 @@ CI と同じ対象ファイルを使って再現する場合は、次を実行�
 
 ### `INSTALL_FAILED`
 
-ログに表示された `bun install`、`npm ci`、`uv sync` のエラーを確認します。ロックファイルとマニフェストの不整合、必要なランタイム、パッケージ取得時の認証を切り分けます。
+ログに表示された `bun install`、`npm ci`、`pnpm install`、`uv sync` のエラーを確認します。ロックファイルとマニフェストの不整合、必要なランタイム、パッケージ取得時の認証を切り分けます。
 
 ### `LICENSE_UNKNOWN` または `EXPRESSION_UNSUPPORTED`
 

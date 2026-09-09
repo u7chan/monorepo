@@ -5,6 +5,11 @@ pnpm の標準構成を示す教材・CI/CD 検証用のサンプルプロジェ
 
 ref: #1220
 
+## 目的
+
+- pnpm 10 の標準的なプロジェクト構成（`package.json` と `pnpm-lock.yaml`）を示す教材として使う
+- ライセンスチェックと Docker ビルドの CI が pnpm プロジェクトを正しく扱えることを検証する
+
 ## 構成
 
 | ファイル            | 役割                                              |
@@ -22,6 +27,17 @@ ref: #1220
 | `.gitignore`        | ローカルの依存関係と生成物の除外                  |
 | `.oxlintrc.json`    | oxlint の依存関係と生成物の除外設定               |
 | `.prettierignore`   | Prettier の対象外にする生成物とロックファイル     |
+
+## CI での検証ポイント
+
+PR の CI（`.github/workflows/pullrequest-check.yml`）では、次の挙動を確認できます。
+
+- `pnpm-lock.yaml` の変更で、このプロジェクトがライセンスチェックの対象として検出される
+- 対象に `pnpm-lock.yaml` があるため、CI が `pnpm/action-setup@v4` で pnpm 10 系をセットアップする
+- `pnpm install --frozen-lockfile --prod --ignore-scripts` が失敗せず、ライセンスチェックが完了する（依存を `devDependencies` のみにしているため、実スキャン対象のパッケージは 0 件で `PASS` になる）
+- Docker の `test` ステージのビルドで `pnpm lint` と `pnpm test` が実行される
+
+ライセンスチェックの pnpm 対応の詳細は、[OSS ライセンスチェック](../../../docs/license-check.md)を参照してください。
 
 ## ローカルでの実行
 
