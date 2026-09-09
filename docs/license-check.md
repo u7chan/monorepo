@@ -45,6 +45,8 @@ projects/edit-vid/           # Python のマニフェストルート
 projects/edit-vid/frontend/  # Node.js のマニフェストルート
 ```
 
+pnpm workspace は例外です。親に `pnpm-workspace.yaml` と `pnpm-lock.yaml` があり、lockfile の `importers` に登録されている子マニフェストは、親を対象にまとめて一度だけスキャンします。CLI の `--target`、`--all-targets` と PR の対象検出で同じ判定を使います。子が独立したlockfileを持つ場合や、importerとして未登録の場合は統合しません。対象は pnpm が生成する標準形式のlockfileです。
+
 ### PR で実スキャンを始める変更
 
 PR の CI では、`projects/` 配下にある次のファイルが変わったマニフェストルートだけを実スキャンします。
@@ -54,6 +56,7 @@ PR の CI では、`projects/` 配下にある次のファイルが変わった�
 - `bun.lockb`
 - `package-lock.json`
 - `pnpm-lock.yaml`
+- `pnpm-workspace.yaml`
 - `pyproject.toml`
 - `uv.lock`
 

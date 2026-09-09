@@ -8,6 +8,7 @@ MANIFEST_FILES=(
   "bun.lockb"
   "package-lock.json"
   "pnpm-lock.yaml"
+  "pnpm-workspace.yaml"
   "pyproject.toml"
   "uv.lock"
 )
@@ -51,6 +52,15 @@ manifest_target() {
   dir="$(dirname "$path")"
   if [[ "$dir" == "." ]]; then
     return 1
+  fi
+  # Share workspace resolution with the CLI, including deleted importers.
+  if [[ "$(basename "$path")" != "pyproject.toml" && "$(basename "$path")" != "uv.lock" ]]; then
+    local resolved
+    resolved="$(python3 -c 'import sys; from scripts.check_licenses import ROOT, resolve_node_target; print(resolve_node_target((ROOT / sys.argv[1]).resolve()).relative_to(ROOT))' "$dir")" || exit 1
+    if [[ "$resolved" != "$dir" ]]; then
+      echo "$resolved"
+      return 0
+    fi
   fi
   if [[ -f "$dir/package.json" || -f "$dir/pyproject.toml" ]]; then
     echo "$dir"
