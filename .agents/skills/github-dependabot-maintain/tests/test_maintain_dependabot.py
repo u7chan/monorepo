@@ -3,6 +3,7 @@
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,6 +22,30 @@ SPEC.loader.exec_module(MAINTAIN)
 
 
 class MaintainDependabotTests(unittest.TestCase):
+    def test_pnpm_lockfile_is_detected_as_npm(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            (project_dir / "pnpm-lock.yaml").touch()
+
+            self.assertEqual(MAINTAIN.detect_ecosystem(project_dir), "npm")
+
+    def test_bun_is_prioritized_over_pnpm(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            (project_dir / "bun.lockb").touch()
+            (project_dir / "pnpm-lock.yaml").touch()
+
+            self.assertEqual(MAINTAIN.detect_ecosystem(project_dir), "bun")
+
+    def test_uv_and_missing_lockfiles_are_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            (project_dir / "uv.lock").touch()
+            self.assertEqual(MAINTAIN.detect_ecosystem(project_dir), "uv")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertIsNone(MAINTAIN.detect_ecosystem(Path(temp_dir)))
+
     def test_new_entry_contains_required_label(self) -> None:
         block = MAINTAIN.build_new_block("bun", "/projects/example")
         entry = MAINTAIN._entry_from_block(block)

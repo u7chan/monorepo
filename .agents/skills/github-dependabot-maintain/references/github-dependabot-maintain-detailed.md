@@ -34,6 +34,8 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
    are staged or unstaged changes.
 2. Parses the existing `dependabot.yml` into directory-indexed text blocks.
 3. Scans `projects/*/` and detects the ecosystem from lockfiles.
+   The lockfile mappings are `bun.lock` or `bun.lockb` → `bun`,
+   `pnpm-lock.yaml` → `npm`, and `uv.lock` → `uv`.
 4. Builds the desired entry list:
    - If a directory already exists in `dependabot.yml`, reuse its settings
      (`schedule`, `open-pull-requests-limit`, `rebase-strategy`, etc.) and only
@@ -49,6 +51,9 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 
 - If a project has both `bun.lock` and `uv.lock`, the script picks `bun` because
   it is checked first. Review the result manually if this happens.
+- If a project has `bun.lock` or `bun.lockb` and `pnpm-lock.yaml`, the script
+  picks `bun` because it is checked first. Review the result manually if this
+  happens.
 - If no lockfile is found, the directory is excluded from Dependabot.
 - If an existing entry points to a directory that no longer exists, it is removed.
 - If an existing entry points to a directory whose lockfile is gone, it is removed.

@@ -19,6 +19,8 @@ REQUIRED_LABEL = "dependabot-auto-process"
 def detect_ecosystem(project_dir: Path) -> str | None:
     if (project_dir / "bun.lock").exists() or (project_dir / "bun.lockb").exists():
         return "bun"
+    if (project_dir / "pnpm-lock.yaml").exists():
+        return "npm"
     if (project_dir / "uv.lock").exists():
         return "uv"
     return None
