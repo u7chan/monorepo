@@ -1,0 +1,25 @@
+{
+  "name": "server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "tsx": "^4.20.0",
+    "@hono/node-server": "^1.19.0",
+    "@hono/zod-validator": "^0.7.0",
+    "hono": "^4.9.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "exports": {
+    ".": "./src/app.ts"
+  }
+}

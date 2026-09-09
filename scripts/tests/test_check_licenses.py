@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -117,6 +119,87 @@ class LicenseExpressionTest(unittest.TestCase):
 
     def test_unsupported_expression_warns(self) -> None:
         self.assertEqual(self.classify("MIT / Apache-2.0"), ("WARN", "EXPRESSION_UNSUPPORTED"))
+
+
+class PnpmWorkspaceTargetTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.workspace = self.root / "projects" / "_labs" / "example"
+        self.child = self.workspace / "client"
+        self.child.mkdir(parents=True)
+        (self.workspace / "package.json").write_text('{"private":true}')
+        (self.child / "package.json").write_text('{"dependencies":{"react":"19.2.0"}}')
+        (self.workspace / "pnpm-workspace.yaml").write_text("packages:\n  - client\n")
+        (self.workspace / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\nimporters:\n  .: {}\n  client:\n    dependencies: {}\npackages: {}\n")
+        patcher = mock.patch.object(check_licenses, "ROOT", self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_child_and_cli_targets_are_grouped_and_deduplicated(self) -> None:
+        self.assertEqual(check_licenses.resolve_node_target(self.child), self.workspace)
+        args = check_licenses.build_parser().parse_args(["--targets", f"{self.child},{self.workspace}"])
+        self.assertEqual(check_licenses.parse_targets(args), [self.workspace])
+        self.assertEqual(check_licenses.discover_all_targets(), [self.workspace])
+
+    def test_independent_lockfile_and_nonmember_are_not_grouped(self) -> None:
+        for lock in ("package-lock.json", "bun.lock", "pnpm-lock.yaml", "yarn.lock"):
+            with self.subTest(lock=lock):
+                (self.child / lock).write_text("{}")
+                self.assertEqual(check_licenses.resolve_node_target(self.child), self.child)
+                (self.child / lock).unlink()
+        self.assertEqual(check_licenses.resolve_node_target(self.workspace / "unregistered"), self.workspace / "unregistered")
+
+    def test_quoted_importers_and_deleted_manifest_are_grouped(self) -> None:
+        (self.child / "package.json").unlink()
+        for key in ("'client'", '"client"'):
+            with self.subTest(key=key):
+                (self.workspace / "pnpm-lock.yaml").write_text(f"importers:\n  {key}:\n    dependencies: {{}}\npackages:\n")
+                self.assertEqual(check_licenses.resolve_node_target(self.child), self.workspace)
+
+    def test_python_target_is_not_grouped(self) -> None:
+        (self.child / "pyproject.toml").write_text("[project]\nname='example'\n")
+        self.assertEqual(check_licenses.resolve_node_target(self.child), self.child)
+
+    def test_missing_workspace_marker_is_not_grouped(self) -> None:
+        (self.workspace / "pnpm-workspace.yaml").unlink()
+        self.assertEqual(check_licenses.resolve_node_target(self.child), self.child)
+
+    def test_workspace_with_another_manager_is_not_grouped(self) -> None:
+        (self.workspace / "bun.lock").write_text("{}")
+        self.assertEqual(check_licenses.resolve_node_target(self.child), self.child)
+
+    def test_package_keys_outside_importers_do_not_match(self) -> None:
+        (self.workspace / "pnpm-lock.yaml").write_text("importers:\n  .: {}\npackages:\n  client:\n    version: 1\n")
+        self.assertEqual(check_licenses.resolve_node_target(self.child), self.child)
+
+    def test_action_groups_changed_and_deleted_child_and_workspace_config(self) -> None:
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        shutil.copyfile(MODULE_PATH, scripts / "check_licenses.py")
+        action = MODULE_PATH.parents[1] / ".github/actions/get-license-check-targets/get-license-check-targets.sh"
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", *args], cwd=self.root, check=True, capture_output=True)
+
+        git("init")
+        git("add", ".")
+        git("commit", "-m", "fixture")
+        env = {key: value for key, value in os.environ.items() if key not in ("GITHUB_BASE_REF", "GITHUB_ENV")}
+        for change in ("child", "deleted", "workspace"):
+            with self.subTest(change=change):
+                if change == "child":
+                    (self.child / "package.json").write_text('{"dependencies":{"react":"19.2.1"}}')
+                elif change == "deleted":
+                    (self.child / "package.json").unlink()
+                else:
+                    (self.workspace / "pnpm-workspace.yaml").write_text("packages:\n  - 'client'\n")
+                git("add", "projects")
+                git("commit", "-m", change)
+                result = subprocess.run(["bash", str(action)], cwd=self.root, env=env, text=True, capture_output=True, check=True)
+                self.assertEqual((self.root / "license_check_targets.txt").read_text().strip(), "projects/_labs/example")
+                self.assertIn("LICENSE_CHECK_PNPM_REQUIRED: true", result.stdout)
 
 
 class TargetDetectionTest(unittest.TestCase):

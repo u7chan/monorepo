@@ -1,0 +1,405 @@
+/* スタイルとテーマシステム (Tailwind CSS v4)。
+ *
+ * 構成:
+ *   1. セマンティックトークン (@theme inline) — 値は var(--c-*) 参照。
+ *      html[data-theme=...] プリセットが --c-* を差し替えることで
+ *      bg-base / text-ink / shadow-panel などのユーティリティが全テーマで機能する。
+ *   2. 6 テーマプリセット (--c-* の実体)
+ *   3. ベーススタイル (@layer base)
+ *   4. 共有コンポーネントクラス (@layer components)
+ *
+ * テーマの初回描画前適用は public/theme-init.js (classic script) が担当する。
+ */
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+ * グローバルトークン: フォント / ブレークポイント / アニメーション
+ * ------------------------------------------------------------------------- */
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+
+  /* worker-app が nav: / wide: / max-nav: / max-wide: を使う */
+  --breakpoint-nav: 720px;
+  --breakpoint-wide: 900px;
+
+  /* メッセージ出現用 (旧 @keyframes rise 相当) */
+  --animate-rise: rise 180ms ease-out;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * セマンティックトークン → ユーティリティ
+ * inline オプションにより、ユーティリティは var(--color-*) ではなく
+ * var(--c-*) を直接参照する。これがテーマ差し替えの要。
+ * ------------------------------------------------------------------------- */
+@theme inline {
+  --color-base: var(--c-base);
+  --color-panel: var(--c-panel);
+  --color-raised: var(--c-raised);
+  --color-soft: var(--c-soft);
+  --color-hover: var(--c-hover);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-ink);
+  --color-ink-strong: var(--c-ink-strong);
+  --color-ink-soft: var(--c-ink-soft);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-ink-faint: var(--c-ink-faint);
+  --color-ink-ghost: var(--c-ink-ghost);
+  --color-accent: var(--c-accent);
+  --color-accent-strong: var(--c-accent-strong);
+  --color-accent-bright: var(--c-accent-bright);
+  --color-on-accent: var(--c-on-accent);
+  --color-accent-wash: var(--c-accent-wash);
+  --color-accent-text: var(--c-accent-text);
+  --color-ok: var(--c-ok);
+  --color-warn: var(--c-warn);
+  --color-danger: var(--c-danger);
+  --color-danger-text: var(--c-danger-text);
+  --color-backdrop: var(--c-backdrop);
+  --shadow-panel: var(--c-shadow-panel);
+}
+
+/* ---------------------------------------------------------------------------
+ * テーマプリセット
+ * midnight は旧 public/styles.css の :root を踏襲したデフォルト。
+ * ------------------------------------------------------------------------- */
+
+/* ミッドナイト: 濃紺×ヴァイオレット (デフォルト) */
+:root,
+html[data-theme="midnight"] {
+  color-scheme: dark;
+  --c-base: #0d1016;
+  --c-panel: #11151d;
+  --c-raised: #171c26;
+  --c-soft: #1a1f2a;
+  --c-hover: #212735;
+  --c-line: #272e3b;
+  --c-line-strong: #343c4c;
+  --c-ink: #e9edf5;
+  --c-ink-strong: #f5f1ff;
+  --c-ink-soft: #b2bac9;
+  --c-ink-muted: #778092;
+  --c-ink-faint: #687285;
+  --c-ink-ghost: #535d6e;
+  --c-accent: #a78bfa;
+  --c-accent-strong: #8b5cf6;
+  --c-accent-bright: #c4b5fd;
+  --c-on-accent: #201631;
+  --c-accent-wash: rgba(167, 139, 250, 0.12);
+  --c-accent-text: #c4b5fd;
+  --c-ok: #65d6a2;
+  --c-warn: #f4b46b;
+  --c-danger: #ee778b;
+  --c-danger-text: #ee9aaa;
+  --c-glow: rgba(112, 79, 182, 0.12);
+  --c-backdrop: rgba(4, 6, 10, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+
+/* デイライト: 明るいブルーグレー×インディゴヴァイオレット */
+html[data-theme="daylight"] {
+  color-scheme: light;
+  --c-base: #eef0f6;
+  --c-panel: #f8f9fc;
+  --c-raised: #ffffff;
+  --c-soft: #f1f3f8;
+  --c-hover: #e8ebf2;
+  --c-line: #d8dde7;
+  --c-line-strong: #c2c9d6;
+  --c-ink: #414b60;
+  --c-ink-strong: #1a2130;
+  --c-ink-soft: #5d6779;
+  --c-ink-muted: #6f7890;
+  --c-ink-faint: #8a93a6;
+  --c-ink-ghost: #a5adbd;
+  --c-accent: #6d4ae0;
+  --c-accent-strong: #5b34c9;
+  --c-accent-bright: #7443e8;
+  --c-on-accent: #ffffff;
+  --c-accent-wash: rgba(109, 74, 224, 0.1);
+  --c-accent-text: #5b34c9;
+  --c-ok: #167f56;
+  --c-warn: #ad6800;
+  --c-danger: #d6455f;
+  --c-danger-text: #bb2d48;
+  --c-glow: rgba(139, 92, 246, 0.09);
+  --c-backdrop: rgba(15, 18, 28, 0.45);
+  --c-shadow-panel: 0 24px 70px rgba(23, 28, 45, 0.12);
+}
+
+/* モカ: 暖色茶×琥珀 */
+html[data-theme="mocha"] {
+  color-scheme: dark;
+  --c-base: #171210;
+  --c-panel: #1f1915;
+  --c-raised: #272019;
+  --c-soft: #2b231b;
+  --c-hover: #352b21;
+  --c-line: #3b3025;
+  --c-line-strong: #4d3f30;
+  --c-ink: #f0e8dc;
+  --c-ink-strong: #fbf5ea;
+  --c-ink-soft: #cdc0ae;
+  --c-ink-muted: #a4937d;
+  --c-ink-faint: #8e7e69;
+  --c-ink-ghost: #71614e;
+  --c-accent: #e0a458;
+  --c-accent-strong: #c98a34;
+  --c-accent-bright: #f2c185;
+  --c-on-accent: #2b1c07;
+  --c-accent-wash: rgba(224, 164, 88, 0.12);
+  --c-accent-text: #f2c185;
+  --c-ok: #97c07a;
+  --c-warn: #e0905f;
+  --c-danger: #e07a6a;
+  --c-danger-text: #eda094;
+  --c-glow: rgba(224, 164, 88, 0.1);
+  --c-backdrop: rgba(12, 9, 6, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+}
+
+/* フォレスト: 深緑×緑 */
+html[data-theme="forest"] {
+  color-scheme: dark;
+  --c-base: #0c1310;
+  --c-panel: #111a15;
+  --c-raised: #15211a;
+  --c-soft: #18251d;
+  --c-hover: #1f3025;
+  --c-line: #24352a;
+  --c-line-strong: #2f4736;
+  --c-ink: #e2eee4;
+  --c-ink-strong: #f1f9f2;
+  --c-ink-soft: #adc1b1;
+  --c-ink-muted: #7f9585;
+  --c-ink-faint: #6d8374;
+  --c-ink-ghost: #556a5c;
+  --c-accent: #6fce8f;
+  --c-accent-strong: #4cb271;
+  --c-accent-bright: #93ddab;
+  --c-on-accent: #0a2414;
+  --c-accent-wash: rgba(111, 206, 143, 0.12);
+  --c-accent-text: #93ddab;
+  --c-ok: #58c9a2;
+  --c-warn: #d9b163;
+  --c-danger: #e2777c;
+  --c-danger-text: #eb9fa2;
+  --c-glow: rgba(111, 206, 143, 0.1);
+  --c-backdrop: rgba(3, 8, 5, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+}
+
+/* サクラ: 明るい桜色×ローズ */
+html[data-theme="sakura"] {
+  color-scheme: light;
+  --c-base: #faf3f5;
+  --c-panel: #fffbfc;
+  --c-raised: #ffffff;
+  --c-soft: #f9edf1;
+  --c-hover: #f4e3e9;
+  --c-line: #ecd6dd;
+  --c-line-strong: #dabfc9;
+  --c-ink: #5d4a52;
+  --c-ink-strong: #31222a;
+  --c-ink-soft: #7a626c;
+  --c-ink-muted: #8d7580;
+  --c-ink-faint: #a58d97;
+  --c-ink-ghost: #c0aab2;
+  --c-accent: #d0497c;
+  --c-accent-strong: #b83a67;
+  --c-accent-bright: #dd6b97;
+  --c-on-accent: #46172a;
+  --c-accent-wash: rgba(208, 73, 124, 0.1);
+  --c-accent-text: #b83a67;
+  --c-ok: #23875d;
+  --c-warn: #a96a10;
+  --c-danger: #d24d61;
+  --c-danger-text: #b93348;
+  --c-glow: rgba(221, 107, 151, 0.1);
+  --c-backdrop: rgba(43, 20, 30, 0.45);
+  --c-shadow-panel: 0 24px 70px rgba(88, 45, 60, 0.12);
+}
+
+/* ターミナル: ほぼ黒×蛍光緑 */
+html[data-theme="terminal"] {
+  color-scheme: dark;
+  --c-base: #060a08;
+  --c-panel: #0a0f0c;
+  --c-raised: #0e1511;
+  --c-soft: #101913;
+  --c-hover: #16221a;
+  --c-line: #1c2b21;
+  --c-line-strong: #2a4033;
+  --c-ink: #9be3ae;
+  --c-ink-strong: #d6ffe0;
+  --c-ink-soft: #7cc491;
+  --c-ink-muted: #5f9a71;
+  --c-ink-faint: #528562;
+  --c-ink-ghost: #40684e;
+  --c-accent: #3cf07a;
+  --c-accent-strong: #1fd45f;
+  --c-accent-bright: #86ffa8;
+  --c-on-accent: #03140a;
+  --c-accent-wash: rgba(60, 240, 122, 0.12);
+  --c-accent-text: #86ffa8;
+  --c-ok: #48e07e;
+  --c-warn: #e6c94c;
+  --c-danger: #f4675f;
+  --c-danger-text: #ff8f86;
+  --c-glow: rgba(60, 240, 122, 0.1);
+  --c-backdrop: rgba(0, 4, 2, 0.82);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+/* ラン状態ドットの pulse (旧 @keyframes pulse 相当) */
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * ベース
+ * ------------------------------------------------------------------------- */
+@layer base {
+  html,
+  body {
+    height: 100%;
+    min-height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--c-ink);
+    background:
+      radial-gradient(circle at 74% 5%, var(--c-glow), transparent 27rem), var(--c-base);
+    overscroll-behavior: none;
+  }
+
+  /* Tailwind v4 の preflight は button の cursor を既定に戻すため旧挙動を復元 */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  dialog::backdrop {
+    background: var(--c-backdrop);
+    backdrop-filter: blur(3px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 共有コンポーネントクラス
+ * ------------------------------------------------------------------------- */
+@layer components {
+  /* input / select / textarea 共通 */
+  .field {
+    @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink outline-none transition-colors focus:border-accent;
+  }
+
+  /* ステータスドット (7px)。色クラスと組み合わせて使う */
+  .dot {
+    @apply inline-block flex-shrink-0 rounded-full;
+    width: 7px;
+    height: 7px;
+  }
+  .dot-ok {
+    background: var(--c-ok);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--c-ok) 12%, transparent),
+      0 0 12px color-mix(in srgb, var(--c-ok) 65%, transparent);
+  }
+  .dot-warn {
+    background: var(--c-warn);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--c-warn) 12%, transparent),
+      0 0 10px color-mix(in srgb, var(--c-warn) 55%, transparent);
+  }
+  .dot-danger {
+    background: var(--c-danger);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--c-danger) 12%, transparent),
+      0 0 10px color-mix(in srgb, var(--c-danger) 55%, transparent);
+  }
+  .dot-accent {
+    background: var(--c-accent);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--c-accent) 12%, transparent),
+      0 0 10px color-mix(in srgb, var(--c-accent) 70%, transparent);
+  }
+  .dot-idle {
+    background: var(--c-ink-ghost);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-ink-ghost) 15%, transparent);
+  }
+  .dot-pulse {
+    animation: dot-pulse 1.2s ease-in-out infinite;
+  }
+
+  /* 細いスクロールバー */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-line-strong) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--c-line-strong);
+  }
+
+  /* テーマスイッチャーの色見本。各テーマの実色をハードコードで表示する */
+  .theme-swatch {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+  }
+  .theme-swatch[data-theme-id="midnight"] {
+    background: #0d1016;
+    box-shadow: 0 0 0 1.5px rgba(167, 139, 250, 0.75);
+  }
+  .theme-swatch[data-theme-id="daylight"] {
+    background: #f2f4f9;
+    box-shadow: 0 0 0 1.5px rgba(109, 74, 224, 0.65);
+  }
+  .theme-swatch[data-theme-id="mocha"] {
+    background: #1f1915;
+    box-shadow: 0 0 0 1.5px rgba(224, 164, 88, 0.75);
+  }
+  .theme-swatch[data-theme-id="forest"] {
+    background: #111a15;
+    box-shadow: 0 0 0 1.5px rgba(111, 206, 143, 0.75);
+  }
+  .theme-swatch[data-theme-id="sakura"] {
+    background: #faf0f3;
+    box-shadow: 0 0 0 1.5px rgba(208, 73, 124, 0.65);
+  }
+  .theme-swatch[data-theme-id="terminal"] {
+    background: #060a08;
+    box-shadow: 0 0 0 1.5px rgba(60, 240, 122, 0.75);
+  }
+}

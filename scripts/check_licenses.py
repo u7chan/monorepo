@@ -621,6 +621,49 @@ def check_target(target: Path, policy: dict) -> TargetSummary:
     return TargetSummary(target, len(packages), pass_count, warn_count, fail_count, items)
 
 
+def resolve_node_target(target: Path) -> Path:
+    """Group locked pnpm workspace importers, not arbitrary nested projects.
+
+    Read importer keys from pnpm's generated (two-space indented) lockfile.
+    Unrecognized keys are left as separate targets so they cannot silently
+    bypass the missing-lockfile check. An independent lockfile is a boundary.
+    """
+    if (target / "pyproject.toml").exists():
+        return target
+    locks = ("bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock")
+    for parent in (target, *target.parents):
+        if not parent.is_relative_to(ROOT):
+            break
+        if any((parent / lock).exists() for lock in locks):
+            if (
+                parent != target
+                and (parent / "pnpm-workspace.yaml").is_file()
+                and (parent / "pnpm-lock.yaml").is_file()
+                and not any((parent / lock).exists() for lock in locks if lock != "pnpm-lock.yaml")
+            ):
+                relative = target.relative_to(parent).as_posix()
+                in_importers = False
+                for line in (parent / "pnpm-lock.yaml").read_text(encoding="utf-8").splitlines():
+                    if line == "importers:":
+                        in_importers = True
+                        continue
+                    if in_importers and line and not line[0].isspace():
+                        break
+                    if in_importers and re.fullmatch(r"  \S.*:", line):
+                        key = line[2:-1]
+                        if key.startswith("'") and key.endswith("'"):
+                            key = key[1:-1].replace("''", "'")
+                        elif key.startswith('"'):
+                            try:
+                                key = json.loads(key)
+                            except ValueError:
+                                continue
+                        if key == relative:
+                            return parent
+            break
+    return target
+
+
 def parse_targets(args: argparse.Namespace) -> list[Path]:
     targets: list[str] = []
     if args.target:
@@ -635,6 +678,7 @@ def parse_targets(args: argparse.Namespace) -> list[Path]:
     seen: set[Path] = set()
     for target in targets:
         path = (ROOT / target).resolve() if not Path(target).is_absolute() else Path(target).resolve()
+        path = resolve_node_target(path)
         if path not in seen:
             seen.add(path)
             unique.append(path)
@@ -663,7 +707,7 @@ def discover_all_targets() -> list[Path]:
     projects = ROOT / "projects"
     for manifest in projects.rglob("package.json"):
         if "node_modules" not in manifest.parts:
-            targets.add(manifest.parent)
+            targets.add(resolve_node_target(manifest.parent))
     for manifest in projects.rglob("pyproject.toml"):
         if ".venv" not in manifest.parts:
             targets.add(manifest.parent)

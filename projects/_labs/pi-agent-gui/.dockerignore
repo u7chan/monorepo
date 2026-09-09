@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/dist
+.playwright-cli
+.env
+.env.*
+*.log
+*.bundle
