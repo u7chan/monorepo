@@ -9,7 +9,7 @@ import { useAgentDesk } from "./hooks/useAgentDesk";
 export default function App() {
   const desk = useAgentDesk();
   const [managerOpen, setManagerOpen] = useState(false);
-  // ManagerScreen の Escape ハンドラに安定した参照を渡す
+  // ManagerScreen の dialog close / 閉じるボタンへ渡す安定参照
   const closeManager = useCallback(() => setManagerOpen(false), []);
 
   const handleSend = useCallback(

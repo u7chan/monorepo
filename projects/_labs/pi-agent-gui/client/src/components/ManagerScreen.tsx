@@ -56,6 +56,9 @@ export function ManagerScreen({
   defaultModel,
   defaultThinkingLevel,
 }: ManagerScreenProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  /** 開く前にフォーカスしていた要素 (閉じたときに戻す) */
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editingType, setEditingType] = useState<EditingType>("agent");
@@ -79,14 +82,21 @@ export function ManagerScreen({
 
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // フルスクリーン画面の Escape で閉じる (dialog の標準挙動の代替)
+  // モーダル dialog として開く。背面の inert 化 (フォーカス・操作の遮断) と
+  // Tab のフォーカス拘束、Escape での終了は showModal() の標準挙動に任せる。
+  // StrictMode の二重実行でも例外にならないよう open を確認する。
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+      dialog.showModal();
+    } else if (!dialog.contains(document.activeElement)) {
+      // 直前の cleanup でフォーカスが背面へ戻されている (StrictMode)
+      dialog.focus();
+    }
+    return () => previousFocusRef.current?.focus();
+  }, []);
 
   // 選択対象が変わったらフォームへ流し込む
   useEffect(() => {
@@ -309,11 +319,15 @@ export function ManagerScreen({
     ].join(" ");
 
   return (
-    <div
-      role="dialog"
+    // フルスクリーン表示のモーダル dialog。showModal() により背面へは
+    // フォーカスもポインタ操作も届かない (dialog の標準挙動)。
+    <dialog
+      ref={dialogRef}
+      onClose={onClose}
       aria-modal="true"
       aria-label="エージェントとスキルを管理"
-      className="fixed inset-0 z-50 grid grid-rows-[auto_minmax(0,1fr)_auto] bg-base text-ink"
+      tabIndex={-1}
+      className="m-0 grid h-dvh w-screen max-h-none max-w-none grid-rows-[auto_minmax(0,1fr)_auto] rounded-none border-0 bg-base p-0 text-ink"
     >
       {/* ヘッダ */}
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 pb-3.5 pt-4 max-nav:grid max-nav:grid-cols-[minmax(0,1fr)]">
@@ -640,6 +654,6 @@ export function ManagerScreen({
       >
         {note.text}
       </div>
-    </div>
+    </dialog>
   );
 }
