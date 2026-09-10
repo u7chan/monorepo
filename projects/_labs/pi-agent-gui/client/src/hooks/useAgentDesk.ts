@@ -24,6 +24,7 @@ import type {
   ThinkingLevel,
 } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
+import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { useSessionEvents } from "./useSessionEvents";
 
 const SESSION_KEY = "pi-agent-session";
@@ -54,11 +55,8 @@ export function effortLabel(level: string): string {
   return EFFORT_LABELS[level as ThinkingLevel] ?? level;
 }
 
-/** セッション作成前に選んだ値 (未作成チャットの初期値) */
-export type SettingsSelection = {
-  model?: ModelRef;
-  thinkingLevel?: ThinkingLevel;
-};
+/** 作成前の選択と設定変更リクエストで共通の指定 (未作成チャットでは初期値になる) */
+export type { SettingsSelection };
 
 /** 入力欄付近の Model / Effort ピッカーに渡す状態 */
 export type ComposerSettings = {
@@ -247,24 +245,26 @@ export function useAgentDesk() {
     }
     setSettingsChanging(true);
     try {
-      const payload = await updateSessionSettings(id, selection);
-      applySnapshot(payload);
-      dispatch({ type: "setActivity", text: "設定を変更しました" });
-    } catch (error) {
-      // 表示は先にサーバーの実効状態へ戻し、そのうえで失敗理由を出す
-      // (resync は activity をクリアするため、順序を逆にすると理由が消える)
-      try {
-        applySnapshot(await getSession(id));
-      } catch {
-        // セッションが消えている場合は onClosed 側の再選択に任せる
-      }
-      if (error instanceof ApiError && error.status === 409) {
-        dispatch({ type: "setActivity", text: error.message });
-      } else {
-        const status = runtimeStatusForError(error);
-        setRuntimeStatus(status);
-        dispatch({ type: "setActivity", text: status.detail || status.text });
-      }
+      await applySettingsChange(id, selection, {
+        // 応答・回復 GET の各 await 後に「まだ同じチャットか」を確認し、
+        // 別セッションへ切替済みの古い応答は表示に適用しない。
+        isCurrentSession: () => sessionIdRef.current === id,
+        request: updateSessionSettings,
+        recover: getSession,
+        applyPayload: applySnapshot,
+        onSuccess: () => {
+          dispatch({ type: "setActivity", text: "設定を変更しました" });
+        },
+        onError: (error) => {
+          if (error instanceof ApiError && error.status === 409) {
+            dispatch({ type: "setActivity", text: error.message });
+            return;
+          }
+          const status = runtimeStatusForError(error);
+          setRuntimeStatus(status);
+          dispatch({ type: "setActivity", text: status.detail || status.text });
+        },
+      });
     } finally {
       setSettingsChanging(false);
     }

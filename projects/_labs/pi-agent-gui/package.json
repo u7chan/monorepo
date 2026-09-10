@@ -10,7 +10,7 @@
     "dev": "pnpm --filter server dev",
     "dev:web": "pnpm --filter client dev",
     "build": "pnpm --filter client build",
-    "test": "pnpm --filter server test",
+    "test": "pnpm --filter server test && pnpm --filter client test",
     "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck"
   },
   "engines": {

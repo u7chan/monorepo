@@ -73,6 +73,7 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 - `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て
 - `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント
 - `server/test/`: node:test（pi はスタブで実 API を呼ばない）
+- `client/test/`: node:test（DOM を使わない純粋なクライアントロジックのみ。設定変更応答の競合など）
 
 ## ドキュメント
 
@@ -83,7 +84,7 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 
 ## Docker / CI・CD
 
-モノレポのPR CIは `test` ステージで型チェック、スタブを用いた12件のテスト、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
+モノレポのPR CIは `test` ステージで型チェック、スタブを用いたテスト（server: 非同期実行と API、client: 設定変更の応答適用）、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
 
 ```text
 ghcr.io/u7chan/monorepo/pi-agent-gui:latest
