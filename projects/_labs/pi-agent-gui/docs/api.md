@@ -8,7 +8,31 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `availableModels` / `cwd`）。認証が無い場合は `errorCode: "authentication_required"` |
+| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd`）。認証が無い場合は `errorCode: "authentication_required"` |
+
+`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。明示 `PI_MODEL` が利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。
+
+```json
+{
+  "ok": true,
+  "ready": true,
+  "model": "deepseek/deepseek-v4-flash",
+  "availableModels": ["deepseek/deepseek-v4-flash"],
+  "modelOptions": [
+    {
+      "provider": "deepseek",
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "supportsThinking": true,
+      "thinkingLevels": ["off", "low", "high", "max"]
+    }
+  ],
+  "defaultThinkingLevel": "medium",
+  "defaultModelError": "PI_MODEL のモデルは利用できません: openai/ghost"
+}
+```
+
+`modelOptions` は認証済みで利用可能なモデルのみ。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
 
 ## エージェント / スキル
 
@@ -16,13 +40,39 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | GET | `/api/agents` | エージェントとスキルの一覧 |
 | PUT | `/api/agents` | エージェント定義をJSONで一括置換 |
-| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds }` |
-| PATCH / PUT | `/api/agents/:id` | エージェント更新 |
+| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, model?, thinkingLevel? }` |
+| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`null` は指定解除） |
 | DELETE | `/api/agents/:id` | エージェント削除（最後の 1 体は削除不可） |
 | GET | `/api/skills` | スキル一覧 |
 | POST | `/api/skills` | スキル作成 `{ name, description, prompt }` |
 | PATCH / PUT | `/api/skills/:id` | スキル更新 |
 | DELETE | `/api/skills/:id` | スキル削除（エージェントの割り当てからも外れる） |
+
+### エージェント定義の Model / Effort
+
+エージェント定義には任意の `model`（`{ provider, id }`）と `thinkingLevel` を持たせられます。それぞれ独立して任意で、片方だけの指定や、Model 未指定で Effort だけの指定もできます。既定の組み込みエージェントはどちらも未指定です。
+
+- GET / export は未指定項目のキーを省略し、`null` は保存・応答に現れない。
+- 更新要求はキー省略で保持、`model: null` / `thinkingLevel: null` で指定解除する。
+- import はキー省略を未指定として受け付け、旧形式（追加項目なし）のファイルもそのまま使える。利用不能なモデル参照も形式が正しければ定義には保持できる（実行時に検証してエラーになる）。
+- 不正な `ModelRef` や未知の `thinkingLevel` は 400。
+
+```json
+{
+  "agents": [
+    {
+      "id": "agent-cat",
+      "name": "ねこ先生",
+      "description": "ねこ口調で、やさしく教えてくれる",
+      "systemPrompt": "…",
+      "skillIds": [],
+      "model": { "provider": "openai", "id": "gpt-5.5" },
+      "thinkingLevel": "high"
+    }
+  ],
+  "skills": []
+}
+```
 
 ### エージェント定義のインポート / エクスポート
 
@@ -80,7 +130,15 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 ### `POST /api/sessions`
 
-セッション作成。body は任意（`{ "agentId": "agent-cat" }` を渡せる）。201 でセッションペイロードを返す。
+セッション作成。body は任意。
+
+```json
+{ "agentId": "agent-cat", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high" }
+```
+
+- `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。
+- 明示されたモデルは利用可能一覧の provider/id と厳密照合し、利用不能なら 400、利用可能モデル自体がゼロなら 503。いずれも pi SDK のセッション作成前に拒否する。
+- 作成時に指定した値はそのチャット内だけに適用され、定義や他のチャットへは波及しない。201 でセッションペイロードを返す。
 
 ### `GET /api/sessions/:id`
 
@@ -93,7 +151,10 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "queueDepth": 0,
   "lastSeq": 42,
   "title": "…",
-  "model": "…",
+  "model": "deepseek/deepseek-v4-flash",
+  "thinkingLevel": "high",
+  "supportsThinking": true,
+  "availableThinkingLevels": ["off", "low", "high", "max"],
   "cwd": "…",
   "agent": { "id": "…", "name": "…", "skills": ["…"] },
   "run": {
@@ -108,6 +169,23 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   ]
 }
 ```
+
+`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
+
+### `PATCH /api/sessions/:id/settings`
+
+チャット単位の Model / Effort 変更。同じ SDK セッション・会話履歴・タイトルを保つ。
+
+```json
+// request (片方だけでもよい)
+{ "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high" }
+// response (200): セッションペイロード
+```
+
+- 省略した項目は現在値維持。空 body・`null`・不正な値・利用不能なモデルは 400、存在しないセッションは 404。
+- モデルだけ変更するときは変更前の実効 Effort を退避して SDK 切替後に再適用する。両方指定したときは要求した Effort を再適用する。SDK が非対応値を補正するため、応答は補正後の実効値になる。
+- 実行中・送信待ちキューあり・SDK が非 idle・別の設定変更中のときは 409（値は変わらない）。変更中は同セッションへの送信も 409 になり、変更完了後に解除される。
+- 変更は `resync` イベントで購読中のクライアントへ同期する。
 
 ### `POST /api/sessions/:id/messages`
 

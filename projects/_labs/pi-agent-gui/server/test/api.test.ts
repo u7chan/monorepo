@@ -8,108 +8,17 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
 import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
-import type { PiBff } from "../src/agent";
 import { createBffApp } from "../src/app";
-
-/**
- * Minimal stub of the pi runtime/session used by the store. It mimics the
- * event flow of createAgentSession(): subscribe/prompt/abort + agent events.
- * Abort interrupts the in-flight chunk delay; the prompt loop then unwinds and
- * emits agent_settled itself, mirroring the real SDK.
- */
-function createStubSession({ reply = "スタブの返答です", chunkDelayMs = 0 } = {}) {
-  const listeners = new Set<(event: unknown) => void>();
-  const sleepers = new Set<() => void>();
-  const sleep = (ms: number) => new Promise<void>((resolveSleep) => {
-    if (ms <= 0) {
-      resolveSleep();
-      return;
-    }
-    const wake = () => {
-      clearTimeout(timer);
-      sleepers.delete(wake);
-      resolveSleep();
-    };
-    const timer = setTimeout(wake, ms);
-    timer.unref?.();
-    sleepers.add(wake);
-  });
-  const session = {
-    sessionId: `pi-${Math.random().toString(36).slice(2, 10)}`,
-    model: { provider: "stub", id: "stub-model" },
-    thinkingLevel: "low",
-    messages: [] as Array<{ role: string; content: unknown }>,
-    isStreaming: false,
-    disposed: false,
-    abortRequested: false,
-    sessionManager: { getCwd: () => "/tmp/project" },
-    subscribe(listener: (event: unknown) => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    emit(event: unknown) {
-      for (const listener of [...listeners]) listener(event);
-    },
-    async abort() {
-      if (!session.isStreaming) return;
-      session.abortRequested = true;
-      for (const wake of [...sleepers]) wake();
-    },
-    dispose() {
-      session.disposed = true;
-    },
-    async prompt(text: string) {
-      session.abortRequested = false;
-      session.isStreaming = true;
-      try {
-        session.messages.push({ role: "user", content: text });
-        session.emit({ type: "agent_start" });
-        session.emit({ type: "message_start", message: { role: "assistant" } });
-        const assistant = { role: "assistant", content: [{ type: "text", text: "" }], stopReason: "stop" };
-        session.messages.push(assistant);
-        const chunks = [reply.slice(0, 3), reply.slice(3)].filter(Boolean);
-        for (const chunk of chunks) {
-          await sleep(chunkDelayMs);
-          if (session.abortRequested) break;
-          (assistant.content[0] as { text: string }).text += chunk;
-          session.emit({
-            type: "message_update",
-            assistantMessageEvent: { type: "text_delta", delta: chunk },
-          });
-        }
-        if (session.abortRequested) assistant.stopReason = "aborted";
-      } finally {
-        session.emit({ type: "agent_settled" });
-        session.isStreaming = false;
-      }
-    },
-  };
-  return session;
-}
-
-function createStubPi(options = {}) {
-  const sessions: ReturnType<typeof createStubSession>[] = [];
-  return {
-    cwd: "/tmp/project",
-    selectedModel: { provider: "stub", id: "stub-model" },
-    availableModels: [{ provider: "stub", id: "stub-model" }],
-    tools: ["read"],
-    sessions,
-    createSession: async () => {
-      const session = createStubSession(options);
-      sessions.push(session);
-      return { session };
-    },
-  };
-}
-
-/** store が受ける PiBff の最小模倣であることを明示するためのキャスト */
-function asPiBff(pi: unknown): PiBff {
-  return pi as PiBff;
-}
+import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
   method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
+
+const jsonPatch = (payload: unknown): RequestInit => ({
+  method: "PATCH",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(payload),
 });
@@ -197,28 +106,247 @@ test("server still answers when the pi runtime failed to initialize", async () =
 test("reports missing API-key authentication before creating an unusable session", async () => {
   const bff = await createBffApp({
     cwd: "/tmp/project",
-    pi: asPiBff({
-      cwd: "/tmp/project",
-      selectedModel: undefined,
-      availableModels: [],
-      availabilityError: AUTH_REQUIRED_MESSAGE,
-      tools: [],
-      createSession: async () => {
-        const error = new Error(AUTH_REQUIRED_MESSAGE) as Error & { statusCode?: number };
-        error.statusCode = 503;
-        throw error;
-      },
-    }),
+    pi: asPiBff(
+      createStubPi({
+        availableModels: [],
+        selectedModel: null,
+        availabilityError: AUTH_REQUIRED_MESSAGE,
+        createSessionRejects: 1,
+      }),
+    ),
   });
   try {
     const health = await jsonBody(bff.app.request("/api/health"));
     assert.equal(health.ready, false);
     assert.equal(health.errorCode, "authentication_required");
     assert.equal(health.error, AUTH_REQUIRED_MESSAGE);
+    assert.deepEqual(health.modelOptions, []);
 
     const response = await bff.app.request("/api/sessions", jsonPost({}));
     assert.equal(response.status, 503);
     assert.equal((await jsonBody(response)).error, AUTH_REQUIRED_MESSAGE);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("health exposes the model picker options and the app default thinking level", async () => {
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    pi: asPiBff(createStubPi({ defaultThinkingLevel: "low" })),
+  });
+  try {
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.ready, true);
+    assert.equal(health.model, "stub/stub-model");
+    assert.equal(health.defaultThinkingLevel, "low");
+    assert.equal(health.defaultModelError, undefined);
+    assert.deepEqual(
+      health.modelOptions.map((option: { supportsThinking: boolean; thinkingLevels: string[] }) => [
+        option.supportsThinking,
+        option.thinkingLevels,
+      ]),
+      [
+        [true, ["off", "minimal", "low", "medium", "high"]],
+        [false, ["off"]],
+      ],
+    );
+    assert.deepEqual(
+      health.modelOptions.map((option: { name: string }) => option.name),
+      ["Stub Model", "Stub Plain"],
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("an unusable PI_MODEL keeps ready true and surfaces a default model error", async () => {
+  const pi = createStubPi({
+    selectedModel: null,
+    defaultModelError: "PI_MODEL のモデルは利用できません: stub/ghost",
+  });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const health = await jsonBody(app.request("/api/health"));
+    assert.equal(health.ready, true, "他候補があるなら ready のままにする");
+    assert.equal(health.model, undefined);
+    assert.match(health.defaultModelError, /stub\/ghost/);
+    assert.equal(health.errorCode, undefined);
+
+    // 明示モデル無しの作成は 503 (別モデルへ黙って fallback しない)
+    const fallback = await app.request("/api/sessions", jsonPost({}));
+    assert.equal(fallback.status, 503);
+    assert.match((await jsonBody(fallback)).error, /stub\/ghost/);
+
+    // 有効なモデルを明示すれば作成できる
+    const created = await app.request("/api/sessions", jsonPost({ model: { provider: "stub", id: "stub-plain" } }));
+    assert.equal(created.status, 201);
+    const payload = await jsonBody(created);
+    assert.equal(payload.model, "stub/stub-plain");
+    assert.deepEqual(pi.createInputs.at(-1)?.model, { provider: "stub", id: "stub-plain" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("session creation resolves request → definition → app default per field", async () => {
+  const pi = createStubPi({ defaultThinkingLevel: "medium" });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const { app, catalog } = bff;
+  try {
+    catalog.updateAgent("agent-reviewer", {
+      model: { provider: "stub", id: "stub-plain" },
+      thinkingLevel: "low",
+    });
+
+    // 定義の model / thinkingLevel が使われる
+    const fromDefinition = await app.request("/api/sessions", jsonPost({ agentId: "agent-reviewer" }));
+    assert.equal(fromDefinition.status, 201);
+    const defined = await jsonBody(fromDefinition);
+    assert.equal(defined.model, "stub/stub-plain");
+    assert.equal(defined.thinkingLevel, "low");
+
+    // リクエストは項目ごとに定義を上書きする
+    const fromRequest = await app.request(
+      "/api/sessions",
+      jsonPost({
+        agentId: "agent-reviewer",
+        model: { provider: "stub", id: "stub-model" },
+        thinkingLevel: "high",
+      }),
+    );
+    assert.equal(fromRequest.status, 201);
+    const requested = await jsonBody(fromRequest);
+    assert.equal(requested.model, "stub/stub-model");
+    assert.equal(requested.thinkingLevel, "high");
+    assert.equal(requested.supportsThinking, true);
+
+    // アプリ既定 (medium) は定義もリクエストも無い項目にだけ使われる
+    const appDefault = await app.request("/api/sessions", jsonPost({ agentId: "agent-cat" }));
+    const payload = await jsonBody(appDefault);
+    assert.equal(payload.model, "stub/stub-model");
+    assert.equal(payload.thinkingLevel, "medium");
+
+    // 不正な値は SDK 作成前に 400
+    const invalidModel = await app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-cat", model: { provider: "stub", id: "ghost" } }),
+    );
+    assert.equal(invalidModel.status, 400);
+    assert.match((await jsonBody(invalidModel)).error, /not available/);
+
+    const invalidLevel = await app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-cat", thinkingLevel: "ultra" }),
+    );
+    assert.equal(invalidLevel.status, 400);
+
+    const nullModel = await app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-cat", model: null }),
+    );
+    assert.equal(nullModel.status, 400);
+    assert.equal(pi.sessions.length, 3, "400 は SDK 作成まで到達しない");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("chat settings endpoint validates the body and reports missing sessions", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    const base = `/api/sessions/${created.sessionId}/settings`;
+
+    const missing = await app.request("/api/sessions/nope/settings", jsonPatch({ thinkingLevel: "high" }));
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await jsonBody(missing), { error: "Session not found" });
+
+    const empty = await app.request(base, jsonPatch({}));
+    assert.equal(empty.status, 400);
+    assert.match((await jsonBody(empty)).error, /model or thinkingLevel/);
+
+    const nullLevel = await app.request(base, jsonPatch({ thinkingLevel: null }));
+    assert.equal(nullLevel.status, 400);
+    assert.equal((await jsonBody(nullLevel)).error, "Invalid session settings");
+
+    const unknownLevel = await app.request(base, jsonPatch({ thinkingLevel: "ultra" }));
+    assert.equal(unknownLevel.status, 400);
+
+    const shortModel = await app.request(base, jsonPatch({ model: { provider: "stub" } }));
+    assert.equal(shortModel.status, 400);
+
+    const unavailable = await app.request(base, jsonPatch({ model: { provider: "stub", id: "ghost" } }));
+    assert.equal(unavailable.status, 400);
+    assert.match((await jsonBody(unavailable)).error, /not available/);
+
+    // 400 の間も値は不変
+    const unchanged = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
+    assert.equal(unchanged.thinkingLevel, "medium");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("chat settings endpoint applies the effective values and resyncs subscribers", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+
+    const changed = await app.request(
+      `/api/sessions/${created.sessionId}/settings`,
+      jsonPatch({ model: { provider: "stub", id: "stub-plain" }, thinkingLevel: "high" }),
+    );
+    assert.equal(changed.status, 200);
+    const payload = await jsonBody(changed);
+    assert.equal(payload.model, "stub/stub-plain");
+    assert.equal(payload.thinkingLevel, "off", "SDK 補正後の実効値が返る");
+    assert.equal(payload.supportsThinking, false);
+    assert.deepEqual(payload.availableThinkingLevels, ["off"]);
+
+    const events = await collectSse(eventsResponse, (list) => list.some((entry) => entry.type === "resync"));
+    const resync = events.find((entry) => entry.type === "resync");
+    assert.equal(resync?.data.thinkingLevel, "off");
+    assert.equal(resync?.data.model, "stub/stub-plain");
+    assert.equal(resync?.id, payload.lastSeq, "resync の seq は payload.lastSeq と一致する");
+
+    // 一覧の model も実効値へ追従する
+    const listed = await jsonBody(app.request("/api/sessions"));
+    assert.equal(listed.sessions[0].model, "stub/stub-plain");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("chat settings endpoint rejects changes while the session is busy", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi({ chunkDelayMs: 40 })) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    const posted = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "実行中" }));
+    assert.equal(posted.status, 202);
+
+    const duringRun = await app.request(
+      `/api/sessions/${created.sessionId}/settings`,
+      jsonPatch({ thinkingLevel: "high" }),
+    );
+    assert.equal(duringRun.status, 409);
+
+    const queued = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "待機" }));
+    assert.equal(queued.status, 202);
+    const duringQueue = await app.request(
+      `/api/sessions/${created.sessionId}/settings`,
+      jsonPatch({ thinkingLevel: "high" }),
+    );
+    assert.equal(duringQueue.status, 409);
+
+    await app.request(`/api/sessions/${created.sessionId}/stop`, { method: "POST" });
+    const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
+    assert.equal(payload.thinkingLevel, "medium", "409 で値は変わらない");
   } finally {
     await bff.close();
   }

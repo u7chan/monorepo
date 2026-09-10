@@ -4,11 +4,13 @@ import type {
   AgentDef,
   Catalog,
   Health,
+  ModelRef,
   PostMessageResult,
   SessionPayload,
   SessionSummary,
   SkillDef,
   StopResult,
+  ThinkingLevel,
 } from "./types";
 
 export class ApiError extends Error {
@@ -58,9 +60,16 @@ export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unkno
 
 // --- agents CRUD ---
 
-export const createAgent = async (
-  input: Pick<AgentDef, "name" | "description" | "systemPrompt" | "skillIds">,
-): Promise<{ agent: AgentDef }> => {
+/** エージェント定義の入力。model / thinkingLevel の null は指定解除 */
+export type AgentDefinitionInput = Pick<
+  AgentDef,
+  "name" | "description" | "systemPrompt" | "skillIds"
+> & {
+  model?: ModelRef | null;
+  thinkingLevel?: ThinkingLevel | null;
+};
+
+export const createAgent = async (input: AgentDefinitionInput): Promise<{ agent: AgentDef }> => {
   const res = await client.api.agents.$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
@@ -68,7 +77,7 @@ export const createAgent = async (
 
 export const updateAgent = async (
   id: string,
-  input: Partial<Pick<AgentDef, "name" | "description" | "systemPrompt" | "skillIds">>,
+  input: Partial<AgentDefinitionInput>,
 ): Promise<{ agent: AgentDef }> => {
   // catalog CRUD の body は zod 厳格化しない (pass-through) ため、hc の input 型に json が宣言されない。
   // 実行時は args.json が JSON body になる (hono/client 実装) ので、宣言済み引数型へ寄せて送る。
@@ -117,9 +126,17 @@ export const listSessions = async (): Promise<{ sessions: SessionSummary[] }> =>
   return res.json();
 };
 
+/** セッション作成時のチャット指定 (未指定の項目は定義 → アプリ既定へ解決される) */
+export type SessionOverrides = {
+  model?: ModelRef;
+  thinkingLevel?: ThinkingLevel;
+};
+
 /** 201 でセッションの完全ペイロードが返る */
-export const createSession = async (agentId?: string): Promise<SessionPayload> => {
-  const res = await client.api.sessions.$post({ json: agentId ? { agentId } : {} });
+export const createSession = async (agentId?: string, overrides: SessionOverrides = {}): Promise<SessionPayload> => {
+  const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel } = { ...overrides };
+  if (agentId) json.agentId = agentId;
+  const res = await client.api.sessions.$post({ json });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
@@ -132,6 +149,22 @@ export const getSession = async (sessionId: string): Promise<SessionPayload> => 
 
 export const deleteSession = async (sessionId: string): Promise<unknown> => {
   const res = await client.api.sessions[":id"].$delete({ param: { id: sessionId } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * チャット単位の Model / Effort 変更。省略した項目は現在値を維持する。
+ * SDK 補正後の実効値を含む SessionPayload が返る。
+ */
+export const updateSessionSettings = async (
+  sessionId: string,
+  settings: SessionOverrides,
+): Promise<SessionPayload> => {
+  const res = await client.api.sessions[":id"].settings.$patch({
+    param: { id: sessionId },
+    json: settings,
+  });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

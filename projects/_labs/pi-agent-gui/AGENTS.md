@@ -25,6 +25,7 @@ pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ G
 - `server/src/schema.ts` — zod スキーマ + DTO 型（API 契約の正。client もここを参照する）
 - `client/` — フロントエンド（Vite + React + TypeScript + Tailwind CSS v4）
 - `server/test/` — node:test（pi はスタブ。listen せず `app.request()` で検証）
+- `client/test/` — node:test（DOM を使わない純粋なロジックのみ。`client/src/hooks/settingsChange.ts` の応答適用ガードなど）
 
 ## ドキュメント
 

@@ -42,9 +42,14 @@ pnpm dev:web
 # 使用モデルを固定する場合
 PI_MODEL=anthropic/claude-sonnet-4-5 pnpm start
 
+# 推論の強さ（Effort）を既定で変える場合
+PI_THINKING=high pnpm start
+
 # 作業ディレクトリやポートを変える場合
 PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 ```
+
+`PI_MODEL` に指定したモデルが認証済みの候補に無い場合は、別のモデルへ黙って切り替えず、画面の Model 選択にエラーとして表示します。利用できるモデルを入力欄から選べばそのまま使えます。
 
 ## 使い方
 
@@ -53,6 +58,8 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 - 「新しい会話」でセッションを追加できます。既存の会話は残り、裏で実行中の処理も続きます
 - 「停止」で実行中の処理と待機キューを取り消せます
 - 「エージェント / スキルを管理」から、指示文を書いたスキルを作成してエージェントに割り当てられます。割り当てたスキルは新しい会話のシステムプロンプトに反映されます
+- 入力欄の上にある Model / Effort で、その会話のモデルと推論の強さをいつでも切り替えられます。同じ会話・履歴・タイトルを保ったまま変わり、他の会話には影響しません。変更中はピッカーと送信が一時的に無効になります
+- エージェントの管理画面では、そのエージェントで新しい会話を始めるときの Model / Effort を「未指定」込みで指定できます。未指定の項目はアプリ既定が使われます。定義の変更は既存の会話に遡及しません
 - 管理画面の「インポート」「エクスポート」から、エージェントとスキルの定義を JSON ファイルで入出力できます
 - 画面右上のスイッチャーでテーマを切り替えられます。6 プリセット（ミッドナイト / デイライト / モカ / フォレスト / サクラ / ターミナル）とシステム追従から選択でき、選択はブラウザに保存されます
 - PC とスマートフォンの両方に対応しています。長い会話や設定画面はそれぞれの領域内でスクロールします
@@ -63,9 +70,10 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 
 ## 構成
 
-- `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成、`src/agents.ts` がエージェント定義とスキル割り当て
+- `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て
 - `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント
 - `server/test/`: node:test（pi はスタブで実 API を呼ばない）
+- `client/test/`: node:test（DOM を使わない純粋なクライアントロジックのみ。設定変更応答の競合など）
 
 ## ドキュメント
 
@@ -76,7 +84,7 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 
 ## Docker / CI・CD
 
-モノレポのPR CIは `test` ステージで型チェック、スタブを用いた12件のテスト、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
+モノレポのPR CIは `test` ステージで型チェック、スタブを用いたテスト（server: 非同期実行と API、client: 設定変更の応答適用）、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
 
 ```text
 ghcr.io/u7chan/monorepo/pi-agent-gui:latest

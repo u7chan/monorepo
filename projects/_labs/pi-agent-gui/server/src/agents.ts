@@ -5,7 +5,8 @@
  * port 元: src/agents.js — 日本語エラー文言・正規化ロジックを完全保存。
  */
 import { randomUUID } from "node:crypto";
-import type { AgentDef, Catalog, SkillDef } from "./schema";
+import { ThinkingLevelSchema } from "./schema";
+import type { AgentDef, Catalog, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
 /** HTTP ハンドラがステータスコードを参照するためのエラー */
 export interface HttpError extends Error {
@@ -98,13 +99,38 @@ function publicSkill(skill: SkillRecord): SkillDef {
 }
 
 function publicAgent(agent: AgentRecord): AgentDef {
-  return {
+  const result: AgentDef = {
     id: agent.id,
     name: agent.name,
     description: agent.description,
     systemPrompt: agent.systemPrompt,
     skillIds: [...agent.skillIds],
   };
+  // 未指定の項目はキーを省略する (保存・応答に null は現れない)
+  if (agent.model) result.model = { ...agent.model };
+  if (agent.thinkingLevel) result.thinkingLevel = agent.thinkingLevel;
+  return result;
+}
+
+/**
+ * 定義の model 項目を正規化する。
+ * undefined / null は「未指定」(= キー省略)、形式が違うものは 400。
+ */
+function modelRef(value: unknown): ModelRef | undefined {
+  if (value === undefined || value === null) return undefined;
+  const record = value as { provider?: unknown; id?: unknown } | null;
+  const provider = typeof record?.provider === "string" ? record.provider.trim() : "";
+  const id = typeof record?.id === "string" ? record.id.trim() : "";
+  if (!provider || !id) throw invalid("Model must look like { provider, id }");
+  return { provider, id };
+}
+
+/** 定義の thinkingLevel 項目を正規化する。undefined / null は未指定、未知の段階は 400。 */
+function thinkingLevelOf(value: unknown): ThinkingLevel | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = ThinkingLevelSchema.safeParse(typeof value === "string" ? value.trim() : value);
+  if (!parsed.success) throw invalid(`Unknown thinking level: ${String(value)}`);
+  return parsed.data;
 }
 
 function makeSkill(input: DefinitionInput, id: string = randomUUID()): SkillRecord {
@@ -125,16 +151,23 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     name?: unknown;
     description?: unknown;
     systemPrompt?: unknown;
+    model?: unknown;
+    thinkingLevel?: unknown;
   } | null;
   const name = text(record?.name);
   if (!name) throw invalid("Agent name is required");
-  return {
+  const agent: AgentRecord = {
     id,
     name,
     description: text(record?.description, "", 300),
     systemPrompt: text(record?.systemPrompt, ""),
     skillIds,
   };
+  const model = modelRef(record?.model);
+  const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
+  if (model) agent.model = model;
+  if (thinkingLevel) agent.thinkingLevel = thinkingLevel;
+  return agent;
 }
 
 export interface AgentCatalog {
@@ -238,13 +271,17 @@ export function createAgentCatalog(): AgentCatalog {
       const current = agents.get(id);
       if (!current) return undefined;
       const raw = input as { skillIds?: unknown } | null;
+      // model / thinkingLevel はスプレッドマージで扱う: キー省略は current を残し、
+      // null は makeAgent 側で「未指定」に正規化されてキーごと消える。
+      const merged = { ...current, ...(input as object) };
       const agent = makeAgent(
-        { ...current, ...(input as object) },
+        merged,
         raw && Object.hasOwn(raw, "skillIds")
           ? normalizeSkillIds(raw.skillIds)
           : normalizeSkillIds(current.skillIds),
         id,
       );
+      // makeAgent は undefined のキーを付けないので、解除は merged の上書きで成立する
       agents.set(id, agent);
       return publicAgent(agent);
     },

@@ -14,15 +14,18 @@ import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
 import type { AgentCatalog } from "./agents";
 import type {
   AgentDef,
+  AgentPayloadInfo,
   AgentSkillInfo,
   ChatMessage,
   EventEntry,
+  ModelRef,
   RunStatus,
   SessionPayload,
   SessionSummary,
   SSEEventType,
   SSEEventData,
   SkillDef,
+  ThinkingLevel,
   ToolCall,
 } from "./schema";
 
@@ -90,6 +93,12 @@ function modelLabel(model?: { provider: string; id: string } | null): string | u
   return `${model.provider}/${model.id}`;
 }
 
+function httpError(statusCode: number, message: string): HttpLikeError {
+  const error = new Error(message) as HttpLikeError;
+  error.statusCode = statusCode;
+  return error;
+}
+
 // ---------------------------------------------------------------------------
 // pi SDK セッションの最小 interface (pi SDK 側に都合のよい型がないため)
 // ---------------------------------------------------------------------------
@@ -119,9 +128,18 @@ export interface PiSessionLike {
   thinkingLevel?: string;
   messages: Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string }>;
   isStreaming: boolean;
+  /** SDK の isIdle (実行・compaction・retry が無い) */
+  isIdle: boolean;
   subscribe(listener: PiSessionEventListener): () => void;
   prompt(text: string): Promise<unknown>;
   abort(): Promise<unknown>;
+  /** モデル変更。SDK は認証確認後にモデルと thinking を切り替える */
+  setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
+  /** thinkingLevel 変更。SDK が非対応値を補正する */
+  setThinkingLevel(level: string, options?: { persist?: boolean }): void;
+  /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
+  getAvailableThinkingLevels(): string[];
+  supportsThinking(): boolean;
   dispose?(): void;
   disposed?: boolean;
   sessionManager?: { getCwd?(): string } | null;
@@ -129,7 +147,14 @@ export interface PiSessionLike {
 
 /** テストや埋め込み側が差し込む pi ランタイムの最小 interface */
 export interface PiRuntimeLike {
-  createSession(input?: { agent?: AgentDef; skills?: SkillDef[] }): Promise<{ session: unknown }>;
+  createSession(input?: {
+    agent?: AgentDef;
+    skills?: SkillDef[];
+    model?: ModelRef;
+    thinkingLevel?: ThinkingLevel;
+  }): Promise<{ session: unknown }>;
+  /** availableModels との厳密一致。未実装のスタブでは未定義を返す */
+  resolveModel?(model: ModelRef): unknown;
 }
 
 export interface RunState {
@@ -150,6 +175,8 @@ export interface SessionRecord {
   id: string;
   session: PiSessionLike;
   agentId: string;
+  /** 作成時点のエージェント表示情報 (定義の編集・削除の影響を受けないスナップショット) */
+  agent: AgentPayloadInfo;
   title: string;
   createdAt: number;
   lastUsedAt: number;
@@ -159,10 +186,20 @@ export interface SessionRecord {
   queue: string[];
   run: RunState | null;
   tools: Map<string, ToolCall>;
+  /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
+  changingSettings: boolean;
 }
 
 export interface CreateSessionOptions {
   agentId?: string;
+  /** 作成時のチャット指定 (未指定ならエージェント定義 → アプリ既定) */
+  model?: ModelRef;
+  thinkingLevel?: ThinkingLevel;
+}
+
+export interface UpdateSessionSettingsInput {
+  model?: ModelRef;
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface PostMessageResultInternal {
@@ -211,7 +248,7 @@ export class SessionStore {
     return this.records.size;
   }
 
-  async create({ agentId }: CreateSessionOptions = {}): Promise<SessionRecord> {
+  async create({ agentId, model, thinkingLevel }: CreateSessionOptions = {}): Promise<SessionRecord> {
     if (!this.pi) {
       const error = new Error("Pi runtime is not ready") as HttpLikeError;
       error.statusCode = 503;
@@ -227,11 +264,32 @@ export class SessionStore {
     const skills = agent.skillIds
       .map((skillId) => this.catalog.getSkill(skillId))
       .filter((skill): skill is SkillDef => Boolean(skill));
-    const { session } = await this.pi.createSession({ agent, skills });
+    // 表示に必要なエージェント情報は作成時にスナップショット化する
+    // (定義の編集・インポートを既存チャットに遡及させない)。
+    const agentInfo: AgentPayloadInfo = {
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      skillIds: [...agent.skillIds],
+      skills: skills.map((skill): AgentSkillInfo => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+      })),
+    };
+    // 項目別に「作成時のチャット指定 → エージェント定義」を解決する。
+    // どちらも未指定ならランタイム側のアプリ既定に委ねる。
+    const { session } = await this.pi.createSession({
+      agent: { ...agent, skillIds: [...agent.skillIds] },
+      skills,
+      model: model ?? agent.model,
+      thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
+    });
     const record: SessionRecord = {
       id: randomUUID(),
       session: session as PiSessionLike,
       agentId: agent.id,
+      agent: agentInfo,
       title: "",
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
@@ -241,9 +299,67 @@ export class SessionStore {
       queue: [],
       run: null,
       tools: new Map(),
+      changingSettings: false,
     };
     this.records.set(record.id, record);
     return record;
+  }
+
+  /**
+   * チャット単位のモデル・Effort 変更。同じ SDK セッション・履歴・タイトルを保つ。
+   * 実行中・キューあり・SDK 非 idle・別の設定変更中は 409。
+   */
+  async updateSettings(
+    record: SessionRecord,
+    input: UpdateSessionSettingsInput,
+  ): Promise<SessionPayload> {
+    if (
+      this.isBusy(record) ||
+      record.session.isStreaming ||
+      record.session.isIdle === false ||
+      record.changingSettings
+    ) {
+      throw httpError(409, "Session settings cannot be changed while the session is busy");
+    }
+    if (!this.pi) {
+      const error = new Error("Pi runtime is not ready") as HttpLikeError;
+      error.statusCode = 503;
+      throw error;
+    }
+
+    // モデルは作成時と同様に available へ厳密照合する (暗黙 fallback しない)
+    const modelObject = input.model ? this.pi.resolveModel?.(input.model) : undefined;
+    if (input.model && !modelObject) {
+      throw httpError(400, `Model is not available: ${input.model.provider}/${input.model.id}`);
+    }
+    const { session } = record;
+    // 変更開始前にフラグを同期的に予約する。以降の送信・二重変更は 409 になる。
+    record.changingSettings = true;
+    try {
+      if (input.model) {
+        // モデルだけ変更する場合は現在の実効 Effort を退避し、SDK 切替後に再適用する。
+        // 両方指定時は要求 Effort を再適用する。SDK が非対応値を補正する。
+        const previousThinking = session.thinkingLevel;
+        await session.setModel(modelObject, { persist: false });
+        session.setThinkingLevel(input.thinkingLevel ?? previousThinking ?? "medium", { persist: false });
+      } else if (input.thinkingLevel) {
+        session.setThinkingLevel(input.thinkingLevel, { persist: false });
+      }
+    } finally {
+      record.changingSettings = false;
+    }
+
+    record.lastUsedAt = Date.now();
+    // 実効値 (SDK 補正後) を正として購読中の全クライアントへ同期する
+    return this.emitResync(record);
+  }
+
+  /** resync イベントを記録し、そのイベントと同じ lastSeq を持つ payload を返す */
+  emitResync(record: SessionRecord): SessionPayload {
+    const payload = this.payload(record);
+    payload.lastSeq = record.seq + 1;
+    this.emit(record, "resync", payload);
+    return payload;
   }
 
   get(id: string): SessionRecord | undefined {
@@ -271,6 +387,10 @@ export class SessionStore {
    * 始めるか、ランが既に動いていればメッセージをキューに追加する。
    */
   postMessage(record: SessionRecord, text: string): PostMessageResultInternal {
+    // 設定変更中は送信も待たせる (BFF 側でも拒否する)
+    if (record.changingSettings) {
+      throw httpError(409, "Session settings are being changed");
+    }
     if (this.statusOf(record) === "running" || record.session.isStreaming) {
       if (record.queue.length >= MAX_QUEUE_DEPTH) {
         const error = new Error(`Message queue is full (max ${MAX_QUEUE_DEPTH})`) as HttpLikeError;
@@ -336,31 +456,27 @@ export class SessionStore {
 
   payload(record: SessionRecord): SessionPayload {
     const { session } = record;
-    const agent = this.catalog.getAgent(record.agentId);
+    const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
+      (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
     return {
       sessionId: record.id,
       piSessionId: session.sessionId,
       cwd: session.sessionManager?.getCwd?.(),
       model: modelLabel(session.model),
       thinkingLevel: session.thinkingLevel,
+      supportsThinking: session.supportsThinking(),
+      availableThinkingLevels,
       status: this.statusOf(record),
       title: record.title,
       createdAt: record.createdAt,
       lastUsedAt: record.lastUsedAt,
       queueDepth: record.queue.length,
       lastSeq: record.seq,
-      agent: agent
-        ? {
-            id: agent.id,
-            name: agent.name,
-            description: agent.description,
-            skillIds: [...agent.skillIds],
-            skills: agent.skillIds
-              .map((skillId) => this.catalog.getSkill(skillId))
-              .filter((skill): skill is SkillDef => Boolean(skill))
-              .map((skill): AgentSkillInfo => ({ id: skill.id, name: skill.name, description: skill.description })),
-          }
-        : undefined,
+      agent: {
+        ...record.agent,
+        skillIds: [...record.agent.skillIds],
+        skills: record.agent.skills.map((skill) => ({ ...skill })),
+      },
       run: record.run
         ? {
             id: record.run.id,
@@ -377,12 +493,11 @@ export class SessionStore {
   }
 
   summary(record: SessionRecord): SessionSummary {
-    const agent = this.catalog.getAgent(record.agentId);
     return {
       sessionId: record.id,
       title: record.title || "無題のセッション",
       agentId: record.agentId,
-      agentName: agent?.name,
+      agentName: record.agent.name,
       status: this.statusOf(record),
       queueDepth: record.queue.length,
       messageCount: sessionMessages(record.session).length,

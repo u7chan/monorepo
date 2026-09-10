@@ -13,6 +13,8 @@ export type {
   ChatMessage,
   EventEntry,
   Health,
+  ModelOption,
+  ModelRef,
   PostMessageResult,
   RunPayload,
   RunStatus,
@@ -20,6 +22,7 @@ export type {
   SessionSummary,
   SkillDef,
   StopResult,
+  ThinkingLevel,
   ToolCall,
 } from "server";
 
