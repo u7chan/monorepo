@@ -127,6 +127,7 @@ export const HealthSchema = z.object({
   ready: z.boolean(),
   model: z.string().optional(),
   error: z.string().optional(),
+  errorCode: z.enum(["authentication_required", "runtime_unavailable"]).optional(),
   ok: z.boolean().optional(),
   availableModels: z.array(z.string()).optional(),
   tools: z.array(z.string()).optional(),

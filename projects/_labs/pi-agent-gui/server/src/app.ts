@@ -10,7 +10,7 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { zValidator } from "@hono/zod-validator";
-import { createPiBff } from "./agent";
+import { AUTH_REQUIRED_MESSAGE, createPiBff } from "./agent";
 import type { PiBff } from "./agent";
 import { createAgentCatalog } from "./agents";
 import { SessionStore } from "./sessions";
@@ -178,19 +178,27 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 
   // --- health ---
 
-  .get("/api/health", (c) =>
-    c.json({
+  .get("/api/health", (c) => {
+    const ready = Boolean(pi?.selectedModel);
+    const authRequired = Boolean(pi && !ready && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
+    const errorCode: "authentication_required" | "runtime_unavailable" | undefined = authRequired
+      ? "authentication_required"
+      : initError || (pi && !ready)
+        ? "runtime_unavailable"
+        : undefined;
+    return c.json({
       ok: true,
-      ready: Boolean(pi),
+      ready,
       cwd: pi?.cwd || resolve(cwd),
       model: modelLabel(pi?.selectedModel),
       availableModels:
         pi?.availableModels?.map(modelLabel).filter((m): m is string => m != null) ?? [],
       tools: pi?.tools || [],
       availabilityError: pi?.availabilityError,
-      error: initError,
-    }),
-  )
+      errorCode,
+      error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
+    });
+  })
   .get("/api/agents", (c) => c.json(catalog.snapshot()))
   .put(
     "/api/agents",

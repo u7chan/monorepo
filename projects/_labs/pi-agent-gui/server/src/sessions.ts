@@ -10,7 +10,7 @@
  * port 元: src/sessions.js
  */
 import { randomUUID } from "node:crypto";
-import type { PiBff } from "./agent";
+import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
 import type { AgentCatalog } from "./agents";
 import type {
   AgentDef,
@@ -40,6 +40,14 @@ export const MAX_MESSAGE_CHARS = 8000;
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function userFacingError(error: unknown): string {
+  const message = messageFor(error);
+  if (/No API key found|Provider is not configured|No model selected/i.test(message)) {
+    return AUTH_REQUIRED_MESSAGE;
+  }
+  return message;
 }
 
 export interface HttpLikeError extends Error {
@@ -78,7 +86,8 @@ function toolResultSummary(result: unknown): string {
 }
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
-  return model ? `${model.provider}/${model.id}` : undefined;
+  if (!model || (model.provider === "unknown" && model.id === "unknown")) return undefined;
+  return `${model.provider}/${model.id}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +556,7 @@ export class SessionStore {
           case "agent_settled": {
             const finalAssistant = lastAssistantMessage(session);
             const runError = finalAssistant?.stopReason === "error"
-              ? finalAssistant.errorMessage || "モデルの実行に失敗しました"
+              ? userFacingError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
               : undefined;
             finish({ error: runError, stopped: finalAssistant?.stopReason === "aborted" });
             break;
@@ -556,7 +565,7 @@ export class SessionStore {
             break;
         }
       } catch (error) {
-        finish({ error: messageFor(error) });
+        finish({ error: userFacingError(error) });
       }
     };
 
@@ -567,7 +576,7 @@ export class SessionStore {
       if (!finished) finish();
       unsubscribe();
     }).catch((error) => {
-      if (!finished) finish({ error: messageFor(error) });
+      if (!finished) finish({ error: userFacingError(error) });
       unsubscribe();
     });
 

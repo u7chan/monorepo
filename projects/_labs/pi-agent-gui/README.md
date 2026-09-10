@@ -16,12 +16,15 @@ Node.js 24 と pnpm 10.34.5 を使用します。`client/` と `server/` は一�
 pnpm install
 pnpm build
 
-# 例: 環境変数で API キーを渡す
-export ANTHROPIC_API_KEY=sk-ant-...
+# API キーを設定（プロジェクト直下の .env は start/dev から自動で読み込まれます）
+cp .env.example .env
+# .env の ANTHROPIC_API_KEY（または利用するプロバイダーのキー）を編集する
 pnpm start
 ```
 
 `pnpm build` で `client/dist/` にプロダクションビルドが生成され、BFF（<http://127.0.0.1:4317>）がそれを配信します。ビルド済みクライアントが無い状態で開くと 503 と案内が表示されます。既存の pi の OAuth 認証や `~/.pi/agent/auth.json` もそのまま使えます。
+
+APIキーが未設定でも画面は起動しますが、送信はできません。画面に表示される案内に従って `.env` を設定し、サーバーを再起動してください。
 
 ### 開発（フロントエンドのホットリロード）
 

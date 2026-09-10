@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
+import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
 import type { PiBff } from "../src/agent";
 import { createBffApp } from "../src/app";
 
@@ -188,6 +189,36 @@ test("server still answers when the pi runtime failed to initialize", async () =
     assert.equal(response.status, 503);
     const body = await jsonBody(response);
     assert.equal(body.error, "Pi runtime is not ready");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("reports missing API-key authentication before creating an unusable session", async () => {
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    pi: asPiBff({
+      cwd: "/tmp/project",
+      selectedModel: undefined,
+      availableModels: [],
+      availabilityError: AUTH_REQUIRED_MESSAGE,
+      tools: [],
+      createSession: async () => {
+        const error = new Error(AUTH_REQUIRED_MESSAGE) as Error & { statusCode?: number };
+        error.statusCode = 503;
+        throw error;
+      },
+    }),
+  });
+  try {
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.ready, false);
+    assert.equal(health.errorCode, "authentication_required");
+    assert.equal(health.error, AUTH_REQUIRED_MESSAGE);
+
+    const response = await bff.app.request("/api/sessions", jsonPost({}));
+    assert.equal(response.status, 503);
+    assert.equal((await jsonBody(response)).error, AUTH_REQUIRED_MESSAGE);
   } finally {
     await bff.close();
   }
