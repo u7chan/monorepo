@@ -53,6 +53,7 @@ export default function App() {
         <ChatArea bubbles={desk.chat.bubbles} onSuggestion={handleSend} />
         <Composer
           activity={desk.chat.activity}
+          runtimeReady={desk.health?.ready !== false}
           sending={desk.sending}
           stopVisible={desk.stopVisible}
           queueDepth={desk.chat.queueDepth}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 
 export type ComposerProps = {
   activity: string;
+  runtimeReady: boolean;
   sending: boolean;
   stopVisible: boolean;
   queueDepth: number;
@@ -11,7 +12,7 @@ export type ComposerProps = {
 
 const MAX_TEXTAREA_HEIGHT = 180;
 
-export function Composer({ activity, sending, stopVisible, queueDepth, onSend, onStop }: ComposerProps) {
+export function Composer({ activity, runtimeReady, sending, stopVisible, queueDepth, onSend, onStop }: ComposerProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState("");
   const [stopping, setStopping] = useState(false);
@@ -29,7 +30,7 @@ export function Composer({ activity, sending, stopVisible, queueDepth, onSend, o
 
   const submit = () => {
     const text = value.trim();
-    if (!text || sending) return;
+    if (!text || !runtimeReady || sending) return;
     setValue("");
     onSend(text);
     // 送信後はフォーカスを戻す (旧実装と同じ)
@@ -72,7 +73,7 @@ export function Composer({ activity, sending, stopVisible, queueDepth, onSend, o
           ref={inputRef}
           rows={1}
           value={value}
-          placeholder="メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
+          placeholder={runtimeReady ? "メッセージを入力… (Enterで送信 / Shift+Enterで改行)" : "APIキーを設定すると送信できます"}
           className="min-h-6 max-h-[180px] flex-1 resize-none bg-transparent px-0.5 py-1 leading-normal text-ink outline-none placeholder:text-ink-ghost"
           onChange={(event) => setValue(event.currentTarget.value)}
           onKeyDown={handleKeyDown}
@@ -80,7 +81,7 @@ export function Composer({ activity, sending, stopVisible, queueDepth, onSend, o
         <button
           type="submit"
           aria-label="送信"
-          disabled={sending || value.trim().length === 0}
+          disabled={!runtimeReady || sending || value.trim().length === 0}
           className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-[9px] bg-accent-bright text-[18px] font-bold text-on-accent transition-all hover:-translate-y-px hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
         >
           <span>↑</span>

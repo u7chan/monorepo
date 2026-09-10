@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
+  ApiError,
   createSession,
   deleteSession as apiDeleteSession,
   getCatalog,
@@ -24,7 +25,29 @@ import { useSessionEvents } from "./useSessionEvents";
 const SESSION_KEY = "pi-agent-session";
 const AGENT_KEY = "pi-agent-agent";
 
-export type RuntimeStatus = { text: string; error: boolean };
+export type RuntimeStatus = {
+  text: string;
+  error: boolean;
+  detail?: string;
+  authRequired?: boolean;
+};
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function runtimeStatusForError(error: unknown): RuntimeStatus {
+  const detail = errorText(error);
+  const authRequired =
+    (error instanceof ApiError && error.status === 503) ||
+    /APIキー|No API key found|Provider is not configured|No model selected/i.test(detail);
+  return {
+    text: authRequired ? "APIキー未設定" : "エラー",
+    error: true,
+    detail,
+    authRequired,
+  };
+}
 
 export function useAgentDesk() {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
@@ -104,10 +127,16 @@ export function useAgentDesk() {
   }, [agentId, applySnapshot]);
 
   const newChat = useCallback(async (nextAgentId?: string): Promise<void> => {
-    const target = nextAgentId || agentId;
-    const session = await createSession(target || undefined);
-    await refreshSessions();
-    await selectSession(session.sessionId);
+    try {
+      const target = nextAgentId || agentId;
+      const session = await createSession(target || undefined);
+      await refreshSessions();
+      await selectSession(session.sessionId);
+    } catch (error) {
+      const status = runtimeStatusForError(error);
+      setRuntimeStatus(status);
+      dispatch({ type: "setActivity", text: status.detail || status.text });
+    }
   }, [agentId, refreshSessions, selectSession]);
 
   // selectSession ↔ newChat の相互参照用
@@ -151,6 +180,9 @@ export function useAgentDesk() {
           queueDepth: entry.data.queueDepth,
           error: entry.data.error,
         });
+        if (entry.data.status === "error" && entry.data.error) {
+          setRuntimeStatus(runtimeStatusForError(new Error(entry.data.error)));
+        }
         void refreshSessions();
         return;
     }
@@ -178,6 +210,9 @@ export function useAgentDesk() {
     if (!text || sending) return;
     setSending(true);
     try {
+      if (health && !health.ready) {
+        throw new Error(health.error || "APIキーまたは pi の認証を確認してください");
+      }
       if (!sessionIdRef.current) {
         await newChatRef.current();
       }
@@ -194,12 +229,13 @@ export function useAgentDesk() {
       }
       void refreshSessions();
     } catch (error) {
-      dispatch({ type: "setActivity", text: error instanceof Error ? error.message : String(error) });
-      setRuntimeStatus({ text: "エラー", error: true });
+      const status = runtimeStatusForError(error);
+      dispatch({ type: "setActivity", text: status.detail || status.text });
+      setRuntimeStatus(status);
     } finally {
       setSending(false);
     }
-  }, [sending, refreshSessions]);
+  }, [health, sending, refreshSessions]);
 
   const stopAgent = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
@@ -240,8 +276,15 @@ export function useAgentDesk() {
         if (h.ready) {
           setRuntimeStatus({ text: h.model || "接続中", error: false });
         } else {
-          setRuntimeStatus({ text: "pi 未接続", error: true });
-          dispatch({ type: "setActivity", text: h.error || "APIキーまたは pi の認証を確認してください" });
+          const authRequired = h.errorCode === "authentication_required";
+          const detail = h.error || h.availabilityError || "APIキーまたは pi の認証を確認してください";
+          setRuntimeStatus({
+            text: authRequired ? "APIキー未設定" : "pi 未接続",
+            error: true,
+            detail,
+            authRequired,
+          });
+          dispatch({ type: "setActivity", text: detail });
         }
         await loadCatalog();
         if (cancelled) return;
@@ -253,8 +296,9 @@ export function useAgentDesk() {
         else if (h.ready) await newChatRef.current();
       } catch (error) {
         if (cancelled) return;
-        setRuntimeStatus({ text: "サーバー未接続", error: true });
-        dispatch({ type: "setActivity", text: error instanceof Error ? error.message : String(error) });
+        const status = runtimeStatusForError(error);
+        setRuntimeStatus({ ...status, text: status.authRequired ? status.text : "サーバー未接続" });
+        dispatch({ type: "setActivity", text: status.detail || status.text });
       }
     };
     void boot();

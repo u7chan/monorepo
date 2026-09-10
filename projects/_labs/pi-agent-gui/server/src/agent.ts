@@ -21,6 +21,13 @@ export interface PiModelRef {
   id: string;
 }
 
+/** UI にそのまま表示できる、認証未設定時の案内。 */
+export const AUTH_REQUIRED_MESSAGE =
+  "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、pi の認証（~/.pi/agent/auth.json）を確認してからサーバーを再起動してください。";
+
+const MODEL_UNAVAILABLE_MESSAGE =
+  "利用可能なモデルがありません。PI_MODEL または pi のモデル設定を確認してください。";
+
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 const APPEND_SYSTEM_PROMPT = `
@@ -116,9 +123,29 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
 
   try {
     availableModels = [...await modelRuntime.getAvailable()];
-    if (!selectedModel) selectedModel = availableModels[0] as CreateAgentSessionOptions["model"];
+    const requestedModel = selectedModel as PiModelRef | undefined;
+    const availableRequestedModel = requestedModel
+      ? availableModels.find(
+          (model) => model.provider === requestedModel.provider && model.id === requestedModel.id,
+        )
+      : undefined;
+    // getModel() は認証の有無を確認しないため、PI_MODEL で指定したモデルも
+    // getAvailable() の結果と突き合わせてから実行可能とみなす。
+    selectedModel = (availableRequestedModel ?? (!requestedModel ? availableModels[0] : undefined)) as
+      CreateAgentSessionOptions["model"];
   } catch (error) {
     availabilityError = errorMessage(error);
+    selectedModel = undefined;
+  }
+
+  if (!selectedModel && !availabilityError) {
+    const requestedProvider = (requested.model as PiModelRef | undefined)?.provider;
+    const hasConfiguredProvider = requestedProvider
+      ? modelRuntime.getProviderAuthStatus(requestedProvider).configured
+      : modelRuntime.getProviders().some(
+          (provider) => modelRuntime.getProviderAuthStatus(provider.id).configured,
+        );
+    availabilityError = hasConfiguredProvider ? MODEL_UNAVAILABLE_MESSAGE : AUTH_REQUIRED_MESSAGE;
   }
 
   const thinkingLevel = requested.thinkingLevel || process.env.PI_THINKING?.trim() || "medium";
@@ -127,6 +154,11 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   }
 
   async function createSession({ agent, skills = [] }: CreateSessionInput = {}): Promise<{ session: unknown }> {
+    if (!selectedModel) {
+      const error = new Error(availabilityError || AUTH_REQUIRED_MESSAGE) as Error & { statusCode?: number };
+      error.statusCode = 503;
+      throw error;
+    }
     // セッションを使い捨てに保つ: JSONL セッションファイルを作らず、
     // ユーザーの pi 設定にも書き込まない。共有の ModelRuntime は
     // 通常の pi 認証を読むだけ。

@@ -8,7 +8,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `availableModels` / `cwd`） |
+| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `availableModels` / `cwd`）。認証が無い場合は `errorCode: "authentication_required"` |
 
 ## エージェント / スキル
 
