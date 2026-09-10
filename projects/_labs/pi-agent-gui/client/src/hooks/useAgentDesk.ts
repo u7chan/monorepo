@@ -98,6 +98,35 @@ export function useAgentDesk() {
     }
   }, []);
 
+  const applyHealth = useCallback((next: Health) => {
+    setHealth(next);
+    setCwd(next.cwd || "");
+    if (next.ready) {
+      setRuntimeStatus({ text: next.model || "接続中", error: false });
+      return;
+    }
+
+    const authRequired = next.errorCode === "authentication_required";
+    const detail = next.error || next.availabilityError || "APIキーまたは pi の認証を確認してください";
+    setRuntimeStatus({
+      text: authRequired ? "APIキー未設定" : "pi 未接続",
+      error: true,
+      detail,
+      authRequired,
+    });
+    dispatch({ type: "setActivity", text: detail });
+  }, []);
+
+  const refreshHealth = useCallback(async (): Promise<Health | null> => {
+    try {
+      const next = await getHealth();
+      applyHealth(next);
+      return next;
+    } catch {
+      return null;
+    }
+  }, [applyHealth]);
+
   const applySnapshot = useCallback((payload: SessionPayload) => {
     lastSeqRef.current = payload.lastSeq || 0;
     setCwd((prev) => payload.cwd || prev);
@@ -116,6 +145,7 @@ export function useAgentDesk() {
       setAgentIdState(nextAgentId);
       applySnapshot(payload);
       setEpoch((e) => e + 1); // SSE を (lastSeq 更新後に) 張り直す
+      void refreshHealth();
     } catch {
       localStorage.removeItem(SESSION_KEY);
       sessionIdRef.current = "";
@@ -124,7 +154,7 @@ export function useAgentDesk() {
       if (fallback) return selectSession(fallback.sessionId);
       return newChatRef.current();
     }
-  }, [agentId, applySnapshot]);
+  }, [agentId, applySnapshot, refreshHealth]);
 
   const newChat = useCallback(async (nextAgentId?: string): Promise<void> => {
     try {
@@ -190,6 +220,7 @@ export function useAgentDesk() {
 
   const onClosed = useCallback(() => {
     // 旧 connectEvents の onerror (CLOSED) 相当: 一覧を更新して再接続 or 次のセッションへ
+    void refreshHealth();
     void refreshSessions().then((list) => {
       const current = sessionIdRef.current;
       if (list.some((item) => item.sessionId === current)) {
@@ -200,7 +231,7 @@ export function useAgentDesk() {
         else void newChatRef.current();
       }
     });
-  }, [refreshSessions, selectSession]);
+  }, [refreshHealth, refreshSessions, selectSession]);
 
   useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClosed });
 
@@ -271,21 +302,7 @@ export function useAgentDesk() {
       try {
         const h = await getHealth();
         if (cancelled) return;
-        setHealth(h);
-        setCwd(h.cwd || "");
-        if (h.ready) {
-          setRuntimeStatus({ text: h.model || "接続中", error: false });
-        } else {
-          const authRequired = h.errorCode === "authentication_required";
-          const detail = h.error || h.availabilityError || "APIキーまたは pi の認証を確認してください";
-          setRuntimeStatus({
-            text: authRequired ? "APIキー未設定" : "pi 未接続",
-            error: true,
-            detail,
-            authRequired,
-          });
-          dispatch({ type: "setActivity", text: detail });
-        }
+        applyHealth(h);
         await loadCatalog();
         if (cancelled) return;
         const list = await refreshSessions();
