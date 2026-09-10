@@ -161,7 +161,7 @@ export function useAgentDesk() {
     setHealth(next);
     setCwd(next.cwd || "");
     if (next.ready) {
-      // 明示 PI_MODEL が使えなくても候補はある。別モデルへ黙って切り替えず、
+      // 明示された既定モデルが使えなくても候補はある。別モデルへ黙って切り替えず、
       // 入力欄で選べるようにエラーとして伝える。
       if (next.defaultModelError) {
         setRuntimeStatus({ text: "モデル未選択", error: true, detail: next.defaultModelError });
@@ -172,9 +172,9 @@ export function useAgentDesk() {
     }
 
     const authRequired = next.errorCode === "authentication_required";
-    const detail = next.error || next.availabilityError || "APIキーまたは pi の認証を確認してください";
+    const detail = next.error || next.availabilityError || "APIキーまたは認証設定を確認してください";
     setRuntimeStatus({
-      text: authRequired ? "APIキー未設定" : "pi 未接続",
+      text: authRequired ? "APIキー未設定" : "ランタイム未接続",
       error: true,
       detail,
       authRequired,
@@ -357,7 +357,7 @@ export function useAgentDesk() {
     setSending(true);
     try {
       if (health && !health.ready) {
-        throw new Error(health.error || "APIキーまたは pi の認証を確認してください");
+        throw new Error(health.error || "APIキーまたは認証設定を確認してください");
       }
       if (!sessionIdRef.current) {
         await newChatRef.current();

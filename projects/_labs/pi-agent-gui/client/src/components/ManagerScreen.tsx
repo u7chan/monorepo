@@ -219,7 +219,7 @@ export function ManagerScreen({
     const anchor = document.createElement("a");
     const date = new Date().toISOString().slice(0, 10);
     anchor.href = url;
-    anchor.download = `pi-agent-definitions-${date}.json`;
+    anchor.download = `agent-definitions-${date}.json`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();

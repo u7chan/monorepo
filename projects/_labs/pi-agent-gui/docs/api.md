@@ -28,7 +28,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
     }
   ],
   "defaultThinkingLevel": "medium",
-  "defaultModelError": "PI_MODEL のモデルは利用できません: openai/ghost"
+  "defaultModelError": "指定された既定モデルは利用できません: openai/ghost"
 }
 ```
 

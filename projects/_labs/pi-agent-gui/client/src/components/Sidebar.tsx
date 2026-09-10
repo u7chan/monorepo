@@ -125,8 +125,8 @@ export function Sidebar({ onOpenManager, ...props }: SidebarProps) {
           ✦
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-ink-strong">pi desk</div>
-          <div className="text-[10px] text-ink-faint">tiny agent GUI</div>
+          <div className="text-sm font-semibold text-ink-strong">agent desk</div>
+          <div className="text-[10px] text-ink-faint">local workspace</div>
         </div>
       </div>
 
@@ -206,7 +206,7 @@ export function Sidebar({ onOpenManager, ...props }: SidebarProps) {
           <code className="truncate text-[11px] leading-normal text-ink-soft">{cwd || "読み込み中…"}</code>
         </div>
         <div className="mt-2 text-[10px] leading-relaxed text-ink-ghost">
-          pi SDK · in-memory session
+          ローカル実行 · インメモリセッション
           <br />
           使い捨ての小さな実験アプリ
         </div>
