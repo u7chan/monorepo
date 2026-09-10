@@ -55,9 +55,10 @@ test("built-in agents keep model and thinkingLevel unspecified", () => {
     assert.equal(Object.hasOwn(agent, "thinkingLevel"), false, `${agent.id} must omit thinkingLevel`);
   }
   assert.deepEqual(catalog.snapshot().agents.map((agent) => agent.id), [
+    "agent-general",
     "agent-builder",
     "agent-reviewer",
-    "agent-cat",
+    "agent-researcher",
   ]);
 });
 
@@ -129,12 +130,12 @@ test("rejects malformed model references and unknown thinking levels with 400", 
   }
 
   // 不正な更新も 400 (既存値は保持)
-  const agent = catalog.getAgent("agent-cat");
+  const agent = catalog.getAgent("agent-general");
   assert.throws(
-    () => catalog.updateAgent("agent-cat", { thinkingLevel: "ultra" }),
+    () => catalog.updateAgent("agent-general", { thinkingLevel: "ultra" }),
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
-  assert.deepEqual(catalog.getAgent("agent-cat"), agent);
+  assert.deepEqual(catalog.getAgent("agent-general"), agent);
 });
 
 test("imports old definitions without the new keys and exports only specified ones", () => {

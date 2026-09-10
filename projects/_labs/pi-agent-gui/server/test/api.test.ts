@@ -23,7 +23,7 @@ const jsonPatch = (payload: unknown): RequestInit => ({
   body: JSON.stringify(payload),
 });
 
-async function createSession(app: Hono, agentId = "agent-cat") {
+async function createSession(app: Hono, agentId = "agent-general") {
   const response = await app.request("/api/sessions", jsonPost({ agentId }));
   assert.equal(response.status, 201);
   return (await response.json()) as { sessionId: string };
@@ -223,7 +223,7 @@ test("session creation resolves request → definition → app default per field
     assert.equal(requested.supportsThinking, true);
 
     // アプリ既定 (medium) は定義もリクエストも無い項目にだけ使われる
-    const appDefault = await app.request("/api/sessions", jsonPost({ agentId: "agent-cat" }));
+    const appDefault = await app.request("/api/sessions", jsonPost({ agentId: "agent-general" }));
     const payload = await jsonBody(appDefault);
     assert.equal(payload.model, "stub/stub-model");
     assert.equal(payload.thinkingLevel, "medium");
@@ -231,20 +231,20 @@ test("session creation resolves request → definition → app default per field
     // 不正な値は SDK 作成前に 400
     const invalidModel = await app.request(
       "/api/sessions",
-      jsonPost({ agentId: "agent-cat", model: { provider: "stub", id: "ghost" } }),
+      jsonPost({ agentId: "agent-general", model: { provider: "stub", id: "ghost" } }),
     );
     assert.equal(invalidModel.status, 400);
     assert.match((await jsonBody(invalidModel)).error, /not available/);
 
     const invalidLevel = await app.request(
       "/api/sessions",
-      jsonPost({ agentId: "agent-cat", thinkingLevel: "ultra" }),
+      jsonPost({ agentId: "agent-general", thinkingLevel: "ultra" }),
     );
     assert.equal(invalidLevel.status, 400);
 
     const nullModel = await app.request(
       "/api/sessions",
-      jsonPost({ agentId: "agent-cat", model: null }),
+      jsonPost({ agentId: "agent-general", model: null }),
     );
     assert.equal(nullModel.status, 400);
     assert.equal(pi.sessions.length, 3, "400 は SDK 作成まで到達しない");
@@ -394,7 +394,7 @@ test("unknown api paths answer with a JSON 404", async () => {
     assert.equal(missing.status, 404);
     assert.deepEqual(await jsonBody(missing), { error: "Not found" });
 
-    const wrongMethod = await bff.app.request("/api/agents/agent-cat", jsonPost({}));
+    const wrongMethod = await bff.app.request("/api/agents/agent-general", jsonPost({}));
     assert.equal(wrongMethod.status, 404);
     assert.deepEqual(await jsonBody(wrongMethod), { error: "Not found" });
 

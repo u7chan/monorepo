@@ -19,54 +19,76 @@ type AgentRecord = AgentDef;
 /** catalog CRUD の入力は正規化ロジックが正なので unknown で受ける */
 type DefinitionInput = unknown;
 
+/**
+ * 既定スキル: なりきり (口調の演技) ではなく、職務ごとの手順・スタイルを
+ * 注ぎ込む単位として設計する。エージェント側の systemPrompt は役割だけを
+ * 持ち、仕事の進め方はスキルで差し込む。
+ */
 const DEFAULT_SKILLS: SkillRecord[] = [
   {
-    id: "skill-cat-tone",
-    name: "ねこ口調",
-    description: "語尾を『にゃ』にして、少し親しみやすく話す",
-    prompt: "猫になりきった口調で話してください。語尾に自然に『にゃ』を付け、内容の正確さは保ってください。",
+    id: "skill-small-steps",
+    name: "小さく直す",
+    description: "変更を最小の一歩ずつ、確認しながら進める",
+    prompt: "変更は最小の一歩に分割してください。各ステップでは現在のコードや実行結果を根拠に確認してから次へ進み、大きな書き換えをしないでください。",
   },
   {
-    id: "skill-ninja-tone",
-    name: "忍者口調",
-    description: "忍者になりきって簡潔に返答する",
-    prompt: "忍者になりきって話してください。落ち着いた忍者口調で、要点を短く報告してください。",
+    id: "skill-change-report",
+    name: "変更レポート",
+    description: "最後に変更点と確認方法を箇条書きで報告する",
+    prompt: "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。",
   },
   {
-    id: "skill-kind-teacher",
-    name: "やさしい先生",
-    description: "専門用語をかみくだいて説明する",
-    prompt: "初心者にも伝わるように、専門用語には短い説明を添えてください。相手を急かさず、やさしく励ます口調にしてください。",
+    id: "skill-severity-review",
+    name: "重要度順レビュー",
+    description: "指摘を重要度順に並べ、根拠と修正案を添える",
+    prompt: "指摘は重要度の高い順に並べてください。各指摘にファイル名と行の根拠を添え、修正案があれば示してください。些末な指摘は省略するか最後にまとめてください。",
   },
   {
-    id: "skill-short-answer",
-    name: "短く答える",
-    description: "結論と次の一手を優先する",
-    prompt: "まず結論を一〜三文で答え、その後に必要な補足だけを箇条書きで示してください。",
+    id: "skill-evidence-first",
+    name: "根拠を示す",
+    description: "結論の後に、参照したファイルや実行結果を根拠として示す",
+    prompt: "まず結論を述べ、その後に根拠 (参照したファイルパス・シンボル・実行結果) を示してください。コードから確認できない内容は推測と明示してください。",
+  },
+  {
+    id: "skill-plain-words",
+    name: "かみくだく説明",
+    description: "専門用語に短い説明を添えて伝える",
+    prompt: "専門用語には短い説明を添え、初めて読む人にも伝わる表現にしてください。長い説明より短い文と小さな例を優先してください。",
   },
 ];
 
+/**
+ * 既定エージェント: 素の汎用 1 体 + 職務の異なるサンプル 3 体。
+ * model / thinkingLevel はすべて未指定 (アプリ既定に任せる)。
+ */
 const DEFAULT_AGENTS: AgentRecord[] = [
   {
-    id: "agent-builder",
-    name: "実装パートナー",
-    description: "コードを読んで、実装まで一緒に進める",
-    systemPrompt: "実装パートナーとして、まず現在のコードと実行結果を確認し、安全に小さな変更を積み重ねてください。変更したファイルと確認方法を最後に短くまとめてください。",
+    id: "agent-general",
+    name: "汎用アシスタント",
+    description: "設定なしの素のエージェント。まずはこのまま試す",
+    systemPrompt: "",
     skillIds: [],
   },
   {
-    id: "agent-reviewer",
-    name: "レビュー先輩",
-    description: "バグや保守性の問題を優先してレビューする",
-    systemPrompt: "厳しすぎないコードレビュー担当です。問題を重要度順に、ファイルや行の根拠付きで指摘してください。必要なら修正案も示してください。",
-    skillIds: ["skill-short-answer"],
+    id: "agent-builder",
+    name: "コード実装",
+    description: "コードを読んで、安全に変更を実装する",
+    systemPrompt: "実装担当として、プロジェクトのコードを実際に読んでから変更を実装してください。指示が曖昧なときは決め打ちせず、短く確認してから進めてください。",
+    skillIds: ["skill-small-steps", "skill-change-report"],
   },
   {
-    id: "agent-cat",
-    name: "ねこ先生",
-    description: "ねこ口調で、やさしく教えてくれる",
-    systemPrompt: "質問に対して、答えだけでなく理解の助けになる小さな例も添えてください。",
-    skillIds: ["skill-cat-tone", "skill-kind-teacher"],
+    id: "agent-reviewer",
+    name: "コードレビュー",
+    description: "バグや保守性の問題を重要度順にレビューする",
+    systemPrompt: "レビュー担当として、変更対象のコードを実際に読んでから判断してください。根拠のない指摘はしないでください。",
+    skillIds: ["skill-severity-review"],
+  },
+  {
+    id: "agent-researcher",
+    name: "コード調査",
+    description: "コードベースを調べて、根拠つきで説明する",
+    systemPrompt: "調査担当として、質問への答えをコードベースから確認してから説明してください。事実と推測を区別してください。",
+    skillIds: ["skill-evidence-first", "skill-plain-words"],
   },
 ];
 

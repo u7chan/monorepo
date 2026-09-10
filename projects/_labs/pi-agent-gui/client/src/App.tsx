@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { ChatArea } from "./components/ChatArea";
 import { Composer } from "./components/Composer";
-import { ManagerDialog } from "./components/ManagerDialog";
+import { ManagerScreen } from "./components/ManagerScreen";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { useAgentDesk } from "./hooks/useAgentDesk";
@@ -9,6 +9,8 @@ import { useAgentDesk } from "./hooks/useAgentDesk";
 export default function App() {
   const desk = useAgentDesk();
   const [managerOpen, setManagerOpen] = useState(false);
+  // ManagerScreen の dialog close / 閉じるボタンへ渡す安定参照
+  const closeManager = useCallback(() => setManagerOpen(false), []);
 
   const handleSend = useCallback(
     (text: string) => {
@@ -64,16 +66,17 @@ export default function App() {
           onChangeThinkingLevel={desk.changeThinkingLevel}
         />
       </main>
-      <ManagerDialog
-        open={managerOpen}
-        onClose={() => setManagerOpen(false)}
-        catalog={desk.catalog}
-        agentId={desk.agentId}
-        refreshCatalog={refreshCatalog}
-        modelOptions={desk.health?.modelOptions ?? []}
-        defaultModel={desk.health?.model}
-        defaultThinkingLevel={desk.health?.defaultThinkingLevel}
-      />
+      {managerOpen ? (
+        <ManagerScreen
+          onClose={closeManager}
+          catalog={desk.catalog}
+          agentId={desk.agentId}
+          refreshCatalog={refreshCatalog}
+          modelOptions={desk.health?.modelOptions ?? []}
+          defaultModel={desk.health?.model}
+          defaultThinkingLevel={desk.health?.defaultThinkingLevel}
+        />
+      ) : null}
     </div>
   );
 }

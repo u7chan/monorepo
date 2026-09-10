@@ -12,7 +12,7 @@ import {
 test("runs a message in the background and records the conversation history", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 5 }), catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
 
   const result = store.postMessage(record, "こんにちは");
   assert.equal(result.queued, false);
@@ -109,7 +109,7 @@ test("stop aborts the active run and clears the queue", async () => {
 test("destroy aborts, disposes and notifies subscribers", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 30 }), catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
   store.postMessage(record, "削除される会話");
 
   const seen: EventEntry[] = [];
@@ -163,7 +163,7 @@ test("resolves model and thinking level per field: request → definition → ap
   assert.equal(pi.createInputs.at(-1)?.thinkingLevel, "high");
 
   // 定義に model がある場合はアプリ既定へフォールバックしない
-  await store.create({ agentId: "agent-cat" });
+  await store.create({ agentId: "agent-general" });
   assert.equal(pi.createInputs.at(-1)?.model, undefined, "モデル未指定ならランタイムへ委ねる");
   assert.equal(pi.createInputs.at(-1)?.thinkingLevel, undefined);
 
@@ -174,20 +174,20 @@ test("keeps the agent snapshot of each chat after definition edits and deletes",
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
   const before = store.payload(record).agent;
   const summaryBefore = store.summary(record);
 
-  catalog.updateAgent("agent-cat", { name: "別の名前", description: "別の説明" });
-  catalog.removeAgent("agent-cat");
+  catalog.updateAgent("agent-general", { name: "別の名前", description: "別の説明" });
+  catalog.removeAgent("agent-general");
 
   assert.deepEqual(store.payload(record).agent, before);
   assert.equal(store.summary(record).agentName, summaryBefore.agentName);
-  assert.equal(store.summary(record).agentId, "agent-cat");
+  assert.equal(store.summary(record).agentId, "agent-general");
 
   // 新規チャットは新しい定義を使う
   const next = await store.create({ agentId: "agent-builder" });
-  assert.equal(store.payload(next).agent?.name, "実装パートナー");
+  assert.equal(store.payload(next).agent?.name, "コード実装");
 
   await store.close();
 });
@@ -196,7 +196,7 @@ test("model-only change keeps the effective effort, then SDK clamping wins", asy
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat", thinkingLevel: "low" });
+  const record = await store.create({ agentId: "agent-general", thinkingLevel: "low" });
   assert.equal(record.session.thinkingLevel, "low");
 
   // 推論対応モデルへの変更: 変更前の low を再適用する (SDK の切替既定に任せない)
@@ -235,7 +235,7 @@ test("settings change keeps session identity, history and title, and leaves othe
   const catalog = createAgentCatalog();
   const pi = createStubPi({ chunkDelayMs: 0 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
   const other = await store.create({ agentId: "agent-builder" });
 
   store.postMessage(record, "タイトルになるメッセージ");
@@ -259,7 +259,7 @@ test("rejects an unavailable model and keeps the effective values unchanged", as
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat", thinkingLevel: "low" });
+  const record = await store.create({ agentId: "agent-general", thinkingLevel: "low" });
 
   await assert.rejects(
     () => store.updateSettings(record, { model: { provider: "stub", id: "ghost" } }),
@@ -280,7 +280,7 @@ test("rejects settings changes while running, queued or not idle", async () => {
   const catalog = createAgentCatalog();
   const pi = createStubPi({ chunkDelayMs: 40 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
 
   store.postMessage(record, "実行中");
   await assert.rejects(
@@ -313,7 +313,7 @@ test("reserves the change synchronously and rejects concurrent sends and changes
   const catalog = createAgentCatalog();
   const pi = createStubPi({ setModelDelayMs: 60 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat", thinkingLevel: "low" });
+  const record = await store.create({ agentId: "agent-general", thinkingLevel: "low" });
 
   const changing = store.updateSettings(record, { model: { provider: "stub", id: "stub-model" } });
   assert.equal(record.changingSettings, true, "the flag is reserved before the async setModel");
@@ -341,7 +341,7 @@ test("releases the guard when the SDK change fails", async () => {
   const catalog = createAgentCatalog();
   const pi = createStubPi({ setModelFailures: 1 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
 
   await assert.rejects(
     () => store.updateSettings(record, { model: { provider: "stub", id: "stub-plain" } }),
@@ -360,7 +360,7 @@ test("emits a resync event with the effective values on settings change", async 
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-cat" });
+  const record = await store.create({ agentId: "agent-general" });
 
   const seen: EventEntry[] = [];
   store.subscribe(record, record.seq, (entry) => seen.push(entry));

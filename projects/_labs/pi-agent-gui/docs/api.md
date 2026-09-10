@@ -61,16 +61,23 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 {
   "agents": [
     {
-      "id": "agent-cat",
-      "name": "ねこ先生",
-      "description": "ねこ口調で、やさしく教えてくれる",
+      "id": "agent-reviewer",
+      "name": "コードレビュー",
+      "description": "バグや保守性の問題を重要度順にレビューする",
       "systemPrompt": "…",
-      "skillIds": [],
+      "skillIds": ["skill-severity-review"],
       "model": { "provider": "openai", "id": "gpt-5.5" },
       "thinkingLevel": "high"
     }
   ],
-  "skills": []
+  "skills": [
+    {
+      "id": "skill-severity-review",
+      "name": "重要度順レビュー",
+      "description": "指摘を重要度順に並べ、根拠と修正案を添える",
+      "prompt": "指摘は重要度の高い順に並べてください。…"
+    }
+  ]
 }
 ```
 
@@ -84,18 +91,18 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "agents": [
     {
       "id": "agent-builder",
-      "name": "実装パートナー",
-      "description": "コード実装を支援",
+      "name": "コード実装",
+      "description": "コードを読んで、安全に変更を実装する",
       "systemPrompt": "…",
-      "skillIds": ["skill-short"]
+      "skillIds": ["skill-change-report"]
     }
   ],
   "skills": [
     {
-      "id": "skill-short",
-      "name": "短く答える",
-      "description": "結論と次の一手を優先する",
-      "prompt": "まず結論を答える"
+      "id": "skill-change-report",
+      "name": "変更レポート",
+      "description": "最後に変更点と確認方法を箇条書きで報告する",
+      "prompt": "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。"
     }
   ]
 }
@@ -116,7 +123,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
       "sessionId": "…",
       "title": "README をレビューして",
       "agentId": "agent-builder",
-      "agentName": "実装パートナー",
+      "agentName": "コード実装",
       "status": "running",
       "queueDepth": 0,
       "messageCount": 4,
@@ -133,7 +140,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 セッション作成。body は任意。
 
 ```json
-{ "agentId": "agent-cat", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high" }
+{ "agentId": "agent-reviewer", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high" }
 ```
 
 - `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。
