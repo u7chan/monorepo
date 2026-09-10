@@ -97,7 +97,7 @@ test("server still answers when the pi runtime failed to initialize", async () =
     const response = await bff.app.request("/api/sessions", jsonPost({}));
     assert.equal(response.status, 503);
     const body = await jsonBody(response);
-    assert.equal(body.error, "Pi runtime is not ready");
+    assert.equal(body.error, "ランタイムを利用できません");
   } finally {
     await bff.close();
   }
@@ -163,7 +163,7 @@ test("health exposes the model picker options and the app default thinking level
 test("an unusable PI_MODEL keeps ready true and surfaces a default model error", async () => {
   const pi = createStubPi({
     selectedModel: null,
-    defaultModelError: "PI_MODEL のモデルは利用できません: stub/ghost",
+    defaultModelError: "指定された既定モデルは利用できません: stub/ghost",
   });
   const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
   const { app } = bff;

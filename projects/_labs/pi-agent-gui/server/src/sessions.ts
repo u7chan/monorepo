@@ -250,7 +250,7 @@ export class SessionStore {
 
   async create({ agentId, model, thinkingLevel }: CreateSessionOptions = {}): Promise<SessionRecord> {
     if (!this.pi) {
-      const error = new Error("Pi runtime is not ready") as HttpLikeError;
+      const error = new Error("ランタイムを利用できません") as HttpLikeError;
       error.statusCode = 503;
       throw error;
     }
@@ -322,7 +322,7 @@ export class SessionStore {
       throw httpError(409, "Session settings cannot be changed while the session is busy");
     }
     if (!this.pi) {
-      const error = new Error("Pi runtime is not ready") as HttpLikeError;
+      const error = new Error("ランタイムを利用できません") as HttpLikeError;
       error.statusCode = 503;
       throw error;
     }

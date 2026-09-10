@@ -42,7 +42,7 @@ function MessageView({ bubble }: { bubble: Bubble }) {
         {isUser ? "YOU" : "✦"}
       </div>
       <div className="min-w-0 max-w-[min(760px,86%)] max-nav:max-w-[90%]">
-        <div className="mb-1 text-[10px] font-medium text-ink-faint">{isUser ? "あなた" : "pi agent"}</div>
+        <div className="mb-1 text-[10px] font-medium text-ink-faint">{isUser ? "あなた" : "アシスタント"}</div>
         {bubble.text ? (
           <div
             className={[

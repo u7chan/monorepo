@@ -26,13 +26,13 @@ export interface PiModelRef {
 
 /** UI にそのまま表示できる、認証未設定時の案内。 */
 export const AUTH_REQUIRED_MESSAGE =
-  "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、pi の認証（~/.pi/agent/auth.json）を確認してからサーバーを再起動してください。";
+  "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、保存済みの認証情報を確認してからサーバーを再起動してください。";
 
 const MODEL_UNAVAILABLE_MESSAGE =
-  "利用可能なモデルがありません。PI_MODEL または pi のモデル設定を確認してください。";
+  "利用可能なモデルがありません。既定モデルまたはプロバイダーの設定を確認してください。";
 
 const APPEND_SYSTEM_PROMPT = `
-You are running inside a very small browser UI backed by the pi SDK.
+You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
 Keep answers practical and concise. The working directory is the user's local project.
 When a task involves the project, inspect it with the available tools instead of guessing.
@@ -78,9 +78,9 @@ export function errorMessage(error: unknown): string {
 }
 
 /** thinkingLevel 文字列を検証する (未知の段階は設定ミスとして例外) */
-function parseThinkingLevel(value: string, source: string): ThinkingLevel {
+function parseThinkingLevel(value: string): ThinkingLevel {
   const parsed = ThinkingLevelSchema.safeParse(value);
-  if (!parsed.success) throw new Error(`Invalid ${source} value: ${value}`);
+  if (!parsed.success) throw new Error(`Effort の値が不正です: ${value}`);
   return parsed.data;
 }
 
@@ -104,13 +104,13 @@ function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel 
   }
 
   const parsedLevel =
-    thinkingLevel === undefined ? undefined : parseThinkingLevel(thinkingLevel, "PI_THINKING");
+    thinkingLevel === undefined ? undefined : parseThinkingLevel(thinkingLevel);
 
   const slash = reference.indexOf("/");
   const provider = slash === -1 ? process.env.PI_PROVIDER?.trim() : reference.slice(0, slash);
   const modelId = slash === -1 ? reference : reference.slice(slash + 1);
   if (!provider || !modelId) {
-    throw new Error("PI_MODEL must look like provider/model (or set PI_PROVIDER too)");
+    throw new Error("既定モデルは provider/model 形式で指定してください（プロバイダーを別に指定することもできます）");
   }
 
   return { model: { provider, id: modelId }, thinkingLevel: parsedLevel };
@@ -167,7 +167,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   if (requested && !selectedModel) {
     // 明示 PI_MODEL が利用不能でも、他候補があれば別モデルへ黙って
     // フォールバックせず、ready のままエラーとして伝える。
-    defaultModelError = `PI_MODEL のモデルは利用できません: ${requested.model.provider}/${requested.model.id}`;
+    defaultModelError = `指定された既定モデルは利用できません: ${requested.model.provider}/${requested.model.id}`;
   }
 
   if (!selectedModel && !defaultModelError && !availabilityError) {
@@ -182,7 +182,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
 
   const defaultThinkingLevel = parseThinkingLevel(
     requested?.thinkingLevel ?? process.env.PI_THINKING?.trim() ?? "medium",
-    "PI_THINKING",
   );
 
   const modelOptions = availableModelList.map((model) => modelOptionOf(model));
