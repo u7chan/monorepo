@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   createAgent,
   createSkill,
@@ -8,7 +8,8 @@ import {
   updateAgent,
   updateSkill,
 } from "../api";
-import type { Catalog } from "../types";
+import { ALL_THINKING_LEVELS, effortLabel } from "../hooks/useAgentDesk";
+import type { Catalog, ModelOption, ModelRef, ThinkingLevel } from "../types";
 
 type EditingType = "agent" | "skill";
 
@@ -20,11 +21,38 @@ export type ManagerDialogProps = {
   agentId: string;
   /** カタログ再読込 (保存・削除・インポート後)。agentId の正規化も行われる */
   refreshCatalog: () => Promise<Catalog>;
+  /** モデル候補 (health より) */
+  modelOptions: ModelOption[];
+  /** アプリ既定モデル (provider/id) */
+  defaultModel?: string;
+  defaultThinkingLevel?: ThinkingLevel;
 };
 
 const DEFAULT_NOTE = "変更はこのサーバーのメモリ内だけに保存されます。再起動するとサンプルに戻ります。";
 
-export function ManagerDialog({ open, onClose, catalog, agentId, refreshCatalog }: ManagerDialogProps) {
+type AgentForm = {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  skillIds: string[];
+  /** null は「未指定」 (保存時は指定解除として送る) */
+  model: ModelRef | null;
+  thinkingLevel: ThinkingLevel | null;
+};
+
+const modelValueOf = (ref: ModelRef | null): string =>
+  ref ? `${ref.provider}/${ref.id}` : "";
+
+export function ManagerDialog({
+  open,
+  onClose,
+  catalog,
+  agentId,
+  refreshCatalog,
+  modelOptions,
+  defaultModel,
+  defaultThinkingLevel,
+}: ManagerDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,7 +61,14 @@ export function ManagerDialog({ open, onClose, catalog, agentId, refreshCatalog 
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: DEFAULT_NOTE, error: false });
 
   // フォーム値 (editingType/editingId の変化で同期する)
-  const [agentForm, setAgentForm] = useState({ name: "", description: "", systemPrompt: "", skillIds: [] as string[] });
+  const [agentForm, setAgentForm] = useState<AgentForm>({
+    name: "",
+    description: "",
+    systemPrompt: "",
+    skillIds: [],
+    model: null,
+    thinkingLevel: null,
+  });
   const [skillForm, setSkillForm] = useState({ name: "", description: "", prompt: "" });
 
   const editingAgent = catalog.agents.find((agent) => agent.id === editingId);
@@ -64,6 +99,8 @@ export function ManagerDialog({ open, onClose, catalog, agentId, refreshCatalog 
         description: editingAgent?.description || "",
         systemPrompt: editingAgent?.systemPrompt || "",
         skillIds: editingAgent ? [...editingAgent.skillIds] : [],
+        model: editingAgent?.model ? { ...editingAgent.model } : null,
+        thinkingLevel: editingAgent?.thinkingLevel ?? null,
       });
     } else {
       setSkillForm({
@@ -99,6 +136,9 @@ export function ManagerDialog({ open, onClose, catalog, agentId, refreshCatalog 
       description: agentForm.description,
       systemPrompt: agentForm.systemPrompt,
       skillIds: agentForm.skillIds,
+      // null はサーバー側で「指定解除」に正規化される
+      model: agentForm.model,
+      thinkingLevel: agentForm.thinkingLevel,
     };
     try {
       const result = editingId
@@ -201,6 +241,52 @@ export function ManagerDialog({ open, onClose, catalog, agentId, refreshCatalog 
     setAgentForm((prev) => ({
       ...prev,
       skillIds: checked ? [...prev.skillIds, skillId] : prev.skillIds.filter((id) => id !== skillId),
+    }));
+  };
+
+  // --- エージェント定義の Model / Effort ---
+
+  const agentModelValue = modelValueOf(agentForm.model);
+  // Model 未指定のときはアプリ既定モデルの対応段階を使う。
+  // 既定モデルも解決できないときだけ SDK の全段階を出す。
+  const agentEffortModel = agentModelValue || defaultModel;
+  const agentEffortOption = agentEffortModel
+    ? modelOptions.find((option) => `${option.provider}/${option.id}` === agentEffortModel)
+    : undefined;
+  const agentThinkingLevels = agentEffortOption?.thinkingLevels ?? ALL_THINKING_LEVELS;
+  const agentSupportsThinking = agentEffortOption?.supportsThinking ?? true;
+  const agentModelMissing =
+    Boolean(agentModelValue) && !modelOptions.some((option) => `${option.provider}/${option.id}` === agentModelValue);
+
+  const agentModelChoices = useMemo(() => {
+    const choices = modelOptions.map((option) => ({
+      value: `${option.provider}/${option.id}`,
+      label: `${option.name}（${option.provider}/${option.id}）`,
+    }));
+    if (agentModelValue && !choices.some((choice) => choice.value === agentModelValue)) {
+      choices.push({ value: agentModelValue, label: `${agentModelValue}（利用不可）` });
+    }
+    return choices;
+  }, [modelOptions, agentModelValue]);
+
+  const agentEffortChoices = useMemo(() => {
+    const levels = [...agentThinkingLevels];
+    if (agentForm.thinkingLevel && !levels.includes(agentForm.thinkingLevel)) {
+      levels.push(agentForm.thinkingLevel);
+    }
+    return levels;
+  }, [agentThinkingLevels, agentForm.thinkingLevel]);
+
+  const changeAgentModel = (value: string) => {
+    if (!value) {
+      setAgentForm((prev) => ({ ...prev, model: null }));
+      return;
+    }
+    const slash = value.indexOf("/");
+    if (slash <= 0) return;
+    setAgentForm((prev) => ({
+      ...prev,
+      model: { provider: value.slice(0, slash), id: value.slice(slash + 1) },
     }));
   };
 
@@ -358,6 +444,61 @@ export function ManagerDialog({ open, onClose, catalog, agentId, refreshCatalog 
                     onChange={(e) => setAgentForm((p) => ({ ...p, systemPrompt: e.currentTarget.value }))}
                   />
                 </label>
+                <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+                    Model / Effort
+                  </div>
+                  <div className="grid gap-2 wide:grid-cols-2">
+                    <label className="grid gap-1 text-[11px] text-ink-soft">
+                      Model
+                      <select
+                        className="field cursor-pointer text-xs"
+                        aria-label="エージェントのモデル"
+                        value={agentModelValue}
+                        onChange={(e) => changeAgentModel(e.currentTarget.value)}
+                      >
+                        <option value="">未指定（アプリ既定）</option>
+                        {agentModelChoices.map((choice) => (
+                          <option key={choice.value} value={choice.value}>
+                            {choice.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-[11px] text-ink-soft">
+                      Effort
+                      <select
+                        className="field cursor-pointer text-xs disabled:cursor-not-allowed disabled:opacity-55"
+                        aria-label="エージェントの Effort"
+                        value={agentForm.thinkingLevel ?? ""}
+                        onChange={(e) =>
+                          setAgentForm((p) => ({
+                            ...p,
+                            thinkingLevel: (e.currentTarget.value || null) as ThinkingLevel | null,
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {defaultThinkingLevel ? `未指定（アプリ既定: ${effortLabel(defaultThinkingLevel)}）` : "未指定"}
+                        </option>
+                        {agentEffortChoices.map((level) => (
+                          <option key={level} value={level} disabled={!agentSupportsThinking}>
+                            {effortLabel(level)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-ink-ghost">
+                    {agentModelMissing
+                      ? "保存済みモデルは現在利用できません。別の候補を選ぶか未指定にすると回復できます。"
+                      : !agentEffortOption
+                        ? "利用可能なモデルを特定できないため、Effort は全段階を表示しています。使用モデルに応じて補正されます。"
+                        : !agentSupportsThinking
+                          ? "使用モデルは推論に対応していないため Effort を選べません。未指定に戻す操作は可能です。"
+                          : "ここで指定した値は新しい会話の初期値になります。既存の会話には反映されません。"}
+                  </p>
+                </div>
                 <div className="text-[11px] text-ink-soft">割り当てるスキル</div>
                 <div className="grid gap-1.5">
                   {catalog.skills.length === 0 ? (

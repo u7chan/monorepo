@@ -9,21 +9,76 @@ import {
   listSessions,
   postMessage,
   stopSession,
+  updateSessionSettings,
 } from "../api";
 import type {
   AgentDef,
   Catalog,
   EventEntry,
   Health,
+  ModelOption,
+  ModelRef,
   RunStatus,
   SessionPayload,
   SessionSummary,
+  ThinkingLevel,
 } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { useSessionEvents } from "./useSessionEvents";
 
 const SESSION_KEY = "pi-agent-session";
 const AGENT_KEY = "pi-agent-agent";
+
+/** SDK が定義する Effort の全段階 (モデルを解決できないときの案内表示に使う) */
+export const ALL_THINKING_LEVELS: ThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+const EFFORT_LABELS: Record<ThinkingLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "xHigh",
+  max: "Max",
+};
+
+export function effortLabel(level: string): string {
+  return EFFORT_LABELS[level as ThinkingLevel] ?? level;
+}
+
+/** セッション作成前に選んだ値 (未作成チャットの初期値) */
+export type SettingsSelection = {
+  model?: ModelRef;
+  thinkingLevel?: ThinkingLevel;
+};
+
+/** 入力欄付近の Model / Effort ピッカーに渡す状態 */
+export type ComposerSettings = {
+  modelOptions: ModelOption[];
+  /** 現在の値 (チャット実効値 or 作成前の選択値) */
+  model?: string;
+  thinkingLevel?: string;
+  supportsThinking: boolean;
+  thinkingLevels: ThinkingLevel[];
+  /** 保存済み/既定モデルが候補に無いときの警告 */
+  modelWarning?: string;
+  /** Effort 候補をモデル能力から引けないときの案内 */
+  effortNotice?: string;
+  /** 生成中・キュー待ち・設定変更通信中は Model / Effort を無効化する */
+  disabled: boolean;
+  /** 設定変更通信中は送信も待たせる */
+  changing: boolean;
+  /** 送信しても作成できない (有効なモデルを選ぶ必要がある) ときの理由 */
+  sendBlockedReason?: string;
+};
 
 export type RuntimeStatus = {
   text: string;
@@ -59,11 +114,17 @@ export function useAgentDesk() {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [cwd, setCwd] = useState<string>("");
   const [sending, setSending] = useState(false);
+  /** 設定変更 (PATCH /settings) の通信中 */
+  const [settingsChanging, setSettingsChanging] = useState(false);
+  /** 未作成チャットの作成前選択 (作成時に使ってクリアする) */
+  const [preselection, setPreselection] = useState<SettingsSelection>({});
   const [epoch, setEpoch] = useState(0);
 
   const lastSeqRef = useRef(0);
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
+  const preselectionRef = useRef<SettingsSelection>(preselection);
+  preselectionRef.current = preselection;
 
   const setAgentId = useCallback((id: string) => {
     setAgentIdState(id);
@@ -102,7 +163,13 @@ export function useAgentDesk() {
     setHealth(next);
     setCwd(next.cwd || "");
     if (next.ready) {
-      setRuntimeStatus({ text: next.model || "接続中", error: false });
+      // 明示 PI_MODEL が使えなくても候補はある。別モデルへ黙って切り替えず、
+      // 入力欄で選べるようにエラーとして伝える。
+      if (next.defaultModelError) {
+        setRuntimeStatus({ text: "モデル未選択", error: true, detail: next.defaultModelError });
+      } else {
+        setRuntimeStatus({ text: next.model || "接続中", error: false });
+      }
       return;
     }
 
@@ -159,7 +226,9 @@ export function useAgentDesk() {
   const newChat = useCallback(async (nextAgentId?: string): Promise<void> => {
     try {
       const target = nextAgentId || agentId;
-      const session = await createSession(target || undefined);
+      // 作成前の選択をリクエストへ乗せ、項目別の初期値をサーバーに解決させる
+      const session = await createSession(target || undefined, preselectionRef.current);
+      setPreselection({});
       await refreshSessions();
       await selectSession(session.sessionId);
     } catch (error) {
@@ -168,6 +237,52 @@ export function useAgentDesk() {
       dispatch({ type: "setActivity", text: status.detail || status.text });
     }
   }, [agentId, refreshSessions, selectSession]);
+
+  /** チャット単位の Model / Effort 変更。未作成なら作成前の選択として保持する */
+  const changeSessionSettings = useCallback(async (selection: SettingsSelection): Promise<void> => {
+    const id = sessionIdRef.current;
+    if (!id) {
+      setPreselection((prev) => ({ ...prev, ...selection }));
+      return;
+    }
+    setSettingsChanging(true);
+    try {
+      const payload = await updateSessionSettings(id, selection);
+      applySnapshot(payload);
+      dispatch({ type: "setActivity", text: "設定を変更しました" });
+    } catch (error) {
+      // 表示は先にサーバーの実効状態へ戻し、そのうえで失敗理由を出す
+      // (resync は activity をクリアするため、順序を逆にすると理由が消える)
+      try {
+        applySnapshot(await getSession(id));
+      } catch {
+        // セッションが消えている場合は onClosed 側の再選択に任せる
+      }
+      if (error instanceof ApiError && error.status === 409) {
+        dispatch({ type: "setActivity", text: error.message });
+      } else {
+        const status = runtimeStatusForError(error);
+        setRuntimeStatus(status);
+        dispatch({ type: "setActivity", text: status.detail || status.text });
+      }
+    } finally {
+      setSettingsChanging(false);
+    }
+  }, [applySnapshot]);
+
+  const changeModel = useCallback(
+    (model: ModelRef): void => {
+      void changeSessionSettings({ model });
+    },
+    [changeSessionSettings],
+  );
+
+  const changeThinkingLevel = useCallback(
+    (thinkingLevel: ThinkingLevel): void => {
+      void changeSessionSettings({ thinkingLevel });
+    },
+    [changeSessionSettings],
+  );
 
   // selectSession ↔ newChat の相互参照用
   const newChatRef = useRef(newChat);
@@ -238,7 +353,7 @@ export function useAgentDesk() {
   // --- アクション ---
 
   const sendMessage = useCallback(async (text: string): Promise<void> => {
-    if (!text || sending) return;
+    if (!text || sending || settingsChanging) return;
     setSending(true);
     try {
       if (health && !health.ready) {
@@ -266,7 +381,7 @@ export function useAgentDesk() {
     } finally {
       setSending(false);
     }
-  }, [health, sending, refreshSessions]);
+  }, [health, sending, settingsChanging, refreshSessions]);
 
   const stopAgent = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
@@ -310,7 +425,9 @@ export function useAgentDesk() {
         const stored = localStorage.getItem(SESSION_KEY) || "";
         const target = list.find((item) => item.sessionId === stored) || list[0];
         if (target) await selectSession(target.sessionId);
-        else if (h.ready) await newChatRef.current();
+        // アプリ既定モデルが使えないときは自動 POST を繰り返さない。
+        // 入力欄の作成前選択から有効モデルを指定して作成できる。
+        else if (h.ready && !h.defaultModelError) await newChatRef.current();
       } catch (error) {
         if (cancelled) return;
         const status = runtimeStatusForError(error);
@@ -330,6 +447,50 @@ export function useAgentDesk() {
   const selectedAgent: AgentDef | undefined = catalog.agents.find((agent) => agent.id === agentId);
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
+  // --- 入力欄の Model / Effort ピッカー ---
+
+  const modelOptions = health?.modelOptions ?? [];
+  const modelLabelOf = (ref?: ModelRef): string | undefined =>
+    ref ? `${ref.provider}/${ref.id}` : undefined;
+  const findOption = (label?: string): ModelOption | undefined =>
+    label ? modelOptions.find((option) => `${option.provider}/${option.id}` === label) : undefined;
+
+  const inSession = Boolean(sessionId);
+  // 未作成のチャットはサーバーと同じ優先順位 (作成前の選択 → 定義 → アプリ既定) で表示する
+  const pendingModel = modelLabelOf(preselection.model) ??
+    modelLabelOf(selectedAgent?.model) ??
+    health?.model;
+  const pendingThinkingLevel = preselection.thinkingLevel ??
+    selectedAgent?.thinkingLevel ??
+    health?.defaultThinkingLevel;
+
+  const effectiveModel = inSession ? chat.sessionModel : pendingModel;
+  const effectiveThinkingLevel = inSession ? chat.sessionThinkingLevel : pendingThinkingLevel;
+  const effectiveOption = findOption(effectiveModel);
+  const supportsThinking = inSession ? chat.supportsThinking : effectiveOption?.supportsThinking ?? true;
+  const thinkingLevels = inSession
+    ? chat.availableThinkingLevels
+    : effectiveOption?.thinkingLevels ?? ALL_THINKING_LEVELS;
+
+  const composerSettings: ComposerSettings = {
+    modelOptions,
+    model: effectiveModel,
+    thinkingLevel: effectiveThinkingLevel,
+    supportsThinking,
+    thinkingLevels,
+    modelWarning:
+      effectiveModel && !effectiveOption
+        ? `${effectiveModel} は現在利用できません。別のモデルを選択してください。`
+        : undefined,
+    effortNotice: effectiveOption ? undefined : "使用モデルに応じて補正されます",
+    disabled: stopVisible || sending || settingsChanging,
+    changing: settingsChanging,
+    sendBlockedReason:
+      !inSession && !effectiveModel && health?.defaultModelError
+        ? health.defaultModelError
+        : undefined,
+  };
+
   return {
     chat,
     dispatch,
@@ -342,6 +503,9 @@ export function useAgentDesk() {
     runtimeStatus,
     cwd,
     sending,
+    settingsChanging,
+    preselection,
+    composerSettings,
     selectedAgent,
     stopVisible,
     loadCatalog,
@@ -351,6 +515,8 @@ export function useAgentDesk() {
     sendMessage,
     stopAgent,
     deleteSession,
+    changeModel,
+    changeThinkingLevel,
   };
 }
 

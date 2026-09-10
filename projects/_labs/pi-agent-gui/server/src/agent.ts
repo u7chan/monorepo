@@ -13,8 +13,11 @@ import {
   SettingsManager,
   type CreateAgentSessionOptions,
 } from "@earendil-works/pi-coding-agent";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
-import type { AgentDef, SkillDef } from "./schema";
+import { ThinkingLevelSchema } from "./schema";
+import type { AgentDef, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
 export interface PiModelRef {
   provider: string;
@@ -27,8 +30,6 @@ export const AUTH_REQUIRED_MESSAGE =
 
 const MODEL_UNAVAILABLE_MESSAGE =
   "利用可能なモデルがありません。PI_MODEL または pi のモデル設定を確認してください。";
-
-const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 const APPEND_SYSTEM_PROMPT = `
 You are running inside a very small browser UI backed by the pi SDK.
@@ -45,16 +46,29 @@ const DEFAULT_TOOLS = process.platform === "win32"
 export interface CreateSessionInput {
   agent?: AgentDef;
   skills?: SkillDef[];
+  /** 解決済みのモデル指定 (未指定ならアプリ既定) */
+  model?: ModelRef;
+  /** 解決済みの thinkingLevel (未指定ならアプリ既定) */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface PiBff {
   cwd: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
+  /** アプリ既定モデル (利用可能なときのみ) */
   selectedModel: PiModelRef | undefined;
   availableModels: PiModelRef[];
+  /** picker 用の候補と能力情報 (認証済みモデルのみ) */
+  modelOptions: ModelOption[];
+  /** アプリ既定の thinkingLevel (PI_MODEL 末尾指定 → PI_THINKING → medium) */
+  defaultThinkingLevel: ThinkingLevel;
+  /** 明示 PI_MODEL が利用不能なときの理由 (他候補があれば ready のまま) */
+  defaultModelError: string | undefined;
   availabilityError: string | undefined;
   tools: string[];
+  /** availableModels に厳密一致した SDK のモデルを返す (なければ undefined) */
+  resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
   createSession(input?: CreateSessionInput): Promise<{ session: unknown }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
 }
@@ -63,12 +77,22 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseModelReference(
-  runtime: ModelRuntime,
-): { model: CreateAgentSessionOptions["model"]; thinkingLevel: string | undefined } {
+/** thinkingLevel 文字列を検証する (未知の段階は設定ミスとして例外) */
+function parseThinkingLevel(value: string, source: string): ThinkingLevel {
+  const parsed = ThinkingLevelSchema.safeParse(value);
+  if (!parsed.success) throw new Error(`Invalid ${source} value: ${value}`);
+  return parsed.data;
+}
+
+/**
+ * PI_MODEL / PI_THINKING を構文解釈する。
+ * モデルの存在確認は行わない (利用可能一覧との照合は createPiBff 側)。
+ * 構文不正や未知の thinkingLevel は設定ミスとして例外にする。
+ */
+function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel | undefined } | undefined {
   const rawValue = process.env.PI_MODEL?.trim();
   if (!rawValue) {
-    return { model: undefined, thinkingLevel: undefined };
+    return undefined;
   }
 
   let reference = rawValue;
@@ -79,9 +103,8 @@ function parseModelReference(
     thinkingLevel = thinkingSuffix[1];
   }
 
-  if (thinkingLevel && !THINKING_LEVELS.has(thinkingLevel)) {
-    throw new Error(`Invalid PI_THINKING value: ${thinkingLevel}`);
-  }
+  const parsedLevel =
+    thinkingLevel === undefined ? undefined : parseThinkingLevel(thinkingLevel, "PI_THINKING");
 
   const slash = reference.indexOf("/");
   const provider = slash === -1 ? process.env.PI_PROVIDER?.trim() : reference.slice(0, slash);
@@ -90,11 +113,19 @@ function parseModelReference(
     throw new Error("PI_MODEL must look like provider/model (or set PI_PROVIDER too)");
   }
 
-  const model = runtime.getModel(provider, modelId);
-  if (!model) {
-    throw new Error(`Model not found: ${provider}/${modelId}`);
-  }
-  return { model, thinkingLevel };
+  return { model: { provider, id: modelId }, thinkingLevel: parsedLevel };
+}
+
+/** SDK の公開ヘルパーから picker 用の能力情報を作る (BFF 側で模倣しない) */
+function modelOptionOf(model: PiAiModel<Api>): ModelOption {
+  const levels = getSupportedThinkingLevels(model) as ThinkingLevel[];
+  return {
+    provider: model.provider,
+    id: model.id,
+    name: model.name || `${model.provider}/${model.id}`,
+    supportsThinking: levels.some((level) => level !== "off"),
+    thinkingLevels: levels,
+  };
 }
 
 function configuredTools(): string[] {
@@ -116,30 +147,31 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     modelsPath: join(agentDir, "models.json"),
   });
 
-  const requested = parseModelReference(modelRuntime);
-  let selectedModel = requested.model;
-  let availableModels: PiModelRef[] = [];
+  const requested = parseModelReference();
+  let availableModelList: PiAiModel<Api>[] = [];
   let availabilityError: string | undefined;
 
   try {
-    availableModels = [...await modelRuntime.getAvailable()];
-    const requestedModel = selectedModel as PiModelRef | undefined;
-    const availableRequestedModel = requestedModel
-      ? availableModels.find(
-          (model) => model.provider === requestedModel.provider && model.id === requestedModel.id,
-        )
-      : undefined;
-    // getModel() は認証の有無を確認しないため、PI_MODEL で指定したモデルも
-    // getAvailable() の結果と突き合わせてから実行可能とみなす。
-    selectedModel = (availableRequestedModel ?? (!requestedModel ? availableModels[0] : undefined)) as
-      CreateAgentSessionOptions["model"];
+    availableModelList = [...await modelRuntime.getAvailable()];
   } catch (error) {
     availabilityError = errorMessage(error);
-    selectedModel = undefined;
+  }
+  const availableModels: PiModelRef[] = availableModelList;
+
+  // getModel() は認証の有無を確認しないため、PI_MODEL で指定したモデルも
+  // getAvailable() の結果と突き合わせてから実行可能とみなす。
+  const matchAvailable = (ref: ModelRef): PiAiModel<Api> | undefined =>
+    availableModelList.find((model) => model.provider === ref.provider && model.id === ref.id);
+  let selectedModel = requested ? matchAvailable(requested.model) : availableModelList[0];
+  let defaultModelError: string | undefined;
+  if (requested && !selectedModel) {
+    // 明示 PI_MODEL が利用不能でも、他候補があれば別モデルへ黙って
+    // フォールバックせず、ready のままエラーとして伝える。
+    defaultModelError = `PI_MODEL のモデルは利用できません: ${requested.model.provider}/${requested.model.id}`;
   }
 
-  if (!selectedModel && !availabilityError) {
-    const requestedProvider = (requested.model as PiModelRef | undefined)?.provider;
+  if (!selectedModel && !defaultModelError && !availabilityError) {
+    const requestedProvider = requested?.model.provider;
     const hasConfiguredProvider = requestedProvider
       ? modelRuntime.getProviderAuthStatus(requestedProvider).configured
       : modelRuntime.getProviders().some(
@@ -148,14 +180,36 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     availabilityError = hasConfiguredProvider ? MODEL_UNAVAILABLE_MESSAGE : AUTH_REQUIRED_MESSAGE;
   }
 
-  const thinkingLevel = requested.thinkingLevel || process.env.PI_THINKING?.trim() || "medium";
-  if (!THINKING_LEVELS.has(thinkingLevel)) {
-    throw new Error(`Invalid PI_THINKING value: ${thinkingLevel}`);
-  }
+  const defaultThinkingLevel = parseThinkingLevel(
+    requested?.thinkingLevel ?? process.env.PI_THINKING?.trim() ?? "medium",
+    "PI_THINKING",
+  );
 
-  async function createSession({ agent, skills = [] }: CreateSessionInput = {}): Promise<{ session: unknown }> {
-    if (!selectedModel) {
-      const error = new Error(availabilityError || AUTH_REQUIRED_MESSAGE) as Error & { statusCode?: number };
+  const modelOptions = availableModelList.map((model) => modelOptionOf(model));
+  const resolveModel = (model: ModelRef): PiAiModel<Api> | undefined =>
+    availableModelList.find(
+      (candidate) => candidate.provider === model.provider && candidate.id === model.id,
+    );
+
+  async function createSession({
+    agent,
+    skills = [],
+    model,
+    thinkingLevel,
+  }: CreateSessionInput = {}): Promise<{ session: unknown }> {
+    // 明示されたモデルは利用可能一覧と厳密照合し、SDK 作成前に拒否する。
+    const modelObject = model ? resolveModel(model) : selectedModel;
+    if (model && !modelObject) {
+      const error = new Error(
+        `Model is not available: ${model.provider}/${model.id}`,
+      ) as Error & { statusCode?: number };
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!modelObject) {
+      const error = new Error(
+        defaultModelError || availabilityError || AUTH_REQUIRED_MESSAGE,
+      ) as Error & { statusCode?: number };
       error.statusCode = 503;
       throw error;
     }
@@ -198,13 +252,13 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       cwd: projectCwd,
       agentDir,
       modelRuntime,
-      thinkingLevel: thinkingLevel as CreateAgentSessionOptions["thinkingLevel"],
+      model: modelObject,
+      thinkingLevel: (thinkingLevel ?? defaultThinkingLevel) as CreateAgentSessionOptions["thinkingLevel"],
       resourceLoader,
       settingsManager,
       sessionManager: SessionManager.inMemory(projectCwd),
       tools: configuredTools(),
     };
-    if (selectedModel) options.model = selectedModel;
 
     return createAgentSession(options);
   }
@@ -215,8 +269,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     modelRuntime,
     selectedModel,
     availableModels,
+    modelOptions,
+    defaultThinkingLevel,
+    defaultModelError,
     availabilityError,
     tools: configuredTools(),
+    resolveModel,
     createSession,
     modelLabel,
   };

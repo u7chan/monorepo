@@ -57,8 +57,11 @@ export default function App() {
           sending={desk.sending}
           stopVisible={desk.stopVisible}
           queueDepth={desk.chat.queueDepth}
+          settings={desk.composerSettings}
           onSend={handleSend}
           onStop={handleStop}
+          onChangeModel={desk.changeModel}
+          onChangeThinkingLevel={desk.changeThinkingLevel}
         />
       </main>
       <ManagerDialog
@@ -67,6 +70,9 @@ export default function App() {
         catalog={desk.catalog}
         agentId={desk.agentId}
         refreshCatalog={refreshCatalog}
+        modelOptions={desk.health?.modelOptions ?? []}
+        defaultModel={desk.health?.model}
+        defaultThinkingLevel={desk.health?.defaultThinkingLevel}
       />
     </div>
   );

@@ -59,6 +59,27 @@ startRun():
 - タイトルは最初のユーザーメッセージ（60 文字）から自動生成。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
 
+## Model / Effort の解決と変更
+
+アプリ既定モデルは `ModelRuntime.getAvailable()` の結果（認証済みモデルのみ）から決める。`PI_MODEL` を明示していればそれを使い、利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。`PI_MODEL` 未指定なら先頭候補を使う。
+
+新規チャットの初期値は項目別に「作成時のチャット指定 → エージェント定義 → アプリ既定」の順で `SessionStore.create()` が解決し、`createAgentSession()` へ渡す。`thinkingLevel` の非対応値は SDK がモデル能力で補正する（BFF では模倣しない）。
+
+```
+POST /api/sessions { model?, thinkingLevel? }
+  └─ create(): request ?? agent def ?? undefined (undefined はランタイムのアプリ既定)
+       └─ pi.createSession(): available と厳密照合してから SDK 作成 (不在は 400 / 候補ゼロは 503)
+```
+
+チャット単位の変更は `PATCH /api/sessions/:id/settings`。同じ SDK セッション・履歴・タイトルを保ち、実効値は pi セッション（`session.model` / `session.thinkingLevel`）を正とする。
+
+1. 実行中・キューあり・SDK 非 idle・設定変更中なら 409（変更前にフラグを同期的に予約する）。
+2. モデルは available と厳密照合（不在は 400）。
+3. モデルだけの変更では、変更前の実効 `thinkingLevel` を退避して `setModel(model, {persist:false})` の後に再適用する（SDK のモデル切替既定に任せない）。両方指定時は要求値を再適用する。
+4. `finally` でフラグを解除し、SDK 補正後の実効値で `resync` イベントを記録して返す。
+
+エージェント定義の編集・インポートは既存チャットに遡及しない。表示用のエージェント情報（名前・説明・スキル）は作成時に `SessionRecord` へスナップショット化し、定義の変更・削除後も `payload.agent` は作成時のままになる。
+
 ## 停止
 
 `POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
@@ -80,7 +101,8 @@ startRun():
 - 入出力の DTO は `server/src/schema.ts`（zod）が正。リクエストボディは `@hono/zod-validator` で検証し、レスポンス型はハンドラの戻り値から推論される。
 - `server/src/app.ts` はルートをチェーン形式で定義し `AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
 - server / client の両 tsconfig は `moduleResolution: bundler` + noEmit。server は tsx で実行するため拡張子なし import で統一し、client は workspace package `server` のソースを型として直接参照する。
-- カタログ CRUD の body はわざと pass-through（zod 厳格化しない）。エージェント名の必須チェックなど日本語エラー文言を伴う正規化は `agents.ts` 側が正のため。
+- カタログ CRUD の body はわざと pass-through（zod 厳格化しない）。エージェント名の必須チェックや `model` / `thinkingLevel` の正規化・日本語エラー文言は `agents.ts` 側が正。
+- モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.85.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
 
 ## フロントエンド
 
@@ -98,6 +120,7 @@ startRun():
 
 - SSE イベント（`text` / `tool_start` / `tool_end` / `run_end` など）を React の reducer で受け、イベントログから UI 状態（メッセージ列、ツールカード、実行状態）を導出して仮想 DOM へ反映する。旧 `app.js` のようにイベントハンドラで DOM を直接書き換えるのではなく、「イベントの適用」を純粋な状態遷移として書くことで、再接続時のリプレイ / `resync` も同じ reducer で処理できる。
 - 接続管理（`EventSource` の再接続、`Last-Event-ID`、`resync` の検知）はカスタムフックに集約し、コンポーネントは描画に集中する。
+- 入力欄の Model / Effort ピッカーは `Composer` に置く。セッションがあれば `resync` で受け取った実効値、未作成のチャットでは「作成前の選択 → 選択中エージェントの定義 → health のアプリ既定」を同じ優先順位で表示する。選択は未作成ならローカルに保持して `POST /api/sessions` に乗せ、作成済みなら `PATCH /api/sessions/:id/settings` を呼んでサーバーの実効値へ同期する。生成中・キュー待ち・設定変更通信中はピッカーを無効化し、設定変更通信中は送信も待たせる。
 
 ### 開発フローと配信
 

@@ -18,6 +18,7 @@ import {
   CreateSessionBodySchema,
   PostMessageBodySchema,
   ReplaceCatalogBodySchema,
+  UpdateSessionSettingsBodySchema,
 } from "./schema";
 
 // client は "server" (本ファイル) を型ソースとして import type するため DTO 型を再配布する
@@ -179,7 +180,10 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // --- health ---
 
   .get("/api/health", (c) => {
-    const ready = Boolean(pi?.selectedModel);
+    // ready は「runtime が使え、利用可能モデルが 1 つ以上ある」の意。
+    // 明示 PI_MODEL が使えるかどうかとは分離する (defaultModelError)。
+    const availableModels = pi?.availableModels ?? [];
+    const ready = Boolean(pi) && availableModels.length > 0;
     const authRequired = Boolean(pi && !ready && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
     const errorCode: "authentication_required" | "runtime_unavailable" | undefined = authRequired
       ? "authentication_required"
@@ -192,7 +196,10 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       cwd: pi?.cwd || resolve(cwd),
       model: modelLabel(pi?.selectedModel),
       availableModels:
-        pi?.availableModels?.map(modelLabel).filter((m): m is string => m != null) ?? [],
+        availableModels.map(modelLabel).filter((m): m is string => m != null),
+      modelOptions: pi?.modelOptions ?? [],
+      defaultThinkingLevel: pi?.defaultThinkingLevel ?? "medium",
+      defaultModelError: pi?.defaultModelError,
       tools: pi?.tools || [],
       availabilityError: pi?.availabilityError,
       errorCode,
@@ -248,8 +255,31 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     ),
     async (c) => {
       const body = c.req.valid("json");
-      const record = await store.create({ agentId: body.agentId });
+      const record = await store.create({
+        agentId: body.agentId,
+        model: body.model,
+        thinkingLevel: body.thinkingLevel,
+      });
       return c.json(store.payload(record), 201);
+    },
+  )
+  .patch(
+    "/api/sessions/:id/settings",
+    zValidator("json", UpdateSessionSettingsBodySchema, (result, c) =>
+      result.success ? undefined : c.json({ error: "Invalid session settings" }, 400),
+    ),
+    async (c) => {
+      const record = findSession(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const body = c.req.valid("json");
+      if (body.model === undefined && body.thinkingLevel === undefined) {
+        return c.json({ error: "model or thinkingLevel is required" }, 400);
+      }
+      const payload = await store.updateSettings(record, {
+        model: body.model,
+        thinkingLevel: body.thinkingLevel,
+      });
+      return c.json(payload);
     },
   )
   .get("/api/sessions/:id", (c) => {

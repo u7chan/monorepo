@@ -1,4 +1,4 @@
-import type { ChatMessage, RunStatus, SessionPayload, ToolCall } from "../types";
+import type { ChatMessage, RunStatus, SessionPayload, ThinkingLevel, ToolCall } from "../types";
 
 export type ToolPhase = "running" | "done" | "failed";
 
@@ -28,6 +28,14 @@ export type ChatState = {
   runStatus: RunStatus;
   queueDepth: number;
   activity: string;
+  /** サーバーが返した実効モデル (provider/id)。未作成のチャットでは undefined */
+  sessionModel?: string;
+  /** サーバー補正後の実効 Effort */
+  sessionThinkingLevel?: string;
+  /** 実効モデルが推論に対応しているか */
+  supportsThinking: boolean;
+  /** 実効モデルで選べる Effort の候補 (非推論は ["off"] のみ) */
+  availableThinkingLevels: ThinkingLevel[];
 };
 
 export type ChatAction =
@@ -52,6 +60,10 @@ export const initialChatState: ChatState = {
   runStatus: "idle",
   queueDepth: 0,
   activity: "",
+  sessionModel: undefined,
+  sessionThinkingLevel: undefined,
+  supportsThinking: false,
+  availableThinkingLevels: [],
 };
 
 function appendBubble(state: ChatState, role: Bubble["role"], text = ""): ChatState {
@@ -137,6 +149,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runStatus: payload.status || "idle",
         queueDepth: payload.queueDepth || 0,
         activity: "",
+        sessionModel: payload.model,
+        sessionThinkingLevel: payload.thinkingLevel,
+        supportsThinking: payload.supportsThinking ?? false,
+        availableThinkingLevels: payload.availableThinkingLevels ?? [],
       };
       if (payload.run?.toolCalls?.length && (payload.status === "running" || payload.status === "completed")) {
         const last = [...bubbles].reverse().find((b) => b.role === "assistant");

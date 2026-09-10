@@ -27,12 +27,34 @@ export const SkillDefSchema = z.object({
 });
 export type SkillDef = z.infer<typeof SkillDefSchema>;
 
+/** pi SDK の thinkingLevel をそのまま使う。UI 表示名は「Effort」 */
+export const ThinkingLevelSchema = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
+
+/** 認証済みモデルの provider/id 参照 (SDK の Model そのものではない) */
+export const ModelRefSchema = z.object({
+  provider: z.string().min(1),
+  id: z.string().min(1),
+});
+export type ModelRef = z.infer<typeof ModelRefSchema>;
+
 export const AgentDefSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
   systemPrompt: z.string(),
   skillIds: z.array(z.string()),
+  // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
+  model: ModelRefSchema.optional(),
+  thinkingLevel: ThinkingLevelSchema.optional(),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 
@@ -92,6 +114,10 @@ export const SessionPayloadSchema = z.object({
   cwd: z.string().optional(),
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
+  /** 実効モデルが推論に対応しているか (SDK の supportsThinking 相当) */
+  supportsThinking: z.boolean().optional(),
+  /** 実効モデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
+  availableThinkingLevels: z.array(ThinkingLevelSchema).optional(),
   status: RunStatusSchema,
   title: z.string(),
   createdAt: z.number(),
@@ -122,6 +148,19 @@ export type SessionSummary = z.infer<typeof SessionSummarySchema>;
  * health の DTO。client/src/types.ts の Health に加え、
  * ルート (GET /api/health) が返す拡張フィールドを optional で許容する。
  */
+export const ModelOptionSchema = z.object({
+  provider: z.string(),
+  id: z.string(),
+  name: z.string(),
+  supportsThinking: z.boolean(),
+  thinkingLevels: z.array(ThinkingLevelSchema),
+});
+export type ModelOption = z.infer<typeof ModelOptionSchema>;
+
+/**
+ * health の DTO。client/src/types.ts の Health に加え、
+ * ルート (GET /api/health) が返す拡張フィールドを optional で許容する。
+ */
 export const HealthSchema = z.object({
   cwd: z.string().optional(),
   ready: z.boolean(),
@@ -130,6 +169,11 @@ export const HealthSchema = z.object({
   errorCode: z.enum(["authentication_required", "runtime_unavailable"]).optional(),
   ok: z.boolean().optional(),
   availableModels: z.array(z.string()).optional(),
+  modelOptions: z.array(ModelOptionSchema).optional(),
+  /** アプリ既定の thinkingLevel (PI_MODEL 末尾指定 → PI_THINKING → medium) */
+  defaultThinkingLevel: ThinkingLevelSchema.optional(),
+  /** 明示 PI_MODEL が利用不能なときの理由 (ready は true のまま) */
+  defaultModelError: z.string().optional(),
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
 });
@@ -160,8 +204,18 @@ export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 
 export const CreateSessionBodySchema = z.object({
   agentId: z.string().optional(),
+  // 未指定ならエージェント定義 → アプリ既定の順に解決する (null は 400)
+  model: ModelRefSchema.optional(),
+  thinkingLevel: ThinkingLevelSchema.optional(),
 });
 export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
+
+/** チャット設定変更。省略は現在値維持、null・空 body は 400 */
+export const UpdateSessionSettingsBodySchema = z.object({
+  model: ModelRefSchema.optional(),
+  thinkingLevel: ThinkingLevelSchema.optional(),
+});
+export type UpdateSessionSettingsBody = z.infer<typeof UpdateSessionSettingsBodySchema>;
 
 export const ReplaceCatalogBodySchema = z.object({
   agents: z.array(z.unknown()),
