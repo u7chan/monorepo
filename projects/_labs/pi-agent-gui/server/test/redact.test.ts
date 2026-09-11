@@ -27,8 +27,17 @@ test("masks the longest value first when secrets overlap", () => {
   assert.equal(masker.mask(`x ${short} y`), `x ${REDACTED} y`);
 });
 
-test("ignores empty, blank, and short values", () => {
-  const masker = createSecretMasker(["", "   ", "a".repeat(MIN_SECRET_LENGTH - 1), KEY]);
+test("registering values is not filtered by length by default (explicit opt-in)", () => {
+  const masker = createSecretMasker(["", "   ", "abc", KEY]);
+  // 空文字・空白のみは常に除外。短い値は明示指定されれば保護対象。
+  assert.deepEqual(masker.secrets, [KEY, "abc"]);
+  assert.equal(masker.mask("xyz abc"), "xyz [REDACTED]");
+});
+
+test("minLength option drops short values (auto-discovered keys)", () => {
+  const masker = createSecretMasker(["", "   ", "a".repeat(MIN_SECRET_LENGTH - 1), KEY], {
+    minLength: MIN_SECRET_LENGTH,
+  });
   assert.deepEqual(masker.secrets, [KEY]);
 });
 

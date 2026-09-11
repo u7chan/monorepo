@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
 import { buildChildEnv } from "./child-env";
-import { createSecretMasker, maskTextContentParts, type SecretMasker } from "./redact";
+import { createSecretMasker, MIN_SECRET_LENGTH, maskTextContentParts, type SecretMasker } from "./redact";
 
 /** シェルツールが子プロセスへ渡す前に許可リストへ絞るための hook 引数。 */
 interface SpawnContext {
@@ -26,9 +26,23 @@ type ShellUpdateCallback = NonNullable<Parameters<ShellExecute>[3]>;
 type ShellPartialResult = Parameters<ShellUpdateCallback>[0];
 
 /**
+ * findEnvKeys が解決しない既知プロバイダーのキー変数の補完。
+ * pi-ai のキー変数解決は AWS の ambient 認証情報を意図的に除外しているが、
+ * Bedrock ベアラートークンは API キーと同種の直接認証値なので保護対象に入れる。
+ * (AWS_ACCESS_KEY_ID などの IAM 認証情報と OAuth トークンは対象外)
+ */
+const SUPPLEMENTAL_PROVIDER_ENV_KEYS: Record<string, readonly string[]> = {
+  "amazon-bedrock": ["AWS_BEARER_TOKEN_BEDROCK"],
+};
+
+/**
  * ランタイムが知っている各プロバイダーについて、認証に使われる環境変数
- * (pi-ai の findEnvKeys が解決) のうち設定されているものを集め、その値を
- * 保護対象として返す。重複値は除かれる。
+ * (pi-ai の findEnvKeys が解決し、上記の補完で欠けを埋める) のうち設定
+ * されているものを集め、その値を保護対象として返す。重複値は除かれる。
+ *
+ * 自動解決された値は短すぎると通常出力を過剰に改変するため MIN_SECRET_LENGTH
+ * 未満を対象外にする。extraVarNames (PI_SECRET_ENV_VARS) で明示指定された
+ * 変数は運用者の意図なので長さに関係なく保護する。
  *
  * models.json 等で独自プロバイダーを使う場合は findEnvKeys が解決できない
  * ため、PI_SECRET_ENV_VARS (カンマ区切りの変数名) で追加する。
@@ -41,19 +55,22 @@ export function collectSecretValues(
   // findEnvKeys の ProviderEnv は値が必須の Record だが、実装は undefined を
   // 受け付けるため process.env をそのまま渡す。
   const providerEnv = env as unknown as Parameters<typeof findEnvKeys>[1];
-  const names = new Set<string>();
+  const explicitNames = new Set(extraVarNames);
+  const values = new Set<string>();
+  const take = (name: string, explicit: boolean): void => {
+    const value = env[name];
+    if (typeof value !== "string" || value.trim() === "") return;
+    if (!explicit && value.length < MIN_SECRET_LENGTH) return;
+    values.add(value);
+  };
   for (const provider of providers) {
-    for (const name of findEnvKeys(provider.id, providerEnv) ?? []) {
-      names.add(name);
+    const names = findEnvKeys(provider.id, providerEnv) ?? SUPPLEMENTAL_PROVIDER_ENV_KEYS[provider.id] ?? [];
+    for (const name of names) {
+      take(name, explicitNames.has(name));
     }
   }
-  for (const name of extraVarNames) names.add(name);
-  const values: string[] = [];
-  for (const name of names) {
-    const value = env[name];
-    if (typeof value === "string" && value.trim() !== "") values.push(value);
-  }
-  return values;
+  for (const name of explicitNames) take(name, true);
+  return [...values];
 }
 
 /** PI_SECRET_ENV_VARS (カンマ区切り) で保護対象に追加された環境変数名。 */

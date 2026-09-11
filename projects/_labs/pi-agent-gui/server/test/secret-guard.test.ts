@@ -48,6 +48,24 @@ test("collectSecretValues gathers configured provider env values only", () => {
   assert.deepEqual([...values].sort(), [CUSTOM_DUMMY, OPENAI_DUMMY].sort());
 });
 
+test("collectSecretValues supplements provider auth vars that findEnvKeys misses", () => {
+  const bearer = "aws-bearer-dummy-0123456789";
+  const values = collectSecretValues([{ id: "amazon-bedrock" }], { AWS_BEARER_TOKEN_BEDROCK: bearer });
+  assert.deepEqual(values, [bearer]);
+});
+
+test("collectSecretValues floors auto-discovered short values but protects explicit ones", () => {
+  // 自動解決: findEnvKeys が見付けた変数でも 8 文字未満の値は対象外
+  const auto = collectSecretValues([{ id: "openai" }], { OPENAI_API_KEY: "short" });
+  assert.deepEqual(auto, []);
+  // 明示指定: 同じ変数名でも PI_SECRET_ENV_VARS に入っていれば長さに関係なく保護
+  const explicit = collectSecretValues([{ id: "openai" }], { OPENAI_API_KEY: "short" }, ["OPENAI_API_KEY"]);
+  assert.deepEqual(explicit, ["short"]);
+  // 明示指定した長い値も通常どおり保護される
+  const longExplicit = collectSecretValues([{ id: "openai" }], { CUSTOM_KEY: "abc" }, ["CUSTOM_KEY"]);
+  assert.deepEqual(longExplicit, ["abc"]);
+});
+
 test("extraSecretVarNames parses PI_SECRET_ENV_VARS and drops invalid names", () => {
   assert.deepEqual(extraSecretVarNames({ PI_SECRET_ENV_VARS: " MY_KEY , 9bad,ok_name " }), [
     "MY_KEY",

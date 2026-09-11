@@ -110,9 +110,10 @@ POST /api/sessions { model?, thinkingLevel? }
 
 ### 保護対象
 
-- `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
-- 8文字未満の値は通常出力の過剰改変防止のため対象外。重複・包含する値は長い順に置換する
+- `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。findEnvKeys が解決しない既知プロバイダーのキー変数（Bedrock の `AWS_BEARER_TOKEN_BEDROCK`）は補完テーブルで埋める。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
+- 自動解決された値は 8 文字未満を通常出力の過剰改変防止のため対象外にする。`PI_SECRET_ENV_VARS` で明示指定された変数は運用者の意図なので長さに関係なく保護する。重複・包含する値は長い順に置換する
 - ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta）はマスクする
+- ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
 
 ### レイヤー
 

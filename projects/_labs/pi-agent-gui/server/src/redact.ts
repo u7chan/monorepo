@@ -11,10 +11,19 @@
 export const REDACTED = "[REDACTED]";
 
 /**
- * これより短い値は秘密として扱わない。現実のAPIキーはもっと長く、
- * 極端に短い値を登録すると通常出力が過剰に改変されるため。
+ * これより短い値は秘密として扱わない下限。現実のAPIキーはもっと長く、
+ * 極端に短い値を登録すると通常出力が過剰に改変されるため、自動解決
+ * される値にのみ適用する (PI_SECRET_ENV_VARS での明示指定には適用しない)。
  */
 export const MIN_SECRET_LENGTH = 8;
+
+/**
+ * createSecretMasker の登録フィルタ。
+ */
+export interface SecretMaskerOptions {
+  /** これより短い値を登録対象から外す (0 = 無効)。既定は 0。 */
+  minLength?: number;
+}
 
 /** 保護対象の秘密値からマスカーを作る。空配列なら同一変換 (何も置換しない)。 */
 export interface SecretMasker {
@@ -33,10 +42,13 @@ export interface SecretMasker {
   maskAccumulated(text: string): string;
 }
 
-export function createSecretMasker(secrets: Iterable<string>): SecretMasker {
+export function createSecretMasker(secrets: Iterable<string>, options: SecretMaskerOptions = {}): SecretMasker {
+  const minLength = options.minLength ?? 0;
   const unique = new Set<string>();
   for (const secret of secrets) {
-    if (typeof secret === "string" && secret.length >= MIN_SECRET_LENGTH) {
+    // 空文字や空白のみの値は split を壊す / 意味がないため常に除外。
+    // 長さの下限は呼び出し側のポリシー (自動解決か明示指定か) に委ねる。
+    if (typeof secret === "string" && secret.trim() !== "" && secret.length >= minLength) {
       unique.add(secret);
     }
   }

@@ -267,6 +267,43 @@ test("aborting mid-stream does not leak the key through held-back chunks", async
   await store.close();
 });
 
+test("args and output truncated at their limits are masked before truncation", async () => {
+  // ARGS_TEXT_MAX (260) / SUMMARY_TEXT_MAX (900) の境界にキーが跨るケース。
+  // 先に切り詰めると末尾が欠けてキーの大部分がそのまま残るため、
+  // マスクを先に掛ける必要がある。
+  const command = "b".repeat(240) + KEY;
+  const outputText = "x".repeat(885) + KEY;
+  const session = createScriptedSession(async (s) => {
+    const assistant = startAssistant(s);
+    await streamChunks(s, assistant, ["確認します"]);
+    emitToolEnd(s, {
+      id: "call-4",
+      name: "bash",
+      args: { command },
+      output: outputText,
+    });
+    settle(s);
+  });
+  const { store, events } = createStore(session);
+  const record = await store.create({ agentId: "agent-general" });
+  store.subscribe(record, undefined, (entry) => events.push(entry));
+
+  store.postMessage(record, "境界を確認して");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const toolStart = events.find((entry) => entry.type === "tool_start");
+  const toolEnd = events.find((entry) => entry.type === "tool_end");
+  const args = (toolStart?.data as { args: string }).args;
+  const output = (toolEnd?.data as { output: string }).output;
+  // 切り詰め後のテキストにも完全体はおろか大部分も残らない
+  assert.ok(!args.includes(KEY.slice(0, 20)), `args leaked: ${args}`);
+  assert.ok(args.includes(REDACTED), `masked args expected: ${args}`);
+  assert.ok(!output.includes(KEY.slice(0, 20)), `output leaked: ${output}`);
+  assert.ok(output.includes(REDACTED), `masked output expected: ${output}`);
+  assertNoRawKey(events, store.payload(record), "truncation boundary");
+  await store.close();
+});
+
 test("output without secrets passes through unchanged", async () => {
   const session = createScriptedSession(async (s) => {
     const assistant = startAssistant(s);

@@ -72,21 +72,28 @@ function contentText(content: unknown): string {
     .join("");
 }
 
-function toolArgsSummary(args: unknown): string {
+function toolArgsSummary(args: unknown, masker: SecretMasker): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
-  if (typeof record.command === "string") return `$ ${truncate(record.command, ARGS_TEXT_MAX)}`;
+  // 切り詰める前にマスクする。先に切り詰めると境界で末尾が欠け、
+  // キーの大部分がそのまま残ってしまう。
+  if (typeof record.command === "string") {
+    return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
+  }
   const path = record.path || record.file_path || record.filePath;
-  if (typeof path === "string") return path;
+  if (typeof path === "string") return masker.mask(path);
   try {
-    return truncate(JSON.stringify(args), ARGS_TEXT_MAX);
+    return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
   } catch {
     return "";
   }
 }
 
-function toolResultSummary(result: unknown): string {
-  return truncate(contentText((result as { content?: unknown } | null)?.content), SUMMARY_TEXT_MAX);
+function toolResultSummary(result: unknown, masker: SecretMasker): string {
+  return truncate(
+    masker.mask(contentText((result as { content?: unknown } | null)?.content)),
+    SUMMARY_TEXT_MAX,
+  );
 }
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
@@ -666,7 +673,7 @@ export class SessionStore {
             const tool: ToolCall = {
               id: event.toolCallId ?? "",
               name: event.toolName ?? "",
-              args: this.masker.mask(toolArgsSummary(event.args)),
+              args: toolArgsSummary(event.args, this.masker),
               isError: false,
               done: false,
               output: "",
@@ -677,7 +684,7 @@ export class SessionStore {
             break;
           }
           case "tool_execution_end": {
-            const output = this.masker.mask(toolResultSummary(event.result));
+            const output = toolResultSummary(event.result, this.masker);
             const tool = record.tools.get(event.toolCallId ?? "");
             if (tool) {
               tool.done = true;
