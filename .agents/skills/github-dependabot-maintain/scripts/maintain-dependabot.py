@@ -14,6 +14,9 @@ import yaml
 CONFIG = Path(".github/dependabot.yml")
 PROJECTS = Path("projects")
 REQUIRED_LABEL = "dependabot-auto-process"
+EXCLUDED_DIRS = ("_labs", "_samples")
+# `_labs` is skipped by default; only lab projects that opted in to Dependabot are picked up.
+LAB_PROJECTS = ("pi-agent-gui",)
 
 
 def detect_ecosystem(project_dir: Path) -> str | None:
@@ -24,6 +27,26 @@ def detect_ecosystem(project_dir: Path) -> str | None:
     if (project_dir / "uv.lock").exists():
         return "uv"
     return None
+
+
+def scan_projects(projects_root: Path = PROJECTS) -> dict[str, str]:
+    """Return ``directory -> ecosystem`` for every project tracked by Dependabot."""
+    detected: dict[str, str] = {}
+    for project_dir in sorted(projects_root.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        name = project_dir.name
+        if name in EXCLUDED_DIRS:
+            for child in sorted(project_dir.iterdir()):
+                if child.is_dir() and child.name in LAB_PROJECTS:
+                    ecosystem = detect_ecosystem(child)
+                    if ecosystem is not None:
+                        detected[f"/projects/{name}/{child.name}"] = ecosystem
+            continue
+        ecosystem = detect_ecosystem(project_dir)
+        if ecosystem is not None:
+            detected[f"/projects/{name}"] = ecosystem
+    return detected
 
 
 def parse_entries(text: str) -> tuple[str, dict[str, list[str]]]:
@@ -290,16 +313,7 @@ def main() -> int:
     header, existing_entries = parse_entries(text)
 
     # 3. Scan projects
-    detected: dict[str, str] = {}
-    for project_dir in sorted(PROJECTS.iterdir()):
-        if not project_dir.is_dir():
-            continue
-        name = project_dir.name
-        if name in ("_labs", "_samples"):
-            continue
-        ecosystem = detect_ecosystem(project_dir)
-        if ecosystem is not None:
-            detected[f"/projects/{name}"] = ecosystem
+    detected = scan_projects()
 
     # 4. Build desired blocks, preserving existing settings
     desired_blocks: list[list[str]] = []

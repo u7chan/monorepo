@@ -1,6 +1,6 @@
 # AGENTS.md
 
-モノレポの実験プロジェクト `projects/_labs/pi-agent-gui`。既存の `projects/aiagent` とは別物。Node.js 24 / pnpm 10.34.5を使い、Dependabotには追加しない。
+モノレポの実験プロジェクト `projects/_labs/pi-agent-gui`。既存の `projects/aiagent` とは別物。Node.js 24 / pnpm 10.34.5を使い、`_labs` では例外的に Dependabot の依存更新対象にしている（`.github/dependabot.yml` と skill の `LAB_PROJECTS`）。
 
 pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ GUI。BFF は **Hono + TypeScript**（`server/`、入力検証は zod）で、フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4（`client/`）。client は `hono/client`（hc）で server の `AppType` を参照して**型安全に API 呼び出し**する。セッションとエージェント/スキル定義はメモリ内のみ（永続化しない）。
 

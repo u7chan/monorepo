@@ -1,6 +1,6 @@
 # pi agent GUI
 
-`projects/_labs/pi-agent-gui` は、今後の継続開発に向けて検証中の実験プロジェクトです。既存の `projects/aiagent` とは別のアプリで、Dependabotの対象には追加していません。
+`projects/_labs/pi-agent-gui` は、今後の継続開発に向けて検証中の実験プロジェクトです。既存の `projects/aiagent` とは別のアプリです。`_labs` のプロジェクトは原則Dependabotの対象外ですが、このプロジェクトだけは依存更新を追うため例外として登録しています。
 
 pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ GUI です。フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は **Hono + TypeScript**（入力検証は zod）で構築し、client は `hono/client` で型安全に API を呼びます。BFF がプロダクションビルドを配信します。
 

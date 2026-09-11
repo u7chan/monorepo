@@ -50,6 +50,36 @@ class MaintainDependabotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             self.assertIsNone(MAINTAIN.detect_ecosystem(Path(temp_dir)))
 
+    def test_scan_skips_labs_except_opted_in_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            projects_root = Path(temp_dir)
+            (projects_root / "portal").mkdir()
+            (projects_root / "portal" / "bun.lock").touch()
+            (projects_root / "_labs").mkdir()
+            (projects_root / "_labs" / "pi-agent-gui").mkdir()
+            (projects_root / "_labs" / "pi-agent-gui" / "pnpm-lock.yaml").touch()
+            (projects_root / "_labs" / "other-lab").mkdir()
+            (projects_root / "_labs" / "other-lab" / "pnpm-lock.yaml").touch()
+            (projects_root / "_samples").mkdir()
+            (projects_root / "_samples" / "sample").mkdir()
+            (projects_root / "_samples" / "sample" / "uv.lock").touch()
+
+            self.assertEqual(
+                MAINTAIN.scan_projects(projects_root),
+                {
+                    "/projects/portal": "bun",
+                    "/projects/_labs/pi-agent-gui": "npm",
+                },
+            )
+
+    def test_scan_skips_opted_in_labs_without_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            projects_root = Path(temp_dir)
+            (projects_root / "_labs").mkdir()
+            (projects_root / "_labs" / "pi-agent-gui").mkdir()
+
+            self.assertEqual(MAINTAIN.scan_projects(projects_root), {})
+
     def test_new_entry_contains_required_label(self) -> None:
         block = MAINTAIN.build_new_block("bun", "/projects/example")
         entry = MAINTAIN._entry_from_block(block)

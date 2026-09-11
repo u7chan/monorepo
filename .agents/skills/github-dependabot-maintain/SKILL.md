@@ -50,6 +50,8 @@ Ignore these directories under `projects/`:
 - Nested subdirectories
 - Any directory without a recognized lockfile
 
+例外として、Dependabot を意図的に有効にした実験プロジェクトがある。現在は `_labs/pi-agent-gui` だけが該当し、`scripts/maintain-dependabot.py` の `LAB_PROJECTS` で管理する。実験プロジェクトを対象に加える・外すときは、`.github/dependabot.yml` と `LAB_PROJECTS` の両方を同じ PR で更新する。
+
 ## Ecosystem Detection
 
 Use lockfiles only:
@@ -60,7 +62,7 @@ Use lockfiles only:
 | `pnpm-lock.yaml` | `npm` |
 | `uv.lock` | `uv` |
 
-> **pnpm に関する注記:** Dependabot には pnpm 専用の `package-ecosystem` 値がないため、`package-ecosystem: "npm"` を使用する。Dependabot の version updates は pnpm に対応しているが、security updates（セキュリティアップデート）は対象外である。出典は GitHub 公式 docs（パッケージマネージャ pnpm の ecosystem は npm）と GitHub changelog（2023-06-12）。pnpm プロジェクトを `projects/` に追加したときは、この skill の通常フローに従い `.github/dependabot.yml` に `package-ecosystem: "npm"` のエントリを追加する。
+> **pnpm に関する注記:** Dependabot には pnpm 専用の `package-ecosystem` 値がないため、`package-ecosystem: "npm"` を使用する。公式リファレンスでは pnpm v7〜v10 が version updates と security updates の両方に対応している（2026-09-12 時点。出典: GitHub 公式 docs "Dependabot supported ecosystems and repositories" の pnpm 行）。pnpm プロジェクトを `projects/` に追加したときは、この skill の通常フローに従い `.github/dependabot.yml` に `package-ecosystem: "npm"` のエントリを追加する。
 
 ## Step Details
 
@@ -76,9 +78,16 @@ If the output is non-empty, stop and warn the user. This catches both staged and
 
 List candidate directories:
 
+    labs_projects="pi-agent-gui"
     for dir in projects/*/; do
       name=$(basename "$dir")
-      [[ "$name" == "_labs" || "$name" == "_samples" ]] && continue
+      if [[ "$name" == "_labs" || "$name" == "_samples" ]]; then
+        # 実験プロジェクトは既定では対象外。allowlist に入れたものだけを拾う。
+        for lab in $labs_projects; do
+          [[ -f "$dir$lab/pnpm-lock.yaml" ]] && echo "npm /projects/$name/$lab"
+        done
+        continue
+      fi
       if [[ -f "$dir/bun.lock" || -f "$dir/bun.lockb" ]]; then
         echo "bun /projects/$name"
       elif [[ -f "$dir/pnpm-lock.yaml" ]]; then
@@ -149,7 +158,7 @@ Run the skill tests with:
 
 - [ ] No uncommitted changes existed before editing
 - [ ] Only `projects/` immediate subdirectories were scanned
-- [ ] `_labs/` and `_samples/` were excluded
+- [ ] `_labs/` and `_samples/` were excluded except the `LAB_PROJECTS` allowlist
 - [ ] Ecosystems were detected from lockfiles
 - [ ] Existing entry settings were preserved except group names
 - [ ] `dependabot-auto-process` is present on every generated and existing entry

@@ -36,6 +36,9 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 3. Scans `projects/*/` and detects the ecosystem from lockfiles.
    The lockfile mappings are `bun.lock` or `bun.lockb` → `bun`,
    `pnpm-lock.yaml` → `npm`, and `uv.lock` → `uv`.
+   `_labs` and `_samples` are skipped as a rule. Only the lab projects named in
+   `LAB_PROJECTS` are scanned one level deeper and reported as
+   `/projects/_labs/<name>`.
 4. Builds the desired entry list:
    - If a directory already exists in `dependabot.yml`, reuse its settings
      (`schedule`, `open-pull-requests-limit`, `rebase-strategy`, etc.) and only
@@ -57,6 +60,9 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 - If a project has both `pnpm-lock.yaml` and `uv.lock`, the script picks `npm`
   because pnpm is checked first. Review the result manually if this happens.
 - If no lockfile is found, the directory is excluded from Dependabot.
+- A lab project is included only when its name is in `LAB_PROJECTS`. Adding a
+  lab project to `.github/dependabot.yml` without updating `LAB_PROJECTS` makes
+  the next run drop the entry as stale, and the other way round adds an entry.
 - If an existing entry points to a directory that no longer exists, it is removed.
 - If an existing entry points to a directory whose lockfile is gone, it is removed.
 

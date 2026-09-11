@@ -9,7 +9,7 @@
 
 | 項目 | 方針 |
 | --- | --- |
-| 対応するパッケージ管理 | Bun、uv |
+| 対応するパッケージ管理 | Bun、npm（pnpmを含む）、uv |
 | 更新頻度 | 週次 |
 | 同時に開く PR | プロジェクトごとに `1` 件 |
 | minor / patch 更新 | プロジェクト単位で一つの PR にまとめる |
@@ -17,6 +17,8 @@
 | 自動 rebase | 無効 |
 
 公開レジストリだけを使うプロジェクトには、レジストリの追加設定は不要です。非公開レジストリから取得する場合は、`registries` の設定と認証情報を別途追加します。
+
+`projects/_labs` と `projects/_samples` は原則対象外です。例外として、依存更新を追うと決めた実験プロジェクト（現在は `projects/_labs/pi-agent-gui`）だけを登録します。対象の実験プロジェクトは、`.github/dependabot.yml` と、設定を保守する skill の `LAB_PROJECTS` の両方に同じ名前を書きます。片方だけを変えると、次回の skill 実行で設定と実際の対象がずれます。
 
 ## Dependabot PR を確認する
 
@@ -41,7 +43,10 @@ Dependabot PR が作成されたら、次の順に確認します。
 | パッケージ管理 | 必要なファイル |
 | --- | --- |
 | Bun | `package.json`、`bun.lock` |
+| npm（pnpm） | `package.json`、`pnpm-lock.yaml` |
 | uv | `pyproject.toml`、`uv.lock` |
+
+pnpm 専用の `package-ecosystem` はないため、pnpm のプロジェクトも `package-ecosystem: "npm"` で登録します。pnpm v7〜v10 はバージョン更新・セキュリティ更新のどちらにも対応しています（[公式リファレンス](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories)）。
 
 ### 2. `updates` を追加する
 
@@ -89,9 +94,30 @@ Dependabot PR が作成されたら、次の順に確認します。
         - "patch"
 ```
 
+#### npm（pnpm）
+
+```yaml
+- package-ecosystem: "npm"
+  directory: "/projects/your-pnpm-project"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 1
+  rebase-strategy: "disabled"
+  labels:
+    - "dependabot-auto-process"
+  groups:
+    your-pnpm-project-minor-and-patch:
+      applies-to: version-updates
+      patterns:
+        - "*"
+      update-types:
+        - "minor"
+        - "patch"
+```
+
 ### 3. 設定を確認する
 
-- `package-ecosystem` が実際のパッケージ管理ツールと一致している
+- `package-ecosystem` が実際のパッケージ管理ツールと一致している（pnpm は `npm`）
 - `directory` がマニフェストとロックファイルのあるディレクトリを指している
 - グループ名が `{project}-minor-and-patch` 形式になっている
 - `update-types` に `major` を含めていない
