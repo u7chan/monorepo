@@ -60,6 +60,23 @@ function CheckIcon() {
   );
 }
 
+function ChevronIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="tool-disclosure size-3 shrink-0"
+    >
+      <path d="M6 3.5 10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
 /** コピー直後は copied 表示を優先し、それ以外は reveal でホバー時に出す */
 function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onClick: () => void; label: string; reveal: string }) {
   return (
@@ -146,14 +163,14 @@ function ToolHistoryView({
         hasResponse ? "mb-2.5" : "",
       ].join(" ")}
     >
-      <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-0 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent">
-        <span aria-hidden="true" className="tool-disclosure shrink-0">›</span>
+      <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent">
+        <ChevronIcon />
         <span className="shrink-0 font-sans text-[10px] text-ink-soft">ツール履歴</span>
         <span className="shrink-0 font-sans text-[9px] text-ink-faint">{cards.length}件</span>
         <span className="min-w-0 flex-1 truncate">{historyPreview(cards)}</span>
         <span className={`shrink-0 font-sans text-[9px] ${phaseColor(phase)}`}>{phaseLabel(phase)}</span>
       </summary>
-      <ol className="m-0 grid list-none border-t border-line pl-0 pr-0">
+      <ol className="m-0 grid list-none border-t border-line px-2 pb-1">
         {cards.map((card, index) => (
           <ToolCallRow
             key={card.id}

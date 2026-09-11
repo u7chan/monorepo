@@ -368,9 +368,6 @@ html[data-theme="terminal"] {
   }
   .tool-disclosure {
     color: var(--c-ink-faint);
-    font-family: var(--font-sans);
-    font-size: 15px;
-    line-height: 0.75;
     transition: transform 150ms ease;
   }
   details[open] > .tool-summary .tool-disclosure {
