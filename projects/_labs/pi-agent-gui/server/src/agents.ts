@@ -1,14 +1,12 @@
 /**
- * 小さなインメモリカタログ (プロトタイプ用)。
- * わざとファイルに書き出さない: 使い捨てアプリを再起動すれば
- * このサンプル定義に戻る。
- * port 元: src/agents.js — 日本語エラー文言・正規化ロジックを完全保存。
+ * 小さなインメモリカタログ。ファイルに書き出さないのは意図的で、
+ * 再起動すると以下のサンプル定義に戻る。
  */
 import { randomUUID } from "node:crypto";
 import { ThinkingLevelSchema } from "./schema";
 import type { AgentDef, Catalog, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
-/** HTTP ハンドラがステータスコードを参照するためのエラー */
+/** HTTP ハンドラが statusCode を参照する。 */
 export interface HttpError extends Error {
   statusCode?: number;
 }
@@ -20,9 +18,8 @@ type AgentRecord = AgentDef;
 type DefinitionInput = unknown;
 
 /**
- * 既定スキル: なりきり (口調の演技) ではなく、職務ごとの手順・スタイルを
- * 注ぎ込む単位として設計する。エージェント側の systemPrompt は役割だけを
- * 持ち、仕事の進め方はスキルで差し込む。
+ * 既定スキルは「なりきり」(口調の演技) ではなく、職務ごとの手順・スタイルを
+ * 注ぎ込む単位とする。systemPrompt は役割だけを持ち、手順はスキルで差し込む。
  */
 const DEFAULT_SKILLS: SkillRecord[] = [
   {
@@ -57,10 +54,7 @@ const DEFAULT_SKILLS: SkillRecord[] = [
   },
 ];
 
-/**
- * 既定エージェント: 素の汎用 1 体 + 職務の異なるサンプル 3 体。
- * model / thinkingLevel はすべて未指定 (アプリ既定に任せる)。
- */
+/** 既定エージェント: 素の汎用 1 体 + 職務の異なるサンプル 3 体。model / thinkingLevel は未指定のままにする。 */
 const DEFAULT_AGENTS: AgentRecord[] = [
   {
     id: "agent-general",
@@ -135,7 +129,6 @@ function publicAgent(agent: AgentRecord): AgentDef {
 }
 
 /**
- * 定義の model 項目を正規化する。
  * undefined / null は「未指定」(= キー省略)、形式が違うものは 400。
  */
 function modelRef(value: unknown): ModelRef | undefined {
@@ -147,7 +140,7 @@ function modelRef(value: unknown): ModelRef | undefined {
   return { provider, id };
 }
 
-/** 定義の thinkingLevel 項目を正規化する。undefined / null は未指定、未知の段階は 400。 */
+/** undefined / null は未指定、未知の段階は 400。 */
 function thinkingLevelOf(value: unknown): ThinkingLevel | undefined {
   if (value === undefined || value === null) return undefined;
   const parsed = ThinkingLevelSchema.safeParse(typeof value === "string" ? value.trim() : value);
@@ -293,8 +286,7 @@ export function createAgentCatalog(): AgentCatalog {
       const current = agents.get(id);
       if (!current) return undefined;
       const raw = input as { skillIds?: unknown } | null;
-      // model / thinkingLevel はスプレッドマージで扱う: キー省略は current を残し、
-      // null は makeAgent 側で「未指定」に正規化されてキーごと消える。
+      // キー省略は current を残し、null は makeAgent 側でキーごと消える。
       const merged = { ...current, ...(input as object) };
       const agent = makeAgent(
         merged,

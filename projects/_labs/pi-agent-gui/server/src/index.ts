@@ -1,12 +1,10 @@
-// 起動エントリ (port of src/server.js の main)。listen はこのファイルだけが行う。
-
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
 
-// pnpm --filter で起動すると process.cwd() が server/ になるため、既定はリポジトリルート
+// pnpm --filter で起動すると cwd が server/ になるため、既定はリポジトリルートにする
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ENV_FILE = resolve(REPO_ROOT, ".env");
 if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);

@@ -1,13 +1,5 @@
-/**
- * zod スキーマと API ペイロード型の正。
- * 正は client/src/types.ts (既存ミラー) と src/sessions.js の emit() 呼び出し。
- * DTO の JSON フィールド名は現行 JS と完全一致させること。
- */
+/** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
-
-// ---------------------------------------------------------------------------
-// 基本列挙 / 共通 DTO
-// ---------------------------------------------------------------------------
 
 export const RunStatusSchema = z.enum([
   "idle",
@@ -27,7 +19,7 @@ export const SkillDefSchema = z.object({
 });
 export type SkillDef = z.infer<typeof SkillDefSchema>;
 
-/** pi SDK の thinkingLevel をそのまま使う。UI 表示名は「Effort」 */
+/** pi SDK の thinkingLevel。UI では「Effort」と表示する。 */
 export const ThinkingLevelSchema = z.enum([
   "off",
   "minimal",
@@ -144,10 +136,7 @@ export const SessionSummarySchema = z.object({
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
-/**
- * health の DTO。client/src/types.ts の Health に加え、
- * ルート (GET /api/health) が返す拡張フィールドを optional で許容する。
- */
+/** モデル選択肢。server が SDK から解決して health で返す。 */
 export const ModelOptionSchema = z.object({
   provider: z.string(),
   id: z.string(),
@@ -157,10 +146,7 @@ export const ModelOptionSchema = z.object({
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
 
-/**
- * health の DTO。client/src/types.ts の Health に加え、
- * ルート (GET /api/health) が返す拡張フィールドを optional で許容する。
- */
+/** client/src/types.ts の Health に加え、ルート固有のフィールドを optional で許容する。 */
 export const HealthSchema = z.object({
   cwd: z.string().optional(),
   ready: z.boolean(),
@@ -170,7 +156,7 @@ export const HealthSchema = z.object({
   ok: z.boolean().optional(),
   availableModels: z.array(z.string()).optional(),
   modelOptions: z.array(ModelOptionSchema).optional(),
-  /** アプリ既定の thinkingLevel (PI_MODEL 末尾指定 → PI_THINKING → medium) */
+  /** アプリ既定の thinkingLevel */
   defaultThinkingLevel: ThinkingLevelSchema.optional(),
   /** 明示 PI_MODEL が利用不能なときの理由 (ready は true のまま) */
   defaultModelError: z.string().optional(),
@@ -194,7 +180,7 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
-// (catalog CRUD の body は zod で厳格化しない — agents 側の正規化ロジックが正)
+// catalog CRUD の body は zod で厳格化しない (agents 側の正規化ロジックが正)
 // ---------------------------------------------------------------------------
 
 export const PostMessageBodySchema = z.object({
@@ -224,7 +210,7 @@ export const ReplaceCatalogBodySchema = z.object({
 export type ReplaceCatalogBody = z.infer<typeof ReplaceCatalogBodySchema>;
 
 // ---------------------------------------------------------------------------
-// SSE イベント (src/sessions.js の emit 呼び出しを正とする)
+// SSE イベント (sessions.ts の emit 呼び出しを正とする)
 // ---------------------------------------------------------------------------
 
 export const EventDataSchemas = {
@@ -268,7 +254,7 @@ type EventEntryFor<T extends SSEEventType> = {
   at: number;
 };
 
-/** 判別可能ユニオン: type で data を絞り込める */
+/** type で data を絞り込める判別可能ユニオン */
 export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];

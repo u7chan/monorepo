@@ -26,5 +26,6 @@ git clone /path/to/aiagent-history.bundle aiagent-history
 - Dockerの `test` / `final` ステージと実行手順を追加
 - モノレポのライセンス対象検出を、pnpm workspaceの共有lockfileに対応
 - Dependabotには追加しない（実験段階のため、依存更新は手動）
+- 移植元の関数名・ファイル名を指すコメント（「port 元 …」「旧 …」）は、対応関係がこの文書と上記の元コミットで追えるため削除し、コメントは理由・制約の説明だけに絞った
 
 UI・モデル実行機能を全面的に検証した移植ではありません。APIテストではモデルをスタブに置き換え、実API呼出し・OAuth更新・ブラウザ操作の網羅的な検証は別途行います。

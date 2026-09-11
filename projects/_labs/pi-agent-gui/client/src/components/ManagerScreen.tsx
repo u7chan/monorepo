@@ -43,8 +43,7 @@ const modelValueOf = (ref: ModelRef | null): string =>
   ref ? `${ref.provider}/${ref.id}` : "";
 
 /**
- * エージェント / スキル定義の管理画面 (フルスクリーン)。
- * ダイアログではなく独立した画面にして一覧の縦幅を確保し、
+ * エージェント / スキル定義の管理画面。フルスクリーンの独立画面にして一覧の縦幅を確保し、
  * 種別 (エージェント / スキル) はタブで切り替える。
  */
 export function ManagerScreen({
@@ -82,8 +81,7 @@ export function ManagerScreen({
 
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // モーダル dialog として開く。背面の inert 化 (フォーカス・操作の遮断) と
-  // Tab のフォーカス拘束、Escape での終了は showModal() の標準挙動に任せる。
+  // モーダル dialog として開く。背面の inert 化と Tab のフォーカス拘束、Escape での終了は showModal() の標準挙動に任せる。
   // StrictMode の二重実行でも例外にならないよう open を確認する。
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -98,8 +96,7 @@ export function ManagerScreen({
     return () => previousFocusRef.current?.focus();
   }, []);
 
-  // catalog 再読込時も初期化する既存契約を維持する。
-  // 自分自身の state を render 中に調整し、古いフォームを DOM に commit しない。
+  // 自分自身の state を render 中に調整し、古いフォームを DOM に commit しない (catalog 再読込時にも初期化する)。
   const [formSource, setFormSource] = useState<{ editingType: EditingType; editingId: string | null; catalog: Catalog } | null>(null);
   if (formSource?.editingType !== editingType || formSource?.editingId !== editingId || formSource?.catalog !== catalog) {
     setFormSource({ editingType, editingId, catalog });
@@ -121,7 +118,7 @@ export function ManagerScreen({
     }
   }
 
-  /** タブ切替: 種別を切り替えて、その一覧の先頭項目を選ぶ */
+  /** タブ切替: その一覧の先頭項目を選ぶ */
   const selectTab = (type: EditingType) => {
     if (type === editingType) return;
     setEditingType(type);
@@ -265,8 +262,7 @@ export function ManagerScreen({
   // --- エージェント定義の Model / Effort ---
 
   const agentModelValue = modelValueOf(agentForm.model);
-  // Model 未指定のときはアプリ既定モデルの対応段階を使う。
-  // 既定モデルも解決できないときだけ SDK の全段階を出す。
+  // Model 未指定のときはアプリ既定モデルの対応段階を使い、既定も解決できないときだけ全段階を出す。
   const agentEffortModel = agentModelValue || defaultModel;
   const agentEffortOption = agentEffortModel
     ? modelOptions.find((option) => `${option.provider}/${option.id}` === agentEffortModel)
@@ -322,8 +318,7 @@ export function ManagerScreen({
     ].join(" ");
 
   return (
-    // フルスクリーン表示のモーダル dialog。showModal() により背面へは
-    // フォーカスもポインタ操作も届かない (dialog の標準挙動)。
+    // フルスクリーンのモーダル dialog。背面へのフォーカスとポインタ操作は showModal() が遮断する。
     <dialog
       ref={dialogRef}
       onClose={onClose}

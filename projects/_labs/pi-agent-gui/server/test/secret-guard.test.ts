@@ -130,7 +130,7 @@ test("shell tool wrapper masks output truncated mid-key by the SDK", async () =>
     label: "Fake",
     description: "fake",
     parameters: {},
-    // SDKが末尾Nバイトへ切り詰めた結果、キーの先頭が欠けた状態を模償する
+  // SDK が末尾 N バイトへ切り詰めた結果、キーの先頭が欠けた状態を模倣する
     async execute() {
       return { content: [{ type: "text", text: `${KEY.slice(3)} …` }], details: undefined };
     },

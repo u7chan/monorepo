@@ -1,10 +1,6 @@
 /**
- * ヘッダーのモデル表示。
- *
- * 選択中セッションの実効モデル（会話モデル）と、サーバー（アプリ）の既定モデルは
- * 別物なので、どちらを表示しているかをラベルで明示する。表示は health 再取得や
- * 設定変更の応答順に左右されないよう状態として持たず、毎レンダーで導出する
- * (health がサーバー既定モデルで会話モデル表示を上書きしないため)。
+ * ヘッダーのモデル表示。選択中セッションの実効モデルとアプリ既定は別物なので出所をラベルで示す。
+ * 表示は状態に持たず毎レンダー導出し、health の再取得や応答順で会話モデル表示を上書きさせない。
  */
 
 export type ModelDisplaySource = "session" | "default";
@@ -39,8 +35,7 @@ export function modelDisplayOf({
   defaultModel,
 }: ModelDisplayInput): ModelDisplay | undefined {
   if (inSession) {
-    // 会話モデルが取れないときに既定モデルへフォールバックしない。表示だけが
-    // サーバー既定に化けると、送信に使われるモデルと食い違って見える。
+    // 会話モデルが取れないときに既定モデルへフォールバックすると、送信に使うモデルと食い違って見える。
     if (!sessionModel) return undefined;
     return { model: sessionModel, source: "session", label: MODEL_DISPLAY_LABELS.session };
   }

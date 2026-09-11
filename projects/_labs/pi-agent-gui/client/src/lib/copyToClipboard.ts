@@ -1,9 +1,6 @@
 /**
- * クリップボードへテキストをコピーする。
- *
- * navigator.clipboard は Secure Context (https / localhost) 専用のため、
- * http 環境では document.execCommand("copy") にフォールバックする。
- * https でも writeText が失敗した場合 (権限・フォーカス等) はフォールバックを試す。
+ * navigator.clipboard は Secure Context (https / localhost) 専用のため、http では
+ * document.execCommand("copy") へフォールバックする (https でも権限・フォーカス等で失敗した場合を含む)。
  */
 export async function copyToClipboard(text: string): Promise<void> {
   if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
@@ -15,9 +12,8 @@ export async function copyToClipboard(text: string): Promise<void> {
     }
   }
 
-  // 非表示の textarea 経由でコピーする。
-  // display:none だと一部ブラウザでコピーされないため画面外へ退避する。
-  // readonly はモバイルでのソフトウェアキーボード抑止。
+  // 非表示の textarea 経由でコピーする。display:none は一部ブラウザでコピーできないため画面外へ退避し、
+  // readonly はモバイルのソフトウェアキーボード抑止。
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "");

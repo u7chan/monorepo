@@ -4,7 +4,7 @@ import type { ModelDisplay } from "../hooks/modelDisplay";
 
 export type TopbarProps = {
   runtimeStatus: RuntimeStatus;
-  /** 表示中のモデル (選択中セッションの実効値 or アプリ既定)。出所はラベルで明示する */
+  /** 表示中のモデル (選択中セッションの実効値 or アプリ既定)。出所はラベルで示す */
   modelDisplay?: ModelDisplay;
 };
 

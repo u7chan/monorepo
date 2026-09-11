@@ -1,10 +1,6 @@
 /**
- * テスト共通の pi ランタイム / セッションスタブ。
- *
- * 実 API は呼ばず、createAgentSession() のイベントフロー
- * (subscribe / prompt / abort / agent_settled) を模倣する。
- * thinkingLevel の能力判定と補正は SDK 公開ヘルパー
- * (getSupportedThinkingLevels / clampThinkingLevel) をそのまま使う。
+ * テスト共通の pi ランタイム / セッションスタブ。実 API は呼ばず、createAgentSession() のイベントフロー
+ * (subscribe / prompt / abort / agent_settled) を模倣し、thinkingLevel の能力判定と補正は SDK 公開ヘルパーをそのまま使う。
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
@@ -87,10 +83,7 @@ export interface StubSession extends PiSessionLike {
 }
 
 /**
- * Minimal stub of the pi runtime/session used by the store. It mimics the
- * event flow of createAgentSession(): subscribe/prompt/abort + agent events.
- * Abort interrupts the in-flight chunk delay; the prompt loop then unwinds and
- * emits agent_settled itself, mirroring the real SDK.
+ * abort は進行中のチャンク遅延を中断し、prompt ループが巻き戻って agent_settled を自発的に発行する (実 SDK と同じ)。
  */
 export function createStubSession(options: StubSessionOptions = {}): StubSession {
   const { reply = "スタブの返答です", chunkDelayMs = 0, setModelDelayMs = 0 } = options;

@@ -36,7 +36,7 @@ function ArrowUpIcon() {
   );
 }
 
-/** 候補に無いモデルも表示できるように選択肢へ足す */
+/** 候補に無いモデルも表示できるよう選択肢へ足す */
 function modelChoicesOf(settings: ComposerSettings): Array<{ value: string; label: string }> {
   const choices = settings.modelOptions.map((option) => ({
     value: `${option.provider}/${option.id}`,
@@ -90,7 +90,7 @@ export function Composer({
     if (!text || !runtimeReady || sending || settings.changing || settings.sendBlockedReason) return;
     setValue("");
     onSend(text);
-    // 送信後はフォーカスを戻す (旧実装と同じ)
+    // 送信後は入力欄へフォーカスを戻す
     inputRef.current?.focus();
   };
 

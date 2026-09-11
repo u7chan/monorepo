@@ -1,5 +1,4 @@
-// HTTP 系テスト (port of test/sessions.test.js の HTTP 部分を app.request() 化)。
-// listen せず、createBffApp に stub pi を注入して検証する。
+// createBffApp に stub pi を注入し、listen せず app.request() で検証する。
 
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -46,7 +45,7 @@ test("server exposes the async session API end to end", async () => {
     const created = await createSession(app);
     assert.ok(created.sessionId);
 
-    // Subscribe before sending: the SSE stream must deliver the whole run.
+    // 送信前に購読しておかないとランの全イベントを取り逃す
     const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
     assert.equal(eventsResponse.status, 200);
     assert.match(eventsResponse.headers.get("content-type") || "", /text\/event-stream/);

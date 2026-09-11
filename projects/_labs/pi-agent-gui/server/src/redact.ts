@@ -1,50 +1,29 @@
 /**
- * 既知の秘密値 (プロバイダーAPIキーなど) をツール出力やストリーミング
- * テキストから取り除く純粋ユーティリティ。pi SDK に依存しない。
- *
- * 検出は完全一致のみ。正規表現やエントロピー推定による汎用検出は
- * 誤検出・過剰改変のリスクが高いため扱わない。その代わり、ストリーミング
- * では秘密値がチャンク境界をまたいでも生の値が2回の配信に分かれて現れない
- * ように、前方一致になり得る末尾を配信前に保留する。
+ * 検出は完全一致のみ (正規表現やエントロピー推定は誤検出・過剰改変のリスクが高い)。
+ * ストリーミングでは、チャンク境界で分断された秘密値が生のまま現れないよう前方一致になり得る末尾を保留する。
  */
 
 export const REDACTED = "[REDACTED]";
 
-/**
- * これより短い値は秘密として扱わない下限。現実のAPIキーはもっと長く、
- * 極端に短い値を登録すると通常出力が過剰に改変されるため、自動解決
- * される値にのみ適用する (PI_SECRET_ENV_VARS での明示指定には適用しない)。
- */
+/** 短い値は通常出力を過剰に改変するため、自動解決された値にのみ適用する下限 (PI_SECRET_ENV_VARS の明示指定には適用しない)。 */
 export const MIN_SECRET_LENGTH = 8;
 
-/**
- * createSecretMasker の登録フィルタ。
- */
 export interface SecretMaskerOptions {
   /** これより短い値を登録対象から外す (0 = 無効)。既定は 0。 */
   minLength?: number;
 }
 
-/** 保護対象の秘密値からマスカーを作る。空配列なら同一変換 (何も置換しない)。 */
+/** 空配列なら同一変換 (何も置換しない)。 */
 export interface SecretMasker {
-  /** 保護中の秘密値 (長い順・検証用の公開)。 */
+  /** 保護中の秘密値 (長い順)。 */
   readonly secrets: readonly string[];
-  /** 保護中の秘密値の最大長。ストリーミング保留幅の計算に使う。 */
+  /** ストリーミング保留幅の計算に使う最大長。 */
   readonly maxSecretLength: number;
-  /** text 中の秘密値の完全一致をすべて [REDACTED] へ置換する。 */
+  /** 完全一致をすべて [REDACTED] へ置換する。 */
   mask(text: string): string;
-  /**
-   * 最終結果向けの安全化。完全一致の置換に加え、外部の切り詰めで先頭が
-   * 欠けた秘密値の部分一致も置換する。末尾はこれ以上の入力がないため
-   * 保留しない。
-   */
+  /** 最終結果向け。外部の切り詰めで先頭が欠けた秘密値の部分一致も置換する。 */
   maskSafe(text: string): string;
-  /**
-   * 「ここまでの累積出力」のスナップショットを安全化する。完全一致の
-   * 置換、先頭部分一致の置換に加え、末尾が秘密値の前方一致になり得る分を
-   * 切り落とす。累積スナップショットは後続の更新で再度渡されるため、
-   * 切り落とした末尾は次の更新か最終結果で必ず再度処理される。
-   */
+  /** 累積スナップショット向け。末尾が秘密値の前方一致になり得る分を切り落とす (切り落とした分は後続の更新で再処理される)。 */
   maskAccumulated(text: string): string;
 }
 
@@ -52,14 +31,12 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
   const minLength = options.minLength ?? 0;
   const unique = new Set<string>();
   for (const secret of secrets) {
-    // 空文字や空白のみの値は split を壊す / 意味がないため常に除外。
-    // 長さの下限は呼び出し側のポリシー (自動解決か明示指定か) に委ねる。
+    // 空文字や空白のみは split を壊すため除外する。長さの下限は呼び出し側のポリシーに委ねる。
     if (typeof secret === "string" && secret.trim() !== "" && secret.length >= minLength) {
       unique.add(secret);
     }
   }
-  // 長い順に置換する。ある秘密値が別の秘密値の部分一致でも、
-  // 長い方を先に潰して短い方の誤置換 (取りこぼし) を防ぐ。
+  // 長い方を先に潰さないと、部分一致する短い秘密値で取りこぼす。
   const ordered = [...unique].sort((a, b) => b.length - a.length);
   const maxSecretLength = ordered[0]?.length ?? 0;
   return {
@@ -86,32 +63,13 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
   };
 }
 
-/**
- * text の末尾のうち、もう少しの入力で秘密値の先頭になり得る長さを返す。
- * 0 なら末尾は安全 (切り落とす必要がない)。
- *
- * マスク済みテキストに対して使うこと ([REDACTED] への置換後)。置換は
- * 完全一致だけを行い部分一致の末尾は残すため、末尾の数文字は元の
- * 出力と一致する。マスク済みテキスト側で照合しても部分一致の検出は
- * 保たれる (誤って保留が伸びる方向にしか倒れない)。
- */
-/**
- * 先頭部分一致の置換対象とする最小長。これ以下の漏洩は再構成リスクが
- * 小さく、通常出力への誤置換を避けるため対象外とする。
- */
+/** これ以下の先頭部分一致は再構成のリスクが小さく、通常出力への誤置換を避けるため対象外。 */
 export const MIN_LEADING_PARTIAL = 4;
 
-/**
- * SDK が grep 等の一致行に付与する行切り詰めマーカー
- * (truncateLine: 500文字以降を切り捨てて付与)。
- */
+/** SDK が grep 等の一致行に付与する行切り詰めマーカー (truncateLine) */
 const TRUNCATION_MARKER = "... [truncated]";
 
-/**
- * テキストの先頭が秘密値の途中から始まる場合に備えて、先頭の部分一致を
- * [REDACTED] に置換する。SDKなど外部の切り詰め (末尾だけ残す) でキーの
- * 先頭が欠けると完全一致では検出できず、キーの大部分が生のまま残る。
- */
+/** 外部の切り詰め (末尾だけ残す) でキーの先頭が欠けると完全一致では検出できず、大部分が生のまま残るため先頭部分一致も置換する。 */
 function maskLeadingPartial(text: string, secrets: readonly string[]): string {
   if (secrets.length === 0 || text.length === 0) return text;
   let longest = 0;
@@ -127,11 +85,7 @@ function maskLeadingPartial(text: string, secrets: readonly string[]): string {
   return longest >= MIN_LEADING_PARTIAL ? REDACTED + text.slice(longest) : text;
 }
 
-/**
- * 行切り詰めマーカーの直前に、秘密値の先頭部分が切れ端として残るケース
- * (grep の行切り詰めなど) を置換する。完全一致と先頭欠けの対応だけでは、
- * 行境界で末尾を欠いたキーの大部分が生のまま残る。
- */
+/** 行切り詰めマーカーの直前には、行境界で末尾を欠いたキーの切れ端が残り得るため先頭部分一致を置換する。 */
 function maskTruncatedFragments(text: string, secrets: readonly string[]): string {
   if (secrets.length === 0 || !text.includes(TRUNCATION_MARKER)) return text;
   let result = "";
@@ -160,6 +114,7 @@ function maskTruncatedFragments(text: string, secrets: readonly string[]): strin
   return result + rest;
 }
 
+/** マスク済みテキストの末尾のうち、もう少しの入力で秘密値の先頭になり得る長さ (0 = 切り落とす必要なし)。置換は完全一致だけなので、マスク済み側で照合しても誤検出は保留が伸びる方向にしか倒れない。 */
 function heldBackLength(text: string, secrets: readonly string[], maxSecretLength: number): number {
   if (secrets.length === 0 || text.length === 0) return 0;
   const maxHold = Math.min(maxSecretLength - 1, text.length);
@@ -167,8 +122,7 @@ function heldBackLength(text: string, secrets: readonly string[], maxSecretLengt
     const tail = text.slice(text.length - length);
     for (const secret of secrets) {
       if (secret.startsWith(tail)) {
-        // サロゲートペアの中央で切らない。切る位置が低サロゲートなら
-        // 直前の高サロゲートもまとめて保留する。
+        // サロゲートペアの中央で切らない (切る位置が低サロゲートなら直前の高サロゲートもまとめて保留する)。
         const cut = text.length - length;
         if (cut > 0 && isLowSurrogate(text.charCodeAt(cut)) && isHighSurrogate(text.charCodeAt(cut - 1))) {
           return length + 1;
@@ -188,18 +142,9 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
-/**
- * 差分 (delta) のストリームを安全化するマスカー。秘密値がチャンク境界を
- * またぐ場合でも、生の値が配信済みテキストの連結として現れないように、
- * 秘密値の前方一致になり得る末尾を配信前に保留する。
- *
- * push() の返値を連結すると mask(全体) と等価になる (重複する秘密値で
- * トークン化が分かれる場合を除く。どちらの場合も生の値は現れない)。
- * flush() は保留中の末尾をマスクして返す。正常終了・エラー・中断の
- * いずれでも、最後に必ず一度だけ呼び出すこと。
- */
+/** flush() は正常終了・エラー・中断のいずれでも最後に必ず一度呼ぶこと (保留中の末尾はそこにしか残らない)。 */
 export interface StreamingSecretMasker {
-  /** 差分を入力し、配信してよいテキスト (マスク済み) を返す。 */
+  /** 配信してよいマスク済みテキストを返す。 */
   push(delta: string): string;
   /** 保留中の末尾をマスクして返す。以降の push は空文字を返す。 */
   flush(): string;
@@ -232,13 +177,8 @@ export function createStreamingSecretMasker(masker: SecretMasker): StreamingSecr
 }
 
 /**
- * ツール結果の content パーツ配列 (TextContent | ImageContent) のうち
- * text パーツだけをマスクする。image など text 以外のパーツはそのまま。
- * mode: "accumulated" は「ここまでの累積出力」(末尾の部分一致も切り落とす、
- * 切り落とされた分は後続の更新で再度渡される)、"final" は最終結果
- * (外部の切り詰めによる先頭部分一致も置換する)。
- * マスク中に例外が出た場合はフェイルセーフとして全 text を [REDACTED] にする
- * (マスクに失敗した結果を生のまま返さない)。
+ * content の text パーツだけをマスクする (image などはそのまま)。
+ * 途中で例外が出たら、マスクできていない結果を返さないようフェイルセーフで全 text を [REDACTED] にする。
  */
 export function maskTextContentParts<T>(
   content: readonly T[] | undefined | null,

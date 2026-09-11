@@ -33,7 +33,7 @@ const SESSION_KEY = "pi-agent-session";
 const AGENT_KEY = "pi-agent-agent";
 const alwaysCurrent = () => true;
 
-/** SDK が定義する Effort の全段階 (モデルを解決できないときの案内表示に使う) */
+/** Effort の全段階 (モデルを解決できないときの案内表示に使う) */
 export const ALL_THINKING_LEVELS: ThinkingLevel[] = [
   "off",
   "minimal",
@@ -58,7 +58,7 @@ export function effortLabel(level: string): string {
   return EFFORT_LABELS[level as ThinkingLevel] ?? level;
 }
 
-/** 作成前の選択と設定変更リクエストで共通の指定 (未作成チャットでは初期値になる) */
+/** 未作成チャットでは初期値になる */
 export type { SettingsSelection };
 
 /** 入力欄付近の Model / Effort ピッカーに渡す状態 */
@@ -77,11 +77,11 @@ export type ComposerSettings = {
   disabled: boolean;
   /** 設定変更通信中は送信も待たせる */
   changing: boolean;
-  /** 送信しても作成できない (有効なモデルを選ぶ必要がある) ときの理由 */
+  /** 有効なモデルが無いため送信しても作成できないときの理由 */
   sendBlockedReason?: string;
 };
 
-/** ヘッダーの接続状態。モデルは含めない (会話モデル表示は ModelDisplay が持つ) */
+/** ヘッダーの接続状態。モデルは含めない (会話モデルの表示は ModelDisplay が持つ) */
 export type RuntimeStatus = {
   text: string;
   error: boolean;
@@ -116,7 +116,7 @@ export function useAgentDesk() {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [cwd, setCwd] = useState<string>("");
   const [sending, setSending] = useState(false);
-  /** 設定変更 (PATCH /settings) の通信中 */
+  /** PATCH /settings の通信中 */
   const [settingsChanging, setSettingsChanging] = useState(false);
   /** 未作成チャットの作成前選択 (作成時に使ってクリアする) */
   const [preselection, setPreselection] = useState<SettingsSelection>({});
@@ -133,7 +133,7 @@ export function useAgentDesk() {
     localStorage.setItem(AGENT_KEY, id);
   }, []);
 
-  /** 旧 renderAgentPicker の要諦: 選択中エージェントが無ければ先頭にフォールバック */
+  /** 選択中エージェントが無ければ先頭にフォールバックする */
   const normalizeAgentId = useCallback((next: Catalog): string => {
     const valid = next.agents.some((agent) => agent.id === agentId);
     const id = valid ? agentId : next.agents[0]?.id || "";
@@ -169,14 +169,12 @@ export function useAgentDesk() {
     setHealth(next);
     setCwd(next.cwd || "");
     if (next.ready) {
-      // 明示された既定モデルが使えなくても候補はある。別モデルへ黙って切り替えず、
-      // 入力欄で選べるようにエラーとして伝える。
+      // 明示された既定モデルが使えなくても候補はある。別モデルへ黙って切り替えず入力欄で選ばせる。
       if (next.defaultModelError) {
         setRuntimeStatus({ text: "モデル未選択", error: true, detail: next.defaultModelError });
       } else {
-        // ここではモデルを出さない。health.model はアプリ既定であり、選択中
-        // セッションの実効モデルとは一致するとは限らない。ヘッダーのモデル表示は
-        // セッションの実効値から導出し、接続状態だけを更新する。
+        // health.model はアプリ既定であり、選択中セッションの実効モデルとは限らない。
+        // ヘッダーのモデルは会話側から導出し、ここでは接続状態だけを更新する。
         setRuntimeStatus({ text: "接続中", error: false });
       }
       return;
@@ -207,8 +205,8 @@ export function useAgentDesk() {
   const applySnapshot = useCallback((payload: SessionPayload) => {
     lastSeqRef.current = payload.lastSeq || 0;
     setCwd((prev) => payload.cwd || prev);
-    // 会話の実効モデルは chat.sessionModel (resync) に入る。ヘッダーはそこから
-    // 導出するため、runtimeStatus には書き込まない (health 再取得で上書きされる)。
+    // 会話の実効モデルは chat.sessionModel (resync) に入る。ここで runtimeStatus に書くと
+    // health の再取得で上書きされるため、ヘッダーは chat 側から導出する。
     dispatch({ type: "resync", payload });
   }, []);
 
@@ -223,7 +221,7 @@ export function useAgentDesk() {
       localStorage.setItem(AGENT_KEY, nextAgentId);
       setAgentIdState(nextAgentId);
       applySnapshot(payload);
-      setEpoch((e) => e + 1); // SSE を (lastSeq 更新後に) 張り直す
+      setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
       void refreshHealth(isCurrent);
     } catch {
       if (!isCurrent()) return;
@@ -239,7 +237,7 @@ export function useAgentDesk() {
   const newChat = useCallback(async (nextAgentId?: string, isCurrent = alwaysCurrent): Promise<void> => {
     try {
       const target = nextAgentId || agentId;
-      // 作成前の選択をリクエストへ乗せ、項目別の初期値をサーバーに解決させる
+      // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる
       const session = await createSession(target || undefined, preselectionRef.current);
       if (!isCurrent()) return;
       setPreselection({});
@@ -264,8 +262,7 @@ export function useAgentDesk() {
     setSettingsChanging(true);
     try {
       await applySettingsChange(id, selection, {
-        // 応答・回復 GET の各 await 後に「まだ同じチャットか」を確認し、
-        // 別セッションへ切替済みの古い応答は表示に適用しない。
+        // 各 await の後に「まだ同じチャットか」を確認し、切替済みの古い応答は適用しない。
         isCurrentSession: () => sessionIdRef.current === id,
         request: updateSessionSettings,
         recover: getSession,
@@ -352,7 +349,7 @@ export function useAgentDesk() {
   }, [applySnapshot, refreshSessions]);
 
   const onClosed = useCallback(() => {
-    // 旧 connectEvents の onerror (CLOSED) 相当: 一覧を更新して再接続 or 次のセッションへ
+    // SSE が CLOSED になったとき: 一覧を更新し、まだあれば再接続、無ければ次のセッションへ
     void refreshHealth();
     void refreshSessions().then((list) => {
       const current = sessionIdRef.current;
@@ -441,8 +438,7 @@ export function useAgentDesk() {
       const stored = localStorage.getItem(SESSION_KEY) || "";
       const target = list.find((item) => item.sessionId === stored) || list[0];
       if (target) await selectSession(target.sessionId, isCurrent);
-      // アプリ既定モデルが使えないときは自動 POST を繰り返さない。
-      // 入力欄の作成前選択から有効モデルを指定して作成できる。
+      // アプリ既定モデルが使えないときは自動 POST を繰り返さず、入力欄の作成前選択から作成させる。
       else if (h.ready && !h.defaultModelError) await newChatRef.current(undefined, isCurrent);
     } catch (error) {
       if (!isCurrent()) return;
@@ -481,8 +477,7 @@ export function useAgentDesk() {
     label ? modelOptions.find((option) => `${option.provider}/${option.id}` === label) : undefined;
 
   const inSession = Boolean(sessionId);
-  // ヘッダーに出すモデル。選択中はセッションの実効モデル (会話モデル) だけを使い、
-  // 未作成のチャットに限りアプリ既定を「既定」と明示して出す。
+  // ヘッダーに出すモデルは、選択中なら会話の実効値だけを使い、未作成のチャットに限りアプリ既定を「既定」と明示する。
   const modelDisplay = modelDisplayOf({
     inSession,
     sessionModel: chat.sessionModel,

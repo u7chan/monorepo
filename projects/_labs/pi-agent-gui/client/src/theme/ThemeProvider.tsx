@@ -18,17 +18,17 @@ import {
 } from "./themes";
 
 export type ThemeContextValue = {
-  /** ユーザーの選択。"system" の場合は OS 設定に追従する */
+  /** ユーザーの選択。"system" なら OS 設定に追従する */
   choice: ThemeChoice;
   setChoice: (choice: ThemeChoice) => void;
-  /** choice を解決した実際のテーマ id (document.documentElement.dataset.theme に反映) */
+  /** choice を解決した実際のテーマ id (html の data-theme に反映する) */
   resolvedId: ThemeId;
   themes: typeof THEMES;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-// theme-init.js の FALLBACK / light 判定と同じロジック
+// client/public/theme-init.js の FALLBACK / light 判定と合わせること
 const SYSTEM_LIGHT_ID: ThemeId = "daylight";
 const SYSTEM_DARK_ID: ThemeId = "midnight";
 
@@ -69,7 +69,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const resolvedId: ThemeId =
     choice === "system" ? (prefersLight ? SYSTEM_LIGHT_ID : SYSTEM_DARK_ID) : choice;
 
-  // resolvedId を html の data-theme に反映 (theme-init.js と同じ契約)
+  // theme-init.js と同じ契約: html の data-theme を同期する (初回描画前の FOUC 防止は theme-init.js 側)
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedId;
   }, [resolvedId]);
@@ -79,7 +79,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
-      // localStorage が使えない環境では選択の反映のみ行う
+      // localStorage が使えない環境では状態の反映だけ行う
     }
   }, []);
 
