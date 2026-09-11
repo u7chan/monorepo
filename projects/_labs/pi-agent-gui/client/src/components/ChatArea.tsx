@@ -7,25 +7,85 @@ const SUGGESTIONS = [
   { prompt: "README を読んで改善案を3つ出して", label: "README をレビューして" },
 ];
 
-function ToolCardView({ card }: { card: ToolCard }) {
-  const first = `${card.name}${card.args ? ` — ${card.args}` : ""}`;
-  const lines =
-    card.phase === "running"
-      ? [first, "実行中…"]
-      : [first, card.phase === "failed" ? "エラー" : "完了", ...(card.output ? [card.output] : [])];
+const TOOL_SUMMARY_MAX_LENGTH = 96;
+
+function abbreviatedToolSummary(card: ToolCard): string {
+  const summary = `${card.name}${card.args ? ` — ${card.args}` : ""}`.replace(/\s+/g, " ").trim();
+  if (summary.length <= TOOL_SUMMARY_MAX_LENGTH) return summary || "ツール";
+  return `${summary.slice(0, TOOL_SUMMARY_MAX_LENGTH - 1)}…`;
+}
+
+function phaseLabel(phase: ToolCard["phase"]): string {
+  return phase === "running" ? "実行中" : phase === "failed" ? "エラー" : "完了";
+}
+
+function phaseColor(phase: ToolCard["phase"]): string {
+  return phase === "done" ? "text-ink-faint" : phase === "failed" ? "text-danger-text" : "text-accent-text";
+}
+
+function historyPhase(cards: ToolCard[]): ToolCard["phase"] {
+  if (cards.some((card) => card.phase === "running")) return "running";
+  if (cards.some((card) => card.phase === "failed")) return "failed";
+  return "done";
+}
+
+function historyPreview(cards: ToolCard[]): string {
+  if (cards.length === 1) return abbreviatedToolSummary(cards[0]);
+  const names = cards.slice(0, 3).map((card) => card.name || "ツール");
+  const remainder = cards.length > names.length ? ` ほか${cards.length - names.length}件` : "";
+  return `${names.join(" / ")}${remainder}`;
+}
+
+function ToolCallRow({ card, index }: { card: ToolCard; index: number }) {
   return (
-    <div
+    <li className={["min-w-0 py-2.5", index > 0 ? "border-t border-line" : ""].join(" ")}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">{String(index + 1).padStart(2, "0")}</span>
+        <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
+        <span className={`shrink-0 font-sans text-[9px] ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
+      </div>
+      <div className="mt-1.5 grid gap-1.5 pl-6 text-ink-muted">
+        {card.args ? (
+          <div className="grid min-w-0 gap-0.5">
+            <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">引数</span>
+            <code className="whitespace-pre-wrap break-words">{card.args}</code>
+          </div>
+        ) : null}
+        {card.phase === "running" ? (
+          <div className="text-accent-text">実行中…</div>
+        ) : card.output ? (
+          <div className="grid min-w-0 gap-0.5">
+            <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">出力</span>
+            <pre className="m-0 whitespace-pre-wrap break-words font-mono">{card.output}</pre>
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function ToolHistoryView({ cards, hasResponse }: { cards: ToolCard[]; hasResponse: boolean }) {
+  const phase = historyPhase(cards);
+  return (
+    <details
       className={[
-        "whitespace-pre-wrap break-words rounded-md border border-line bg-soft/60 px-2.5 py-1.5 font-mono text-[10px]",
-        card.phase === "done"
-          ? "border-l-2 border-l-ok text-ink-muted"
-          : card.phase === "failed"
-            ? "border-l-2 border-l-danger text-danger-text"
-            : "border-l-2 border-l-accent-strong text-ink-muted",
+        "min-w-0 border-y border-line bg-soft/20 font-mono text-[10px] text-ink-muted",
+        hasResponse ? "mb-2.5" : "",
       ].join(" ")}
     >
-      {lines.join("\n")}
-    </div>
+      <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-0 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent">
+        <span aria-hidden="true" className="tool-disclosure shrink-0">›</span>
+        <span className="shrink-0 font-sans text-[10px] text-ink-soft">ツール履歴</span>
+        <span className="shrink-0 font-sans text-[9px] text-ink-faint">{cards.length}件</span>
+        <span className="min-w-0 flex-1 truncate">{historyPreview(cards)}</span>
+        <span className={`shrink-0 font-sans text-[9px] ${phaseColor(phase)}`}>{phaseLabel(phase)}</span>
+      </summary>
+      <ol className="m-0 grid list-none border-t border-line pl-0 pr-0">
+        {cards.map((card, index) => (
+          <ToolCallRow key={card.id} card={card} index={index} />
+        ))}
+      </ol>
+    </details>
   );
 }
 
@@ -43,6 +103,9 @@ function MessageView({ bubble }: { bubble: Bubble }) {
       </div>
       <div className="min-w-0 max-w-[min(760px,86%)] max-nav:max-w-[90%]">
         <div className="mb-1 text-[10px] font-medium text-ink-faint">{isUser ? "あなた" : "アシスタント"}</div>
+        {!isUser && bubble.tools.length > 0 ? (
+          <ToolHistoryView cards={bubble.tools} hasResponse={Boolean(bubble.text)} />
+        ) : null}
         {bubble.text ? (
           <div
             className={[
@@ -51,13 +114,6 @@ function MessageView({ bubble }: { bubble: Bubble }) {
             ].join(" ")}
           >
             {bubble.text}
-          </div>
-        ) : null}
-        {!isUser && bubble.tools.length > 0 ? (
-          <div className="mt-2.5 grid gap-1.5">
-            {bubble.tools.map((card) => (
-              <ToolCardView key={card.id} card={card} />
-            ))}
           </div>
         ) : null}
       </div>

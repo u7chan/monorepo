@@ -353,6 +353,24 @@ html[data-theme="terminal"] {
     animation: dot-pulse 1.2s ease-in-out infinite;
   }
 
+  /* ツール履歴の開閉マーカー (summary のブラウザ既定マーカーを置き換える) */
+  .tool-summary {
+    list-style: none;
+  }
+  .tool-summary::-webkit-details-marker {
+    display: none;
+  }
+  .tool-disclosure {
+    color: var(--c-ink-faint);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 0.75;
+    transition: transform 150ms ease;
+  }
+  details[open] > .tool-summary .tool-disclosure {
+    transform: rotate(90deg);
+  }
+
   /* 細いスクロールバー */
   .scrollbar-thin {
     scrollbar-width: thin;
