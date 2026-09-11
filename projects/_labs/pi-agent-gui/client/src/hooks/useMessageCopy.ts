@@ -9,6 +9,8 @@ import { copyToClipboard } from "../lib/copyToClipboard";
 export function useMessageCopy(resetMs = 2000) {
   const [copiedId, setCopiedId] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 進行中のコピー要求を識別する。完了時に最新要求かどうかの判定に使う */
+  const seqRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -18,15 +20,19 @@ export function useMessageCopy(resetMs = 2000) {
 
   const copyMessage = useCallback(
     async (text: string, id: string) => {
-      setCopiedId(id);
+      const seq = ++seqRef.current;
       try {
         await copyToClipboard(text);
       } catch (error) {
+        // 失敗時は成功表示にしない (以前のクリップボード内容を成功と誤認させるため)
         console.error("クリップボードへのコピーに失敗しました", error);
-      } finally {
-        if (timerRef.current !== null) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setCopiedId(""), resetMs);
+        return;
       }
+      // 待ち時間中に新しいコピー要求があれば古い結果は破棄する
+      if (seq !== seqRef.current) return;
+      setCopiedId(id);
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopiedId(""), resetMs);
     },
     [resetMs],
   );

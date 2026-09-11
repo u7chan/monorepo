@@ -42,6 +42,12 @@
  * inline オプションにより、ユーティリティは var(--color-*) ではなく
  * var(--c-*) を直接参照する。これがテーマ差し替えの要。
  * ------------------------------------------------------------------------- */
+
+/* ホバー操作できるデバイスのみで有効なバリアント。
+ * Tailwind v4 の hover: / group-hover: は生成 CSS が (hover: hover) 条件付きのため
+ * タッチデバイスでは効かない。タッチでは非表示にせず常に見せる、という分岐に使う。 */
+@custom-variant can-hover (@media (hover: hover));
+
 @theme inline {
   --color-base: var(--c-base);
   --color-panel: var(--c-panel);

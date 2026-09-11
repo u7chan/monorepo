@@ -80,9 +80,9 @@ function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onCli
   );
 }
 
-/** タッチ端末は常に表示、nav 以上はホバー / フォーカスで出す */
-const REVEAL_MESSAGE = "opacity-0 group-hover/bubble:opacity-100 focus-visible:opacity-100 max-nav:opacity-100";
-const REVEAL_TOOL = "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 max-nav:opacity-100";
+/** ホバー可能なデバイスのみホバー / フォーカスで出す。タッチ端末は常に表示する */
+const REVEAL_MESSAGE = "can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100 focus-visible:opacity-100";
+const REVEAL_TOOL = "can-hover:opacity-0 can-hover:group-hover/row:opacity-100 focus-visible:opacity-100";
 
 function historyPhase(cards: ToolCard[]): ToolCard["phase"] {
   if (cards.some((card) => card.phase === "running")) return "running";
@@ -103,8 +103,9 @@ function ToolCallRow({ card, index, copied, onCopy }: { card: ToolCard; index: n
       <div className="flex min-w-0 items-center gap-2">
         <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">{String(index + 1).padStart(2, "0")}</span>
         <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
-        <span className={`shrink-0 font-sans text-[9px] ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
+        {/* ボタンは完了ラベルの左。 opacity-0 でも幅は持つので完了位置は常にサマリー行の右端と揃う */}
         <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal={REVEAL_TOOL} />
+        <span className={`shrink-0 font-sans text-[9px] ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
       </div>
       <div className="mt-1.5 grid gap-1.5 pl-6 text-ink-muted">
         {card.args ? (
