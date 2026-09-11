@@ -55,7 +55,11 @@ class MaintainDependabotTests(unittest.TestCase):
             projects = Path(temp_dir)
             fixtures = (
                 ("main-project", "pnpm-lock.yaml"),
+                # Category directories stay excluded even when the directory
+                # itself looks like a project to lockfile-based detection.
+                ("_labs", "pnpm-lock.yaml"),
                 ("_labs/lab-project", "pnpm-lock.yaml"),
+                ("_samples", "bun.lock"),
                 ("_samples/sample-project", "bun.lock"),
                 ("main-project/client", "package-lock.json"),
             )
