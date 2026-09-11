@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createGrepToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import {
   collectSecretValues,
@@ -18,6 +21,8 @@ const CUSTOM_DUMMY = "custom-secret-0123456789";
 const DUMMY_ENV_VAR = "DUMMY_GUARD_PROVIDER_API_KEY";
 const HAS_BASH = existsSync("/bin/bash");
 const SKIP_REASON = "bash is not available on this platform";
+const HAS_RG = spawnSync("rg", ["--version"], { stdio: "ignore" }).status === 0;
+const RG_SKIP_REASON = "ripgrep is not available on this platform";
 
 function withTempEnv(name: string, value: string | undefined, run: () => Promise<void>): Promise<void> {
   const previous = process.env[name];
@@ -188,6 +193,28 @@ test("shell tool wrapper masks output truncated mid-key by the SDK", async () =>
   const text = result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
   assert.ok(!text.includes(KEY.slice(3)), `truncated key prefix leaked: ${text}`);
   assert.ok(text.startsWith(REDACTED), `masked output expected, got: ${text}`);
+});
+
+test("guarded grep tool masks key fragments cut by line truncation", { skip: !HAS_RG && "ripgrep is not available" }, async () => {
+  // grepツールは一致行を500文字で切り詰める。境界に跨ったキーの断片が
+  // [REDACTED] になることを、実SDKのgrepで確認する。
+  const cwd = mkdtempSync(join(tmpdir(), "pi-guard-grep-"));
+  await writeFile(join(cwd, "leak.txt"), `${"x".repeat(475)}${KEY}\n`, "utf8");
+  const masker = createSecretMasker([KEY]);
+  const grepDefinition = wrapToolDefinitionWithSecretMasker(
+    createGrepToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
+    masker,
+  );
+  const result = await grepDefinition.execute(
+    "t6",
+    { pattern: "dummy", path: cwd },
+    undefined,
+    undefined,
+    undefined as never,
+  );
+  const text = result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
+  assert.ok(!text.includes(KEY.slice(0, 20)), `truncated fragment leaked: ${text}`);
+  assert.ok(text.includes(REDACTED), `masked fragment expected: ${text}`);
 });
 
 test("redaction extension masks tool_result content before it reaches the LLM", async () => {

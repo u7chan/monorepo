@@ -76,7 +76,7 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
       return result;
     },
     maskSafe(text: string): string {
-      return maskLeadingPartial(this.mask(text), ordered);
+      return maskTruncatedFragments(maskLeadingPartial(this.mask(text), ordered), ordered);
     },
     maskAccumulated(text: string): string {
       const masked = maskLeadingPartial(this.mask(text), ordered);
@@ -102,6 +102,12 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
 export const MIN_LEADING_PARTIAL = 4;
 
 /**
+ * SDK が grep 等の一致行に付与する行切り詰めマーカー
+ * (truncateLine: 500文字以降を切り捨てて付与)。
+ */
+const TRUNCATION_MARKER = "... [truncated]";
+
+/**
  * テキストの先頭が秘密値の途中から始まる場合に備えて、先頭の部分一致を
  * [REDACTED] に置換する。SDKなど外部の切り詰め (末尾だけ残す) でキーの
  * 先頭が欠けると完全一致では検出できず、キーの大部分が生のまま残る。
@@ -119,6 +125,39 @@ function maskLeadingPartial(text: string, secrets: readonly string[]): string {
     }
   }
   return longest >= MIN_LEADING_PARTIAL ? REDACTED + text.slice(longest) : text;
+}
+
+/**
+ * 行切り詰めマーカーの直前に、秘密値の先頭部分が切れ端として残るケース
+ * (grep の行切り詰めなど) を置換する。完全一致と先頭欠けの対応だけでは、
+ * 行境界で末尾を欠いたキーの大部分が生のまま残る。
+ */
+function maskTruncatedFragments(text: string, secrets: readonly string[]): string {
+  if (secrets.length === 0 || !text.includes(TRUNCATION_MARKER)) return text;
+  let result = "";
+  let rest = text;
+  for (;;) {
+    const markerAt = rest.indexOf(TRUNCATION_MARKER);
+    if (markerAt === -1) break;
+    const before = rest.slice(0, markerAt);
+    let fragment = 0;
+    for (const secret of secrets) {
+      const max = Math.min(secret.length, before.length);
+      for (let k = max; k > fragment; k--) {
+        if (before.endsWith(secret.slice(0, k))) {
+          fragment = k;
+          break;
+        }
+      }
+    }
+    result +=
+      fragment >= MIN_LEADING_PARTIAL
+        ? `${before.slice(0, before.length - fragment)}${REDACTED}`
+        : before;
+    result += TRUNCATION_MARKER;
+    rest = rest.slice(markerAt + TRUNCATION_MARKER.length);
+  }
+  return result + rest;
 }
 
 function heldBackLength(text: string, secrets: readonly string[], maxSecretLength: number): number {
