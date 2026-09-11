@@ -308,7 +308,8 @@ export function ManagerScreen({
 
   const managerItemClass = (active: boolean) =>
     [
-      "flex w-full cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
+      // 長い説明文が一覧のグリッド幅を押し広げないようにする。
+      "flex min-w-0 w-full cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
       active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
     ].join(" ");
 
@@ -373,8 +374,8 @@ export function ManagerScreen({
       </header>
 
       {/* 本文: 左にタブ + 一覧、右にエディタ */}
-      <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-[minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col wide:border-r wide:border-line">
+      <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-[minmax(0,1fr)]">
+        <aside className="flex min-h-0 min-w-0 flex-col wide:border-r wide:border-line">
           <div role="tablist" aria-label="管理対象の種別" className="flex gap-1 border-b border-line px-3">
             <button
               type="button"
@@ -399,7 +400,7 @@ export function ManagerScreen({
           </div>
 
           {/* 一覧: 画面の縦幅を使うため、件数が増えてもスクロールで耐える */}
-          <div className="scrollbar-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 max-nav:max-h-[30vh]">
+          <div className="scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 max-nav:max-h-[30vh]">
             {isAgent ? (
               <>
                 <button
@@ -409,7 +410,7 @@ export function ManagerScreen({
                 >
                   ＋ 新しいエージェント
                 </button>
-                <div className="grid gap-1">
+                <div className="grid min-w-0 gap-1">
                   {catalog.agents.map((agent) => (
                     <button
                       key={agent.id}
@@ -417,8 +418,8 @@ export function ManagerScreen({
                       onClick={() => selectItem("agent", agent.id)}
                       className={managerItemClass(isAgent && editingId === agent.id)}
                     >
-                      <strong className="text-xs text-ink">{agent.name}</strong>
-                      <span className="truncate text-[10px] text-ink-muted">{agent.description || "説明なし"}</span>
+                      <strong className="min-w-0 truncate text-xs text-ink">{agent.name}</strong>
+                      <span className="min-w-0 truncate text-[10px] text-ink-muted">{agent.description || "説明なし"}</span>
                     </button>
                   ))}
                 </div>
@@ -432,7 +433,7 @@ export function ManagerScreen({
                 >
                   ＋ 新しいスキル
                 </button>
-                <div className="grid gap-1">
+                <div className="grid min-w-0 gap-1">
                   {catalog.skills.map((skill) => (
                     <button
                       key={skill.id}
@@ -440,8 +441,8 @@ export function ManagerScreen({
                       onClick={() => selectItem("skill", skill.id)}
                       className={managerItemClass(!isAgent && editingId === skill.id)}
                     >
-                      <strong className="text-xs text-ink">{skill.name}</strong>
-                      <span className="truncate text-[10px] text-ink-muted">{skill.description || "説明なし"}</span>
+                      <strong className="min-w-0 truncate text-xs text-ink">{skill.name}</strong>
+                      <span className="min-w-0 truncate text-[10px] text-ink-muted">{skill.description || "説明なし"}</span>
                     </button>
                   ))}
                 </div>
@@ -451,7 +452,7 @@ export function ManagerScreen({
         </aside>
 
         {/* エディタ */}
-        <section className="scrollbar-thin min-h-0 overflow-x-hidden overflow-y-auto px-4 py-4">
+        <section className="scrollbar-thin min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4">
           {isAgent ? (
             <form onSubmit={saveAgent} className="mx-auto grid max-w-2xl gap-3">
               <div>
