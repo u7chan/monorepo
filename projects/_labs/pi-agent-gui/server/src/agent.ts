@@ -17,6 +17,13 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
 import { ThinkingLevelSchema } from "./schema";
+import { extraChildEnvNames } from "./child-env";
+import type { SecretMasker } from "./redact";
+import {
+  createGuardedShellToolDefinitions,
+  createRuntimeSecretMasker,
+  createSecretRedactionExtension,
+} from "./secret-guard";
 import type { AgentDef, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
 export interface PiModelRef {
@@ -71,6 +78,8 @@ export interface PiBff {
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
   createSession(input?: CreateSessionInput): Promise<{ session: unknown }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
+  /** ツール出力や SSE から既知の秘密値を除くマスカー (保護対象が無ければ素通し) */
+  secretMasker: SecretMasker;
 }
 
 export function errorMessage(error: unknown): string {
@@ -146,6 +155,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     authPath: join(agentDir, "auth.json"),
     modelsPath: join(agentDir, "models.json"),
   });
+  // 保護対象はあくまで「環境変数で BFF が受け取ったキーの非空値」。認証に
+  // 使う process.env は変更しない (マスクと env 絞りは出力/子プロセス側のみ)。
+  const secretMasker = createRuntimeSecretMasker(modelRuntime.getProviders(), process.env);
 
   const requested = parseModelReference();
   let availableModelList: PiAiModel<Api>[] = [];
@@ -237,12 +249,14 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       settingsManager,
       // Web アプリには拡張ダイアログに答える TUI がない。この
       // プロトタイプは決定論的に保ち、独自の prompt/tools だけを
-      // インターフェイスにする。
+      // インターフェイスにする。noExtensions でもインラインの
+      // extensionFactories は読み込まれる。
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
+      extensionFactories: [createSecretRedactionExtension(secretMasker)],
       appendSystemPrompt: [APPEND_SYSTEM_PROMPT, agentPrompt, ...skillPrompts].filter(Boolean),
     });
     await resourceLoader.reload();
@@ -257,6 +271,13 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       settingsManager,
       sessionManager: SessionManager.inMemory(projectCwd),
       tools: configuredTools(),
+      // 同名の組み込み bash / powershell を、子プロセスの環境変数を
+      // 許可リストへ絞る spawnHook 付きの定義で置き換える。
+      customTools: createGuardedShellToolDefinitions(
+        projectCwd,
+        secretMasker,
+        extraChildEnvNames(process.env),
+      ),
     };
 
     return createAgentSession(options);
@@ -276,5 +297,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     resolveModel,
     createSession,
     modelLabel,
+    secretMasker,
   };
 }

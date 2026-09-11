@@ -147,7 +147,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   }
 
   const catalog = createAgentCatalog();
-  const store = new SessionStore({ pi, catalog });
+  const store = new SessionStore({ pi, catalog, masker: pi?.secretMasker });
 
   const updateAgentHandler = async (c: Context) => {
     const agentId = c.req.param("id") ?? "";

@@ -104,6 +104,47 @@ POST /api/sessions { model?, thinkingLevel? }
 - カタログ CRUD の body はわざと pass-through（zod 厳格化しない）。エージェント名の必須チェックや `model` / `thinkingLevel` の正規化・日本語エラー文言は `agents.ts` 側が正。
 - モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.85.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
 
+## APIキー漏洩の抑制
+
+プロバイダーAPIキーを環境変数で BFF へ渡す運用でも、ツール利用・誤操作でキーが LLM・ブラウザ・ログへ流れにくくする暫定対策。実行環境の分離（恒久対応）は行わず、SDKの公開APIだけて実装する。
+
+### 保護対象
+
+- `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
+- 8文字未満の値は通常出力の過剰改変防止のため対象外。重複・包含する値は長い順に置換する
+- ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta）はマスクする
+
+### レイヤー
+
+1. **子プロセスの環境変数（`server/src/child-env.ts`）**
+   - `buildChildEnv()` が許可リストの変数だけを新しいオブジェクトへコピーする。禁止リストやコマンド文字列の判定には依存しない
+   - bash は `bash -c`（非対話・非ログイン）で起動されプロファイルを読まない。加えて `BASH_ENV` / `ENV` / `NODE_OPTIONS` を継承しないため、起動設定経由の再投入も起きない
+   - `process.env` は一切変更しない。並行セッションや認証解決（リクエスト時に env を読む）への影響はない
+2. **ツール定義のフック（`server/src/secret-guard.ts`）**
+   - `createBashToolDefinition` / `createPowerShellToolDefinition` に `spawnHook` を渡し、SDK が組み立てた env（`PI_*` セッション変数注入後）を許可リストへ絞る。同名の `customTools` として登録し組み込みツールを置き換える
+   - `execute` をラップし、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
+3. **tool_result 拡張（同ファイル）**
+   - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
+4. **BFF の送出層（`server/src/sessions.ts`）**
+   - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、エラー、プロンプトのエコー、タイトル）を防御的にマスクする
+   - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする
+
+### 検証
+
+実APIは呼ばず、ダミーキーとスタブで検証する。
+
+- `server/test/child-env.test.ts` — 許可リストの内容、`process.env` 非改変・並行構築の独立性、実 bash 子プロセスでの `env` / `printenv` / Node.js 参照、`BASH_ENV` 経由の再投入が起きないことの対照実験、通常コマンドの動作
+- `server/test/secret-guard.test.ts` — シェルツールの env 絞り・`PI_*` 維持・出力マスク、途中出力とエラーのマスク、`tool_result` 拡張
+- `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
+- `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと
+
+### 残存リスク
+
+- 同じコンテナ・同じユーザーで任意コードを実行できる限り、認証ファイルの読み取りや `/proc` 等からの迂回は防げない
+- bash ツールの出力が切り詰められた場合、フル出力はSDKが一時ファイルへ書く。ファイル自体はマスクされないが、それを読むツール出力はマスクされる
+- 分割・エンコードされたキーや未登録の秘密情報は検出できない。OAuth トークンは対象外
+- キーを読み取ったコードが直接外部通信する経路は防げない
+
 ## フロントエンド
 
 チャット UI は `client/` ワークスペースに切り出し、React 19 + Vite + TypeScript + Tailwind CSS v4 で実装している。ソースは `client/src` 配下に置き、エントリは `main.tsx`（`index.html` から読み込む）。SSE イベントは reducer で状態に変換し、旧実装（命令的な DOM 操作）の挙動を忠実に再現する。
