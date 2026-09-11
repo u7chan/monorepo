@@ -223,6 +223,8 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 | `resync` | セッションペイロード全体（バッファを逃した場合） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 
+テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は README の「APIキーの保護（暫定対策）」を参照。
+
 ### `POST /api/sessions/:id/stop`
 
 実行中のランを中断し、待機キューを破棄する。`{ ok: true, status: "stopped" }` を返す。旧 `POST /api/sessions/:id/abort` も同じ動作のエイリアス。

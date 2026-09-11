@@ -11,6 +11,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
+import { createSecretMasker, createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { AgentCatalog } from "./agents";
 import type {
   AgentDef,
@@ -71,21 +72,31 @@ function contentText(content: unknown): string {
     .join("");
 }
 
-function toolArgsSummary(args: unknown): string {
+function toolArgsSummary(args: unknown, masker: SecretMasker): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
-  if (typeof record.command === "string") return `$ ${truncate(record.command, ARGS_TEXT_MAX)}`;
+  // 切り詰める前にマスクする。先に切り詰めると境界で末尾が欠け、
+  // キーの大部分がそのまま残ってしまう。
+  if (typeof record.command === "string") {
+    return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
+  }
   const path = record.path || record.file_path || record.filePath;
-  if (typeof path === "string") return path;
+  if (typeof path === "string") return masker.mask(path);
   try {
-    return truncate(JSON.stringify(args), ARGS_TEXT_MAX);
+    return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
   } catch {
     return "";
   }
 }
 
-function toolResultSummary(result: unknown): string {
-  return truncate(contentText((result as { content?: unknown } | null)?.content), SUMMARY_TEXT_MAX);
+function toolResultSummary(result: unknown, masker: SecretMasker): string {
+  // 切り詰める前にマスクする (先に切り詰めると境界で末尾が欠け、キーの
+  // 大部分がそのまま残る)。SDK側の切り詰めで先頭が欠けた場合に備えて
+  // 先頭部分一致も置換する。
+  return truncate(
+    masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)),
+    SUMMARY_TEXT_MAX,
+  );
 }
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
@@ -215,11 +226,11 @@ function lastAssistantMessage(session: PiSessionLike) {
   return undefined;
 }
 
-function sessionMessages(session: PiSessionLike): ChatMessage[] {
+function sessionMessages(session: PiSessionLike, masker: SecretMasker): ChatMessage[] {
   return session.messages
     .filter((message) => message.role === "user" || message.role === "assistant")
     .map((message) => {
-      const text = contentText(message.content);
+      const text = masker.mask(contentText(message.content));
       return {
         role: message.role as "user" | "assistant",
         text,
@@ -232,13 +243,24 @@ function sessionMessages(session: PiSessionLike): ChatMessage[] {
 export class SessionStore {
   pi: PiRuntimeLike | null;
   catalog: AgentCatalog;
+  /** SSE / ログへ出すテキストから既知の秘密値を除く (保護対象が無ければ素通し) */
+  masker: SecretMasker;
   records: Map<string, SessionRecord>;
   sweeper: ReturnType<typeof setInterval>;
 
-  constructor({ pi, catalog }: { pi?: PiRuntimeLike | null; catalog?: AgentCatalog } = {}) {
+  constructor({
+    pi,
+    catalog,
+    masker,
+  }: {
+    pi?: PiRuntimeLike | null;
+    catalog?: AgentCatalog;
+    masker?: SecretMasker | null;
+  } = {}) {
     if (!catalog) throw new Error("SessionStore requires an agent catalog");
     this.pi = pi || null;
     this.catalog = catalog;
+    this.masker = masker ?? createSecretMasker([]);
     this.records = new Map();
     this.sweeper = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
     this.sweeper.unref?.();
@@ -398,7 +420,9 @@ export class SessionStore {
         throw error;
       }
     }
-    if (!record.title) record.title = truncate(text.replace(/\s+/g, " ").trim(), TITLE_MAX);
+    if (!record.title) {
+      record.title = truncate(this.masker.mask(text).replace(/\s+/g, " ").trim(), TITLE_MAX);
+    }
     record.lastUsedAt = Date.now();
 
     if (record.run?.status === "running" || record.session.isStreaming) {
@@ -406,7 +430,7 @@ export class SessionStore {
       this.emit(record, "queued", {
         position: record.queue.length,
         queueDepth: record.queue.length,
-        prompt: text,
+        prompt: this.masker.mask(text),
       });
       return { queued: true, queueDepth: record.queue.length, runId: record.run?.id };
     }
@@ -488,7 +512,7 @@ export class SessionStore {
             toolCalls: [...record.tools.values()],
           }
         : null,
-      messages: sessionMessages(session),
+      messages: sessionMessages(session, this.masker),
     };
   }
 
@@ -500,7 +524,7 @@ export class SessionStore {
       agentName: record.agent.name,
       status: this.statusOf(record),
       queueDepth: record.queue.length,
-      messageCount: sessionMessages(record.session).length,
+      messageCount: sessionMessages(record.session, this.masker).length,
       createdAt: record.createdAt,
       lastUsedAt: record.lastUsedAt,
       model: modelLabel(record.session.model),
@@ -558,7 +582,9 @@ export class SessionStore {
     const { session } = record;
     const run: RunState = {
       id: randomUUID(),
-      prompt: text,
+      // ログ・SSE用に保持するプロンプトはマスクする。モデルへ渡す text は
+      // ユーザー入力そのままだ (ユーザー自身が貼ったキーは対象外)。
+      prompt: this.masker.mask(text),
       status: "running",
       startedAt: Date.now(),
       endedAt: undefined,
@@ -567,20 +593,31 @@ export class SessionStore {
     record.run = run;
     record.tools = new Map();
     record.lastUsedAt = Date.now();
-    this.emit(record, "run_start", { runId: run.id, prompt: text });
+    this.emit(record, "run_start", { runId: run.id, prompt: run.prompt });
 
     let finished = false;
     let currentAssistantText = "";
+    // 差分をそのまま配信せず、秘密値の前方一致になり得る末尾を保留する。
+    // アシスタントメッセージが替わるたびに作り直す。
+    let deltaMasker = createStreamingSecretMasker(this.masker);
 
     const finish = ({ error, stopped = false }: { error?: string; stopped?: boolean } = {}): void => {
       if (finished) return;
       finished = true;
 
+      // 中断・エラー・正常完了のいずれでも、保留中の末尾をマスクして流す。
+      const flushed = deltaMasker.flush();
+      if (flushed) {
+        currentAssistantText += flushed;
+        this.emit(record, "text", { delta: flushed });
+      }
+
       // プロバイダは通常 text delta をストリームする。このフォールバックは
       // message_end で初めて最終テキストを含めるプロバイダも支援する。
       const finalAssistant = lastAssistantMessage(session);
-      const finalText = contentText(finalAssistant?.content);
+      const finalText = this.masker.mask(contentText(finalAssistant?.content));
       if (finalText && !currentAssistantText) {
+        currentAssistantText = finalText;
         this.emit(record, "text", { delta: finalText });
       } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
         const remainder = finalText.slice(currentAssistantText.length);
@@ -589,7 +626,7 @@ export class SessionStore {
 
       run.status = stopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
-      if (error) run.error = error;
+      if (error) run.error = this.masker.mask(error);
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,
@@ -611,19 +648,35 @@ export class SessionStore {
             this.emit(record, "status", { state: "thinking", text: "考え中…" });
             break;
           case "message_start":
-            if (event.message?.role === "assistant") currentAssistantText = "";
+            if (event.message?.role === "assistant") {
+              currentAssistantText = "";
+              deltaMasker = createStreamingSecretMasker(this.masker);
+            }
             break;
           case "message_update":
             if (event.assistantMessageEvent?.type === "text_delta") {
-              currentAssistantText += event.assistantMessageEvent.delta ?? "";
-              this.emit(record, "text", { delta: event.assistantMessageEvent.delta ?? "" });
+              const emitted = deltaMasker.push(event.assistantMessageEvent.delta ?? "");
+              if (emitted) {
+                currentAssistantText += emitted;
+                this.emit(record, "text", { delta: emitted });
+              }
+            }
+            break;
+          case "message_end":
+            // アシスタントメッセージの確定時に保留していた末尾を流す。
+            if (event.message?.role === "assistant") {
+              const flushed = deltaMasker.flush();
+              if (flushed) {
+                currentAssistantText += flushed;
+                this.emit(record, "text", { delta: flushed });
+              }
             }
             break;
           case "tool_execution_start": {
             const tool: ToolCall = {
               id: event.toolCallId ?? "",
               name: event.toolName ?? "",
-              args: toolArgsSummary(event.args),
+              args: toolArgsSummary(event.args, this.masker),
               isError: false,
               done: false,
               output: "",
@@ -634,17 +687,18 @@ export class SessionStore {
             break;
           }
           case "tool_execution_end": {
+            const output = toolResultSummary(event.result, this.masker);
             const tool = record.tools.get(event.toolCallId ?? "");
             if (tool) {
               tool.done = true;
               tool.isError = Boolean(event.isError);
-              tool.output = toolResultSummary(event.result);
+              tool.output = output;
             }
             this.emit(record, "tool_end", {
               id: event.toolCallId ?? "",
               name: event.toolName ?? "",
               isError: Boolean(event.isError),
-              output: toolResultSummary(event.result),
+              output,
             });
             break;
           }
@@ -660,7 +714,9 @@ export class SessionStore {
           case "extension_error":
             this.emit(record, "status", {
               state: "warning",
-              text: typeof event.error === "string" ? event.error : String(event.error ?? ""),
+              text: this.masker.mask(
+                typeof event.error === "string" ? event.error : String(event.error ?? ""),
+              ),
             });
             break;
           case "agent_end":
