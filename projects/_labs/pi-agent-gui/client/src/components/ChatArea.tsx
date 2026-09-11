@@ -266,7 +266,6 @@ export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
 
-  // 新しいメッセージ / 追記で最下部へスクロールする
   useEffect(() => {
     const el = chatAreaRef.current;
     if (el) el.scrollTop = el.scrollHeight;

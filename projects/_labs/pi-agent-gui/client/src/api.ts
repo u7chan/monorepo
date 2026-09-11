@@ -60,6 +60,7 @@ export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unkno
 
 // --- agents CRUD ---
 
+/** model / thinkingLevel の null は指定解除 (省略は現在値の維持) */
 export type AgentDefinitionInput = Pick<
   AgentDef,
   "name" | "description" | "systemPrompt" | "skillIds"

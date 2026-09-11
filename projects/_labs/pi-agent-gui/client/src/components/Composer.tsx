@@ -90,7 +90,6 @@ export function Composer({
     if (!text || !runtimeReady || sending || settings.changing || settings.sendBlockedReason) return;
     setValue("");
     onSend(text);
-    // 送信後は入力欄へフォーカスを戻す
     inputRef.current?.focus();
   };
 

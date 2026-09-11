@@ -45,7 +45,7 @@ test("server exposes the async session API end to end", async () => {
     const created = await createSession(app);
     assert.ok(created.sessionId);
 
-    // 送信前に購読しておかないとランの全イベントを取り逃す
+    // リプレイではなく、購読中のランがライブ配信されることを見るため先に接続する
     const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
     assert.equal(eventsResponse.status, 200);
     assert.match(eventsResponse.headers.get("content-type") || "", /text\/event-stream/);
