@@ -95,7 +95,7 @@ function ChevronIcon() {
   );
 }
 
-/** コピー直後は copied 表示を優先し、それ以外は reveal でホバー時に出す */
+/** コピー直後は copied を優先し、それ以外は reveal でホバー時に出す */
 function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onClick: () => void; label: string; reveal: string }) {
   return (
     <button
@@ -115,7 +115,7 @@ function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onCli
   );
 }
 
-/** ホバー可能なデバイスのみホバー / フォーカスで出す。タッチ端末は常に表示する */
+/** ホバー可能なデバイスだけホバー / フォーカスで出し、タッチ端末は常に表示する */
 const REVEAL_MESSAGE = "can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100 focus-visible:opacity-100";
 const REVEAL_TOOL = "can-hover:opacity-0 can-hover:group-hover/row:opacity-100 focus-visible:opacity-100";
 
@@ -138,7 +138,7 @@ function ToolCallRow({ card, index, copied, onCopy }: { card: ToolCard; index: n
       <div className="flex min-w-0 items-center gap-2">
         <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">{String(index + 1).padStart(2, "0")}</span>
         <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
-        {/* ボタンは完了ラベルの左。 opacity-0 でも幅は持つので完了位置は常にサマリー行の右端と揃う */}
+        {/* 完了ラベルの左に置く。opacity-0 でも幅を保つので完了位置はサマリー行の右端と揃う */}
         <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal={REVEAL_TOOL} />
         <span className={`shrink-0 font-sans text-[9px] ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
       </div>
@@ -266,7 +266,6 @@ export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
 
-  // 新しいメッセージ / 追記があったら最下部へ (旧実装の scrollTop 追従)
   useEffect(() => {
     const el = chatAreaRef.current;
     if (el) el.scrollTop = el.scrollHeight;

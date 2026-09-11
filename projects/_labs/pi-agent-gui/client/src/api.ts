@@ -26,7 +26,7 @@ export class ApiError extends Error {
 /** 型安全クライアント (Vite dev は /api を 4317 にプロキシ済み) */
 const client = hc<AppType>(location.origin);
 
-/** !ok レスポンスから ApiError を組み立てる。body の {error} を優先し、読めなければ HTTP <status> */
+/** !ok のレスポンスから ApiError を作る (body の {error} を優先し、読めなければ HTTP <status>)。 */
 async function apiError(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => null);
   const message =
@@ -40,7 +40,7 @@ async function apiError(res: Response): Promise<ApiError> {
 
 export const getHealth = async (): Promise<Health> => {
   const res = await client.api.health.$get();
-  // throw で制御フローを切ることで res.json() は成功型のみになる
+  // throw で制御フローを切ると res.json() が成功型になる
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
@@ -60,7 +60,7 @@ export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unkno
 
 // --- agents CRUD ---
 
-/** エージェント定義の入力。model / thinkingLevel の null は指定解除 */
+/** model / thinkingLevel の null は指定解除 (省略は現在値の維持) */
 export type AgentDefinitionInput = Pick<
   AgentDef,
   "name" | "description" | "systemPrompt" | "skillIds"
@@ -79,8 +79,8 @@ export const updateAgent = async (
   id: string,
   input: Partial<AgentDefinitionInput>,
 ): Promise<{ agent: AgentDef }> => {
-  // catalog CRUD の body は zod 厳格化しない (pass-through) ため、hc の input 型に json が宣言されない。
-  // 実行時は args.json が JSON body になる (hono/client 実装) ので、宣言済み引数型へ寄せて送る。
+  // catalog CRUD の body は zod 厳格化しないため hc の input 型に json が現れない。
+  // 実行時は args.json が JSON body になるので、宣言済みの引数型に寄せて送る。
   type PatchArgs = Parameters<(typeof client.api.agents)[":id"]["$patch"]>[0];
   const res = await client.api.agents[":id"].$patch({ param: { id }, json: input } as PatchArgs);
   if (!res.ok) throw await apiError(res);
@@ -105,7 +105,7 @@ export const updateSkill = async (
   id: string,
   input: Partial<Pick<SkillDef, "name" | "description" | "prompt">>,
 ): Promise<{ skill: SkillDef }> => {
-  // updateAgent と同じ理由で json を引数型へ寄せる
+  // updateAgent と同じ理由で json を引数型に寄せる
   type PatchArgs = Parameters<(typeof client.api.skills)[":id"]["$patch"]>[0];
   const res = await client.api.skills[":id"].$patch({ param: { id }, json: input } as PatchArgs);
   if (!res.ok) throw await apiError(res);
@@ -126,13 +126,13 @@ export const listSessions = async (): Promise<{ sessions: SessionSummary[] }> =>
   return res.json();
 };
 
-/** セッション作成時のチャット指定 (未指定の項目は定義 → アプリ既定へ解決される) */
+/** 未指定の項目は定義 → アプリ既定へ解決される */
 export type SessionOverrides = {
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
 };
 
-/** 201 でセッションの完全ペイロードが返る */
+/** 201 でセッションの完全な payload が返る */
 export const createSession = async (agentId?: string, overrides: SessionOverrides = {}): Promise<SessionPayload> => {
   const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel } = { ...overrides };
   if (agentId) json.agentId = agentId;
@@ -153,10 +153,7 @@ export const deleteSession = async (sessionId: string): Promise<unknown> => {
   return res.json();
 };
 
-/**
- * チャット単位の Model / Effort 変更。省略した項目は現在値を維持する。
- * SDK 補正後の実効値を含む SessionPayload が返る。
- */
+/** 省略した項目は現在値を維持する。SDK 補正後の実効値を含む SessionPayload が返る。 */
 export const updateSessionSettings = async (
   sessionId: string,
   settings: SessionOverrides,
@@ -175,7 +172,7 @@ export const stopSession = async (sessionId: string): Promise<StopResult> => {
   return res.json();
 };
 
-/** 202 即時返却。実行はバックグラウンドで続き、イベントは SSE で届く */
+/** 202 を即時返す。実行はバックグラウンドで続き、イベントは SSE で届く。 */
 export const postMessage = async (sessionId: string, text: string): Promise<PostMessageResult> => {
   const res = await client.api.sessions[":id"].messages.$post({ json: { text }, param: { id: sessionId } });
   if (!res.ok) throw await apiError(res);

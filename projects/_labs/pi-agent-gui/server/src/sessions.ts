@@ -1,13 +1,6 @@
 /**
- * 実行ライフサイクル全体を保有するインメモリセッションストア。
- *
- * 「ラン」(pi セッションへの 1 回の prompt() 呼び出し) はバックグラウンドで
- * 始まり、HTTP リクエストとは決して結びつかない: クライアントは入れ替わり、
- * ランは走り続ける。すべてのイベントは単調増加のシーケンス番号付きで
- * セッションごとのログに追記され、購読者はランの途中で参加・再接続して
- * 見逃した分をリプレイできる。ラン中に投稿されたメッセージはキューに入り、
- * 順番に実行される。停止は実行中のランを中断し、キューを空にする。
- * port 元: src/sessions.js
+ * インメモリのセッションストア。ラン (prompt() 1 回) は HTTP リクエストから切り離して
+ * バックグラウンドで走り、イベントは単調増加の seq 付きでログされるため購読者は途中参加・再接続できる。
  */
 import { randomUUID } from "node:crypto";
 import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
@@ -75,8 +68,7 @@ function contentText(content: unknown): string {
 function toolArgsSummary(args: unknown, masker: SecretMasker): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
-  // 切り詰める前にマスクする。先に切り詰めると境界で末尾が欠け、
-  // キーの大部分がそのまま残ってしまう。
+  // マスクしてから切り詰める。先に切り詰めると境界でキーの末尾が欠け、大部分が生のまま残る。
   if (typeof record.command === "string") {
     return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
   }
@@ -90,9 +82,8 @@ function toolArgsSummary(args: unknown, masker: SecretMasker): string {
 }
 
 function toolResultSummary(result: unknown, masker: SecretMasker): string {
-  // 切り詰める前にマスクする (先に切り詰めると境界で末尾が欠け、キーの
-  // 大部分がそのまま残る)。SDK側の切り詰めで先頭が欠けた場合に備えて
-  // 先頭部分一致も置換する。
+  // 切り詰める前にマスクする (先に切り詰めると境界でキーの末尾が欠ける)。
+  // SDK 側の切り詰めで先頭が欠けた場合に備え maskSafe を使う。
   return truncate(
     masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)),
     SUMMARY_TEXT_MAX,
@@ -111,7 +102,7 @@ function httpError(statusCode: number, message: string): HttpLikeError {
 }
 
 // ---------------------------------------------------------------------------
-// pi SDK セッションの最小 interface (pi SDK 側に都合のよい型がないため)
+// pi SDK に用途に合う型がないため、必要な分だけの最小 interface を定義する
 // ---------------------------------------------------------------------------
 
 /** pi SDK から届くランタイムイベントの緩い形 (必要なフィールドのみ) */
@@ -144,9 +135,9 @@ export interface PiSessionLike {
   subscribe(listener: PiSessionEventListener): () => void;
   prompt(text: string): Promise<unknown>;
   abort(): Promise<unknown>;
-  /** モデル変更。SDK は認証確認後にモデルと thinking を切り替える */
+  /** 認証確認後にモデルと thinking を切り替える */
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
-  /** thinkingLevel 変更。SDK が非対応値を補正する */
+  /** SDK が非対応値を補正する */
   setThinkingLevel(level: string, options?: { persist?: boolean }): void;
   /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
   getAvailableThinkingLevels(): string[];
@@ -164,7 +155,7 @@ export interface PiRuntimeLike {
     model?: ModelRef;
     thinkingLevel?: ThinkingLevel;
   }): Promise<{ session: unknown }>;
-  /** availableModels との厳密一致。未実装のスタブでは未定義を返す */
+  /** availableModels との厳密一致。スタブでは未実装でもよい */
   resolveModel?(model: ModelRef): unknown;
 }
 
@@ -286,8 +277,7 @@ export class SessionStore {
     const skills = agent.skillIds
       .map((skillId) => this.catalog.getSkill(skillId))
       .filter((skill): skill is SkillDef => Boolean(skill));
-    // 表示に必要なエージェント情報は作成時にスナップショット化する
-    // (定義の編集・インポートを既存チャットに遡及させない)。
+    // 表示用のエージェント情報は作成時にスナップショット化する (以降の定義編集・インポートを遡及させない)
     const agentInfo: AgentPayloadInfo = {
       id: agent.id,
       name: agent.name,
@@ -299,7 +289,6 @@ export class SessionStore {
         description: skill.description,
       })),
     };
-    // 項目別に「作成時のチャット指定 → エージェント定義」を解決する。
     // どちらも未指定ならランタイム側のアプリ既定に委ねる。
     const { session } = await this.pi.createSession({
       agent: { ...agent, skillIds: [...agent.skillIds] },
@@ -349,18 +338,17 @@ export class SessionStore {
       throw error;
     }
 
-    // モデルは作成時と同様に available へ厳密照合する (暗黙 fallback しない)
+    // available へ厳密照合し、暗黙のフォールバックはしない
     const modelObject = input.model ? this.pi.resolveModel?.(input.model) : undefined;
     if (input.model && !modelObject) {
       throw httpError(400, `Model is not available: ${input.model.provider}/${input.model.id}`);
     }
     const { session } = record;
-    // 変更開始前にフラグを同期的に予約する。以降の送信・二重変更は 409 になる。
+    // フラグは変更開始前に同期的に予約する (await 後だと送信が割り込む)。
     record.changingSettings = true;
     try {
       if (input.model) {
-        // モデルだけ変更する場合は現在の実効 Effort を退避し、SDK 切替後に再適用する。
-        // 両方指定時は要求 Effort を再適用する。SDK が非対応値を補正する。
+        // モデルだけの変更では現在の実効 Effort を退避し、切替後に再適用する。SDK が非対応値を補正する。
         const previousThinking = session.thinkingLevel;
         await session.setModel(modelObject, { persist: false });
         session.setThinkingLevel(input.thinkingLevel ?? previousThinking ?? "medium", { persist: false });
@@ -372,7 +360,7 @@ export class SessionStore {
     }
 
     record.lastUsedAt = Date.now();
-    // 実効値 (SDK 補正後) を正として購読中の全クライアントへ同期する
+    // 実効値 (SDK 補正後) を正として、購読中の全クライアントへ同期する
     return this.emitResync(record);
   }
 
@@ -404,12 +392,9 @@ export class SessionStore {
     return this.statusOf(record) === "running" || this.statusOf(record) === "queued";
   }
 
-  /**
-   * ユーザーメッセージをセッションに渡す。即座にバックグラウンドランを
-   * 始めるか、ランが既に動いていればメッセージをキューに追加する。
-   */
+  /** 実行中ならキューに入れ、それ以外は即座にランを始める。 */
   postMessage(record: SessionRecord, text: string): PostMessageResultInternal {
-    // 設定変更中は送信も待たせる (BFF 側でも拒否する)
+    // 設定変更中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
     }
@@ -439,7 +424,7 @@ export class SessionStore {
     return { queued: false, queueDepth: 0, runId: run.id };
   }
 
-  /** 実行中のランを明示的に止め、キューに積まれたメッセージを捨てる。 */
+  /** 実行中のランを中断し、キューに積まれたメッセージも捨てる。 */
   async stop(record: SessionRecord): Promise<{ ok: true; status: RunStatus }> {
     record.lastUsedAt = Date.now();
     if (record.queue.length > 0) {
@@ -453,10 +438,8 @@ export class SessionStore {
   }
 
   /**
-   * セッションのイベントログを購読する。`after` はクライアントが最後に
-   * 見たシーケンス番号で、それより後のバッファ済みエントリをリプレイする。
-   * クライアントがバッファより大きく遅れている場合は、セッション全文を
-   * 持った単一の `resync` イベントを代わりに送る。
+   * `after` より後のバッファ済みエントリをリプレイする。クライアントが
+   * バッファより大きく遅れている場合はセッション全文を持つ resync を 1 件送る。
    */
   subscribe(
     record: SessionRecord,
@@ -548,12 +531,12 @@ export class SessionStore {
           at: Date.now(),
         });
       } catch {
-        // subscriber already gone
+        // すでに切断済みの購読者
       }
       try {
         subscriber.close?.();
       } catch {
-        // ignore
+        // 同上
       }
     }
   }
@@ -577,13 +560,12 @@ export class SessionStore {
     this.records.clear();
   }
 
-  /** バックグラウンドランを開始する。呼び出し側はセッションが idle であること。 */
+  /** バックグラウンドランを開始する (呼び出し側はセッションが idle であることを保証する)。 */
   startRun(record: SessionRecord, text: string): RunState {
     const { session } = record;
     const run: RunState = {
       id: randomUUID(),
-      // ログ・SSE用に保持するプロンプトはマスクする。モデルへ渡す text は
-      // ユーザー入力そのままだ (ユーザー自身が貼ったキーは対象外)。
+      // ログ・SSE 用に保持するプロンプトはマスクする (モデルへ渡す text はユーザー入力そのまま)。
       prompt: this.masker.mask(text),
       status: "running",
       startedAt: Date.now(),
@@ -597,8 +579,7 @@ export class SessionStore {
 
     let finished = false;
     let currentAssistantText = "";
-    // 差分をそのまま配信せず、秘密値の前方一致になり得る末尾を保留する。
-    // アシスタントメッセージが替わるたびに作り直す。
+    // 差分はそのまま配信せず、秘密値の前方一致になり得る末尾を保留する (アシスタントメッセージごとに作り直す)。
     let deltaMasker = createStreamingSecretMasker(this.masker);
 
     const finish = ({ error, stopped = false }: { error?: string; stopped?: boolean } = {}): void => {
@@ -613,7 +594,7 @@ export class SessionStore {
       }
 
       // プロバイダは通常 text delta をストリームする。このフォールバックは
-      // message_end で初めて最終テキストを含めるプロバイダも支援する。
+      // message_end で初めて最終テキストを含めるプロバイダ向け。
       const finalAssistant = lastAssistantMessage(session);
       const finalText = this.masker.mask(contentText(finalAssistant?.content));
       if (finalText && !currentAssistantText) {
@@ -663,7 +644,7 @@ export class SessionStore {
             }
             break;
           case "message_end":
-            // アシスタントメッセージの確定時に保留していた末尾を流す。
+            // アシスタントメッセージの確定時に、保留していた末尾を流す。
             if (event.message?.role === "assistant") {
               const flushed = deltaMasker.flush();
               if (flushed) {
@@ -742,8 +723,7 @@ export class SessionStore {
 
     const unsubscribe = session.subscribe(onEvent);
     session.prompt(text).then(() => {
-      // agent_settled は prompt() の解決より先に届くはず。カスタムプロバイダや
-      // 未来の SDK 変更に備えたフォールバック。
+      // agent_settled は prompt() の解決より先に届くはずで、これはその保険。
       if (!finished) finish();
       unsubscribe();
     }).catch((error) => {
@@ -754,7 +734,6 @@ export class SessionStore {
     return run;
   }
 
-  /** キューに次があれば実行する。 */
   pump(record: SessionRecord): void {
     if (record.queue.length === 0) return;
     if (record.run?.status === "running" || record.session.isStreaming) return;
@@ -782,5 +761,5 @@ export class SessionStore {
   }
 }
 
-/** 互換用の再エクスポート (PiBff は pi ランタイム実装として扱える) */
+/** 互換用の再エクスポート (pi ランタイムの実装として使える) */
 export type PiRuntime = PiBff;

@@ -1,5 +1,4 @@
-// サンドボックス クライアントのテスト。fetch をスタブし、NDJSON ストリームの
-// 解釈と abort / 認証エラーの扱いだけを検証する (実接続なし、実 LLM API なし)。
+// fetch をスタブし、NDJSON の解釈と abort / 認証エラーの扱いだけを検証する (実接続・実 LLM API なし)。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -103,8 +102,7 @@ test("aborted signal triggers the cancel endpoint and rejects with Operation abo
       assert.ok(!call.init?.signal?.aborted, "cancel request must not be issued with an already-aborted signal");
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    // 本物のサーバのように、abort されるまで終わらないストリームを返す。
-    // 実 fetch と同じく、signal abort で read() が reject する振る舞いを模倣する。
+    // 本物のサーバのように、abort されるまで終わらないストリームを返し、signal abort で read() を reject させる
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -115,7 +113,7 @@ test("aborted signal triggers the cancel endpoint and rejects with Operation abo
             try {
               controller.error(new Error("The operation was aborted"));
             } catch {
-              // already errored
+              // 既にエラー通知済み
             }
           },
           { once: true },

@@ -1,9 +1,4 @@
-/**
- * プロセス全体で共有する pi ランタイムと、隔離されたインメモリ
- * セッションのファクトリ。認証はあえて pi の通常の認証解決
- * (auth.json, OAuth, プロバイダの環境変数) に委ねる。
- * port 元: src/agent.js
- */
+/** pi ランタイムとインメモリセッションのファクトリ。認証はあえて pi の通常の解決 (auth.json / OAuth / プロバイダー環境変数) に委ねる。 */
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -28,11 +23,11 @@ export interface PiModelRef {
   id: string;
 }
 
-/** UI にそのまま表示できる、認証未設定時の案内。 */
+/** UI にそのまま表示する認証未設定時の案内。 */
 export const AUTH_REQUIRED_MESSAGE =
   "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、保存済みの認証情報を確認してからサーバーを再起動してください。";
 
-/** UI にそのまま表示できる、サンドボックス未設定時の案内。 */
+/** UI にそのまま表示するサンドボックス未設定時の案内。 */
 export const SANDBOX_NOT_CONFIGURED_MESSAGE =
   "サンドボックスが設定されていません。PI_SANDBOX_URL と PI_SANDBOX_TOKEN を設定してサーバーを再起動してください (ローカルでのツール実行にはフォールバックしません)。";
 
@@ -54,9 +49,9 @@ const DEFAULT_TOOLS = process.platform === "win32"
 export interface CreateSessionInput {
   agent?: AgentDef;
   skills?: SkillDef[];
-  /** 解決済みのモデル指定 (未指定ならアプリ既定) */
+  /** 解決済みの指定。未指定ならアプリ既定。 */
   model?: ModelRef;
-  /** 解決済みの thinkingLevel (未指定ならアプリ既定) */
+  /** 解決済みの指定。未指定ならアプリ既定。 */
   thinkingLevel?: ThinkingLevel;
 }
 
@@ -69,7 +64,7 @@ export interface PiBff {
   availableModels: PiModelRef[];
   /** picker 用の候補と能力情報 (認証済みモデルのみ) */
   modelOptions: ModelOption[];
-  /** アプリ既定の thinkingLevel (PI_MODEL 末尾指定 → PI_THINKING → medium) */
+  /** アプリ既定の thinkingLevel */
   defaultThinkingLevel: ThinkingLevel;
   /** 明示 PI_MODEL が利用不能なときの理由 (他候補があれば ready のまま) */
   defaultModelError: string | undefined;
@@ -77,7 +72,6 @@ export interface PiBff {
   /** PI_SANDBOX_URL / PI_SANDBOX_TOKEN が揃っていれば true (未設定ならセッション作成を 503 で拒否) */
   sandboxConfigured: boolean;
   tools: string[];
-  /** availableModels に厳密一致した SDK のモデルを返す (なければ undefined) */
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
   createSession(input?: CreateSessionInput): Promise<{ session: unknown }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
@@ -89,7 +83,7 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** thinkingLevel 文字列を検証する (未知の段階は設定ミスとして例外) */
+/** 未知の段階は設定ミスとして例外にする。 */
 function parseThinkingLevel(value: string): ThinkingLevel {
   const parsed = ThinkingLevelSchema.safeParse(value);
   if (!parsed.success) throw new Error(`Effort の値が不正です: ${value}`);
@@ -97,9 +91,7 @@ function parseThinkingLevel(value: string): ThinkingLevel {
 }
 
 /**
- * PI_MODEL / PI_THINKING を構文解釈する。
- * モデルの存在確認は行わない (利用可能一覧との照合は createPiBff 側)。
- * 構文不正や未知の thinkingLevel は設定ミスとして例外にする。
+ * PI_MODEL / PI_THINKING を構文解釈する。利用可否の照合は createPiBff 側で行う。
  */
 function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel | undefined } | undefined {
   const rawValue = process.env.PI_MODEL?.trim();
@@ -128,7 +120,7 @@ function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel 
   return { model: { provider, id: modelId }, thinkingLevel: parsedLevel };
 }
 
-/** SDK の公開ヘルパーから picker 用の能力情報を作る (BFF 側で模倣しない) */
+/** picker 用の能力情報。SDK のヘルパーをそのまま使い、BFF 側で模倣しない。 */
 function modelOptionOf(model: PiAiModel<Api>): ModelOption {
   const levels = getSupportedThinkingLevels(model) as ThinkingLevel[];
   return {
@@ -158,11 +150,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     authPath: join(agentDir, "auth.json"),
     modelsPath: join(agentDir, "models.json"),
   });
-  // 保護対象はあくまで「環境変数で BFF が受け取ったキーの非空値」。認証に
-  // 使う process.env は変更しない (マスクと env 絞りは出力/子プロセス側のみ)。
+  // 保護対象は BFF が環境変数で受け取ったキーの非空値だけで、認証に使う process.env 自体は変更しない。
   const secretMasker = createRuntimeSecretMasker(modelRuntime.getProviders(), process.env);
-  // 作業用ツールは全てサンドボックス (別プロセス) で実行する。未設定なら
-  // セッション作成時に明示エラーとし、BFF ローカル実行へはフォールバックしない。
+  // 作業用ツールはすべてサンドボックス (別プロセス) で実行し、BFF ローカル実行へはフォールバックしない。
   const sandboxClient = createSandboxToolClientFromEnv(process.env);
 
   const requested = parseModelReference();
@@ -176,15 +166,13 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   }
   const availableModels: PiModelRef[] = availableModelList;
 
-  // getModel() は認証の有無を確認しないため、PI_MODEL で指定したモデルも
-  // getAvailable() の結果と突き合わせてから実行可能とみなす。
+  // getModel() は認証の有無を見ないため、PI_MODEL の指定も getAvailable() と突き合わせる。
   const matchAvailable = (ref: ModelRef): PiAiModel<Api> | undefined =>
     availableModelList.find((model) => model.provider === ref.provider && model.id === ref.id);
   let selectedModel = requested ? matchAvailable(requested.model) : availableModelList[0];
   let defaultModelError: string | undefined;
   if (requested && !selectedModel) {
-    // 明示 PI_MODEL が利用不能でも、他候補があれば別モデルへ黙って
-    // フォールバックせず、ready のままエラーとして伝える。
+    // 利用不能でも他候補へ黙ってフォールバックせず、ready のままエラーとして伝える。
     defaultModelError = `指定された既定モデルは利用できません: ${requested.model.provider}/${requested.model.id}`;
   }
 
@@ -214,7 +202,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     model,
     thinkingLevel,
   }: CreateSessionInput = {}): Promise<{ session: unknown }> {
-    // 明示されたモデルは利用可能一覧と厳密照合し、SDK 作成前に拒否する。
+    // 明示されたモデルは利用可能一覧と厳密照合する
     const modelObject = model ? resolveModel(model) : selectedModel;
     if (model && !modelObject) {
       const error = new Error(
@@ -235,9 +223,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       error.statusCode = 503;
       throw error;
     }
-    // セッションを使い捨てに保つ: JSONL セッションファイルを作らず、
-    // ユーザーの pi 設定にも書き込まない。共有の ModelRuntime は
-    // 通常の pi 認証を読むだけ。
+    // セッションを使い捨てに保つ: JSONL セッションファイルを作らず、ユーザーの pi 設定にも書き込まない。
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: true },
       retry: { enabled: true, maxRetries: 2 },
@@ -258,10 +244,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       cwd: projectCwd,
       agentDir,
       settingsManager,
-      // Web アプリには拡張ダイアログに答える TUI がない。この
-      // プロトタイプは決定論的に保ち、独自の prompt/tools だけを
-      // インターフェイスにする。noExtensions でもインラインの
-      // extensionFactories は読み込まれる。
+      // Web には拡張ダイアログに答える TUI が無いため決定論を優先し、noExtensions でも
+      // 読み込まれる extensionFactories だけをインターフェイスにする。
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
@@ -282,9 +266,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       settingsManager,
       sessionManager: SessionManager.inMemory(projectCwd),
       tools: configuredTools(),
-      // 作業用ツール (read / bash / edit / write / grep / find / ls) は、同じ名前の
-      // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換える。
-      // BFF 上では任意の作業コードを実行しない。
+      // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
       customTools: createRemoteToolDefinitions({
         cwd: projectCwd,
         client: sandboxClient,

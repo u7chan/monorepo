@@ -1,6 +1,4 @@
-// サンドボックス ツール実行サービスのテスト。
-// listen せず app.request() で検証する。実 LLM API は呼ばない
-// (SDK のローカルツール実装と実ファイルシステム / bash だけを使う)。
+// listen せず app.request() で検証する。SDK のローカルツール実装と実ファイルシステム / bash だけを使い、実 LLM API は呼ばない。
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

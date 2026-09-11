@@ -1,5 +1,5 @@
-// SDK 公開ヘルパー (getSupportedThinkingLevels / clampThinkingLevel) の
-// オフライン検証。BFF 側で能力表を模倣していないことを担保する。
+// SDK 公開ヘルパー (getSupportedThinkingLevels / clampThinkingLevel) のオフライン検証。
+// BFF 側で能力表を模倣していないことを担保する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";

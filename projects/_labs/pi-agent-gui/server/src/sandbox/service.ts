@@ -1,15 +1,7 @@
 /**
- * サンドボックス ツール実行サービス (HTTP)。
- *
- * pi SDK の作業用ツール (bash / read / edit / write / grep / find / ls) を
- * このプロセス内のローカル実装で実行し、結果を NDJSON ストリームで返す。
- * BFF はこのAPIだけを経由してツールを実行し、自前のローカル実行へ
- * フォールバックしない。LLM 認証情報はこのプロセスへ渡さない (環境変数の
- * 許可リストはデプロイ側の責務。このサービスは Bearer トークンのみを要求する)。
- *
- * 認証: すべての /v1/* に `Authorization: Bearer <PI_SANDBOX_TOKEN>` を要求し、
- * 未認証要求は 401 で拒否する。/healthz は Compose healthcheck 用で無認証
- * (ツール実行の情报を含まない)。
+ * サンドボックス ツール実行サービス (HTTP)。SDK の作業用ツールをこのプロセスのローカル実装で実行し、結果を NDJSON で返す。
+ * LLM 認証情報をこのプロセスの環境へ入れないことはデプロイ側の前提 (サービス自身が剥がすのは共有トークンだけ)。
+ * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import {
@@ -31,24 +23,24 @@ import {
   type SandboxEvent,
 } from "./protocol";
 
-/** サンドボックスが提供する作業用ツール一覧 (bash のみローカル出力をストリームする)。 */
+/** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
 export const SANDBOX_TOOL_NAMES = ["bash", "read", "edit", "write", "grep", "find", "ls"] as const;
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 type ExecuteUpdateCallback = NonNullable<Parameters<AnyToolDefinition["execute"]>[3]>;
 
 export interface SandboxServiceOptions {
-  /** Bearer トークン (空や短すぎる値は起動側で弾く。ここでは二重確認する)。 */
+  /** Bearer トークン (空や短すぎる値はここで弾く) */
   token: string;
-  /** ツール実行の既定 cwd (サンドボックス内の作業領域)。 */
+  /** ツール実行の既定 cwd (サンドボックス内の作業領域) */
   rootCwd?: string;
 }
 
 export interface SandboxService {
   app: Hono;
-  /** 実行中の executionId → AbortController (診断・テスト用)。 */
+  /** 実行中の executionId → AbortController (診断・テスト用) */
   executions: Map<string, AbortController>;
-  /** 全実行を中断して終了する (shutdown 用)。 */
+  /** 全実行を中断して終了する (shutdown 用) */
   close: () => void;
 }
 
@@ -56,19 +48,18 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 長さを漏らさない定数時間比較 (sha256 で同じ長さに揃える)。 */
+/** 長さを漏らさないための定数時間比較 (sha256 で同じ長さに揃える)。 */
 function tokensEqual(a: string, b: string): boolean {
   const ha = createHash("sha256").update(a).digest();
   const hb = createHash("sha256").update(b).digest();
   return timingSafeEqual(ha, hb);
 }
 
-/** toolCallId として妥当な文字列か (対応付けのキーにだけ使う任意値)。 */
 function normalizeToolCallId(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? value : randomUUID();
 }
 
-/** ボディを上限付きで読み、JSON として解釈する。 */
+/** 上限を超えたボディは 413。 */
 async function readJsonBody(request: Request): Promise<unknown> {
   const body = request.body;
   if (!body) return {};
@@ -93,10 +84,7 @@ async function readJsonBody(request: Request): Promise<unknown> {
   return parsed;
 }
 
-/**
- * ツール実行サービスを構築する。listen は呼び出し側 (@hono/node-server) が
- * 行い、テストは app.request() で検証する。
- */
+/** listen は呼び出し側 (@hono/node-server) が行い、テストは app.request() で検証する。 */
 export function createSandboxService(options: SandboxServiceOptions): SandboxService {
   const token = options.token;
   if (!token || token.trim().length < 16) {
@@ -104,12 +92,8 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   }
   const rootCwd = options.rootCwd || "/workspace";
 
-  // SDK のツール実装をこのプロセスの実ファイルシステムに対して使う。
-  // bash はセッション環境変数 (PI_SESSION_ID 等) を注入しない — サンドボックスに
-  // セッションはなく、BFF のモデル/セッション情報を子プロセスへ渡さない。
-  // SDK の bash は process.env を子プロセスへ継承する。サンドボックス内の唯一の
-  // 秘密値は共有トークンなので、spawnHook で剥がしてツール出力へ現れないようにする
-  // (セッションメタ変数 PI_* は exposeSessionEnvironment: false が除外する)。
+  // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
+  // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
   const stripSandboxToken = (context: BashSpawnContext): BashSpawnContext => {
     const env: NodeJS.ProcessEnv = { ...context.env };
     delete env.PI_SANDBOX_TOKEN;
@@ -143,7 +127,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     });
   });
 
-  // /v1/* は Bearer 認証を要求する (未認証要求はここで 401 になる)。
+  // /v1/* は Bearer 認証を要求する (未認証はここで 401 になる)
   app.use("/v1/*", async (c, next) => {
     const header = c.req.header("authorization") ?? "";
     const match = /^Bearer (.+)$/.exec(header);
@@ -225,7 +209,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             try {
               controller.close();
             } catch {
-              // already closed by cancel()
+              // cancel() で既に閉じている
             }
           }
         })();

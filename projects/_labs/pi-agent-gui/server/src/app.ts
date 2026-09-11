@@ -1,6 +1,3 @@
-// BFF アプリケーション本体 (port of src/server.js)。
-// 起動 (listen) は src/index.ts が担い、テストは app.request() で行う。
-
 import { readFile } from "node:fs/promises";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,13 +18,13 @@ import {
   UpdateSessionSettingsBodySchema,
 } from "./schema";
 
-// client は "server" (本ファイル) を型ソースとして import type するため DTO 型を再配布する
+// client は本ファイルを型ソースとして参照するため DTO 型を再配布する
 export * from "./schema";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_CLIENT_DIST_DIR = resolve(ROOT_DIR, "client", "dist");
 const MAX_BODY_BYTES = 64 * 1024;
-// port 元 src/server.js の HTTP 層と同じ 20_000 (sessions 側の上限は別)
+// sessions 側の上限とは別 (HTTP 層の契約)
 const MAX_MESSAGE_CHARS = 20_000;
 const SSE_HEARTBEAT_MS = 15_000;
 
@@ -70,7 +67,7 @@ function modelLabel(model: unknown): string | undefined {
   return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
 }
 
-/** port 元 readJson 相当: 空ボディは {} として扱い、壊れた JSON は 400。 */
+/** 空ボディは {} として扱い、壊れた JSON は 400。 */
 async function readJsonBody(c: Context): Promise<unknown> {
   const text = await c.req.text();
   const trimmed = text.trim();
@@ -82,7 +79,7 @@ async function readJsonBody(c: Context): Promise<unknown> {
   }
 }
 
-/** port 元 readJson のバイト数上限チェック相当。body を先頭から読みながら上限を見る。 */
+/** Content-Length を信用せず、body を読みながら上限を見る。 */
 async function readBodyText(request: Request, maxBytes: number): Promise<string> {
   const body = request.body;
   if (!body) return "";
@@ -105,8 +102,7 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string>
 
 /**
  * /api/* の POST/PATCH/PUT に適用するボディガード。
- * 読み取ったテキストを Hono の bodyCache に戻すことで、後段の
- * zValidator / readJsonBody にボディの再読み込みを許す。
+ * 読み取ったテキストを Hono の bodyCache に戻して、後段の zValidator / readJsonBody に再読み込みを許す。
  */
 async function bodyGuard(c: Context, next: () => Promise<void>) {
   const method = c.req.method;
@@ -116,8 +112,7 @@ async function bodyGuard(c: Context, next: () => Promise<void>) {
       return c.json({ error: "Request body is too large" }, 413);
     }
     const text = await readBodyText(c.req.raw, MAX_BODY_BYTES);
-    // 空ボディは port 元 readJson と同じく {} として扱う。
-    // bodyCache の型は解決後の値だがランタイムは Promise を期待するため型を吐く。
+    // bodyCache の型は解決後の値だが、ランタイムは Promise を期待するため型を吐く。
     (c.req.bodyCache as { text?: unknown }).text = Promise.resolve(text.trim() ? text : "{}");
   }
   await next();
@@ -136,7 +131,6 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const injectedPi = opts.pi;
   let pi: PiBff | null = injectedPi ?? null;
   let initError: string | undefined;
-  // Tests pass an explicit `pi` (possibly null) to skip runtime setup.
   if (injectedPi === undefined) {
     try {
       pi = await createPiBff({ cwd });
@@ -180,7 +174,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // --- health ---
 
   .get("/api/health", (c) => {
-    // ready は「runtime が使え、利用可能モデルが 1 つ以上ある」の意。
+    // ready は「runtime が使え、利用可能モデルが 1 つ以上ある」の意で、
     // 明示 PI_MODEL が使えるかどうかとは分離する (defaultModelError)。
     const availableModels = pi?.availableModels ?? [];
     const ready = Boolean(pi) && availableModels.length > 0;
@@ -221,7 +215,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     },
   )
   .post("/api/agents", async (c) => {
-    // catalog 側の正規化・日本語エラー文言が正なので body は pass-through
+    // 正規化とエラー文言は catalog 側が正なので body はそのまま渡す
     const body = (await readJsonBody(c)) as Record<string, unknown>;
     return c.json({ agent: catalog.createAgent(body) }, 201);
   })
@@ -314,8 +308,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
           413,
         );
       }
-      // Returns immediately; the run (or the queued position) is managed in
-      // the background by the SessionStore.
+      // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
       const result = store.postMessage(record, text);
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
     },
@@ -323,7 +316,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   .get("/api/sessions/:id/events", (c) => {
     const record = findSession(c);
     if (!record) return c.json({ error: "Session not found" }, 404);
-    // Last-Event-ID ヘッダを優先し、なければ ?after= (port 元と同じ優先順位)
+    // Last-Event-ID を優先し、なければ ?after= (元の実装と同じ優先順位)
     const lastEventId = c.req.header("Last-Event-ID");
     const rawAfter = lastEventId ?? c.req.query("after");
     const parsedAfter = Number.parseInt(rawAfter ?? "", 10);
@@ -351,8 +344,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
           void stream.write(": ping\n\n");
         }, SSE_HEARTBEAT_MS);
         heartbeat.unref?.();
-        // 切断 (onAbort) と store の close コールバックのどちらでも
-        // unsubscribe + clearInterval してからストリームを終了する。
+        // 切断 (onAbort) と store の close のどちらからでも同じ後始末を通す。
         await new Promise<void>((resolveCleanup) => {
           requestCleanup = () => {
             clearInterval(heartbeat);
@@ -375,7 +367,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   })
   .notFound((c) => c.json({ error: "Not found" }, 404))
   .onError((error, c) => {
-    // hono validator の JSON パース失敗 (HTTPException 400) は契約書の文言に寄せる
+    // hono validator の JSON パース失敗 (HTTPException 400) は契約の文言に寄せる
     if (error instanceof HTTPException && error.status === 400) {
       return c.json({ error: "Request body must be valid JSON" }, 400);
     }
@@ -398,7 +390,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 
 export type AppType = Awaited<ReturnType<typeof createBffApp>>["app"];
 
-/** SSE 用ヘッダを契約書どおりに上書きする (streamSSE は charset 等を設定しないため) */
+/** streamSSE は charset 等を設定しないため、SSE のヘッダをここで上書きする */
 function withSseHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Content-Type", "text/event-stream; charset=utf-8");
@@ -408,7 +400,6 @@ function withSseHeaders(response: Response): Response {
   return new Response(response.body, { status: response.status, headers });
 }
 
-/** 未ビルドの案内 (port 元 clientBuildMissing) */
 function clientBuildMissingResponse(): Response {
   return new Response("Client build missing. Run: pnpm build", {
     status: 503,
@@ -421,21 +412,19 @@ function clientBuildMissingResponse(): Response {
   });
 }
 
-/** port 元 serveStatic 相当。配信できなければ null (呼び出し元が 404 を返す)。 */
+/** 配信できなければ null を返す (呼び出し元が 404 にする)。 */
 async function serveStaticPath(pathname: string, clientDistDir: string): Promise<Response | null> {
   if (pathname !== "/" && !pathname.startsWith("/")) return null;
-  // "/" と "/index.html" は Vite のエントリに、それ以外は client/dist 内の
-  // ファイルパスに解決する。
   const relativePath = pathname === "/" || pathname === "/index.html" ? "index.html" : pathname.slice(1);
   const filePath = resolve(clientDistDir, relativePath);
-  // Traversal guard: client/dist の外は絶対に配信しない。
+  // client/dist の外は絶対に配信しない (traversal guard)
   if (filePath !== clientDistDir && !filePath.startsWith(clientDistDir + sep)) return null;
 
   let body: Buffer;
   try {
     body = await readFile(filePath);
   } catch (error) {
-    // ビルド産物が無い（未ビルド）場合は案内を出し、それ以外は従来どおり 404。
+    // 未ビルドなら案内を出し、それ以外は 404 にする。
     const code = (error as NodeJS.ErrnoException).code;
     if (relativePath === "index.html" && (code === "ENOENT" || code === "ENOTDIR")) {
       return clientBuildMissingResponse();
@@ -443,8 +432,7 @@ async function serveStaticPath(pathname: string, clientDistDir: string): Promise
     return null;
   }
 
-  // Vite はハッシュ付きファイルを assets/ 配下に出すため長期キャッシュ、
-  // それ以外（index.html や public/ 由来のファイル）は no-cache。
+  // Vite はハッシュ付きファイルを assets/ 配下に出すため長期キャッシュ、それ以外は no-cache。
   const isHashedAsset = relativePath.startsWith("assets/");
   return new Response(new Uint8Array(body), {
     headers: {

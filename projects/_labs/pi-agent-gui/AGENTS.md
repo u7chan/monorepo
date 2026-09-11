@@ -30,6 +30,10 @@ pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ G
 - `server/test/` — node:test（pi はスタブ。listen せず `app.request()` で検証）
 - `client/test/` — node:test（DOM を使わない純粋なロジックのみ。`client/src/hooks/settingsChange.ts` の応答適用ガードなど）
 
+## コメント
+
+コメントは why（コードから読めない理由・制約・落とし穴）だけを1〜2行で書き、what（コードを読めば分かる説明）は書かない。長い設計論は docs/ へ移す。
+
 ## ドキュメント
 
 詳細は以下を参照。変更時は併せて更新すること。

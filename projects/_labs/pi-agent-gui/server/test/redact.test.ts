@@ -69,7 +69,7 @@ test("maskAccumulated returns masked text as-is when the tail is safe", () => {
 
 test("maskSafe redacts a key fragment cut by a line truncation marker", () => {
   const masker = createSecretMasker([KEY]);
-  // grepの行切り詰め (500文字 + "... [truncated]") でキーの末尾が欠けた結果を模償する
+  // grep の行切り詰め (500文字 + "... [truncated]") でキーの末尾が欠けた結果を模倣する
   const line = "x".repeat(475) + KEY;
   const truncated = `${line.slice(0, 500)}... [truncated]`;
   assert.ok(truncated.includes(KEY.slice(0, 20)), "precondition: fragment present");
@@ -84,7 +84,7 @@ test("maskSafe redacts a key fragment cut by a line truncation marker", () => {
 
 test("maskSafe redacts a leading partial left by external truncation", () => {
   const masker = createSecretMasker([KEY]);
-  // SDKの切り詰めでキーの先頭が欠けた結果を模償する
+  // SDK の切り詰めでキーの先頭が欠けた結果を模倣する
   const truncated = `${KEY.slice(3)} more output`;
   assert.equal(masker.maskSafe(truncated), `${REDACTED} more output`);
   // 完全体はこれまでどおりマスクされる

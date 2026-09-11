@@ -1,12 +1,6 @@
 /**
- * サンドボックス ツール実行サービスの起動エントリ。
- * listen はこのファイル (サンドボックス側) だけが行う。BFF の index.ts とは
- * 別プロセス・別コンテナで動く (同一イメージを command 差し替えで共用する)。
- *
- * 必要な環境変数:
- * - PI_SANDBOX_TOKEN: BFF との共有 Bearer トークン (必須、16文字以上)
- * - PI_SANDBOX_CWD:   作業領域 (既定 /workspace。デプロイ側が永続マウントする)
- * - SANDBOX_PORT:     ポート (既定 8080。ホストへ publish しない)
+ * サンドボックス側の起動エントリ (BFF とは別プロセス・別コンテナ。同一イメージを command 差し替えで共用する)。
+ * 環境変数は docs/api.md を参照。listen はこのファイルだけが行う。
  */
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -29,7 +23,7 @@ async function main() {
     );
     process.exit(1);
   }
-  // 永続作業領域がまだ無い場合 (ローカル実行など) は作っておく。
+  // 永続作業領域が無い場合 (ローカル実行など) はここで作る。
   await mkdir(ROOT_CWD, { recursive: true });
 
   const service = createSandboxService({ token: TOKEN, rootCwd: ROOT_CWD });
@@ -41,15 +35,14 @@ async function main() {
   const shutdown = () => {
     service.close();
     server.close(() => process.exit(0));
-    // 実行中の子プロセス回収に waits しても閉じない場合の保険。
+    // 実行中の子プロセス回収を待っても閉じない場合の保険。
     setTimeout(() => process.exit(0), 3000).unref?.();
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
 
-// pnpm --filter で起動すると process.cwd() が server/ になるため、明示がない限り
-// ローカルの .env は読まない (環境変数はデプロイ側が渡す)。
+// cwd 相対の .env は読まない (pnpm --filter 起動では cwd が server/ になり、環境変数はデプロイ側が渡す)。
 if (process.argv[1] && resolve(process.argv[1]) === ENTRY_PATH) {
   await main();
 }

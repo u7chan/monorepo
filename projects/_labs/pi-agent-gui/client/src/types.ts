@@ -1,8 +1,4 @@
-/**
- * API ペイロード型。
- * DTO の正は server/src/schema.ts (zod スキーマ + z.infer) のため、ここでは server から再配布するのみ。
- * hooks/components は従来どおり "../types" から import できる (型名は不変)。
- */
+/** DTO の正は server/src/schema.ts。ここは再配布だけで、hooks / components の import 先を保つ。 */
 import type { EventEntry } from "server";
 
 export type {
@@ -26,5 +22,5 @@ export type {
   ToolCall,
 } from "server";
 
-/** SSE イベント型名の一覧。useSessionEvents の EVENT_TYPES 用 (server の EventEntry から導出) */
+/** SSE イベント型名 (useSessionEvents の EVENT_TYPES 用に server の EventEntry から導出) */
 export type SSEEventType = EventEntry["type"];

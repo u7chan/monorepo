@@ -1,19 +1,15 @@
 /**
- * BFF からサンドボックス ツール実行API を呼ぶクライアント。
- *
- * NDJSON ストリームを解釈し、SDK ツール定義の execute() 契約
- * (onUpdate での途中出力、最終結果、abort) に写し替える。
- * abort はできるだけ早くサンドボックスへ伝播させる: cancel エンドポイント
- * (実行IDが分かっている場合) と接続切断 (start 前や fallback) を併用する。
+ * BFF からサンドボックス ツール実行 API を呼ぶクライアント。NDJSON を execute() の契約
+ * (onUpdate / result / abort) に写し替え、abort は cancel エンドポイントと接続切断の両方で伝播させる。
  */
 import { decodeSandboxEvent, type SandboxEvent } from "./protocol";
 
 export interface SandboxToolClientOptions {
-  /** 例: http://pi-agent-gui-sandbox:8080 (末尾スラッシュは正規化する)。 */
+  /** 例: http://pi-agent-gui-sandbox:8080 (末尾スラッシュは正規化する) */
   baseUrl: string;
-  /** Bearer トークン (PI_SANDBOX_TOKEN)。 */
+  /** Bearer トークン (PI_SANDBOX_TOKEN) */
   token: string;
-  /** テストで差し替える場合の fetch 実装。 */
+  /** テストで差し替える fetch 実装 */
   fetchImpl?: typeof fetch;
 }
 
@@ -39,7 +35,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   return { execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl) };
 }
 
-/** 環境変数からクライアントを生成する。未設定時は undefined (起動はできるがセッション作成は不可)。 */
+/** 未設定時は undefined を返し、起動はできるがセッション作成は 503 になる。 */
 export function createSandboxToolClientFromEnv(
   env: NodeJS.ProcessEnv,
   fetchImpl?: typeof fetch,
@@ -51,14 +47,11 @@ export function createSandboxToolClientFromEnv(
 }
 
 export interface SandboxToolClient {
-  /**
-   * サンドボックスでツールを実行する。完了 (result) まで解決し、エラー
-   * イベント・HTTP エラー・中断は reject する。
-   */
+  /** 完了 (result) まで解決し、エラーイベント・HTTP エラー・中断は reject する。 */
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
 }
 
-/** cancel 要求自体が伝搬経路を塞がないよう、独立した短いタイムアウトで送る。 */
+/** cancel 要求自身が伝搬経路を塞がないよう、独立した短いタイムアウトで送る。 */
 const SANDBOX_CANCEL_TIMEOUT_MS = 5000;
 
 async function execute(
@@ -75,9 +68,8 @@ async function execute(
   const controller = new AbortController();
   let executionId: string | undefined;
   const onOuterAbort = () => {
-    // cancel エンドポイントが知らないうち (start 前) は接続切断に任せる。
-    // controller.signal は直後に abort されるため使えない。cancel 専用の
-    // タイムアウト付き signal で送り、明示 cancel の二重伝播を実現する。
+    // start 前は実行 ID が無く cancel を送れないため、接続切断に任せる。
+    // controller.signal はこの直後に abort されるので、cancel は専用のタイムアウトで送る。
     if (executionId) {
       void fetchImpl(`${baseUrl}/v1/executions/${encodeURIComponent(executionId)}/cancel`, {
         method: "POST",

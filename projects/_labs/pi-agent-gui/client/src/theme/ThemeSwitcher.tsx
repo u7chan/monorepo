@@ -3,11 +3,11 @@ import { useTheme } from "./ThemeProvider";
 import { isThemeId, type ThemeChoice } from "./themes";
 
 export type ThemeSwitcherProps = {
-  /** 外部からレイアウト調整用のクラスを差し込める */
+  /** レイアウト調整用のクラスを外部から差し込む */
   className?: string;
 };
 
-/** トップバー右・ランタイムピルの上に置く想定のコンパクトなテーマ選択 */
+/** トップバー右上に置く想定のコンパクトなテーマ選択 */
 export function ThemeSwitcher({ className }: ThemeSwitcherProps) {
   const { choice, resolvedId, setChoice, themes } = useTheme();
 
@@ -23,7 +23,7 @@ export function ThemeSwitcher({ className }: ThemeSwitcherProps) {
         ["inline-flex items-center gap-1.5 text-xs", className].filter(Boolean).join(" ")
       }
     >
-      {/* 現在解決されているテーマの色見本 (色は index.css の .theme-swatch で定義) */}
+      {/* 解決中のテーマの色見本 (色は index.css の .theme-swatch で定義) */}
       <span aria-hidden className="theme-swatch" data-theme-id={resolvedId} />
       <select
         aria-label="テーマ"

@@ -3,7 +3,7 @@ import type { ChatMessage, RunStatus, SessionPayload, ThinkingLevel, ToolCall } 
 export type ToolPhase = "running" | "done" | "failed";
 
 export type ToolCard = {
-  /** サーバー発イベントの toolCall id。ローカル生成時は採番 */
+  /** サーバー発イベントの toolCall id (ローカル生成時は採番) */
   id: string;
   name: string;
   args: string;
@@ -21,9 +21,9 @@ export type Bubble = {
 export type ChatState = {
   bubbles: Bubble[];
   nextId: number;
-  /** 開いている assistant バブル (旧 app.js の currentAssistant) */
+  /** 開いている assistant バブル */
   currentAssistantId: number | null;
-  /** toolCall id -> バブル id (tool_end でカードを引くため。旧 currentTools) */
+  /** toolCall id -> バブル id (tool_end でカードを引くため) */
   toolBubbleIds: Record<string, number>;
   runStatus: RunStatus;
   queueDepth: number;
@@ -87,7 +87,7 @@ function patchAssistant(
   return updateBubble(state, state.currentAssistantId, update);
 }
 
-/** 開いている assistant バブルを返す (なければ新規作成)。旧 ensureAssistantBubble */
+/** 開いている assistant バブルを返す (なければ新規作成) */
 function ensureAssistant(state: ChatState): ChatState {
   if (state.currentAssistantId !== null && state.bubbles.some((b) => b.id === state.currentAssistantId)) {
     return state;
@@ -115,7 +115,7 @@ function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: B
   return { bubbles, nextId };
 }
 
-/** run.toolCalls をバブルの toolCards に変換してアタッチ */
+/** run.toolCalls をツールカードに変換してバブルへ付ける */
 function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall[]): ChatState {
   let next = state;
   for (const call of toolCalls) {
@@ -137,7 +137,6 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "resync": {
-      // 旧 applySessionSnapshot
       const payload = action.payload;
       const { bubbles, nextId } = historyToBubbles(state.nextId, payload.messages ?? []);
       let next: ChatState = {
@@ -169,7 +168,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "runStart": {
-      // 旧 onRunStart: ローカルエコー済みなら user バブルを重複させない
+      // ローカルエコー済みなら user バブルを重複させない
       const lastUser = [...state.bubbles].reverse().find((b) => b.role === "user");
       const next = lastUser?.text === action.prompt ? state : appendBubble(state, "user", action.prompt);
       return {
@@ -217,7 +216,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, activity: action.text || "処理中…" };
 
     case "queued":
-      // 旧 queued イベント
       return {
         ...state,
         runStatus: "running",
@@ -229,7 +227,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, queueDepth: 0, activity: "待機キューを取り消しました" };
 
     case "runEnd": {
-      // 旧 onRunEnd
       const { status, queueDepth } = action;
       let activity: string;
       if (status === "stopped") activity = "停止しました";

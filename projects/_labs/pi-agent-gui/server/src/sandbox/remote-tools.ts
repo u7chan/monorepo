@@ -1,14 +1,6 @@
 /**
- * BFF 側で pi SDK に登録する「リモート実行ツール」定義。
- *
- * ツールのメタデータ (名前 / 説明 / パラメータスキーマ) はローカルで生成した
- * SDK 組込みツール定義からそのまま借り、execute() だけをサンドボックスの
- * ツール実行API へのプロキシに差し替える。grep / find が BFF ローカルで
- * rg / fd を起動しないよう、検索も含めてすべてサンドボックス側で完結させる。
- *
- * BFF はこのプロキシ以外の作業用ツールを持たない (ローカルファイル操作への
- * フォールバックはない)。PI_AGENT_TOOLS で未知の名前を指定された場合は
- * 設定ミスとして例外にする。
+ * BFF 側で pi SDK に登録する「リモート実行ツール」定義。メタデータだけ SDK の組込み定義から借り、
+ * execute() はサンドボックス API へのプロキシに差し替える (grep / find も含め、ローカル実行へのフォールバックは無い)。
  */
 import {
   createBashToolDefinition,
@@ -24,7 +16,7 @@ import type { SandboxToolClient } from "./client";
 import { wrapToolDefinitionWithSecretMasker } from "../secret-guard";
 import type { SecretMasker } from "../redact";
 
-/** サンドボックスで実行可能なツール名 (service.ts の提供リストと一致させる)。 */
+/** サンドボックスで実行可能なツール名 (service.ts の提供リストと一致させる) */
 export const REMOTE_TOOL_NAMES = ["bash", "read", "edit", "write", "grep", "find", "ls"] as const;
 
 export type RemoteToolName = (typeof REMOTE_TOOL_NAMES)[number];
@@ -32,7 +24,7 @@ export type RemoteToolName = (typeof REMOTE_TOOL_NAMES)[number];
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 type RemoteToolFactory = (cwd: string) => AnyToolDefinition;
 
-/** サンドボックスに存在しないツール名 (BFF のプラットフォーム判定由来の powershell など)。 */
+/** サンドボックスに無いツール名 (BFF のプラットフォーム判定由来の powershell など) */
 export class UnknownRemoteToolError extends Error {
   constructor(name: string) {
     super(`サンドボックスでは実行できないツールが指定されています: ${name}`);
@@ -51,18 +43,15 @@ const TOOL_FACTORIES: Record<RemoteToolName, RemoteToolFactory> = {
 };
 
 export interface RemoteToolDefinitionOptions {
-  /** BFF 側の論理 cwd (サンドボックスの作業領域と同じパスを指す。パス変換は不要)。 */
+  /** サンドボックスの作業領域と同じパスを指すため、パス変換は不要 */
   cwd: string;
   client: SandboxToolClient;
   masker: SecretMasker;
-  /** 登録するツール名 (PI_AGENT_TOOLS 由来)。 */
+  /** PI_AGENT_TOOLS 由来の登録ツール名 */
   tools: readonly string[];
 }
 
-/**
- * リモート実行ツール定義を作る。戻り値は customTools として SDK へ渡す。
- * 全て秘密マスクで包む (途中出力・最終結果・エラー)。
- */
+/** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
   const { cwd, client, masker, tools } = options;
   const definitions: ToolDefinition[] = [];
@@ -85,8 +74,7 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
           executionMode: local.executionMode,
           prepareArguments: local.prepareArguments,
           execute: async (toolCallId, params, signal, onUpdate, _ctx) => {
-            // ctx (BFF 側の実ファイルシステム) は引き渡さない。サンドボックス側の
-            // cwd / ファイルシステムだけがパスの解決源。
+            // BFF 側の実ファイルシステム (ctx の cwd) は渡さず、サンドボックス側だけをパス解決の源にする。
             const result = await client.execute(name, {
               toolCallId,
               params,

@@ -25,7 +25,6 @@ export default function App() {
 
   const refreshCatalog = useCallback(async () => {
     const catalog = await desk.loadCatalog();
-    // セッション一覧のエージェント名が変わることがあるため合わせて更新
     void desk.refreshSessions();
     return catalog;
   }, [desk]);

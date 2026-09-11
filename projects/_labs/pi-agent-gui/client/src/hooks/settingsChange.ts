@@ -1,10 +1,6 @@
 /**
- * チャット設定変更の応答適用。
- *
- * 設定変更 API の応答は非同期で返るため、待機中にユーザーが別のチャットへ
- * 切り替えていることがある。各 await の後に「要求したセッションがまだ選択中か」
- * を確認し、古い応答で切替後のチャットの表示 (履歴 / Model / Effort / lastSeq /
- * 活動表示) を上書きしない。
+ * チャット設定変更の応答適用。設定変更 API は非同期で返るため、待機中に別のチャットへ切替わっていることがある。
+ * 各 await の後に選択中かを確かめ、古い応答で切替後の表示 (履歴 / Model / Effort / lastSeq / 活動表示) を上書きしない。
  */
 import type { ModelRef, SessionPayload, ThinkingLevel } from "../types";
 
@@ -15,21 +11,18 @@ export type SettingsSelection = {
 };
 
 export interface SettingsChangeDeps {
-  /** 要求時に捕捉したセッションがまだ現在の選択か */
+  /** 要求時に捕捉したセッションがまだ選択中か */
   isCurrentSession: () => boolean;
-  /** PATCH /api/sessions/:id/settings */
   request: (sessionId: string, selection: SettingsSelection) => Promise<SessionPayload>;
-  /** 失敗時にサーバーの実効状態を取り直す GET /api/sessions/:id */
+  /** 失敗時にサーバーの実効状態（GET /api/sessions/:id）を取り直す */
   recover: (sessionId: string) => Promise<SessionPayload>;
-  /** 取得したペイロードを表示へ反映する */
   applyPayload: (payload: SessionPayload) => void;
   onSuccess: () => void;
   onError: (error: unknown) => void;
 }
 
 /**
- * 設定変更を実行する。応答が返った時点でまだ同じチャットが選ばれている場合だけ
- * 表示を更新し、切替済みの応答は破棄する。
+ * 応答が返った時点でまだ同じチャットが選ばれているときだけ表示を更新し、切替済みの応答は破棄する。
  */
 export async function applySettingsChange(
   sessionId: string,
