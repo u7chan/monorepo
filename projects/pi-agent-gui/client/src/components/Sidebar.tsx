@@ -208,7 +208,7 @@ export function Sidebar({ onOpenManager, ...props }: SidebarProps) {
         <div className="mt-2 text-[10px] leading-relaxed text-ink-ghost">
           ローカル実行 · インメモリセッション
           <br />
-          使い捨ての小さな実験アプリ
+          pi SDK の小さなブラウザ GUI
         </div>
       </div>
     </aside>
