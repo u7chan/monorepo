@@ -31,11 +31,11 @@ APIキーが未設定でも画面は起動しますが、送信はできませ�
 ### 開発（フロントエンドのホットリロード）
 
 ```bash
-# ターミナル 1: サンドボックス（ツール実行サービス）
-PI_SANDBOX_TOKEN=dev-shared-token-change-me pnpm start:sandbox
+# ターミナル 1: サンドボックス（ツール実行サービス）。PI_SANDBOX_CWD は書込み可能なディレクトリを指定
+PI_SANDBOX_TOKEN=dev-shared-token-change-me PI_SANDBOX_CWD=$PWD pnpm start:sandbox
 
-# ターミナル 2: BFF
-PI_SANDBOX_URL=http://127.0.0.1:8080 PI_SANDBOX_TOKEN=dev-shared-token-change-me pnpm dev
+# ターミナル 2: BFF（PI_APP_CWD をサンドボックスの作業領域と同じパスへ）
+PI_SANDBOX_URL=http://127.0.0.1:8080 PI_SANDBOX_TOKEN=dev-shared-token-change-me PI_APP_CWD=$PWD pnpm dev
 
 # ターミナル 3: Vite 開発サーバー（HMR 付き）
 pnpm dev:web
@@ -43,7 +43,7 @@ pnpm dev:web
 
 ブラウザで <http://localhost:5173> を開きます。`/api` へのリクエストは Vite が BFF（:4317）へプロキシします。
 
-BFF は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が無い場合、セッション作成時に明示エラーになります。BFF はツールをローカル実行へフォールバックしないため、開発時もサンドボックスの起動が必要です。ローカルでサンドボックスの既定作業領域はカレントディレクトリ（`PI_SANDBOX_CWD` で変更可）です。
+BFF は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が無い場合、セッション作成時に明示エラーになります。BFF はツールをローカル実行へフォールバックしないため、開発時もサンドボックスの起動が必要です。サンドボックスの既定作業領域はイメージ契約どおり `/workspace` ですが、ホストで起動するときは `PI_SANDBOX_CWD` に書込み可能なディレクトリを指定し、BFF の `PI_APP_CWD` を同じパスに揃えてください（BFF とサンドボックスでパス解決を一致させる）。
 
 ```bash
 # 使用モデルを固定する場合

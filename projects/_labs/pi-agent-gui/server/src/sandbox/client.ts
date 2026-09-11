@@ -58,6 +58,9 @@ export interface SandboxToolClient {
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
 }
 
+/** cancel 要求自体が伝搬経路を塞がないよう、独立した短いタイムアウトで送る。 */
+const SANDBOX_CANCEL_TIMEOUT_MS = 5000;
+
 async function execute(
   toolName: string,
   input: SandboxExecuteInput,
@@ -73,11 +76,13 @@ async function execute(
   let executionId: string | undefined;
   const onOuterAbort = () => {
     // cancel エンドポイントが知らないうち (start 前) は接続切断に任せる。
+    // controller.signal は直後に abort されるため使えない。cancel 専用の
+    // タイムアウト付き signal で送り、明示 cancel の二重伝播を実現する。
     if (executionId) {
       void fetchImpl(`${baseUrl}/v1/executions/${encodeURIComponent(executionId)}/cancel`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
+        signal: AbortSignal.timeout(SANDBOX_CANCEL_TIMEOUT_MS),
       }).catch(() => {});
     }
     controller.abort();

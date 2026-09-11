@@ -98,6 +98,11 @@ test("maps HTTP errors to actionable messages", async () => {
 
 test("aborted signal triggers the cancel endpoint and rejects with Operation aborted", async () => {
   const { calls, impl } = stubFetch((call) => {
+    // cancel 要求には即座に応答する (実サーバ相当)。signal も尊重する。
+    if (call.url.endsWith("/v1/executions/exec-3/cancel")) {
+      assert.ok(!call.init?.signal?.aborted, "cancel request must not be issued with an already-aborted signal");
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     // 本物のサーバのように、abort されるまで終わらないストリームを返す。
     // 実 fetch と同じく、signal abort で read() が reject する振る舞いを模倣する。
     const encoder = new TextEncoder();
@@ -128,9 +133,11 @@ test("aborted signal triggers the cancel endpoint and rejects with Operation abo
   external.abort();
   await assert.rejects(pending, /Operation aborted/);
   await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  const cancelCall = calls.find((call) => call.url.endsWith("/v1/executions/exec-3/cancel"));
+  assert.ok(cancelCall, `cancel endpoint should be called: ${calls.map((call) => call.url).join(", ")}`);
   assert.ok(
-    calls.some((call) => call.url.endsWith("/v1/executions/exec-3/cancel")),
-    `cancel endpoint should be called: ${calls.map((call) => call.url).join(", ")}`,
+    !cancelCall.init?.signal?.aborted,
+    "cancel request must carry its own live signal (not the already-aborted stream controller)",
   );
 });
 

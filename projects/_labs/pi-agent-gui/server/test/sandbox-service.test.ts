@@ -155,29 +155,34 @@ test("cancels a running execution via the cancel endpoint", { skip: !HAS_BASH &&
   assert.ok(!service.executions.has(start.executionId), "execution must be cleaned up");
 });
 
-test("sandbox bash does not expose BFF session environment variables", { skip: !HAS_BASH && SKIP_REASON }, async () => {
+test("sandbox bash does not expose the shared token or session env to child processes", { skip: !HAS_BASH && SKIP_REASON }, async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-env-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
-  const response = await service.app.request("/v1/tools/bash/execute", {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ params: { command: "printenv PI_SESSION_ID PI_SANDBOX_TOKEN OPENAI_API_KEY" } }),
-  });
-  const events = await readEvents(response);
-  // printenv は変数が全て未設定だと code 1 で終了し、SDK bash はエラーイベントになる
-  const settled = events.some((event) => event.type === "error" || event.type === "result");
-  assert.ok(settled, "execution must settle");
-  const text = events
-    .map((event) =>
-      event.type === "error"
-        ? event.message
-        : event.type === "result" || event.type === "update"
-          ? eventText((event as { payload: unknown }).payload)
-          : "",
-    )
-    .join("");
-  assert.ok(!text.includes(TOKEN), "PI_SANDBOX_TOKEN must not leak into tool output");
-  assert.ok(!text.includes("pi-session"), "session metadata env vars must be unset");
+  // 実起動と同じく、共有トークンが process.env にある状態を再現する
+  const previous = process.env.PI_SANDBOX_TOKEN;
+  process.env.PI_SANDBOX_TOKEN = TOKEN;
+  try {
+    const response = await service.app.request("/v1/tools/bash/execute", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        params: {
+          command:
+            'if [ -n "$PI_SANDBOX_TOKEN" ]; then echo TOKEN_LEAKED; fi; echo session=${PI_SESSION_ID:-unset}',
+        },
+      }),
+    });
+    const events = await readEvents(response);
+    const result = events.find((event) => event.type === "result");
+    assert.ok(result, "command should succeed");
+    const text = eventText((result as { payload: unknown }).payload);
+    assert.ok(!text.includes("TOKEN_LEAKED"), "PI_SANDBOX_TOKEN must not be inherited by tool child processes");
+    assert.ok(!text.includes(TOKEN), "PI_SANDBOX_TOKEN must not leak into tool output");
+    assert.match(text, /session=unset/, "session metadata env vars must be unset");
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_TOKEN;
+    else process.env.PI_SANDBOX_TOKEN = previous;
+  }
 });
 
 test("unknown tool and invalid params return 4xx", async () => {

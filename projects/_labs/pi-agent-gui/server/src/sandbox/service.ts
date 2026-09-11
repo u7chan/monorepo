@@ -20,6 +20,7 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  type BashSpawnContext,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
@@ -106,8 +107,20 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   // SDK のツール実装をこのプロセスの実ファイルシステムに対して使う。
   // bash はセッション環境変数 (PI_SESSION_ID 等) を注入しない — サンドボックスに
   // セッションはなく、BFF のモデル/セッション情報を子プロセスへ渡さない。
+  // SDK の bash は process.env を子プロセスへ継承する。サンドボックス内の唯一の
+  // 秘密値は共有トークンなので、spawnHook で剥がしてツール出力へ現れないようにする
+  // (セッションメタ変数 PI_* は exposeSessionEnvironment: false が除外する)。
+  const stripSandboxToken = (context: BashSpawnContext): BashSpawnContext => {
+    const env: NodeJS.ProcessEnv = { ...context.env };
+    delete env.PI_SANDBOX_TOKEN;
+    return { ...context, env };
+  };
+
   const definitions: AnyToolDefinition[] = [
-    createBashToolDefinition(rootCwd, { exposeSessionEnvironment: false }),
+    createBashToolDefinition(rootCwd, {
+      exposeSessionEnvironment: false,
+      spawnHook: stripSandboxToken,
+    }),
     createReadToolDefinition(rootCwd),
     createEditToolDefinition(rootCwd),
     createWriteToolDefinition(rootCwd),
