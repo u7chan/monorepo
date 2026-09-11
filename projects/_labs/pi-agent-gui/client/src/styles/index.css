@@ -222,17 +222,17 @@ html[data-theme="sakura"] {
   --c-ink-muted: #8d7580;
   --c-ink-faint: #a58d97;
   --c-ink-ghost: #c0aab2;
-  --c-accent: #d0497c;
-  --c-accent-strong: #b83a67;
-  --c-accent-bright: #dd6b97;
-  --c-on-accent: #46172a;
-  --c-accent-wash: rgba(208, 73, 124, 0.1);
-  --c-accent-text: #b83a67;
+  --c-accent: #e49fb7;
+  --c-accent-strong: #d984a3;
+  --c-accent-bright: #f0bfd0;
+  --c-on-accent: #47202f;
+  --c-accent-wash: rgba(217, 132, 163, 0.12);
+  --c-accent-text: #b3496d;
   --c-ok: #23875d;
   --c-warn: #a96a10;
   --c-danger: #d24d61;
   --c-danger-text: #b93348;
-  --c-glow: rgba(221, 107, 151, 0.1);
+  --c-glow: rgba(232, 162, 186, 0.14);
   --c-backdrop: rgba(43, 20, 30, 0.45);
   --c-shadow-panel: 0 24px 70px rgba(88, 45, 60, 0.12);
 }
@@ -417,7 +417,7 @@ html[data-theme="terminal"] {
   }
   .theme-swatch[data-theme-id="sakura"] {
     background: #faf0f3;
-    box-shadow: 0 0 0 1.5px rgba(208, 73, 124, 0.65);
+    box-shadow: 0 0 0 1.5px rgba(217, 132, 163, 0.65);
   }
   .theme-swatch[data-theme-id="terminal"] {
     background: #060a08;

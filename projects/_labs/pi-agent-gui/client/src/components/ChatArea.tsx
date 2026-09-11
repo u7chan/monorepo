@@ -60,6 +60,24 @@ function CheckIcon() {
   );
 }
 
+function UserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <circle cx="8" cy="5.25" r="2.75" />
+      <path d="M2.75 13.5c.9-2.35 2.85-3.75 5.25-3.75s4.35 1.4 5.25 3.75" />
+    </svg>
+  );
+}
+
 function ChevronIcon() {
   return (
     <svg
@@ -207,7 +225,7 @@ function MessageView({
           isUser ? "order-2 bg-accent-bright text-on-accent" : "border border-accent/25 bg-accent-wash text-accent",
         ].join(" ")}
       >
-        {isUser ? "YOU" : "✦"}
+        {isUser ? <UserIcon /> : "✦"}
       </div>
       <div className="min-w-0 max-w-[min(760px,86%)] max-nav:max-w-[90%]">
         <div className="mb-1 text-[10px] font-medium text-ink-faint">{isUser ? "あなた" : "アシスタント"}</div>
