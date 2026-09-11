@@ -20,11 +20,11 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
-    "oxfmt": "^0.66.0",
-    "oxlint": "^1.81.0",
+    "@types/react-dom": "^19.2.7",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "typescript": "^6.0.3"
   }
 }
