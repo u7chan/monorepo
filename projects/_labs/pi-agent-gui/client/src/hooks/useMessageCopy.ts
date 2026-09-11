@@ -14,6 +14,7 @@ export function useMessageCopy(resetMs = 2000) {
 
   useEffect(() => {
     return () => {
+      seqRef.current += 1;
       if (timerRef.current !== null) clearTimeout(timerRef.current);
     };
   }, []);
