@@ -10,12 +10,13 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd`）。認証が無い場合は `errorCode: "authentication_required"` |
 
-`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。明示 `PI_MODEL` が利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。
+`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。明示 `PI_MODEL` が利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。
 
 ```json
 {
   "ok": true,
   "ready": true,
+  "sandboxConfigured": true,
   "model": "deepseek/deepseek-v4-flash",
   "availableModels": ["deepseek/deepseek-v4-flash"],
   "modelOptions": [
@@ -33,6 +34,48 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 ```
 
 `modelOptions` は認証済みで利用可能なモデルのみ。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
+
+## サンドボックス ツール実行API（内部）
+
+BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find` / `ls`）の実行を委譲する内部API。ブラウザから直接呼ぶAPIではなく、`AppType` には含まれない。ホストへ公開せず、BFF ⇄ サンドボックスの内部ネットワークのみで到達する。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
+| POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
+| POST | `/v1/executions/:id/cancel` | 実行中のツールを中断 |
+
+認証は `Authorization: Bearer <PI_SANDBOX_TOKEN>`。未認証は 401、未知のツールは 404、`params` がオブジェクトでない場合は 400。
+
+### `POST /v1/tools/:tool/execute`
+
+リクエストボディは `{ toolCallId?: string, params?: object }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
+
+```jsonl
+{"type":"start","executionId":"…"}
+{"type":"update","payload":{"content":[…],"details":{…}}}
+{"type":"result","payload":{"content":[…]}}
+```
+
+- `start` — 実行開始。`executionId` は cancel に使う
+- `update` — SDK ツールの `onUpdate`（bash の累積出力スナップショット等）を relay
+- `result` — 正常終了。ストリームはここで閉じる
+- `error` — 異常終了（`{ "type": "error", "message": "…" }`）。SDK ツールが throw したメッセージ
+
+クライアント（BFF）が切断した場合もサンドボックスは実行を中断する。明示的な中断は cancel エンドポイントか `AbortSignal` の伝播で行う。
+
+### `POST /v1/executions/:id/cancel`
+
+実行中のツール（`start` で払い出された `executionId`）を中断する。SDK ツールへ `AbortSignal` が伝わり、bash は子プロセスを殺して `Command aborted` エラーになる。実行が無い場合は 404。
+
+### 環境変数
+
+| 変数 | サービス | 説明 |
+| --- | --- | --- |
+| `PI_SANDBOX_URL` | BFF | サンドボックスの到達先（例: `http://pi-agent-gui-sandbox:8080`）。未設定ならセッション作成を 503 で拒否 |
+| `PI_SANDBOX_TOKEN` | BFF + サンドボックス | Bearer トークン（16 文字以上）。LLM 認証情報とは別の値。サンドボックス内では子プロセスへ継承しない |
+| `PI_SANDBOX_CWD` | サンドボックス | ツール実行の既定 cwd（既定 `/workspace`） |
+| `SANDBOX_PORT` | サンドボックス | ポート（既定 8080。ホストへ publish しない） |
 
 ## エージェント / スキル
 
@@ -223,7 +266,7 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 | `resync` | セッションペイロード全体（バッファを逃した場合） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 
-テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は README の「APIキーの保護（暫定対策）」を参照。
+テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は README の「APIキーの保護」を参照。
 
 ### `POST /api/sessions/:id/stop`
 

@@ -202,6 +202,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       defaultModelError: pi?.defaultModelError,
       tools: pi?.tools || [],
       availabilityError: pi?.availabilityError,
+      sandboxConfigured: pi?.sandboxConfigured ?? false,
       errorCode,
       error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
     });
