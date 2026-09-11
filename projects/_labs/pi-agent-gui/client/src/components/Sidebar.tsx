@@ -121,7 +121,7 @@ export function Sidebar({ onOpenManager, ...props }: SidebarProps) {
     >
       {/* ブランド */}
       <div className="flex items-center gap-3 max-nav:min-w-0 max-nav:flex-1">
-        <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-sm text-accent">
+        <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-sm text-accent-strong">
           ✦
         </div>
         <div className="min-w-0">
@@ -136,7 +136,7 @@ export function Sidebar({ onOpenManager, ...props }: SidebarProps) {
         onClick={() => void newChat()}
         className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent max-nav:w-auto max-nav:px-3.5"
       >
-        <span className="text-[18px] leading-3 text-accent">＋</span> 新しい会話
+        <span className="text-[18px] leading-3 text-accent-text">＋</span> 新しい会話
       </button>
 
       {/* エージェント */}
@@ -171,7 +171,7 @@ export function Sidebar({ onOpenManager, ...props }: SidebarProps) {
         <button
           type="button"
           onClick={onOpenManager}
-          className="min-h-9 w-full rounded-lg border border-line bg-transparent text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent"
+          className="min-h-9 w-full rounded-lg border border-line bg-transparent text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
         >
           ⚙ エージェント / スキルを管理
         </button>
