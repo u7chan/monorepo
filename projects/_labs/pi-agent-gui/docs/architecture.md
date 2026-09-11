@@ -123,18 +123,24 @@ POST /api/sessions { model?, thinkingLevel? }
    - `process.env` は一切変更しない。並行セッションや認証解決（リクエスト時に env を読む）への影響はない
 2. **ツール定義のフック（`server/src/secret-guard.ts`）**
    - `createBashToolDefinition` / `createPowerShellToolDefinition` に `spawnHook` を渡し、SDK が組み立てた env（`PI_*` セッション変数注入後）を許可リストへ絞る。同名の `customTools` として登録し組み込みツールを置き換える
-   - `execute` をラップし、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
+   - `execute` をラップし、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
+   - bash ツールは通常 `stdio[0] = "ignore"`（fd0 = /dev/null）で起動されるため、非対話 bash は `BASH_ENV` を読む。許可リストが `BASH_ENV` を落とすことで起動設定経由の再投入は起きない。一方 stdin が pipe（ソケット）になる経路では bash は `BASH_ENV` の代わりに `~/.bashrc` を読むため、これは残存リスクとしてドキュメント化する
 3. **tool_result 拡張（同ファイル）**
    - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
 4. **BFF の送出層（`server/src/sessions.ts`）**
    - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、エラー、プロンプトのエコー、タイトル）を防御的にマスクする
+   - ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
    - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする
+
+### 切り詰め境界への対応
+
+SDK は bash ツールの出力を末尾 50KiB / 2000 行へ切り詰める。キーが切り詰め境界に跨ると、結果のテキストはキーの途中から始まり完全一致では検出できない。このため最終結果と累積スナップショットには、先頭が秘密値の途中から始まる場合にその部分一致（4 文字以上）を `[REDACTED]` へ置換する処理を入れている。4 文字未満は再構成リスクが小さく、通常出力への誤置換を避けるため対象外とする。
 
 ### 検証
 
 実APIは呼ばず、ダミーキーとスタブで検証する。
 
-- `server/test/child-env.test.ts` — 許可リストの内容、`process.env` 非改変・並行構築の独立性、実 bash 子プロセスでの `env` / `printenv` / Node.js 参照、`BASH_ENV` 経由の再投入が起きないことの対照実験、通常コマンドの動作
+- `server/test/child-env.test.ts` — 許可リストの内容、`process.env` 非改変・並行構築の独立性、実 bash 子プロセス（bash ツールと同じ `spawn` + `stdio[0]="ignore"`）での `env` / `printenv` / Node.js 参照、`BASH_ENV` 経由の再投入が起きないことの対照実験、通常コマンドの動作
 - `server/test/secret-guard.test.ts` — シェルツールの env 絞り・`PI_*` 維持・出力マスク、途中出力とエラーのマスク、`tool_result` 拡張
 - `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
 - `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと
@@ -143,6 +149,7 @@ POST /api/sessions { model?, thinkingLevel? }
 
 - 同じコンテナ・同じユーザーで任意コードを実行できる限り、認証ファイルの読み取りや `/proc` 等からの迂回は防げない
 - bash ツールの出力が切り詰められた場合、フル出力はSDKが一時ファイルへ書く。ファイル自体はマスクされないが、それを読むツール出力はマスクされる
+- stdin が pipe（ソケット）になる起動経路（stdin 経由でコマンドを渡すレガシーWSL環境など）では、bash が `BASH_ENV` の代わりに `~/.bashrc` を読む。HOME 配下にキーを置かない運用とする
 - 分割・エンコードされたキーや未登録の秘密情報は検出できない。OAuth トークンは対象外
 - キーを読み取ったコードが直接外部通信する経路は防げない
 

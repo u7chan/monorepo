@@ -90,8 +90,11 @@ function toolArgsSummary(args: unknown, masker: SecretMasker): string {
 }
 
 function toolResultSummary(result: unknown, masker: SecretMasker): string {
+  // 切り詰める前にマスクする (先に切り詰めると境界で末尾が欠け、キーの
+  // 大部分がそのまま残る)。SDK側の切り詰めで先頭が欠けた場合に備えて
+  // 先頭部分一致も置換する。
   return truncate(
-    masker.mask(contentText((result as { content?: unknown } | null)?.content)),
+    masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)),
     SUMMARY_TEXT_MAX,
   );
 }

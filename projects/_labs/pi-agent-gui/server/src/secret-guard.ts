@@ -116,13 +116,13 @@ export function wrapToolDefinitionWithSecretMasker(
             // 更新に分かれて流れないようにする。
             onUpdate({
               ...partialResult,
-              content: maskTextContentParts(partialResult.content, masker, { accumulated: true }),
+              content: maskTextContentParts(partialResult.content, masker, { mode: "accumulated" }),
             });
           }
         : undefined;
       try {
         const result = await definition.execute(toolCallId, params, signal, maskedOnUpdate, ctx);
-        return { ...result, content: maskTextContentParts(result?.content, masker) };
+        return { ...result, content: maskTextContentParts(result?.content, masker, { mode: "final" }) };
       } catch (error) {
         return throwMasked(error, masker);
       }
@@ -158,7 +158,7 @@ export function createGuardedShellToolDefinitions(
 export function createSecretRedactionExtension(masker: SecretMasker): InlineExtension {
   return (pi) => {
     pi.on("tool_result", async (event) => ({
-      content: maskTextContentParts(event.content, masker),
+      content: maskTextContentParts(event.content, masker, { mode: "final" }),
     }));
   };
 }

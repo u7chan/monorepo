@@ -169,6 +169,27 @@ test("shell tool wrapper masks partial updates, final output, and errors", async
   assert.equal(updates[1].content[0].text, `full ${REDACTED}`);
 });
 
+test("shell tool wrapper masks output truncated mid-key by the SDK", async () => {
+  const masker = createSecretMasker([KEY]);
+  type FakeDefinition = Parameters<typeof wrapToolDefinitionWithSecretMasker>[0];
+  const inner = {
+    name: "fake-shell",
+    label: "Fake",
+    description: "fake",
+    parameters: {},
+    // SDKが末尾Nバイトへ切り詰めた結果、キーの先頭が欠けた状態を模償する
+    async execute() {
+      return { content: [{ type: "text", text: `${KEY.slice(3)} …` }], details: undefined };
+    },
+  } as unknown as FakeDefinition;
+
+  const wrapped = wrapToolDefinitionWithSecretMasker(inner, masker);
+  const result = await wrapped.execute("t5", {}, undefined, undefined, undefined as never);
+  const text = result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
+  assert.ok(!text.includes(KEY.slice(3)), `truncated key prefix leaked: ${text}`);
+  assert.ok(text.startsWith(REDACTED), `masked output expected, got: ${text}`);
+});
+
 test("redaction extension masks tool_result content before it reaches the LLM", async () => {
   const registered = new Map<string, (event: never) => Promise<unknown>>();
   const extension = createSecretRedactionExtension(createSecretMasker([KEY])) as (pi: never) => Promise<void>;

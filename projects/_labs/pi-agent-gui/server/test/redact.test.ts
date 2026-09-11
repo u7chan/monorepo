@@ -67,6 +67,23 @@ test("maskAccumulated returns masked text as-is when the tail is safe", () => {
   assert.equal(masker.maskAccumulated(`out ${KEY} done`), `out ${REDACTED} done`);
 });
 
+test("maskSafe redacts a leading partial left by external truncation", () => {
+  const masker = createSecretMasker([KEY]);
+  // SDKの切り詰めでキーの先頭が欠けた結果を模償する
+  const truncated = `${KEY.slice(3)} more output`;
+  assert.equal(masker.maskSafe(truncated), `${REDACTED} more output`);
+  // 完全体はこれまでどおりマスクされる
+  assert.equal(masker.maskSafe(`out ${KEY} end`), `out ${REDACTED} end`);
+  // 短い部分一致 (4文字未満) は通常出力への誤置換を避けるためそのまま
+  const tiny = `${KEY.slice(KEY.length - 3)} rest`;
+  assert.equal(masker.maskSafe(tiny), tiny);
+});
+
+test("maskAccumulated redacts a leading partial as well", () => {
+  const masker = createSecretMasker([KEY]);
+  assert.equal(masker.maskAccumulated(`${KEY.slice(5)} tail`), `${REDACTED} tail`);
+});
+
 test("streaming masker never emits a raw secret across chunk boundaries", () => {
   const masker = createSecretMasker([KEY, OTHER]);
   const stream = createStreamingSecretMasker(masker);

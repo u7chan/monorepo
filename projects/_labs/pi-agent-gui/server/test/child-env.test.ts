@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -27,16 +27,18 @@ interface RunResult {
 }
 
 function runBash(env: NodeJS.ProcessEnv, script: string): Promise<RunResult> {
-  return new Promise((resolveRun, rejectRun) => {
-    execFile(BASH, ["-c", script], { env }, (error, stdout, stderr) => {
-      const code = error && typeof (error as { code?: unknown }).code === "number"
-        ? (error as { code: number }).code
-        : error
-          ? 1
-          : 0;
-      if (error && code === 0) rejectRun(error);
-      else resolveRun({ stdout: String(stdout), stderr: String(stderr), code });
-    });
+  return new Promise((resolveRun) => {
+    // bash ツールと同じ起動方法 (stdio[0] = "ignore" → fd0 = /dev/null) を模倣
+    // する。stdin を pipe にすると node はソケットペアを作り、bash は「stdin が
+    // ソケット = rshd からの起動」と判定して BASH_ENV を読まなくなるため、
+    // 起動設定の検証が意味を失う。
+    const child = spawn(BASH, ["-c", script], { env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => (stdout += chunk));
+    child.stderr?.on("data", (chunk) => (stderr += chunk));
+    child.on("error", () => resolveRun({ stdout, stderr, code: -1 }));
+    child.on("close", (code) => resolveRun({ stdout, stderr, code }));
   });
 }
 

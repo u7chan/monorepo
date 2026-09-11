@@ -34,10 +34,16 @@ export interface SecretMasker {
   /** text 中の秘密値の完全一致をすべて [REDACTED] へ置換する。 */
   mask(text: string): string;
   /**
+   * 最終結果向けの安全化。完全一致の置換に加え、外部の切り詰めで先頭が
+   * 欠けた秘密値の部分一致も置換する。末尾はこれ以上の入力がないため
+   * 保留しない。
+   */
+  maskSafe(text: string): string;
+  /**
    * 「ここまでの累積出力」のスナップショットを安全化する。完全一致の
-   * 置換に加え、末尾が秘密値の前方一致になり得る分を切り落とす。
-   * 累積スナップショットは後続の更新で再度渡されるため、切り落とした
-   * 末尾は次の更新か最終結果で必ず再度処理される。
+   * 置換、先頭部分一致の置換に加え、末尾が秘密値の前方一致になり得る分を
+   * 切り落とす。累積スナップショットは後続の更新で再度渡されるため、
+   * 切り落とした末尾は次の更新か最終結果で必ず再度処理される。
    */
   maskAccumulated(text: string): string;
 }
@@ -69,8 +75,11 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
       }
       return result;
     },
+    maskSafe(text: string): string {
+      return maskLeadingPartial(this.mask(text), ordered);
+    },
     maskAccumulated(text: string): string {
-      const masked = this.mask(text);
+      const masked = maskLeadingPartial(this.mask(text), ordered);
       const hold = heldBackLength(masked, this.secrets, this.maxSecretLength);
       return hold > 0 ? masked.slice(0, masked.length - hold) : masked;
     },
@@ -86,6 +95,32 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
  * 出力と一致する。マスク済みテキスト側で照合しても部分一致の検出は
  * 保たれる (誤って保留が伸びる方向にしか倒れない)。
  */
+/**
+ * 先頭部分一致の置換対象とする最小長。これ以下の漏洩は再構成リスクが
+ * 小さく、通常出力への誤置換を避けるため対象外とする。
+ */
+export const MIN_LEADING_PARTIAL = 4;
+
+/**
+ * テキストの先頭が秘密値の途中から始まる場合に備えて、先頭の部分一致を
+ * [REDACTED] に置換する。SDKなど外部の切り詰め (末尾だけ残す) でキーの
+ * 先頭が欠けると完全一致では検出できず、キーの大部分が生のまま残る。
+ */
+function maskLeadingPartial(text: string, secrets: readonly string[]): string {
+  if (secrets.length === 0 || text.length === 0) return text;
+  let longest = 0;
+  for (const secret of secrets) {
+    const max = Math.min(secret.length - 1, text.length);
+    for (let k = 1; k <= max; k++) {
+      if (text.startsWith(secret.slice(k))) {
+        longest = Math.max(longest, secret.length - k);
+        break;
+      }
+    }
+  }
+  return longest >= MIN_LEADING_PARTIAL ? REDACTED + text.slice(longest) : text;
+}
+
 function heldBackLength(text: string, secrets: readonly string[], maxSecretLength: number): number {
   if (secrets.length === 0 || text.length === 0) return 0;
   const maxHold = Math.min(maxSecretLength - 1, text.length);
@@ -160,17 +195,24 @@ export function createStreamingSecretMasker(masker: SecretMasker): StreamingSecr
 /**
  * ツール結果の content パーツ配列 (TextContent | ImageContent) のうち
  * text パーツだけをマスクする。image など text 以外のパーツはそのまま。
- * accumulated: true の場合は「ここまでの累積出力」として末尾の部分一致も
- * 切り落とす (切り落とされた分は後続の更新で再度渡される)。
+ * mode: "accumulated" は「ここまでの累積出力」(末尾の部分一致も切り落とす、
+ * 切り落とされた分は後続の更新で再度渡される)、"final" は最終結果
+ * (外部の切り詰めによる先頭部分一致も置換する)。
  * マスク中に例外が出た場合はフェイルセーフとして全 text を [REDACTED] にする
  * (マスクに失敗した結果を生のまま返さない)。
  */
 export function maskTextContentParts<T>(
   content: readonly T[] | undefined | null,
   masker: SecretMasker,
-  { accumulated = false }: { accumulated?: boolean } = {},
+  { mode = "plain" }: { mode?: "plain" | "accumulated" | "final" } = {},
 ): T[] {
   if (!Array.isArray(content)) return [];
+  const maskText =
+    mode === "accumulated"
+      ? (text: string) => masker.maskAccumulated(text)
+      : mode === "final"
+        ? (text: string) => masker.maskSafe(text)
+        : (text: string) => masker.mask(text);
   try {
     return content.map((part) => {
       if (
@@ -179,11 +221,7 @@ export function maskTextContentParts<T>(
         (part as { type?: unknown }).type === "text" &&
         typeof (part as { text?: unknown }).text === "string"
       ) {
-        const text = (part as { text: string }).text;
-        return {
-          ...(part as { text: string }),
-          text: accumulated ? masker.maskAccumulated(text) : masker.mask(text),
-        };
+        return { ...(part as { text: string }), text: maskText((part as { text: string }).text) };
       }
       return part;
     });
