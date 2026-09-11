@@ -18,6 +18,24 @@ export type ComposerProps = {
 
 const MAX_TEXTAREA_HEIGHT = 180;
 
+function ArrowUpIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4"
+    >
+      <path d="M8 13.25V2.75" />
+      <path d="M3.5 7.25 8 2.75l4.5 4.5" />
+    </svg>
+  );
+}
+
 /** 候補に無いモデルも表示できるように選択肢へ足す */
 function modelChoicesOf(settings: ComposerSettings): Array<{ value: string; label: string }> {
   const choices = settings.modelOptions.map((option) => ({
@@ -175,9 +193,9 @@ export function Composer({
               Boolean(settings.sendBlockedReason) ||
               value.trim().length === 0
             }
-            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-[9px] bg-accent-bright text-[18px] font-bold text-on-accent transition-all hover:-translate-y-px hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <span>↑</span>
+            <ArrowUpIcon />
           </button>
         </div>
       </form>

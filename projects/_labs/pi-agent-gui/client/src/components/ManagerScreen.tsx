@@ -316,7 +316,7 @@ export function ManagerScreen({
   const tabClass = (active: boolean) =>
     [
       "min-h-10 cursor-pointer rounded-t-lg border-b-2 px-3.5 text-xs font-semibold transition-colors",
-      active ? "border-accent text-accent" : "border-transparent text-ink-soft hover:text-ink",
+      active ? "border-accent text-accent-text" : "border-transparent text-ink-soft hover:text-ink",
     ].join(" ");
 
   return (
@@ -341,14 +341,14 @@ export function ManagerScreen({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent"
+              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
             >
               インポート
             </button>
             <button
               type="button"
               onClick={exportDefinitions}
-              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent"
+              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
             >
               エクスポート
             </button>
@@ -406,7 +406,7 @@ export function ManagerScreen({
                 <button
                   type="button"
                   onClick={startNewAgent}
-                  className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent"
+                  className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
                   ＋ 新しいエージェント
                 </button>
@@ -429,7 +429,7 @@ export function ManagerScreen({
                 <button
                   type="button"
                   onClick={startNewSkill}
-                  className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent"
+                  className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
                   ＋ 新しいスキル
                 </button>
@@ -456,7 +456,7 @@ export function ManagerScreen({
           {isAgent ? (
             <form onSubmit={saveAgent} className="mx-auto grid max-w-2xl gap-3">
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">AGENT</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-text">AGENT</div>
                 <h3 className="text-sm font-semibold text-ink-strong">
                   {editingAgent ? "エージェントを編集" : "新しいエージェント"}
                 </h3>
@@ -588,7 +588,7 @@ export function ManagerScreen({
           ) : (
             <form onSubmit={saveSkill} className="mx-auto grid max-w-2xl gap-3">
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">SKILL</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-text">SKILL</div>
                 <h3 className="text-sm font-semibold text-ink-strong">
                   {editingSkill ? "スキルを編集" : "新しいスキル"}
                 </h3>

@@ -60,6 +60,24 @@ function CheckIcon() {
   );
 }
 
+function UserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <circle cx="8" cy="5.25" r="2.75" />
+      <path d="M2.75 13.5c.9-2.35 2.85-3.75 5.25-3.75s4.35 1.4 5.25 3.75" />
+    </svg>
+  );
+}
+
 function ChevronIcon() {
   return (
     <svg
@@ -89,7 +107,7 @@ function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onCli
         "grid size-6 shrink-0 place-items-center rounded-md border transition-[opacity,border-color,color] duration-200",
         copied
           ? "border-ok/40 text-ok opacity-100"
-          : ["border-line bg-raised text-ink-faint hover:border-accent/50 hover:text-accent", reveal].join(" "),
+          : ["border-line bg-raised text-ink-faint hover:border-accent/50 hover:text-accent-text", reveal].join(" "),
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
@@ -204,10 +222,10 @@ function MessageView({
       <div
         className={[
           "grid size-[26px] shrink-0 place-items-center rounded-lg text-[10px] font-bold",
-          isUser ? "order-2 bg-accent-bright text-on-accent" : "border border-accent/25 bg-accent-wash text-accent",
+          isUser ? "order-2 bg-accent-bright text-on-accent" : "border border-accent/25 bg-accent-wash text-accent-strong",
         ].join(" ")}
       >
-        {isUser ? "YOU" : "✦"}
+        {isUser ? <UserIcon /> : "✦"}
       </div>
       <div className="min-w-0 max-w-[min(760px,86%)] max-nav:max-w-[90%]">
         <div className="mb-1 text-[10px] font-medium text-ink-faint">{isUser ? "あなた" : "アシスタント"}</div>
@@ -263,7 +281,7 @@ export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
       <div className="mx-auto w-full min-w-0 max-w-[880px]">
         {bubbles.length === 0 ? (
           <div className="mx-auto max-w-md pt-[18vh] text-center max-nav:pt-[10vh]">
-            <div className="mx-auto mb-4 grid size-[42px] place-items-center rounded-[13px] border border-accent/25 bg-accent-wash text-lg text-accent">
+            <div className="mx-auto mb-4 grid size-[42px] place-items-center rounded-[13px] border border-accent/25 bg-accent-wash text-lg text-accent-strong">
               ✦
             </div>
             <h2 className="text-xl font-semibold text-ink-strong max-nav:text-lg">プロジェクトの相棒です</h2>
@@ -276,7 +294,7 @@ export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
                   key={s.prompt}
                   type="button"
                   onClick={() => onSuggestion(s.prompt)}
-                  className="min-h-9 rounded-lg border border-line bg-raised px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent"
+                  className="min-h-9 rounded-lg border border-line bg-raised px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
                   {s.label}
                 </button>
