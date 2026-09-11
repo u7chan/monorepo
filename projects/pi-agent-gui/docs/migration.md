@@ -4,7 +4,7 @@
 
 - 移植元: ローカルリポジトリ `/home/u7dev/workspace/aiagent`
 - 元コミット: `54def1abca7d6de1fae398775a5d5cdbdf206ee4`（11コミット）
-- 移植先: `projects/_labs/pi-agent-gui`
+- 移植先: `projects/pi-agent-gui`（移植当時は `projects/_labs/pi-agent-gui`）
 
 元の追跡ファイルをスナップショットとして取り込みました。`node_modules`、ビルド成果物、Playwrightの一時ファイル、`.git` は取り込んでいません。元リポジトリは変更していません。
 
@@ -25,7 +25,13 @@ git clone /path/to/aiagent-history.bundle aiagent-history
 - 起動に必要な `tsx` をserverの本番依存へ移動
 - Dockerの `test` / `final` ステージと実行手順を追加
 - モノレポのライセンス対象検出を、pnpm workspaceの共有lockfileに対応
-- Dependabotには追加しない（実験段階のため、依存更新は手動）
 - 移植元の関数名・ファイル名を指すコメント（「port 元 …」「旧 …」）は、対応関係がこの文書と上記の元コミットで追えるため削除し、コメントは理由・制約の説明だけに絞った
 
-UI・モデル実行機能を全面的に検証した移植ではありません。APIテストではモデルをスタブに置き換え、実API呼出し・OAuth更新・ブラウザ操作の網羅的な検証は別途行います。
+## 昇格時の変更
+
+- `projects/_labs/pi-agent-gui` から `projects/pi-agent-gui` へ移動
+- Dependabotの対象に追加し、依存更新はDependabotで追う（`package-ecosystem: "npm"`）
+
+## 検証状況
+
+UI・モデル実行機能は網羅的に検証していません。APIテストではモデルをスタブに置き換えており、実API呼出し・OAuth更新・ブラウザ操作の検証は別途行います。

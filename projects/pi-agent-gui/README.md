@@ -1,8 +1,8 @@
 # pi agent GUI
 
-`projects/_labs/pi-agent-gui` は、今後の継続開発に向けて検証中の実験プロジェクトです。既存の `projects/aiagent` とは別のアプリで、Dependabotの対象には追加していません。
+`projects/pi-agent-gui` は継続して保守するブラウザGUIです。既存の `projects/aiagent` とは別のアプリで、依存更新はDependabotで追います。
 
-pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ GUI です。フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は **Hono + TypeScript**（入力検証は zod）で構築し、client は `hono/client` で型安全に API を呼びます。BFF がプロダクションビルドを配信します。
+pi SDK を BFF に埋め込んだ小さなブラウザ GUI です。フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は **Hono + TypeScript**（入力検証は zod）で構築し、client は `hono/client` で型安全に API を呼びます。BFF がプロダクションビルドを配信します。
 
 メッセージを送るとエージェントは**バックグラウンドで動き続けます**。ブラウザを閉じても処理は止まらず、複数の会話（セッション）を並行して進められます。停止は画面の「停止」ボタンまたは API で明示的に行います。
 
@@ -172,4 +172,4 @@ docker run --rm --init --name pi-agent-gui --network pi-agent-gui-net -p 127.0.0
 - サンドボックスは非rootの `node` ユーザー（UID/GID 1000）で動くため、マウント先はこのユーザーが読み書きできる所有権にしてください
 - 正式なCompose構成・永続領域・資格情報の配置はデプロイ側リポジトリ（self-hosted-runner）で管理します
 
-CDの仕組みは [モノレポのCI/CD](../../../docs/about-cicd.md) を参照してください。
+CDの仕組みは [モノレポのCI/CD](../../docs/about-cicd.md) を参照してください。
