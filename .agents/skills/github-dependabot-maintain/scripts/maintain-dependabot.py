@@ -14,6 +14,7 @@ import yaml
 CONFIG = Path(".github/dependabot.yml")
 PROJECTS = Path("projects")
 REQUIRED_LABEL = "dependabot-auto-process"
+EXCLUDED_CATEGORIES = ("_labs", "_samples")
 
 
 def detect_ecosystem(project_dir: Path) -> str | None:
@@ -24,6 +25,25 @@ def detect_ecosystem(project_dir: Path) -> str | None:
     if (project_dir / "uv.lock").exists():
         return "uv"
     return None
+
+
+def scan_projects(projects: Path = PROJECTS) -> dict[str, str]:
+    """Map repository-relative directories to ecosystems for immediate children.
+
+    Category directories are always excluded so labs and samples never get a
+    Dependabot entry.
+    """
+    detected: dict[str, str] = {}
+    for project_dir in sorted(projects.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        name = project_dir.name
+        if name in EXCLUDED_CATEGORIES:
+            continue
+        ecosystem = detect_ecosystem(project_dir)
+        if ecosystem is not None:
+            detected[f"/projects/{name}"] = ecosystem
+    return detected
 
 
 def parse_entries(text: str) -> tuple[str, dict[str, list[str]]]:
@@ -290,16 +310,7 @@ def main() -> int:
     header, existing_entries = parse_entries(text)
 
     # 3. Scan projects
-    detected: dict[str, str] = {}
-    for project_dir in sorted(PROJECTS.iterdir()):
-        if not project_dir.is_dir():
-            continue
-        name = project_dir.name
-        if name in ("_labs", "_samples"):
-            continue
-        ecosystem = detect_ecosystem(project_dir)
-        if ecosystem is not None:
-            detected[f"/projects/{name}"] = ecosystem
+    detected = scan_projects()
 
     # 4. Build desired blocks, preserving existing settings
     desired_blocks: list[list[str]] = []

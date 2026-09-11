@@ -50,6 +50,25 @@ class MaintainDependabotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             self.assertIsNone(MAINTAIN.detect_ecosystem(Path(temp_dir)))
 
+    def test_scan_projects_excludes_lab_and_sample_categories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            projects = Path(temp_dir)
+            fixtures = (
+                ("main-project", "pnpm-lock.yaml"),
+                ("_labs/lab-project", "pnpm-lock.yaml"),
+                ("_samples/sample-project", "bun.lock"),
+                ("main-project/client", "package-lock.json"),
+            )
+            for relative_dir, lockfile in fixtures:
+                project_dir = projects / relative_dir
+                project_dir.mkdir(parents=True)
+                (project_dir / lockfile).touch()
+
+            self.assertEqual(
+                MAINTAIN.scan_projects(projects),
+                {"/projects/main-project": "npm"},
+            )
+
     def test_new_entry_contains_required_label(self) -> None:
         block = MAINTAIN.build_new_block("bun", "/projects/example")
         entry = MAINTAIN._entry_from_block(block)

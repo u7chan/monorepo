@@ -9,7 +9,7 @@
 
 | 項目 | 方針 |
 | --- | --- |
-| 対応するパッケージ管理 | Bun、uv |
+| 対応するパッケージ管理 | Bun、pnpm、uv |
 | 更新頻度 | 週次 |
 | 同時に開く PR | プロジェクトごとに `1` 件 |
 | minor / patch 更新 | プロジェクト単位で一つの PR にまとめる |
@@ -41,6 +41,7 @@ Dependabot PR が作成されたら、次の順に確認します。
 | パッケージ管理 | 必要なファイル |
 | --- | --- |
 | Bun | `package.json`、`bun.lock` |
+| pnpm | `package.json`、`pnpm-lock.yaml` |
 | uv | `pyproject.toml`、`uv.lock` |
 
 ### 2. `updates` を追加する
@@ -60,6 +61,29 @@ Dependabot PR が作成されたら、次の順に確認します。
     - "dependabot-auto-process"
   groups:
     your-bun-project-minor-and-patch:
+      applies-to: version-updates
+      patterns:
+        - "*"
+      update-types:
+        - "minor"
+        - "patch"
+```
+
+#### pnpm
+
+Dependabot に pnpm 専用の `package-ecosystem` 値はないため、pnpm を使うプロジェクトでも `package-ecosystem: "npm"` を指定します。バージョン更新が対応する pnpm は v7〜v10 です。
+
+```yaml
+- package-ecosystem: "npm"
+  directory: "/projects/your-pnpm-project"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 1
+  rebase-strategy: "disabled"
+  labels:
+    - "dependabot-auto-process"
+  groups:
+    your-pnpm-project-minor-and-patch:
       applies-to: version-updates
       patterns:
         - "*"
