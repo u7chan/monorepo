@@ -50,7 +50,12 @@ Ignore these directories under `projects/`:
 - Nested subdirectories
 - Any directory without a recognized lockfile
 
-例外として、Dependabot を意図的に有効にした実験プロジェクトがある。現在は `_labs/pi-agent-gui` だけが該当し、`scripts/maintain-dependabot.py` の `LAB_PROJECTS` で管理する。実験プロジェクトを対象に加える・外すときは、`.github/dependabot.yml` と `LAB_PROJECTS` の両方を同じ PR で更新する。
+The exception is an allowlist of lab projects that opted in to Dependabot on
+purpose. It is currently only `_labs/pi-agent-gui`, and the names live in
+`LAB_PROJECTS` in `scripts/maintain-dependabot.py`. `_samples` is never scanned,
+so a project with an allowlisted name under `_samples` is still ignored. When you
+add or remove a lab project, update `.github/dependabot.yml` and `LAB_PROJECTS`
+in the same PR.
 
 ## Ecosystem Detection
 
@@ -78,16 +83,17 @@ If the output is non-empty, stop and warn the user. This catches both staged and
 
 List candidate directories:
 
-    labs_projects="pi-agent-gui"
+    labs_allowlist="pi-agent-gui"
     for dir in projects/*/; do
       name=$(basename "$dir")
-      if [[ "$name" == "_labs" || "$name" == "_samples" ]]; then
-        # 実験プロジェクトは既定では対象外。allowlist に入れたものだけを拾う。
-        for lab in $labs_projects; do
+      if [[ "$name" == "_labs" ]]; then
+        # Lab projects are opt-in: only allowlisted names are scanned.
+        for lab in $labs_allowlist; do
           [[ -f "$dir$lab/pnpm-lock.yaml" ]] && echo "npm /projects/$name/$lab"
         done
         continue
       fi
+      [[ "$name" == "_samples" ]] && continue
       if [[ -f "$dir/bun.lock" || -f "$dir/bun.lockb" ]]; then
         echo "bun /projects/$name"
       elif [[ -f "$dir/pnpm-lock.yaml" ]]; then

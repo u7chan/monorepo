@@ -63,6 +63,8 @@ class MaintainDependabotTests(unittest.TestCase):
             (projects_root / "_samples").mkdir()
             (projects_root / "_samples" / "sample").mkdir()
             (projects_root / "_samples" / "sample" / "uv.lock").touch()
+            (projects_root / "_samples" / "pi-agent-gui").mkdir()
+            (projects_root / "_samples" / "pi-agent-gui" / "pnpm-lock.yaml").touch()
 
             self.assertEqual(
                 MAINTAIN.scan_projects(projects_root),
@@ -71,6 +73,17 @@ class MaintainDependabotTests(unittest.TestCase):
                     "/projects/_labs/pi-agent-gui": "npm",
                 },
             )
+
+    def test_scan_ignores_allowlisted_name_outside_labs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            projects_root = Path(temp_dir)
+            for parent in ("_samples", "_anything"):
+                (projects_root / parent).mkdir()
+                project_dir = projects_root / parent / "pi-agent-gui"
+                project_dir.mkdir()
+                (project_dir / "pnpm-lock.yaml").touch()
+
+            self.assertEqual(MAINTAIN.scan_projects(projects_root), {})
 
     def test_scan_skips_opted_in_labs_without_lockfile(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

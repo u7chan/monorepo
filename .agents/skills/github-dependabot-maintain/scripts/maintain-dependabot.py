@@ -14,9 +14,11 @@ import yaml
 CONFIG = Path(".github/dependabot.yml")
 PROJECTS = Path("projects")
 REQUIRED_LABEL = "dependabot-auto-process"
-EXCLUDED_DIRS = ("_labs", "_samples")
-# `_labs` is skipped by default; only lab projects that opted in to Dependabot are picked up.
+# `_labs` is skipped by default; the lab projects in ``LAB_PROJECTS`` are the only
+# exception. ``_samples`` is never scanned, even for a project with an allowlisted name.
+ALLOWLIST_DIR = "_labs"
 LAB_PROJECTS = ("pi-agent-gui",)
+EXCLUDED_DIRS = (ALLOWLIST_DIR, "_samples")
 
 
 def detect_ecosystem(project_dir: Path) -> str | None:
@@ -32,20 +34,24 @@ def detect_ecosystem(project_dir: Path) -> str | None:
 def scan_projects(projects_root: Path = PROJECTS) -> dict[str, str]:
     """Return ``directory -> ecosystem`` for every project tracked by Dependabot."""
     detected: dict[str, str] = {}
+
+    def record(directory: str, project_dir: Path) -> None:
+        ecosystem = detect_ecosystem(project_dir)
+        if ecosystem is not None:
+            detected[directory] = ecosystem
+
     for project_dir in sorted(projects_root.iterdir()):
         if not project_dir.is_dir():
             continue
         name = project_dir.name
-        if name in EXCLUDED_DIRS:
+        if name == ALLOWLIST_DIR:
             for child in sorted(project_dir.iterdir()):
                 if child.is_dir() and child.name in LAB_PROJECTS:
-                    ecosystem = detect_ecosystem(child)
-                    if ecosystem is not None:
-                        detected[f"/projects/{name}/{child.name}"] = ecosystem
+                    record(f"/projects/{name}/{child.name}", child)
             continue
-        ecosystem = detect_ecosystem(project_dir)
-        if ecosystem is not None:
-            detected[f"/projects/{name}"] = ecosystem
+        if name in EXCLUDED_DIRS:
+            continue
+        record(f"/projects/{name}", project_dir)
     return detected
 
 

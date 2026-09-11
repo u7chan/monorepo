@@ -18,7 +18,7 @@
 
 公開レジストリだけを使うプロジェクトには、レジストリの追加設定は不要です。非公開レジストリから取得する場合は、`registries` の設定と認証情報を別途追加します。
 
-`projects/_labs` と `projects/_samples` は原則対象外です。例外として、依存更新を追うと決めた実験プロジェクト（現在は `projects/_labs/pi-agent-gui`）だけを登録します。対象の実験プロジェクトは、`.github/dependabot.yml` と、設定を保守する skill の `LAB_PROJECTS` の両方に同じ名前を書きます。片方だけを変えると、次回の skill 実行で設定と実際の対象がずれます。
+`projects/_labs` と `projects/_samples` は原則対象外です。例外として、依存更新を追うと決めた `projects/_labs` 配下の実験プロジェクト（現在は `projects/_labs/pi-agent-gui`）だけを登録します。`projects/_samples` は、登録済みと同じ名前のプロジェクトがあっても対象になりません。対象の実験プロジェクトは、`.github/dependabot.yml` と、設定を保守する skill の `LAB_PROJECTS` の両方に同じ名前を書きます。片方だけを変えると、次回の skill 実行で設定と実際の対象がずれます。
 
 ## Dependabot PR を確認する
 
