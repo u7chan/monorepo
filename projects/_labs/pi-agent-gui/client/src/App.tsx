@@ -51,7 +51,7 @@ export default function App() {
         onOpenManager={() => setManagerOpen(true)}
       />
       <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden max-nav:min-h-0">
-        <Topbar runtimeStatus={desk.runtimeStatus} />
+        <Topbar runtimeStatus={desk.runtimeStatus} modelDisplay={desk.modelDisplay} />
         <ChatArea bubbles={desk.chat.bubbles} onSuggestion={handleSend} />
         <Composer
           activity={desk.chat.activity}

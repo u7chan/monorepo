@@ -253,6 +253,53 @@ test("session creation resolves request → definition → app default per field
   }
 });
 
+test("a session runs on its own model when it differs from the app default", async () => {
+  // アプリ既定 (health.model) と会話の実効モデルが違うとき、送信に使うモデルが
+  // 会話の選択値から動かないことを検証する。
+  const pi = createStubPi({ selectedModel: STUB_MODEL });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const health = await jsonBody(app.request("/api/health"));
+    assert.equal(health.model, "stub/stub-model");
+
+    const created = await app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-general", model: { provider: "stub", id: "stub-plain" } }),
+    );
+    assert.equal(created.status, 201);
+    const session = await jsonBody(created);
+    assert.equal(session.model, "stub/stub-plain", "会話の実効モデルは作成時の指定");
+    assert.notEqual(session.model, health.model);
+
+    const eventsResponse = await app.request(`/api/sessions/${session.sessionId}/events?after=0`);
+    const posted = await app.request(
+      `/api/sessions/${session.sessionId}/messages`,
+      jsonPost({ text: "この会話のモデルで実行して" }),
+    );
+    assert.equal(posted.status, 202);
+    await collectSse(eventsResponse, (list) => list.some((entry) => entry.type === "run_end"));
+
+    // prompt が届いたのは会話の pi セッション (会話のモデル)。health の既定は使われない。
+    const runSession = pi.sessions.find((item) => item.sessionId === session.piSessionId);
+    assert.ok(runSession, "会話の pi セッションが実行に使われる");
+    assert.equal(runSession?.model?.provider, "stub");
+    assert.equal(runSession?.model?.id, "stub-plain");
+    assert.equal(runSession?.messages[0]?.content, "この会話のモデルで実行して");
+
+    // health / 取得 / 一覧はいずれも既定と会話モデルを混ぜない
+    assert.equal((await jsonBody(app.request("/api/health"))).model, "stub/stub-model");
+    assert.equal((await jsonBody(app.request(`/api/sessions/${session.sessionId}`))).model, "stub/stub-plain");
+    const listed = await jsonBody(app.request("/api/sessions"));
+    const listedSession = listed.sessions.find(
+      (item: { sessionId: string }) => item.sessionId === session.sessionId,
+    );
+    assert.equal(listedSession.model, "stub/stub-plain");
+  } finally {
+    await bff.close();
+  }
+});
+
 test("chat settings endpoint validates the body and reports missing sessions", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
   const { app } = bff;
