@@ -98,8 +98,11 @@ export function ManagerScreen({
     return () => previousFocusRef.current?.focus();
   }, []);
 
-  // 選択対象が変わったらフォームへ流し込む
-  useEffect(() => {
+  // catalog 再読込時も初期化する既存契約を維持する。
+  // 自分自身の state を render 中に調整し、古いフォームを DOM に commit しない。
+  const [formSource, setFormSource] = useState<{ editingType: EditingType; editingId: string | null; catalog: Catalog } | null>(null);
+  if (formSource?.editingType !== editingType || formSource?.editingId !== editingId || formSource?.catalog !== catalog) {
+    setFormSource({ editingType, editingId, catalog });
     if (isAgent) {
       setAgentForm({
         name: editingAgent?.name || "",
@@ -116,8 +119,7 @@ export function ManagerScreen({
         prompt: editingSkill?.prompt || "",
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingType, editingId, catalog]);
+  }
 
   /** タブ切替: 種別を切り替えて、その一覧の先頭項目を選ぶ */
   const selectTab = (type: EditingType) => {

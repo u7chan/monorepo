@@ -77,15 +77,11 @@ export function Composer({
   const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
   const notice = settings.modelWarning ?? settings.effortNotice;
 
-  const resize = () => {
+  useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
-  };
-
-  useEffect(() => {
-    resize();
   }, [value]);
 
   const submit = () => {

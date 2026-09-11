@@ -127,3 +127,10 @@ POST /api/sessions { model?, thinkingLevel? }
 
 - 開発時は `pnpm dev`（BFF :4317）と `pnpm dev:web`（Vite :5173、HMR 付き）を併用する。Vite は `/api` を 4317 へプロキシするため、フロントエンドは同一オリジンの API としてそのまま動く。
 - 本番は `pnpm build` の産物 `client/dist/` を BFF が配信する。静的配信はリクエストパスを `client/dist` 内のファイルに解決し（ディレクトリ外は 404）、`index.html` は `no-cache`、Vite のハッシュ付き `assets/` 配下は `immutable` でキャッシュする。未ビルドのときは 503 で案内を出す。CSP は変わらず `default-src 'self'` のため、ビルド産物も同一オリジンのアセットだけで動く。
+## クライアントの Effect 契約
+
+- 起動時の復元とセッション一覧のポーリングは別の Effect とする。起動処理は表示期間に一度開始し、エージェント選択の変更では再実行しない。
+- cleanup 後は、起動処理から呼ぶカタログ取得・一覧取得・セッション復元・作成・health 取得の応答を適用しない。一覧取得は後から開始した要求を優先する。送信済みのセッション作成 POST 自体を取り消す保証はない。
+- SSE はセッション ID・再接続カウンタに同期し、通知処理は `useEffectEvent` で最新の callback を参照する。OS テーマは `useSyncExternalStore` で購読する。
+- 管理フォームは選択対象とカタログの変更を render 中に検出して自身の state を初期化する。カタログ再読込でも未保存入力をリセットする既存の挙動を維持し、dialog 自体は再マウントしない。
+- DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期には Effect を残す。コピー完了待ちの要求は cleanup で無効化する。

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 import {
   ApiError,
   createSession,
@@ -26,9 +26,11 @@ import type {
 import { chatReducer, initialChatState } from "./chatReducer";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { useSessionEvents } from "./useSessionEvents";
+import { createRequestGate } from "./requestGate";
 
 const SESSION_KEY = "pi-agent-session";
 const AGENT_KEY = "pi-agent-agent";
+const alwaysCurrent = () => true;
 
 /** SDK が定義する Effort の全段階 (モデルを解決できないときの案内表示に使う) */
 export const ALL_THINKING_LEVELS: ThinkingLevel[] = [
@@ -138,16 +140,20 @@ export function useAgentDesk() {
     return id;
   }, [agentId]);
 
-  const loadCatalog = useCallback(async (): Promise<Catalog> => {
+  const loadCatalog = useCallback(async (isCurrent = alwaysCurrent): Promise<Catalog> => {
     const next = await getCatalog();
+    if (!isCurrent()) return next;
     setCatalog(next);
     normalizeAgentId(next);
     return next;
   }, [normalizeAgentId]);
 
-  const refreshSessions = useCallback(async (): Promise<SessionSummary[]> => {
+  const [beginSessionsRequest] = useState(createRequestGate);
+  const refreshSessions = useCallback(async (isCurrent = alwaysCurrent): Promise<SessionSummary[]> => {
+    const canApply = beginSessionsRequest(isCurrent);
     try {
       const { sessions: list } = await listSessions();
+      if (!canApply()) return list;
       sessionsRef.current = list;
       setSessions(list);
       return list;
@@ -155,7 +161,7 @@ export function useAgentDesk() {
       // サーバーが一時的に届かないときは前回のリストを保持
       return sessionsRef.current;
     }
-  }, []);
+  }, [beginSessionsRequest]);
 
   const applyHealth = useCallback((next: Health) => {
     setHealth(next);
@@ -182,9 +188,10 @@ export function useAgentDesk() {
     dispatch({ type: "setActivity", text: detail });
   }, []);
 
-  const refreshHealth = useCallback(async (): Promise<Health | null> => {
+  const refreshHealth = useCallback(async (isCurrent = alwaysCurrent): Promise<Health | null> => {
     try {
       const next = await getHealth();
+      if (!isCurrent()) return null;
       applyHealth(next);
       return next;
     } catch {
@@ -199,9 +206,10 @@ export function useAgentDesk() {
     dispatch({ type: "resync", payload });
   }, []);
 
-  const selectSession = useCallback(async (id: string): Promise<void> => {
+  const selectSession = useCallback(async (id: string, isCurrent = alwaysCurrent): Promise<void> => {
     try {
       const payload = await getSession(id);
+      if (!isCurrent()) return;
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       const nextAgentId = payload.agent?.id || agentId;
@@ -210,26 +218,30 @@ export function useAgentDesk() {
       setAgentIdState(nextAgentId);
       applySnapshot(payload);
       setEpoch((e) => e + 1); // SSE を (lastSeq 更新後に) 張り直す
-      void refreshHealth();
+      void refreshHealth(isCurrent);
     } catch {
+      if (!isCurrent()) return;
       localStorage.removeItem(SESSION_KEY);
       sessionIdRef.current = "";
       setSessionId("");
       const fallback = sessionsRef.current.find((item) => item.sessionId !== id);
-      if (fallback) return selectSession(fallback.sessionId);
-      return newChatRef.current();
+      if (fallback) return selectSession(fallback.sessionId, isCurrent);
+      return newChatRef.current(undefined, isCurrent);
     }
   }, [agentId, applySnapshot, refreshHealth]);
 
-  const newChat = useCallback(async (nextAgentId?: string): Promise<void> => {
+  const newChat = useCallback(async (nextAgentId?: string, isCurrent = alwaysCurrent): Promise<void> => {
     try {
       const target = nextAgentId || agentId;
       // 作成前の選択をリクエストへ乗せ、項目別の初期値をサーバーに解決させる
       const session = await createSession(target || undefined, preselectionRef.current);
+      if (!isCurrent()) return;
       setPreselection({});
-      await refreshSessions();
-      await selectSession(session.sessionId);
+      await refreshSessions(isCurrent);
+      if (!isCurrent()) return;
+      await selectSession(session.sessionId, isCurrent);
     } catch (error) {
+      if (!isCurrent()) return;
       const status = runtimeStatusForError(error);
       setRuntimeStatus(status);
       dispatch({ type: "setActivity", text: status.detail || status.text });
@@ -411,38 +423,45 @@ export function useAgentDesk() {
 
   // --- 起動とポーリング ---
 
+  const boot = useEffectEvent(async (isCurrent: () => boolean) => {
+    try {
+      const h = await getHealth();
+      if (!isCurrent()) return;
+      applyHealth(h);
+      await loadCatalog(isCurrent);
+      if (!isCurrent()) return;
+      const list = await refreshSessions(isCurrent);
+      if (!isCurrent()) return;
+      const stored = localStorage.getItem(SESSION_KEY) || "";
+      const target = list.find((item) => item.sessionId === stored) || list[0];
+      if (target) await selectSession(target.sessionId, isCurrent);
+      // アプリ既定モデルが使えないときは自動 POST を繰り返さない。
+      // 入力欄の作成前選択から有効モデルを指定して作成できる。
+      else if (h.ready && !h.defaultModelError) await newChatRef.current(undefined, isCurrent);
+    } catch (error) {
+      if (!isCurrent()) return;
+      const status = runtimeStatusForError(error);
+      setRuntimeStatus({ ...status, text: status.authRequired ? status.text : "サーバー未接続" });
+      dispatch({ type: "setActivity", text: status.detail || status.text });
+    }
+  });
+
   useEffect(() => {
     let cancelled = false;
-    const boot = async () => {
-      try {
-        const h = await getHealth();
-        if (cancelled) return;
-        applyHealth(h);
-        await loadCatalog();
-        if (cancelled) return;
-        const list = await refreshSessions();
-        if (cancelled) return;
-        const stored = localStorage.getItem(SESSION_KEY) || "";
-        const target = list.find((item) => item.sessionId === stored) || list[0];
-        if (target) await selectSession(target.sessionId);
-        // アプリ既定モデルが使えないときは自動 POST を繰り返さない。
-        // 入力欄の作成前選択から有効モデルを指定して作成できる。
-        else if (h.ready && !h.defaultModelError) await newChatRef.current();
-      } catch (error) {
-        if (cancelled) return;
-        const status = runtimeStatusForError(error);
-        setRuntimeStatus({ ...status, text: status.authRequired ? status.text : "サーバー未接続" });
-        dispatch({ type: "setActivity", text: status.detail || status.text });
-      }
+    void boot(() => !cancelled);
+    return () => {
+      cancelled = true;
     };
-    void boot();
-    const timer = window.setInterval(() => void refreshSessions(), 4000);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setInterval(() => void refreshSessions(() => !cancelled), 4000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshSessions]);
 
   const selectedAgent: AgentDef | undefined = catalog.agents.find((agent) => agent.id === agentId);
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;

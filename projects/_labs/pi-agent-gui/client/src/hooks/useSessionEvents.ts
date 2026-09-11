@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useEffectEvent, type RefObject } from "react";
 import type { EventEntry, SSEEventType } from "../types";
 
 const EVENT_TYPES: SSEEventType[] = [
@@ -26,11 +26,9 @@ export type UseSessionEventsParams = {
 
 /** /api/sessions/:id/events への SSE 接続。旧 app.js の connectEvents 相当 */
 export function useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClosed }: UseSessionEventsParams): void {
-  // コールバックは最新のものを参照する (effect の再接続は sessionId 変化時のみ)
-  const onEventRef = useRef(onEvent);
-  const onClosedRef = useRef(onClosed);
-  onEventRef.current = onEvent;
-  onClosedRef.current = onClosed;
+  // 最新の処理を呼ぶが、コールバックの変更では再接続しない。
+  const handleEvent = useEffectEvent(onEvent);
+  const handleClosed = useEffectEvent(onClosed);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -49,7 +47,7 @@ export function useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClos
         if (data === null) data = {};
         const seq = Number(messageEvent.lastEventId);
         // type と data の相関はランタイムで正しいが、表現上ここでのみ単一キャストする
-        onEventRef.current({
+        handleEvent({
           seq: Number.isFinite(seq) ? seq : lastSeqRef.current,
           type,
           data,
@@ -61,7 +59,7 @@ export function useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClos
     source.onerror = () => {
       // readyState CONNECTING: ブラウザが Last-Event-ID 付きでリトライする
       if (source.readyState !== EventSource.CLOSED) return;
-      onClosedRef.current();
+      handleClosed();
     };
 
     return () => {

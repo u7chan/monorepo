@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -53,23 +54,17 @@ function readStoredChoice(): ThemeChoice {
   }
 }
 
+function subscribeLightMode(onChange: () => void) {
+  const query = getLightModeQuery();
+  query?.addEventListener("change", onChange);
+  return () => query?.removeEventListener("change", onChange);
+}
+
+const lightModeSnapshot = () => getLightModeQuery()?.matches ?? false;
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [choice, setChoiceState] = useState<ThemeChoice>(readStoredChoice);
-  const [prefersLight, setPrefersLight] = useState<boolean>(
-    () => getLightModeQuery()?.matches ?? false,
-  );
-
-  // OS の light / dark 切り替えを購読し、system 選択中は追従する
-  useEffect(() => {
-    const query = getLightModeQuery();
-    if (!query) return;
-    const handleChange = (event: MediaQueryListEvent) => {
-      setPrefersLight(event.matches);
-    };
-    setPrefersLight(query.matches);
-    query.addEventListener("change", handleChange);
-    return () => query.removeEventListener("change", handleChange);
-  }, []);
+  const prefersLight = useSyncExternalStore(subscribeLightMode, lightModeSnapshot, () => false);
 
   const resolvedId: ThemeId =
     choice === "system" ? (prefersLight ? SYSTEM_LIGHT_ID : SYSTEM_DARK_ID) : choice;
