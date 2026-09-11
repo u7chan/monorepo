@@ -36,4 +36,5 @@ pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ G
 
 - [README.md](README.md) — 使い方・環境変数
 - [docs/architecture.md](docs/architecture.md) — 非同期実行とセッション管理の設計
+- [docs/persistence.md](docs/persistence.md) — データの永続化範囲・再デプロイ時の挙動・将来の会話履歴DB化方針
 - [docs/api.md](docs/api.md) — HTTP API リファレンス
