@@ -6,6 +6,8 @@ pi SDK を BFF に埋め込んだ、使い捨て前提の小さなブラウザ G
 
 メッセージを送るとエージェントは**バックグラウンドで動き続けます**。ブラウザを閉じても処理は止まらず、複数の会話（セッション）を並行して進められます。停止は画面の「停止」ボタンまたは API で明示的に行います。
 
+作業用ツール（ファイル操作・シェル・検索）は **BFF から分離されたサンドボックスサービス**で実行されます。LLM 認証情報は BFF だけが持ち、サンドボックス側のプロセス・環境変数・ファイルシステムには渡りません。
+
 ## 起動
 
 Node.js 24 と pnpm 10.34.5 を使用します。`client/` と `server/` は一つのpnpm workspaceとして管理し、このディレクトリでコマンドを実行してください。
@@ -29,14 +31,19 @@ APIキーが未設定でも画面は起動しますが、送信はできませ�
 ### 開発（フロントエンドのホットリロード）
 
 ```bash
-# ターミナル 1: BFF
-pnpm dev
+# ターミナル 1: サンドボックス（ツール実行サービス）
+PI_SANDBOX_TOKEN=dev-shared-token-change-me pnpm start:sandbox
 
-# ターミナル 2: Vite 開発サーバー（HMR 付き）
+# ターミナル 2: BFF
+PI_SANDBOX_URL=http://127.0.0.1:8080 PI_SANDBOX_TOKEN=dev-shared-token-change-me pnpm dev
+
+# ターミナル 3: Vite 開発サーバー（HMR 付き）
 pnpm dev:web
 ```
 
 ブラウザで <http://localhost:5173> を開きます。`/api` へのリクエストは Vite が BFF（:4317）へプロキシします。
+
+BFF は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が無い場合、セッション作成時に明示エラーになります。BFF はツールをローカル実行へフォールバックしないため、開発時もサンドボックスの起動が必要です。ローカルでサンドボックスの既定作業領域はカレントディレクトリ（`PI_SANDBOX_CWD` で変更可）です。
 
 ```bash
 # 使用モデルを固定する場合
@@ -67,30 +74,32 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 
 セッションとエージェント/スキル定義はメモリ内だけで保持し、サーバー再起動でサンプルに戻ります。
 
-エージェントには `read / bash(or powershell) / edit / write / grep / find / ls` を渡しています。ローカルの作業ディレクトリでコマンド実行・ファイル変更を行えるため、信頼できる環境だけで使ってください。
+エージェントには `read / bash / edit / write / grep / find / ls` を渡しています。これらはすべてサンドボックスサービス内で実行され、BFF プロセスは任意の作業コードを実行しません。サンドボックスの作業領域でコマンド実行・ファイル変更を行えるため、信頼できる環境だけで使ってください。
 
-## APIキーの保護（暫定対策）
+## APIキーの保護
 
-BFFが環境変数で受け取ったプロバイダーAPIキーが、ツール利用や誤操作でLLM・ブラウザ・ログへ流れるのを減らす暫定対策を入れています。悪意ある任意コード実行に耐えるサンドバックスではありません。
+LLM 認証情報は BFF だけが保持し、ツール実行は認証付きの別サービス（サンドボックス）へ分離しています。
 
-- **対象のキー**: pi が認証に使う既知の環境変数（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY` など。pi-ai のプロバイダー解決に追従し、`AWS_BEARER_TOKEN_BEDROCK` のような解決外のキー変数も補完）の非空値。独自プロバイダーのキーは `PI_SECRET_ENV_VARS` で追加します（明示指定した変数は値の長さに関係なく保護。自動解決分は 8 文字未満を通常出力の過剰改変防止のため対象外とします）. AWS の IAM 認証情報（`AWS_ACCESS_KEY_ID` など）と OAuth トークンは対象外です
-- **子プロセスの環境変数は許可リスト方式**: bash / powershell ツールの子プロセスへは、`PATH`・`HOME`・ロケール・一時ディレクトリ・`TZ`・`TERM`（Windowsでは追加でシステム必須変数）と pi が注入する `PI_*` セッション変数だけを新しいオブジェクトで渡します。`BASH_ENV`・`ENV`・`NODE_OPTIONS` は継承しないため、起動設定経由でキーが再投入される経路もありません。`process.env` は変更しないため BFF 自身の認証への影響はありません
+- **実行の分離**: read / bash / edit / write / grep / find / ls のすべての作業用ツールは、BFF とは別プロセス（デプロイ時は別コンテナ）のサンドボックスサービスで実行されます。BFF はツール引数を認証付きAPIへ中継するだけで、任意の作業コードを BFF 上で実行しません。bash・ripgrep・fd はサンドボックス側で動きます
+- **認証情報の非共有**: サンドボックスのプロセス・環境変数・ファイルシステムには LLM 認証情報を渡しません。ツール実行APIの認証には専用の共有トークン（`PI_SANDBOX_TOKEN`）を使い、これは LLM 認証情報とは別の値です。APIはホストへ公開せず、BFF からの要求だけを受け付け、未認証要求は 401 で拒否します
+- **対象のマスク**: pi が認証に使う既知の環境変数（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY` など。pi-ai のプロバイダー解決に追従し、`AWS_BEARER_TOKEN_BEDROCK` のような解決外のキー変数も補完）の非空値。独自プロバイダーのキーは `PI_SECRET_ENV_VARS` で追加します（明示指定した変数は値の長さに関係なく保護。自動解決分は 8 文字未満を通常出力の過剰改変防止のため対象外とします）。AWS の IAM 認証情報（`AWS_ACCESS_KEY_ID` など）と OAuth トークンは対象外です
 - **ツール出力のマスク**: ツールの途中出力・最終出力・エラーに既知のキーが現れた場合、LLM・SSE・ログのいずれへも渡る前に `[REDACTED]` へ置換します。シェル以外のツール（read / grep など）の出力も対象です。ストリーミングではキーがチャンク境界をまたいでも生の値が現れないよう、前方一致になり得る末尾を保留してから配信します。SDKが出力を末尾Nバイトへ切り詰めることでキーの先頭が欠けた場合、また grep が一致行を500文字へ切り詰めることでキーの末尾が欠けた場合も、部分一致（4 文字以上）を置換します
 
 ### 保証しないこと（残存リスク）
 
-- 同じコンテナ・同じユーザーで任意コードを実行できる場合、認証ファイル（`~/.pi/agent/auth.json` など）の読み取りや `/proc` 等からの迂回は防げません
-- bash の起動経路によっては（stdin を pipe で渡すレガシーWSL環境など）、bash が `BASH_ENV` の代わりに `~/.bashrc` を読むことがあります。`~/.bashrc` や HOME 配下にキーを置かないでください
-- bash ツールの出力が切り詰められた場合、フル出力はSDKが一時ファイルへ書きます。ファイル自体はマスクされませんが、そのファイルを読むツール出力はマスクされます
+- 非rootコンテナ・別プロセス分離は完全な隔離ではありません。同一ユーザーのサンドボックス内では、会話間のセキュリティ分離はありません。ファイル・ポート・Git の共有情報は競合し得ます
+- サンドボックスから外向きの通信は制限していません。ツールで実行したコードはネットワークへ到達できます（ネットワーク制限・リソース上限はデプロイ側の運用に委ねます）
+- bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれます。ファイル自体はマスクされませんが、そのファイルを読むツール出力はマスクされます
 - ユーザーがチャットへ直接貼ったキーはモデルへはそのまま渡ります（画面・SSE・イベントログにはマスクが掛かります）
 - 分割・Base64など変換されたキーや、未登録の秘密情報は検出できません。OAuth トークンの取得・更新は対象外です
-- キーを読み取ったコードが直接外部へ通信する経路は防げません
+- ユーザーが作業領域へ置いたファイルの内容はツールから読めます。認証情報を作業領域へ置かないでください
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) の「APIキー漏洩の抑制」を参照してください。
 
 ## 構成
 
-- `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て。APIキー保護は `src/redact.ts`（マスク本体）、`src/child-env.ts`（子プロセスの環境変数許可リスト）、`src/secret-guard.ts`（SDK接続）が担う
+- `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て。APIキー保護は `src/redact.ts`（マスク本体）、`src/secret-guard.ts`（SDK接続）が担う
+- `server/src/sandbox/`: ツール実行サンドボックス（BFF と別プロセス）。`src/sandbox/service.ts` が認証付きツール実行API（NDJSON ストリーム）、`src/sandbox/client.ts` が BFF 側クライアント、`src/sandbox/remote-tools.ts` が SDK 組込みツールのリモート定義、`src/sandbox/index.ts` が起動エントリ
 - `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント
 - `server/test/`: node:test（pi はスタブで実 API を呼ばない）
 - `client/test/`: node:test（DOM を使わない純粋なクライアントロジックのみ。設定変更応答の競合など）
@@ -134,7 +143,32 @@ docker run --rm --init -p 127.0.0.1:4317:4317 \
 - 非rootの `node` ユーザー（UID/GID 1000）で動きます。mount先はこのユーザーが読み書きできる権限にしてください。アプリ本体は書き換えできず、既定の作業先は `/workspace` です。
 - エージェントはmount先のファイル変更やbash実行ができます。Docker socket、ホーム全体、不要な秘密情報はmountしないでください。
 - APIキーは上の例のようにホスト側から環境変数（`-e ANTHROPIC_API_KEY`）で渡します。キー入りの `.env` を `/workspace` へマウントしないでください。エージェントのツールがそのファイルを読めます。APIキーやOAuth認証ファイルをイメージへ焼き込まないでください。OAuthを使う場合は専用の認証領域を実行時に渡し、更新時の書込みも考慮してください。ホストの `~/.pi` は自動共有されません。
-- Bash、Git、ripgrep、Node.jsを同梱しています。任意の開発環境が揃っているわけではありません。必要なツールは用途に合わせて追加してください。
+- Bash、Git、ripgrep、fd-find、Node.jsを同梱しています。任意の開発環境が揃っているわけではありません。必要なツールは用途に合わせて追加してください。
 - セッションとエージェント／スキル定義はメモリ内のみで、コンテナを再起動すると消えます。必要な定義は画面からエクスポートしてください。
+
+### サンドボックス（ツール実行サービス）を分離して動かす
+
+イメージはBFFとサンドボックスで共用し、`command` だけ差し替えて2コンテナで起動します。ツール実行API（`8080`）はホストへpublishせず、BFFとのみ内部ネットワークで到達します。
+
+```bash
+docker network create pi-agent-gui-net
+
+# サンドボックス（作業領域を永続マウントする。BFF にはマウントしない）
+docker run -d --name pi-agent-gui-sandbox --network pi-agent-gui-net \
+  -e PI_SANDBOX_TOKEN=同じ共有トークン \
+  --mount type=bind,src=/absolute/path/to/workspace,dst=/workspace \
+  pi-agent-gui:local node --import tsx src/sandbox/index.ts
+
+# BFF（作業領域はマウントしない）
+docker run --rm --init --name pi-agent-gui --network pi-agent-gui-net -p 127.0.0.1:4317:4317 \
+  -e ANTHROPIC_API_KEY \
+  -e PI_SANDBOX_URL=http://pi-agent-gui-sandbox:8080 \
+  -e PI_SANDBOX_TOKEN=同じ共有トークン \
+  pi-agent-gui:local
+```
+
+- `PI_SANDBOX_TOKEN` は BFF とサンドボックスの2コンテナにだけ渡す実行API認証用の共有トークンです。LLM認証情報とは別の値を使い、他の環境変数やファイルへ展開しません
+- サンドボックスは非rootの `node` ユーザー（UID/GID 1000）で動くため、マウント先はこのユーザーが読み書きできる所有権にしてください
+- 正式なCompose構成・永続領域・資格情報の配置はデプロイ側リポジトリ（self-hosted-runner）で管理します
 
 CDの仕組みは [モノレポのCI/CD](../../../docs/about-cicd.md) を参照してください。

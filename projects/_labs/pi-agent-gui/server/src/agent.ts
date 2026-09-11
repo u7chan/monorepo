@@ -17,13 +17,10 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
 import { ThinkingLevelSchema } from "./schema";
-import { extraChildEnvNames } from "./child-env";
+import { createSandboxToolClientFromEnv } from "./sandbox/client";
+import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import type { SecretMasker } from "./redact";
-import {
-  createGuardedShellToolDefinitions,
-  createRuntimeSecretMasker,
-  createSecretRedactionExtension,
-} from "./secret-guard";
+import { createRuntimeSecretMasker, createSecretRedactionExtension } from "./secret-guard";
 import type { AgentDef, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
 export interface PiModelRef {
@@ -34,6 +31,10 @@ export interface PiModelRef {
 /** UI にそのまま表示できる、認証未設定時の案内。 */
 export const AUTH_REQUIRED_MESSAGE =
   "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、保存済みの認証情報を確認してからサーバーを再起動してください。";
+
+/** UI にそのまま表示できる、サンドボックス未設定時の案内。 */
+export const SANDBOX_NOT_CONFIGURED_MESSAGE =
+  "サンドボックスが設定されていません。PI_SANDBOX_URL と PI_SANDBOX_TOKEN を設定してサーバーを再起動してください (ローカルでのツール実行にはフォールバックしません)。";
 
 const MODEL_UNAVAILABLE_MESSAGE =
   "利用可能なモデルがありません。既定モデルまたはプロバイダーの設定を確認してください。";
@@ -73,6 +74,8 @@ export interface PiBff {
   /** 明示 PI_MODEL が利用不能なときの理由 (他候補があれば ready のまま) */
   defaultModelError: string | undefined;
   availabilityError: string | undefined;
+  /** PI_SANDBOX_URL / PI_SANDBOX_TOKEN が揃っていれば true (未設定ならセッション作成を 503 で拒否) */
+  sandboxConfigured: boolean;
   tools: string[];
   /** availableModels に厳密一致した SDK のモデルを返す (なければ undefined) */
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
@@ -158,6 +161,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   // 保護対象はあくまで「環境変数で BFF が受け取ったキーの非空値」。認証に
   // 使う process.env は変更しない (マスクと env 絞りは出力/子プロセス側のみ)。
   const secretMasker = createRuntimeSecretMasker(modelRuntime.getProviders(), process.env);
+  // 作業用ツールは全てサンドボックス (別プロセス) で実行する。未設定なら
+  // セッション作成時に明示エラーとし、BFF ローカル実行へはフォールバックしない。
+  const sandboxClient = createSandboxToolClientFromEnv(process.env);
 
   const requested = parseModelReference();
   let availableModelList: PiAiModel<Api>[] = [];
@@ -224,6 +230,11 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       error.statusCode = 503;
       throw error;
     }
+    if (!sandboxClient) {
+      const error = new Error(SANDBOX_NOT_CONFIGURED_MESSAGE) as Error & { statusCode?: number };
+      error.statusCode = 503;
+      throw error;
+    }
     // セッションを使い捨てに保つ: JSONL セッションファイルを作らず、
     // ユーザーの pi 設定にも書き込まない。共有の ModelRuntime は
     // 通常の pi 認証を読むだけ。
@@ -271,13 +282,15 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       settingsManager,
       sessionManager: SessionManager.inMemory(projectCwd),
       tools: configuredTools(),
-      // 同名の組み込み bash / powershell を、子プロセスの環境変数を
-      // 許可リストへ絞る spawnHook 付きの定義で置き換える。
-      customTools: createGuardedShellToolDefinitions(
-        projectCwd,
-        secretMasker,
-        extraChildEnvNames(process.env),
-      ),
+      // 作業用ツール (read / bash / edit / write / grep / find / ls) は、同じ名前の
+      // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換える。
+      // BFF 上では任意の作業コードを実行しない。
+      customTools: createRemoteToolDefinitions({
+        cwd: projectCwd,
+        client: sandboxClient,
+        masker: secretMasker,
+        tools: configuredTools(),
+      }),
     };
 
     return createAgentSession(options);
@@ -293,6 +306,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     defaultThinkingLevel,
     defaultModelError,
     availabilityError,
+    sandboxConfigured: Boolean(sandboxClient),
     tools: configuredTools(),
     resolveModel,
     createSession,

@@ -1,24 +1,14 @@
 /**
  * 保護対象の秘密値を BFF の環境変数から集め、pi SDK の公開 API
- * (ツール定義の spawnHook / execute、インライン拡張の tool_result) へ
- * マスクを差し込む glue。
+ * (ツール定義の execute、インライン拡張の tool_result) へマスクを差し込む glue。
+ *
+ * 作業用ツールはサンドボックス (server/src/sandbox/) で実行されるため、BFF は
+ * 子プロセスを起こさない。環境変数の許可リスト (旧 child-env.ts) はリモート化で
+ * 役目を終え、BFF は出力マスクだけを担う。
  */
-import {
-  createBashToolDefinition,
-  createPowerShellToolDefinition,
-  type InlineExtension,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { type InlineExtension, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
-import { buildChildEnv } from "./child-env";
 import { createSecretMasker, MIN_SECRET_LENGTH, maskTextContentParts, type SecretMasker } from "./redact";
-
-/** シェルツールが子プロセスへ渡す前に許可リストへ絞るための hook 引数。 */
-interface SpawnContext {
-  command: string;
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-}
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 type ShellExecute = AnyToolDefinition["execute"];
@@ -131,29 +121,8 @@ export function wrapToolDefinitionWithSecretMasker(
 }
 
 /**
- * bash / powershell ツールを、子プロセスの環境変数を許可リストへ絞る
- * spawnHook 付きで作り直し、出力のマスクで包む。同名の組み込みツールは
- * customTools として登録した定義で置き換わる。
- */
-export function createGuardedShellToolDefinitions(
-  cwd: string,
-  masker: SecretMasker,
-  extraEnvNames: readonly string[] = [],
-): ToolDefinition[] {
-  const spawnHook = (context: SpawnContext): SpawnContext => ({
-    ...context,
-    env: buildChildEnv(context.env, extraEnvNames),
-  });
-  return [
-    wrapToolDefinitionWithSecretMasker(createBashToolDefinition(cwd, { spawnHook }), masker),
-    wrapToolDefinitionWithSecretMasker(createPowerShellToolDefinition(cwd, { spawnHook }), masker),
-  ];
-}
-
-/**
  * 全ツールの最終結果を、LLM・履歴・イベントへ渡る前にマスクする
- * インライン拡張。シェル以外のツール (read / grep / 独自ツール) の出力も
- * ここで一括して掛かる。
+ * インライン拡張。ツール定義の外からは観測できない出力もここで一括して掛かる。
  */
 export function createSecretRedactionExtension(masker: SecretMasker): InlineExtension {
   return (pi) => {

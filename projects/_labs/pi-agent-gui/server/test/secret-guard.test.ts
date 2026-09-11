@@ -5,11 +5,10 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createGrepToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition, createGrepToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import {
   collectSecretValues,
-  createGuardedShellToolDefinitions,
   createSecretRedactionExtension,
   extraSecretVarNames,
   wrapToolDefinitionWithSecretMasker,
@@ -18,21 +17,10 @@ import {
 const KEY = "sk-guard-dummy-0123456789abcdef";
 const OPENAI_DUMMY = "sk-openai-dummy-0123456789";
 const CUSTOM_DUMMY = "custom-secret-0123456789";
-const DUMMY_ENV_VAR = "DUMMY_GUARD_PROVIDER_API_KEY";
 const HAS_BASH = existsSync("/bin/bash");
 const SKIP_REASON = "bash is not available on this platform";
 const HAS_RG = spawnSync("rg", ["--version"], { stdio: "ignore" }).status === 0;
 const RG_SKIP_REASON = "ripgrep is not available on this platform";
-
-function withTempEnv(name: string, value: string | undefined, run: () => Promise<void>): Promise<void> {
-  const previous = process.env[name];
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
-  return run().finally(() => {
-    if (previous === undefined) delete process.env[name];
-    else process.env[name] = previous;
-  });
-}
 
 function toolText(result: { content: Array<{ type: string; text?: string }> }): string {
   return result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
@@ -79,54 +67,14 @@ test("extraSecretVarNames parses PI_SECRET_ENV_VARS and drops invalid names", ()
   assert.deepEqual(extraSecretVarNames({}), []);
 });
 
-test("guarded bash tool runs normal commands with an allowlisted environment", { skip: !HAS_BASH && SKIP_REASON }, async () => {
+test("masked bash tool masks key values that appear in command output", { skip: !HAS_BASH && SKIP_REASON }, async () => {
+  // bash はサンドボックスで実行されるが、出力は BFF 側のマスカーを通る。
+  // ローカルの bash 定義を包んだ場合と同じセマンティクスを担保する。
   const cwd = mkdtempSync(join(tmpdir(), "pi-guard-"));
-  const [definition] = createGuardedShellToolDefinitions(cwd, createSecretMasker([KEY]));
-  await withTempEnv(DUMMY_ENV_VAR, KEY, async () => {
-    await withTempEnv("BASH_ENV", "/tmp/pi-guard-profile-that-must-not-load", async () => {
-      const result = await definition.execute(
-        "t1",
-        { command: "env; echo done-$?" },
-        undefined,
-        undefined,
-        undefined as never,
-      );
-      const text = toolText(result);
-      assert.ok(!text.includes(KEY), "provider key must not reach the child environment");
-      assert.ok(!text.includes("BASH_ENV="), "BASH_ENV must not be inherited");
-      assert.match(text, /^PATH=/m, "PATH must be present");
-      assert.ok(text.includes("done-0"), `normal command failed: ${text}`);
-    });
-  });
-});
-
-test("guarded bash tool keeps SDK session metadata variables", { skip: !HAS_BASH && SKIP_REASON }, async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-guard-"));
-  const [definition] = createGuardedShellToolDefinitions(cwd, createSecretMasker([]));
-  const ctx = {
-    cwd,
-    sessionManager: {
-      getSessionId: () => "pi-session-id",
-      getSessionFile: () => undefined,
-    },
-    model: { provider: "stub", id: "stub-model" },
-    thinkingLevel: "low",
-  } as never;
-  const result = await definition.execute(
-    "t2",
-    { command: "printenv PI_SESSION_ID PI_PROVIDER PI_MODEL" },
-    undefined,
-    undefined,
-    ctx,
+  const definition = wrapToolDefinitionWithSecretMasker(
+    createBashToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
+    createSecretMasker([KEY]),
   );
-  const text = toolText(result);
-  assert.match(text, /pi-session-id/);
-  assert.match(text, /stub/);
-});
-
-test("guarded bash tool masks key values that appear in command output", { skip: !HAS_BASH && SKIP_REASON }, async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-guard-"));
-  const [definition] = createGuardedShellToolDefinitions(cwd, createSecretMasker([KEY]));
   const result = await definition.execute(
     "t3",
     { command: `echo "token=${KEY}"` },

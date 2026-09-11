@@ -7,7 +7,9 @@
   "description": "A tiny browser GUI backed by the pi SDK.",
   "scripts": {
     "start": "pnpm --filter server start",
+    "start:sandbox": "pnpm --filter server start:sandbox",
     "dev": "pnpm --filter server dev",
+    "dev:sandbox": "pnpm --filter server dev:sandbox",
     "dev:web": "pnpm --filter client dev",
     "build": "pnpm --filter client build",
     "test": "pnpm --filter server test && pnpm --filter client test",

@@ -1,6 +1,6 @@
 # 非同期実行とセッション管理の設計
 
-ブラウザ ⇄ BFF（`server/src/app.ts`、Hono）⇄ pi SDK（`server/src/agent.ts`）という 3 層構成。エージェントの実行ライフサイクルは HTTP リクエストから完全に切り離され、`server/src/sessions.ts` の `SessionStore` が所有する。
+ブラウザ ⇄ BFF（`server/src/app.ts`、Hono）⇄ pi SDK（`server/src/agent.ts`）⇄ サンドボックス（`server/src/sandbox/`、ツール実行）という 4 層構成。エージェントの実行ライフサイクルは HTTP リクエストから完全に切り離され、`server/src/sessions.ts` の `SessionStore` が所有する。LLM 認証情報は BFF 層までで止まり、サンドボックス層へは渡らない。
 
 ## 基本原則
 
@@ -104,9 +104,45 @@ POST /api/sessions { model?, thinkingLevel? }
 - カタログ CRUD の body はわざと pass-through（zod 厳格化しない）。エージェント名の必須チェックや `model` / `thinkingLevel` の正規化・日本語エラー文言は `agents.ts` 側が正。
 - モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.85.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
 
+## ツール実行のサンドボックス分離
+
+作業用ツール（read / bash / edit / write / grep / find / ls）は BFF プロセス内では実行しない。pi SDK の `customTools` で同名の組み込みツールを「サンドボックス実行APIを呼ぶリモート定義」で置き換え、BFF が任意の作業コードを実行する経路を無くす。LLM 認証情報は BFF だけが保持し、サンドボックスのプロセス・環境変数・ファイルシステムには渡らない。
+
+### 構成
+
+```
+pi SDK (BFF)                       sandbox service (別プロセス / 別コンテナ)
+  customTools (remote-tools.ts)         service.ts: SDK 組込みツールをローカル実行
+   ├ execute() プロキシ  ── Bearer ──▶  POST /v1/tools/:tool/execute (NDJSON)
+   ├ onUpdate ◀──── update イベント      (onUpdate を relay)
+   └ result / error ◀── result / error   POST /v1/executions/:id/cancel
+```
+
+- `remote-tools.ts`: ツールのメタデータ（名前・説明・TypeBox スキーマ）はローカルで生成した SDK 組込み定義から借り、`execute` だけを差し替える。grep / find が BFF ローカルで rg / fd を起動しないよう、検索プロセスも含めてすべてサンドボックス側で完結する。未知のツール名（`powershell` など）は設定ミスとして例外にする
+- `service.ts`: SDK のローカルツール実装を実ファイルシステムに対して実行し、NDJSON（`start` / `update` / `result` / `error`）で応答する。bash は `exposeSessionEnvironment: false` で生成し、セッションメタ変数を子プロセスへ注入しない
+- `client.ts`: ストリームを解釈して SDK の `execute()` 契約（`onUpdate` / 最終結果 / abort）へ写し替える。abort は cancel エンドポイント（実行IDが判明後）と接続切断の両方でサンドボックスへ伝播し、サンドボックス側は SDK ツールの `AbortSignal` で子プロセスを殺す
+
+### 認証と到達性
+
+- すべての `/v1/*` は `Authorization: Bearer PI_SANDBOX_TOKEN` を要求し、長さを漏らさない定数時間比較で検証する。未認証は 401
+- `/healthz` は無認証（Compose healthcheck 用）。ツール実行の情報は含まない
+- ツール実行APIはホストへ publish しない。BFF ⇄ サンドボックスは専用の内部ネットワークのみで到達する。トークンは BFF とサンドボックスの 2 サービスにのみ渡す（LLM 認証情報とは別の値）
+- `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定のとき、BFF はセッション作成を 503 で拒否する（ローカル実行へのフォールバックなし）
+
+### パスと並行実行
+
+- BFF のセッション cwd（`PI_APP_CWD=/workspace`）とサンドボックスの作業領域（`PI_SANDBOX_CWD=/workspace`）を同じコンテナ内パスに揃え、パス変換なしでサンドボックス側へ解決させる。作業領域の永続マウントはサンドボックスだけへ付け、BFF には付けない
+- 実行は toolCallId / executionId 単位で独立し、複数セッションの並行実行でも要求と出力が混線しない。ブラウザ切断はランに影響せず（§ランのライフサイクル）、明示停止（`POST /stop` → `session.abort()`）だけが対象のツール実行を中断する
+
+### 配布イメージと起動契約
+
+- イメージは BFF とサンドボックスで共用し、`command` だけ差し替える（`node --import tsx src/sandbox/index.ts`）。CD（`final` ステージ）の単一イメージ前提を維持する
+- イメージには bash / git / ripgrep / fd-find（`fd` へ symlink）を事前搭載する。ripgrep・fd はサンドボックス内で必要
+- サンドボックスは非rootの `node` ユーザー（UID/GID 1000）で動く。ホスト側の永続領域実パス・所有権・Compose 構成はデプロイ側リポジトリ（self-hosted-runner）で管理する
+
 ## APIキー漏洩の抑制
 
-プロバイダーAPIキーを環境変数で BFF へ渡す運用でも、ツール利用・誤操作でキーが LLM・ブラウザ・ログへ流れにくくする暫定対策。実行環境の分離（恒久対応）は行わず、SDKの公開APIだけて実装する。
+プロバイダーAPIキーを環境変数で BFF へ渡す運用でも、キーが LLM・ブラウザ・ログへ流れにくくする多層防御。ツール実行自体はサンドボックスへ分離済みで、ここで述べるのは BFF 内での出力マスク（キーが作業領域のファイル等へ現れた場合の二次漏洩対策）と、SDKの公開APIだけて実装する縛り。
 
 ### 保護対象
 
@@ -117,14 +153,11 @@ POST /api/sessions { model?, thinkingLevel? }
 
 ### レイヤー
 
-1. **子プロセスの環境変数（`server/src/child-env.ts`）**
-   - `buildChildEnv()` が許可リストの変数だけを新しいオブジェクトへコピーする。禁止リストやコマンド文字列の判定には依存しない
-   - bash は `bash -c`（非対話・非ログイン）で起動されプロファイルを読まない。加えて `BASH_ENV` / `ENV` / `NODE_OPTIONS` を継承しないため、起動設定経由の再投入も起きない
-   - `process.env` は一切変更しない。並行セッションや認証解決（リクエスト時に env を読む）への影響はない
+1. **実行の分離（`server/src/sandbox/`）**
+   - 作業用ツールは全てサンドボックス（別プロセス・別コンテナ）で実行する。BFF は子プロセスを起こさないため、子プロセスの環境変数を絞る旧 child-env.ts は役目を終えて廃止した
+   - サンドボックスには LLM 認証情報を渡さない。bash が何を読んでも（`BASH_ENV`・`~/.bashrc` 等）、キーはそこに存在しない
 2. **ツール定義のフック（`server/src/secret-guard.ts`）**
-   - `createBashToolDefinition` / `createPowerShellToolDefinition` に `spawnHook` を渡し、SDK が組み立てた env（`PI_*` セッション変数注入後）を許可リストへ絞る。同名の `customTools` として登録し組み込みツールを置き換える
-   - `execute` をラップし、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
-   - bash ツールは通常 `stdio[0] = "ignore"`（fd0 = /dev/null）で起動されるため、非対話 bash は `BASH_ENV` を読む。許可リストが `BASH_ENV` を落とすことで起動設定経由の再投入は起きない。一方 stdin が pipe（ソケット）になる経路では bash は `BASH_ENV` の代わりに `~/.bashrc` を読むため、これは残存リスクとしてドキュメント化する
+   - `createRemoteToolDefinitions` が作るリモート定義を `wrapToolDefinitionWithSecretMasker` で包み、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
 3. **tool_result 拡張（同ファイル）**
    - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
 4. **BFF の送出層（`server/src/sessions.ts`）**
@@ -145,18 +178,19 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 
 実APIは呼ばず、ダミーキーとスタブで検証する。
 
-- `server/test/child-env.test.ts` — 許可リストの内容、`process.env` 非改変・並行構築の独立性、実 bash 子プロセス（bash ツールと同じ `spawn` + `stdio[0]="ignore"`）での `env` / `printenv` / Node.js 参照、`BASH_ENV` 経由の再投入が起きないことの対照実験、通常コマンドの動作
-- `server/test/secret-guard.test.ts` — シェルツールの env 絞り・`PI_*` 維持・出力マスク、途中出力とエラーのマスク、SDKの切り詰めで先頭が欠けたケース、実SDKのgrepで行切り詰め境界に跨った断片のマスク、`tool_result` 拡張
+- `server/test/sandbox-service.test.ts` — 実行APIの認証（未認証 401・未知ツール 404）、実SDKのbash/read/write/grepによる実行とNDJSON、rootCwd 基準のパス解決、cancel による中断と速やかなストリーム閉鎖、セッションメタ変数・トークンが子プロセス出力へ出ないこと、close での全実行中断
+- `server/test/sandbox-client.test.ts` — NDJSON 解釈（start/update/result/error）、abort 時の cancel エンドポイント発火と `Operation aborted`、HTTP エラーの文言変換
+- `server/test/secret-guard.test.ts` — リモート定義を包むマスカーの出力マスク、途中出力とエラーのマスク、SDKの切り詰めで先頭が欠けたケース、実SDKのgrepで行切り詰め境界に跨った断片のマスク、`tool_result` 拡張
 - `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
 - `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと
 
 ### 残存リスク
 
-- 同じコンテナ・同じユーザーで任意コードを実行できる限り、認証ファイルの読み取りや `/proc` 等からの迂回は防げない
-- bash ツールの出力が切り詰められた場合、フル出力はSDKが一時ファイルへ書く。ファイル自体はマスクされないが、それを読むツール出力はマスクされる
-- stdin が pipe（ソケット）になる起動経路（stdin 経由でコマンドを渡すレガシーWSL環境など）では、bash が `BASH_ENV` の代わりに `~/.bashrc` を読む。HOME 配下にキーを置かない運用とする
+- 非rootコンテナ・別プロセスは完全な隔離ではない。同一ユーザーのサンドボックス内では会話間のセキュリティ分離はなく、ファイル・ポート・Git の共有情報は競合し得る
+- サンドボックスから外向きの通信は制限していない。ツールで実行したコードはネットワークへ到達できる。ネットワーク制限・リソース上限の具体値はデプロイ側の運用に委ねる
+- bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれる。ファイル自体はマスクされないが、それを読むツール出力はマスクされる
 - 分割・エンコードされたキーや未登録の秘密情報は検出できない。OAuth トークンは対象外
-- キーを読み取ったコードが直接外部通信する経路は防げない
+- ユーザーが作業領域へ置いたファイルの内容はツールから読める。認証情報を作業領域へ置かない運用とする
 
 ## フロントエンド
 
