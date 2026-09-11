@@ -24,6 +24,7 @@ import type {
   ThinkingLevel,
 } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
+import { modelDisplayOf } from "./modelDisplay";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { useSessionEvents } from "./useSessionEvents";
 import { createRequestGate } from "./requestGate";
@@ -80,6 +81,7 @@ export type ComposerSettings = {
   sendBlockedReason?: string;
 };
 
+/** ヘッダーの接続状態。モデルは含めない (会話モデル表示は ModelDisplay が持つ) */
 export type RuntimeStatus = {
   text: string;
   error: boolean;
@@ -172,7 +174,10 @@ export function useAgentDesk() {
       if (next.defaultModelError) {
         setRuntimeStatus({ text: "モデル未選択", error: true, detail: next.defaultModelError });
       } else {
-        setRuntimeStatus({ text: next.model || "接続中", error: false });
+        // ここではモデルを出さない。health.model はアプリ既定であり、選択中
+        // セッションの実効モデルとは一致するとは限らない。ヘッダーのモデル表示は
+        // セッションの実効値から導出し、接続状態だけを更新する。
+        setRuntimeStatus({ text: "接続中", error: false });
       }
       return;
     }
@@ -202,7 +207,8 @@ export function useAgentDesk() {
   const applySnapshot = useCallback((payload: SessionPayload) => {
     lastSeqRef.current = payload.lastSeq || 0;
     setCwd((prev) => payload.cwd || prev);
-    if (payload.model) setRuntimeStatus({ text: payload.model, error: false });
+    // 会話の実効モデルは chat.sessionModel (resync) に入る。ヘッダーはそこから
+    // 導出するため、runtimeStatus には書き込まない (health 再取得で上書きされる)。
     dispatch({ type: "resync", payload });
   }, []);
 
@@ -475,6 +481,13 @@ export function useAgentDesk() {
     label ? modelOptions.find((option) => `${option.provider}/${option.id}` === label) : undefined;
 
   const inSession = Boolean(sessionId);
+  // ヘッダーに出すモデル。選択中はセッションの実効モデル (会話モデル) だけを使い、
+  // 未作成のチャットに限りアプリ既定を「既定」と明示して出す。
+  const modelDisplay = modelDisplayOf({
+    inSession,
+    sessionModel: chat.sessionModel,
+    defaultModel: health?.model,
+  });
   // 未作成のチャットはサーバーと同じ優先順位 (作成前の選択 → 定義 → アプリ既定) で表示する
   const pendingModel = modelLabelOf(preselection.model) ??
     modelLabelOf(selectedAgent?.model) ??
@@ -520,6 +533,7 @@ export function useAgentDesk() {
     agentId,
     setAgentId,
     runtimeStatus,
+    modelDisplay,
     cwd,
     sending,
     settingsChanging,

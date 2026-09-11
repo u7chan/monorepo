@@ -73,6 +73,8 @@ POST /api/sessions { model?, thinkingLevel? }
 
 チャット単位の変更は `PATCH /api/sessions/:id/settings`。同じ SDK セッション・履歴・タイトルを保ち、実効値は pi セッション（`session.model` / `session.thinkingLevel`）を正とする。
 
+送信（`POST /api/sessions/:id/messages`）は text だけを受け取り、モデルはそのセッションの SDK セッションが持つ実効値（`session.model`）で決まる。送信ごとのモデル指定は無いため、表示（入力欄 / ヘッダー）と実際の送信先が食い違わないよう、クライアントは選択中セッションの実効モデルだけを表示する。
+
 1. 実行中・キューあり・SDK 非 idle・設定変更中なら 409（変更前にフラグを同期的に予約する）。
 2. モデルは available と厳密照合（不在は 400）。
 3. モデルだけの変更では、変更前の実効 `thinkingLevel` を退避して `setModel(model, {persist:false})` の後に再適用する（SDK のモデル切替既定に任せない）。両方指定時は要求値を再適用する。
@@ -209,6 +211,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - SSE イベント（`text` / `tool_start` / `tool_end` / `run_end` など）を React の reducer で受け、イベントログから UI 状態（メッセージ列、ツールカード、実行状態）を導出して仮想 DOM へ反映する。旧 `app.js` のようにイベントハンドラで DOM を直接書き換えるのではなく、「イベントの適用」を純粋な状態遷移として書くことで、再接続時のリプレイ / `resync` も同じ reducer で処理できる。
 - 接続管理（`EventSource` の再接続、`Last-Event-ID`、`resync` の検知）はカスタムフックに集約し、コンポーネントは描画に集中する。
 - 入力欄の Model / Effort ピッカーは `Composer` に置く。セッションがあれば `resync` で受け取った実効値、未作成のチャットでは「作成前の選択 → 選択中エージェントの定義 → health のアプリ既定」を同じ優先順位で表示する。選択は未作成ならローカルに保持して `POST /api/sessions` に乗せ、作成済みなら `PATCH /api/sessions/:id/settings` を呼んでサーバーの実効値へ同期する。生成中・キュー待ち・設定変更通信中はピッカーを無効化し、設定変更通信中は送信も待たせる。
+- ヘッダーのモデル表示は `client/src/hooks/modelDisplay.ts` が導出する。選択中セッションでは会話の実効モデル（`resync` の `payload.model`）だけを使い、サーバー既定（`health.model`）へフォールバックしない。未作成のチャットに限りアプリ既定を「既定」と明示して出す。状態として持たず毎レンダー導出するため、リロード・会話切替・`/api/health` 再取得の応答順に左右されない（`applyHealth` は接続状態だけを更新する）。
 - 設定変更の応答適用は `client/src/hooks/settingsChange.ts` に切り出す。応答や回復 GET を待っている間にサイドバーで別のチャットへ切り替えられるため、各 await の後に「要求したセッションがまだ選択中か」を確認し、切替済みの古い応答では履歴 / Model / Effort / `lastSeq` / 活動表示を更新しない。
 
 ### 開発フローと配信
