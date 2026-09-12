@@ -39,6 +39,14 @@ export default function App() {
     void desk.stopAgent();
   }, [desk]);
 
+  // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す
+  const handleAgentChange = useCallback(
+    (agentId: string) => {
+      desk.newChat(agentId);
+    },
+    [desk],
+  );
+
   const refreshCatalog = useCallback(async () => {
     const catalog = await desk.loadCatalog();
     void desk.refreshSessions();
@@ -53,7 +61,6 @@ export default function App() {
     catalog: desk.catalog,
     sessions: desk.sessions,
     sessionId: desk.sessionId,
-    agentId: desk.agentId,
     cwd: desk.cwd,
     selectedAgent: desk.selectedAgent,
     newChat: desk.newChat,
@@ -122,11 +129,14 @@ export default function App() {
           stopVisible={desk.stopVisible}
           queueDepth={desk.chat.queueDepth}
           settings={desk.composerSettings}
+          agents={desk.catalog.agents}
+          agentId={desk.agentId}
           mode={layout}
           onSend={handleSend}
           onStop={handleStop}
           onChangeModel={desk.changeModel}
           onChangeThinkingLevel={desk.changeThinkingLevel}
+          onChangeAgent={handleAgentChange}
         />
       </main>
       {compact && navOpen ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { effortLabel, type ComposerSettings } from "../hooks/useAgentDesk";
 import type { LayoutMode } from "../lib/layout";
-import type { ModelRef, ThinkingLevel } from "../types";
+import type { AgentDef, ModelRef, ThinkingLevel } from "../types";
 import { SelectField } from "./SelectField";
 import { SlidersIcon } from "./icons";
 
@@ -13,12 +13,17 @@ export type ComposerProps = {
   queueDepth: number;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
+  /** エージェント候補と選択中の定義 (会話中いつでも切り替えられるよう入力欄の上に置く) */
+  agents: AgentDef[];
+  agentId: string;
   /** compact (portrait / landscape) では Model / Effort を畳んで入力を最優先にする */
   mode: LayoutMode;
   onSend: (text: string) => void;
   onStop: () => void;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
+  /** 選択中のエージェントで新しい会話を始める */
+  onChangeAgent: (agentId: string) => void;
 };
 
 const MAX_TEXTAREA_HEIGHT = 180;
@@ -62,11 +67,14 @@ export function Composer({
   stopVisible,
   queueDepth,
   settings,
+  agents,
+  agentId,
   mode,
   onSend,
   onStop,
   onChangeModel,
   onChangeThinkingLevel,
+  onChangeAgent,
 }: ComposerProps) {
   const compact = mode !== "desktop";
   // landscape は横幅が余るので、設定を開いたときの高さを抑える
@@ -74,7 +82,7 @@ export function Composer({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState("");
   const [stopping, setStopping] = useState(false);
-  /** compact で Model / Effort を開いているか */
+  /** Model / Effort の追加設定を開いているか (既定は畳む) */
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const modelChoices = useMemo(() => modelChoicesOf(settings), [settings]);
@@ -190,6 +198,52 @@ export function Composer({
     </label>
   );
 
+  // Model / Effort は追加設定。畳んでいるときはモデルが使えない警告だけを残す (Effort の注意書きは設定の中身なので出さない)
+  const rowNotice = settingsOpen ? notice : settings.modelWarning;
+
+  const agentField = (
+    <label className={fieldLabelClass}>
+      <span className="shrink-0">エージェント</span>
+      <SelectField
+        aria-label="エージェントを選択"
+        className={selectClass}
+        wrapperClassName={selectWrapperClass("max-w-[200px]")}
+        value={agentId}
+        disabled={agents.length === 0}
+        onChange={(event) => {
+          const next = event.currentTarget.value;
+          if (next !== agentId) onChangeAgent(next);
+        }}
+      >
+        {agents.map((agent) => (
+          <option key={agent.id} value={agent.id}>
+            {agent.name}
+          </option>
+        ))}
+      </SelectField>
+    </label>
+  );
+
+  const settingsToggle = (
+    <button
+      type="button"
+      onClick={() => setSettingsOpen((open) => !open)}
+      aria-expanded={settingsOpen}
+      aria-label="モデルと Effort の設定"
+      title="モデルと Effort"
+      className={[
+        // compact は入力欄と高さを揃えてタップ領域も広く取る
+        "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
+        compact ? "size-9" : "size-7",
+        settingsOpen
+          ? "border-accent/50 bg-accent-wash text-accent-text"
+          : "border-line bg-raised text-ink-faint hover:text-ink-soft",
+      ].join(" ")}
+    >
+      <SlidersIcon />
+    </button>
+  );
+
   const stopButton = stopVisible ? (
     <button
       type="button"
@@ -229,44 +283,32 @@ export function Composer({
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
         ].join(" ")}
       >
-        {compact ? (
-          settingsOpen ? (
-            <div className={["grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2", landscape ? "grid-cols-2" : ""].join(" ")}>
-              {modelField}
-              {effortField}
-              {notice ? (
-                <span className={["min-w-0 break-words text-[10px] text-warn", landscape ? "col-span-2" : ""].join(" ")}>
-                  {notice}
-                </span>
-              ) : null}
-            </div>
-          ) : null
-        ) : (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
+        {/* エージェントは常時表示し、Model / Effort は追加設定として畳む */}
+        <div className={["flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5"].join(" ")}>
+          {agentField}
+          {settingsToggle}
+          {compact ? null : (
+            <>
+              {settingsOpen ? modelField : null}
+              {settingsOpen ? effortField : null}
+              {/* 警告の置き場所は compact では footnote (collapsedWarnings) に揃える */}
+              {rowNotice ? <span className="min-w-0 break-words text-[10px] text-warn">{rowNotice}</span> : null}
+            </>
+          )}
+        </div>
+        {/* compact の設定は入力欄の上に開く (横幅が足りないのでエージェントの行に並べない) */}
+        {compact && settingsOpen ? (
+          <div className={["grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2", landscape ? "grid-cols-2" : ""].join(" ")}>
             {modelField}
             {effortField}
-            {notice ? <span className="min-w-0 break-words text-[10px] text-warn">{notice}</span> : null}
+            {notice ? (
+              <span className={["min-w-0 break-words text-[10px] text-warn", landscape ? "col-span-2" : ""].join(" ")}>
+                {notice}
+              </span>
+            ) : null}
           </div>
-        )}
+        ) : null}
         <div className={["flex items-end", compact ? "gap-2" : "gap-2.5"].join(" ")}>
-          {compact ? (
-            <button
-              type="button"
-              onClick={() => setSettingsOpen((open) => !open)}
-              aria-expanded={settingsOpen}
-              aria-label="モデルと Effort の設定"
-              title="モデルと Effort"
-              className={[
-                // compact は入力欄と高さを揃えてタップ領域も広く取る
-                "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
-                settingsOpen
-                  ? "border-accent/50 bg-accent-wash text-accent-text"
-                  : "border-line bg-raised text-ink-faint hover:text-ink-soft",
-              ].join(" ")}
-            >
-              <SlidersIcon />
-            </button>
-          ) : null}
           <textarea
             ref={inputRef}
             rows={1}
