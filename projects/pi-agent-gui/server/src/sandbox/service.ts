@@ -67,8 +67,8 @@ function normalizeToolCallId(value: unknown): string {
 
 /**
  * カーネルと同じ解決順 (symlink を辿ってから `..` を適用する) で実パスを返す。
- * node:fs/promises の realpath は JS 実装で、パス文字列を字句的に畳んでから link を解決するため使わない
- * (例: root/linkOutside -> outside/nested のとき、root/linkOutside/.. は outside だが JS 実装は root にする)。
+ * 解決前に `..` を path.resolve で字句的に畳んではならない (例: root/linkOutside -> outside/nested で
+ * root/linkOutside/.. は outside)。非 native の fs.realpath / fs.realpathSync も同じ字句畳みをするため native を使う。
  */
 function realpathNative(target: string): Promise<string> {
   return new Promise((resolvePath, rejectPath) => {
