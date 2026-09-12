@@ -9,7 +9,7 @@ export type ThemeSwitcherProps = {
   compact?: boolean;
 };
 
-/** トップバー右上に置く想定のコンパクトなテーマ選択 */
+/** コンパクトなテーマ選択 (desktop の Topbar と、drawer の下部に置く) */
 export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps) {
   const { choice, resolvedId, setChoice, themes } = useTheme();
 

@@ -212,8 +212,7 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
         ) : (
           <div
             className={[
-              // content-start が無いと、余った高さで行が引き伸ばされて 1 行が縦に伸びる
-              "scrollbar-thin grid content-start gap-1 pr-0.5",
+              "scrollbar-thin grid gap-1 pr-0.5",
               // desktop の sidebar は高さが固定されるので、一覧だけ独立スクロールにする
               sheet ? null : "max-h-66 overflow-y-auto",
             ]
@@ -226,7 +225,8 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
                 item={item}
                 active={item.sessionId === sessionId}
                 onSelect={() => {
-                  if (item.sessionId !== sessionId) void selectSession(item.sessionId);
+                  // 選択中の行かどうかは呼び出し側が判断する (drawer は選択済みでも閉じる)
+                  void selectSession(item.sessionId);
                 }}
                 onDelete={() => void deleteSession(item.sessionId)}
               />

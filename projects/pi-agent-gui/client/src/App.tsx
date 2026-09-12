@@ -57,7 +57,7 @@ export default function App() {
       void desk.newChat(agentId);
     },
     selectSession: (sessionId: string) => {
-      void desk.selectSession(sessionId);
+      if (sessionId !== desk.sessionId) void desk.selectSession(sessionId);
     },
     deleteSession: (sessionId: string) => {
       void desk.deleteSession(sessionId);
@@ -74,7 +74,7 @@ export default function App() {
     },
     selectSession: (sessionId: string) => {
       closeNav();
-      void desk.selectSession(sessionId);
+      if (sessionId !== desk.sessionId) void desk.selectSession(sessionId);
     },
     onOpenManager: () => {
       closeNav();
