@@ -123,6 +123,8 @@ export function useAgentDesk() {
   const [epoch, setEpoch] = useState(0);
 
   const lastSeqRef = useRef(0);
+  /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
+  const selectionSeqRef = useRef(0);
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const preselectionRef = useRef<SettingsSelection>(preselection);
@@ -223,6 +225,8 @@ export function useAgentDesk() {
   }, [agentId, applySnapshot]);
 
   const selectSession = useCallback(async (id: string, isCurrent = alwaysCurrent): Promise<void> => {
+    // getSession の待機中にセッション作成が返っても、この選択を奪わせない
+    selectionSeqRef.current += 1;
     try {
       const payload = await getSession(id);
       if (!isCurrent()) return;
@@ -246,6 +250,7 @@ export function useAgentDesk() {
   const newChat = useCallback((nextAgentId?: string): void => {
     // エージェントを指定されたときだけ表示を切り替える (未作成チャットで選択した agent が最初の送信に使われる)
     if (nextAgentId) setAgentId(nextAgentId);
+    selectionSeqRef.current += 1;
     localStorage.removeItem(SESSION_KEY);
     sessionIdRef.current = "";
     lastSeqRef.current = 0;
@@ -257,9 +262,12 @@ export function useAgentDesk() {
   const ensureSession = useCallback(async (): Promise<string> => {
     const existing = sessionIdRef.current;
     if (existing) return existing;
+    const selection = selectionSeqRef.current;
     // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる
     const session = await createSession(agentId || undefined, preselectionRef.current);
     setPreselection({});
+    // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
+    if (selectionSeqRef.current !== selection) return session.sessionId;
     applySelectedSession(session);
     await refreshSessions();
     void refreshHealth();
@@ -388,19 +396,22 @@ export function useAgentDesk() {
       if (health && !health.ready) {
         throw new Error(health.error || "APIキーまたは認証設定を確認してください");
       }
-      if (!sessionIdRef.current) {
-        await ensureSession();
-      }
-      const id = sessionIdRef.current;
-      if (!id) return;
-      dispatch({ type: "localUser", text });
+      // 送信先は ensureSession の戻り値で受ける。ensureSession は refreshSessions を await するため、
+      // その間に切り替えられると sessionIdRef を読み直した先が空になり、入力が黙って消える。
+      const targetId = await ensureSession();
+      // 切替後は表示と別セッションになる。入力もセッションも捨てずに送信だけ続け、
+      // 現在の表示のバブル / 実行状態は触らない (一覧は postMessage 後の refreshSessions が更新する)。
+      const sameChat = sessionIdRef.current === targetId;
+      if (sameChat) dispatch({ type: "localUser", text });
 
       // 202 即時返却。実行はバックグラウンドで続き、イベントは SSE で届く
-      const result = await postMessage(id, text);
-      if (result.queued) {
-        dispatch({ type: "setRun", runStatus: "running", queueDepth: result.queueDepth, activity: `実行中のため待機キューに追加しました（${result.queueDepth}件目）` });
-      } else {
-        dispatch({ type: "setRun", runStatus: "running", queueDepth: 0, activity: "実行を開始しました" });
+      const result = await postMessage(targetId, text);
+      if (sameChat) {
+        if (result.queued) {
+          dispatch({ type: "setRun", runStatus: "running", queueDepth: result.queueDepth, activity: `実行中のため待機キューに追加しました（${result.queueDepth}件目）` });
+        } else {
+          dispatch({ type: "setRun", runStatus: "running", queueDepth: 0, activity: "実行を開始しました" });
+        }
       }
       void refreshSessions();
     } catch (error) {
