@@ -155,7 +155,7 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
       {/* 新しい会話 */}
       <button
         type="button"
-        onClick={() => void newChat()}
+        onClick={() => newChat()}
         className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent-text"
       >
         <span className="text-[18px] leading-3 text-accent-text">＋</span> 新しい会話
@@ -171,7 +171,7 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
           disabled={catalog.agents.length === 0}
           onChange={(event) => {
             // 現在の会話は保持しつつ、新しい会話を選択エージェントで開始する
-            void newChat(event.currentTarget.value);
+            newChat(event.currentTarget.value);
           }}
         >
           {catalog.agents.map((agent) => (

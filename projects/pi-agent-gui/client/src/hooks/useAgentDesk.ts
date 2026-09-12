@@ -210,18 +210,23 @@ export function useAgentDesk() {
     dispatch({ type: "resync", payload });
   }, []);
 
+  /** 選択中セッションの表示を payload で置き換える (selectSession / ensureSession 共通) */
+  const applySelectedSession = useCallback((payload: SessionPayload) => {
+    sessionIdRef.current = payload.sessionId;
+    setSessionId(payload.sessionId);
+    const nextAgentId = payload.agent?.id || agentId;
+    localStorage.setItem(SESSION_KEY, payload.sessionId);
+    localStorage.setItem(AGENT_KEY, nextAgentId);
+    setAgentIdState(nextAgentId);
+    applySnapshot(payload);
+    setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
+  }, [agentId, applySnapshot]);
+
   const selectSession = useCallback(async (id: string, isCurrent = alwaysCurrent): Promise<void> => {
     try {
       const payload = await getSession(id);
       if (!isCurrent()) return;
-      sessionIdRef.current = payload.sessionId;
-      setSessionId(payload.sessionId);
-      const nextAgentId = payload.agent?.id || agentId;
-      localStorage.setItem(SESSION_KEY, payload.sessionId);
-      localStorage.setItem(AGENT_KEY, nextAgentId);
-      setAgentIdState(nextAgentId);
-      applySnapshot(payload);
-      setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
+      applySelectedSession(payload);
       void refreshHealth(isCurrent);
     } catch {
       if (!isCurrent()) return;
@@ -230,27 +235,36 @@ export function useAgentDesk() {
       setSessionId("");
       const fallback = sessionsRef.current.find((item) => item.sessionId !== id);
       if (fallback) return selectSession(fallback.sessionId, isCurrent);
-      return newChatRef.current(undefined, isCurrent);
+      return newChatRef.current();
     }
-  }, [agentId, applySnapshot, refreshHealth]);
+  }, [applySelectedSession, refreshHealth]);
 
-  const newChat = useCallback(async (nextAgentId?: string, isCurrent = alwaysCurrent): Promise<void> => {
-    try {
-      const target = nextAgentId || agentId;
-      // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる
-      const session = await createSession(target || undefined, preselectionRef.current);
-      if (!isCurrent()) return;
-      setPreselection({});
-      await refreshSessions(isCurrent);
-      if (!isCurrent()) return;
-      await selectSession(session.sessionId, isCurrent);
-    } catch (error) {
-      if (!isCurrent()) return;
-      const status = runtimeStatusForError(error);
-      setRuntimeStatus(status);
-      dispatch({ type: "setActivity", text: status.detail || status.text });
-    }
-  }, [agentId, refreshSessions, selectSession]);
+  /**
+   * 未作成の新規チャットへ戻す。セッションは最初の送信時に ensureSession() が作るため、
+   * 送信前に POST /api/sessions を呼ばず、一覧にも空の行を残さない。
+   */
+  const newChat = useCallback((nextAgentId?: string): void => {
+    // エージェントを指定されたときだけ表示を切り替える (未作成チャットで選択した agent が最初の送信に使われる)
+    if (nextAgentId) setAgentId(nextAgentId);
+    localStorage.removeItem(SESSION_KEY);
+    sessionIdRef.current = "";
+    lastSeqRef.current = 0;
+    setSessionId("");
+    dispatch({ type: "newChat" });
+  }, [setAgentId]);
+
+  /** 未作成チャットの最初の送信時だけセッションを作り、送信先の sessionId を返す */
+  const ensureSession = useCallback(async (): Promise<string> => {
+    const existing = sessionIdRef.current;
+    if (existing) return existing;
+    // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる
+    const session = await createSession(agentId || undefined, preselectionRef.current);
+    setPreselection({});
+    applySelectedSession(session);
+    await refreshSessions();
+    void refreshHealth();
+    return session.sessionId;
+  }, [agentId, applySelectedSession, refreshHealth, refreshSessions]);
 
   /** チャット単位の Model / Effort 変更。未作成なら作成前の選択として保持する */
   const changeSessionSettings = useCallback(async (selection: SettingsSelection): Promise<void> => {
@@ -358,7 +372,7 @@ export function useAgentDesk() {
       } else {
         const next = list[0];
         if (next) void selectSession(next.sessionId);
-        else void newChatRef.current();
+        else newChatRef.current();
       }
     });
   }, [refreshHealth, refreshSessions, selectSession]);
@@ -375,7 +389,7 @@ export function useAgentDesk() {
         throw new Error(health.error || "APIキーまたは認証設定を確認してください");
       }
       if (!sessionIdRef.current) {
-        await newChatRef.current();
+        await ensureSession();
       }
       const id = sessionIdRef.current;
       if (!id) return;
@@ -396,7 +410,7 @@ export function useAgentDesk() {
     } finally {
       setSending(false);
     }
-  }, [health, sending, settingsChanging, refreshSessions]);
+  }, [health, sending, settingsChanging, ensureSession, refreshSessions]);
 
   const stopAgent = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
@@ -420,7 +434,7 @@ export function useAgentDesk() {
     if (id === sessionIdRef.current) {
       const next = list[0];
       if (next) await selectSession(next.sessionId);
-      else await newChatRef.current();
+      else newChatRef.current();
     }
   }, [refreshSessions, selectSession]);
 
@@ -437,9 +451,8 @@ export function useAgentDesk() {
       if (!isCurrent()) return;
       const stored = localStorage.getItem(SESSION_KEY) || "";
       const target = list.find((item) => item.sessionId === stored) || list[0];
+      // 復元先が無ければ未作成チャットのまま。セッションは最初の送信時に作る (起動時に空の行を増やさない)。
       if (target) await selectSession(target.sessionId, isCurrent);
-      // アプリ既定モデルが使えないときは自動 POST を繰り返さず、入力欄の作成前選択から作成させる。
-      else if (h.ready && !h.defaultModelError) await newChatRef.current(undefined, isCurrent);
     } catch (error) {
       if (!isCurrent()) return;
       const status = runtimeStatusForError(error);
