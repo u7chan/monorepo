@@ -2,7 +2,7 @@
  * BFF からサンドボックス ツール実行 API を呼ぶクライアント。NDJSON を execute() の契約
  * (onUpdate / result / abort) に写し替え、abort は cancel エンドポイントと接続切断の両方で伝播させる。
  */
-import { decodeSandboxEvent, type SandboxEvent } from "./protocol";
+import { decodeSandboxEvent, type SandboxEvent, type SandboxFileListing } from "./protocol";
 
 export interface SandboxToolClientOptions {
   /** 例: http://pi-agent-gui-sandbox:8080 (末尾スラッシュは正規化する) */
@@ -32,7 +32,10 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   if (!baseUrl || !token) {
     throw new Error("Sandbox tool client requires baseUrl and token");
   }
-  return { execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl) };
+  return {
+    execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
+    listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+  };
 }
 
 /** 未設定時は undefined を返し、起動はできるがセッション作成は 503 になる。 */
@@ -49,6 +52,78 @@ export function createSandboxToolClientFromEnv(
 export interface SandboxToolClient {
   /** 完了 (result) まで解決し、エラーイベント・HTTP エラー・中断は reject する。 */
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
+  /** root 相対パスの一覧 (JSON)。root 外・不存在などは SandboxRequestError で reject する。 */
+  listFiles(path: string): Promise<SandboxFileListing>;
+}
+
+/** /api/files が使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
+export type SandboxFilesClient = Pick<SandboxToolClient, "listFiles">;
+
+/**
+ * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
+ * 接続失敗・認証失敗・サンドボックス側障害は 502 に寄せる。
+ */
+export class SandboxRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "SandboxRequestError";
+  }
+}
+
+/** NDJSON の execute とは別経路 (JSON 応答)。 */
+async function listFiles(
+  path: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxFileListing> {
+  let response: Response;
+  try {
+    response = await fetchImpl(`${baseUrl}/v1/files?path=${encodeURIComponent(path)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+  } catch (error) {
+    throw new SandboxRequestError(`サンドボックス (${baseUrl}) に接続できません: ${messageFor(error)}`, 502);
+  }
+
+  if (!response.ok) {
+    const detail = errorDetailOf(await response.text().catch(() => ""));
+    if (response.status === 401 || response.status === 403) {
+      throw new SandboxRequestError(
+        "サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)",
+        502,
+      );
+    }
+    if (response.status === 400 || response.status === 404) {
+      // 不正パス・不存在は要求側の問題なので、サンドボックスの文言 (ls ツールに寄せた英語) をそのまま返す
+      throw new SandboxRequestError(
+        detail || `ファイル一覧を取得できませんでした (HTTP ${response.status})`,
+        response.status,
+      );
+    }
+    throw new SandboxRequestError(
+      `サンドボックスのファイル一覧を取得できませんでした (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
+      502,
+    );
+  }
+
+  return (await response.json()) as SandboxFileListing;
+}
+
+/** サンドボックスの本文は { error } を返す契約。読めなければ生テキストをそのまま使う。 */
+function errorDetailOf(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: unknown };
+    if (parsed && typeof parsed.error === "string") return parsed.error;
+  } catch {
+    // JSON でない本文はそのまま使う
+  }
+  return trimmed;
 }
 
 /** cancel 要求自身が伝搬経路を塞がないよう、独立した短いタイムアウトで送る。 */

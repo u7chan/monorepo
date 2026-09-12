@@ -4,6 +4,9 @@
  * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
+import { realpath as realpathCallback, type Dirent } from "node:fs";
+import { lstat, readdir, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -18,9 +21,12 @@ import {
 import { Hono } from "hono";
 import {
   SANDBOX_MAX_BODY_BYTES,
+  SANDBOX_MAX_FILE_ENTRIES,
   encodeSandboxEvent,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
+  type SandboxFileEntry,
+  type SandboxFileListing,
 } from "./protocol";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
@@ -59,6 +65,26 @@ function normalizeToolCallId(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? value : randomUUID();
 }
 
+/**
+ * カーネルと同じ解決順 (symlink を辿ってから `..` を適用する) で実パスを返す。
+ * 解決前に `..` を path.resolve で字句的に畳んではならない (例: root/linkOutside -> outside/nested で
+ * root/linkOutside/.. は outside)。非 native の fs.realpath / fs.realpathSync も同じ字句畳みをするため native を使う。
+ */
+function realpathNative(target: string): Promise<string> {
+  return new Promise((resolvePath, rejectPath) => {
+    realpathCallback.native(target, (error, resolved) => {
+      if (error) rejectPath(error);
+      else resolvePath(resolved);
+    });
+  });
+}
+
+/** 要求パスを字句正規化せずに root へ連結する (`..` の適用は realpath に任せる)。 */
+function joinRequestPath(root: string, requested: string): string {
+  if (!requested) return root;
+  return isAbsolute(requested) ? requested : `${root}${sep}${requested}`;
+}
+
 /** 上限を超えたボディは 413。 */
 async function readJsonBody(request: Request): Promise<unknown> {
   const body = request.body;
@@ -82,6 +108,117 @@ async function readJsonBody(request: Request): Promise<unknown> {
   if (!trimmed) return {};
   const parsed = JSON.parse(trimmed) as unknown;
   return parsed;
+}
+
+/**
+ * root 相対の要求パスを解決して一覧を返す。root 内外は「`..` の有無」ではなく realpath で解決した実パスで判定するため、
+ * root 外にある symlink (`../link-in` など) から root 内へ解決する要求も 200 になる。
+ * 実在しない要求だけは lexical な位置で判定し、root 外を指す未作成パスは 404 ではなく 400 (入力検証) のままにする。
+ * エラー文言は SDK の ls ツールに寄せる (BFF はサンドボックスの文言をそのままクライアントへ返す)。
+ */
+async function listWorkspaceDirectory(rootCwd: string, requested: string): Promise<SandboxFileListing> {
+  const fail = (statusCode: number, message: string): never => {
+    throw Object.assign(new Error(message), { statusCode });
+  };
+
+  // root 自体も realpath で解決し、両辺を実パスで比較する (root の symlink 経由でも判定が崩れないように)
+  const root = await realpathNative(rootCwd).catch((error: unknown) =>
+    fail(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`),
+  );
+
+  // メッセージ表示と、実在しない要求の lexical 判定に使う字句正規化済みのパス
+  let candidate: string;
+  try {
+    candidate = resolve(root, requested || ".");
+  } catch {
+    return fail(400, `Invalid path: ${requested}`);
+  }
+
+  // 字句的に畳んでから realpath へ渡すと `..` が symlink より先に適用され、カーネルの解決順とずれる。
+  // 生の要求パスを native realpath (realpath(3)) に渡し、symlink を辿ってから `..` を解決させる。
+  let target: string;
+  try {
+    target = await realpathNative(joinRequestPath(root, requested));
+  } catch (error) {
+    // 解決できない = 実在しない (か解決不能) なので、lexical な位置で判定する。
+    // root 外の未作成パスを 404 にすると「root 外は 400」の入力検証が抜ける。
+    if (!isInsideRoot(root, candidate)) return fail(400, `Path outside the workspace: ${candidate}`);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return fail(404, `Path not found: ${candidate}`);
+    return fail(400, `Cannot resolve path: ${messageFor(error)}`);
+  }
+  if (!isInsideRoot(root, target)) return fail(400, `Path outside the workspace: ${target}`);
+
+  const targetStat = await stat(target).catch(() => undefined);
+  if (!targetStat) return fail(404, `Path not found: ${candidate}`);
+  if (!targetStat.isDirectory()) return fail(400, `Not a directory: ${candidate}`);
+
+  const dirents = await readdir(target, { withFileTypes: true }).catch((error: unknown) =>
+    fail(400, `Cannot read directory: ${messageFor(error)}`),
+  );
+  // 並び替え (ディレクトリ先 → ファイル) には実体の種別が要るため、先に symlink だけ辿る。
+  // 件数上限を超える巨大ディレクトリでも stat は上限件数にしか掛けない。
+  const candidates = await Promise.all(dirents.map((dirent) => classifyEntry(target, dirent)));
+  candidates.sort(compareEntries);
+  const truncated = candidates.length > SANDBOX_MAX_FILE_ENTRIES;
+
+  const entries: SandboxFileEntry[] = [];
+  for (const candidateEntry of candidates.slice(0, SANDBOX_MAX_FILE_ENTRIES)) {
+    const entryPath = join(target, candidateEntry.name);
+    const entry: SandboxFileEntry = { name: candidateEntry.name, type: candidateEntry.type };
+    if (candidateEntry.symlink) entry.symlink = true;
+    if (candidateEntry.type === "file") {
+      // symlink は辿った先、通常ファイルは lstat。壊れた symlink は size / mtime なしで返す
+      const stats = await (candidateEntry.symlink ? stat : lstat)(entryPath).catch(() => undefined);
+      if (stats) {
+        entry.size = stats.size;
+        entry.mtime = Math.round(stats.mtimeMs);
+      }
+    }
+    entries.push(entry);
+  }
+
+  return {
+    // 解決後の実ディレクトリを root 相対で返す (root 外の別名から解決した場合も root 内のパスになる)
+    path: relativeToRoot(root, target),
+    entries,
+    truncated,
+  };
+}
+
+function isInsideRoot(root: string, target: string): boolean {
+  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+}
+
+/** symlink は辿った先の種別に寄せる (壊れた symlink は file として出す)。 */
+async function classifyEntry(
+  dirPath: string,
+  dirent: Dirent,
+): Promise<{ name: string; type: "file" | "dir"; symlink: boolean }> {
+  const name = dirent.name;
+  if (!dirent.isSymbolicLink()) {
+    return { name, type: dirent.isDirectory() ? "dir" : "file", symlink: false };
+  }
+  const followed = await stat(join(dirPath, name)).catch(() => undefined);
+  return { name, type: followed?.isDirectory() ? "dir" : "file", symlink: true };
+}
+
+/** ディレクトリ先 → ファイル、各グループ内は大文字小文字を無視した昇順 (同順はコード順で安定させる)。 */
+function compareEntries(
+  a: { name: string; type: "file" | "dir" },
+  b: { name: string; type: "file" | "dir" },
+): number {
+  if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+  const ignoringCase = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  if (ignoringCase !== 0) return ignoringCase;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/** root 相対の正規化パス。区切りは常に "/" (root は ".")。 */
+function relativeToRoot(root: string, target: string): string {
+  const rel = relative(root, target);
+  if (!rel) return ".";
+  return sep === "/" ? rel : rel.split(sep).join("/");
 }
 
 /** listen は呼び出し側 (@hono/node-server) が行い、テストは app.request() で検証する。 */
@@ -230,6 +367,15 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         "X-Accel-Buffering": "no",
       },
     });
+  });
+
+  app.get("/v1/files", async (c) => {
+    try {
+      return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
   });
 
   app.post("/v1/executions/:id/cancel", (c) => {

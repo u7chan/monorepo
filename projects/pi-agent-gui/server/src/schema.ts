@@ -167,6 +167,29 @@ export const HealthSchema = z.object({
 });
 export type Health = z.infer<typeof HealthSchema>;
 
+/**
+ * 作業領域の一覧 (サンドボックス GET /v1/files の応答をそのまま返す)。
+ * ワイヤ契約の正は server/src/sandbox/protocol.ts で、ここは BFF が受けた応答の検証用。
+ */
+export const FileEntrySchema = z.object({
+  name: z.string(),
+  type: z.enum(["file", "dir"]),
+  /** lstat が symlink のとき true。type は辿った先の実体の種別 */
+  symlink: z.boolean().optional(),
+  size: z.number().optional(),
+  /** epoch ms */
+  mtime: z.number().optional(),
+});
+export type FileEntry = z.infer<typeof FileEntrySchema>;
+
+export const FileListingSchema = z.object({
+  /** root 相対の正規化パス (root は ".") */
+  path: z.string(),
+  entries: z.array(FileEntrySchema),
+  truncated: z.boolean(),
+});
+export type FileListing = z.infer<typeof FileListingSchema>;
+
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),

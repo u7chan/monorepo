@@ -10,9 +10,11 @@ import { zValidator } from "@hono/zod-validator";
 import { AUTH_REQUIRED_MESSAGE, createPiBff } from "./agent";
 import type { PiBff } from "./agent";
 import { createAgentCatalog } from "./agents";
+import { createSandboxToolClientFromEnv, SandboxRequestError, type SandboxFilesClient } from "./sandbox/client";
 import { SessionStore } from "./sessions";
 import {
   CreateSessionBodySchema,
+  FileListingSchema,
   PostMessageBodySchema,
   ReplaceCatalogBodySchema,
   UpdateSessionSettingsBodySchema,
@@ -122,6 +124,8 @@ export type CreateBffAppOptions = {
   cwd?: string;
   /** テストは明示的な pi (null も含む) を渡してランタイム構築をスキップする */
   pi?: PiBff | null;
+  /** ファイル一覧のサンドボックス。未指定なら env から生成し、null なら未設定として 503 を返す */
+  files?: SandboxFilesClient | null;
   /** テスト用: 静的配信のルートディレクトリ (既定は client/dist) */
   clientDistDir?: string;
 };
@@ -142,6 +146,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi, catalog, masker: pi?.secretMasker });
+  // ファイル一覧はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
+  const files = opts.files !== undefined ? opts.files : createSandboxToolClientFromEnv(process.env) ?? null;
 
   const updateAgentHandler = async (c: Context) => {
     const agentId = c.req.param("id") ?? "";
@@ -205,6 +211,33 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
     });
   })
+  // --- files ---
+
+  // セッションに依存させない (セッションが無くても開ける必要がある) ため、トップレベルに置く。
+  .get("/api/files", async (c) => {
+    if (!files) {
+      return c.json(
+        { error: "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" },
+        503,
+      );
+    }
+    const path = c.req.query("path") ?? ".";
+    let listing: unknown;
+    try {
+      listing = await files.listFiles(path);
+    } catch (error) {
+      return c.json(
+        { error: messageFor(error) },
+        (error instanceof SandboxRequestError ? error.status : 502) as ContentfulStatusCode,
+      );
+    }
+    const parsed = FileListingSchema.safeParse(listing);
+    if (!parsed.success) {
+      return c.json({ error: "サンドボックスのファイル一覧が不正です" }, 502);
+    }
+    return c.json(parsed.data);
+  })
+
   .get("/api/agents", (c) => c.json(catalog.snapshot()))
   .put(
     "/api/agents",

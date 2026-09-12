@@ -106,13 +106,15 @@ export type SidebarProps = Omit<
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   onOpenManager: () => void;
+  /** 「作業ディレクトリ」カードからファイル画面を開く (desktop の Sidebar と drawer で共通) */
+  onOpenFiles: () => void;
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
   onClose?: () => void;
   /** sidebar: desktop の左カラム / sheet: モバイルのドロワー内 */
   variant?: "sidebar" | "sheet";
 };
 
-export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props }: SidebarProps) {
+export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sidebar", ...props }: SidebarProps) {
   const sheet = variant === "sheet";
   const { catalog, sessions, sessionId, agentId, cwd, selectedAgent, newChat, selectSession, deleteSession } =
     props;
@@ -239,10 +241,18 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
 
       {/* 作業ディレクトリ + テーマ (sheet のみ) + フットノート */}
       <div className="mt-auto grid gap-2">
-        <div className="grid gap-2 rounded-lg border border-line bg-soft px-3 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">作業ディレクトリ</div>
+        {/* カード全体をボタンにしても見た目とグリッドは変えない (入口の追加のみ) */}
+        <button
+          type="button"
+          onClick={onOpenFiles}
+          aria-haspopup="dialog"
+          aria-label="作業ディレクトリのファイルを表示"
+          title="作業ディレクトリのファイルを表示"
+          className="grid gap-2 rounded-lg border border-line bg-soft px-3 py-3 text-left transition-colors hover:border-accent/50"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">作業ディレクトリ</span>
           <code className="truncate text-[11px] leading-normal text-ink-soft">{cwd || "読み込み中…"}</code>
-        </div>
+        </button>
         {/* テーマ切替の入口は desktop の Topbar にしかないため、drawer にも置く */}
         {sheet ? (
           <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-3">

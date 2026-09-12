@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChatArea } from "./components/ChatArea";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
+import { FileTreeScreen } from "./components/FileTreeScreen";
 import { ManagerScreen } from "./components/ManagerScreen";
 import { NavSheet } from "./components/NavSheet";
 import { Sidebar } from "./components/Sidebar";
@@ -16,9 +17,11 @@ export default function App() {
   const compactMode = layout === "desktop" ? null : layout;
   const compact = compactMode !== null;
   const [managerOpen, setManagerOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   // ManagerScreen の dialog close / 閉じるボタンへ渡す安定参照
   const closeManager = useCallback(() => setManagerOpen(false), []);
+  const closeFiles = useCallback(() => setFilesOpen(false), []);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
   useEffect(() => {
@@ -61,6 +64,7 @@ export default function App() {
       void desk.deleteSession(sessionId);
     },
     onOpenManager: () => setManagerOpen(true),
+    onOpenFiles: () => setFilesOpen(true),
   };
 
   // ドロワーは選んだら閉じる。削除だけは confirm の後も開いたまま残す (連続操作しうる)
@@ -77,6 +81,10 @@ export default function App() {
     onOpenManager: () => {
       closeNav();
       setManagerOpen(true);
+    },
+    onOpenFiles: () => {
+      closeNav();
+      setFilesOpen(true);
     },
   };
 
@@ -134,6 +142,7 @@ export default function App() {
           defaultThinkingLevel={desk.health?.defaultThinkingLevel}
         />
       ) : null}
+      {filesOpen ? <FileTreeScreen compact={compact} cwd={desk.cwd} onClose={closeFiles} /> : null}
     </div>
   );
 }
