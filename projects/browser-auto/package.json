@@ -12,19 +12,19 @@
     "check": "bun run lint && bun run format:check"
   },
   "dependencies": {
-    "hono": "^4.13.5",
+    "hono": "^4.13.7",
     "pino": "^10.3.1",
-    "playwright": "^1.62.1",
+    "playwright": "^1.63.0",
     "yaml": "^2.9.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
-    "oxfmt": "^0.66.0",
-    "oxlint": "^1.81.0",
+    "@types/react-dom": "^19.2.7",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"
