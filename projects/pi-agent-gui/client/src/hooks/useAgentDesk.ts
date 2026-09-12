@@ -334,13 +334,13 @@ export function useAgentDesk() {
         applySnapshot(entry.data);
         return;
       case "run_start":
-        dispatch({ type: "runStart", prompt: entry.data.prompt });
+        dispatch({ type: "runStart", prompt: entry.data.prompt, at: entry.at });
         return;
       case "text":
-        dispatch({ type: "text", delta: entry.data.delta });
+        dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
         return;
       case "tool_start":
-        dispatch({ type: "toolStart", id: entry.data.id, name: entry.data.name, args: entry.data.args });
+        dispatch({ type: "toolStart", id: entry.data.id, name: entry.data.name, args: entry.data.args, at: entry.at });
         return;
       case "tool_end":
         dispatch({ type: "toolEnd", id: entry.data.id, isError: entry.data.isError, output: entry.data.output });
@@ -402,7 +402,7 @@ export function useAgentDesk() {
       // 切替後は表示と別セッションになる。入力もセッションも捨てずに送信だけ続け、
       // 現在の表示のバブル / 実行状態は触らない (一覧は postMessage 後の refreshSessions が更新する)。
       const sameChat = sessionIdRef.current === targetId;
-      if (sameChat) dispatch({ type: "localUser", text });
+      if (sameChat) dispatch({ type: "localUser", text, at: Date.now() });
 
       // 202 即時返却。実行はバックグラウンドで続き、イベントは SSE で届く
       const result = await postMessage(targetId, text);

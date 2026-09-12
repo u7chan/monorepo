@@ -70,6 +70,11 @@ test("server exposes the async session API end to end", async () => {
     const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
     assert.equal(payload.messages.length, 2);
     assert.equal(payload.status, "completed");
+    // SDK の message.timestamp が DTO の at へそのまま通ること (リロード後の時刻の正)
+    assert.deepEqual(
+      payload.messages.map((message: { at?: number }) => message.at),
+      pi.sessions[0].messages.map((message) => message.timestamp),
+    );
 
     const stopped = await app.request(`/api/sessions/${created.sessionId}/stop`, { method: "POST" });
     assert.equal(stopped.status, 200);

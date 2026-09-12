@@ -16,6 +16,8 @@ export type Bubble = {
   role: "user" | "assistant";
   text: string;
   tools: ToolCard[];
+  /** メッセージの作成時刻 (epoch ms)。履歴に時刻が無い場合は undefined */
+  at?: number;
 };
 
 export type ChatState = {
@@ -41,10 +43,10 @@ export type ChatState = {
 export type ChatAction =
   | { type: "newChat" }
   | { type: "resync"; payload: SessionPayload }
-  | { type: "runStart"; prompt: string }
-  | { type: "localUser"; text: string }
-  | { type: "text"; delta: string }
-  | { type: "toolStart"; id: string; name: string; args: string }
+  | { type: "runStart"; prompt: string; at: number }
+  | { type: "localUser"; text: string; at: number }
+  | { type: "text"; delta: string; at: number }
+  | { type: "toolStart"; id: string; name: string; args: string; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
   | { type: "status"; text: string }
   | { type: "queued"; position: number; queueDepth: number }
@@ -67,8 +69,8 @@ export const initialChatState: ChatState = {
   availableThinkingLevels: [],
 };
 
-function appendBubble(state: ChatState, role: Bubble["role"], text = ""): ChatState {
-  const bubble: Bubble = { id: state.nextId, role, text, tools: [] };
+function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
+  const bubble: Bubble = { id: state.nextId, role, text, tools: [], at };
   return {
     ...state,
     bubbles: [...state.bubbles, bubble],
@@ -88,17 +90,17 @@ function patchAssistant(
   return updateBubble(state, state.currentAssistantId, update);
 }
 
-/** 開いている assistant バブルを返す (なければ新規作成) */
-function ensureAssistant(state: ChatState): ChatState {
+/** 開いている assistant バブルを返す (なければ新規作成)。at は生成元イベントの時刻 */
+function ensureAssistant(state: ChatState, at?: number): ChatState {
   if (state.currentAssistantId !== null && state.bubbles.some((b) => b.id === state.currentAssistantId)) {
     return state;
   }
-  const next = appendBubble(state, "assistant");
+  const next = appendBubble(state, "assistant", "", at);
   return { ...next, currentAssistantId: next.nextId - 1 };
 }
 
-function addToolCard(state: ChatState, card: ToolCard): ChatState {
-  const withBubble = ensureAssistant(state);
+function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
+  const withBubble = ensureAssistant(state, at);
   const bubbleId = withBubble.currentAssistantId as number;
   return {
     ...updateBubble(withBubble, bubbleId, (b) => ({ ...b, tools: [...b.tools, card] })),
@@ -112,6 +114,7 @@ function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: B
     role: message.role,
     text: message.text,
     tools: [],
+    at: message.at,
   }));
   return { bubbles, nextId };
 }
@@ -176,7 +179,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "runStart": {
       // ローカルエコー済みなら user バブルを重複させない
       const lastUser = [...state.bubbles].reverse().find((b) => b.role === "user");
-      const next = lastUser?.text === action.prompt ? state : appendBubble(state, "user", action.prompt);
+      const next = lastUser?.text === action.prompt ? state : appendBubble(state, "user", action.prompt, action.at);
       return {
         ...next,
         currentAssistantId: null,
@@ -187,23 +190,27 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "localUser": {
-      const next = appendBubble(state, "user", action.text);
+      const next = appendBubble(state, "user", action.text, action.at);
       return { ...next, currentAssistantId: null, activity: "送信中…" };
     }
 
     case "text": {
-      const withBubble = ensureAssistant(state);
+      const withBubble = ensureAssistant(state, action.at);
       return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
     }
 
     case "toolStart":
-      return addToolCard(state, {
-        id: action.id,
-        name: action.name || "",
-        args: action.args || "",
-        phase: "running",
-        output: "",
-      });
+      return addToolCard(
+        state,
+        {
+          id: action.id,
+          name: action.name || "",
+          args: action.args || "",
+          phase: "running",
+          output: "",
+        },
+        action.at,
+      );
 
     case "toolEnd": {
       const bubbleId = state.toolBubbleIds[action.id];

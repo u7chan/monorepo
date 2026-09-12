@@ -214,13 +214,15 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
     "toolCalls": [{ "id": "…", "name": "read", "args": "README.md", "done": true, "isError": false, "output": "…" }]
   },
   "messages": [
-    { "role": "user", "text": "…" },
-    { "role": "assistant", "text": "…", "stopReason": "stop" }
+    { "role": "user", "text": "…", "at": 1700000000000 },
+    { "role": "assistant", "text": "…", "stopReason": "stop", "at": 1700000001000 }
   ]
 }
 ```
 
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
+
+`messages[].at` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
 
 ### `PATCH /api/sessions/:id/settings`
 

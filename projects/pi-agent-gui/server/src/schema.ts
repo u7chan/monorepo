@@ -97,6 +97,8 @@ export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   stopReason: z.string().optional(),
+  /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
+  at: z.number().optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
