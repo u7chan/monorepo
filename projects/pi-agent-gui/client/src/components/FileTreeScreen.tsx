@@ -14,7 +14,7 @@ import {
   type FileTreeState,
 } from "../lib/fileTree";
 import type { FileEntry } from "../types";
-import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
+import { ArrowLeftIcon, ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
 
 export type FileTreeScreenProps = {
   onClose: () => void;
@@ -113,19 +113,13 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
             <code className="block truncate text-[11px] leading-normal text-ink-muted">{cwd || "読み込み中…"}</code>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={reload}
-              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
-            >
+            <button type="button" onClick={reload} className="btn-quiet">
+              <RefreshIcon />
               再読み込み
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-danger/60 hover:text-danger"
-            >
-              閉じる
+            <button type="button" onClick={onClose} className="btn-quiet">
+              <ArrowLeftIcon />
+              戻る
             </button>
           </div>
         </header>

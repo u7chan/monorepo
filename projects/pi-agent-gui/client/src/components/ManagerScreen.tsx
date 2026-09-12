@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { ALL_THINKING_LEVELS, effortLabel } from "../hooks/useAgentDesk";
 import type { AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../types";
+import { ArrowLeftIcon, CheckIcon, ExportIcon, ImportIcon, PlusIcon, TrashIcon } from "./icons";
 
 type EditingType = "agent" | "skill";
 
@@ -371,20 +372,18 @@ export function ManagerScreen({
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">CONFIGURATION</div>
           <h2 className="text-lg font-semibold text-ink-strong">エージェントとスキル</h2>
         </div>
-        <div className={["flex items-center gap-2", compact ? "w-full justify-between" : ""].join(" ")}>
-          <div className="flex gap-2">
+        <div className={["flex flex-wrap items-center gap-2", compact ? "w-full justify-between" : ""].join(" ")}>
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+              className="btn-quiet"
             >
+              <ImportIcon />
               インポート
             </button>
-            <button
-              type="button"
-              onClick={exportDefinitions}
-              className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
-            >
+            <button type="button" onClick={exportDefinitions} className="btn-quiet">
+              <ExportIcon />
               エクスポート
             </button>
             <input
@@ -398,12 +397,9 @@ export function ManagerScreen({
               }}
             />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-9 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-danger/60 hover:text-danger"
-          >
-            閉じる
+          <button type="button" onClick={onClose} className="btn-quiet ml-auto">
+            <ArrowLeftIcon />
+            戻る
           </button>
         </div>
       </header>
@@ -441,9 +437,10 @@ export function ManagerScreen({
                 <button
                   type="button"
                   onClick={startNewAgent}
-                  className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
-                  ＋ 新しいエージェント
+                  <PlusIcon />
+                  新しいエージェント
                 </button>
                 <div className="grid min-w-0 gap-1">
                   {catalog.agents.map((agent) => (
@@ -464,9 +461,10 @@ export function ManagerScreen({
                 <button
                   type="button"
                   onClick={startNewSkill}
-                  className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
-                  ＋ 新しいスキル
+                  <PlusIcon />
+                  新しいスキル
                 </button>
                 <div className="grid min-w-0 gap-1">
                   {catalog.skills.map((skill) => (
@@ -615,8 +613,9 @@ export function ManagerScreen({
                         type="button"
                         onClick={() => removeSuggestion(index)}
                         aria-label={`定型プロンプト${index + 1}を削除`}
-                        className="min-h-9 rounded-lg border border-line px-2.5 text-xs text-ink-soft transition-colors hover:border-danger/60 hover:text-danger"
+                        className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-ink-soft transition-colors hover:border-danger/60 hover:text-danger"
                       >
+                        <TrashIcon />
                         削除
                       </button>
                     </div>
@@ -627,9 +626,10 @@ export function ManagerScreen({
                   type="button"
                   disabled={agentForm.suggestions.length >= SUGGESTION_LIMIT}
                   onClick={addSuggestion}
-                  className="min-h-9 justify-self-start rounded-lg border border-dashed border-line px-3 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-55"
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 justify-self-start rounded-lg border border-dashed border-line px-3 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-55"
                 >
-                  ＋ 追加
+                  <PlusIcon />
+                  追加
                 </button>
                 <p className="text-[10px] leading-relaxed text-ink-ghost">
                   空の会話の最初の画面にボタンとして出ます。未定義のエージェントではボタンが出ません（最大 6 件）。
@@ -661,15 +661,17 @@ export function ManagerScreen({
                   <button
                     type="button"
                     onClick={() => void removeCurrentAgent()}
-                    className="min-h-9 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
+                    className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
                   >
+                    <TrashIcon />
                     削除
                   </button>
                 ) : null}
                 <button
                   type="submit"
-                  className="min-h-9 flex-1 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110"
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110"
                 >
+                  <CheckIcon />
                   保存
                 </button>
               </div>
@@ -717,15 +719,17 @@ export function ManagerScreen({
                   <button
                     type="button"
                     onClick={() => void removeCurrentSkill()}
-                    className="min-h-9 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
+                    className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
                   >
+                    <TrashIcon />
                     削除
                   </button>
                 ) : null}
                 <button
                   type="submit"
-                  className="min-h-9 flex-1 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110"
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110"
                 >
+                  <CheckIcon />
                   保存
                 </button>
               </div>

@@ -25,6 +25,7 @@ function phaseColor(phase: ToolCard["phase"]): string {
 // truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
 const PHASE_LABEL_CLASS = "w-[3.25em] shrink-0 text-right whitespace-nowrap font-sans text-[9px]";
 
+// 2 枚の紙を閉じた矩形で重ねると 14px では交差線が潰れるため、後ろの紙は開いたパスで描く
 function CopyIcon() {
   return (
     <svg
@@ -32,13 +33,13 @@ function CopyIcon() {
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.3"
+      strokeWidth="1.4"
       strokeLinecap="round"
       strokeLinejoin="round"
       className="size-3.5"
     >
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <rect x="2.5" y="2.5" width="8" height="8" rx="1.5" />
+      <path d="M12 9.75H13A1.25 1.25 0 0 1 14.25 8.5V3.5A1.25 1.25 0 0 0 13 2.25H8A1.25 1.25 0 0 0 6.75 3.5v1" />
+      <path d="M3.5 6.75h5A1.25 1.25 0 0 1 9.75 8v5A1.25 1.25 0 0 1 8.5 14.25h-5A1.25 1.25 0 0 1 2.25 13V8A1.25 1.25 0 0 1 3.5 6.75Z" />
     </svg>
   );
 }
