@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { ALL_THINKING_LEVELS, effortLabel } from "../hooks/useAgentDesk";
 import type { AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../types";
+import { SelectField } from "./SelectField";
 import { ArrowLeftIcon, CheckIcon, ExportIcon, ImportIcon, PlusIcon, TrashIcon } from "./icons";
 
 type EditingType = "agent" | "skill";
@@ -531,8 +532,9 @@ export function ManagerScreen({
                 <div className="grid gap-2 wide:grid-cols-2">
                   <label className="grid gap-1 text-[11px] text-ink-soft">
                     Model
-                    <select
-                      className="field cursor-pointer text-xs"
+                    <SelectField
+                      className="text-xs"
+                      wrapperClassName="w-full"
                       aria-label="エージェントのモデル"
                       value={agentModelValue}
                       onChange={(e) => changeAgentModel(e.currentTarget.value)}
@@ -543,12 +545,13 @@ export function ManagerScreen({
                           {choice.label}
                         </option>
                       ))}
-                    </select>
+                    </SelectField>
                   </label>
                   <label className="grid gap-1 text-[11px] text-ink-soft">
                     Effort
-                    <select
-                      className="field cursor-pointer text-xs disabled:cursor-not-allowed disabled:opacity-55"
+                    <SelectField
+                      className="text-xs disabled:cursor-not-allowed disabled:opacity-55"
+                      wrapperClassName="w-full"
                       aria-label="エージェントの Effort"
                       value={agentForm.thinkingLevel ?? ""}
                       onChange={(e) =>
@@ -566,7 +569,7 @@ export function ManagerScreen({
                           {effortLabel(level)}
                         </option>
                       ))}
-                    </select>
+                    </SelectField>
                   </label>
                 </div>
                 <p className="text-[10px] leading-relaxed text-ink-ghost">

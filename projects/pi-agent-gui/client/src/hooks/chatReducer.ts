@@ -141,7 +141,7 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "newChat":
-      // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings / modelDisplay が担う。
+      // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。
       // nextId だけは引き継ぐ (セッションを跨いで古いイベントの bubble id と衝突させない)。
       return { ...initialChatState, nextId: state.nextId };
 

@@ -1,4 +1,5 @@
 import type { ChangeEvent } from "react";
+import { SelectField } from "../components/SelectField";
 import { useTheme } from "./ThemeProvider";
 import { isThemeId, type ThemeChoice } from "./themes";
 
@@ -27,12 +28,10 @@ export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps
     >
       {/* 解決中のテーマの色見本 (色は index.css の .theme-swatch で定義) */}
       <span aria-hidden className="theme-swatch" data-theme-id={resolvedId} />
-      <select
+      <SelectField
         aria-label="テーマ"
-        className={[
-          "min-w-0 cursor-pointer rounded-lg border border-line bg-raised px-2 py-1.5 text-ink outline-none transition-colors focus:border-focus",
-          compact ? "flex-1 text-[16px]" : "text-xs",
-        ].join(" ")}
+        className={compact ? "py-1.5 pl-2 text-[16px]" : "py-1.5 pl-2 text-xs"}
+        wrapperClassName={compact ? "min-w-0 flex-1" : undefined}
         value={choice}
         onChange={handleChange}
       >
@@ -42,7 +41,7 @@ export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps
             {theme.label}
           </option>
         ))}
-      </select>
+      </SelectField>
     </div>
   );
 }

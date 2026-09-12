@@ -24,7 +24,6 @@ import type {
   ThinkingLevel,
 } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
-import { modelDisplayOf } from "./modelDisplay";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { useSessionEvents } from "./useSessionEvents";
 import { createRequestGate } from "./requestGate";
@@ -176,7 +175,7 @@ export function useAgentDesk() {
         setRuntimeStatus({ text: "モデル未選択", error: true, detail: next.defaultModelError });
       } else {
         // health.model はアプリ既定であり、選択中セッションの実効モデルとは限らない。
-        // ヘッダーのモデルは会話側から導出し、ここでは接続状態だけを更新する。
+        // 実効値は resync が chat.sessionModel へ入れるので、ここでは接続状態だけを更新する。
         setRuntimeStatus({ text: "接続中", error: false });
       }
       return;
@@ -208,7 +207,7 @@ export function useAgentDesk() {
     lastSeqRef.current = payload.lastSeq || 0;
     setCwd((prev) => payload.cwd || prev);
     // 会話の実効モデルは chat.sessionModel (resync) に入る。ここで runtimeStatus に書くと
-    // health の再取得で上書きされるため、ヘッダーは chat 側から導出する。
+    // health の再取得で上書きされるため、入力欄のピッカーは chat 側から導出する。
     dispatch({ type: "resync", payload });
   }, []);
 
@@ -501,12 +500,6 @@ export function useAgentDesk() {
     label ? modelOptions.find((option) => `${option.provider}/${option.id}` === label) : undefined;
 
   const inSession = Boolean(sessionId);
-  // ヘッダーに出すモデルは、選択中なら会話の実効値だけを使い、未作成のチャットに限りアプリ既定を「既定」と明示する。
-  const modelDisplay = modelDisplayOf({
-    inSession,
-    sessionModel: chat.sessionModel,
-    defaultModel: health?.model,
-  });
   // 未作成のチャットはサーバーと同じ優先順位 (作成前の選択 → 定義 → アプリ既定) で表示する
   const pendingModel = modelLabelOf(preselection.model) ??
     modelLabelOf(selectedAgent?.model) ??
@@ -552,7 +545,6 @@ export function useAgentDesk() {
     agentId,
     setAgentId,
     runtimeStatus,
-    modelDisplay,
     cwd,
     sending,
     settingsChanging,

@@ -2,7 +2,8 @@ import { ThemeSwitcher } from "../theme/ThemeSwitcher";
 import type { AgentDesk } from "../hooks/useAgentDesk";
 import { messageTimeLabel } from "../lib/messageTime";
 import type { SessionSummary } from "../types";
-import { CloseIcon } from "./icons";
+import { ChevronIcon, CloseIcon } from "./icons";
+import { SelectField } from "./SelectField";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -79,7 +80,7 @@ function SessionRow({
           }
         }}
         // タッチ端末では常時表示する (ChatArea のコピーボタンと同じ can-hover の使い方)
-        className="cursor-pointer px-1 text-[13px] leading-none text-ink-ghost transition-colors group-hover:text-danger hover:!text-danger can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100"
+        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-[13px] leading-none text-ink-ghost transition-colors group-hover:text-danger hover:bg-danger/20 hover:text-danger can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100"
       >
         ×
       </span>
@@ -168,8 +169,9 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
       {/* エージェント */}
       <div className="grid gap-2">
         <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">エージェント</div>
-        <select
-          className={["field cursor-pointer", sheet ? "text-[16px]" : "text-xs"].join(" ")}
+        <SelectField
+          className={sheet ? "text-[16px]" : "text-xs"}
+          wrapperClassName="w-full"
           aria-label="エージェントを選択"
           value={agentId}
           disabled={catalog.agents.length === 0}
@@ -183,7 +185,7 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
               {agent.name}
             </option>
           ))}
-        </select>
+        </SelectField>
         {/* 説明とスキルは drawer では畳む (agent の詳細は管理画面で見る) */}
         {sheet ? null : (
           <>
@@ -202,9 +204,13 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
         <button
           type="button"
           onClick={onOpenManager}
-          className="min-h-9 w-full rounded-lg border border-line bg-transparent text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+          className="flex min-h-9 w-full items-center gap-1.5 rounded-lg border border-line px-3 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
         >
-          ⚙ エージェント / スキルを管理
+          <span aria-hidden className="text-[13px] leading-none">⚙</span>
+          <span className="min-w-0 flex-1 truncate text-left">エージェント / スキルを管理</span>
+          <span className="text-ink-faint">
+            <ChevronIcon />
+          </span>
         </button>
       </div>
 
@@ -248,10 +254,15 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
           aria-haspopup="dialog"
           aria-label="作業ディレクトリのファイルを表示"
           title="作業ディレクトリのファイルを表示"
-          className="grid gap-2 rounded-lg border border-line bg-soft px-3 py-3 text-left transition-colors hover:border-accent/50"
+          className="flex items-center gap-2 rounded-lg border border-line bg-soft px-3 py-3 text-left transition-colors hover:border-accent/50 hover:bg-hover"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">作業ディレクトリ</span>
-          <code className="truncate text-[11px] leading-normal text-ink-soft">{cwd || "読み込み中…"}</code>
+          <span className="grid min-w-0 flex-1 gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">作業ディレクトリ</span>
+            <code className="truncate text-[11px] leading-normal text-ink-soft">{cwd || "読み込み中…"}</code>
+          </span>
+          <span className="text-ink-faint">
+            <ChevronIcon />
+          </span>
         </button>
         {/* テーマ切替の入口は desktop の Topbar にしかないため、drawer にも置く */}
         {sheet ? (
