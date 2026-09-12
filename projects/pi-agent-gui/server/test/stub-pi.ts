@@ -107,7 +107,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     sessionId: `pi-${Math.random().toString(36).slice(2, 10)}`,
     model: options.model ?? STUB_MODEL,
     thinkingLevel: options.thinkingLevel ?? "low",
-    messages: [] as Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string }>,
+    messages: [] as Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string; timestamp?: number }>,
     isStreaming: false,
     get isIdle() {
       return !session.isStreaming;
@@ -151,10 +151,16 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       session.abortRequested = false;
       session.isStreaming = true;
       try {
-        session.messages.push({ role: "user", content: text });
+        // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)
+        session.messages.push({ role: "user", content: text, timestamp: Date.now() });
         session.emit({ type: "agent_start" });
         session.emit({ type: "message_start", message: { role: "assistant" } });
-        const assistant = { role: "assistant", content: [{ type: "text", text: "" }], stopReason: "stop" };
+        const assistant = {
+          role: "assistant",
+          content: [{ type: "text", text: "" }],
+          stopReason: "stop",
+          timestamp: Date.now(),
+        };
         session.messages.push(assistant);
         const chunks = [reply.slice(0, 3), reply.slice(3)].filter(Boolean);
         for (const chunk of chunks) {

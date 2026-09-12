@@ -1,5 +1,6 @@
 import { ThemeSwitcher } from "../theme/ThemeSwitcher";
 import type { AgentDesk } from "../hooks/useAgentDesk";
+import { messageTimeLabel } from "../lib/messageTime";
 import type { SessionSummary } from "../types";
 import { CloseIcon } from "./icons";
 
@@ -41,7 +42,8 @@ function SessionRow({
 }) {
   const bits = [
     item.agentName,
-    new Date(item.lastUsedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    // 同じ表記をセッション一覧にも使う (locale 依存の toLocaleTimeString をやめる)
+    messageTimeLabel(item.lastUsedAt),
     STATUS_LABELS[item.status],
     item.queueDepth > 0 ? `待機${item.queueDepth}件` : "",
   ].filter(Boolean);

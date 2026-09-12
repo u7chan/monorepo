@@ -374,3 +374,28 @@ test("emits a resync event with the effective values on settings change", async 
 
   await store.close();
 });
+
+test("maps the SDK message timestamp to the payload at field", async () => {
+  const catalog = createAgentCatalog();
+  const store = new SessionStore({ pi: createStubPi(), catalog });
+  const record = await store.create({ agentId: "agent-general" });
+
+  record.session.messages.push({ role: "user", content: "時刻のある履歴", timestamp: 1700000000000 });
+  const payload = store.payload(record);
+  assert.equal(payload.messages.at(-1)?.at, 1700000000000);
+
+  await store.close();
+});
+
+test("omits the at key for histories without a timestamp", async () => {
+  const catalog = createAgentCatalog();
+  const store = new SessionStore({ pi: createStubPi(), catalog });
+  const record = await store.create({ agentId: "agent-general" });
+
+  record.session.messages.push({ role: "user", content: "時刻の無い履歴" });
+
+  const payload = store.payload(record);
+  assert.equal(Object.hasOwn(payload.messages[0], "at"), false, "at must be absent, not null/undefined");
+
+  await store.close();
+});

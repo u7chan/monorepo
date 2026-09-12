@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { Bubble, ToolCard } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { toolCallCopyText } from "../lib/copy-content";
+import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 
 const SUGGESTIONS = [
   { prompt: "このプロジェクトの構成を簡単に教えて", label: "プロジェクトを説明して" },
@@ -271,9 +272,21 @@ function MessageView({
             {bubble.text}
           </div>
         ) : null}
-        {bubble.text ? (
-          <div className={["mt-1 flex", isUser ? "justify-end" : ""].join(" ")}>
-            <CopyButton copied={copied} onClick={onCopy} label="メッセージをコピー" reveal={REVEAL_MESSAGE} />
+        {/* 本文が無くツールだけの assistant でも時刻を出す (コピーボタンは本文があるときだけ) */}
+        {bubble.text || bubble.at !== undefined ? (
+          <div className={["mt-1 flex items-center gap-2", isUser ? "justify-end" : ""].join(" ")}>
+            {bubble.at !== undefined ? (
+              <time
+                dateTime={new Date(bubble.at).toISOString()}
+                title={messageFullTimeLabel(bubble.at)}
+                className="shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums text-ink-ghost"
+              >
+                {messageTimeLabel(bubble.at)}
+              </time>
+            ) : null}
+            {bubble.text ? (
+              <CopyButton copied={copied} onClick={onCopy} label="メッセージをコピー" reveal={REVEAL_MESSAGE} />
+            ) : null}
           </div>
         ) : null}
       </div>

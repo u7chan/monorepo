@@ -128,7 +128,7 @@ export interface PiSessionLike {
   sessionId: string;
   model?: { provider: string; id: string } | null;
   thinkingLevel?: string;
-  messages: Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string }>;
+  messages: Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string; timestamp?: number }>;
   isStreaming: boolean;
   /** SDK の isIdle (実行・compaction・retry が無い) */
   isIdle: boolean;
@@ -226,6 +226,8 @@ function sessionMessages(session: PiSessionLike, masker: SecretMasker): ChatMess
         role: message.role as "user" | "assistant",
         text,
         stopReason: message.role === "assistant" ? message.stopReason : undefined,
+        // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
+        ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
       };
     })
     .filter((message) => message.text || message.role === "user");
