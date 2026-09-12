@@ -517,6 +517,58 @@ test("catalog endpoints relay the normalization errors of the catalog", async ()
   }
 });
 
+test("catalog endpoints expose and update agent suggestions", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const initial = await jsonBody(app.request("/api/agents"));
+    const builder = initial.agents.find((agent: { id: string }) => agent.id === "agent-builder");
+    assert.deepEqual(builder.suggestions, [
+      { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
+      { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
+      { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
+    ]);
+    const general = initial.agents.find((agent: { id: string }) => agent.id === "agent-general");
+    assert.equal(Object.hasOwn(general, "suggestions"), false);
+
+    // 作成時も正規化して受け付ける
+    const created = await app.request(
+      "/api/agents",
+      jsonPost({ name: "定型あり", suggestions: [{ label: " 押す ", prompt: " 送る " }] }),
+    );
+    assert.equal(created.status, 201);
+    const createdAgent = (await jsonBody(created)).agent;
+    assert.deepEqual(createdAgent.suggestions, [{ label: "押す", prompt: "送る" }]);
+
+    const saved = await app.request(
+      "/api/agents/agent-builder",
+      jsonPatch({ suggestions: [{ label: "足した", prompt: "追加のプロンプト" }] }),
+    );
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await jsonBody(saved)).agent.suggestions, [
+      { label: "足した", prompt: "追加のプロンプト" },
+    ]);
+
+    const reloaded = await jsonBody(app.request("/api/agents"));
+    assert.deepEqual(
+      reloaded.agents.find((agent: { id: string }) => agent.id === "agent-builder").suggestions,
+      [{ label: "足した", prompt: "追加のプロンプト" }],
+    );
+
+    // 空配列で解除すると応答からもキーが消える
+    const cleared = await app.request("/api/agents/agent-builder", jsonPatch({ suggestions: [] }));
+    assert.equal(cleared.status, 200);
+    assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "suggestions"), false);
+    const afterClear = await jsonBody(app.request("/api/agents"));
+    assert.equal(
+      Object.hasOwn(afterClear.agents.find((agent: { id: string }) => agent.id === "agent-builder"), "suggestions"),
+      false,
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
 test("static files are served with cache and security headers", async () => {
   const distDir = await mkdtemp(join(tmpdir(), "bff-static-"));
   await mkdir(join(distDir, "assets"), { recursive: true });

@@ -9,7 +9,7 @@ import {
   updateSkill,
 } from "../api";
 import { ALL_THINKING_LEVELS, effortLabel } from "../hooks/useAgentDesk";
-import type { Catalog, ModelOption, ModelRef, ThinkingLevel } from "../types";
+import type { AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../types";
 
 type EditingType = "agent" | "skill";
 
@@ -31,6 +31,9 @@ export type ManagerScreenProps = {
 
 const DEFAULT_NOTE = "変更はこのサーバーのメモリ内だけに保存されます。再起動するとサンプルに戻ります。";
 
+/** サーバー側の上限に合わせる。これを超える行を保存時に黙って捨てないための事前制限。 */
+const SUGGESTION_LIMIT = 6;
+
 type AgentForm = {
   name: string;
   description: string;
@@ -39,6 +42,7 @@ type AgentForm = {
   /** null は「未指定」 (保存時は指定解除として送る) */
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
+  suggestions: AgentSuggestion[];
 };
 
 const modelValueOf = (ref: ModelRef | null): string =>
@@ -75,6 +79,7 @@ export function ManagerScreen({
     skillIds: [],
     model: null,
     thinkingLevel: null,
+    suggestions: [],
   });
   const [skillForm, setSkillForm] = useState({ name: "", description: "", prompt: "" });
 
@@ -111,6 +116,8 @@ export function ManagerScreen({
         skillIds: editingAgent ? [...editingAgent.skillIds] : [],
         model: editingAgent?.model ? { ...editingAgent.model } : null,
         thinkingLevel: editingAgent?.thinkingLevel ?? null,
+        // catalog のオブジェクトを直接編集しないよう、配列と要素をコピーして持つ
+        suggestions: editingAgent?.suggestions?.map((suggestion) => ({ ...suggestion })) ?? [],
       });
     } else {
       setSkillForm({
@@ -154,9 +161,10 @@ export function ManagerScreen({
       description: agentForm.description,
       systemPrompt: agentForm.systemPrompt,
       skillIds: agentForm.skillIds,
-      // null はサーバー側で「指定解除」に正規化される
+      // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
       model: agentForm.model,
       thinkingLevel: agentForm.thinkingLevel,
+      suggestions: agentForm.suggestions,
     };
     try {
       const result = editingId
@@ -259,6 +267,28 @@ export function ManagerScreen({
     setAgentForm((prev) => ({
       ...prev,
       skillIds: checked ? [...prev.skillIds, skillId] : prev.skillIds.filter((id) => id !== skillId),
+    }));
+  };
+
+  // --- エージェント定義の定型プロンプト ---
+
+  const addSuggestion = () => {
+    setAgentForm((prev) => ({ ...prev, suggestions: [...prev.suggestions, { label: "", prompt: "" }] }));
+  };
+
+  const removeSuggestion = (index: number) => {
+    setAgentForm((prev) => ({
+      ...prev,
+      suggestions: prev.suggestions.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
+  const changeSuggestion = (index: number, patch: Partial<AgentSuggestion>) => {
+    setAgentForm((prev) => ({
+      ...prev,
+      suggestions: prev.suggestions.map((suggestion, itemIndex) =>
+        itemIndex === index ? { ...suggestion, ...patch } : suggestion,
+      ),
     }));
   };
 
@@ -549,6 +579,60 @@ export function ManagerScreen({
                       : !agentSupportsThinking
                         ? "使用モデルは推論に対応していないため Effort を選べません。未指定に戻す操作は可能です。"
                         : "ここで指定した値は新しい会話の初期値になります。既存の会話には反映されません。"}
+                </p>
+              </div>
+              <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+                  定型プロンプト
+                </div>
+                <div className="grid gap-2">
+                  {agentForm.suggestions.map((suggestion, index) => (
+                    <div
+                      key={index}
+                      className="grid items-end gap-2 wide:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto]"
+                    >
+                      <label className="grid gap-1 text-[11px] text-ink-soft">
+                        ラベル
+                        <input
+                          className="field text-xs"
+                          maxLength={60}
+                          aria-label={`定型プロンプト${index + 1}のラベル`}
+                          value={suggestion.label}
+                          onChange={(e) => changeSuggestion(index, { label: e.currentTarget.value })}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-[11px] text-ink-soft">
+                        プロンプト
+                        <input
+                          className="field text-xs"
+                          maxLength={500}
+                          aria-label={`定型プロンプト${index + 1}のプロンプト`}
+                          value={suggestion.prompt}
+                          onChange={(e) => changeSuggestion(index, { prompt: e.currentTarget.value })}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeSuggestion(index)}
+                        aria-label={`定型プロンプト${index + 1}を削除`}
+                        className="min-h-9 rounded-lg border border-line px-2.5 text-xs text-ink-soft transition-colors hover:border-danger/60 hover:text-danger"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {/* 上限に達したら追加を止め、7 行目が保存時に黙って捨てられる状態を作らない */}
+                <button
+                  type="button"
+                  disabled={agentForm.suggestions.length >= SUGGESTION_LIMIT}
+                  onClick={addSuggestion}
+                  className="min-h-9 justify-self-start rounded-lg border border-dashed border-line px-3 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  ＋ 追加
+                </button>
+                <p className="text-[10px] leading-relaxed text-ink-ghost">
+                  空の会話の最初の画面にボタンとして出ます。未定義のエージェントではボタンが出ません（最大 6 件）。
                 </p>
               </div>
               <div className="text-[11px] text-ink-soft">割り当てるスキル</div>

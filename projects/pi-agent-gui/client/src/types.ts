@@ -5,6 +5,7 @@ export type {
   AgentDef,
   AgentPayloadInfo,
   AgentSkillInfo,
+  AgentSuggestion,
   Catalog,
   ChatMessage,
   EventEntry,
