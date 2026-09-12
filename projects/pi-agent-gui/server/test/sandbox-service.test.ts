@@ -395,10 +395,10 @@ test("files endpoint distinguishes symlinks and only opens targets inside the ro
   assert.equal(typeof byName.get("linkFile")?.size, "number");
   assert.equal(byName.get("linkBroken")?.size, undefined);
 
-  // root 内を指す symlink は普通に開ける (path は要求した位置を返す)
+  // root 内を指す symlink は普通に開ける (path は解決後の実ディレクトリを root 相対で返す)
   const inside = await listFiles(service.app, "linkInside");
   assert.equal(inside.status, 200);
-  assert.equal(inside.body.path, "linkInside");
+  assert.equal(inside.body.path, "dirB");
   assert.deepEqual(
     inside.body.entries.map((entry) => entry.name),
     ["nested"],
@@ -409,3 +409,48 @@ test("files endpoint distinguishes symlinks and only opens targets inside the ro
   assert.equal(outsideOpen.status, 400);
   assert.match(outsideOpen.body.error ?? "", /outside the workspace/);
 });
+
+test(
+  "files endpoint judges the root boundary by the resolved path, even when the request starts outside the root",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    // root の外に root を指す symlink を置き、lexical には root 外でも realpath が root 内へ戻る要求を再現する
+    // (実行環境依存のパスは使わない)
+    const base = mkdtempSync(join(tmpdir(), "pi-sbx-files-alias-"));
+    const root = join(base, "root");
+    await mkdir(join(root, "dirB"), { recursive: true });
+    await writeFile(join(root, "A.txt"), "a", "utf8");
+    await mkdir(join(base, "outside"), { recursive: true });
+    await symlink(root, join(base, "link-in"));
+
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    // `..` を含んでいても、解決後の実パスが root 内なら 200
+    const relative = await listFiles(service.app, "../link-in");
+    assert.equal(relative.status, 200, relative.body.error ?? "");
+    assert.equal(relative.body.path, ".");
+    assert.deepEqual(
+      relative.body.entries.map((entry) => entry.name),
+      ["dirB", "A.txt"],
+    );
+
+    // 絶対パスで root 外の symlink を指す場合も同じ (判定は lexical な位置ではなく解決後の実パス)
+    const absolute = await listFiles(service.app, join(base, "link-in", "dirB"));
+    assert.equal(absolute.status, 200, absolute.body.error ?? "");
+    assert.equal(absolute.body.path, "dirB");
+
+    // 実在する root 外のディレクトリは 400 のまま (解決後の実パスが root 外)
+    const outside = await listFiles(service.app, "../outside");
+    assert.equal(outside.status, 400);
+    assert.match(outside.body.error ?? "", /outside the workspace/);
+
+    // 実在しない要求は lexical な位置で判定する: root 外 → 400 (404 にしない)、root 内 → 404
+    const missingOutside = await listFiles(service.app, "../missing");
+    assert.equal(missingOutside.status, 400, "root 外を指す未作成パスは入力検証として 400 のまま");
+    assert.match(missingOutside.body.error ?? "", /outside the workspace/);
+
+    const missingInside = await listFiles(service.app, "missing");
+    assert.equal(missingInside.status, 404);
+    assert.match(missingInside.body.error ?? "", /Path not found/);
+  },
+);

@@ -91,8 +91,9 @@ async function readJsonBody(request: Request): Promise<unknown> {
 }
 
 /**
- * root 相対の要求パスを解決して一覧を返す。判定は「`..` の有無」ではなく「realpath した実パスが root 内か」で行い、
- * root 外を指す symlink も一覧には出すが、その位置を開こうとした時点で 400 にする。
+ * root 相対の要求パスを解決して一覧を返す。root 内外は「`..` の有無」ではなく realpath で解決した実パスで判定するため、
+ * root 外にある symlink (`../link-in` など) から root 内へ解決する要求も 200 になる。
+ * 実在しない要求だけは lexical な位置で判定し、root 外を指す未作成パスは 404 ではなく 400 (入力検証) のままにする。
  * エラー文言は SDK の ls ツールに寄せる (BFF はサンドボックスの文言をそのままクライアントへ返す)。
  */
 async function listWorkspaceDirectory(rootCwd: string, requested: string): Promise<SandboxFileListing> {
@@ -111,14 +112,20 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
   } catch {
     return fail(400, `Invalid path: ${requested}`);
   }
-  if (!isInsideRoot(root, candidate)) return fail(400, `Path outside the workspace: ${candidate}`);
 
-  const target = await realpath(candidate).catch((error: unknown) => {
+  // lexical な位置ではなく解決後の実パスで root 内外を判定する。root 外を指す symlink も、解決して root 内に
+  // 戻るなら通す (要求そのものは root の外を指していてもよい)。
+  let target: string;
+  try {
+    target = await realpath(candidate);
+  } catch (error) {
+    // 解決できない = 実在しない (か解決不能) なので、lexical な位置で判定する。
+    // root 外の未作成パスを 404 にすると「root 外は 400」の入力検証が抜ける。
+    if (!isInsideRoot(root, candidate)) return fail(400, `Path outside the workspace: ${candidate}`);
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return fail(404, `Path not found: ${candidate}`);
     return fail(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  // 途中の symlink が root 外を指していた場合もここで弾く
+  }
   if (!isInsideRoot(root, target)) return fail(400, `Path outside the workspace: ${target}`);
 
   const targetStat = await stat(target).catch(() => undefined);
@@ -151,7 +158,8 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
   }
 
   return {
-    path: relativeToRoot(root, candidate),
+    // 解決後の実ディレクトリを root 相対で返す (root 外の別名から解決した場合も root 内のパスになる)
+    path: relativeToRoot(root, target),
     entries,
     truncated,
   };

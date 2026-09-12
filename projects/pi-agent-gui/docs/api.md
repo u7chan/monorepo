@@ -55,7 +55,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 ```
 
 - 200: サンドボックスの一覧をそのまま返す。エントリの意味は下の「サンドボックス API」を参照
-- 400 / 404: `path` が root 外・不正 / 存在しない / ディレクトリでない。サンドボックス側の文言をそのまま返す
+- 400 / 404: `path` が root 外へ解決される / 不正 / ディレクトリでない（400）、実在しない（404）。実在しない `path` は lexical な位置で判定するため、root 外を指す未作成パスは 404 ではなく 400 になる。サンドボックス側の文言をそのまま返す
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定。`{ "error": "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" }`
 - 502: サンドボックスへ到達できない / 認証失敗 / サンドボックス側のエラー / 契約外の応答（BFF が zod で検証して弾く）
 
@@ -112,13 +112,17 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 }
 ```
 
-- `path` は要求した位置の正規化パス（root は `"."`。symlink を辿った先ではない）。判定は「`..` の有無」ではなく「realpath で解決した実パスが root 内か」で行うため、`dir/..` のように解決後に root 内へ収まる要求は 200 になる
+- `path` は一覧した実ディレクトリの root 相対の正規化パス（root は `"."`）。要求が symlink を経由する場合は辿った先のパスになる（`type` と同じく実体で表す）。root 内外の判定は「`..` の有無」ではなく「realpath で解決した実パスが root 内か」で行う
+  - `dir/..` のように解決後に root 内へ収まる要求は 200
+  - root の外にある symlink が root 内を指す場合（例: root の親に置いた `link-in -> root` への `../link-in`）も 200。要求自体は root の外を指していてもよい
+  - 実在する要求で解決後の実パスが root 外なら 400（`outside the workspace`）
+  - 実在しない要求（realpath が `ENOENT` / `ENOTDIR`）だけは lexical な位置で判定し、root 外を指すなら 400（404 にしない）、root 内を指すなら 404
 - `type` は `file` / `dir`。symlink は辿った先（stat 相当）の実体種別で、ディレクトリ以外（ソケット等）は `file` に寄せる。`size` / `mtime`（epoch ms）は実体を stat できたファイルにだけ付ける（壊れた symlink には付かない）
 - `symlink: true` は `lstat` が symlink だったエントリ。root 内を指す symlink は普通に開ける。root 外を指す symlink も一覧には出る（`symlink: true`）が、その位置を `path` に指定すると 400 になる。一覧は symlink の指す先を列挙しない（root 配下だけを返す）
 - 並び順はディレクトリ先 → ファイル、各グループ内は大文字小文字を無視した昇順。client は再ソートしない
 - hidden file（dotfile）も返す。フィルタは持たない
 - 1 ディレクトリ 500 件（SDK の `ls` ツールの既定上限と同じ）で打ち切り、`truncated: true` を返す
-- 400: `path` が root 外へ解決される / 不正、ディレクトリでない（`Not a directory: …`）、読み取り不能。404: 存在しない（`Path not found: …`）。文言は `ls` ツールに寄せる
+- 400: `path` が root 外へ解決される / 不正、ディレクトリでない（`Not a directory: …`）、読み取り不能。404: 実在しない（`Path not found: …`）。文言は `ls` ツールに寄せる
 - root 外の拒否は URL 経由の不正参照を防ぐ入力検証で、サンドボックスが読める範囲を絞るものではない（サンドボックスは元々 `bash` / `read` を実行でき、読み取り範囲は変わらない）
 
 ### 環境変数
