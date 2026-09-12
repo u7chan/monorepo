@@ -34,6 +34,7 @@ function errorText(error: unknown): string {
 /**
  * 作業ディレクトリのファイルツリー。ManagerScreen と同じフルスクリーンの dialog にして、
  * メイン画面のレイアウトは変えない (将来この中でツリー + プレビューの 2 ペインへ広げる)。
+ * ヘッダもツリーも画面幅いっぱいに置く (中央に寄せると、狭い列の外側が余白として目立つ)。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
  */
 export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreenProps) {
@@ -90,60 +91,59 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
   const root = tree[FILE_TREE_ROOT] ?? { open: true, loading: false };
 
   return (
-    // フルスクリーンのモーダル dialog (ManagerScreen と同じ扱い)
+    // フルスクリーンのモーダル dialog (ManagerScreen と同じ扱い)。
+    // 明示的な minmax(0,1fr) で列を viewport 幅に固定する (auto だと nowrap のパス文字列に引き伸ばされ、ヘッダがはみ出す)
     <dialog
       ref={dialogRef}
       onClose={onClose}
       aria-modal="true"
       aria-label="作業ディレクトリのファイル"
       tabIndex={-1}
-      className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden rounded-none border-0 bg-base p-0 text-ink"
+      className="m-0 grid h-dvh w-screen max-h-none max-w-none grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-none border-0 bg-base p-0 text-ink"
     >
-      <div
+      <header
         className={[
-          // 明示的な minmax(0,1fr) で列を viewport 幅に固定する (auto だと nowrap のパス文字列に引き伸ばされ、ヘッダがはみ出す)
-          "mx-auto grid h-full min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
-          compact ? "w-full" : "w-full max-w-[720px] border-x border-line",
+          "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line",
+          compact ? "px-4 pt-3.5 pb-3" : "px-5 pt-4 pb-3.5",
         ].join(" ")}
       >
-        <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line px-4 py-3.5">
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">WORKSPACE</div>
-            <h2 className="text-base font-semibold text-ink-strong">作業ディレクトリ</h2>
-            <code className="block truncate text-[11px] leading-normal text-ink-muted">{cwd || "読み込み中…"}</code>
-          </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={reload} className="btn-quiet">
-              <RefreshIcon />
-              再読み込み
-            </button>
-            <button type="button" onClick={onClose} className="btn-quiet">
-              <ArrowLeftIcon />
-              戻る
-            </button>
-          </div>
-        </header>
-
-        <div className="scrollbar-thin min-h-0 overflow-x-hidden overflow-y-auto px-2 py-3">
-          {root.error ? (
-            <MessageRow depth={0} danger alert>
-              {root.error}
-            </MessageRow>
-          ) : null}
-          {root.children ? (
-            <Branch
-              parent={FILE_TREE_ROOT}
-              node={root}
-              depth={0}
-              tree={tree}
-              selected={selected}
-              onToggle={toggle}
-              onSelect={setSelected}
-            />
-          ) : root.error ? null : (
-            <MessageRow depth={0}>読み込み中…</MessageRow>
-          )}
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">WORKSPACE</div>
+          <h2 className="text-lg font-semibold text-ink-strong">作業ディレクトリ</h2>
+          <code className="block truncate text-[11px] leading-normal text-ink-muted">{cwd || "読み込み中…"}</code>
         </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={reload} className="btn-quiet">
+            <RefreshIcon />
+            再読み込み
+          </button>
+          <button type="button" onClick={onClose} className="btn-quiet">
+            <ArrowLeftIcon />
+            戻る
+          </button>
+        </div>
+      </header>
+
+      {/* ツリーは行のインデントだけを持ち、幅は画面いっぱいに使う */}
+      <div className="scrollbar-thin min-h-0 overflow-x-hidden overflow-y-auto px-3 py-3">
+        {root.error ? (
+          <MessageRow depth={0} danger alert>
+            {root.error}
+          </MessageRow>
+        ) : null}
+        {root.children ? (
+          <Branch
+            parent={FILE_TREE_ROOT}
+            node={root}
+            depth={0}
+            tree={tree}
+            selected={selected}
+            onToggle={toggle}
+            onSelect={setSelected}
+          />
+        ) : root.error ? null : (
+          <MessageRow depth={0}>読み込み中…</MessageRow>
+        )}
       </div>
     </dialog>
   );
@@ -162,7 +162,8 @@ type BranchProps = {
 function Branch({ parent, node, depth, tree, selected, onToggle, onSelect }: BranchProps) {
   const entries = node.children ?? [];
   return (
-    <div className="grid gap-0.5">
+    // 明示的な minmax(0,1fr) で行幅を容器に固定する (auto だと長い名前の max-content まで広がり、省略記号ではなく overflow で切れる)
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5">
       {entries.length === 0 ? <MessageRow depth={depth}>（空）</MessageRow> : null}
       {entries.map((entry) => (
         <EntryRow
@@ -223,7 +224,7 @@ function EntryRow({
             <ChevronIcon />
           </span>
           <FolderIcon />
-          <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+          <span className="min-w-0 truncate">{entry.name}</span>
           {entry.symlink ? <SymlinkMark /> : null}
         </button>
         {open ? (
@@ -265,7 +266,7 @@ function EntryRow({
       ].join(" ")}
     >
       <FileIcon />
-      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+      <span className="min-w-0 truncate">{entry.name}</span>
       {entry.symlink ? <SymlinkMark /> : null}
     </button>
   );

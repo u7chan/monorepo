@@ -15,7 +15,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 ## モードごとの構成
 
 - desktop: `Topbar`（theme / エラー時の接続状態）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- `FileTreeScreen`（作業ディレクトリのファイルツリー）はサイドバーの「作業ディレクトリ」カードから開く。メイン画面のレイアウトには分離した full screen の dialog で、desktop は内側を `max-w-[720px]` に絞り、compact は全幅にする
+- `FileTreeScreen`（作業ディレクトリのファイルツリー）はサイドバーの「作業ディレクトリ」カードから開く。メイン画面のレイアウトには分離した full screen の dialog で、`ManagerScreen` と同じくヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
 - portrait / landscape: `CompactBar` が「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
   - セッション一覧・エージェント / スキル管理・作業ディレクトリ・テーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる。「作業ディレクトリ」から開く `FileTreeScreen` もドロワーを閉じてから全幅で開く（入口は `Sidebar` の共通カード）
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（セッション一覧だけを `flex-1` にすると 0px に潰れる）
