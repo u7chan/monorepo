@@ -1,4 +1,5 @@
-ARG NODE_VERSION=25
+# Node 24 LTS (EOL 2028-04). jsdom 30 requires ^22.22.2 || ^24.15.0 || >=26.0.0, so Node 25 is out of range.
+ARG NODE_VERSION=24
 ARG USERNAME=vscode
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
