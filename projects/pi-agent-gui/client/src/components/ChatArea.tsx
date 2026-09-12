@@ -3,12 +3,7 @@ import type { Bubble, ToolCard } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { toolCallCopyText } from "../lib/copy-content";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
-
-const SUGGESTIONS = [
-  { prompt: "このプロジェクトの構成を簡単に教えて", label: "プロジェクトを説明して" },
-  { prompt: "まずテストがあるか確認して", label: "テストを確認して" },
-  { prompt: "README を読んで改善案を3つ出して", label: "README をレビューして" },
-];
+import type { AgentSuggestion } from "../types";
 
 const TOOL_SUMMARY_MAX_LENGTH = 96;
 
@@ -302,10 +297,12 @@ export type ChatAreaProps = {
   bubbles: Bubble[];
   /** モバイルの compact layout (本文幅を優先して余白と avatar を詰める) */
   compact?: boolean;
+  /** 選択中エージェントの定型プロンプト。未定義 / 空ならボタン行ごと出さない */
+  suggestions?: AgentSuggestion[];
   onSuggestion: (prompt: string) => void;
 };
 
-export function ChatArea({ bubbles, compact = false, onSuggestion }: ChatAreaProps) {
+export function ChatArea({ bubbles, compact = false, suggestions = [], onSuggestion }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
 
@@ -335,18 +332,20 @@ export function ChatArea({ bubbles, compact = false, onSuggestion }: ChatAreaPro
             <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
               コードを読んだり、ファイルを編集したり、コマンドを実行できます。
             </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s.prompt}
-                  type="button"
-                  onClick={() => onSuggestion(s.prompt)}
-                  className="min-h-9 rounded-lg border border-line bg-raised px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            {suggestions.length > 0 ? (
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.prompt}
+                    type="button"
+                    onClick={() => onSuggestion(s.prompt)}
+                    className="min-h-9 rounded-lg border border-line bg-raised px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className={["grid pt-2", compact ? "gap-3.5" : "gap-5"].join(" ")}>

@@ -38,6 +38,13 @@ export const ModelRefSchema = z.object({
 });
 export type ModelRef = z.infer<typeof ModelRefSchema>;
 
+/** 空の会話の firstview に出す定型プロンプト。label がボタン文言、prompt が送信文字列。 */
+export const AgentSuggestionSchema = z.object({
+  label: z.string(),
+  prompt: z.string(),
+});
+export type AgentSuggestion = z.infer<typeof AgentSuggestionSchema>;
+
 export const AgentDefSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -47,6 +54,8 @@ export const AgentDefSchema = z.object({
   // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
+  /** 未指定なら firstview のボタンを出さない (アプリ既定のフォールバックは持たない) */
+  suggestions: z.array(AgentSuggestionSchema).optional(),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 

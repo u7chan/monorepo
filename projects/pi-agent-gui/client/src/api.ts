@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import type { AppType } from "server";
 import type {
   AgentDef,
+  AgentSuggestion,
   Catalog,
   Health,
   ModelRef,
@@ -60,13 +61,14 @@ export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unkno
 
 // --- agents CRUD ---
 
-/** model / thinkingLevel の null は指定解除 (省略は現在値の維持) */
+/** model / thinkingLevel / suggestions の null は指定解除 (省略は現在値の維持) */
 export type AgentDefinitionInput = Pick<
   AgentDef,
   "name" | "description" | "systemPrompt" | "skillIds"
 > & {
   model?: ModelRef | null;
   thinkingLevel?: ThinkingLevel | null;
+  suggestions?: AgentSuggestion[] | null;
 };
 
 export const createAgent = async (input: AgentDefinitionInput): Promise<{ agent: AgentDef }> => {

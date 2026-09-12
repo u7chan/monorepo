@@ -106,7 +106,7 @@ export default function App() {
         ) : (
           <Topbar runtimeStatus={desk.runtimeStatus} modelDisplay={desk.modelDisplay} />
         )}
-        <ChatArea bubbles={desk.chat.bubbles} compact={compact} onSuggestion={handleSend} />
+        <ChatArea bubbles={desk.chat.bubbles} compact={compact} suggestions={desk.selectedAgent?.suggestions} onSuggestion={handleSend} />
         <Composer
           activity={desk.chat.activity}
           runtimeReady={desk.health?.ready !== false}

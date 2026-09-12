@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ThinkingLevelSchema } from "./schema";
-import type { AgentDef, Catalog, ModelRef, SkillDef, ThinkingLevel } from "./schema";
+import type { AgentDef, AgentSuggestion, Catalog, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
 /** HTTP ハンドラが statusCode を参照する。 */
 export interface HttpError extends Error {
@@ -69,6 +69,11 @@ const DEFAULT_AGENTS: AgentRecord[] = [
     description: "コードを読んで、安全に変更を実装する",
     systemPrompt: "実装担当として、プロジェクトのコードを実際に読んでから変更を実装してください。指示が曖昧なときは決め打ちせず、短く確認してから進めてください。",
     skillIds: ["skill-small-steps", "skill-change-report"],
+    suggestions: [
+      { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
+      { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
+      { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
+    ],
   },
   {
     id: "agent-reviewer",
@@ -125,6 +130,7 @@ function publicAgent(agent: AgentRecord): AgentDef {
   // 未指定の項目はキーを省略する (保存・応答に null は現れない)
   if (agent.model) result.model = { ...agent.model };
   if (agent.thinkingLevel) result.thinkingLevel = agent.thinkingLevel;
+  if (agent.suggestions?.length) result.suggestions = agent.suggestions.map((suggestion) => ({ ...suggestion }));
   return result;
 }
 
@@ -148,6 +154,29 @@ function thinkingLevelOf(value: unknown): ThinkingLevel | undefined {
   return parsed.data;
 }
 
+/** 上限は 6 件。UI もこの値に合わせて「＋ 追加」を止める。 */
+const SUGGESTION_LIMIT = 6;
+
+/**
+ * 配列以外は未指定として空を返す。prompt の重複は先に除いてから上限で切るので、
+ * 重複が 6 件の枠を消費しない (skillIds の dedupe と同じ発想)。
+ */
+function normalizeSuggestions(value: unknown): AgentSuggestion[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: AgentSuggestion[] = [];
+  for (const item of value) {
+    const record = item as { label?: unknown; prompt?: unknown } | null;
+    const label = text(record?.label, "", 60);
+    const prompt = text(record?.prompt, "", 500);
+    if (!label || !prompt || seen.has(prompt)) continue;
+    seen.add(prompt);
+    result.push({ label, prompt });
+    if (result.length === SUGGESTION_LIMIT) break;
+  }
+  return result;
+}
+
 function makeSkill(input: DefinitionInput, id: string = randomUUID()): SkillRecord {
   const record = input as { name?: unknown; prompt?: unknown; description?: unknown } | null;
   const name = text(record?.name);
@@ -168,6 +197,7 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     systemPrompt?: unknown;
     model?: unknown;
     thinkingLevel?: unknown;
+    suggestions?: unknown;
   } | null;
   const name = text(record?.name);
   if (!name) throw invalid("Agent name is required");
@@ -180,8 +210,11 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
   };
   const model = modelRef(record?.model);
   const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
+  const suggestions = normalizeSuggestions(record?.suggestions);
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel;
+  // 正規化して 0 件ならキーを省略する (解除もこの経路で成立する)
+  if (suggestions.length) agent.suggestions = suggestions;
   return agent;
 }
 
