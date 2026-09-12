@@ -26,9 +26,9 @@ function phaseColor(phase: ToolCard["phase"]): string {
   return phase === "done" ? "text-ink-faint" : phase === "failed" ? "text-danger-text" : "text-accent-text";
 }
 
-// 位相で文字幅が変わると (実測 完了 18 / 実行中 27 / エラー 27.42px) 左隣のコピーボタンと
-// サマリーの truncate 境界が動く。最長が収まる 28px に固定し、右寄せで右端を保つ
-const PHASE_LABEL_CLASS = "w-7 shrink-0 text-right font-sans text-[9px]";
+// 位相で文字幅が変わると (実測 完了 18 / 実行中 27 / エラー 27.42px) 左隣のコピーボタンとサマリーの
+// truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
+const PHASE_LABEL_CLASS = "w-[3.25em] shrink-0 text-right whitespace-nowrap font-sans text-[9px]";
 
 function CopyIcon() {
   return (
