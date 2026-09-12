@@ -17,10 +17,40 @@ function read(relativePath: string): string {
 }
 
 const initScript = read("public/theme-init.js");
-const indexCss = read("src/styles/index.css");
+// コメントアウトされた宣言を「実際に効いている定義」と数えないよう、コメントは先に除去する
+const indexCss = read("src/styles/index.css").replace(/\/\*[\s\S]*?\*\//g, "");
 
 const themeIds = THEMES.map((theme) => theme.id);
 const sorted = (values: string[]) => [...values].sort();
+
+type CssRule = { selectors: string[]; body: string };
+
+const THEME_SELECTOR = /^html\[data-theme="([^"]+)"\]$/;
+const SWATCH_SELECTOR = /^\.theme-swatch\[data-theme-id="([^"]+)"\]$/;
+const ROOT_SELECTOR = /^:root$/;
+
+// ルールを「セレクタリスト + 本文」に分解する (@layer などの入れ子は内部のフラットなルールだけが取れる)
+const cssRules: CssRule[] = [...indexCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+  selectors: match[1].split(",").map((selector) => selector.trim()),
+  body: match[2],
+}));
+
+/** テーマ定義用のルール (セレクタリスト全体が :root か pattern に一致するもの) だけを返す。
+ *  `html[data-theme="x"] .foo { }` のようなスコープ付きルールを定義と数えないため、
+ *  生テキストではなくルール境界で判定する。 */
+function themeRules(pattern: RegExp): CssRule[] {
+  return cssRules.filter((rule) =>
+    rule.selectors.every((selector) => pattern.test(selector) || ROOT_SELECTOR.test(selector)),
+  );
+}
+
+function idsOf(rules: CssRule[], pattern: RegExp): string[] {
+  return rules.flatMap((rule) =>
+    rule.selectors.flatMap((selector) => selector.match(pattern)?.[1] ?? []),
+  );
+}
+
+const presetRules = themeRules(THEME_SELECTOR);
 
 /** theme-init.js の `var NAME = ["a", "b"]` を読む */
 function readInitArray(name: string): string[] {
@@ -39,16 +69,12 @@ function readInitString(name: string): string {
   return match[1];
 }
 
-/** index.css を出現順に走査して、属性セレクタの値を集める */
-function readCssAttribute(pattern: RegExp): string[] {
-  return [...indexCss.matchAll(pattern)].map((match) => match[1]);
-}
-
-/** プリセット内の `color-scheme` を読む (midnight は :root と併記されるが同じブロック) */
+/** プリセット内の `color-scheme` を読む (midnight は :root と併記されるが同じルール) */
 function readCssColorScheme(id: string): string {
-  const block = indexCss.match(new RegExp(`html\\[data-theme="${id}"\\]\\s*\\{([^}]*)\\}`));
-  assert.ok(block, `index.css に html[data-theme="${id}"] のプリセットが無い`);
-  const scheme = block[1].match(/color-scheme:\s*(light|dark)/);
+  const selector = `html[data-theme="${id}"]`;
+  const rule = presetRules.find((candidate) => candidate.selectors.includes(selector));
+  assert.ok(rule, `index.css に ${selector} のプリセットが無い`);
+  const scheme = rule.body.match(/color-scheme:\s*(light|dark)/);
   assert.ok(scheme, `index.css の ${id} に color-scheme が無い`);
   return scheme[1];
 }
@@ -58,14 +84,14 @@ test("theme-init.js のテーマ id 一覧が themes.ts の THEMES と一致す�
 });
 
 test("index.css の html[data-theme] プリセットが THEMES と一致する", () => {
-  const ids = readCssAttribute(/html\[data-theme="([^"]+)"\]/g);
+  const ids = idsOf(presetRules, THEME_SELECTOR);
   // 並び順は問わない。重複があれば件数が合わず落ちる
   assert.deepEqual(sorted(ids), sorted(themeIds));
 });
 
 test("index.css の .theme-swatch が THEMES と一致する", () => {
-  const ids = readCssAttribute(/\.theme-swatch\[data-theme-id="([^"]+)"\]/g);
-  assert.deepEqual(sorted(ids), sorted(themeIds));
+  const rules = themeRules(SWATCH_SELECTOR);
+  assert.deepEqual(sorted(idsOf(rules, SWATCH_SELECTOR)), sorted(themeIds));
 });
 
 test("index.css のプリセットの color-scheme が THEMES の appearance と一致する", () => {
