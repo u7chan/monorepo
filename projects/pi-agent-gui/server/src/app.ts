@@ -178,12 +178,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // 明示 PI_MODEL が使えるかどうかとは分離する (defaultModelError)。
     const availableModels = pi?.availableModels ?? [];
     const ready = Boolean(pi) && availableModels.length > 0;
-    const authRequired = Boolean(pi && !ready && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
-    const errorCode: "authentication_required" | "runtime_unavailable" | undefined = authRequired
-      ? "authentication_required"
-      : initError || (pi && !ready)
-        ? "runtime_unavailable"
-        : undefined;
+    // PI_MODELS が候補を全部落としたなら、認証の有無より先に whitelist 側を原因として示す。
+    const whitelistEmpty = Boolean(pi && pi.modelWhitelistExcludesAll);
+    const authRequired = Boolean(pi && !ready && !whitelistEmpty && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
+    const errorCode: "authentication_required" | "model_whitelist_empty" | "runtime_unavailable" | undefined = whitelistEmpty
+      ? "model_whitelist_empty"
+      : authRequired
+        ? "authentication_required"
+        : initError || (pi && !ready)
+          ? "runtime_unavailable"
+          : undefined;
     return c.json({
       ok: true,
       ready,

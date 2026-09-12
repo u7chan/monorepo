@@ -34,6 +34,10 @@ export const SANDBOX_NOT_CONFIGURED_MESSAGE =
 const MODEL_UNAVAILABLE_MESSAGE =
   "利用可能なモデルがありません。既定モデルまたはプロバイダーの設定を確認してください。";
 
+/** PI_MODELS の指定が利用可能モデルと交差しなかったときの案内。 */
+export const MODEL_WHITELIST_EMPTY_MESSAGE =
+  "PI_MODELS に指定したモデルが利用可能なモデルにありません。PI_MODELS の指定とプロバイダーの認証設定を確認してください。";
+
 const APPEND_SYSTEM_PROMPT = `
 You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
@@ -69,6 +73,8 @@ export interface PiBff {
   /** 明示 PI_MODEL が利用不能なときの理由 (他候補があれば ready のまま) */
   defaultModelError: string | undefined;
   availabilityError: string | undefined;
+  /** PI_MODELS が候補を全部落とした (ready: false の原因が whitelist だと health が判定するため) */
+  modelWhitelistExcludesAll: boolean;
   /** PI_SANDBOX_URL / PI_SANDBOX_TOKEN が揃っていれば true (未設定ならセッション作成を 503 で拒否) */
   sandboxConfigured: boolean;
   tools: string[];
@@ -120,6 +126,40 @@ function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel 
   return { model: { provider, id: modelId }, thinkingLevel: parsedLevel };
 }
 
+/**
+ * PI_MODELS を構文解釈する。未指定 (空・区切りのみ) なら undefined で全件表示。
+ * 形式の誤りは whitelist が効かないまま起動するより起動時に落とす (fail-closed)。
+ */
+export function parseModelWhitelist(raw: string | undefined): ModelRef[] | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  const entries = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (entries.length === 0) return undefined;
+  return entries.map((entry) => {
+    const slash = entry.indexOf("/");
+    const provider = slash === -1 ? "" : entry.slice(0, slash);
+    const id = slash === -1 ? "" : entry.slice(slash + 1);
+    if (!provider || !id) {
+      throw new Error(`PI_MODELS は provider/model 形式でカンマ区切りで指定してください: ${entry}`);
+    }
+    return { provider, id };
+  });
+}
+
+/**
+ * available と PI_MODELS の積。availableModels / modelOptions / selectedModel / resolveModel は
+ * 同じ配列から導出するため、絞り込みはここ 1 箇所だけに閉じる。
+ */
+export function filterModelsByWhitelist(
+  models: PiAiModel<Api>[],
+  whitelist: ModelRef[] | undefined,
+): PiAiModel<Api>[] {
+  if (!whitelist) return models;
+  return models.filter((model) =>
+    whitelist.some((ref) => ref.provider === model.provider && ref.id === model.id),
+  );
+}
+
 /** picker 用の能力情報。SDK のヘルパーをそのまま使い、BFF 側で模倣しない。 */
 function modelOptionOf(model: PiAiModel<Api>): ModelOption {
   const levels = getSupportedThinkingLevels(model) as ThinkingLevel[];
@@ -156,6 +196,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const sandboxClient = createSandboxToolClientFromEnv(process.env);
 
   const requested = parseModelReference();
+  const modelWhitelist = parseModelWhitelist(process.env.PI_MODELS);
   let availableModelList: PiAiModel<Api>[] = [];
   let availabilityError: string | undefined;
 
@@ -164,7 +205,15 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   } catch (error) {
     availabilityError = errorMessage(error);
   }
+  availableModelList = filterModelsByWhitelist(availableModelList, modelWhitelist);
   const availableModels: PiModelRef[] = availableModelList;
+
+  let modelWhitelistExcludesAll = false;
+  if (modelWhitelist && !availabilityError && availableModelList.length === 0) {
+    // 認証が未設定でも whitelist は必ず空になるため、対処先を絞れるよう両方を確認させる文言で返す。
+    modelWhitelistExcludesAll = true;
+    availabilityError = MODEL_WHITELIST_EMPTY_MESSAGE;
+  }
 
   // getModel() は認証の有無を見ないため、PI_MODEL の指定も getAvailable() と突き合わせる。
   const matchAvailable = (ref: ModelRef): PiAiModel<Api> | undefined =>
@@ -288,6 +337,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     defaultThinkingLevel,
     defaultModelError,
     availabilityError,
+    modelWhitelistExcludesAll,
     sandboxConfigured: Boolean(sandboxClient),
     tools: configuredTools(),
     resolveModel,

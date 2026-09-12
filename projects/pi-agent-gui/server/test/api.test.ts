@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
-import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
 
@@ -124,6 +124,38 @@ test("reports missing API-key authentication before creating an unusable session
     const response = await bff.app.request("/api/sessions", jsonPost({}));
     assert.equal(response.status, 503);
     assert.equal((await jsonBody(response)).error, AUTH_REQUIRED_MESSAGE);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("an empty PI_MODELS whitelist surfaces a whitelist-caused failure", async () => {
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    pi: asPiBff(
+      createStubPi({
+        availableModels: [],
+        selectedModel: null,
+        modelWhitelistExcludesAll: true,
+        availabilityError: MODEL_WHITELIST_EMPTY_MESSAGE,
+        createSessionRejects: 1,
+      }),
+    ),
+  });
+  try {
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.ready, false);
+    assert.equal(health.errorCode, "model_whitelist_empty");
+    assert.equal(health.error, MODEL_WHITELIST_EMPTY_MESSAGE);
+    // 原因が whitelist だと分かる文言を返し、認証エラーとは混同しない
+    assert.match(health.error, /PI_MODELS/);
+    assert.notEqual(health.errorCode, "authentication_required");
+    assert.deepEqual(health.availableModels, []);
+    assert.deepEqual(health.modelOptions, []);
+
+    const response = await bff.app.request("/api/sessions", jsonPost({}));
+    assert.equal(response.status, 503);
+    assert.equal((await jsonBody(response)).error, MODEL_WHITELIST_EMPTY_MESSAGE);
   } finally {
     await bff.close();
   }
