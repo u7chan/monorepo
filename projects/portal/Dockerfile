@@ -19,7 +19,8 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY . .
-RUN bun run lint
+RUN bun run lint \
+    && bun run test
 
 # -----------------------------------------------
 # dependencies stage
