@@ -248,7 +248,7 @@ function MessageView({
       </div>
       {/* compact はコード / tool output を優先して本文幅を広く取る (左寄せの assistant は全幅) */}
       {/* flex-1 は assistant だけ。user に付けるとバブル背景が列幅まで広がる */}
-      <div className={["min-w-0", isUser ? "" : "flex-1", compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]"].join(" ")}>
+      <div className={["min-w-0", isUser ? "" : "flex-1", compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]"].filter(Boolean).join(" ")}>
         <div className={["text-[10px] font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1"].join(" ")}>
           {isUser ? "あなた" : "アシスタント"}
         </div>
