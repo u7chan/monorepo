@@ -26,6 +26,10 @@ function phaseColor(phase: ToolCard["phase"]): string {
   return phase === "done" ? "text-ink-faint" : phase === "failed" ? "text-danger-text" : "text-accent-text";
 }
 
+// 位相で文字幅が変わると (実測 完了 18 / 実行中 27 / エラー 27.42px) 左隣のコピーボタンと
+// サマリーの truncate 境界が動く。最長が収まる 28px に固定し、右寄せで右端を保つ
+const PHASE_LABEL_CLASS = "w-7 shrink-0 text-right font-sans text-[9px]";
+
 function CopyIcon() {
   return (
     <svg
@@ -153,7 +157,7 @@ function ToolCallRow({
         <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
         {/* 完了ラベルの左に置く。opacity-0 でも幅を保つので完了位置はサマリー行の右端と揃う */}
         <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal={REVEAL_TOOL} />
-        <span className={`shrink-0 font-sans text-[9px] ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
+        <span className={`${PHASE_LABEL_CLASS} ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
       </div>
       {/* 本文幅を広く使いたいので、compact では詳細のインデントを詰める */}
       <div className={["mt-1.5 grid gap-1.5 text-ink-muted", compact ? "pl-3" : "pl-6"].join(" ")}>
@@ -202,7 +206,7 @@ function ToolHistoryView({
         <span className="shrink-0 font-sans text-[10px] text-ink-soft">ツール履歴</span>
         <span className="shrink-0 font-sans text-[9px] text-ink-faint">{cards.length}件</span>
         <span className="min-w-0 flex-1 truncate">{historyPreview(cards)}</span>
-        <span className={`shrink-0 font-sans text-[9px] ${phaseColor(phase)}`}>{phaseLabel(phase)}</span>
+        <span className={`${PHASE_LABEL_CLASS} ${phaseColor(phase)}`}>{phaseLabel(phase)}</span>
       </summary>
       <ol className="m-0 grid list-none border-t border-line px-2 pb-1">
         {cards.map((card, index) => (
