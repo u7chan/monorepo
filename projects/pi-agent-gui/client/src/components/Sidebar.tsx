@@ -3,7 +3,6 @@ import type { AgentDesk } from "../hooks/useAgentDesk";
 import { messageTimeLabel } from "../lib/messageTime";
 import type { SessionSummary } from "../types";
 import { ChevronIcon, CloseIcon } from "./icons";
-import { SelectField } from "./SelectField";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -94,7 +93,6 @@ export type SidebarProps = Omit<
     | "catalog"
     | "sessions"
     | "sessionId"
-    | "agentId"
     | "cwd"
     | "selectedAgent"
     | "newChat"
@@ -117,8 +115,7 @@ export type SidebarProps = Omit<
 
 export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sidebar", ...props }: SidebarProps) {
   const sheet = variant === "sheet";
-  const { catalog, sessions, sessionId, agentId, cwd, selectedAgent, newChat, selectSession, deleteSession } =
-    props;
+  const { catalog, sessions, sessionId, cwd, selectedAgent, newChat, selectSession, deleteSession } = props;
 
   const assignedSkills = (selectedAgent?.skillIds || [])
     .map((skillId) => catalog.skills.find((skill) => skill.id === skillId))
@@ -166,26 +163,12 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
         <span className="text-[18px] leading-3 text-accent-text">＋</span> 新しい会話
       </button>
 
-      {/* エージェント */}
+      {/* エージェント: 選択は Composer へ移した (会話中いつでも切り替えられるように)。ここは選択中の定義の名前・説明・スキルを見せる */}
       <div className="grid gap-2">
         <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">エージェント</div>
-        <SelectField
-          className={sheet ? "text-[16px]" : "text-xs"}
-          wrapperClassName="w-full"
-          aria-label="エージェントを選択"
-          value={agentId}
-          disabled={catalog.agents.length === 0}
-          onChange={(event) => {
-            // 現在の会話は保持しつつ、新しい会話を選択エージェントで開始する
-            newChat(event.currentTarget.value);
-          }}
-        >
-          {catalog.agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </SelectField>
+        <div className="truncate text-xs text-ink" title={selectedAgent?.name}>
+          {selectedAgent?.name || "エージェント未選択"}
+        </div>
         {/* 説明とスキルは drawer では畳む (agent の詳細は管理画面で見る) */}
         {sheet ? null : (
           <>

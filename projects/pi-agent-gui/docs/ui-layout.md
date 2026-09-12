@@ -14,12 +14,12 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 
 ## モードごとの構成
 
-- desktop: `Topbar`（theme / エラー時の接続状態）+ `ChatArea` + `Composer`（Model / Effort を常時表示）
+- desktop: `Topbar`（theme / エラー時の接続状態）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
 - `FileTreeScreen`（作業ディレクトリのファイルツリー）はサイドバーの「作業ディレクトリ」カードから開く。メイン画面のレイアウトには分離した full screen の dialog で、desktop は内側を `max-w-[720px]` に絞り、compact は全幅にする
 - portrait / landscape: `CompactBar` が「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
-  - セッション一覧・エージェント選択・エージェント / スキル管理・作業ディレクトリ・テーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる。「作業ディレクトリ」から開く `FileTreeScreen` もドロワーを閉じてから全幅で開く（入口は `Sidebar` の共通カード）
+  - セッション一覧・エージェント / スキル管理・作業ディレクトリ・テーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる。「作業ディレクトリ」から開く `FileTreeScreen` もドロワーを閉じてから全幅で開く（入口は `Sidebar` の共通カード）
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（セッション一覧だけを `flex-1` にすると 0px に潰れる）
-  - `Composer` は Model / Effort を畳み、入力欄の左のボタンで展開する。footnote は常時表示しない（送信できない理由や停止だけを残す）
+  - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
   - `ManagerScreen` は full screen のまま、ヘッダと一覧の高さだけ詰める。`FileTreeScreen` も同じく full screen のまま、ヘッダの折り返しと全幅のツリーで狭い viewport に追従させる（行のインデントは深さに比例するため、横スクロールは `overflow-x-hidden` で抑える）
 - compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-[16px]`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えない）。`ManagerScreen` のフォームは従来のサイズのまま
