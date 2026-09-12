@@ -253,7 +253,8 @@ export function Composer({
               aria-label="モデルと Effort の設定"
               title="モデルと Effort"
               className={[
-                "grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
+                // compact は入力欄と高さを揃えてタップ領域も広く取る
+                "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
                 settingsOpen
                   ? "border-accent/50 bg-accent-wash text-accent-text"
                   : "border-line bg-raised text-ink-faint hover:text-ink-soft",
@@ -276,7 +277,7 @@ export function Composer({
             }
             className={[
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-              compact ? "min-h-8 max-h-[120px] py-1.5 text-[16px]" : "min-h-6 max-h-[180px] py-1",
+              compact ? "min-h-9 max-h-[120px] py-1.5 text-[16px]" : "min-h-6 max-h-[180px] py-1",
             ].join(" ")}
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
@@ -291,7 +292,10 @@ export function Composer({
               Boolean(settings.sendBlockedReason) ||
               value.trim().length === 0
             }
-            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+            className={[
+              "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
+              compact ? "size-9" : "size-8",
+            ].join(" ")}
           >
             <ArrowUpIcon />
           </button>

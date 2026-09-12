@@ -8,9 +8,7 @@ function detectLayoutMode(): LayoutMode {
 /**
  * viewport の大きさに追従してレイアウトモードを返す。
  * 初期値は render 中に確定させる (モバイルで desktop shell が一瞬出るのを避ける)。
- *
- * Android Chrome はソフトキーボード表示で innerHeight が縮むため、desktop 表示中に
- * 入力すると一時的に landscape へ切り替わることがある。復帰するので許容する。
+ * 高さがソフトキーボードで縮む場合の挙動は docs/ui-layout.md の制約を参照。
  */
 export function useLayoutMode(): LayoutMode {
   const [mode, setMode] = useState<LayoutMode>(detectLayoutMode);

@@ -16,11 +16,12 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 
 - desktop: `Topbar`（theme / model / 接続状態）+ `ChatArea` + `Composer`（Model / Effort を常時表示）
 - portrait / landscape: `CompactBar` が「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
-  - セッション一覧・エージェント選択・エージェント / スキル管理・作業ディレクトリは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる
+  - セッション一覧・エージェント選択・エージェント / スキル管理・作業ディレクトリ・テーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる
+  - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（セッション一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を畳み、入力欄の左のボタンで展開する。footnote は常時表示しない（送信できない理由や停止だけを残す）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
   - `ManagerScreen` は full screen のまま、ヘッダと一覧の高さだけ詰める
-- compact の選択欄と入力欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-[16px]`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えない）
+- compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-[16px]`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えない）。`ManagerScreen` のフォームは従来のサイズのまま
 
 ## 検証
 

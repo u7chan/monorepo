@@ -405,12 +405,7 @@ export function ManagerScreen({
           </div>
 
           {/* 一覧: 画面の縦幅を使うため、件数が増えてもスクロールで耐える */}
-          <div
-            className={[
-              "scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3",
-              compact ? "max-h-[30vh]" : "",
-            ].join(" ")}
-          >
+          <div className="scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 max-h-[30vh] wide:max-h-none">
             {isAgent ? (
               <>
                 <button

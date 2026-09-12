@@ -1,7 +1,4 @@
-// レイアウトモード判定の回帰テスト。
-//
-// desktop shell を幅だけで選ぶと、幅 720px を超える横向きスマホ (844x390) が
-// 2 カラムになり、チャット領域が潰れる。実機で確認した代表 viewport で境界を固定する。
+// レイアウトモード判定の回帰テスト。実機で確認した代表 viewport で境界を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DESKTOP_MIN_HEIGHT, DESKTOP_MIN_WIDTH, resolveLayoutMode } from "../src/lib/layout";

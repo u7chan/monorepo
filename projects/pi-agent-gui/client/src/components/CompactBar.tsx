@@ -23,7 +23,7 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
 
   return (
     <header className="grid border-b border-line bg-panel/85">
-      <div className={["flex items-center gap-2.5 px-3", landscape ? "py-1" : "py-2"].join(" ")}>
+      <div className={["flex items-center gap-2.5 px-3", landscape ? "py-0.5" : "py-2"].join(" ")}>
         <span
           aria-hidden
           className={[
@@ -54,10 +54,8 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
           type="button"
           onClick={onOpenNav}
           aria-label="ナビゲーションを開く"
-          className={[
-            "grid shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
-            landscape ? "size-7" : "size-9",
-          ].join(" ")}
+          // 他の compact コントロールと同じ 36px のタップ領域を確保する
+          className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
         >
           <MenuIcon />
         </button>

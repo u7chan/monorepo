@@ -33,11 +33,11 @@ export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
       onClose={onClose}
       tabIndex={-1}
       aria-label="ナビゲーション"
-      // パネル外 (dialog 自身) のクリックで閉じる。背景の暗転は dialog 全面で行う。
+      // パネル外 (dialog 自身) のクリックで閉じる。背景の暗転は dialog::backdrop が担う
       onClick={(event) => {
         if (event.target === dialogRef.current) dialogRef.current?.close();
       }}
-      className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-backdrop p-0"
+      className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-transparent p-0"
     >
       <div className="animate-drawer flex h-full w-[min(320px,86vw)] flex-col border-r border-line bg-panel shadow-panel">
         <Sidebar variant="sheet" onClose={onClose} {...sidebarProps} />

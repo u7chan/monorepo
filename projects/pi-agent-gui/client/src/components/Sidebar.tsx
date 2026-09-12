@@ -1,3 +1,4 @@
+import { ThemeSwitcher } from "../theme/ThemeSwitcher";
 import type { AgentDesk } from "../hooks/useAgentDesk";
 import type { SessionSummary } from "../types";
 import { CloseIcon } from "./icons";
@@ -122,8 +123,10 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
     <aside
       className={[
         "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
-        // sheet はドロワーのパネル側が境界を持つため、sidebar のときだけ左カラムの見た目を足す
-        sheet ? null : "overflow-y-auto border-r border-line",
+        // 高さが足りない compact では drawer 全体を 1 つのスクロール領域にする。
+        // 一覧だけを flex-1 にすると固定部分だけで高さを使い切り、一覧が 0px に潰れる
+        "overflow-y-auto",
+        sheet ? null : "border-r border-line",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -162,7 +165,7 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
       <div className="grid gap-2">
         <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">エージェント</div>
         <select
-          className="field cursor-pointer text-xs"
+          className={["field cursor-pointer", sheet ? "text-[16px]" : "text-xs"].join(" ")}
           aria-label="エージェントを選択"
           value={agentId}
           disabled={catalog.agents.length === 0}
@@ -177,16 +180,21 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
             </option>
           ))}
         </select>
-        <div className="min-h-[30px] text-[11px] leading-relaxed text-ink-soft">
-          {selectedAgent?.description || "エージェントを選択してください"}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {assignedSkills.map((skill) => (
-            <span key={skill.id} className="rounded border border-accent/20 bg-accent-wash px-1.5 py-0.5 text-[10px] text-accent-text">
-              {skill.name}
-            </span>
-          ))}
-        </div>
+        {/* 説明とスキルは drawer では畳む (agent の詳細は管理画面で見る) */}
+        {sheet ? null : (
+          <>
+            <div className="min-h-[30px] text-[11px] leading-relaxed text-ink-soft">
+              {selectedAgent?.description || "エージェントを選択してください"}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {assignedSkills.map((skill) => (
+                <span key={skill.id} className="rounded border border-accent/20 bg-accent-wash px-1.5 py-0.5 text-[10px] text-accent-text">
+                  {skill.name}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
         <button
           type="button"
           onClick={onOpenManager}
@@ -196,8 +204,8 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
         </button>
       </div>
 
-      {/* セッション (sheet では残りの高さを全部使う) */}
-      <div className={sheet ? "grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2" : "grid gap-2"}>
+      {/* セッション */}
+      <div className="grid gap-2">
         <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">セッション</div>
         {sessions.length === 0 ? (
           <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">セッションはまだありません</div>
@@ -205,9 +213,12 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
           <div
             className={[
               // content-start が無いと、余った高さで行が引き伸ばされて 1 行が縦に伸びる
-              "scrollbar-thin grid content-start gap-1 overflow-y-auto pr-0.5",
-              sheet ? "min-h-0" : "max-h-66",
-            ].join(" ")}
+              "scrollbar-thin grid content-start gap-1 pr-0.5",
+              // desktop の sidebar は高さが固定されるので、一覧だけ独立スクロールにする
+              sheet ? null : "max-h-66 overflow-y-auto",
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             {sessions.map((item) => (
               <SessionRow
@@ -224,13 +235,20 @@ export function Sidebar({ onOpenManager, onClose, variant = "sidebar", ...props 
         )}
       </div>
 
-      {/* 作業ディレクトリ + フットノート */}
-      <div className="mt-auto grid">
+      {/* 作業ディレクトリ + テーマ (sheet のみ) + フットノート */}
+      <div className="mt-auto grid gap-2">
         <div className="grid gap-2 rounded-lg border border-line bg-soft px-3 py-3">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">作業ディレクトリ</div>
           <code className="truncate text-[11px] leading-normal text-ink-soft">{cwd || "読み込み中…"}</code>
         </div>
-        <div className="mt-2 text-[10px] leading-relaxed text-ink-ghost">
+        {/* テーマ切替の入口は desktop の Topbar にしかないため、drawer にも置く */}
+        {sheet ? (
+          <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">テーマ</div>
+            <ThemeSwitcher compact />
+          </div>
+        ) : null}
+        <div className="text-[10px] leading-relaxed text-ink-ghost">
           ローカル実行 · インメモリセッション
           <br />
           pi SDK の小さなブラウザ GUI

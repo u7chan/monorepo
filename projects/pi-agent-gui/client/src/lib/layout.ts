@@ -1,9 +1,4 @@
-/** レイアウトモードの判定。
- *
- * 幅だけの判定だと横向きスマホ (例: 844x390) が幅 720px を超えて desktop 扱いになり、
- * 高さを失った 2 カラムでチャット領域が潰れる。そこで desktop shell には
- * 幅と高さの両方を要求し、足りない側に応じて portrait / landscape を選ぶ。
- */
+/** レイアウトモードの判定。閾値の理由は docs/ui-layout.md を参照。 */
 
 /** desktop shell (252px sidebar + main) を出す下限 */
 export const DESKTOP_MIN_WIDTH = 720;
