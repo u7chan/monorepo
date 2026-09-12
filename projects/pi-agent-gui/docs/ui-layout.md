@@ -14,7 +14,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 
 ## モードごとの構成
 
-- desktop: `Topbar`（theme / model / 接続状態）+ `ChatArea` + `Composer`（Model / Effort を常時表示）
+- desktop: `Topbar`（theme / エラー時の接続状態）+ `ChatArea` + `Composer`（Model / Effort を常時表示）
 - `FileTreeScreen`（作業ディレクトリのファイルツリー）はサイドバーの「作業ディレクトリ」カードから開く。メイン画面のレイアウトには分離した full screen の dialog で、desktop は内側を `max-w-[720px]` に絞り、compact は全幅にする
 - portrait / landscape: `CompactBar` が「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
   - セッション一覧・エージェント選択・エージェント / スキル管理・作業ディレクトリ・テーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる。「作業ディレクトリ」から開く `FileTreeScreen` もドロワーを閉じてから全幅で開く（入口は `Sidebar` の共通カード）
@@ -23,6 +23,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
   - `ManagerScreen` は full screen のまま、ヘッダと一覧の高さだけ詰める。`FileTreeScreen` も同じく full screen のまま、ヘッダの折り返しと全幅のツリーで狭い viewport に追従させる（行のインデントは深さに比例するため、横スクロールは `overflow-x-hidden` で抑える）
 - compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-[16px]`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えない）。`ManagerScreen` のフォームは従来のサイズのまま
+- 選択欄（select）は `SelectField` で包む。ブラウザ既定のドロップダウン矢印は余白を制御できず右端に寄りすぎるため、自前の chevron（右端から 10px、右余白 32px）に置換している。幅と伸縮は wrapper 側のクラスで決める
 
 assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は `max-w-[min(760px,86%)]`、compact は `max-w-full`）に広げる。ツール履歴の `border-y` と、その行右端の 完了 / エラー ラベル・コピーボタンの x 位置が、ツール出力の伸長やメッセージの内容量で動かないようにするため。user のメッセージ列は内容幅のまま右寄せを保つ（`flex-1` を付けるとバブル背景が列幅まで広がる）。
 

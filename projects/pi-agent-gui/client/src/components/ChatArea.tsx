@@ -105,10 +105,9 @@ function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onCli
       title={copied ? "コピーしました" : label}
       onClick={onClick}
       className={[
-        "grid size-6 shrink-0 place-items-center rounded-md border transition-[opacity,border-color,color] duration-200",
-        copied
-          ? "border-ok/40 text-ok opacity-100"
-          : ["border-line bg-raised text-ink-faint hover:border-accent/50 hover:text-accent-text", reveal].join(" "),
+        // 本文の邪魔をしないよう、面や枠は持たせずアイコンの色だけで状態を示す
+        "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
+        copied ? "text-ok opacity-100" : ["text-ink-faint hover:text-accent-text", reveal].join(" "),
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

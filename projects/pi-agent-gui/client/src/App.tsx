@@ -112,7 +112,7 @@ export default function App() {
             onOpenNav={() => setNavOpen(true)}
           />
         ) : (
-          <Topbar runtimeStatus={desk.runtimeStatus} modelDisplay={desk.modelDisplay} />
+          <Topbar runtimeStatus={desk.runtimeStatus} />
         )}
         <ChatArea bubbles={desk.chat.bubbles} compact={compact} suggestions={desk.selectedAgent?.suggestions} onSuggestion={handleSend} />
         <Composer

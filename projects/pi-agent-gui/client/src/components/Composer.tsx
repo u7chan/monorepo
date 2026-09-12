@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 import { effortLabel, type ComposerSettings } from "../hooks/useAgentDesk";
 import type { LayoutMode } from "../lib/layout";
 import type { ModelRef, ThinkingLevel } from "../types";
+import { SelectField } from "./SelectField";
 import { SlidersIcon } from "./icons";
 
 export type ComposerProps = {
@@ -140,18 +141,20 @@ export function Composer({
   const fieldNameClass = compact ? "w-12 shrink-0 uppercase tracking-wide" : "shrink-0 uppercase tracking-wide";
   // compact の入力欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする
   // (theme の色トークンが base なので Tailwind の text-base は使えない)
-  const selectClass = (maxWidth: string) =>
-    [
-      "field cursor-pointer px-1.5 py-1 disabled:cursor-not-allowed disabled:opacity-55",
-      compact ? "min-w-0 flex-1 text-[16px]" : `${maxWidth} text-[11px]`,
-    ].join(" ");
+  // 余白と伸縮は wrapper 側に置く (select は chevron と重ならない右余白を SelectField が持つ)
+  const selectClass = [
+    "py-1 pl-1.5 disabled:cursor-not-allowed disabled:opacity-55",
+    compact ? "text-[16px]" : "text-[11px]",
+  ].join(" ");
+  const selectWrapperClass = (maxWidth: string) => (compact ? "min-w-0 flex-1" : `min-w-0 ${maxWidth}`);
 
   const modelField = (
     <label className={fieldLabelClass}>
       <span className={fieldNameClass}>Model</span>
-      <select
+      <SelectField
         aria-label="モデルを選択"
-        className={selectClass("max-w-[240px]")}
+        className={selectClass}
+        wrapperClassName={selectWrapperClass("max-w-[240px]")}
         value={settings.model ?? ""}
         disabled={modelDisabled}
         onChange={(event) => handleModelChange(event.currentTarget.value)}
@@ -162,16 +165,17 @@ export function Composer({
             {choice.label}
           </option>
         ))}
-      </select>
+      </SelectField>
     </label>
   );
 
   const effortField = (
     <label className={fieldLabelClass}>
       <span className={fieldNameClass}>Effort</span>
-      <select
+      <SelectField
         aria-label="Effort を選択"
-        className={selectClass("max-w-[160px]")}
+        className={selectClass}
+        wrapperClassName={selectWrapperClass("max-w-[160px]")}
         value={settings.thinkingLevel ?? ""}
         disabled={effortDisabled}
         onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}
@@ -182,7 +186,7 @@ export function Composer({
             {effortLabel(level)}
           </option>
         ))}
-      </select>
+      </SelectField>
     </label>
   );
 
