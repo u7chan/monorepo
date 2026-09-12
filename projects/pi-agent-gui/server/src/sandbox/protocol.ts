@@ -66,8 +66,8 @@ export interface SandboxFileEntry {
 }
 
 /**
- * GET /v1/files の応答。path は root 相対の正規化パス (root は ".") で、
- * symlink を解決した先ではなく要求された位置を返す。
+ * GET /v1/files の応答。path は一覧した実ディレクトリの root 相対の正規化パス (root は ".") で、
+ * symlink を経由した要求では辿った先のパスになる (type と同じく実体で表す)。
  */
 export interface SandboxFileListing {
   path: string;

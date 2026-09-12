@@ -113,6 +113,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 ```
 
 - `path` は一覧した実ディレクトリの root 相対の正規化パス（root は `"."`）。要求が symlink を経由する場合は辿った先のパスになる（`type` と同じく実体で表す）。root 内外の判定は「`..` の有無」ではなく「realpath で解決した実パスが root 内か」で行う
+  - `..` は symlink を辿った後に適用する（カーネルと同じ解決順）。したがって root 内の symlink が root 外を指す場合、`linkOutside/..` は root ではなく参照先の親（root 外）へ解決する
   - `dir/..` のように解決後に root 内へ収まる要求は 200
   - root の外にある symlink が root 内を指す場合（例: root の親に置いた `link-in -> root` への `../link-in`）も 200。要求自体は root の外を指していてもよい
   - 実在する要求で解決後の実パスが root 外なら 400（`outside the workspace`）

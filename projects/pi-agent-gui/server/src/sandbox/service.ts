@@ -4,9 +4,9 @@
  * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
-import { lstat, readdir, realpath, stat } from "node:fs/promises";
-import type { Dirent } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { realpath as realpathCallback, type Dirent } from "node:fs";
+import { lstat, readdir, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -65,6 +65,26 @@ function normalizeToolCallId(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? value : randomUUID();
 }
 
+/**
+ * カーネルと同じ解決順 (symlink を辿ってから `..` を適用する) で実パスを返す。
+ * node:fs/promises の realpath は JS 実装で、パス文字列を字句的に畳んでから link を解決するため使わない
+ * (例: root/linkOutside -> outside/nested のとき、root/linkOutside/.. は outside だが JS 実装は root にする)。
+ */
+function realpathNative(target: string): Promise<string> {
+  return new Promise((resolvePath, rejectPath) => {
+    realpathCallback.native(target, (error, resolved) => {
+      if (error) rejectPath(error);
+      else resolvePath(resolved);
+    });
+  });
+}
+
+/** 要求パスを字句正規化せずに root へ連結する (`..` の適用は realpath に任せる)。 */
+function joinRequestPath(root: string, requested: string): string {
+  if (!requested) return root;
+  return isAbsolute(requested) ? requested : `${root}${sep}${requested}`;
+}
+
 /** 上限を超えたボディは 413。 */
 async function readJsonBody(request: Request): Promise<unknown> {
   const body = request.body;
@@ -102,10 +122,11 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
   };
 
   // root 自体も realpath で解決し、両辺を実パスで比較する (root の symlink 経由でも判定が崩れないように)
-  const root = await realpath(rootCwd).catch((error: unknown) =>
+  const root = await realpathNative(rootCwd).catch((error: unknown) =>
     fail(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`),
   );
 
+  // メッセージ表示と、実在しない要求の lexical 判定に使う字句正規化済みのパス
   let candidate: string;
   try {
     candidate = resolve(root, requested || ".");
@@ -113,11 +134,11 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
     return fail(400, `Invalid path: ${requested}`);
   }
 
-  // lexical な位置ではなく解決後の実パスで root 内外を判定する。root 外を指す symlink も、解決して root 内に
-  // 戻るなら通す (要求そのものは root の外を指していてもよい)。
+  // 字句的に畳んでから realpath へ渡すと `..` が symlink より先に適用され、カーネルの解決順とずれる。
+  // 生の要求パスを native realpath (realpath(3)) に渡し、symlink を辿ってから `..` を解決させる。
   let target: string;
   try {
-    target = await realpath(candidate);
+    target = await realpathNative(joinRequestPath(root, requested));
   } catch (error) {
     // 解決できない = 実在しない (か解決不能) なので、lexical な位置で判定する。
     // root 外の未作成パスを 404 にすると「root 外は 400」の入力検証が抜ける。

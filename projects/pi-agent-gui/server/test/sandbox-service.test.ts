@@ -454,3 +454,43 @@ test(
     assert.match(missingInside.body.error ?? "", /Path not found/);
   },
 );
+
+test(
+  "files endpoint applies .. after following symlinks, like the kernel walk",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    // `..` は symlink を辿った後に適用される。字句的に畳んでから realpath にかけると、ここが両方向にずれる。
+    const base = mkdtempSync(join(tmpdir(), "pi-sbx-files-dotdot-"));
+    const root = join(base, "root");
+    await mkdir(join(root, "dirB", "nested"), { recursive: true });
+    await mkdir(join(base, "outside", "nested"), { recursive: true });
+    await writeFile(join(root, "A.txt"), "a", "utf8");
+    await writeFile(join(base, "outside", "outer.txt"), "o", "utf8");
+    // root 内から root 外を指す symlink と、root 外から root 内を指す symlink
+    await symlink(join(base, "outside", "nested"), join(root, "linkOutside"));
+    await symlink(join(root, "dirB"), join(base, "outside", "link-in"));
+
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    // root/linkOutside -> outside/nested なので、linkOutside/.. は outside (root 外) へ解決する
+    const escape = await listFiles(service.app, "linkOutside/..");
+    assert.equal(escape.status, 400, "'..' must apply to the resolved target, not lexically");
+    assert.match(escape.body.error ?? "", /outside the workspace/);
+    assert.equal((await listFiles(service.app, "linkOutside/../nested")).status, 400);
+
+    // outside/link-in -> root/dirB なので、../outside/link-in/.. は root へ解決する
+    const back = await listFiles(service.app, "../outside/link-in/..");
+    assert.equal(back.status, 200, back.body.error ?? "");
+    assert.equal(back.body.path, ".");
+    assert.deepEqual(
+      back.body.entries.map((entry) => entry.name),
+      ["dirB", "linkOutside", "A.txt"],
+    );
+
+    // root 外の symlink 経由でも、解決後の実ディレクトリが root 内なら開ける
+    const nested = await listFiles(service.app, "../outside/link-in/nested");
+    assert.equal(nested.status, 200, nested.body.error ?? "");
+    assert.equal(nested.body.path, "dirB/nested");
+    assert.deepEqual(nested.body.entries, []);
+  },
+);
