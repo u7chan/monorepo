@@ -19,7 +19,7 @@ export default function App() {
   const [managerOpen, setManagerOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // ManagerScreen の dialog close / 閉じるボタンへ渡す安定参照
+  // ManagerScreen の dialog close / 戻るボタンへ渡す安定参照
   const closeManager = useCallback(() => setManagerOpen(false), []);
   const closeFiles = useCallback(() => setFilesOpen(false), []);
 

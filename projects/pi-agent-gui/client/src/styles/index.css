@@ -343,6 +343,11 @@ html[data-theme="sky"] {
     @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink outline-none transition-colors focus:border-focus;
   }
 
+  /* アイコン + ラベルの副次ボタン (全画面 dialog のヘッダ操作など) */
+  .btn-quiet {
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;
+  }
+
   /* ステータスドット (7px)。色クラスと組み合わせて使う */
   .dot {
     @apply inline-block flex-shrink-0 rounded-full;
