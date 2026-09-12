@@ -53,9 +53,7 @@ export default function App() {
     agentId: desk.agentId,
     cwd: desk.cwd,
     selectedAgent: desk.selectedAgent,
-    newChat: (agentId?: string) => {
-      void desk.newChat(agentId);
-    },
+    newChat: desk.newChat,
     selectSession: (sessionId: string) => {
       if (sessionId !== desk.sessionId) void desk.selectSession(sessionId);
     },
@@ -70,7 +68,7 @@ export default function App() {
     ...navProps,
     newChat: (agentId?: string) => {
       closeNav();
-      void desk.newChat(agentId);
+      desk.newChat(agentId);
     },
     selectSession: (sessionId: string) => {
       closeNav();
