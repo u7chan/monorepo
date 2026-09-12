@@ -196,7 +196,7 @@ function ToolHistoryView({
         hasResponse ? "mb-2.5" : "",
       ].join(" ")}
     >
-      <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent">
+      <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus">
         <ChevronIcon />
         <span className="shrink-0 font-sans text-[10px] text-ink-soft">ツール履歴</span>
         <span className="shrink-0 font-sans text-[9px] text-ink-faint">{cards.length}件</span>

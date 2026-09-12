@@ -317,7 +317,7 @@ export function ManagerScreen({
   const tabClass = (active: boolean) =>
     [
       "min-h-10 cursor-pointer rounded-t-lg border-b-2 px-3.5 text-xs font-semibold transition-colors",
-      active ? "border-accent text-accent-text" : "border-transparent text-ink-soft hover:text-ink",
+      active ? "border-focus text-accent-text" : "border-transparent text-ink-soft hover:text-ink",
     ].join(" ");
 
   return (
@@ -562,7 +562,7 @@ export function ManagerScreen({
                         type="checkbox"
                         checked={agentForm.skillIds.includes(skill.id)}
                         onChange={(e) => toggleSkill(skill.id, e.currentTarget.checked)}
-                        className="mt-0.5 accent-[var(--c-accent)]"
+                        className="mt-0.5 accent-focus"
                       />
                       <span className="min-w-0">
                         <span className="block text-xs text-ink">{skill.name}</span>

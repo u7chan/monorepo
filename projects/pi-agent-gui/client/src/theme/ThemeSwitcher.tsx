@@ -30,7 +30,7 @@ export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps
       <select
         aria-label="テーマ"
         className={[
-          "min-w-0 cursor-pointer rounded-lg border border-line bg-raised px-2 py-1.5 text-ink outline-none transition-colors focus:border-accent",
+          "min-w-0 cursor-pointer rounded-lg border border-line bg-raised px-2 py-1.5 text-ink outline-none transition-colors focus:border-focus",
           compact ? "flex-1 text-[16px]" : "text-xs",
         ].join(" ")}
         value={choice}
