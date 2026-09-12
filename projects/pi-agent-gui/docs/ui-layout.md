@@ -23,6 +23,8 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - `ManagerScreen` は full screen のまま、ヘッダと一覧の高さだけ詰める
 - compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-[16px]`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えない）。`ManagerScreen` のフォームは従来のサイズのまま
 
+assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は `max-w-[min(760px,86%)]`、compact は `max-w-full`）に広げる。ツール履歴の `border-y` と、その行右端の 完了 / エラー ラベル・コピーボタンの x 位置が、ツール出力の伸長やメッセージの内容量で動かないようにするため。user のメッセージ列は内容幅のまま右寄せを保つ（`flex-1` を付けるとバブル背景が列幅まで広がる）。
+
 ## 検証
 
 自動テストは `client/test/layout.test.ts` がモード判定の境界だけを固定する（client test は DOM を使わない純粋なロジックのみ、という方針）。見た目は次の viewport で確認する。
