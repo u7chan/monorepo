@@ -49,6 +49,9 @@ BFF は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が無い場合、セッション�
 # 使用モデルを固定する場合
 PI_MODEL=anthropic/claude-sonnet-4-5 pnpm start
 
+# 表示・選択できるモデルをこのデプロイの提供分だけに絞る場合（provider/model をカンマ区切り）
+PI_MODELS=anthropic/claude-sonnet-4-5,openai/gpt-5.6-luna pnpm start
+
 # 推論の強さ（Effort）を既定で変える場合
 PI_THINKING=high pnpm start
 
@@ -57,6 +60,8 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 ```
 
 `PI_MODEL` に指定したモデルが認証済みの候補に無い場合は、別のモデルへ黙って切り替えず、画面の Model 選択にエラーとして表示します。利用できるモデルを入力欄から選べばそのまま使えます。
+
+`PI_MODELS` は Model / Effort ピッカーに出すモデルを列挙する whitelist です（`PI_AGENT_TOOLS` と同じカンマ区切り）。未指定なら認証済みモデルを全件表示します。ここに無いモデルは一覧から消えるだけでなく、`POST /api/sessions` の `model` 指定や会話ごとの設定変更でも 400 になります。`PI_MODEL` が whitelist 外の場合も他モデルへは切り替えずエラー表示です。whitelist と利用可能モデルが交差しないときは、`/api/health` が `errorCode: "model_whitelist_empty"` と PI_MODELS を名指ししたエラーを返し、`ready: false` になります。`provider/model` 形式でない項目が混じった場合は、設定ミスに気づけるよう起動時にエラーになります。
 
 ## 使い方
 

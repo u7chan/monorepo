@@ -195,6 +195,8 @@ export interface StubPiOptions {
   defaultThinkingLevel?: ThinkingLevel;
   defaultModelError?: string;
   availabilityError?: string;
+  /** true で PI_MODELS が候補を全部落とした状態 (ready: false の whitelist 起因エラー) を再現する */
+  modelWhitelistExcludesAll?: boolean;
   createSessionRejects?: number;
 }
 
@@ -213,6 +215,7 @@ export function createStubPi(options: StubPiOptions = {}) {
     defaultThinkingLevel: options.defaultThinkingLevel ?? "medium",
     defaultModelError: options.defaultModelError,
     availabilityError: options.availabilityError,
+    modelWhitelistExcludesAll: options.modelWhitelistExcludesAll ?? false,
     tools: ["read"],
     sessions,
     createInputs,
