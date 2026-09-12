@@ -71,7 +71,8 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 - エージェントの管理画面では、そのエージェントで新しい会話を始めるときの Model / Effort を「未指定」込みで指定できます。未指定の項目はアプリ既定が使われます。定義の変更は既存の会話に遡及しません
 - 管理画面の「インポート」「エクスポート」から、エージェントとスキルの定義を JSON ファイルで入出力できます
 - 画面右上のスイッチャーでテーマを切り替えられます。6 プリセット（ミッドナイト / デイライト / モカ / フォレスト / サクラ / ターミナル）とシステム追従から選択でき、選択はブラウザに保存されます
-- PC とスマートフォンの両方に対応しています。長い会話や設定画面はそれぞれの領域内でスクロールします
+- PC とスマートフォンの両方に対応しています。幅と高さでレイアウトを切り替え、スマートフォンや低いウィンドウでは「エージェントと現在の会話」だけを載せた compact なバーと、ドロワー（セッション一覧・エージェント選択・エージェント / スキル管理）に縮退します。Model / Effort は入力欄の左のボタンで開きます。長い会話や設定画面はそれぞれの領域内でスクロールします
+- レイアウトモードの判定と各モードの構成は [docs/ui-layout.md](docs/ui-layout.md) を参照してください
 
 セッションとエージェント/スキル定義はメモリ内だけで保持し、サーバー再起動でサンプルに戻ります。
 
@@ -101,7 +102,7 @@ LLM 認証情報は BFF だけが保持し、ツール実行は認証付きの�
 
 - `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て。APIキー保護は `src/redact.ts`（マスク本体）、`src/secret-guard.ts`（SDK接続）が担う
 - `server/src/sandbox/`: ツール実行サンドボックス（BFF と別プロセス）。`src/sandbox/service.ts` が認証付きツール実行API（NDJSON ストリーム）、`src/sandbox/client.ts` が BFF 側クライアント、`src/sandbox/remote-tools.ts` が SDK 組込みツールのリモート定義、`src/sandbox/index.ts` が起動エントリ
-- `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント
+- `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント、`src/lib/layout.ts` がレイアウトモード（幅と高さ）の判定
 - `server/test/`: node:test（pi はスタブで実 API を呼ばない）
 - `client/test/`: node:test（DOM を使わない純粋なクライアントロジックのみ。設定変更応答の競合など）
 
@@ -110,11 +111,12 @@ LLM 認証情報は BFF だけが保持し、ツール実行は認証付きの�
 - [AGENTS.md](AGENTS.md) — エージェント向けの最小ガイド
 - [docs/architecture.md](docs/architecture.md) — 非同期実行とセッション管理の設計
 - [docs/api.md](docs/api.md) — HTTP API リファレンス（SSE イベント定義を含む）
+- [docs/ui-layout.md](docs/ui-layout.md) — レイアウトモードの判定とモバイル向けシェル
 - [docs/migration.md](docs/migration.md) — 移植元・履歴保存・CI対応の変更点
 
 ## Docker / CI・CD
 
-モノレポのPR CIは `test` ステージで型チェック、スタブを用いたテスト（server: 非同期実行と API、client: 設定変更の応答適用）、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
+モノレポのPR CIは `test` ステージで型チェック、スタブを用いたテスト（server: 非同期実行と API、client: レイアウトモード判定と設定変更の応答適用）、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
 
 ```text
 ghcr.io/u7chan/monorepo/pi-agent-gui:latest

@@ -25,6 +25,8 @@ export type ManagerScreenProps = {
   /** アプリ既定モデル (provider/id) */
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
+  /** モバイルの compact layout (幅 900px 未満では stacked になるため、高さも使って詰める) */
+  compact?: boolean;
 };
 
 const DEFAULT_NOTE = "変更はこのサーバーのメモリ内だけに保存されます。再起動するとサンプルに戻ります。";
@@ -54,6 +56,7 @@ export function ManagerScreen({
   modelOptions,
   defaultModel,
   defaultThinkingLevel,
+  compact = false,
 }: ManagerScreenProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   /** 開く前にフォーカスしていた要素 (閉じたときに戻す) */
@@ -328,12 +331,17 @@ export function ManagerScreen({
       className="m-0 grid h-dvh w-screen max-h-none max-w-none grid-rows-[auto_minmax(0,1fr)_auto] rounded-none border-0 bg-base p-0 text-ink"
     >
       {/* ヘッダ */}
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 pb-3.5 pt-4 max-nav:grid max-nav:grid-cols-[minmax(0,1fr)]">
+      <header
+        className={[
+          "flex flex-wrap items-start justify-between border-b border-line",
+          compact ? "grid grid-cols-[minmax(0,1fr)] gap-2.5 px-4 pb-3 pt-3.5" : "gap-3 px-5 pb-3.5 pt-4",
+        ].join(" ")}
+      >
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">CONFIGURATION</div>
           <h2 className="text-lg font-semibold text-ink-strong">エージェントとスキル</h2>
         </div>
-        <div className="flex items-center gap-2 max-nav:w-full max-nav:justify-between">
+        <div className={["flex items-center gap-2", compact ? "w-full justify-between" : ""].join(" ")}>
           <div className="flex gap-2">
             <button
               type="button"
@@ -397,7 +405,12 @@ export function ManagerScreen({
           </div>
 
           {/* 一覧: 画面の縦幅を使うため、件数が増えてもスクロールで耐える */}
-          <div className="scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 max-nav:max-h-[30vh]">
+          <div
+            className={[
+              "scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3",
+              compact ? "max-h-[30vh]" : "",
+            ].join(" ")}
+          >
             {isAgent ? (
               <>
                 <button
