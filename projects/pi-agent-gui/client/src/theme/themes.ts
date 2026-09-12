@@ -1,13 +1,13 @@
 // テーマ定義の単一ソース。client/public/theme-init.js の id 配列と light 判定を合わせること:
-//   THEMES = ["midnight", "daylight", "mocha", "forest", "sakura", "terminal"]
-//   LIGHT_THEMES = ["daylight", "sakura"]
+//   THEMES = ["midnight", "daylight", "mocha", "forest", "sakura", "sky"]
+//   LIGHT_THEMES = ["daylight", "sakura", "sky"]
 export const THEMES = [
   { id: "midnight", label: "ミッドナイト", appearance: "dark" },
   { id: "daylight", label: "デイライト", appearance: "light" },
   { id: "mocha", label: "モカ", appearance: "dark" },
   { id: "forest", label: "フォレスト", appearance: "dark" },
   { id: "sakura", label: "サクラ", appearance: "light" },
-  { id: "terminal", label: "ターミナル", appearance: "dark" },
+  { id: "sky", label: "スカイ", appearance: "light" },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];
