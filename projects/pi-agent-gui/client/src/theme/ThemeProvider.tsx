@@ -10,9 +10,11 @@ import {
 } from "react";
 import {
   DEFAULT_THEME,
+  SYSTEM_DARK_ID,
+  SYSTEM_LIGHT_ID,
   THEME_STORAGE_KEY,
   THEMES,
-  isThemeId,
+  parseStoredThemeChoice,
   type ThemeChoice,
   type ThemeId,
 } from "./themes";
@@ -28,10 +30,6 @@ export type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-// client/public/theme-init.js の FALLBACK / light 判定と合わせること
-const SYSTEM_LIGHT_ID: ThemeId = "daylight";
-const SYSTEM_DARK_ID: ThemeId = "midnight";
-
 function getLightModeQuery(): MediaQueryList | null {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return null;
@@ -45,10 +43,7 @@ function getLightModeQuery(): MediaQueryList | null {
 
 function readStoredChoice(): ThemeChoice {
   try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === null) return DEFAULT_THEME;
-    if (stored === "system") return "system";
-    return isThemeId(stored) ? stored : DEFAULT_THEME;
+    return parseStoredThemeChoice(localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
     return DEFAULT_THEME;
   }

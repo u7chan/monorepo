@@ -203,11 +203,11 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 
 ### テーマシステム
 
-- テーマは `html` 要素の `data-theme` 属性で決定し、各プリセットが CSS 変数（`--c-*`）を定義する。Tailwind v4 の `@theme inline` で CSS 変数をセマンティックトークンにマップし、コンポーネントはトークンクラス（背景色・文字色など）だけで書く。プリセットの追加・変更は CSS 変数定義だけで完結する。
+- テーマは `html` 要素の `data-theme` 属性で決定し、各プリセットが CSS 変数（`--c-*`）を定義する。Tailwind v4 の `@theme inline` で CSS 変数をセマンティックトークンにマップし、コンポーネントはトークンクラス（背景色・文字色など）だけで書く。プリセットの再配色は CSS 変数定義だけで完結するが、テーマの**追加**は CSS 変数（`html[data-theme]` プリセットと `.theme-swatch`）に加えて `client/src/theme/themes.ts` の `THEMES` と `client/public/theme-init.js` の id 配列も更新する（両者の同期は `client/test/themeSync.test.ts` が固定する）。
 - アクセントは面用途（`--c-accent` / `--c-accent-bright`。送信ボタン・自分の発言バブル・テーマの色見本）と線・リング用途（`--c-focus`。入力欄の focus 枠・`focus-visible` リング・アクティブタブの下線・checkbox）でトークンを分ける。面用途は明るいまま、`--c-focus` は各プリセットで隣接面に対して 3:1 以上（WCAG 1.4.11）を満たす値にする。
 - プリセットは 6 種類（ミッドナイト / デイライト / モカ / フォレスト / サクラ / スカイ）に加え、`prefers-color-scheme` に追従する「システム」を選択できる。
-- 状態は `ThemeProvider`（`useTheme` フックで参照・変更）が持ち、選択は `localStorage` に保存される。
-- `client/public/theme-init.js` は React 初回描画より前に `data-theme` を適用する外部 classic script。ここを React 側でやると初期化完了までテーマなしで点滅するため、意図的に React の外に置いている。ロジック（localStorage のキー、system 追従の解決）は `ThemeProvider` と同じ選択結果になるよう同期を取る。
+- 状態は `ThemeProvider`（`useTheme` フックで参照・変更）が持ち、選択は `localStorage` に保存される。削除済みのテーマ id など無効な値が残っていても system 追従として解決し、保存値は書き換えない（新しく知るテーマを選び直したときに初めて上書きされる）。
+- `client/public/theme-init.js` は React 初回描画より前に `data-theme` を適用する外部 classic script。ここを React 側でやると初期化完了までテーマなしで点滅するため、意図的に React の外に置いている。ロジック（localStorage のキー、system 追従の解決）は `ThemeProvider` と同じ選択結果になるよう同期を取る（system の解決先 id は `client/test/themeSync.test.ts` が突き合わせる）。
 - BFF の CSP は `style-src 'self'`（インラインスタイル不可）のため、テーマはすべて外部 CSS + 属性切替で実装する。`<style>` の注入やインライン `style` 属性には頼らない。
 
 ### チャット状態とレンダリング
