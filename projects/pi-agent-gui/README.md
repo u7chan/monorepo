@@ -72,6 +72,7 @@ PI_APP_CWD=/path/to/project PORT=4318 pnpm start
 - ツール呼び出しの履歴は回答前にまとめて省略表示され、クリックすると各ツールの引数と出力を確認できます（既定は折りたたみ）
 - 各メッセージの本文下に時刻が出ます（当日は `12:50`、同じ年は `9/5`、それ以外は `2025/9/5`。ホバーで `2026/9/5(土) 12:50`）。表記は日本語（`ja-JP`）固定で、ブラウザの locale 設定には依存しません。セッション一覧の時刻も同じ表記です
 - 「エージェント / スキルを管理」から、指示文を書いたスキルを作成してエージェントに割り当てられます。割り当てたスキルは新しい会話のシステムプロンプトに反映されます
+- サイドバー（スマートフォンはドロワー）の「作業ディレクトリ」カードを押すと、作業領域のファイルツリーが開きます。ディレクトリは展開したときに読み込み、ファイルは選択表示のみです（内容のプレビュー・編集・保存・作成・削除・アップロード・ダウンロードはできません）。ファイル監視による自動更新はせず、更新は「再読み込み」で行います。サーバーが並び順と 1 ディレクトリ 500 件の上限を決め、打ち切ったときは画面に注記が出ます
 - 入力欄の上にある Model / Effort で、その会話のモデルと推論の強さをいつでも切り替えられます。同じ会話・履歴・タイトルを保ったまま変わり、他の会話には影響しません。変更中はピッカーと送信が一時的に無効になります
 - 画面右上のモデル表示は、選択中の会話が実際に使うモデルを「会話」、未作成のときのアプリ既定モデルを「既定」として区別して表示します。リロード後や会話を切り替えた後も、会話の表示は選択中セッションの実効値に一致します
 - エージェントの管理画面では、そのエージェントで新しい会話を始めるときの Model / Effort を「未指定」込みで指定できます。未指定の項目はアプリ既定が使われます。定義の変更は既存の会話に遡及しません
@@ -107,8 +108,8 @@ LLM 認証情報は BFF だけが保持し、ツール実行は認証付きの�
 ## 構成
 
 - `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て。APIキー保護は `src/redact.ts`（マスク本体）、`src/secret-guard.ts`（SDK接続）が担う
-- `server/src/sandbox/`: ツール実行サンドボックス（BFF と別プロセス）。`src/sandbox/service.ts` が認証付きツール実行API（NDJSON ストリーム）、`src/sandbox/client.ts` が BFF 側クライアント、`src/sandbox/remote-tools.ts` が SDK 組込みツールのリモート定義、`src/sandbox/index.ts` が起動エントリ
-- `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント、`src/lib/layout.ts` がレイアウトモード（幅と高さ）の判定
+- `server/src/sandbox/`: ツール実行サンドボックス（BFF と別プロセス）。`src/sandbox/service.ts` が認証付きツール実行API（NDJSON ストリーム）と作業領域の一覧API（`GET /v1/files`。JSON）、`src/sandbox/client.ts` が BFF 側クライアント、`src/sandbox/remote-tools.ts` が SDK 組込みツールのリモート定義、`src/sandbox/index.ts` が起動エントリ
+- `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント、`src/lib/layout.ts` がレイアウトモード（幅と高さ）の判定、`src/components/FileTreeScreen.tsx` が作業ディレクトリのファイル画面（ツリーの状態遷移は `src/lib/fileTree.ts` の純関数）
 - `server/test/`: node:test（pi はスタブで実 API を呼ばない）
 - `client/test/`: node:test（DOM を使わない純粋なクライアントロジックのみ。設定変更応答の競合など）
 
@@ -177,6 +178,7 @@ docker run --rm --init --name pi-agent-gui --network pi-agent-gui-net -p 127.0.0
 ```
 
 - `PI_SANDBOX_TOKEN` は BFF とサンドボックスの2コンテナにだけ渡す実行API認証用の共有トークンです。LLM認証情報とは別の値を使い、他の環境変数やファイルへ展開しません
+- 一覧 API（`GET /api/files`）は読み取り専用で、サンドボックスから見た作業領域だけを返します。root 外の拒否は URL 経由の不正参照を防ぐ入力検証で、エージェントが `bash` / `read` で読み取れる範囲は変わりません
 - サンドボックスは非rootの `node` ユーザー（UID/GID 1000）で動くため、マウント先はこのユーザーが読み書きできる所有権にしてください
 - 正式なCompose構成・永続領域・資格情報の配置はデプロイ側リポジトリ（self-hosted-runner）で管理します
 

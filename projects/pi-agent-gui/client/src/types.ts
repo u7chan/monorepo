@@ -8,6 +8,8 @@ export type {
   Catalog,
   ChatMessage,
   EventEntry,
+  FileEntry,
+  FileListing,
   Health,
   ModelOption,
   ModelRef,

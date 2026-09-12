@@ -47,6 +47,38 @@ export interface SandboxExecuteRequestBody {
   params?: Record<string, unknown>;
 }
 
+// ---------------------------------------------------------------------------
+// GET /v1/files (作業領域の一覧。ツール実行の NDJSON とは別の JSON 経路)
+// ---------------------------------------------------------------------------
+
+/**
+ * 一覧の 1 エントリ。type は symlink を辿った実体の種別で、ディレクトリ以外は file に寄せる。
+ * size / mtime は実体を stat できたファイルにだけ付ける。
+ */
+export interface SandboxFileEntry {
+  name: string;
+  type: "file" | "dir";
+  /** lstat が symlink のとき true (type は辿った先の種別) */
+  symlink?: boolean;
+  size?: number;
+  /** epoch ms */
+  mtime?: number;
+}
+
+/**
+ * GET /v1/files の応答。path は root 相対の正規化パス (root は ".") で、
+ * symlink を解決した先ではなく要求された位置を返す。
+ */
+export interface SandboxFileListing {
+  path: string;
+  entries: SandboxFileEntry[];
+  /** 1 ディレクトリの上限で打ち切ったか */
+  truncated: boolean;
+}
+
+/** 1 ディレクトリあたりの上限 (SDK の ls ツールの既定上限に揃える) */
+export const SANDBOX_MAX_FILE_ENTRIES = 500;
+
 /** 1 イベント = 1 行。 */
 export function encodeSandboxEvent(event: SandboxEvent): string {
   return `${JSON.stringify(event)}\n`;

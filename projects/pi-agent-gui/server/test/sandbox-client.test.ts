@@ -1,8 +1,8 @@
-// fetch をスタブし、NDJSON の解釈と abort / 認証エラーの扱いだけを検証する (実接続・実 LLM API なし)。
+// fetch をスタブし、NDJSON の解釈と abort / 認証エラーの扱い、JSON 経路 (listFiles) の写像を検証する (実接続・実 LLM API なし)。
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSandboxToolClient } from "../src/sandbox/client";
+import { createSandboxToolClient, SandboxRequestError } from "../src/sandbox/client";
 
 const TOKEN = "client-test-token-0123456789";
 
@@ -146,4 +146,99 @@ test("rejects immediately when the signal is already aborted", async () => {
   controller.abort();
   await assert.rejects(client.execute("bash", { params: {}, signal: controller.signal }), /Operation aborted/);
   assert.equal(calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// listFiles (GET /v1/files。JSON 経路)
+// ---------------------------------------------------------------------------
+
+test("listFiles sends the encoded path and auth header, and parses the JSON listing", async () => {
+  const { calls, impl } = stubFetch(
+    () =>
+      new Response(
+        JSON.stringify({ path: "src/client", entries: [{ name: "app.ts", type: "file", size: 3 }], truncated: false }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test:8080/", token: TOKEN, fetchImpl: impl });
+  const listing = await client.listFiles("src/client");
+  assert.equal(listing.path, "src/client");
+  assert.deepEqual(listing.entries, [{ name: "app.ts", type: "file", size: 3 }]);
+  assert.equal(listing.truncated, false);
+  assert.equal(calls[0].url, "http://sandbox.test:8080/v1/files?path=src%2Fclient");
+  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  // path が空でも query は落とさない (サンドボックス側の既定は root)
+  await client.listFiles("");
+  assert.equal(calls[1].url, "http://sandbox.test:8080/v1/files?path=");
+});
+
+test("listFiles relays sandbox 4xx messages and maps the rest to 502", async () => {
+  const sandboxError = (status: number, message: string) =>
+    stubFetch(() =>
+      new Response(JSON.stringify({ error: message }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ).impl;
+
+  const client = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(400, "Path outside the workspace: /etc"),
+  });
+  await assert.rejects(client.listFiles("../../etc"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 400);
+    assert.equal(error.message, "Path outside the workspace: /etc");
+    return true;
+  });
+
+  const missing = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(404, "Path not found: /workspace/nope"),
+  });
+  await assert.rejects(missing.listFiles("nope"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 404);
+    return true;
+  });
+
+  const unauthorized = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: "wrong",
+    fetchImpl: sandboxError(401, "Unauthorized"),
+  });
+  await assert.rejects(unauthorized.listFiles("."), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /認証に失敗/);
+    return true;
+  });
+
+  const broken = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(500, "boom"),
+  });
+  await assert.rejects(broken.listFiles("."), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /HTTP 500\): boom/);
+    return true;
+  });
+
+  const down = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: (() => {
+      throw new Error("ECONNREFUSED");
+    }) as typeof fetch,
+  });
+  await assert.rejects(down.listFiles("."), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /接続できません/);
+    return true;
+  });
 });

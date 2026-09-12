@@ -4,6 +4,9 @@
  * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -18,9 +21,12 @@ import {
 import { Hono } from "hono";
 import {
   SANDBOX_MAX_BODY_BYTES,
+  SANDBOX_MAX_FILE_ENTRIES,
   encodeSandboxEvent,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
+  type SandboxFileEntry,
+  type SandboxFileListing,
 } from "./protocol";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
@@ -82,6 +88,108 @@ async function readJsonBody(request: Request): Promise<unknown> {
   if (!trimmed) return {};
   const parsed = JSON.parse(trimmed) as unknown;
   return parsed;
+}
+
+/**
+ * root 相対の要求パスを解決して一覧を返す。判定は「`..` の有無」ではなく「realpath した実パスが root 内か」で行い、
+ * root 外を指す symlink も一覧には出すが、その位置を開こうとした時点で 400 にする。
+ * エラー文言は SDK の ls ツールに寄せる (BFF はサンドボックスの文言をそのままクライアントへ返す)。
+ */
+async function listWorkspaceDirectory(rootCwd: string, requested: string): Promise<SandboxFileListing> {
+  const fail = (statusCode: number, message: string): never => {
+    throw Object.assign(new Error(message), { statusCode });
+  };
+
+  // root 自体も realpath で解決し、両辺を実パスで比較する (root の symlink 経由でも判定が崩れないように)
+  const root = await realpath(rootCwd).catch((error: unknown) =>
+    fail(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`),
+  );
+
+  let candidate: string;
+  try {
+    candidate = resolve(root, requested || ".");
+  } catch {
+    return fail(400, `Invalid path: ${requested}`);
+  }
+  if (!isInsideRoot(root, candidate)) return fail(400, `Path outside the workspace: ${candidate}`);
+
+  const target = await realpath(candidate).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return fail(404, `Path not found: ${candidate}`);
+    return fail(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  // 途中の symlink が root 外を指していた場合もここで弾く
+  if (!isInsideRoot(root, target)) return fail(400, `Path outside the workspace: ${target}`);
+
+  const targetStat = await stat(target).catch(() => undefined);
+  if (!targetStat) return fail(404, `Path not found: ${candidate}`);
+  if (!targetStat.isDirectory()) return fail(400, `Not a directory: ${candidate}`);
+
+  const dirents = await readdir(target, { withFileTypes: true }).catch((error: unknown) =>
+    fail(400, `Cannot read directory: ${messageFor(error)}`),
+  );
+  // 並び替え (ディレクトリ先 → ファイル) には実体の種別が要るため、先に symlink だけ辿る。
+  // 件数上限を超える巨大ディレクトリでも stat は上限件数にしか掛けない。
+  const candidates = await Promise.all(dirents.map((dirent) => classifyEntry(target, dirent)));
+  candidates.sort(compareEntries);
+  const truncated = candidates.length > SANDBOX_MAX_FILE_ENTRIES;
+
+  const entries: SandboxFileEntry[] = [];
+  for (const candidateEntry of candidates.slice(0, SANDBOX_MAX_FILE_ENTRIES)) {
+    const entryPath = join(target, candidateEntry.name);
+    const entry: SandboxFileEntry = { name: candidateEntry.name, type: candidateEntry.type };
+    if (candidateEntry.symlink) entry.symlink = true;
+    if (candidateEntry.type === "file") {
+      // symlink は辿った先、通常ファイルは lstat。壊れた symlink は size / mtime なしで返す
+      const stats = await (candidateEntry.symlink ? stat : lstat)(entryPath).catch(() => undefined);
+      if (stats) {
+        entry.size = stats.size;
+        entry.mtime = Math.round(stats.mtimeMs);
+      }
+    }
+    entries.push(entry);
+  }
+
+  return {
+    path: relativeToRoot(root, candidate),
+    entries,
+    truncated,
+  };
+}
+
+function isInsideRoot(root: string, target: string): boolean {
+  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+}
+
+/** symlink は辿った先の種別に寄せる (壊れた symlink は file として出す)。 */
+async function classifyEntry(
+  dirPath: string,
+  dirent: Dirent,
+): Promise<{ name: string; type: "file" | "dir"; symlink: boolean }> {
+  const name = dirent.name;
+  if (!dirent.isSymbolicLink()) {
+    return { name, type: dirent.isDirectory() ? "dir" : "file", symlink: false };
+  }
+  const followed = await stat(join(dirPath, name)).catch(() => undefined);
+  return { name, type: followed?.isDirectory() ? "dir" : "file", symlink: true };
+}
+
+/** ディレクトリ先 → ファイル、各グループ内は大文字小文字を無視した昇順 (同順はコード順で安定させる)。 */
+function compareEntries(
+  a: { name: string; type: "file" | "dir" },
+  b: { name: string; type: "file" | "dir" },
+): number {
+  if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+  const ignoringCase = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  if (ignoringCase !== 0) return ignoringCase;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/** root 相対の正規化パス。区切りは常に "/" (root は ".")。 */
+function relativeToRoot(root: string, target: string): string {
+  const rel = relative(root, target);
+  if (!rel) return ".";
+  return sep === "/" ? rel : rel.split(sep).join("/");
 }
 
 /** listen は呼び出し側 (@hono/node-server) が行い、テストは app.request() で検証する。 */
@@ -230,6 +338,15 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         "X-Accel-Buffering": "no",
       },
     });
+  });
+
+  app.get("/v1/files", async (c) => {
+    try {
+      return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
   });
 
   app.post("/v1/executions/:id/cancel", (c) => {

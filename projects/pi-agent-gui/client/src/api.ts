@@ -3,6 +3,7 @@ import type { AppType } from "server";
 import type {
   AgentDef,
   Catalog,
+  FileListing,
   Health,
   ModelRef,
   PostMessageResult,
@@ -116,6 +117,19 @@ export const deleteSkill = async (id: string): Promise<unknown> => {
   const res = await client.api.skills[":id"].$delete({ param: { id } });
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+// --- files ---
+
+/**
+ * 作業ディレクトリ (サンドボックスの作業領域) の一覧。path は root 相対で、既定は root (".")。
+ * サーバーが並び順と上限を決めるため、クライアントでは再ソートしない。
+ */
+export const getFiles = async (path = "."): Promise<FileListing> => {
+  const res = await client.api.files.$get({ query: { path } });
+  if (!res.ok) throw await apiError(res);
+  // 400 (root 外) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
+  return (await res.json()) as FileListing;
 };
 
 // --- sessions ---
