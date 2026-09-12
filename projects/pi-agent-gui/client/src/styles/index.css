@@ -80,6 +80,8 @@
   --color-on-accent: var(--c-on-accent);
   --color-accent-wash: var(--c-accent-wash);
   --color-accent-text: var(--c-accent-text);
+  /* 線・リング用途 (フォーカス枠 / アクティブ表示の下線 / checkbox)。面用途の --color-accent とは別トークンにする */
+  --color-focus: var(--c-focus);
   --color-ok: var(--c-ok);
   --color-warn: var(--c-warn);
   --color-danger: var(--c-danger);
@@ -91,6 +93,8 @@
 /* ---------------------------------------------------------------------------
  * テーマプリセット
  * midnight は旧 public/styles.css の :root を踏襲したデフォルト。
+ * --c-focus は線・リング専用。面用途の --c-accent を明るいまま残しつつ、
+ * 各プリセットで隣接面 (base / panel / raised / soft) に対して 3:1 以上 (WCAG 1.4.11) を満たす値にする。
  * ------------------------------------------------------------------------- */
 
 /* ミッドナイト: 濃紺×ヴァイオレット (デフォルト) */
@@ -116,6 +120,7 @@ html[data-theme="midnight"] {
   --c-on-accent: #201631;
   --c-accent-wash: rgba(167, 139, 250, 0.12);
   --c-accent-text: #c4b5fd;
+  --c-focus: #a78bfa;
   --c-ok: #65d6a2;
   --c-warn: #f4b46b;
   --c-danger: #ee778b;
@@ -147,6 +152,7 @@ html[data-theme="daylight"] {
   --c-on-accent: #ffffff;
   --c-accent-wash: rgba(109, 74, 224, 0.1);
   --c-accent-text: #5b34c9;
+  --c-focus: #6d4ae0;
   --c-ok: #167f56;
   --c-warn: #ad6800;
   --c-danger: #d6455f;
@@ -178,6 +184,7 @@ html[data-theme="mocha"] {
   --c-on-accent: #2b1c07;
   --c-accent-wash: rgba(224, 164, 88, 0.12);
   --c-accent-text: #f2c185;
+  --c-focus: #e0a458;
   --c-ok: #97c07a;
   --c-warn: #e0905f;
   --c-danger: #e07a6a;
@@ -209,6 +216,7 @@ html[data-theme="forest"] {
   --c-on-accent: #0a2414;
   --c-accent-wash: rgba(111, 206, 143, 0.12);
   --c-accent-text: #93ddab;
+  --c-focus: #6fce8f;
   --c-ok: #58c9a2;
   --c-warn: #d9b163;
   --c-danger: #e2777c;
@@ -240,6 +248,7 @@ html[data-theme="sakura"] {
   --c-on-accent: #47202f;
   --c-accent-wash: rgba(217, 132, 163, 0.12);
   --c-accent-text: #b3496d;
+  --c-focus: #b3496d;
   --c-ok: #23875d;
   --c-warn: #a96a10;
   --c-danger: #d24d61;
@@ -271,6 +280,7 @@ html[data-theme="sky"] {
   --c-on-accent: #06303f;
   --c-accent-wash: rgba(99, 198, 238, 0.14);
   --c-accent-text: #0a6b91;
+  --c-focus: #0a6b91;
   --c-ok: #107a56;
   --c-warn: #a06200;
   --c-danger: #d4495f;
@@ -330,7 +340,7 @@ html[data-theme="sky"] {
 @layer components {
   /* input / select / textarea 共通 */
   .field {
-    @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink outline-none transition-colors focus:border-accent;
+    @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink outline-none transition-colors focus:border-focus;
   }
 
   /* ステータスドット (7px)。色クラスと組み合わせて使う */
