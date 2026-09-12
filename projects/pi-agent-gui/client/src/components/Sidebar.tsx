@@ -260,11 +260,7 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
             <ThemeSwitcher compact />
           </div>
         ) : null}
-        <div className="text-[10px] leading-relaxed text-ink-ghost">
-          ローカル実行 · インメモリセッション
-          <br />
-          pi SDK の小さなブラウザ GUI
-        </div>
+        <div className="text-[10px] leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
       </div>
     </aside>
   );
