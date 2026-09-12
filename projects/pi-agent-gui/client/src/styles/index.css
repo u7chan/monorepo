@@ -19,8 +19,7 @@
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
 
-  /* worker-app が nav: / wide: / max-nav: / max-wide: を使う */
-  --breakpoint-nav: 720px;
+  /* desktop 内のゆとり用。compact (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
   --breakpoint-wide: 900px;
 
   /* メッセージ出現用 (旧 @keyframes rise 相当) */
@@ -33,6 +32,19 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  /* モバイルのナビゲーションドロワー出現用 */
+  --animate-drawer: drawer-in 180ms ease-out;
+  @keyframes drawer-in {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
     }
   }
 }

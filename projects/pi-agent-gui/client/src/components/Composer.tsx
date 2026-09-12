@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { effortLabel, type ComposerSettings } from "../hooks/useAgentDesk";
+import type { LayoutMode } from "../lib/layout";
 import type { ModelRef, ThinkingLevel } from "../types";
+import { SlidersIcon } from "./icons";
 
 export type ComposerProps = {
   activity: string;
@@ -10,6 +12,8 @@ export type ComposerProps = {
   queueDepth: number;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
+  /** compact (portrait / landscape) では Model / Effort を畳んで入力を最優先にする */
+  mode: LayoutMode;
   onSend: (text: string) => void;
   onStop: () => void;
   onChangeModel: (model: ModelRef) => void;
@@ -17,6 +21,8 @@ export type ComposerProps = {
 };
 
 const MAX_TEXTAREA_HEIGHT = 180;
+/** compact では入力欄が画面を占めないよう低く抑える */
+const COMPACT_TEXTAREA_HEIGHT = 120;
 
 function ArrowUpIcon() {
   return (
@@ -55,14 +61,20 @@ export function Composer({
   stopVisible,
   queueDepth,
   settings,
+  mode,
   onSend,
   onStop,
   onChangeModel,
   onChangeThinkingLevel,
 }: ComposerProps) {
+  const compact = mode !== "desktop";
+  // landscape は横幅が余るので、設定を開いたときの高さを抑える
+  const landscape = mode === "landscape";
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState("");
   const [stopping, setStopping] = useState(false);
+  /** compact で Model / Effort を開いているか */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const modelChoices = useMemo(() => modelChoicesOf(settings), [settings]);
   // SDK が補正した実効値が候補に無くても表示できるようにする
@@ -76,13 +88,14 @@ export function Composer({
   const modelDisabled = settings.disabled || settings.modelOptions.length === 0;
   const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
   const notice = settings.modelWarning ?? settings.effortNotice;
+  const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
 
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
-  }, [value]);
+    el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
+  }, [value, maxTextareaHeight]);
 
   const submit = () => {
     const text = value.trim();
@@ -120,8 +133,86 @@ export function Composer({
     onChangeModel({ provider: next.slice(0, slash), id: next.slice(slash + 1) });
   };
 
+  const fieldLabelClass = [
+    "flex min-w-0 items-center text-[10px] text-ink-faint",
+    compact ? "gap-2" : "gap-1.5",
+  ].join(" ");
+  const fieldNameClass = compact ? "w-12 shrink-0 uppercase tracking-wide" : "shrink-0 uppercase tracking-wide";
+  // compact の入力欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする
+  // (theme の色トークンが base なので Tailwind の text-base は使えない)
+  const selectClass = (maxWidth: string) =>
+    [
+      "field cursor-pointer px-1.5 py-1 disabled:cursor-not-allowed disabled:opacity-55",
+      compact ? "min-w-0 flex-1 text-[16px]" : `${maxWidth} text-[11px]`,
+    ].join(" ");
+
+  const modelField = (
+    <label className={fieldLabelClass}>
+      <span className={fieldNameClass}>Model</span>
+      <select
+        aria-label="モデルを選択"
+        className={selectClass("max-w-[240px]")}
+        value={settings.model ?? ""}
+        disabled={modelDisabled}
+        onChange={(event) => handleModelChange(event.currentTarget.value)}
+      >
+        {settings.model ? null : <option value="">未選択</option>}
+        {modelChoices.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  const effortField = (
+    <label className={fieldLabelClass}>
+      <span className={fieldNameClass}>Effort</span>
+      <select
+        aria-label="Effort を選択"
+        className={selectClass("max-w-[160px]")}
+        value={settings.thinkingLevel ?? ""}
+        disabled={effortDisabled}
+        onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}
+      >
+        {settings.thinkingLevel ? null : <option value="">未選択</option>}
+        {effortChoices.map((level) => (
+          <option key={level} value={level}>
+            {effortLabel(level)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  const stopButton = stopVisible ? (
+    <button
+      type="button"
+      onClick={() => void handleStop()}
+      disabled={stopping}
+      className={[
+        "shrink-0 cursor-pointer bg-transparent p-0 text-[10px] text-warn transition-colors hover:brightness-125",
+        compact ? "px-1 py-0.5" : "",
+      ].join(" ")}
+    >
+      {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
+    </button>
+  ) : null;
+
+  // 畳んだ状態では、送信できない理由 (モデル不在) だけを残す
+  const collapsedWarnings = [compact && !settingsOpen ? settings.modelWarning : undefined, settings.sendBlockedReason]
+    .filter((text): text is string => Boolean(text));
+
   return (
-    <footer className="mx-auto w-full min-w-0 max-w-[880px] px-6 pb-5 max-nav:px-[18px] max-nav:pb-[max(14px,env(safe-area-inset-bottom))] wide:px-8">
+    <footer
+      className={[
+        "w-full min-w-0",
+        compact
+          ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]"
+          : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
+      ].join(" ")}
+    >
       {activity ? (
         <div aria-live="polite" className="min-h-[21px] break-words px-1 pb-1.5 text-[11px] text-ink-muted">
           {activity}
@@ -129,52 +220,65 @@ export function Composer({
       ) : null}
       <form
         onSubmit={handleSubmit}
-        className="grid gap-2 rounded-[13px] border border-line-strong bg-panel/90 p-2.5 shadow-panel"
+        className={[
+          "grid rounded-[13px] border border-line-strong bg-panel/90 shadow-panel",
+          compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
+        ].join(" ")}
       >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
-          <label className="flex min-w-0 items-center gap-1.5 text-[10px] text-ink-faint">
-            <span className="shrink-0 uppercase tracking-wide">Model</span>
-            <select
-              aria-label="モデルを選択"
-              className="field max-w-[240px] cursor-pointer px-1.5 py-1 text-[11px] disabled:cursor-not-allowed disabled:opacity-55"
-              value={settings.model ?? ""}
-              disabled={modelDisabled}
-              onChange={(event) => handleModelChange(event.currentTarget.value)}
+        {compact ? (
+          settingsOpen ? (
+            <div className={["grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2", landscape ? "grid-cols-2" : ""].join(" ")}>
+              {modelField}
+              {effortField}
+              {notice ? (
+                <span className={["min-w-0 break-words text-[10px] text-warn", landscape ? "col-span-2" : ""].join(" ")}>
+                  {notice}
+                </span>
+              ) : null}
+            </div>
+          ) : null
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
+            {modelField}
+            {effortField}
+            {notice ? <span className="min-w-0 break-words text-[10px] text-warn">{notice}</span> : null}
+          </div>
+        )}
+        <div className={["flex items-end", compact ? "gap-2" : "gap-2.5"].join(" ")}>
+          {compact ? (
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-expanded={settingsOpen}
+              aria-label="モデルと Effort の設定"
+              title="モデルと Effort"
+              className={[
+                // compact は入力欄と高さを揃えてタップ領域も広く取る
+                "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
+                settingsOpen
+                  ? "border-accent/50 bg-accent-wash text-accent-text"
+                  : "border-line bg-raised text-ink-faint hover:text-ink-soft",
+              ].join(" ")}
             >
-              {settings.model ? null : <option value="">未選択</option>}
-              {modelChoices.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 items-center gap-1.5 text-[10px] text-ink-faint">
-            <span className="shrink-0 uppercase tracking-wide">Effort</span>
-            <select
-              aria-label="Effort を選択"
-              className="field max-w-[160px] cursor-pointer px-1.5 py-1 text-[11px] disabled:cursor-not-allowed disabled:opacity-55"
-              value={settings.thinkingLevel ?? ""}
-              disabled={effortDisabled}
-              onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}
-            >
-              {settings.thinkingLevel ? null : <option value="">未選択</option>}
-              {effortChoices.map((level) => (
-                <option key={level} value={level}>
-                  {effortLabel(level)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {notice ? <span className="min-w-0 break-words text-[10px] text-warn">{notice}</span> : null}
-        </div>
-        <div className="flex items-end gap-2.5">
+              <SlidersIcon />
+            </button>
+          ) : null}
           <textarea
             ref={inputRef}
             rows={1}
             value={value}
-            placeholder={runtimeReady ? "メッセージを入力… (Enterで送信 / Shift+Enterで改行)" : "APIキーを設定すると送信できます"}
-            className="min-h-6 max-h-[180px] flex-1 resize-none bg-transparent px-0.5 py-1 leading-normal text-ink outline-none placeholder:text-ink-ghost"
+            placeholder={
+              runtimeReady
+                ? // compact は 1 行の入力欄を保ちたいので Enter の説明は desktop だけに出す
+                  compact
+                  ? "メッセージを入力…"
+                  : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
+                : "APIキーを設定すると送信できます"
+            }
+            className={[
+              "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
+              compact ? "min-h-9 max-h-[120px] py-1.5 text-[16px]" : "min-h-6 max-h-[180px] py-1",
+            ].join(" ")}
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
           />
@@ -188,30 +292,35 @@ export function Composer({
               Boolean(settings.sendBlockedReason) ||
               value.trim().length === 0
             }
-            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+            className={[
+              "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
+              compact ? "size-9" : "size-8",
+            ].join(" ")}
           >
             <ArrowUpIcon />
           </button>
         </div>
       </form>
-      <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-[10px] text-ink-ghost">
-        <span className="min-w-0 break-words">
-          送信後もブラウザを閉じても処理は続きます
-          {settings.sendBlockedReason ? (
-            <span className="ml-1 text-warn">{settings.sendBlockedReason}</span>
-          ) : null}
-        </span>
-        {stopVisible ? (
-          <button
-            type="button"
-            onClick={() => void handleStop()}
-            disabled={stopping}
-            className="shrink-0 cursor-pointer bg-transparent p-0 text-[10px] text-warn transition-colors hover:brightness-125"
-          >
-            {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
-          </button>
-        ) : null}
-      </div>
+      {compact ? (
+        collapsedWarnings.length > 0 || stopVisible ? (
+          <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-[10px] text-ink-ghost">
+            {collapsedWarnings.length > 0 ? (
+              <span className="mr-auto min-w-0 break-words text-warn">{collapsedWarnings.join(" / ")}</span>
+            ) : null}
+            {stopButton}
+          </div>
+        ) : null
+      ) : (
+        <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-[10px] text-ink-ghost">
+          <span className="min-w-0 break-words">
+            送信後もブラウザを閉じても処理は続きます
+            {settings.sendBlockedReason ? (
+              <span className="ml-1 text-warn">{settings.sendBlockedReason}</span>
+            ) : null}
+          </span>
+          {stopButton}
+        </div>
+      )}
     </footer>
   );
 }

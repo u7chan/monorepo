@@ -132,7 +132,19 @@ function historyPreview(cards: ToolCard[]): string {
   return `${names.join(" / ")}${remainder}`;
 }
 
-function ToolCallRow({ card, index, copied, onCopy }: { card: ToolCard; index: number; copied: boolean; onCopy: () => void }) {
+function ToolCallRow({
+  card,
+  index,
+  copied,
+  compact,
+  onCopy,
+}: {
+  card: ToolCard;
+  index: number;
+  copied: boolean;
+  compact: boolean;
+  onCopy: () => void;
+}) {
   return (
     <li className={["group/row min-w-0 py-2.5", index > 0 ? "border-t border-line" : ""].join(" ")}>
       <div className="flex min-w-0 items-center gap-2">
@@ -142,7 +154,8 @@ function ToolCallRow({ card, index, copied, onCopy }: { card: ToolCard; index: n
         <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal={REVEAL_TOOL} />
         <span className={`shrink-0 font-sans text-[9px] ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
       </div>
-      <div className="mt-1.5 grid gap-1.5 pl-6 text-ink-muted">
+      {/* 本文幅を広く使いたいので、compact では詳細のインデントを詰める */}
+      <div className={["mt-1.5 grid gap-1.5 text-ink-muted", compact ? "pl-3" : "pl-6"].join(" ")}>
         {card.args ? (
           <div className="grid min-w-0 gap-0.5">
             <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">引数</span>
@@ -166,11 +179,13 @@ function ToolHistoryView({
   cards,
   hasResponse,
   copiedId,
+  compact,
   onCopyTool,
 }: {
   cards: ToolCard[];
   hasResponse: boolean;
   copiedId: string;
+  compact: boolean;
   onCopyTool: (card: ToolCard) => void;
 }) {
   const phase = historyPhase(cards);
@@ -195,6 +210,7 @@ function ToolHistoryView({
             card={card}
             index={index}
             copied={copiedId === `tool_${card.id}`}
+            compact={compact}
             onCopy={() => onCopyTool(card)}
           />
         ))}
@@ -206,34 +222,41 @@ function ToolHistoryView({
 function MessageView({
   bubble,
   copied,
+  compact,
   onCopy,
   copiedId,
   onCopyTool,
 }: {
   bubble: Bubble;
   copied: boolean;
+  compact: boolean;
   onCopy: () => void;
   copiedId: string;
   onCopyTool: (card: ToolCard) => void;
 }) {
   const isUser = bubble.role === "user";
   return (
-    <article className={`animate-rise group/bubble flex gap-3 ${isUser ? "justify-end" : ""}`}>
+    <article className={["animate-rise group/bubble flex", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : ""].join(" ")}>
       <div
         className={[
-          "grid size-[26px] shrink-0 place-items-center rounded-lg text-[10px] font-bold",
+          "grid shrink-0 place-items-center rounded-lg font-bold",
+          compact ? "size-[22px] text-[9px]" : "size-[26px] text-[10px]",
           isUser ? "order-2 bg-accent-bright text-on-accent" : "border border-accent/25 bg-accent-wash text-accent-strong",
         ].join(" ")}
       >
         {isUser ? <UserIcon /> : "✦"}
       </div>
-      <div className="min-w-0 max-w-[min(760px,86%)] max-nav:max-w-[90%]">
-        <div className="mb-1 text-[10px] font-medium text-ink-faint">{isUser ? "あなた" : "アシスタント"}</div>
+      {/* compact はコード / tool output を優先して本文幅を広く取る (左寄せの assistant は全幅) */}
+      <div className={["min-w-0", compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]"].join(" ")}>
+        <div className={["text-[10px] font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1"].join(" ")}>
+          {isUser ? "あなた" : "アシスタント"}
+        </div>
         {!isUser && bubble.tools.length > 0 ? (
           <ToolHistoryView
             cards={bubble.tools}
             hasResponse={Boolean(bubble.text)}
             copiedId={copiedId}
+            compact={compact}
             onCopyTool={onCopyTool}
           />
         ) : null}
@@ -259,10 +282,12 @@ function MessageView({
 
 export type ChatAreaProps = {
   bubbles: Bubble[];
+  /** モバイルの compact layout (本文幅を優先して余白と avatar を詰める) */
+  compact?: boolean;
   onSuggestion: (prompt: string) => void;
 };
 
-export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
+export function ChatArea({ bubbles, compact = false, onSuggestion }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
 
@@ -275,15 +300,20 @@ export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
     <section
       ref={chatAreaRef}
       aria-live="polite"
-      className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 pb-6 max-nav:px-[18px] wide:px-8"
+      className={[
+        "scrollbar-thin min-h-0 flex-1 overflow-y-auto",
+        compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
+      ].join(" ")}
     >
-      <div className="mx-auto w-full min-w-0 max-w-[880px]">
+      <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-[880px]"].filter(Boolean).join(" ")}>
         {bubbles.length === 0 ? (
-          <div className="mx-auto max-w-md pt-[18vh] text-center max-nav:pt-[10vh]">
+          <div className={["mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]"].join(" ")}>
             <div className="mx-auto mb-4 grid size-[42px] place-items-center rounded-[13px] border border-accent/25 bg-accent-wash text-lg text-accent-strong">
               ✦
             </div>
-            <h2 className="text-xl font-semibold text-ink-strong max-nav:text-lg">プロジェクトの相棒です</h2>
+            <h2 className={["font-semibold text-ink-strong", compact ? "text-lg" : "text-xl"].join(" ")}>
+              プロジェクトの相棒です
+            </h2>
             <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
               コードを読んだり、ファイルを編集したり、コマンドを実行できます。
             </p>
@@ -301,12 +331,13 @@ export function ChatArea({ bubbles, onSuggestion }: ChatAreaProps) {
             </div>
           </div>
         ) : (
-          <div className="grid gap-5 pt-2">
+          <div className={["grid pt-2", compact ? "gap-3.5" : "gap-5"].join(" ")}>
             {bubbles.map((bubble) => (
               <MessageView
                 key={bubble.id}
                 bubble={bubble}
                 copied={copiedId === `bubble_${bubble.id}`}
+                compact={compact}
                 onCopy={() => void copyMessage(bubble.text, `bubble_${bubble.id}`)}
                 copiedId={copiedId}
                 onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}

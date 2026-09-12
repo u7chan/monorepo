@@ -26,7 +26,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 - `server/src/agents.ts` — エージェント / スキル定義
 - `server/src/schema.ts` — zod スキーマ + DTO 型（API 契約の正。client もここを参照する）
 - `server/src/redact.ts` / `src/secret-guard.ts` — APIキー保護（マスク本体 / SDK接続）。ツール実行はサンドボックスへ分離済みで、BFF は子プロセスを起こさない
-- `client/` — フロントエンド（Vite + React + TypeScript + Tailwind CSS v4）
+- `client/` — フロントエンド（Vite + React + TypeScript + Tailwind CSS v4）。レイアウトモード（desktop / portrait / landscape）は `src/lib/layout.ts` が判定する
 - `server/test/` — node:test（pi はスタブ。listen せず `app.request()` で検証）
 - `client/test/` — node:test（DOM を使わない純粋なロジックのみ。`client/src/hooks/settingsChange.ts` の応答適用ガードなど）
 
@@ -42,3 +42,4 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 - [docs/architecture.md](docs/architecture.md) — 非同期実行とセッション管理の設計
 - [docs/persistence.md](docs/persistence.md) — データの永続化範囲・再デプロイ時の挙動・将来の会話履歴DB化方針
 - [docs/api.md](docs/api.md) — HTTP API リファレンス
+- [docs/ui-layout.md](docs/ui-layout.md) — レイアウトモード（幅 / 高さ）の判定とモバイル向けシェル

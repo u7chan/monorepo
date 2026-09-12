@@ -5,10 +5,12 @@ import { isThemeId, type ThemeChoice } from "./themes";
 export type ThemeSwitcherProps = {
   /** レイアウト調整用のクラスを外部から差し込む */
   className?: string;
+  /** ドロワーなど compact な領域向け。iOS の focus 時ズームを避けるため 16px 以上にする */
+  compact?: boolean;
 };
 
-/** トップバー右上に置く想定のコンパクトなテーマ選択 */
-export function ThemeSwitcher({ className }: ThemeSwitcherProps) {
+/** コンパクトなテーマ選択 (desktop の Topbar と、drawer の下部に置く) */
+export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps) {
   const { choice, resolvedId, setChoice, themes } = useTheme();
 
   const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -27,7 +29,10 @@ export function ThemeSwitcher({ className }: ThemeSwitcherProps) {
       <span aria-hidden className="theme-swatch" data-theme-id={resolvedId} />
       <select
         aria-label="テーマ"
-        className="min-w-0 cursor-pointer rounded-lg border border-line bg-raised px-2 py-1.5 text-xs text-ink outline-none transition-colors focus:border-accent"
+        className={[
+          "min-w-0 cursor-pointer rounded-lg border border-line bg-raised px-2 py-1.5 text-ink outline-none transition-colors focus:border-accent",
+          compact ? "flex-1 text-[16px]" : "text-xs",
+        ].join(" ")}
         value={choice}
         onChange={handleChange}
       >
