@@ -2,8 +2,8 @@
 // localStorage の "pi-agent-theme" を読み、html の data-theme 属性を設定する。
 // ThemeProvider (React) と同じ選択ロジックを持つこと。
 (function () {
-  var THEMES = ["midnight", "daylight", "mocha", "forest", "sakura", "terminal"];
-  var LIGHT_THEMES = ["daylight", "sakura"];
+  var THEMES = ["midnight", "daylight", "mocha", "forest", "sakura", "sky"];
+  var LIGHT_THEMES = ["daylight", "sakura", "sky"];
   var FALLBACK = "midnight";
   var choice;
   try {

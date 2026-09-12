@@ -249,35 +249,35 @@ html[data-theme="sakura"] {
   --c-shadow-panel: 0 24px 70px rgba(88, 45, 60, 0.12);
 }
 
-/* ターミナル: ほぼ黒×蛍光緑 */
-html[data-theme="terminal"] {
-  color-scheme: dark;
-  --c-base: #060a08;
-  --c-panel: #0a0f0c;
-  --c-raised: #0e1511;
-  --c-soft: #101913;
-  --c-hover: #16221a;
-  --c-line: #1c2b21;
-  --c-line-strong: #2a4033;
-  --c-ink: #9be3ae;
-  --c-ink-strong: #d6ffe0;
-  --c-ink-soft: #7cc491;
-  --c-ink-muted: #5f9a71;
-  --c-ink-faint: #528562;
-  --c-ink-ghost: #40684e;
-  --c-accent: #3cf07a;
-  --c-accent-strong: #1fd45f;
-  --c-accent-bright: #86ffa8;
-  --c-on-accent: #03140a;
-  --c-accent-wash: rgba(60, 240, 122, 0.12);
-  --c-accent-text: #86ffa8;
-  --c-ok: #48e07e;
-  --c-warn: #e6c94c;
-  --c-danger: #f4675f;
-  --c-danger-text: #ff8f86;
-  --c-glow: rgba(60, 240, 122, 0.1);
-  --c-backdrop: rgba(0, 4, 2, 0.82);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.45);
+/* スカイ: 明るい空色×シアン */
+html[data-theme="sky"] {
+  color-scheme: light;
+  --c-base: #e9f4fb;
+  --c-panel: #f8fcfe;
+  --c-raised: #ffffff;
+  --c-soft: #eff7fc;
+  --c-hover: #e3f1fa;
+  --c-line: #d3e7f3;
+  --c-line-strong: #b7d5e6;
+  --c-ink: #3a4f60;
+  --c-ink-strong: #14283a;
+  --c-ink-soft: #526a7a;
+  --c-ink-muted: #66798a;
+  --c-ink-faint: #7f93a3;
+  --c-ink-ghost: #9db1bf;
+  --c-accent: #63c6ee;
+  --c-accent-strong: #0a6b91;
+  --c-accent-bright: #93daf7;
+  --c-on-accent: #06303f;
+  --c-accent-wash: rgba(99, 198, 238, 0.14);
+  --c-accent-text: #0a6b91;
+  --c-ok: #107a56;
+  --c-warn: #a06200;
+  --c-danger: #d4495f;
+  --c-danger-text: #b72f47;
+  --c-glow: rgba(99, 198, 238, 0.18);
+  --c-backdrop: rgba(12, 32, 45, 0.42);
+  --c-shadow-panel: 0 24px 70px rgba(18, 55, 80, 0.12);
 }
 
 /* ラン状態ドットの pulse (旧 @keyframes pulse 相当) */
@@ -431,8 +431,8 @@ html[data-theme="terminal"] {
     background: #faf0f3;
     box-shadow: 0 0 0 1.5px rgba(217, 132, 163, 0.65);
   }
-  .theme-swatch[data-theme-id="terminal"] {
-    background: #060a08;
-    box-shadow: 0 0 0 1.5px rgba(60, 240, 122, 0.75);
+  .theme-swatch[data-theme-id="sky"] {
+    background: #e9f4fb;
+    box-shadow: 0 0 0 1.5px rgba(99, 198, 238, 0.9);
   }
 }
