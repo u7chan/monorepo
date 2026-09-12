@@ -1,4 +1,5 @@
-ARG BUN_VERSION=1.3.10
+# Playwright's browser download passes a custom DNS lookup, which broke TLS verification before Bun 1.3.11.
+ARG BUN_VERSION=1.3.14
 ARG COMMIT_HASH=""
 
 # -----------------------------------------------
