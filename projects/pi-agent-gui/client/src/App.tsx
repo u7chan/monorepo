@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
+import { AgentSettingsPage } from "./components/AgentSettingsPage";
+import { AppearancePage } from "./components/AppearancePage";
 import { ChatArea } from "./components/ChatArea";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
-import { FileTreeScreen } from "./components/FileTreeScreen";
-import { ManagerScreen } from "./components/ManagerScreen";
+import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
 import { ProjectDialog } from "./components/ProjectDialog";
-import { Sidebar, type SettingsSection, type SidebarMode } from "./components/Sidebar";
+import { Sidebar } from "./components/Sidebar";
+import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { useAgentDesk } from "./hooks/useAgentDesk";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { mainViewFor, type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
   const desk = useAgentDesk();
@@ -17,23 +20,35 @@ export default function App() {
   const layout = useLayoutMode();
   const compactMode = layout === "desktop" ? null : layout;
   const compact = compactMode !== null;
-  const [managerOpen, setManagerOpen] = useState(false);
-  /** ManagerScreen を開くときのタブ (設定ナビの項目と合わせる) */
-  const [managerSection, setManagerSection] = useState<"agent" | "skill">("agent");
-  const [filesOpen, setFilesOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  /** nav: プロジェクト階層 / settings: 設定ナビ。drawer を閉じても保つ */
+  /** nav: プロジェクト階層 / settings: 設定ナビ。drawer を閉じても保たれる */
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("nav");
-  // ManagerScreen の dialog close / 戻るボタンへ渡す安定参照
-  const closeManager = useCallback(() => setManagerOpen(false), []);
-  const closeFiles = useCallback(() => setFilesOpen(false), []);
+  /** settings モードでメイン領域に出すページ。サイドバーの項目と一致させる */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("agents");
+  const mainView = mainViewFor(sidebarMode);
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
+  const openNav = useCallback(() => setNavOpen(true), []);
+  const closeNav = useCallback(() => setNavOpen(false), []);
+  /** 設定ページ → チャット。ページのヘッダと Escape から呼ぶ */
+  const backToChat = useCallback(() => setSidebarMode("nav"), []);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
   useEffect(() => {
     if (!compact) setNavOpen(false);
   }, [compact]);
+
+  // 設定ページは dialog ではないため、showModal() が担っていた Escape を自前で受ける。
+  // ドロワーが開いているときは Escape をドロワーの close に任せる (モードは保つ)
+  useEffect(() => {
+    if (mainView !== "settings" || navOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      backToChat();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mainView, navOpen, backToChat]);
 
   const handleSend = useCallback(
     (text: string) => {
@@ -62,21 +77,16 @@ export default function App() {
 
   // --- nav (sidebar / drawer) ---
 
-  const closeNav = useCallback(() => setNavOpen(false), []);
-
-  /** settings モードの項目。ページ化はせず、既存の full screen dialog を開く */
+  /** 設定ナビの項目 = メイン領域のページ。モードも settings に揃える */
   const openSettingsSection = useCallback((section: SettingsSection) => {
-    if (section === "files") {
-      setFilesOpen(true);
-      return;
-    }
-    setManagerSection(section === "skills" ? "skill" : "agent");
-    setManagerOpen(true);
+    setSettingsSection(section);
+    setSidebarMode("settings");
   }, []);
 
   const navProps = {
     mode: sidebarMode,
     onSelectMode: setSidebarMode,
+    activeSettingsSection: settingsSection,
     sessions: desk.sessions,
     sessionId: desk.sessionId,
     projects: desk.projects,
@@ -124,12 +134,16 @@ export default function App() {
   };
 
   const activeSession = desk.sessions.find((item) => item.sessionId === desk.sessionId);
-  // ファイル画面の tree root。作成済みセッションはその実効 cwd、未作成チャットは選択中プロジェクト、
+  // ファイルページの tree root。作成済みセッションはその実効 cwd、未作成チャットは選択中プロジェクト、
   // 未所属は root ("")。表示も取得もワークスペース root 相対に揃える (絶対パスは API の path と単位が違う)
   const filesCwd = desk.sessionId ? desk.cwd : desk.selectedProject?.cwd || "";
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = desk.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || desk.selectedAgent?.name;
+
+  // 設定ページは main を丸ごと使う (チャットとは排他)。compact ではヘッダが CompactBar の代わりになるため、
+  // 設定ページ間を移るための nav の導線をページへ渡す
+  const pageProps = { compact, onBack: backToChat, onOpenNav: compact ? openNav : undefined };
 
   return (
     <div
@@ -140,56 +154,77 @@ export default function App() {
       ].join(" ")}
     >
       {compact ? null : <Sidebar {...navProps} />}
-      <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
-        {compactMode ? (
-          <CompactBar
-            mode={compactMode}
-            title={barTitle}
-            agentName={barAgentName}
-            runtimeStatus={desk.runtimeStatus}
-            onOpenNav={() => setNavOpen(true)}
+      <main className="grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-hidden">
+        {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
+            実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
+        <div
+          className={
+            mainView === "settings"
+              ? "hidden"
+              : "grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
+          }
+        >
+          {compactMode ? (
+            <CompactBar
+              mode={compactMode}
+              title={barTitle}
+              agentName={barAgentName}
+              runtimeStatus={desk.runtimeStatus}
+              onOpenNav={openNav}
+            />
+          ) : (
+            <Topbar runtimeStatus={desk.runtimeStatus} />
+          )}
+          <ChatArea
+            visible={mainView === "chat"}
+            bubbles={desk.chat.bubbles}
+            compact={compact}
+            suggestions={desk.selectedAgent?.suggestions}
+            onSuggestion={handleSend}
           />
-        ) : (
-          <Topbar runtimeStatus={desk.runtimeStatus} />
-        )}
-        <ChatArea bubbles={desk.chat.bubbles} compact={compact} suggestions={desk.selectedAgent?.suggestions} onSuggestion={handleSend} />
-        <Composer
-          activity={desk.chat.activity}
-          runtimeReady={desk.health?.ready !== false}
-          sending={desk.sending}
-          stopVisible={desk.stopVisible}
-          queueDepth={desk.chat.queueDepth}
-          context={desk.chat.context}
-          settings={desk.composerSettings}
-          agents={desk.catalog.agents}
-          agentId={desk.agentId}
-          mode={layout}
-          onSend={handleSend}
-          onStop={handleStop}
-          onChangeModel={desk.changeModel}
-          onChangeThinkingLevel={desk.changeThinkingLevel}
-          onChangeAgent={handleAgentChange}
-        />
+          <Composer
+            activity={desk.chat.activity}
+            runtimeReady={desk.health?.ready !== false}
+            sending={desk.sending}
+            stopVisible={desk.stopVisible}
+            queueDepth={desk.chat.queueDepth}
+            context={desk.chat.context}
+            settings={desk.composerSettings}
+            agents={desk.catalog.agents}
+            agentId={desk.agentId}
+            mode={layout}
+            onSend={handleSend}
+            onStop={handleStop}
+            onChangeModel={desk.changeModel}
+            onChangeThinkingLevel={desk.changeThinkingLevel}
+            onChangeAgent={handleAgentChange}
+          />
+        </div>
+        {mainView === "settings" ? (
+          settingsSection === "agents" ? (
+            <AgentSettingsPage
+              {...pageProps}
+              catalog={desk.catalog}
+              agentId={desk.agentId}
+              refreshCatalog={refreshCatalog}
+              modelOptions={desk.health?.modelOptions ?? []}
+              defaultModel={desk.health?.model}
+              defaultThinkingLevel={desk.health?.defaultThinkingLevel}
+            />
+          ) : settingsSection === "skills" ? (
+            <SkillSettingsPage {...pageProps} catalog={desk.catalog} refreshCatalog={refreshCatalog} />
+          ) : settingsSection === "files" ? (
+            // root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない)
+            <FileTreePage key={filesCwd} {...pageProps} cwd={filesCwd} />
+          ) : (
+            <AppearancePage {...pageProps} />
+          )
+        ) : null}
       </main>
       {compact && navOpen ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
-      {managerOpen ? (
-        <ManagerScreen
-          compact={compact}
-          initialType={managerSection}
-          onClose={closeManager}
-          catalog={desk.catalog}
-          agentId={desk.agentId}
-          refreshCatalog={refreshCatalog}
-          modelOptions={desk.health?.modelOptions ?? []}
-          defaultModel={desk.health?.model}
-          defaultThinkingLevel={desk.health?.defaultThinkingLevel}
-        />
-      ) : null}
       {projectDialogOpen ? (
         <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={desk.createProject} />
       ) : null}
-      {/* root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない) */}
-      {filesOpen ? <FileTreeScreen key={filesCwd} compact={compact} cwd={filesCwd} onClose={closeFiles} /> : null}
     </div>
   );
 }

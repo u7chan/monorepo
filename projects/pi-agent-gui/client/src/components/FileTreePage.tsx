@@ -16,17 +16,15 @@ import {
   type FileTreeState,
 } from "../lib/fileTree";
 import type { FileEntry } from "../types";
-import { ArrowLeftIcon, ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
+import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
 
-export type FileTreeScreenProps = {
-  onClose: () => void;
+export type FileTreePageProps = SettingsPageProps & {
   /**
    * ツリーの root (ワークスペース root 相対。"" / "." / ワークスペース root の絶対パスはワークスペース root)。
    * 配下の取得はこのパスを前置して GET /api/files へ問い合わせる。
    */
   cwd: string;
-  /** compact layout では内側の枠を絞らず全幅にする */
-  compact?: boolean;
 };
 
 /** 1 段あたりのインデント (px) */
@@ -38,34 +36,17 @@ function errorText(error: unknown): string {
 
 /**
  * 作業ディレクトリのファイルツリー。渡された `cwd` を root として `GET /api/files` を辿る (配下は `<cwd>/<name>`)。
- * ManagerScreen と同じフルスクリーンの dialog にして、
- * メイン画面のレイアウトは変えない (将来この中でツリー + プレビューの 2 ペインへ広げる)。
- * ヘッダもツリーも画面幅いっぱいに置く (中央に寄せると、狭い列の外側が余白として目立つ)。
+ * メイン領域のページに置く。ヘッダもツリーも画面幅いっぱいに使い、行は深さに比例したインデントだけを持つ
+ * (行のインデントは深さで決まるため、長い名前は truncate し横スクロールは出さない)。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
  */
-export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreenProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  /** 開く前にフォーカスしていた要素 (閉じたときに戻す) */
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTreePageProps) {
   /** ツリーの起点。表示も取得もこの root 相対で揃える */
   const rootPath = normalizeFileTreeRoot(cwd);
   const [tree, setTree] = useState<FileTreeState>(createFileTreeState);
   const [selected, setSelected] = useState<string | null>(null);
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
-
-  // モーダル dialog として開く。背面の inert 化と Tab のフォーカス拘束、Escape での終了は showModal() の標準挙動に任せる。
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
@@ -99,42 +80,25 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
   const root = tree[FILE_TREE_ROOT] ?? { open: true, loading: false };
 
   return (
-    // フルスクリーンのモーダル dialog (ManagerScreen と同じ扱い)。
-    // 明示的な minmax(0,1fr) で列を viewport 幅に固定する (auto だと nowrap のパス文字列に引き伸ばされ、ヘッダがはみ出す)
-    <dialog
-      ref={dialogRef}
-      onClose={onClose}
-      aria-modal="true"
-      aria-label="作業ディレクトリのファイル"
-      tabIndex={-1}
-      className="m-0 grid h-dvh w-screen max-h-none max-w-none grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-none border-0 bg-base p-0 text-ink"
+    <SettingsPageLayout
+      eyebrow="WORKSPACE"
+      title="作業ディレクトリ"
+      // 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる)
+      caption={
+        <code className="block truncate text-[11px] leading-normal text-ink-muted">
+          {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
+        </code>
+      }
+      compact={compact}
+      onOpenNav={onOpenNav}
+      onBack={onBack}
+      actions={
+        <button type="button" onClick={reload} className="btn-quiet">
+          <RefreshIcon />
+          再読み込み
+        </button>
+      }
     >
-      <header
-        className={[
-          "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line",
-          compact ? "px-4 pt-3.5 pb-3" : "px-5 pt-4 pb-3.5",
-        ].join(" ")}
-      >
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">WORKSPACE</div>
-          <h2 className="text-lg font-semibold text-ink-strong">作業ディレクトリ</h2>
-          {/* 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる) */}
-          <code className="block truncate text-[11px] leading-normal text-ink-muted">
-            {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
-          </code>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={reload} className="btn-quiet">
-            <RefreshIcon />
-            再読み込み
-          </button>
-          <button type="button" onClick={onClose} className="btn-quiet">
-            <ArrowLeftIcon />
-            戻る
-          </button>
-        </div>
-      </header>
-
       {/* ツリーは行のインデントだけを持ち、幅は画面いっぱいに使う */}
       <div className="scrollbar-thin min-h-0 overflow-x-hidden overflow-y-auto px-3 py-3">
         {root.error ? (
@@ -156,7 +120,7 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
           <MessageRow depth={0}>読み込み中…</MessageRow>
         )}
       </div>
-    </dialog>
+    </SettingsPageLayout>
   );
 }
 
