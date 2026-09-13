@@ -32,7 +32,7 @@ export function CloseIcon() {
   );
 }
 
-/** 前の画面へ戻る (full screen のモーダルを閉じる) */
+/** 設定ページからチャットへ戻る (サイドバーのモードを nav に戻す) */
 export function ArrowLeftIcon() {
   return (
     <svg
@@ -199,7 +199,7 @@ export function GearIcon() {
       className="size-3.5 shrink-0"
     >
       <circle cx="8" cy="8" r="4" />
-      <circle cx="8" cy="8" r="1.6" />
+      <circle cx="8" cy="8" r="2" />
       <path d="M8 4.1V2.1M8 11.9v2M4.1 8h-2M11.9 8h2M5.24 5.24 3.83 3.83M10.76 5.24l1.41-1.41M5.24 10.76l-1.41 1.41M10.76 10.76l1.41 1.41" />
     </svg>
   );

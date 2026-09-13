@@ -65,16 +65,19 @@ export function SettingsPageLayout({
             {caption ? <div className="min-w-0">{caption}</div> : null}
           </div>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {actions}
-          {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。compact はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
-          {compact ? (
-            <button type="button" onClick={onBack} className="btn-quiet">
-              <ArrowLeftIcon />
-              アプリに戻る
-            </button>
-          ) : null}
-        </div>
+        {/* 操作も戻り導線も無いページ (desktop の「外観」) では行ごと出さない (空の div を残さない) */}
+        {actions || compact ? (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {actions}
+            {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。compact はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
+            {compact ? (
+              <button type="button" onClick={onBack} className="btn-quiet">
+                <ArrowLeftIcon />
+                アプリに戻る
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       {children}
