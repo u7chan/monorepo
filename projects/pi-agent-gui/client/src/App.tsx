@@ -96,7 +96,8 @@ export default function App() {
     onOpenSettingsSection: openSettingsSection,
   };
 
-  // ドロワーは選んだら閉じる。削除だけは confirm の後も開いたまま残す (連続操作しうる)
+  // ドロワーは選んだら閉じる。削除だけは confirm の後も開いたまま残す (連続操作しうる)。
+  // 折りたたみ chevron は選択ではないので閉じない (Sidebar 側で行を選択しない)
   const drawerProps = {
     ...navProps,
     // モードの切替は閉じない (設定ナビは drawer の中で出す)
@@ -107,6 +108,10 @@ export default function App() {
     selectSession: (sessionId: string) => {
       closeNav();
       if (sessionId !== desk.sessionId) void desk.selectSession(sessionId);
+    },
+    selectProject: (projectId: string) => {
+      closeNav();
+      desk.selectProject(projectId);
     },
     onNewProject: () => {
       closeNav();
@@ -119,9 +124,9 @@ export default function App() {
   };
 
   const activeSession = desk.sessions.find((item) => item.sessionId === desk.sessionId);
-  // ファイル画面へ渡す作業ディレクトリ。作成済みはセッションの実効 cwd、
-  // 未作成チャットは選択中プロジェクト、未所属はワークスペース root (health.cwd)
-  const filesCwd = desk.sessionId ? desk.cwd : desk.selectedProject?.cwd || desk.cwd;
+  // ファイル画面の tree root。作成済みセッションはその実効 cwd、未作成チャットは選択中プロジェクト、
+  // 未所属は root ("")。表示も取得もワークスペース root 相対に揃える (絶対パスは API の path と単位が違う)
+  const filesCwd = desk.sessionId ? desk.cwd : desk.selectedProject?.cwd || "";
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = desk.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || desk.selectedAgent?.name;
@@ -183,7 +188,8 @@ export default function App() {
       {projectDialogOpen ? (
         <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={desk.createProject} />
       ) : null}
-      {filesOpen ? <FileTreeScreen compact={compact} cwd={filesCwd} onClose={closeFiles} /> : null}
+      {/* root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない) */}
+      {filesOpen ? <FileTreeScreen key={filesCwd} compact={compact} cwd={filesCwd} onClose={closeFiles} /> : null}
     </div>
   );
 }

@@ -15,9 +15,9 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 ## モードごとの構成
 
 - desktop: `Topbar`（theme / エラー時の接続状態）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- `FileTreeScreen`（作業ディレクトリのファイルツリー）は設定ナビの「ファイル」から開く。渡すパスは選択中セッションの実効 cwd で、未作成チャットは選択中プロジェクトの cwd、未所属はワークスペース root になる。メイン画面のレイアウトには分離した full screen の dialog で、`ManagerScreen` と同じくヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
+- `FileTreeScreen`（作業ディレクトリのファイルツリー）は設定ナビの「ファイル」から開く。渡すパスは選択中セッションの実効 cwd で、未作成チャットは選択中プロジェクトの cwd、未所属は `""`（ワークスペース root）。**この cwd がツリーの root になり**、`GET /api/files` へは root 自身を `path=<cwd>`、配下を `path=<cwd>/<name>` で問い合わせる（未所属は `path=.`）。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。メイン画面のレイアウトには分離した full screen の dialog で、`ManagerScreen` と同じくヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
 - portrait / landscape: `CompactBar` が「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
-  - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）とテーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッション・設定の項目を選ぶとドロワーは閉じ、`ManagerScreen` / `FileTreeScreen` は閉じてから全幅で開く
+  - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）とテーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッションの項目を選ぶとドロワーは閉じ（選択後に主画面で続ける操作はプロジェクト行の「＋」）、設定の項目も閉じてから `ManagerScreen` / `FileTreeScreen` を全幅で開く。折りたたみ chevron は選択ではないので閉じない
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する

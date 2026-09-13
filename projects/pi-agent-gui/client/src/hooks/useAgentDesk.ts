@@ -100,6 +100,7 @@ export function useAgentDesk() {
     () => localStorage.getItem(PROJECT_KEY) || "",
   );
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
+  /** 現在のビューの作業ディレクトリ (ワークスペース root 相対。"" は root)。ファイル画面の tree root と同じ単位 */
   const [cwd, setCwd] = useState<string>("");
   const [sending, setSending] = useState(false);
   /** PATCH /settings の通信中 */
@@ -114,8 +115,6 @@ export function useAgentDesk() {
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const projectsRef = useRef<Project[]>([]);
-  /** ワークスペース root の絶対パス (health.cwd)。未所属セッションの作業場所の表示に使う */
-  const rootCwdRef = useRef("");
   const selectedProjectIdRef = useRef(selectedProjectId);
   selectedProjectIdRef.current = selectedProjectId;
   const preselectionRef = useRef<SettingsSelection>(preselection);
@@ -186,10 +185,8 @@ export function useAgentDesk() {
 
   const applyHealth = useCallback((next: Health) => {
     setHealth(next);
-    rootCwdRef.current = next.cwd || "";
-    // セッション選択中は payload の cwd (root 相対) を正とする。health.cwd は root の絶対パスで意味が違い、
-    // 選択直後の refreshHealth で塗り替えると作業ディレクトリの表示が root へ戻ってしまう
-    if (!sessionIdRef.current) setCwd(next.cwd || "");
+    // cwd はセッション payload の root 相対値だけを正とする。health.cwd はワークスペース root の絶対パスで、
+    // ファイル画面の tree root (= GET /api/files の path) とは単位が違う
     const status = runtimeStatusForHealth(next);
     setRuntimeStatus(status);
     if (status.error && !next.ready && status.detail) {
@@ -210,8 +207,8 @@ export function useAgentDesk() {
 
   const applySnapshot = useCallback((payload: SessionPayload) => {
     lastSeqRef.current = payload.lastSeq || 0;
-    // 未所属 ("") は root へ戻す。前のセッションの相対 cwd を残すと、表示中の作業場所が別の場所に見える
-    setCwd(payload.cwd || rootCwdRef.current);
+    // 未所属 ("") は root。payload.cwd は root 相対なので、そのままファイル画面の tree root に使える
+    setCwd(payload.cwd || "");
     // 会話の実効モデルは chat.sessionModel (resync) に入る。ここで runtimeStatus に書くと
     // health の再取得で上書きされるため、入力欄のピッカーは chat 側から導出する。
     dispatch({ type: "resync", payload });
@@ -262,8 +259,8 @@ export function useAgentDesk() {
     sessionIdRef.current = "";
     lastSeqRef.current = 0;
     setSessionId("");
-    // 未作成チャットの作業場所は選択中プロジェクト (未所属なら root)。前のセッションの cwd を持ち越さない
-    setCwd(rootCwdRef.current);
+    // 未作成チャットの作業場所は選択中プロジェクト (未所属なら "" = root)。前のセッションの cwd を持ち越さない
+    setCwd("");
     dispatch({ type: "newChat" });
   }, [selectProject, setAgentId]);
 
