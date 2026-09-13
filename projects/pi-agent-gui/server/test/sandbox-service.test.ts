@@ -37,6 +37,37 @@ async function readEvents(response: Response): Promise<SandboxEvent[]> {
     .map((line) => JSON.parse(line) as SandboxEvent);
 }
 
+/** POST /v1/tools/:tool/execute の NDJSON と、非 200 の JSON エラーを扱うヘルパ */
+async function executeTool(
+  app: ReturnType<typeof createSandboxService>["app"],
+  tool: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; events: SandboxEvent[]; error?: string }> {
+  const response = await app.request(`/v1/tools/${tool}/execute`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (response.status !== 200) {
+    const parsed = (await response.json()) as { error?: string };
+    return { status: response.status, events: [], error: parsed.error };
+  }
+  return { status: 200, events: await readEvents(response) };
+}
+
+/** POST /v1/dirs のヘルパ (JSON 応答) */
+async function createDir(
+  app: ReturnType<typeof createSandboxService>["app"],
+  path: unknown,
+): Promise<{ status: number; body: { path?: string; error?: string } }> {
+  const response = await app.request("/v1/dirs", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ path }),
+  });
+  return { status: response.status, body: (await response.json()) as { path?: string; error?: string } };
+}
+
 /** GET /v1/files のヘルパ (JSON 応答) */
 async function listFiles(
   app: ReturnType<typeof createSandboxService>["app"],
@@ -213,6 +244,93 @@ test("unknown tool and invalid params return 4xx", async () => {
     body: JSON.stringify({ params: ["not-an-object"] }),
   });
   assert.equal(notObject.status, 400);
+});
+
+test("tool execution resolves relative paths against the requested cwd", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-exec-cwd-"));
+  await mkdir(join(root, "sub"));
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const written = await executeTool(service.app, "write", {
+    params: { path: "note.txt", content: "from sub" },
+    cwd: "sub",
+  });
+  assert.equal(written.status, 200);
+  assert.ok(written.events.some((event) => event.type === "result"), "write with cwd should succeed");
+  assert.equal(await readFile(join(root, "sub", "note.txt"), "utf8"), "from sub");
+
+  const read = await executeTool(service.app, "read", { params: { path: "note.txt" }, cwd: "sub" });
+  const result = read.events.find((event) => event.type === "result");
+  assert.ok(result, "read with cwd should succeed");
+  assert.match(eventText((result as { payload: unknown }).payload), /from sub/);
+
+  // 同じ相対パスでも root を起点にすれば別の場所になる
+  const fromRoot = await executeTool(service.app, "read", { params: { path: "note.txt" } });
+  assert.ok(fromRoot.events.some((event) => event.type === "error"), "root has no note.txt");
+});
+
+test("tool execution rejects a cwd outside the workspace or not a directory", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-exec-cwd-bad-"));
+  await writeFile(join(root, "file.txt"), "x", "utf8");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const outside = await executeTool(service.app, "ls", { params: {}, cwd: "../outside" });
+  assert.equal(outside.status, 400);
+  assert.match(outside.error ?? "", /outside the workspace/);
+  assert.equal((await executeTool(service.app, "ls", { params: {}, cwd: "/" })).status, 400);
+  assert.equal((await executeTool(service.app, "ls", { params: {}, cwd: "missing" })).status, 404);
+
+  const notDirectory = await executeTool(service.app, "ls", { params: {}, cwd: "file.txt" });
+  assert.equal(notDirectory.status, 400);
+  assert.match(notDirectory.error ?? "", /Not a directory/);
+
+  assert.equal((await executeTool(service.app, "ls", { params: {}, cwd: 42 })).status, 400);
+  // cwd 省略時の root は今までどおり
+  assert.equal((await executeTool(service.app, "ls", { params: {} })).status, 200);
+});
+
+test("dirs endpoint creates nested directories and treats an existing one as success", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-dirs-"));
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const created = await createDir(service.app, "a/b/c");
+  assert.equal(created.status, 200);
+  assert.equal(created.body.path, "a/b/c");
+  assert.equal(existsSync(join(root, "a", "b", "c")), true);
+
+  const again = await createDir(service.app, "a/b/c");
+  assert.equal(again.status, 200, "既存ディレクトリは成功扱い");
+  assert.equal(again.body.path, "a/b/c");
+
+  // 末尾スラッシュや "." は正規化して同じ場所を指す
+  assert.equal((await createDir(service.app, "./a//b/c/")).body.path, "a/b/c");
+  // 未認証は 401
+  assert.equal((await service.app.request("/v1/dirs", { method: "POST" })).status, 401);
+  // body の形が違う場合は 400
+  assert.equal((await createDir(service.app, 42)).status, 400);
+});
+
+test("dirs endpoint rejects a path outside the workspace", { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-dirs-escape-"));
+  const outside = mkdtempSync(join(tmpdir(), "pi-sbx-dirs-outside-"));
+  await writeFile(join(root, "file.txt"), "x", "utf8");
+  await symlink(outside, join(root, "linkOutside"));
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const traversal = await createDir(service.app, "../outside");
+  assert.equal(traversal.status, 400);
+  assert.match(traversal.body.error ?? "", /outside the workspace/);
+  assert.equal((await createDir(service.app, "/absolute")).status, 400);
+
+  // 既存の symlink が root 外を指す場合も、その先にディレクトリを作らない
+  const escape = await createDir(service.app, "linkOutside/new");
+  assert.equal(escape.status, 400);
+  assert.equal(existsSync(join(outside, "new")), false);
+
+  // 既存ファイルと同名のディレクトリは作れない
+  const onFile = await createDir(service.app, "file.txt/nested");
+  assert.equal(onFile.status, 400);
+  assert.equal((await createDir(service.app, "file.txt")).status, 400);
 });
 
 test("close aborts all running executions", { skip: !HAS_BASH && SKIP_REASON }, async () => {

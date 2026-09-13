@@ -13,6 +13,7 @@ function runningPayload(): SessionPayload {
   return {
     sessionId: "session-a",
     piSessionId: "pi-session-a",
+    cwd: "",
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,

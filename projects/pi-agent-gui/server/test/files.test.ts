@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBffApp } from "../src/app";
-import { SandboxRequestError, type SandboxFilesClient } from "../src/sandbox/client";
+import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxFileListing } from "../src/sandbox/protocol";
 
 const LISTING: SandboxFileListing = {
@@ -17,18 +17,20 @@ const LISTING: SandboxFileListing = {
 
 /** listFiles が受け取った path を記録するスタブ */
 function stubFiles(result: SandboxFileListing | Error = LISTING): {
-  files: SandboxFilesClient;
+  workspace: SandboxWorkspaceClient;
   paths: string[];
 } {
   const paths: string[] = [];
   return {
     paths,
-    files: {
+    workspace: {
       listFiles: async (path: string) => {
         paths.push(path);
         if (result instanceof Error) throw result;
         return result;
       },
+      // ファイル一覧のテストではディレクトリ作成は使わない
+      createDir: async (path: string) => ({ path }),
     },
   };
 }
@@ -36,9 +38,9 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 test("GET /api/files relays the sandbox listing", async () => {
-  const { files, paths } = stubFiles();
+  const { workspace, paths } = stubFiles();
   // pi が無くても (ready: false でも) ツリーは開ける
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, files });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
   try {
     const response = await bff.app.request("/api/files?path=src");
     assert.equal(response.status, 200);
@@ -57,7 +59,7 @@ test("GET /api/files relays the sandbox listing", async () => {
 });
 
 test("GET /api/files answers 503 when the sandbox is not configured", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, files: null });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
   try {
     const response = await bff.app.request("/api/files");
     assert.equal(response.status, 503);
@@ -78,8 +80,8 @@ test("GET /api/files maps sandbox failures and rejects malformed listings", asyn
     { error: new Error("unexpected"), status: 502, message: /unexpected/ },
   ];
   for (const item of cases) {
-    const { files } = stubFiles(item.error);
-    const bff = await createBffApp({ cwd: "/tmp/project", pi: null, files });
+    const { workspace } = stubFiles(item.error);
+    const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
     try {
       const response = await bff.app.request("/api/files?path=../../etc");
       assert.equal(response.status, item.status, item.error.message);
@@ -95,7 +97,7 @@ test("GET /api/files maps sandbox failures and rejects malformed listings", asyn
     entries: [{ name: "sock", type: "socket" } as never],
     truncated: false,
   });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, files: malformed.files });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: malformed.workspace });
   try {
     const response = await bff.app.request("/api/files");
     assert.equal(response.status, 502);

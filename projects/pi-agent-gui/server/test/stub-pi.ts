@@ -169,7 +169,6 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     disposed: false,
     abortRequested: false,
     modelSwitchDefault: "medium",
-    sessionManager: { getCwd: () => "/tmp/project" },
     subscribe(listener: PiSessionEventListener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -245,6 +244,8 @@ export interface StubCreateInput {
   skills?: SkillDef[];
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
+  /** rootCwd 相対の作業ディレクトリ (実ランタイムは絶対パスで受ける) */
+  cwd?: string;
 }
 
 export interface StubPiOptions {

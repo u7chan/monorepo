@@ -4,6 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
+import type { ProjectStore } from "./projects";
 import { createSecretMasker, createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { AgentCatalog } from "./agents";
 import type {
@@ -15,6 +16,7 @@ import type {
   EventEntry,
   MessageMetrics,
   ModelRef,
+  Project,
   RunStatus,
   SessionPayload,
   SessionSummary,
@@ -199,7 +201,6 @@ export interface PiSessionLike {
   getContextUsage?(): unknown;
   dispose?(): void;
   disposed?: boolean;
-  sessionManager?: { getCwd?(): string } | null;
 }
 
 /** テストや埋め込み側が差し込む pi ランタイムの最小 interface */
@@ -209,6 +210,8 @@ export interface PiRuntimeLike {
     skills?: SkillDef[];
     model?: ModelRef;
     thinkingLevel?: ThinkingLevel;
+    /** rootCwd 相対の作業ディレクトリ (省略・空文字は root)。BFF が絶対パスへ解決する */
+    cwd?: string;
   }): Promise<{ session: unknown }>;
   /** availableModels との厳密一致。スタブでは未実装でもよい */
   resolveModel?(model: ModelRef): unknown;
@@ -232,6 +235,8 @@ export interface SessionRecord {
   id: string;
   session: PiSessionLike;
   agentId: string;
+  /** 所属プロジェクト。未所属はキーを省略する (model? と同じ扱い) */
+  projectId?: string;
   /** 作成時点のエージェント表示情報 (定義の編集・削除の影響を受けないスナップショット) */
   agent: AgentPayloadInfo;
   title: string;
@@ -254,6 +259,8 @@ export interface CreateSessionOptions {
   /** 作成時のチャット指定 (未指定ならエージェント定義 → アプリ既定) */
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
+  /** 所属プロジェクト。未指定は未所属 (cwd = root)。未知の id は 400 */
+  projectId?: string;
 }
 
 export interface UpdateSessionSettingsInput {
@@ -299,6 +306,8 @@ export class SessionStore {
   catalog: AgentCatalog;
   /** SSE / ログへ出すテキストから既知の秘密値を除く (保護対象が無ければ素通し) */
   masker: SecretMasker;
+  /** セッションの cwd 解決元。未指定なら projectId を受け付けない (未所属のみ) */
+  projects: ProjectStore | null;
   records: Map<string, SessionRecord>;
   sweeper: ReturnType<typeof setInterval>;
 
@@ -306,15 +315,18 @@ export class SessionStore {
     pi,
     catalog,
     masker,
+    projects,
   }: {
     pi?: PiRuntimeLike | null;
     catalog?: AgentCatalog;
     masker?: SecretMasker | null;
+    projects?: ProjectStore | null;
   } = {}) {
     if (!catalog) throw new Error("SessionStore requires an agent catalog");
     this.pi = pi || null;
     this.catalog = catalog;
     this.masker = masker ?? createSecretMasker([]);
+    this.projects = projects ?? null;
     this.records = new Map();
     this.sweeper = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
     this.sweeper.unref?.();
@@ -324,12 +336,18 @@ export class SessionStore {
     return this.records.size;
   }
 
-  async create({ agentId, model, thinkingLevel }: CreateSessionOptions = {}): Promise<SessionRecord> {
+  async create({
+    agentId,
+    model,
+    thinkingLevel,
+    projectId,
+  }: CreateSessionOptions = {}): Promise<SessionRecord> {
     if (!this.pi) {
       const error = new Error("ランタイムを利用できません") as HttpLikeError;
       error.statusCode = 503;
       throw error;
     }
+    const project = this.resolveProject(projectId);
     const selectedAgentId = agentId || this.catalog.listAgents()[0]?.id;
     const agent = selectedAgentId ? this.catalog.getAgent(selectedAgentId) : undefined;
     if (!agent) {
@@ -352,17 +370,19 @@ export class SessionStore {
         description: skill.description,
       })),
     };
-    // どちらも未指定ならランタイム側のアプリ既定に委ねる。
+    // どちらも未指定ならランタイム側のアプリ既定に委ねる。cwd は所属プロジェクトの相対パスで渡す。
     const { session } = await this.pi.createSession({
       agent: { ...agent, skillIds: [...agent.skillIds] },
       skills,
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
+      cwd: project?.cwd ?? "",
     });
     const record: SessionRecord = {
       id: randomUUID(),
       session: session as PiSessionLike,
       agentId: agent.id,
+      ...(projectId ? { projectId } : {}),
       agent: agentInfo,
       title: "",
       createdAt: Date.now(),
@@ -438,6 +458,15 @@ export class SessionStore {
 
   get(id: string): SessionRecord | undefined {
     return this.records.get(id);
+  }
+
+  /**
+   * プロジェクト単位の破棄。destroy() が abort → dispose → 購読者への session_deleted まで行うため、
+   * 停止機構は足さず対象を絞るだけにする。
+   */
+  async destroyByProject(projectId: string): Promise<void> {
+    const targets = [...this.records.values()].filter((record) => record.projectId === projectId);
+    for (const record of targets) await this.destroy(record);
   }
 
   list(): SessionSummary[] {
@@ -533,7 +562,9 @@ export class SessionStore {
     return {
       sessionId: record.id,
       piSessionId: session.sessionId,
-      cwd: session.sessionManager?.getCwd?.(),
+      cwd: this.cwdOf(record),
+      // 未所属はキーごと省略する (model? と同じ扱い)
+      ...(record.projectId ? { projectId: record.projectId } : {}),
       model: modelLabel(session.model),
       thinkingLevel: session.thinkingLevel,
       supportsThinking: session.supportsThinking(),
@@ -577,7 +608,25 @@ export class SessionStore {
       createdAt: record.createdAt,
       lastUsedAt: record.lastUsedAt,
       model: modelLabel(record.session.model),
+      ...(record.projectId ? { projectId: record.projectId } : {}),
     };
+  }
+
+  /**
+   * SessionPayload.cwd は rootCwd 相対 (未所属は "")。プロジェクトは所属を変えられないため、
+   * SDK セッションに固定された作成時の cwd と同じ値を返す。
+   */
+  cwdOf(record: SessionRecord): string {
+    if (!record.projectId) return "";
+    return this.projects?.get(record.projectId)?.cwd ?? "";
+  }
+
+  /** 未知の projectId は未所属へ落とさず 400 にする (登録漏れ・誤参照を黙って通さない)。 */
+  resolveProject(projectId?: string): Project | undefined {
+    if (projectId === undefined) return undefined;
+    const project = this.projects?.get(projectId);
+    if (!project) throw httpError(400, `Project not found: ${projectId}`);
+    return project;
   }
 
   async destroy(record: SessionRecord): Promise<void> {

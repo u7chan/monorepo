@@ -59,7 +59,44 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定。`{ "error": "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" }`
 - 502: サンドボックスへ到達できない / 認証失敗 / サンドボックス側のエラー / 契約外の応答（BFF が zod で検証して弾く）
 
-client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型として参照し、ディレクトリを展開したときにそのパスだけを取得する（遅延ロード）。並び順はサーバーが決めるため再ソートしない。自動更新は無く、画面の「再読み込み」で取り直す。
+client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型として参照し、ディレクトリを展開したときにそのパスだけを取得する（遅延ロード）。並び順はサーバーが決めるため再ソートしない。自動更新は無く、画面の「再読み込み」で取り直す。`path` はワークスペース root 相対のままで、選択中セッションの配下を表示するときはクライアントがそのセッションの `cwd`（root 相対）を前置してパスを組み立てる。
+
+## プロジェクト
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/projects` | プロジェクト一覧（作成順） |
+| POST | `/api/projects` | プロジェクト作成（新規ディレクトリの作成 or 既存ディレクトリの登録） |
+| DELETE | `/api/projects/:id` | 登録解除（配下セッションを破棄し、ディレクトリは残す） |
+
+プロジェクトはワークスペース内のディレクトリで、サーバーのメモリ内にのみ存在する（再デプロイで消える）。`cwd` はワークスペース root（`health.cwd` = `PI_APP_CWD`）相対の正規化パスで、root 自身（`""` / `"."`）は登録できない（未所属セッションの作業場所）。セッションの作業ディレクトリは所属プロジェクトの `cwd` を root と結合して決まり、作成後に変えることはできない。実行時の隔離は行わない（`cwd` はツールのパス解決の起点のみ。詳細は [architecture.md](architecture.md)）。
+
+```json
+{
+  "projects": [
+    { "id": "…", "name": "pi-agent-gui", "cwd": "projects/pi-agent-gui", "createdAt": 1700000000000 }
+  ]
+}
+```
+
+### `POST /api/projects`
+
+```json
+// request
+{ "cwd": "projects/pi-agent-gui", "name": "pi-agent-gui", "create": false }
+// response (201)
+{ "project": { "id": "…", "name": "pi-agent-gui", "cwd": "projects/pi-agent-gui", "createdAt": 1700000000000 } }
+```
+
+- `cwd` は root 相対。`a//b/` や `./a` は正規化する。絶対パス・`..` を含むパス・空文字・root 自身は 400。`cwd` 以外も含め body が契約外なら 400。
+- `name` 省略時は `cwd` の basename。
+- 同じ `cwd` の二重登録は 409（サンドボックスへは触らない）。
+- `create: true` はサンドボックスで `mkdir -p` 相当を行う（親の存在は要求しない）。省略時は既存ディレクトリであることを確認する。新しい stat API は持たず、サンドボックスの `GET /v1/files` がディレクトリ以外で失敗する性質を使う。サンドボックス由来の 4xx（`Path not found` など）はステータス・文言ごとそのまま返る。
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定。
+
+### `DELETE /api/projects/:id`
+
+`{ "ok": true }` を返す。配下セッションは停止（実行中は abort）してから破棄し、購読中の SSE へは `session_deleted` が届く。ワークスペースのディレクトリ（ファイル・Git リポジトリを含む）には触らない。未知の id は 404。
 
 ## サンドボックス API（内部）
 
@@ -69,14 +106,15 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
+| POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
 | POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
 | POST | `/v1/executions/:id/cancel` | 実行中のツールを中断 |
 
-認証は `Authorization: Bearer <PI_SANDBOX_TOKEN>`。未認証は 401、未知のツールは 404、`params` がオブジェクトでない場合は 400。
+認証は `Authorization: Bearer <PI_SANDBOX_TOKEN>`。未認証は 401、未知のツールは 404、`params` がオブジェクトでない場合や `cwd` / `path` が文字列でない場合は 400。
 
 ### `POST /v1/tools/:tool/execute`
 
-リクエストボディは `{ toolCallId?: string, params?: object }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
+リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
 
 ```jsonl
 {"type":"start","executionId":"…"}
@@ -84,6 +122,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 {"type":"result","payload":{"content":[…]}}
 ```
 
+- `cwd` — 実行する作業ディレクトリ（root 相対。省略・空文字は root）。`..` や symlink を経由して root の外へ解決する指定、実在しないディレクトリ、ディレクトリ以外は 400 / 404（`GET /v1/files` と同じ検証を通す）。ツール定義（パス解決の起点）は解決後の実パスごとに生成して再利用する
 - `start` — 実行開始。`executionId` は cancel に使う
 - `update` — SDK ツールの `onUpdate`（bash の累積出力スナップショット等）を relay
 - `result` — 正常終了。ストリームはここで閉じる
@@ -91,15 +130,23 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 
 クライアント（BFF）が切断した場合もサンドボックスは実行を中断する。明示的な中断は cancel エンドポイントか `AbortSignal` の伝播で行う。
 
+### `POST /v1/dirs`
+
+root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くてもよい）。既存ディレクトリは成功扱い。応答は `{ "path": "a/b" }` で、作成した実ディレクトリの root 相対の正規化パス（root は `"."`）。
+
+- `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
+- 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
+- 読み取り専用の `GET /v1/files` と違い、このエンドポイントだけが作業領域へ書き込む
+
 ### `POST /v1/executions/:id/cancel`
 
 実行中のツール（`start` で払い出された `executionId`）を中断する。SDK ツールへ `AbortSignal` が伝わり、bash は子プロセスを殺して `Command aborted` エラーになる。実行が無い場合は 404。
 
 ### `GET /v1/files`
 
-作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。読み取り専用で、作成・削除・リネーム・移動の API は提供しない。
+作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。読み取り専用で、作成・削除・リネーム・移動の API は `POST /v1/dirs` 以外に提供しない。
 
-`path` は root 相対。省略時は root。
+`path` は root 相対。省略時は root。解決と検証はツール実行の `cwd` と同じ関数を使う。
 
 ```json
 {
@@ -251,21 +298,26 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
-      "model": "zai/glm-5.3-flash"
+      "model": "zai/glm-5.3-flash",
+      "projectId": "…"
     }
   ]
 }
 ```
+
+`projectId` は所属プロジェクト（未所属はキーを省略する）。セッションの作業ディレクトリは所属プロジェクトの `cwd` で決まり、作成後に変えられない。
 
 ### `POST /api/sessions`
 
 セッション作成。body は任意。
 
 ```json
-{ "agentId": "agent-reviewer", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high" }
+{ "agentId": "agent-reviewer", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high", "projectId": "…" }
 ```
 
 - `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。
+- `projectId` は optional。省略したセッションは未所属になり、作業ディレクトリはワークスペース root になる。未知の `projectId` は 400（未所属へは落とさない）。
+- セッションの作業ディレクトリは作成時に所属プロジェクトの `cwd`（root 相対）をワークスペース root と結合して決まり、以降のツール実行とファイル一覧の起点になる。所属を後から変える API は無い。
 - 明示されたモデルは利用可能一覧の provider/id と厳密照合し、利用不能なら 400、利用可能モデル自体がゼロなら 503。いずれも pi SDK のセッション作成前に拒否する。
 - 作成時に指定した値はそのチャット内だけに適用され、定義や他のチャットへは波及しない。201 でセッションペイロードを返す。
 
@@ -284,7 +336,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
   "thinkingLevel": "high",
   "supportsThinking": true,
   "availableThinkingLevels": ["off", "low", "high", "max"],
-  "cwd": "…",
+  "cwd": "projects/pi-agent-gui",
+  "projectId": "…",
   "agent": { "id": "…", "name": "…", "skills": ["…"] },
   "run": {
     "id": "…",
@@ -316,6 +369,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 ```
 
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
+
+`cwd` はワークスペース root 相対の作業ディレクトリ（未所属は `""` = root）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。
 
 `messages[].at` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
 

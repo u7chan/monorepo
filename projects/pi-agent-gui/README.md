@@ -13,7 +13,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 ```
 
 - サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します（ローカルで Docker は不要）
-- 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`
+- 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`（プロジェクトと未所属チャットの起点になります）
 - APIキーは `cp .env.example .env` で設定できます。`~/.pi/agent/auth.json` があれば不要です（`.env` を読むのは BFF だけ）
 - 停止は Ctrl-C（3 プロセスまとめて止まります）
 
@@ -21,7 +21,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 | 変数 | 説明 |
 | --- | --- |
-| `PI_APP_CWD` | 作業ディレクトリ（既定: このディレクトリ） |
+| `PI_APP_CWD` | ワークスペース root（プロジェクトと未所属チャットの起点。既定: このディレクトリ） |
 | `PI_MODEL` / `PI_MODELS` | 既定モデルの固定 / 選択できるモデルの whitelist |
 | `PI_THINKING` | 既定の Effort |
 | `PORT` / `HOST` | BFF の待受（既定 4317 / 127.0.0.1） |

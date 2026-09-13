@@ -45,6 +45,18 @@ export interface SandboxExecuteRequestBody {
   toolCallId?: string;
   /** ツール引数。SDK 側でスキーマ検証済みの値が届く。 */
   params?: Record<string, unknown>;
+  /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root。root 外は 400。 */
+  cwd?: string;
+}
+
+/** POST /v1/dirs のリクエストボディ。path は rootCwd 相対。 */
+export interface SandboxCreateDirRequestBody {
+  path: string;
+}
+
+/** POST /v1/dirs の応答。path は作成した実ディレクトリの root 相対の正規化パス (root は ".")。 */
+export interface SandboxCreateDirResult {
+  path: string;
 }
 
 // ---------------------------------------------------------------------------

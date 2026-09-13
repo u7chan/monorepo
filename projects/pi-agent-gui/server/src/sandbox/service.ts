@@ -5,8 +5,8 @@
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import { realpath as realpathCallback, type Dirent } from "node:fs";
-import { lstat, readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { lstat, mkdir, readdir, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -23,6 +23,7 @@ import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
   encodeSandboxEvent,
+  type SandboxCreateDirRequestBody,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
   type SandboxFileEntry,
@@ -111,51 +112,108 @@ async function readJsonBody(request: Request): Promise<unknown> {
 }
 
 /**
- * root 相対の要求パスを解決して一覧を返す。root 内外は「`..` の有無」ではなく realpath で解決した実パスで判定するため、
- * root 外にある symlink (`../link-in` など) から root 内へ解決する要求も 200 になる。
- * 実在しない要求だけは lexical な位置で判定し、root 外を指す未作成パスは 404 ではなく 400 (入力検証) のままにする。
- * エラー文言は SDK の ls ツールに寄せる (BFF はサンドボックスの文言をそのままクライアントへ返す)。
+ * root 相対の要求パスを解決し、実在するディレクトリで root 配下であることを検証する。
+ * ツール実行の cwd と一覧の共通の入口で、`..` の適用順はカーネル (symlink → `..`) に合わせる。
  */
-async function listWorkspaceDirectory(rootCwd: string, requested: string): Promise<SandboxFileListing> {
-  const fail = (statusCode: number, message: string): never => {
-    throw Object.assign(new Error(message), { statusCode });
-  };
-
+async function resolveWorkspaceDirectory(
+  rootCwd: string,
+  requested: string,
+): Promise<{ root: string; target: string }> {
   // root 自体も realpath で解決し、両辺を実パスで比較する (root の symlink 経由でも判定が崩れないように)
-  const root = await realpathNative(rootCwd).catch((error: unknown) =>
-    fail(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`),
-  );
+  const root = await realpathNative(rootCwd).catch((error: unknown) => {
+    throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
+  });
 
   // メッセージ表示と、実在しない要求の lexical 判定に使う字句正規化済みのパス
   let candidate: string;
   try {
     candidate = resolve(root, requested || ".");
   } catch {
-    return fail(400, `Invalid path: ${requested}`);
+    throw pathError(400, `Invalid path: ${requested}`);
   }
 
   // 字句的に畳んでから realpath へ渡すと `..` が symlink より先に適用され、カーネルの解決順とずれる。
   // 生の要求パスを native realpath (realpath(3)) に渡し、symlink を辿ってから `..` を解決させる。
-  let target: string;
-  try {
-    target = await realpathNative(joinRequestPath(root, requested));
-  } catch (error) {
+  const target = await realpathNative(joinRequestPath(root, requested)).catch((error: unknown) => {
     // 解決できない = 実在しない (か解決不能) なので、lexical な位置で判定する。
     // root 外の未作成パスを 404 にすると「root 外は 400」の入力検証が抜ける。
-    if (!isInsideRoot(root, candidate)) return fail(400, `Path outside the workspace: ${candidate}`);
+    if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return fail(404, `Path not found: ${candidate}`);
-    return fail(400, `Cannot resolve path: ${messageFor(error)}`);
-  }
-  if (!isInsideRoot(root, target)) return fail(400, `Path outside the workspace: ${target}`);
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${candidate}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
 
   const targetStat = await stat(target).catch(() => undefined);
-  if (!targetStat) return fail(404, `Path not found: ${candidate}`);
-  if (!targetStat.isDirectory()) return fail(400, `Not a directory: ${candidate}`);
+  if (!targetStat) throw pathError(404, `Path not found: ${candidate}`);
+  if (!targetStat.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
+  return { root, target };
+}
 
-  const dirents = await readdir(target, { withFileTypes: true }).catch((error: unknown) =>
-    fail(400, `Cannot read directory: ${messageFor(error)}`),
-  );
+/**
+ * root 相対のディレクトリを mkdir -p 相当で作る。既存ディレクトリは成功扱い。
+ * 作成前に既存の最も深い祖先を realpath で検証し、root 外を指す symlink を経由した作成を防ぐ。
+ */
+async function createWorkspaceDirectory(rootCwd: string, requested: string): Promise<string> {
+  const root = await realpathNative(rootCwd).catch((error: unknown) => {
+    throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
+  });
+
+  let candidate: string;
+  try {
+    candidate = resolve(root, requested || ".");
+  } catch {
+    throw pathError(400, `Invalid path: ${requested}`);
+  }
+  if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
+
+  const ancestor = await deepestExistingPath(candidate);
+  const realAncestor = await realpathNative(ancestor).catch((error: unknown) => {
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (!isInsideRoot(root, realAncestor)) throw pathError(400, `Path outside the workspace: ${realAncestor}`);
+
+  await mkdir(candidate, { recursive: true }).catch((error: unknown) => {
+    throw pathError(400, `Cannot create directory: ${messageFor(error)}`);
+  });
+
+  // 作成後に実パスで再検証する (途中の symlink が root 外を指していた場合を取り逃さない)
+  const target = await realpathNative(candidate).catch((error: unknown) => {
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
+  const targetStat = await stat(target).catch(() => undefined);
+  if (!targetStat?.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
+  return relativeToRoot(root, target);
+}
+
+/** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */
+async function deepestExistingPath(target: string): Promise<string> {
+  let current = target;
+  for (;;) {
+    const exists = await stat(current).then(() => true).catch(() => false);
+    if (exists) return current;
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+}
+
+function pathError(statusCode: number, message: string): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+/**
+ * root 相対の要求パスを解決して一覧を返す。root 内外は「`..` の有無」ではなく realpath で解決した実パスで判定するため、
+ * root 外にある symlink (`../link-in` など) から root 内へ解決する要求も 200 になる。
+ * エラー文言は SDK の ls ツールに寄せる (BFF はサンドボックスの文言をそのままクライアントへ返す)。
+ */
+async function listWorkspaceDirectory(rootCwd: string, requested: string): Promise<SandboxFileListing> {
+  const { root, target } = await resolveWorkspaceDirectory(rootCwd, requested);
+
+  const dirents = await readdir(target, { withFileTypes: true }).catch((error: unknown) => {
+    throw pathError(400, `Cannot read directory: ${messageFor(error)}`);
+  });
   // 並び替え (ディレクトリ先 → ファイル) には実体の種別が要るため、先に symlink だけ辿る。
   // 件数上限を超える巨大ディレクトリでも stat は上限件数にしか掛けない。
   const candidates = await Promise.all(dirents.map((dirent) => classifyEntry(target, dirent)));
@@ -237,19 +295,30 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     return { ...context, env };
   };
 
-  const definitions: AnyToolDefinition[] = [
-    createBashToolDefinition(rootCwd, {
-      exposeSessionEnvironment: false,
-      spawnHook: stripSandboxToken,
-    }),
-    createReadToolDefinition(rootCwd),
-    createEditToolDefinition(rootCwd),
-    createWriteToolDefinition(rootCwd),
-    createGrepToolDefinition(rootCwd),
-    createFindToolDefinition(rootCwd),
-    createLsToolDefinition(rootCwd),
-  ];
-  const registry = new Map<string, AnyToolDefinition>(definitions.map((def) => [def.name, def]));
+  /**
+   * cwd ごとのツール定義。パス解決の起点が定義に焼き込まれるため、実行 cwd ごとに生成して再利用する。
+   * key は realpath 解決済みの絶対パス (symlink 経由の別名で重複生成しない)。
+   */
+  const registries = new Map<string, Map<string, AnyToolDefinition>>();
+  const registryFor = (cwd: string): Map<string, AnyToolDefinition> => {
+    const cached = registries.get(cwd);
+    if (cached) return cached;
+    const definitions: AnyToolDefinition[] = [
+      createBashToolDefinition(cwd, {
+        exposeSessionEnvironment: false,
+        spawnHook: stripSandboxToken,
+      }),
+      createReadToolDefinition(cwd),
+      createEditToolDefinition(cwd),
+      createWriteToolDefinition(cwd),
+      createGrepToolDefinition(cwd),
+      createFindToolDefinition(cwd),
+      createLsToolDefinition(cwd),
+    ];
+    const registry = new Map<string, AnyToolDefinition>(definitions.map((def) => [def.name, def]));
+    registries.set(cwd, registry);
+    return registry;
+  };
 
   const executions = new Map<string, AbortController>();
 
@@ -258,7 +327,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/healthz", (c) => {
     return c.json({
       ok: true,
-      tools: [...registry.keys()],
+      tools: [...registryFor(rootCwd).keys()],
       cwd: rootCwd,
       runningExecutions: executions.size,
     });
@@ -276,8 +345,8 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
 
   app.post("/v1/tools/:tool/execute", async (c) => {
     const toolName = c.req.param("tool") ?? "";
-    const definition = registry.get(toolName);
-    if (!definition) {
+    // 定義は cwd ごとに生成するため、未知のツールは名前だけで先に弾く
+    if (!(SANDBOX_TOOL_NAMES as readonly string[]).includes(toolName)) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);
     }
     let body: unknown;
@@ -287,9 +356,24 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const { toolCallId, params } = (body ?? {}) as SandboxExecuteRequestBody;
+    const { toolCallId, params, cwd } = (body ?? {}) as SandboxExecuteRequestBody;
     if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
       return c.json({ error: "params must be an object" }, 400);
+    }
+    if (cwd !== undefined && typeof cwd !== "string") {
+      return c.json({ error: "cwd must be a string" }, 400);
+    }
+    // 実行 cwd はリクエストごとに root 配下の実在ディレクトリへ解決する (実行時隔離ではなくパス解決の起点)
+    let executionCwd: string;
+    try {
+      executionCwd = (await resolveWorkspaceDirectory(rootCwd, cwd ?? "")).target;
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+    const definition = registryFor(executionCwd).get(toolName);
+    if (!definition) {
+      return c.json({ error: `Unknown tool: ${toolName}` }, 404);
     }
     const executionId = randomUUID();
     const abort = new AbortController();
@@ -322,7 +406,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             write({ type: "update", payload: { content: payload?.content, details: payload?.details } });
           };
           try {
-            const ctx = { cwd: rootCwd } as Parameters<AnyToolDefinition["execute"]>[4];
+            const ctx = { cwd: executionCwd } as Parameters<AnyToolDefinition["execute"]>[4];
             const result = await definition.execute(
               normalizeToolCallId(toolCallId),
               (params ?? {}) as Record<string, never>,
@@ -372,6 +456,26 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files", async (c) => {
     try {
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  app.post("/v1/dirs", async (c) => {
+    let body: unknown;
+    try {
+      body = await readJsonBody(c.req.raw);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+    const { path } = (body ?? {}) as SandboxCreateDirRequestBody;
+    if (typeof path !== "string") {
+      return c.json({ error: "path must be a string" }, 400);
+    }
+    try {
+      return c.json({ path: await createWorkspaceDirectory(rootCwd, path) });
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

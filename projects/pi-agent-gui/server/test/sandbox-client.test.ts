@@ -64,6 +64,23 @@ test("forwards onUpdate, resolves with the result payload, and sends auth header
   });
 });
 
+test("forwards the session cwd to the sandbox and omits it for the workspace root", async () => {
+  const { calls, impl } = stubFetch(() =>
+    ndjsonResponse([
+      `${JSON.stringify({ type: "start", executionId: "exec-1" })}\n`,
+      `${JSON.stringify({ type: "result", payload: { content: [] } })}\n`,
+    ]),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+
+  await client.execute("ls", { params: {}, cwd: "nested/proj" });
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { params: {}, cwd: "nested/proj" });
+
+  // 未所属セッションは root なのでキーごと省略する
+  await client.execute("ls", { params: {} });
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { params: {} });
+});
+
 test("rejects with the sandbox error message on error events", async () => {
   const { impl } = stubFetch(() =>
     ndjsonResponse([
@@ -239,6 +256,73 @@ test("listFiles relays sandbox 4xx messages and maps the rest to 502", async () 
     assert.ok(error instanceof SandboxRequestError);
     assert.equal(error.status, 502);
     assert.match(error.message, /接続できません/);
+    return true;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createDir (POST /v1/dirs。JSON 経路)
+// ---------------------------------------------------------------------------
+
+test("createDir posts the path and parses the created directory", async () => {
+  const { calls, impl } = stubFetch(
+    () =>
+      new Response(JSON.stringify({ path: "a/b" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test:8080/", token: TOKEN, fetchImpl: impl });
+  const result = await client.createDir("a/b");
+  assert.deepEqual(result, { path: "a/b" });
+  assert.equal(calls[0].url, "http://sandbox.test:8080/v1/dirs");
+  assert.equal(calls[0].init?.method, "POST");
+  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { path: "a/b" });
+});
+
+test("createDir relays sandbox 4xx messages and maps the rest to 502", async () => {
+  const sandboxError = (status: number, message: string) =>
+    stubFetch(() =>
+      new Response(JSON.stringify({ error: message }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ).impl;
+
+  const client = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(400, "Path outside the workspace: /etc"),
+  });
+  await assert.rejects(client.createDir("../etc"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 400);
+    assert.equal(error.message, "Path outside the workspace: /etc");
+    return true;
+  });
+
+  const broken = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(503, "boom"),
+  });
+  await assert.rejects(broken.createDir("a"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /HTTP 503\): boom/);
+    return true;
+  });
+
+  const unauthorized = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: "wrong",
+    fetchImpl: sandboxError(401, "Unauthorized"),
+  });
+  await assert.rejects(unauthorized.createDir("a"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /認証に失敗/);
     return true;
   });
 });

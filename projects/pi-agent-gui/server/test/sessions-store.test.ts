@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
+import { ProjectStore } from "../src/projects";
 import { computeMessageMetrics, SessionStore } from "../src/sessions";
 import type { PiSessionLike } from "../src/sessions";
 import type { ContextUsage, EventEntry, Usage } from "../src/schema";
@@ -8,6 +9,7 @@ import {
   createStubPi,
   STUB_CONTEXT_USAGE,
   STUB_USAGE,
+  type StubSession,
   waitFor,
 } from "./stub-pi";
 
@@ -131,6 +133,79 @@ test("destroy aborts, disposes and notifies subscribers", async () => {
   assert.equal(closed, true);
   assert.equal(seen.at(-1)?.type, "session_deleted");
   unsubscribe();
+
+  await store.close();
+});
+
+test("projects resolve the session cwd and are reported as a root-relative path", async () => {
+  const catalog = createAgentCatalog();
+  const pi = createStubPi();
+  const projects = new ProjectStore();
+  const project = projects.create({ cwd: "nested/proj" });
+  const store = new SessionStore({ pi, catalog, projects });
+
+  const unaffiliated = await store.create({ agentId: "agent-general" });
+  assert.equal(pi.createInputs.at(-1)?.cwd, "", "未所属は root を渡す");
+  assert.equal(store.payload(unaffiliated).cwd, "");
+  assert.equal("projectId" in store.payload(unaffiliated), false);
+  assert.equal("projectId" in store.summary(unaffiliated), false);
+
+  const record = await store.create({ agentId: "agent-general", projectId: project.id });
+  assert.equal(pi.createInputs.at(-1)?.cwd, "nested/proj");
+  assert.equal(record.projectId, project.id);
+  assert.equal(store.payload(record).cwd, "nested/proj");
+  assert.equal(store.payload(record).projectId, project.id);
+  assert.equal(store.summary(record).projectId, project.id);
+
+  // 未知の projectId は未所属へ落とさず 400
+  await assert.rejects(
+    () => store.create({ agentId: "agent-general", projectId: "ghost" }),
+    (error: Error & { statusCode?: number }) => {
+      assert.equal(error.statusCode, 400);
+      assert.match(error.message, /Project not found/);
+      return true;
+    },
+  );
+  assert.equal(pi.sessions.length, 2, "400 のセッションは作らない");
+
+  await store.close();
+});
+
+test("destroyByProject aborts, disposes and notifies only its own sessions", async () => {
+  const catalog = createAgentCatalog();
+  const projects = new ProjectStore();
+  const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 30 }), catalog, projects });
+  const project = projects.create({ cwd: "proj-a" });
+  const other = projects.create({ cwd: "proj-b" });
+
+  const target = await store.create({ agentId: "agent-general", projectId: project.id });
+  const sibling = await store.create({ agentId: "agent-general", projectId: other.id });
+  const unaffiliated = await store.create({ agentId: "agent-general" });
+  store.postMessage(target, "破棄される実行");
+
+  const seen: EventEntry[] = [];
+  let closed = false;
+  store.subscribe(
+    target,
+    undefined,
+    (entry) => seen.push(entry),
+    () => {
+      closed = true;
+    },
+  );
+
+  await store.destroyByProject(project.id);
+
+  const stub = target.session as StubSession;
+  assert.equal(store.get(target.id), undefined);
+  assert.equal(stub.disposed, true);
+  assert.equal(stub.abortRequested, true, "実行中は abort する");
+  assert.equal(closed, true, "購読中の接続も閉じる");
+  assert.equal(seen.at(-1)?.type, "session_deleted");
+  // 他のプロジェクトと未所属のセッションは残る
+  assert.equal(store.get(sibling.id), sibling);
+  assert.equal(store.get(unaffiliated.id), unaffiliated);
+  assert.equal(sibling.session.disposed, false);
 
   await store.close();
 });

@@ -2,7 +2,12 @@
  * BFF からサンドボックス ツール実行 API を呼ぶクライアント。NDJSON を execute() の契約
  * (onUpdate / result / abort) に写し替え、abort は cancel エンドポイントと接続切断の両方で伝播させる。
  */
-import { decodeSandboxEvent, type SandboxEvent, type SandboxFileListing } from "./protocol";
+import {
+  decodeSandboxEvent,
+  type SandboxCreateDirResult,
+  type SandboxEvent,
+  type SandboxFileListing,
+} from "./protocol";
 
 export interface SandboxToolClientOptions {
   /** 例: http://pi-agent-gui-sandbox:8080 (末尾スラッシュは正規化する) */
@@ -16,6 +21,8 @@ export interface SandboxToolClientOptions {
 export interface SandboxExecuteInput {
   toolCallId?: string;
   params: unknown;
+  /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root */
+  cwd?: string;
   signal?: AbortSignal | undefined;
   onUpdate?: ((partial: { content: unknown; details?: unknown }) => void) | undefined;
 }
@@ -35,6 +42,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   return {
     execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
     listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+    createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
   };
 }
 
@@ -54,10 +62,12 @@ export interface SandboxToolClient {
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   /** root 相対パスの一覧 (JSON)。root 外・不存在などは SandboxRequestError で reject する。 */
   listFiles(path: string): Promise<SandboxFileListing>;
+  /** root 相対のディレクトリを mkdir -p 相当で作る (既存は成功)。 */
+  createDir(path: string): Promise<SandboxCreateDirResult>;
 }
 
-/** /api/files が使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
-export type SandboxFilesClient = Pick<SandboxToolClient, "listFiles">;
+/** /api/files とプロジェクト作成が使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
+export type SandboxWorkspaceClient = Pick<SandboxToolClient, "listFiles" | "createDir">;
 
 /**
  * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
@@ -73,44 +83,80 @@ export class SandboxRequestError extends Error {
   }
 }
 
-/** NDJSON の execute とは別経路 (JSON 応答)。 */
+/** NDJSON の execute とは別経路 (JSON 応答)。接続できない場合はサンドボックスの到達性の問題として 502 にする。 */
+async function fetchJson(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  baseUrl: string,
+): Promise<Response> {
+  try {
+    return await fetchImpl(url, init);
+  } catch (error) {
+    throw new SandboxRequestError(`サンドボックス (${baseUrl}) に接続できません: ${messageFor(error)}`, 502);
+  }
+}
+
+function jsonHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, Accept: "application/json" };
+}
+
+/**
+ * JSON 経路の HTTP エラーの写像。サンドボックス由来の 4xx (不正パス・不存在) は文言ごと透過し、
+ * 認証失敗とサンドボックス側障害は 502 に寄せる。
+ */
+async function jsonError(response: Response, label: string): Promise<SandboxRequestError> {
+  const detail = errorDetailOf(await response.text().catch(() => ""));
+  if (response.status === 401 || response.status === 403) {
+    return new SandboxRequestError(
+      "サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)",
+      502,
+    );
+  }
+  if (response.status === 400 || response.status === 404) {
+    return new SandboxRequestError(detail || `${label} (HTTP ${response.status})`, response.status);
+  }
+  return new SandboxRequestError(
+    `サンドボックスの${label} (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
+    502,
+  );
+}
+
+/** GET /v1/files (JSON 経路) */
 async function listFiles(
   path: string,
   baseUrl: string,
   token: string,
   fetchImpl: typeof fetch,
 ): Promise<SandboxFileListing> {
-  let response: Response;
-  try {
-    response = await fetchImpl(`${baseUrl}/v1/files?path=${encodeURIComponent(path)}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-  } catch (error) {
-    throw new SandboxRequestError(`サンドボックス (${baseUrl}) に接続できません: ${messageFor(error)}`, 502);
-  }
-
-  if (!response.ok) {
-    const detail = errorDetailOf(await response.text().catch(() => ""));
-    if (response.status === 401 || response.status === 403) {
-      throw new SandboxRequestError(
-        "サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)",
-        502,
-      );
-    }
-    if (response.status === 400 || response.status === 404) {
-      // 不正パス・不存在は要求側の問題なので、サンドボックスの文言 (ls ツールに寄せた英語) をそのまま返す
-      throw new SandboxRequestError(
-        detail || `ファイル一覧を取得できませんでした (HTTP ${response.status})`,
-        response.status,
-      );
-    }
-    throw new SandboxRequestError(
-      `サンドボックスのファイル一覧を取得できませんでした (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
-      502,
-    );
-  }
-
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files?path=${encodeURIComponent(path)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "ファイル一覧を取得できませんでした");
   return (await response.json()) as SandboxFileListing;
+}
+
+async function createDir(
+  path: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxCreateDirResult> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/dirs`,
+    {
+      method: "POST",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "ディレクトリを作成できませんでした");
+  return (await response.json()) as SandboxCreateDirResult;
 }
 
 /** サンドボックスの本文は { error } を返す契約。読めなければ生テキストをそのまま使う。 */
@@ -166,7 +212,7 @@ async function execute(
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ toolCallId: input.toolCallId, params: input.params }),
+        body: JSON.stringify({ toolCallId: input.toolCallId, params: input.params, cwd: input.cwd }),
         signal: controller.signal,
       });
     } catch (error) {

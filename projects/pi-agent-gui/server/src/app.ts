@@ -10,9 +10,15 @@ import { zValidator } from "@hono/zod-validator";
 import { AUTH_REQUIRED_MESSAGE, createPiBff } from "./agent";
 import type { PiBff } from "./agent";
 import { createAgentCatalog } from "./agents";
-import { createSandboxToolClientFromEnv, SandboxRequestError, type SandboxFilesClient } from "./sandbox/client";
+import { normalizeProjectCwd, ProjectStore } from "./projects";
+import {
+  createSandboxToolClientFromEnv,
+  SandboxRequestError,
+  type SandboxWorkspaceClient,
+} from "./sandbox/client";
 import { SessionStore } from "./sessions";
 import {
+  CreateProjectBodySchema,
   CreateSessionBodySchema,
   FileListingSchema,
   PostMessageBodySchema,
@@ -124,8 +130,8 @@ export type CreateBffAppOptions = {
   cwd?: string;
   /** テストは明示的な pi (null も含む) を渡してランタイム構築をスキップする */
   pi?: PiBff | null;
-  /** ファイル一覧のサンドボックス。未指定なら env から生成し、null なら未設定として 503 を返す */
-  files?: SandboxFilesClient | null;
+  /** ファイル一覧とプロジェクト作成のサンドボックス。未指定なら env から生成し、null なら未設定として 503 を返す */
+  workspace?: SandboxWorkspaceClient | null;
   /** テスト用: 静的配信のルートディレクトリ (既定は client/dist) */
   clientDistDir?: string;
 };
@@ -145,9 +151,19 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   }
 
   const catalog = createAgentCatalog();
-  const store = new SessionStore({ pi, catalog, masker: pi?.secretMasker });
-  // ファイル一覧はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
-  const files = opts.files !== undefined ? opts.files : createSandboxToolClientFromEnv(process.env) ?? null;
+  const projects = new ProjectStore();
+  const store = new SessionStore({ pi, catalog, masker: pi?.secretMasker, projects });
+  // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
+  const workspace =
+    opts.workspace !== undefined ? opts.workspace : createSandboxToolClientFromEnv(process.env) ?? null;
+  const sandboxNotConfigured = { error: "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" };
+
+  /** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
+  const sandboxFailure = (c: Context, error: unknown) =>
+    c.json(
+      { error: messageFor(error) },
+      (error instanceof SandboxRequestError ? error.status : 502) as ContentfulStatusCode,
+    );
 
   const updateAgentHandler = async (c: Context) => {
     const agentId = c.req.param("id") ?? "";
@@ -215,27 +231,59 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 
   // セッションに依存させない (セッションが無くても開ける必要がある) ため、トップレベルに置く。
   .get("/api/files", async (c) => {
-    if (!files) {
-      return c.json(
-        { error: "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" },
-        503,
-      );
-    }
+    if (!workspace) return c.json(sandboxNotConfigured, 503);
     const path = c.req.query("path") ?? ".";
     let listing: unknown;
     try {
-      listing = await files.listFiles(path);
+      listing = await workspace.listFiles(path);
     } catch (error) {
-      return c.json(
-        { error: messageFor(error) },
-        (error instanceof SandboxRequestError ? error.status : 502) as ContentfulStatusCode,
-      );
+      return sandboxFailure(c, error);
     }
     const parsed = FileListingSchema.safeParse(listing);
     if (!parsed.success) {
       return c.json({ error: "サンドボックスのファイル一覧が不正です" }, 502);
     }
     return c.json(parsed.data);
+  })
+
+  // --- projects ---
+
+  .get("/api/projects", (c) => c.json({ projects: projects.list() }))
+  .post(
+    "/api/projects",
+    zValidator("json", CreateProjectBodySchema, (result, c) =>
+      result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+    ),
+    async (c) => {
+      const body = c.req.valid("json");
+      let cwd: string;
+      try {
+        cwd = normalizeProjectCwd(body.cwd);
+      } catch (error) {
+        return c.json({ error: messageFor(error) }, 400);
+      }
+      // 重複はサンドボックスへ触る前に弾く (作成要求で既存ディレクトリを触らない)
+      if (projects.findByCwd(cwd)) {
+        return c.json({ error: `Project already exists: ${cwd}` }, 409);
+      }
+      if (!workspace) return c.json(sandboxNotConfigured, 503);
+      try {
+        // create 省略時は一覧取得で「実在するディレクトリ」を確認する (ディレクトリ以外では失敗する)
+        if (body.create) await workspace.createDir(cwd);
+        else await workspace.listFiles(cwd);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+      return c.json({ project: projects.create({ cwd, name: body.name }) }, 201);
+    },
+  )
+  .delete("/api/projects/:id", async (c) => {
+    const id = c.req.param("id") ?? "";
+    if (!projects.get(id)) return c.json({ error: "Project not found" }, 404);
+    // 先に登録を外し、破棄中の並行作成で孤児セッションを作らない (ディレクトリは触らない)
+    projects.remove(id);
+    await store.destroyByProject(id);
+    return c.json({ ok: true });
   })
 
   .get("/api/agents", (c) => c.json(catalog.snapshot()))
@@ -291,6 +339,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         agentId: body.agentId,
         model: body.model,
         thinkingLevel: body.thinkingLevel,
+        projectId: body.projectId,
       });
       return c.json(store.payload(record), 201);
     },
@@ -417,6 +466,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     app,
     store,
     catalog,
+    projects,
     pi,
     initError,
     close: async () => {
