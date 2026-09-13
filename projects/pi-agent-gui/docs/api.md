@@ -132,8 +132,9 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | --- | --- | --- |
 | `PI_SANDBOX_URL` | BFF | サンドボックスの到達先（例: `http://pi-agent-gui-sandbox:8080`）。未設定ならセッション作成を 503 で拒否 |
 | `PI_SANDBOX_TOKEN` | BFF + サンドボックス | Bearer トークン（16 文字以上）。LLM 認証情報とは別の値。サンドボックス内では子プロセスへ継承しない |
-| `PI_SANDBOX_CWD` | サンドボックス | ツール実行の既定 cwd（既定 `/workspace`） |
+| `PI_SANDBOX_CWD` | サンドボックス | ツール実行の既定 cwd（既定 `/workspace`）。ホスト実行では書込み可能なディレクトリを指定し、BFF の `PI_APP_CWD` と同じパスへ揃える |
 | `SANDBOX_PORT` | サンドボックス | ポート（既定 8080。ホストへ publish しない） |
+| `SANDBOX_HOST` | サンドボックス | bind アドレス（既定 `0.0.0.0`）。ローカルでは `127.0.0.1` を指定して LAN へ公開しない（Docker の別コンテナ構成では `0.0.0.0` のまま） |
 
 ## エージェント / スキル
 
