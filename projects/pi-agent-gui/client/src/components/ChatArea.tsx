@@ -1,10 +1,16 @@
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { Bubble, ToolCard } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
+import {
+  compactionDividerIndex,
+  compactionDividerLabel,
+  compactionHistoryLabel,
+  compactionSummaryHeading,
+} from "../lib/compaction";
 import { toolCallCopyText } from "../lib/copy-content";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 import { messageMetaLine, messageMetaTitle } from "../lib/usageFormat";
-import type { AgentSuggestion } from "../types";
+import type { AgentSuggestion, CompactionInfo } from "../types";
 
 const TOOL_SUMMARY_MAX_LENGTH = 96;
 
@@ -311,8 +317,53 @@ function MessageView({
   );
 }
 
+/**
+ * 圧縮位置の区切り。区切りの 1 行は常に出し、要約は折りたたむ (既定は畳む)。
+ * 過去の圧縮位置は context の組み替えで復元できないため、一覧はこの 1 つの折りたたみにまとめる。
+ */
+function CompactionDivider({ compactions, compact }: { compactions: CompactionInfo[]; compact: boolean }) {
+  const latest = compactions[compactions.length - 1];
+  if (!latest) return null;
+  const historyLabel = compactionHistoryLabel(compactions.length);
+  return (
+    <details className="min-w-0 rounded-xl border border-line bg-soft/20 text-ink-muted">
+      <summary
+        className={[
+          "tool-summary flex min-w-0 cursor-pointer items-center gap-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus",
+          compact ? "px-2.5 py-2" : "px-3 py-2.5",
+        ].join(" ")}
+      >
+        <ChevronIcon />
+        <span className="min-w-0 flex-1 text-[11px] leading-relaxed">
+          {compactionDividerLabel(latest)}
+        </span>
+        <span className="shrink-0 font-sans text-[9px] text-ink-faint">
+          {compactions.length > 1 ? `${compactions.length}件` : "要約"}
+        </span>
+      </summary>
+      <div className={["grid gap-3 border-t border-line", compact ? "px-2.5 py-2.5" : "px-3 py-3"].join(" ")}>
+        {historyLabel ? <p className="m-0 text-[10px] text-ink-faint">{historyLabel}</p> : null}
+        <ol className="m-0 grid list-none gap-3">
+          {compactions.map((compaction, index) => (
+            <li key={compaction.id} className="grid min-w-0 gap-1">
+              <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">
+                {compactionSummaryHeading(compaction, index)}
+              </span>
+              <p className="m-0 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink-soft">
+                {compaction.summary}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </details>
+  );
+}
+
 export type ChatAreaProps = {
   bubbles: Bubble[];
+  /** 会話の圧縮履歴 (古い→新しい)。最新の 1 件だけが区切りの位置を持つ */
+  compactions?: CompactionInfo[];
   /** モバイルの compact layout (本文幅を優先して余白と avatar を詰める) */
   compact?: boolean;
   /** 選択中エージェントの定型プロンプト。未定義 / 空ならボタン行ごと出さない */
@@ -322,9 +373,10 @@ export type ChatAreaProps = {
   visible?: boolean;
 };
 
-export function ChatArea({ bubbles, compact = false, suggestions = [], onSuggestion, visible = true }: ChatAreaProps) {
+export function ChatArea({ bubbles, compactions = [], compact = false, suggestions = [], onSuggestion, visible = true }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
+  const dividerIndex = compactionDividerIndex(compactions);
 
   // 設定ページから戻ったときにも最新位置へ戻す (非表示中は scrollHeight が 0 になる)
   useEffect(() => {
@@ -371,17 +423,23 @@ export function ChatArea({ bubbles, compact = false, suggestions = [], onSuggest
           </div>
         ) : (
           <div className={["grid pt-2", compact ? "gap-3.5" : "gap-5"].join(" ")}>
-            {bubbles.map((bubble) => (
-              <MessageView
-                key={bubble.id}
-                bubble={bubble}
-                copied={copiedId === `bubble_${bubble.id}`}
-                compact={compact}
-                onCopy={() => void copyMessage(bubble.text, `bubble_${bubble.id}`)}
-                copiedId={copiedId}
-                onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
-              />
+            {bubbles.map((bubble, index) => (
+              <Fragment key={bubble.id}>
+                {dividerIndex === index ? <CompactionDivider compactions={compactions} compact={compact} /> : null}
+                <MessageView
+                  bubble={bubble}
+                  copied={copiedId === `bubble_${bubble.id}`}
+                  compact={compact}
+                  onCopy={() => void copyMessage(bubble.text, `bubble_${bubble.id}`)}
+                  copiedId={copiedId}
+                  onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
+                />
+              </Fragment>
             ))}
+            {/* 区切りが末尾 (圧縮後のメッセージがまだ無い) のときは bubbles の後ろへ出す */}
+            {dividerIndex !== undefined && dividerIndex >= bubbles.length ? (
+              <CompactionDivider compactions={compactions} compact={compact} />
+            ) : null}
           </div>
         )}
       </div>

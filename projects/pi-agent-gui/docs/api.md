@@ -182,6 +182,8 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 | `PI_SANDBOX_CWD` | サンドボックス | ツール実行の既定 cwd（既定 `/workspace`）。ホスト実行では書込み可能なディレクトリを指定し、BFF の `PI_APP_CWD` と同じパスへ揃える |
 | `SANDBOX_PORT` | サンドボックス | ポート（既定 8080。ホストへ publish しない） |
 | `SANDBOX_HOST` | サンドボックス | bind アドレス（既定 `0.0.0.0`）。ローカルでは `127.0.0.1` を指定して LAN へ公開しない（Docker の別コンテナ構成では `0.0.0.0` のまま） |
+| `PI_COMPACTION_RESERVE_TOKENS` | BFF | 検証用: compaction を起こす閾値（コンテキストに残す余裕）。未設定・不正値は SDK 既定の `16384`。手順は [compaction.md](compaction.md) |
+| `PI_COMPACTION_KEEP_RECENT_TOKENS` | BFF | 検証用: compaction 後に context へ残す直近トークン数。未設定・不正値は SDK 既定の `20000`。手順は [compaction.md](compaction.md) |
 
 ## エージェント / スキル
 
@@ -364,6 +366,27 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
       },
       "metrics": { "durationMs": 1800, "ttftMs": 900, "tokensPerSecond": 42.3 }
     }
+  ],
+  "compactions": [
+    {
+      "id": "…",
+      "parentId": "…",
+      "timestamp": "2026-09-13T04:05:06.789Z",
+      "summary": "これまでの会話の要約…",
+      "firstKeptEntryId": "…",
+      "tokensBefore": 68000,
+      "usage": {
+        "input": 12000,
+        "output": 800,
+        "cacheRead": 30000,
+        "cacheWrite": 0,
+        "totalTokens": 42800,
+        "cost": { "input": 0.002, "output": 0.003, "cacheRead": 0.001, "cacheWrite": 0, "total": 0.006 }
+      },
+      "reason": "threshold",
+      "estimatedTokensAfter": 9500,
+      "beforeMessageIndex": 4
+    }
   ]
 }
 ```
@@ -379,6 +402,14 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
 `context` は SDK の `getContextUsage()`（`tokens` / `contextWindow` / `percent`）。compaction 直後は `tokens` と `percent` が `null` になる。SDK がこの API を持たないときはキーを省略する。SDK は `message_end` を購読者へ配った後に履歴へ入れるため、`usage` イベント時点の `context` は直前の応答までの値（compaction 直後は不明値）になる。今回の応答を反映した確定値は `run_end` の `context` で配り、リロード / resync はこの payload を正とする。セッションが未作成のとき（チャット開始前）は `context` のキー自体が無く、UI は Context ゲージを出さない。作成済み・未送信のセッションは SDK が `tokens: 0` / `percent: 0` を返すため 0% として出る。
+
+`compactions` は会話の圧縮（compaction）の履歴を古い→新しいの順で持つ（圧縮が無ければ `[]`）。要素は pi SDK の `CompactionEntry` をそのまま写せる形（`id` / `parentId` / `timestamp` / `summary` / `firstKeptEntryId` / `tokensBefore` / `usage` / `fromHook`）で、表示用の文字列へ潰さずアプリ独自の連番 ID も振らない（`id` は SDK entry の id で、永続化後も一意に参照できる）。
+
+- `summary` は他の出力と同じく、既知の秘密値を `[REDACTED]` に置き換えてから配る。SDK 側の entry は書き換えない
+- `beforeMessageIndex` は区切りを置く `messages` の index（この index の手前。`messages.length` なら末尾）で、**最新の 1 件だけ**が持つ。SDK は最新の compaction しか context に残さないため、以前の圧縮位置は `messages` から復元できない。回数は `compactions.length` で示し、過去分は要約の一覧として読む
+- `reason`（`manual` / `threshold` / `overflow`）と `estimatedTokensAfter` は `CompactionEntry` に保存されず `compaction_end` にしか無いため、BFF がイベント受信時に entry id ごとに控えて payload 組み立て時に合成する。控えは揮発で、BFF の再起動後はキーを省略する（`reason` が無くても `tokensBefore` だけで表示は成立する）
+- `tokensBefore` は最後の assistant の usage と末尾メッセージの推定を足した SDK の `estimateContextTokens()` の値で、プロバイダの実測そのものではない。`estimatedTokensAfter` は `estimateMessagesTokens()` の推定値で、初期 UI には出さない（Context ゲージは provider 実測のため、並べると食い違いに見える）
+- 圧縮で context から外れたメッセージは `messages` から消える（圧縮前の元メッセージは配らない）。`messages` に role `compactionSummary` のメッセージは載せない
 
 ### `PATCH /api/sessions/:id/settings`
 
@@ -422,10 +453,11 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 | `queue_cleared` | `{}` |
 | `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }` |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
+| `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。直後に同じ状態を持つ `resync` が届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 
-テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は README の「APIキーの保護」を参照。
+テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は README の「APIキーの保護」を参照。
 
 ### `POST /api/sessions/:id/stop`
 

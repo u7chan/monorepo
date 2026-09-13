@@ -12,6 +12,8 @@ import type {
   AgentPayloadInfo,
   AgentSkillInfo,
   ChatMessage,
+  CompactionInfo,
+  CompactionReason,
   ContextUsage,
   EventEntry,
   MessageMetrics,
@@ -27,7 +29,7 @@ import type {
   ToolCall,
   Usage,
 } from "./schema";
-import { ContextUsageSchema, UsageSchema } from "./schema";
+import { CompactionReasonSchema, ContextUsageSchema, UsageSchema } from "./schema";
 
 const MAX_EVENT_LOG = 2000;
 const MAX_QUEUE_DEPTH = 10;
@@ -153,6 +155,11 @@ function httpError(statusCode: number, message: string): HttpLikeError {
 // pi SDK に用途に合う型がないため、必要な分だけの最小 interface を定義する
 // ---------------------------------------------------------------------------
 
+/** compaction_end の result (SDK の CompactionResult のうち BFF が控える分) */
+export interface PiCompactionResult {
+  estimatedTokensAfter?: unknown;
+}
+
 /** pi SDK から届くランタイムイベントの緩い形 (必要なフィールドのみ) */
 export interface PiSessionEvent {
   type?: string;
@@ -167,6 +174,23 @@ export interface PiSessionEvent {
   maxAttempts?: number;
   error?: unknown;
   willRetry?: boolean;
+  reason?: string;
+  aborted?: boolean;
+  errorMessage?: string;
+}
+
+/** pi SDK の SessionEntry (BFF が compaction を読むのに必要な分だけ) */
+export interface PiSessionEntryLike {
+  id?: unknown;
+  parentId?: unknown;
+  timestamp?: unknown;
+  type?: unknown;
+  message?: { role?: unknown; content?: unknown } | null;
+  summary?: unknown;
+  firstKeptEntryId?: unknown;
+  tokensBefore?: unknown;
+  usage?: unknown;
+  fromHook?: unknown;
 }
 
 export type PiSessionEventListener = (event: PiSessionEvent) => void;
@@ -192,6 +216,8 @@ export interface PiSessionLike {
   abort(): Promise<unknown>;
   /** 認証確認後にモデルと thinking を切り替える */
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
+  /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
+  sessionManager?: { getBranch?(): unknown[] };
   /** SDK が非対応値を補正する */
   setThinkingLevel(level: string, options?: { persist?: boolean }): void;
   /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
@@ -226,6 +252,12 @@ export interface RunState {
   error?: string;
 }
 
+/** compaction entry id に紐づく、entry へは保存されない表示用の値 */
+export interface CompactionMeta {
+  reason?: CompactionReason;
+  estimatedTokensAfter?: number;
+}
+
 export interface SessionSubscriber {
   send: (entry: EventEntry) => void;
   close?: () => void;
@@ -250,6 +282,8 @@ export interface SessionRecord {
   tools: Map<string, ToolCall>;
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
   messageMetrics: WeakMap<object, MessageMetrics>;
+  /** compaction entry id -> entry に保存されない表示用の値 (compaction_end 受信時に控える) */
+  compactionMeta: Map<string, CompactionMeta>;
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
   changingSettings: boolean;
 }
@@ -299,6 +333,45 @@ function sessionMessages(record: SessionRecord, masker: SecretMasker): ChatMessa
       };
     })
     .filter((message) => message.text || message.role === "user");
+}
+
+/** compaction entry のうち最後の 1 件の index (context に残るのはこの 1 件だけ) */
+function latestCompactionIndex(entries: PiSessionEntryLike[]): number {
+  let latest = -1;
+  for (let index = 0; index < entries.length; index += 1) {
+    if (entries[index].type === "compaction") latest = index;
+  }
+  return latest;
+}
+
+function branchEntriesOf(session: PiSessionLike): PiSessionEntryLike[] {
+  const entries = session.sessionManager?.getBranch?.();
+  return Array.isArray(entries) ? (entries as PiSessionEntryLike[]) : [];
+}
+
+/** messages に載るメッセージを生む entry から、表示対象 (sessionMessages と同じ条件) かを判定する */
+function isDisplayableMessageEntry(entry: PiSessionEntryLike): boolean {
+  if (entry.type !== "message") return false;
+  const role = entry.message?.role;
+  if (role !== "user" && role !== "assistant") return false;
+  return Boolean(contentText(entry.message?.content)) || role === "user";
+}
+
+/**
+ * 最新の compaction で context に残った古い側の表示メッセージ数 = 区切りを置く messages の index。
+ * firstKeptEntryId は model 変更などの metadata entry を指し得るため、entry id の一致ではなく
+ * 「その位置以降」で数える。
+ */
+function keptMessageCount(entries: PiSessionEntryLike[], compactionIndex: number): number {
+  const firstKeptEntryId = entries[compactionIndex].firstKeptEntryId;
+  let keeping = false;
+  let count = 0;
+  for (let index = 0; index < compactionIndex; index += 1) {
+    const entry = entries[index];
+    if (!keeping && entry.id === firstKeptEntryId) keeping = true;
+    if (keeping && isDisplayableMessageEntry(entry)) count += 1;
+  }
+  return count;
 }
 
 export class SessionStore {
@@ -402,6 +475,7 @@ export class SessionStore {
       run: null,
       tools: new Map(),
       messageMetrics: new WeakMap(),
+      compactionMeta: new Map(),
       changingSettings: false,
     };
     this.records.set(record.id, record);
@@ -600,8 +674,42 @@ export class SessionStore {
           }
         : null,
       messages: sessionMessages(record, this.masker),
+      compactions: this.compactionsOf(record),
       ...(context ? { context } : {}),
     };
+  }
+
+  /**
+   * session.messages ではなく entry を正として圧縮履歴を組む。要約も他の出力と同じくマスクする。
+   * 圧縮位置を持つのは最新の 1 件だけ (以前の位置は SDK の context 組み替えで失われる)。
+   */
+  compactionsOf(record: SessionRecord): CompactionInfo[] {
+    const entries = branchEntriesOf(record.session);
+    const compactionIndexes = entries
+      .map((entry, index) => (entry.type === "compaction" ? index : -1))
+      .filter((index) => index >= 0);
+    if (compactionIndexes.length === 0) return [];
+    const latestIndex = compactionIndexes[compactionIndexes.length - 1];
+    return compactionIndexes.map((entryIndex) => {
+      const entry = entries[entryIndex];
+      const meta = record.compactionMeta.get(String(entry.id));
+      const usage = parseUsage(entry.usage);
+      return {
+        id: String(entry.id),
+        parentId: typeof entry.parentId === "string" ? entry.parentId : null,
+        timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
+        summary: this.masker.mask(typeof entry.summary === "string" ? entry.summary : ""),
+        firstKeptEntryId: String(entry.firstKeptEntryId ?? ""),
+        tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : 0,
+        ...(usage ? { usage } : {}),
+        ...(entry.fromHook === true ? { fromHook: true } : {}),
+        ...(entryIndex === latestIndex ? { beforeMessageIndex: keptMessageCount(entries, entryIndex) } : {}),
+        ...(meta?.reason ? { reason: meta.reason } : {}),
+        ...(meta?.estimatedTokensAfter !== undefined
+          ? { estimatedTokensAfter: meta.estimatedTokensAfter }
+          : {}),
+      };
+    });
   }
 
   summary(record: SessionRecord): SessionSummary {
@@ -836,6 +944,29 @@ export class SessionStore {
           case "compaction_start":
             this.emit(record, "status", { state: "compacting", text: "会話を整理中…" });
             break;
+          case "compaction_end": {
+            // result 無し / aborted / errorMessage ありは既存の status 遷移とエラー表示に任せ、
+            // 履歴と区切りは触らない (圧縮されていないのに消したように見せない)。
+            if (event.aborted || event.errorMessage || !event.result) break;
+            const result = event.result as PiCompactionResult;
+            // SDK は entry を積んで session.messages を組み替えてからこのイベントを出すため、
+            // 最新の compaction entry とそれに対応するこの result を同じイベントで紐づけられる。
+            const entries = branchEntriesOf(record.session);
+            const latestIndex = latestCompactionIndex(entries);
+            if (latestIndex < 0) break;
+            const reason = CompactionReasonSchema.safeParse(event.reason);
+            const estimated = result.estimatedTokensAfter;
+            record.compactionMeta.set(String(entries[latestIndex].id), {
+              ...(reason.success ? { reason: reason.data } : {}),
+              ...(typeof estimated === "number" ? { estimatedTokensAfter: estimated } : {}),
+            });
+            const compactions = this.compactionsOf(record);
+            const compaction = compactions[compactions.length - 1];
+            if (!compaction) break;
+            this.emit(record, "compaction", { compaction, count: compactions.length });
+            this.emitResync(record);
+            break;
+          }
           case "auto_retry_start":
             this.emit(record, "status", {
               state: "retry",

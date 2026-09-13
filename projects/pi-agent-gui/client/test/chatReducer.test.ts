@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
-import type { ContextUsage, MessageMetrics, SessionPayload, Usage } from "../src/types";
+import type { CompactionInfo, ContextUsage, MessageMetrics, SessionPayload, Usage } from "../src/types";
 
 /** 実行中・モデル・ツール付きの resync / GET /api/sessions/:id 相当 */
 function runningPayload(): SessionPayload {
@@ -29,6 +29,7 @@ function runningPayload(): SessionPayload {
       { role: "user", text: "こんにちは" },
       { role: "assistant", text: "はい" },
     ],
+    compactions: [],
   };
 }
 
@@ -61,6 +62,7 @@ test("新規チャットで会話状態が初期値へ戻り、実効 Model / Ef
   assert.equal(after.sessionThinkingLevel, undefined);
   assert.equal(after.supportsThinking, false);
   assert.deepEqual(after.availableThinkingLevels, []);
+  assert.deepEqual(after.compactions, []);
 });
 
 test("新規チャット後も bubble id を再利用しない", () => {
@@ -282,4 +284,49 @@ test("新規チャットで context も消える", () => {
   const used = chatReducer(initialChatState, { type: "resync", payload: payloadWithUsage() });
   const reset = chatReducer(used, { type: "newChat" });
   assert.equal(reset.context, undefined);
+});
+
+// --- compaction ---
+
+const COMPACTION: CompactionInfo = {
+  id: "entry-compaction-1",
+  parentId: "entry-2",
+  timestamp: "2026-09-13T00:00:00.000Z",
+  summary: "古い会話の要約",
+  firstKeptEntryId: "entry-3",
+  tokensBefore: 68_000,
+  reason: "threshold",
+  beforeMessageIndex: 1,
+};
+
+test("resync は圧縮履歴を payload で置き換える", () => {
+  const payload = { ...runningPayload(), compactions: [COMPACTION] };
+  const state = chatReducer(initialChatState, { type: "resync", payload });
+  assert.deepEqual(state.compactions, [COMPACTION]);
+
+  // 圧縮の無い payload へ戻すと履歴も消える (サーバー DTO が正)
+  const cleared = chatReducer(state, { type: "resync", payload: runningPayload() });
+  assert.deepEqual(cleared.compactions, []);
+});
+
+test("compaction イベントは同じ entry を差し替えながら回数と要約を残す", () => {
+  const state = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
+  const first = chatReducer(state, { type: "compaction", compaction: COMPACTION, count: 1 });
+  assert.deepEqual(first.compactions, [COMPACTION]);
+  assert.equal(first.activity, "会話を圧縮しました（1回目）");
+
+  // 再送・リプレイで同じ entry が来たら重複させず差し替える
+  const updated = { ...COMPACTION, beforeMessageIndex: 0 };
+  const replaced = chatReducer(first, { type: "compaction", compaction: updated, count: 1 });
+  assert.deepEqual(replaced.compactions, [updated]);
+
+  const second = chatReducer(replaced, {
+    type: "compaction",
+    compaction: { ...COMPACTION, id: "entry-compaction-2", summary: "2回目の要約", beforeMessageIndex: 0 },
+    count: 2,
+  });
+  assert.deepEqual(second.compactions.map((item) => item.summary), ["古い会話の要約", "2回目の要約"]);
+  assert.equal(second.activity, "会話を圧縮しました（2回目）");
+  // メッセージの置き換えは resync が担う (イベントだけでは履歴を消さない)
+  assert.equal(second.bubbles.length, state.bubbles.length);
 });
