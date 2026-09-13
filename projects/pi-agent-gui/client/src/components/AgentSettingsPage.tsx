@@ -278,7 +278,11 @@ export function AgentSettingsPage({
                 required
                 maxLength={80}
                 value={agentForm.name}
-                onChange={(e) => setAgentForm((p) => ({ ...p, name: e.currentTarget.value }))}
+                // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
+                onChange={(e) => {
+                  const name = e.currentTarget.value;
+                  setAgentForm((p) => ({ ...p, name }));
+                }}
               />
             </label>
             <label className="grid gap-1 text-[11px] text-ink-soft">
@@ -287,7 +291,10 @@ export function AgentSettingsPage({
                 className="field text-xs"
                 maxLength={300}
                 value={agentForm.description}
-                onChange={(e) => setAgentForm((p) => ({ ...p, description: e.currentTarget.value }))}
+                onChange={(e) => {
+                  const description = e.currentTarget.value;
+                  setAgentForm((p) => ({ ...p, description }));
+                }}
               />
             </label>
             <label className="grid gap-1 text-[11px] text-ink-soft">
@@ -298,7 +305,10 @@ export function AgentSettingsPage({
                 maxLength={8000}
                 placeholder="空なら役割の指示なし (素の状態) で動きます"
                 value={agentForm.systemPrompt}
-                onChange={(e) => setAgentForm((p) => ({ ...p, systemPrompt: e.currentTarget.value }))}
+                onChange={(e) => {
+                  const systemPrompt = e.currentTarget.value;
+                  setAgentForm((p) => ({ ...p, systemPrompt }));
+                }}
               />
             </label>
             <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
@@ -328,12 +338,10 @@ export function AgentSettingsPage({
                     wrapperClassName="w-full"
                     aria-label="エージェントの Effort"
                     value={agentForm.thinkingLevel ?? ""}
-                    onChange={(e) =>
-                      setAgentForm((p) => ({
-                        ...p,
-                        thinkingLevel: (e.currentTarget.value || null) as ThinkingLevel | null,
-                      }))
-                    }
+                    onChange={(e) => {
+                      const thinkingLevel = (e.currentTarget.value || null) as ThinkingLevel | null;
+                      setAgentForm((p) => ({ ...p, thinkingLevel }));
+                    }}
                   >
                     <option value="">
                       {defaultThinkingLevel ? `未指定（アプリ既定: ${effortLabel(defaultThinkingLevel)}）` : "未指定"}

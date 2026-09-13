@@ -140,7 +140,11 @@ export function SkillSettingsPage({ catalog, refreshCatalog, compact = false, on
                 required
                 maxLength={80}
                 value={skillForm.name}
-                onChange={(e) => setSkillForm((p) => ({ ...p, name: e.currentTarget.value }))}
+                // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
+                onChange={(e) => {
+                  const name = e.currentTarget.value;
+                  setSkillForm((p) => ({ ...p, name }));
+                }}
               />
             </label>
             <label className="grid gap-1 text-[11px] text-ink-soft">
@@ -149,7 +153,10 @@ export function SkillSettingsPage({ catalog, refreshCatalog, compact = false, on
                 className="field text-xs"
                 maxLength={300}
                 value={skillForm.description}
-                onChange={(e) => setSkillForm((p) => ({ ...p, description: e.currentTarget.value }))}
+                onChange={(e) => {
+                  const description = e.currentTarget.value;
+                  setSkillForm((p) => ({ ...p, description }));
+                }}
               />
             </label>
             <label className="grid gap-1 text-[11px] text-ink-soft">
@@ -160,7 +167,10 @@ export function SkillSettingsPage({ catalog, refreshCatalog, compact = false, on
                 maxLength={8000}
                 placeholder="例: 結論を先に述べ、根拠をファイル名付きで示す"
                 value={skillForm.prompt}
-                onChange={(e) => setSkillForm((p) => ({ ...p, prompt: e.currentTarget.value }))}
+                onChange={(e) => {
+                  const prompt = e.currentTarget.value;
+                  setSkillForm((p) => ({ ...p, prompt }));
+                }}
               />
             </label>
             <div className="flex gap-2 pt-1">

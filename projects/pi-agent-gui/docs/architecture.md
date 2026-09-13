@@ -241,3 +241,4 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - SSE はセッション ID・再接続カウンタに同期し、通知処理は `useEffectEvent` で最新の callback を参照する。OS テーマは `useSyncExternalStore` で購読する。
 - 管理フォームは選択対象とカタログの変更を render 中に検出して自身の state を初期化する。カタログ再読込でも未保存入力をリセットする既存の挙動を維持する（設定ページはメイン領域に置き、dialog ではない）。
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間だけ止めて、戻ったときに最新位置へ揃える）。コピー完了待ちの要求は cleanup で無効化する。
+- フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` が固定する。
