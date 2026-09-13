@@ -98,6 +98,49 @@ export interface StubSessionOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /**
+   * prompt ごとに 1 件消費する preflight compaction (null は圧縮しない)。
+   * 実 SDK は送信メッセージを組み立てる前に compaction を走らせる。
+   */
+  preflightCompactions?: Array<StubCompactionOptions | null>;
+}
+
+/** SDK の SessionEntry と同じ形の append-only ログ。getBranch() が返す */
+export interface StubSessionEntry {
+  type: "message" | "model_change" | "compaction";
+  id: string;
+  parentId: string | null;
+  timestamp: string;
+  /** type === "message" のとき。session.messages と同じ参照を保つ */
+  message?: {
+    role: string;
+    content: unknown;
+    stopReason?: string;
+    errorMessage?: string;
+    timestamp?: number;
+    usage?: unknown;
+  };
+  /** type === "compaction" */
+  summary?: string;
+  firstKeptEntryId?: string;
+  tokensBefore?: number;
+  usage?: unknown;
+  fromHook?: boolean;
+}
+
+export interface StubCompactionOptions {
+  reason?: "manual" | "threshold" | "overflow";
+  /** 先頭から何件の表示メッセージを要約へ置き換えるか。未指定は最後の 2 件を残す */
+  summarizeCount?: number;
+  /** "none" / "aborted" / "error" で result が無い異常系を再現する */
+  outcome?: "ok" | "none" | "aborted" | "error";
+  summary?: string;
+  tokensBefore?: number;
+  estimatedTokensAfter?: number;
+  /** firstKeptEntryId が metadata entry (model 変更) を指す SDK の挙動を再現する */
+  firstKeptIsMetadata?: boolean;
+  usage?: Usage;
+  fromHook?: boolean;
 }
 
 export interface StubSession extends PiSessionLike {
@@ -106,6 +149,12 @@ export interface StubSession extends PiSessionLike {
   disposed: boolean;
   /** SDK のモデル切替時の既定 thinking (setModel が上書きする値) */
   modelSwitchDefault: string;
+  /** getBranch() が返す append-only の entry ログ */
+  readonly entries: StubSessionEntry[];
+  /** compaction を 1 回実行する (実 SDK と同じ順序でイベントと entry / messages を更新する) */
+  compact(options?: StubCompactionOptions): Promise<void>;
+  /** overflow 回復の再現: 失敗した assistant を agent state から外す (entry には残す) */
+  dropLastAssistantFromState(): void;
 }
 
 /**
@@ -131,14 +180,71 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     timer.unref?.();
     sleepers.add(wake);
   });
+
+  // SessionManager と同じく append-only の entry ログを持ち、messages はそこから組み立てる。
+  // compaction 後も圧縮前の entry を残す (実 SDK の getBranch() と同じ性質を再現する)。
+  const entries: StubSessionEntry[] = [];
+  let leafId: string | null = null;
+  let entrySeq = 0;
+  const appendEntry = (entry: Omit<StubSessionEntry, "id" | "parentId" | "timestamp">): StubSessionEntry => {
+    entrySeq += 1;
+    const created: StubSessionEntry = {
+      ...entry,
+      id: `entry-${entrySeq}`,
+      parentId: leafId,
+      timestamp: new Date().toISOString(),
+    };
+    entries.push(created);
+    leafId = created.id;
+    return created;
+  };
+  /** 最新の compaction だけを残す context 組み替え (buildContextEntries と同じ順序) */
+  const contextEntries = (): StubSessionEntry[] => {
+    let compactionIndex = -1;
+    for (let index = 0; index < entries.length; index += 1) {
+      if (entries[index].type === "compaction") compactionIndex = index;
+    }
+    if (compactionIndex < 0) return [...entries];
+    const kept: StubSessionEntry[] = [];
+    let keeping = false;
+    for (let index = 0; index < compactionIndex; index += 1) {
+      if (!keeping && entries[index].id === entries[compactionIndex].firstKeptEntryId) keeping = true;
+      if (keeping) kept.push(entries[index]);
+    }
+    return [entries[compactionIndex], ...kept, ...entries.slice(compactionIndex + 1)];
+  };
+  const contextMessages = (): PiSessionLike["messages"] =>
+    contextEntries().flatMap((entry) => {
+      if (entry.type === "message" && entry.message) return [entry.message];
+      // 実 SDK と同じく role compactionSummary のメッセージが context の先頭に入る (BFF は payload から落とす)
+      if (entry.type === "compaction") {
+        return [{
+          role: "compactionSummary",
+          content: entry.summary ?? "",
+          timestamp: Date.parse(entry.timestamp),
+        }];
+      }
+      return [];
+    });
+
   const session = {
     sessionId: `pi-${Math.random().toString(36).slice(2, 10)}`,
     model: options.model ?? STUB_MODEL,
     thinkingLevel: options.thinkingLevel ?? "low",
-    messages: [] as Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string; timestamp?: number }>,
+    messages: [] as PiSessionLike["messages"],
     isStreaming: false,
     get isIdle() {
       return !session.isStreaming;
+    },
+    sessionManager: { getBranch: () => [...entries] },
+    get entries(): StubSessionEntry[] {
+      return [...entries];
+    },
+    /** entry へ積むのと同時に agent state へも入れる (compaction では context の組み替えで置き換わる) */
+    appendMessage(message: NonNullable<StubSessionEntry["message"]>): StubSessionEntry {
+      const entry = appendEntry({ type: "message", message });
+      session.messages.push(message);
+      return entry;
     },
     supportsThinking: () => Boolean(session.model?.reasoning),
     getAvailableThinkingLevels: () => getSupportedThinkingLevels(session.model),
@@ -165,6 +271,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       session.model = model as PiAiModel<Api>;
       // SDK は切替時にセッション既定の thinking を入れる (store 側の再適用を検証できる)
       session.thinkingLevel = session.modelSwitchDefault;
+      appendEntry({ type: "model_change" });
     },
     disposed: false,
     abortRequested: false,
@@ -184,13 +291,89 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     dispose() {
       session.disposed = true;
     },
+    dropLastAssistantFromState() {
+      for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+        if (session.messages[index].role === "assistant") {
+          session.messages.splice(index, 1);
+          return;
+        }
+      }
+    },
+    async compact(compaction: StubCompactionOptions = {}) {
+      const reason = compaction.reason ?? "threshold";
+      const outcome = compaction.outcome ?? "ok";
+      session.emit({ type: "compaction_start", reason });
+      if (outcome !== "ok") {
+        session.emit({
+          type: "compaction_end",
+          reason,
+          result: undefined,
+          aborted: outcome === "aborted",
+          willRetry: false,
+          ...(outcome === "error" ? { errorMessage: "Compaction failed: stub" } : {}),
+        });
+        return;
+      }
+      const displayable = contextEntries().filter(
+        (entry) => entry.type === "message" && (entry.message?.role === "user" || entry.message?.role === "assistant"),
+      );
+      const summarizeCount = compaction.summarizeCount ?? Math.max(0, displayable.length - 2);
+      const firstKept = displayable[Math.min(summarizeCount, displayable.length - 1)];
+      let firstKeptEntryId: string | undefined = firstKept?.id;
+      if (firstKept && compaction.firstKeptIsMetadata) {
+        // 実 SDK の cut point は model 変更などの metadata entry を指し得る。
+        // 境界の位置だけを再現したいので、branch の親子関係を保ったまま手前へ差し込む。
+        entrySeq += 1;
+        const metadata: StubSessionEntry = {
+          type: "model_change",
+          id: `entry-${entrySeq}`,
+          parentId: firstKept.parentId,
+          timestamp: new Date().toISOString(),
+        };
+        const position = entries.indexOf(firstKept);
+        firstKept.parentId = metadata.id;
+        entries.splice(position, 0, metadata);
+        leafId = entries[entries.length - 1].id;
+        firstKeptEntryId = metadata.id;
+      }
+      const tokensBefore = compaction.tokensBefore ?? 68_000;
+      const entry = appendEntry({
+        type: "compaction",
+        summary: compaction.summary ?? "これまでの会話の要約です",
+        firstKeptEntryId,
+        tokensBefore,
+        usage: compaction.usage,
+        fromHook: compaction.fromHook,
+      });
+      session.messages = contextMessages();
+      session.emit({
+        type: "compaction_end",
+        reason,
+        result: {
+          summary: entry.summary,
+          firstKeptEntryId: entry.firstKeptEntryId,
+          tokensBefore,
+          estimatedTokensAfter: compaction.estimatedTokensAfter ?? 5_000,
+          usage: compaction.usage,
+        },
+        aborted: false,
+        willRetry: false,
+      });
+    },
     async prompt(text: string) {
       session.abortRequested = false;
       session.isStreaming = true;
       try {
-        // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)
-        session.messages.push({ role: "user", content: text, timestamp: Date.now() });
+        // 実 SDK は送信メッセージを組み立てる前に preflight の compaction を走らせる
+        const preflight = options.preflightCompactions?.shift();
+        if (preflight) await session.compact(preflight);
         session.emit({ type: "agent_start" });
+        // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)。
+        // 実 SDK は prompt メッセージにも message_start / message_end を出し、message_end の時点で agent state へ入れる。
+        const userMessage = { role: "user", content: text, timestamp: Date.now() };
+        session.appendMessage(userMessage);
+        session.emit({ type: "message_start", message: userMessage });
+        session.emit({ type: "message_end", message: userMessage });
         session.emit({ type: "message_start", message: { role: "assistant" } });
         const assistant = {
           role: "assistant",
@@ -200,7 +383,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           // usage 非対応プロバイダを再現するときはキー自体を作らない
           ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
         };
-        session.messages.push(assistant);
+        session.appendMessage(assistant);
         if (options.thinkingDelta) {
           await sleep(chunkDelayMs);
           if (!session.abortRequested) {
@@ -262,6 +445,8 @@ export interface StubPiOptions {
   thinkingDelta?: string;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
   setModelFailures?: number;
+  /** prompt ごとに消費する preflight compaction (StubSessionOptions と同じ) */
+  preflightCompactions?: Array<StubCompactionOptions | null>;
   availableModels?: PiAiModel<Api>[];
   /** null を渡すとアプリ既定モデル無し (認証済み候補はある) を再現する */
   selectedModel?: PiAiModel<Api> | null;

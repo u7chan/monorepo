@@ -24,6 +24,7 @@ function payload(sessionId: string, thinkingLevel = "low"): SessionPayload {
     lastSeq: 1,
     run: null,
     messages: [],
+    compactions: [],
     thinkingLevel,
   };
 }

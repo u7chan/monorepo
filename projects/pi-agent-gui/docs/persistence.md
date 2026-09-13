@@ -54,6 +54,18 @@ DBの種類・スキーマ・復元方式はこの資料では決めない。
 DBへの永続化を意味しない。アイドルセッションの破棄条件などは
 [architecture.md](architecture.md) を参照する。
 
+### compaction entry の保存
+
+会話履歴を永続化するときは、`messages` だけでなく **compaction entry も保存対象にする**。
+圧縮で context から外れた元メッセージも entry には残るため、entry を保存しないと
+区切り位置（`firstKeptEntryId` 以降）も要約も後から再現できない。DTO の形（[api.md](api.md) の
+`compactions`）はそのまま写せる形に保つ。
+
+- `id` / `parentId` / `timestamp` / `summary` / `firstKeptEntryId` / `tokensBefore` / `usage` / `fromHook` は SDK の `CompactionEntry` の値。アプリ独自の連番は振らず、この `id` で一意に参照する
+- `firstKeptEntryId` は context を再構築する起点（「最新の compaction + `firstKeptEntryId` 以降 + 圧縮後の entry」= SDK の `buildContextEntries()` と同じ規則）なので、解決先の entry も同じ単位で保存する
+- `reason` と `estimatedTokensAfter` は `CompactionEntry` には保存されず `compaction_end` にしか無い。永続化するならイベント受信時に entry と同じ行へ控える。控えられない場合は省略可能な値として扱う（表示は `tokensBefore` だけで成立する）
+- `usage` / `fromHook` / `estimatedTokensAfter` は今は表示しないが将来使う値なので DTO から落とさない
+
 ## 検証状況（2026-09-12時点）
 
 実環境でサンドボックスの非root実行、`/workspace` への書き込み、

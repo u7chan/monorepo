@@ -140,6 +140,37 @@ export const ContextUsageSchema = z.object({
 });
 export type ContextUsage = z.infer<typeof ContextUsageSchema>;
 
+/** pi SDK の compaction_end が返す理由。entry には保存されないため DTO 側で合成する。 */
+export const CompactionReasonSchema = z.enum(["manual", "threshold", "overflow"]);
+export type CompactionReason = z.infer<typeof CompactionReasonSchema>;
+
+/**
+ * pi SDK の CompactionEntry をそのまま写せる形 (表示用の文字列へ潰さず、独自の連番 ID も振らない)。
+ * reason と estimatedTokensAfter は entry に保存されないため、compaction_end を受けた時点の値を
+ * 合成する。beforeMessageIndex は最新の 1 件だけが持つ (SDK は最新の compaction しか context に
+ * 残さないため、以前の圧縮位置は messages から復元できない)。
+ */
+export const CompactionInfoSchema = z.object({
+  id: z.string(),
+  parentId: z.string().nullable(),
+  /** ISO 8601 (SDK の SessionEntryBase と同じ形式) */
+  timestamp: z.string(),
+  summary: z.string(),
+  firstKeptEntryId: z.string(),
+  tokensBefore: z.number(),
+  /** 要約生成に使った LLM 呼び出しの使用量 (将来使う値として落とさない) */
+  usage: UsageSchema.optional(),
+  /** extension が生成した圧縮かどうか */
+  fromHook: z.boolean().optional(),
+  /** 区切りを置く messages の index (この index の手前)。最新の compaction だけが持つ */
+  beforeMessageIndex: z.number().optional(),
+  /** compaction_end の reason */
+  reason: CompactionReasonSchema.optional(),
+  /** compaction_end の推定値。UI には出さないが永続化を見据えて保持する */
+  estimatedTokensAfter: z.number().optional(),
+});
+export type CompactionInfo = z.infer<typeof CompactionInfoSchema>;
+
 export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
@@ -191,6 +222,8 @@ export const SessionPayloadSchema = z.object({
   agent: AgentPayloadInfoSchema.optional(),
   run: RunPayloadSchema.nullable(),
   messages: z.array(ChatMessageSchema),
+  /** 会話の圧縮履歴 (古い→新しい)。区切りは messages に混ぜず、回数はこの長さから導出する */
+  compactions: z.array(CompactionInfoSchema),
   /** セッションのコンテキスト使用量。SDK が持たない (スタブ等) ときはキーを省略する */
   context: ContextUsageSchema.optional(),
 });
@@ -355,6 +388,11 @@ export const EventDataSchemas = {
     messageCount: z.number().optional(),
     // message_end 時点の context は SDK が履歴へ入れる前で古いため、確定値は run_end で配る
     context: ContextUsageSchema.optional(),
+  }),
+  // compaction_end の 1 件分と、その時点の累計回数。続けて resync が同じ状態を配る
+  compaction: z.object({
+    compaction: CompactionInfoSchema,
+    count: z.number(),
   }),
   resync: SessionPayloadSchema,
   session_deleted: z.object({ sessionId: z.string() }),

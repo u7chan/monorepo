@@ -363,6 +363,9 @@ export function useAgentDesk() {
           context: entry.data.context,
         });
         return;
+      case "compaction":
+        dispatch({ type: "compaction", compaction: entry.data.compaction, count: entry.data.count });
+        return;
       case "status":
         dispatch({ type: "status", text: entry.data.text });
         return;

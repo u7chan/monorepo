@@ -183,6 +183,33 @@ function configuredTools(): string[] {
   return tools.length > 0 ? tools : DEFAULT_TOOLS;
 }
 
+/** SDK の compaction の既定値 (SettingsManager と同じ) */
+const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384;
+const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
+
+/**
+ * compaction の閾値を下げて発火させやすくする検証用の環境変数を読む。
+ * 未設定・不正値 (0 以下・非整数・非数値) は undefined を返し、SDK 既定のままにする (デプロイ影響なし)。
+ */
+export function parseCompactionTokenKnob(raw: string | undefined): number | undefined {
+  const value = Number(raw?.trim());
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+export function compactionSettingsFromEnv(env: NodeJS.ProcessEnv = process.env): {
+  enabled: true;
+  reserveTokens: number;
+  keepRecentTokens: number;
+} {
+  return {
+    enabled: true,
+    reserveTokens:
+      parseCompactionTokenKnob(env.PI_COMPACTION_RESERVE_TOKENS) ?? DEFAULT_COMPACTION_RESERVE_TOKENS,
+    keepRecentTokens:
+      parseCompactionTokenKnob(env.PI_COMPACTION_KEEP_RECENT_TOKENS) ?? DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
+  };
+}
+
 function modelLabel(model?: PiModelRef | null): string | undefined {
   return model ? `${model.provider}/${model.id}` : undefined;
 }
@@ -249,6 +276,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     availableModelList.find(
       (candidate) => candidate.provider === model.provider && candidate.id === model.id,
     );
+  // 検証時だけ閾値を下げる。未設定なら SDK 既定 (16384 / 20000) で従来と同じ。
+  const compactionSettings = compactionSettingsFromEnv();
 
   async function createSession({
     agent,
@@ -282,7 +311,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     }
     // セッションを使い捨てに保つ: JSONL セッションファイルを作らず、ユーザーの pi 設定にも書き込まない。
     const settingsManager = SettingsManager.inMemory({
-      compaction: { enabled: true },
+      compaction: compactionSettings,
       retry: { enabled: true, maxRetries: 2 },
     });
     const agentPrompt = agent

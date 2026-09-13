@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  CompactionInfo,
   ContextUsage,
   MessageMetrics,
   RunStatus,
@@ -53,6 +54,8 @@ export type ChatState = {
   availableThinkingLevels: ThinkingLevel[];
   /** セッションのコンテキスト使用量。セッション未作成、または payload 未取得の間は undefined */
   context?: ContextUsage;
+  /** 会話の圧縮履歴 (古い→新しい)。区切りの位置は最新の 1 件だけが持つ */
+  compactions: CompactionInfo[];
   /** usage が本文 / ツールカードより先に届いたときの保留値 (次に作る assistant バブルへ回す) */
   pendingUsage?: Usage;
   pendingMetrics?: MessageMetrics;
@@ -67,6 +70,7 @@ export type ChatAction =
   | { type: "toolStart"; id: string; name: string; args: string; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
+  | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; text: string }
   | { type: "queued"; position: number; queueDepth: number }
   | { type: "queueCleared" }
@@ -87,6 +91,7 @@ export const initialChatState: ChatState = {
   supportsThinking: false,
   availableThinkingLevels: [],
   context: undefined,
+  compactions: [],
   pendingUsage: undefined,
   pendingMetrics: undefined,
 };
@@ -200,6 +205,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
         context: payload.context,
+        compactions: payload.compactions ?? [],
         pendingUsage: undefined,
         pendingMetrics: undefined,
       };
@@ -285,6 +291,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...next,
         pendingUsage: action.usage ?? state.pendingUsage,
         pendingMetrics: action.metrics ?? state.pendingMetrics,
+      };
+    }
+
+    case "compaction": {
+      // 同じ状態を続けて resync が配る。ここでは SSE が途切れた場合にも回数と要約を残すため、
+      // 1 件分を entry id で差し替える (messages の置き換えは resync が担う)。
+      const index = state.compactions.findIndex((item) => item.id === action.compaction.id);
+      const compactions =
+        index === -1
+          ? [...state.compactions, action.compaction]
+          : state.compactions.map((item, i) => (i === index ? action.compaction : item));
+      return {
+        ...state,
+        compactions,
+        activity: `会話を圧縮しました（${action.count}回目）`,
       };
     }
 

@@ -178,6 +178,7 @@ export default function App() {
           <ChatArea
             visible={mainView === "chat"}
             bubbles={desk.chat.bubbles}
+            compactions={desk.chat.compactions}
             compact={compact}
             suggestions={desk.selectedAgent?.suggestions}
             onSuggestion={handleSend}

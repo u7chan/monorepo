@@ -8,6 +8,8 @@ export type {
   AgentSuggestion,
   Catalog,
   ChatMessage,
+  CompactionInfo,
+  CompactionReason,
   ContextUsage,
   EventEntry,
   FileEntry,

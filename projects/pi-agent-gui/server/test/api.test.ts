@@ -304,6 +304,53 @@ test("assistant usage reaches the client through SSE and the session payload", a
   }
 });
 
+test("compaction reaches the client through SSE and stays in the session payload", async () => {
+  const pi = createStubPi({ chunkDelayMs: 40 });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const posted = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "圧縮される会話" }));
+    assert.equal(posted.status, 202);
+    const seen = collectSse(
+      eventsResponse,
+      (list) =>
+        list.some((entry) => entry.type === "compaction") &&
+        list.some((entry) => entry.type === "resync"),
+    );
+    await pi.sessions[0].compact({
+      reason: "threshold",
+      summarizeCount: 1,
+      summary: "e2e の要約",
+      tokensBefore: 42_000,
+      estimatedTokensAfter: 8_000,
+    });
+    const events = await seen;
+
+    const compactionIndex = events.findIndex((entry) => entry.type === "compaction");
+    const resyncIndex = events.findIndex((entry) => entry.type === "resync");
+    assert.ok(compactionIndex >= 0, "compaction イベントが届く");
+    assert.equal(resyncIndex, compactionIndex + 1, "compaction の直後に resync が届く");
+
+    const compactionEvent = events[compactionIndex];
+    assert.equal(compactionEvent.data.count, 1);
+    assert.equal(compactionEvent.data.compaction.summary, "e2e の要約");
+    assert.equal(compactionEvent.data.compaction.reason, "threshold");
+
+    // リロード / 再接続は payload 側を正とする
+    const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
+    assert.equal(payload.compactions.length, 1);
+    assert.equal(payload.compactions[0].summary, "e2e の要約");
+    assert.equal(payload.compactions[0].tokensBefore, 42_000);
+    assert.equal(payload.compactions[0].estimatedTokensAfter, 8_000);
+    assert.equal(typeof payload.compactions[0].beforeMessageIndex, "number");
+    assert.ok(!payload.messages.some((message: { text: string }) => message.text.includes("要約")));
+  } finally {
+    await bff.close();
+  }
+});
+
 test("server still answers when the pi runtime failed to initialize", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", pi: null });
   try {
