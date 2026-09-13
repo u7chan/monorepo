@@ -216,6 +216,8 @@ export const HealthSchema = z.object({
   defaultModelError: z.string().optional(),
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
+  /** PI_SANDBOX_URL / PI_SANDBOX_TOKEN が揃っているか (未設定ならセッション作成が 503) */
+  sandboxConfigured: z.boolean().optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
 

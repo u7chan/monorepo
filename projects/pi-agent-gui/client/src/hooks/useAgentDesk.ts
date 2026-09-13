@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
+import { runtimeStatusForError, runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
 import { useSessionEvents } from "./useSessionEvents";
 import { createRequestGate } from "./requestGate";
 
@@ -79,31 +80,6 @@ export type ComposerSettings = {
   /** 有効なモデルが無いため送信しても作成できないときの理由 */
   sendBlockedReason?: string;
 };
-
-/** ヘッダーの接続状態。モデルは含めない (会話モデルの表示は ModelDisplay が持つ) */
-export type RuntimeStatus = {
-  text: string;
-  error: boolean;
-  detail?: string;
-  authRequired?: boolean;
-};
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function runtimeStatusForError(error: unknown): RuntimeStatus {
-  const detail = errorText(error);
-  const authRequired =
-    (error instanceof ApiError && error.status === 503) ||
-    /APIキー|No API key found|Provider is not configured|No model selected/i.test(detail);
-  return {
-    text: authRequired ? "APIキー未設定" : "エラー",
-    error: true,
-    detail,
-    authRequired,
-  };
-}
 
 export function useAgentDesk() {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
@@ -169,27 +145,11 @@ export function useAgentDesk() {
   const applyHealth = useCallback((next: Health) => {
     setHealth(next);
     setCwd(next.cwd || "");
-    if (next.ready) {
-      // 明示された既定モデルが使えなくても候補はある。別モデルへ黙って切り替えず入力欄で選ばせる。
-      if (next.defaultModelError) {
-        setRuntimeStatus({ text: "モデル未選択", error: true, detail: next.defaultModelError });
-      } else {
-        // health.model はアプリ既定であり、選択中セッションの実効モデルとは限らない。
-        // 実効値は resync が chat.sessionModel へ入れるので、ここでは接続状態だけを更新する。
-        setRuntimeStatus({ text: "接続中", error: false });
-      }
-      return;
+    const status = runtimeStatusForHealth(next);
+    setRuntimeStatus(status);
+    if (status.error && !next.ready && status.detail) {
+      dispatch({ type: "setActivity", text: status.detail });
     }
-
-    const authRequired = next.errorCode === "authentication_required";
-    const detail = next.error || next.availabilityError || "APIキーまたは認証設定を確認してください";
-    setRuntimeStatus({
-      text: authRequired ? "APIキー未設定" : "ランタイム未接続",
-      error: true,
-      detail,
-      authRequired,
-    });
-    dispatch({ type: "setActivity", text: detail });
   }, []);
 
   const refreshHealth = useCallback(async (isCurrent = alwaysCurrent): Promise<Health | null> => {
