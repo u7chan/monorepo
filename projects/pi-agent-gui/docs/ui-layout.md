@@ -15,10 +15,10 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 ## モードごとの構成
 
 - desktop: `Topbar`（theme / エラー時の接続状態）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- `FileTreeScreen`（作業ディレクトリのファイルツリー）はサイドバーの「作業ディレクトリ」カードから開く。メイン画面のレイアウトには分離した full screen の dialog で、`ManagerScreen` と同じくヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
+- `FileTreeScreen`（作業ディレクトリのファイルツリー）は設定ナビの「ファイル」から開く。渡すパスは選択中セッションの実効 cwd で、未作成チャットは選択中プロジェクトの cwd、未所属は `""`（ワークスペース root）。**この cwd がツリーの root になり**、`GET /api/files` へは root 自身を `path=<cwd>`、配下を `path=<cwd>/<name>` で問い合わせる（未所属は `path=.`）。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。メイン画面のレイアウトには分離した full screen の dialog で、`ManagerScreen` と同じくヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
 - portrait / landscape: `CompactBar` が「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
-  - セッション一覧・エージェント / スキル管理・作業ディレクトリ・テーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。項目を選ぶとドロワーは閉じる。「作業ディレクトリ」から開く `FileTreeScreen` もドロワーを閉じてから全幅で開く（入口は `Sidebar` の共通カード）
-  - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（セッション一覧だけを `flex-1` にすると 0px に潰れる）
+  - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）とテーマは `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッションの項目を選ぶとドロワーは閉じ（選択後に主画面で続ける操作はプロジェクト行の「＋」）、設定の項目も閉じてから `ManagerScreen` / `FileTreeScreen` を全幅で開く。折りたたみ chevron は選択ではないので閉じない
+  - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
   - `ManagerScreen` は full screen のまま、ヘッダと一覧の高さだけ詰める。`FileTreeScreen` も同じく full screen のまま、ヘッダの折り返しと全幅のツリーで狭い viewport に追従させる（行のインデントは深さに比例するため、横スクロールは `overflow-x-hidden` で抑える）
@@ -31,9 +31,28 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 メッセージ本文の下の時刻ラベルとコピーボタンは本文と同じ列の中の 1 行に並べる（時刻は `at` が無ければ出さない）。assistant 列の幅は本文とツール履歴で決まり、時刻ラベルの有無や長さでは動かない。内容幅で決まる user 列では、本文よりこの行が広い短文（例: 2 文字）で時刻ラベルの分だけ列幅が広がる。
 
+## サイドバー
+
+サイドバーは nav / settings の 2 モードを持ち、mode は `App` が持つ（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。
+
+### nav モード
+
+上から ブランド / 「新しい会話」/ `Projects`（`New Project` + プロジェクト行）/ `Chats` / フットノート / `設定`（下部固定）。
+
+- プロジェクト行は フォルダアイコン + 名前 + cwd 相対パスの副次表示 + 折りたたみ chevron + ホバーの「＋」「削除」。行のクリックでそのプロジェクトを選択し、配下セッションは `SessionRow` をインデント表示する
+- 選択中プロジェクトは「新しい会話」の**作成先**で、開いているセッションの所属とは一致しないことがある。そのためプロジェクト行のハイライトは弱く（`accent-wash/60` と薄い枠）、セッション行（`accent-wash` と濃い枠）と区別する
+- 並び順はプロジェクトが作成順、配下セッションと `Chats` が `lastUsedAt` 降順。グループ化は `client/src/lib/sessionsByProject.ts` の純関数が担い、未知の `projectId`（破棄直後など）は `Chats` へ寄せて一覧から消さない
+- プロジェクトの追加は dialog（`ProjectDialog`）で行う。新規作成は親ディレクトリ + 名前、既存登録は対象ディレクトリを選び、どちらも `GET /api/files` を辿って選ぶ（root は登録できない）。削除の confirm は配下セッション数を示し、ディレクトリが残ることも明示する
+
+### settings モード
+
+「アプリに戻る」+ エージェント / スキル / ファイルの 3 項目。項目は既存の full screen dialog を開くだけに留める（`ManagerScreen` はエージェント / スキルのタブを合わせて開く）。設定をメイン領域のページへ移すのは未実装で、現時点では dialog のまま。テーマ切替は settings モードには置かず、desktop は `Topbar`、compact はドロワー下部のカードに残す。
+
+一覧は `Projects` と `Chats` をまとめて 1 つのスクロール領域にし、`設定` は下部に固定する。desktop では高さが足りないとき、compact では drawer 全体のスクロールで全項目へ到達できる。
+
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界だけを固定する（client test は DOM を使わない純粋なロジックのみ、という方針）。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を固定する（client test は DOM を使わない純粋なロジックのみ、という方針）。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

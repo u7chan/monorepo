@@ -7,7 +7,9 @@ import {
   createFileTreeState,
   FILE_TREE_ROOT,
   fileTreeChildPath,
+  fileTreeFetchPath,
   invalidateFileTree,
+  normalizeFileTreeRoot,
   pendingFileTreeDirectories,
   toggleFileTreeDirectory,
   type FileTreeDirectoryState,
@@ -18,7 +20,10 @@ import { ArrowLeftIcon, ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from ".
 
 export type FileTreeScreenProps = {
   onClose: () => void;
-  /** 作業ディレクトリの絶対パス (health.cwd または SessionPayload.cwd) */
+  /**
+   * ツリーの root (ワークスペース root 相対。"" / "." / ワークスペース root の絶対パスはワークスペース root)。
+   * 配下の取得はこのパスを前置して GET /api/files へ問い合わせる。
+   */
   cwd: string;
   /** compact layout では内側の枠を絞らず全幅にする */
   compact?: boolean;
@@ -32,7 +37,8 @@ function errorText(error: unknown): string {
 }
 
 /**
- * 作業ディレクトリのファイルツリー。ManagerScreen と同じフルスクリーンの dialog にして、
+ * 作業ディレクトリのファイルツリー。渡された `cwd` を root として `GET /api/files` を辿る (配下は `<cwd>/<name>`)。
+ * ManagerScreen と同じフルスクリーンの dialog にして、
  * メイン画面のレイアウトは変えない (将来この中でツリー + プレビューの 2 ペインへ広げる)。
  * ヘッダもツリーも画面幅いっぱいに置く (中央に寄せると、狭い列の外側が余白として目立つ)。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
@@ -41,6 +47,8 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
   const dialogRef = useRef<HTMLDialogElement>(null);
   /** 開く前にフォーカスしていた要素 (閉じたときに戻す) */
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  /** ツリーの起点。表示も取得もこの root 相対で揃える */
+  const rootPath = normalizeFileTreeRoot(cwd);
   const [tree, setTree] = useState<FileTreeState>(createFileTreeState);
   const [selected, setSelected] = useState<string | null>(null);
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
@@ -68,7 +76,7 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
     for (const path of pending) {
       void (async () => {
         try {
-          const listing = await getFiles(path);
+          const listing = await getFiles(fileTreeFetchPath(rootPath, path));
           setTree((prev) => applyFileTreeListing(prev, path, listing));
         } catch (error) {
           setTree((prev) => applyFileTreeError(prev, path, errorText(error)));
@@ -77,7 +85,7 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
         }
       })();
     }
-  }, [tree]);
+  }, [tree, rootPath]);
 
   const reload = () => {
     setSelected(null);
@@ -110,7 +118,10 @@ export function FileTreeScreen({ onClose, cwd, compact = false }: FileTreeScreen
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">WORKSPACE</div>
           <h2 className="text-lg font-semibold text-ink-strong">作業ディレクトリ</h2>
-          <code className="block truncate text-[11px] leading-normal text-ink-muted">{cwd || "読み込み中…"}</code>
+          {/* 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる) */}
+          <code className="block truncate text-[11px] leading-normal text-ink-muted">
+            {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
+          </code>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={reload} className="btn-quiet">

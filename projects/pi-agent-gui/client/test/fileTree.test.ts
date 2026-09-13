@@ -7,7 +7,9 @@ import {
   beginFileTreeLoad,
   createFileTreeState,
   fileTreeChildPath,
+  fileTreeFetchPath,
   invalidateFileTree,
+  normalizeFileTreeRoot,
   pendingFileTreeDirectories,
   toggleFileTreeDirectory,
   type FileTreeState,
@@ -35,6 +37,28 @@ test("初期状態は root だけを開いた未取得にする", () => {
 test("子のキーは root 直下とネストで変わる", () => {
   assert.equal(fileTreeChildPath(".", "src"), "src");
   assert.equal(fileTreeChildPath("src", "client"), "src/client");
+});
+
+test("画面の root は root 相対に正規化し、絶対パスはワークスペース root として扱う", () => {
+  assert.equal(normalizeFileTreeRoot(""), ".", '未所属 (root) は "" で渡る');
+  assert.equal(normalizeFileTreeRoot("."), ".");
+  assert.equal(normalizeFileTreeRoot("docs"), "docs");
+  assert.equal(normalizeFileTreeRoot("docs/api"), "docs/api");
+  assert.equal(normalizeFileTreeRoot("docs/"), "docs", "末尾の区切りは落とす");
+  // health.cwd (ワークスペース root の絶対パス) が渡る経路。GET /api/files の path は root 相対だけを受ける
+  assert.equal(normalizeFileTreeRoot("/home/u7dev/workspace"), ".");
+  assert.equal(normalizeFileTreeRoot("C:\\workspace"), ".");
+});
+
+test("tree のパスは画面の root を前置して GET /api/files の path になる", () => {
+  // 未所属 (root) と root 自身の取得は path="." のまま
+  assert.equal(fileTreeFetchPath("", "."), ".");
+  assert.equal(fileTreeFetchPath("docs", "."), "docs", "プロジェクトのセッションは所属ディレクトリが root になる");
+  assert.equal(fileTreeFetchPath("/home/u7dev/workspace", "."), ".");
+  // 配下の展開は画面の root を前置する
+  assert.equal(fileTreeFetchPath(".", "docs"), "docs");
+  assert.equal(fileTreeFetchPath("docs", "api.md"), "docs/api.md");
+  assert.equal(fileTreeFetchPath("docs/api", "src"), "docs/api/src");
 });
 
 test("開閉を切り替えても取得済みの子は保持する", () => {

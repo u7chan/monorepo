@@ -27,6 +27,8 @@ export type ManagerScreenProps = {
   /** アプリ既定モデル (provider/id) */
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
+  /** 開いたときに選ぶタブ (設定ナビの「エージェント」「スキル」から開く) */
+  initialType?: EditingType;
   /** モバイルの compact layout (幅 900px 未満では stacked になるため、高さも使って詰める) */
   compact?: boolean;
 };
@@ -62,6 +64,7 @@ export function ManagerScreen({
   modelOptions,
   defaultModel,
   defaultThinkingLevel,
+  initialType = "agent",
   compact = false,
 }: ManagerScreenProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -69,8 +72,10 @@ export function ManagerScreen({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [editingType, setEditingType] = useState<EditingType>("agent");
-  const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
+  const [editingType, setEditingType] = useState<EditingType>(initialType);
+  const [editingId, setEditingId] = useState<string | null>(() =>
+    initialType === "skill" ? catalog.skills[0]?.id ?? null : agentId || catalog.agents[0]?.id || null,
+  );
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: DEFAULT_NOTE, error: false });
 
   // フォーム値 (editingType/editingId の変化で同期する)

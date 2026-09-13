@@ -1,10 +1,33 @@
 /**
  * ファイルツリーの状態更新 (開閉・子のマージ・エラー保持)。DOM に依存しない純関数だけを置き、
- * 取得の起動と描画は FileTreeScreen が担う。キーは root 相対パスで、root は "."。
+ * 取得の起動と描画は FileTreeScreen が担う。キーは画面の root 相対パスで、画面の root が "."。
+ * 画面の root からワークスペース root 相対 (GET /api/files の path) への変換は fileTreeFetchPath が担う。
  */
 import type { FileEntry } from "../types";
 
 export const FILE_TREE_ROOT = ".";
+
+/**
+ * 画面の root (ワークスペース root 相対) を正規化する。"" とワークスペース root 自身の絶対パス
+ * (health.cwd) は "." へ畳む。GET /api/files の path は root 相対だけを受け付けるため、
+ * 絶対パスを渡すと root 外として 400 になる。
+ */
+export function normalizeFileTreeRoot(cwd: string): string {
+  const path = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!path || path === FILE_TREE_ROOT) return FILE_TREE_ROOT;
+  if (path.startsWith("/") || /^[A-Za-z]:\//.test(path)) return FILE_TREE_ROOT;
+  return path;
+}
+
+/**
+ * 画面の root 相対パス (FILE_TREE_ROOT が画面の root) を GET /api/files の path へ変換する。
+ * 画面の root がワークスペース root ならそのまま、配下なら画面の root を前置する。
+ */
+export function fileTreeFetchPath(cwd: string, path: string): string {
+  const root = normalizeFileTreeRoot(cwd);
+  if (root === FILE_TREE_ROOT) return path;
+  return path === FILE_TREE_ROOT ? root : `${root}/${path}`;
+}
 
 export type FileTreeDirectoryState = {
   open: boolean;
@@ -25,7 +48,7 @@ export function createFileTreeState(): FileTreeState {
   return { [FILE_TREE_ROOT]: { open: true, loading: false } };
 }
 
-/** parent ("." は root) 配下の子のキー。 */
+/** parent ("." は画面の root) 配下の子のキー。 */
 export function fileTreeChildPath(parent: string, name: string): string {
   return parent === FILE_TREE_ROOT ? name : `${parent}/${name}`;
 }
