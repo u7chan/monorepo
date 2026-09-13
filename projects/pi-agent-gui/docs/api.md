@@ -25,7 +25,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
       "id": "deepseek-v4-flash",
       "name": "DeepSeek V4 Flash",
       "supportsThinking": true,
-      "thinkingLevels": ["off", "low", "high", "max"]
+      "thinkingLevels": ["off", "low", "high", "max"],
+      "contextWindow": 200000
     }
   ],
   "defaultThinkingLevel": "medium",
@@ -33,7 +34,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 }
 ```
 
-`modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
+`modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`contextWindow` は UI の ctx ゲージの分母で、セッションの payload が `context` を返す前（応答前・新規チャット）でもこれだけでゲージを出せる。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
 
 ## ファイル一覧
 
@@ -291,9 +292,25 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
     "startedAt": 1700000000000,
     "toolCalls": [{ "id": "…", "name": "read", "args": "README.md", "done": true, "isError": false, "output": "…" }]
   },
+  "context": { "tokens": 68000, "contextWindow": 200000, "percent": 34 },
   "messages": [
     { "role": "user", "text": "…", "at": 1700000000000 },
-    { "role": "assistant", "text": "…", "stopReason": "stop", "at": 1700000001000 }
+    {
+      "role": "assistant",
+      "text": "…",
+      "stopReason": "stop",
+      "at": 1700000001000,
+      "usage": {
+        "input": 8200,
+        "output": 512,
+        "cacheRead": 7900,
+        "cacheWrite": 300,
+        "reasoning": 128,
+        "totalTokens": 17040,
+        "cost": { "input": 0.001, "output": 0.002, "cacheRead": 0.0002, "cacheWrite": 0.0001, "total": 0.0021 }
+      },
+      "metrics": { "durationMs": 1800, "ttftMs": 900, "tokensPerSecond": 42.3 }
+    }
   ]
 }
 ```
@@ -301,6 +318,12 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
 
 `messages[].at` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
+
+`messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
+
+`messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
+
+`context` は SDK の `getContextUsage()`（`tokens` / `contextWindow` / `percent`）。compaction 直後は `tokens` と `percent` が `null` になる。SDK がこの API を持たないときはキーを省略する。SDK は `message_end` を購読者へ配った後に履歴へ入れるため、`usage` イベント時点の `context` は直前の応答までの値（compaction 直後は不明値）になる。今回の応答を反映した確定値は `run_end` の `context` で配り、リロード / resync はこの payload を正とする。
 
 ### `PATCH /api/sessions/:id/settings`
 
@@ -342,7 +365,8 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 | `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |
-| `run_end` | `{ runId, status, error, messageCount, queueDepth }` |
+| `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }` |
+| `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `resync` | セッションペイロード全体（バッファを逃した場合） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 

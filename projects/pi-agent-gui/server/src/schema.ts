@@ -102,12 +102,53 @@ export const RunPayloadSchema = z.object({
 });
 export type RunPayload = z.infer<typeof RunPayloadSchema>;
 
+/** pi SDK の AssistantMessage.usage。cost は pi-ai の calculateCost 済み (料金表が無いモデルは 0)。 */
+export const UsageSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cacheRead: z.number(),
+  cacheWrite: z.number(),
+  /** cacheWrite のうち 1h 保持分 (Anthropic のみ報告する) */
+  cacheWrite1h: z.number().optional(),
+  /** output に含まれる推論トークン。報告しないプロバイダではキーを省略する */
+  reasoning: z.number().optional(),
+  totalTokens: z.number(),
+  cost: z.object({
+    input: z.number(),
+    output: z.number(),
+    cacheRead: z.number(),
+    cacheWrite: z.number(),
+    total: z.number(),
+  }),
+});
+export type Usage = z.infer<typeof UsageSchema>;
+
+/** BFF がイベントの到着時刻で測る応答時間。SDK は生成開始時刻しか持たない。 */
+export const MessageMetricsSchema = z.object({
+  durationMs: z.number(),
+  /** 最初の delta までの時間。delta が無かった (非ストリーミング) メッセージでは省略する */
+  ttftMs: z.number().optional(),
+  tokensPerSecond: z.number().optional(),
+});
+export type MessageMetrics = z.infer<typeof MessageMetricsSchema>;
+
+/** SDK の getContextUsage。compaction 直後は tokens / percent が null になる。 */
+export const ContextUsageSchema = z.object({
+  tokens: z.number().nullable(),
+  contextWindow: z.number(),
+  percent: z.number().nullable(),
+});
+export type ContextUsage = z.infer<typeof ContextUsageSchema>;
+
 export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   stopReason: z.string().optional(),
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
+  /** プロバイダが報告した使用量。数値なのでマスク不要。未報告ならキーを省略する (0 と区別する) */
+  usage: UsageSchema.optional(),
+  metrics: MessageMetricsSchema.optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
@@ -130,6 +171,8 @@ export const SessionPayloadSchema = z.object({
   agent: AgentPayloadInfoSchema.optional(),
   run: RunPayloadSchema.nullable(),
   messages: z.array(ChatMessageSchema),
+  /** セッションのコンテキスト使用量。SDK が持たない (スタブ等) ときはキーを省略する */
+  context: ContextUsageSchema.optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
 
@@ -154,6 +197,8 @@ export const ModelOptionSchema = z.object({
   name: z.string(),
   supportsThinking: z.boolean(),
   thinkingLevels: z.array(ThinkingLevelSchema),
+  /** ctx ゲージの分母。応答前でも表示できるようにする */
+  contextWindow: z.number(),
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
 
@@ -264,12 +309,20 @@ export const EventDataSchemas = {
     prompt: z.string(),
   }),
   queue_cleared: z.object({}).strict(),
+  // assistant の message_end ごとに 1 件。usage はプロバイダが報告したときだけ入る
+  usage: z.object({
+    usage: UsageSchema.optional(),
+    metrics: MessageMetricsSchema.optional(),
+    context: ContextUsageSchema.optional(),
+  }),
   run_end: z.object({
     runId: z.string().optional(),
     status: RunStatusSchema,
     queueDepth: z.number(),
     error: z.string().optional(),
     messageCount: z.number().optional(),
+    // message_end 時点の context は SDK が履歴へ入れる前で古いため、確定値は run_end で配る
+    context: ContextUsageSchema.optional(),
   }),
   resync: SessionPayloadSchema,
   session_deleted: z.object({ sessionId: z.string() }),

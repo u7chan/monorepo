@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
-import { SessionStore } from "../src/sessions";
+import { computeMessageMetrics, SessionStore } from "../src/sessions";
 import type { PiSessionLike } from "../src/sessions";
-import type { EventEntry } from "../src/schema";
+import type { ContextUsage, EventEntry, Usage } from "../src/schema";
 import {
   createStubPi,
+  STUB_CONTEXT_USAGE,
+  STUB_USAGE,
   waitFor,
 } from "./stub-pi";
 
@@ -396,6 +398,165 @@ test("omits the at key for histories without a timestamp", async () => {
 
   const payload = store.payload(record);
   assert.equal(Object.hasOwn(payload.messages[0], "at"), false, "at must be absent, not null/undefined");
+
+  await store.close();
+});
+
+// --- 応答メタ情報 ---
+
+test("derives the response metrics from the observed event times", () => {
+  assert.deepEqual(
+    computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1900, endedAt: 2800, outputTokens: 45 }),
+    { durationMs: 1800, ttftMs: 900, tokensPerSecond: 50 },
+  );
+
+  // スパンが 0 以下なら全体の duration で割る
+  assert.deepEqual(
+    computeMessageMetrics({ startedAt: 1000, firstTokenAt: 2000, endedAt: 2000, outputTokens: 20 }),
+    { durationMs: 1000, ttftMs: 1000, tokensPerSecond: 20 },
+  );
+
+  // duration も 0 なら tok/s は出さない (ゼロ除算や Infinity を配信しない)
+  assert.deepEqual(
+    computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1000, endedAt: 1000, outputTokens: 20 }),
+    { durationMs: 0, ttftMs: 0 },
+  );
+
+  // delta を 1 度も観測していない (非ストリーミング) メッセージは TTFT 無しで平均を出す
+  assert.deepEqual(
+    computeMessageMetrics({ startedAt: 1000, firstTokenAt: undefined, endedAt: 2000, outputTokens: 30 }),
+    { durationMs: 1000, tokensPerSecond: 30 },
+  );
+
+  // usage が無い / 0 のときは tok/s を出さない
+  assert.deepEqual(
+    computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: 0 }),
+    { durationMs: 1500, ttftMs: 500 },
+  );
+  assert.deepEqual(
+    computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: undefined }),
+    { durationMs: 1500, ttftMs: 500 },
+  );
+
+  // message_start を観測していないときは何も出さない
+  assert.equal(
+    computeMessageMetrics({ startedAt: undefined, firstTokenAt: 10, endedAt: 20, outputTokens: 5 }),
+    undefined,
+  );
+});
+
+test("emits usage per assistant message and keeps it in the payload for resync", async () => {
+  const catalog = createAgentCatalog();
+  const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 5 }), catalog });
+  const record = await store.create({ agentId: "agent-general" });
+  const events: EventEntry[] = [];
+  store.subscribe(record, 0, (entry) => events.push(entry));
+
+  store.postMessage(record, "usage を見せて");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const types = events.map((entry) => entry.type);
+  const usageEvent = events.find((entry) => entry.type === "usage");
+  assert.ok(usageEvent, "assistant の message_end で usage を 1 件出す");
+  assert.equal(types.filter((type) => type === "usage").length, 1);
+  assert.ok(types.indexOf("usage") < types.indexOf("run_end"), "バブルが開いている間に届く");
+
+  assert.deepEqual(usageEvent.data.usage, STUB_USAGE);
+  assert.ok(usageEvent.data.metrics, "BFF 計測の応答時間が入る");
+  assert.ok(usageEvent.data.metrics.durationMs >= 5, "chunk の遅延が duration に乗る");
+  assert.ok((usageEvent.data.metrics.ttftMs ?? -1) >= 0, "最初の delta で TTFT を記録する");
+  assert.ok((usageEvent.data.metrics.tokensPerSecond ?? 0) > 0, "output トークンから tok/sを出す");
+  assert.deepEqual(usageEvent.data.context, STUB_CONTEXT_USAGE);
+
+  // リロード / 再接続の正になる payload にも同じ値が乗る
+  const payload = store.payload(record);
+  assert.deepEqual(payload.context, STUB_CONTEXT_USAGE);
+  const assistant = payload.messages.at(-1);
+  assert.deepEqual(assistant?.usage, STUB_USAGE);
+  assert.deepEqual(assistant?.metrics, usageEvent.data.metrics);
+  assert.equal(payload.messages[0]?.usage, undefined, "user メッセージには載せない");
+
+  await store.close();
+});
+
+test("omits usage and context keys the SDK does not report, keeping the BFF metrics", async () => {
+  const catalog = createAgentCatalog();
+  const store = new SessionStore({ pi: createStubPi({ usage: null, contextUsage: null }), catalog });
+  const record = await store.create({ agentId: "agent-general" });
+  const events: EventEntry[] = [];
+  store.subscribe(record, 0, (entry) => events.push(entry));
+
+  store.postMessage(record, "usage 非対応のプロバイダ");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  // usage が無くても BFF が測った応答時間は出す (0 と偽らない)
+  const usageEvent = events.find((entry) => entry.type === "usage");
+  assert.ok(usageEvent);
+  assert.equal(usageEvent.data.usage, undefined);
+  assert.equal(usageEvent.data.context, undefined);
+  assert.ok(usageEvent.data.metrics);
+  assert.equal(usageEvent.data.metrics.tokensPerSecond, undefined, "output が無いので tok/s も出さない");
+
+  // 契約は「未報告ならキーを省略」。null や 0 に置き換えない
+  const payload = store.payload(record);
+  const assistant = payload.messages.at(-1);
+  assert.equal(Object.hasOwn(assistant ?? {}, "usage"), false);
+  assert.equal(Object.hasOwn(assistant ?? {}, "metrics"), true, "BFF 計測の応答時間は載る");
+  assert.equal(Object.hasOwn(payload, "context"), false);
+
+  await store.close();
+});
+
+test("delivers the context again after the SDK has added the message to its history", async () => {
+  const catalog = createAgentCatalog();
+  // compaction 直後: message_end の時点では SDK がまだ今回の応答を履歴へ入れていないので不明値
+  const beforeHistory: ContextUsage = { tokens: null, contextWindow: 128_000, percent: null };
+  const afterHistory: ContextUsage = { tokens: 120, contextWindow: 128_000, percent: 0.1 };
+  const store = new SessionStore({
+    pi: createStubPi({ chunkDelayMs: 5, contextUsage: afterHistory, contextUsageBeforeHistory: beforeHistory }),
+    catalog,
+  });
+  const record = await store.create({ agentId: "agent-general" });
+  const events: EventEntry[] = [];
+  store.subscribe(record, 0, (entry) => events.push(entry));
+
+  store.postMessage(record, "compaction 直後の応答");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const usageEvent = events.find((entry) => entry.type === "usage");
+  const runEnd = events.find((entry) => entry.type === "run_end");
+  assert.ok(usageEvent && runEnd);
+  assert.deepEqual(usageEvent.data.context, beforeHistory, "usage は SDK の履歴反映前なので不明値");
+  // ここで確定値を配らないと、クライアントはリロードするまでゲージを ? のままにする
+  assert.deepEqual(runEnd.data.context, afterHistory, "run_end は履歴反映後の値を配る");
+  assert.deepEqual(store.payload(record).context, afterHistory, "payload も同じ値");
+
+  await store.close();
+});
+
+test("keeps a reported zero usage as is and tolerates a post-compaction context", async () => {
+  const catalog = createAgentCatalog();
+  const zeroUsage: Usage = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  const compacted: ContextUsage = { tokens: null, contextWindow: 128_000, percent: null };
+  const store = new SessionStore({
+    pi: createStubPi({ usage: zeroUsage, contextUsage: compacted }),
+    catalog,
+  });
+  const record = await store.create({ agentId: "agent-general" });
+
+  store.postMessage(record, "0 の usage");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const payload = store.payload(record);
+  assert.deepEqual(payload.messages.at(-1)?.usage, zeroUsage, "報告された 0 はそのまま通す (表示側が隠す)");
+  assert.deepEqual(payload.context, compacted, "compaction 直後の null でも壊れない");
 
   await store.close();
 });

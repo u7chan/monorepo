@@ -1,4 +1,13 @@
-import type { ChatMessage, RunStatus, SessionPayload, ThinkingLevel, ToolCall } from "../types";
+import type {
+  ChatMessage,
+  ContextUsage,
+  MessageMetrics,
+  RunStatus,
+  SessionPayload,
+  ThinkingLevel,
+  ToolCall,
+  Usage,
+} from "../types";
 
 export type ToolPhase = "running" | "done" | "failed";
 
@@ -18,6 +27,10 @@ export type Bubble = {
   tools: ToolCard[];
   /** メッセージの作成時刻 (epoch ms)。履歴に時刻が無い場合は undefined */
   at?: number;
+  /** プロバイダが報告した使用量 (数値なのでマスク不要) */
+  usage?: Usage;
+  /** BFF 計測の応答時間。リロード後も resync で戻る */
+  metrics?: MessageMetrics;
 };
 
 export type ChatState = {
@@ -38,6 +51,11 @@ export type ChatState = {
   supportsThinking: boolean;
   /** 実効モデルで選べる Effort の候補 (非推論は ["off"] のみ) */
   availableThinkingLevels: ThinkingLevel[];
+  /** セッションのコンテキスト使用量。応答前や未作成のチャットでは undefined */
+  context?: ContextUsage;
+  /** usage が本文 / ツールカードより先に届いたときの保留値 (次に作る assistant バブルへ回す) */
+  pendingUsage?: Usage;
+  pendingMetrics?: MessageMetrics;
 };
 
 export type ChatAction =
@@ -48,10 +66,11 @@ export type ChatAction =
   | { type: "text"; delta: string; at: number }
   | { type: "toolStart"; id: string; name: string; args: string; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
+  | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "status"; text: string }
   | { type: "queued"; position: number; queueDepth: number }
   | { type: "queueCleared" }
-  | { type: "runEnd"; status: RunStatus; queueDepth: number; error?: string }
+  | { type: "runEnd"; status: RunStatus; queueDepth: number; error?: string; context?: ContextUsage }
   | { type: "setRun"; runStatus: RunStatus; queueDepth?: number; activity?: string }
   | { type: "setActivity"; text: string };
 
@@ -67,6 +86,9 @@ export const initialChatState: ChatState = {
   sessionThinkingLevel: undefined,
   supportsThinking: false,
   availableThinkingLevels: [],
+  context: undefined,
+  pendingUsage: undefined,
+  pendingMetrics: undefined,
 };
 
 function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
@@ -96,7 +118,21 @@ function ensureAssistant(state: ChatState, at?: number): ChatState {
     return state;
   }
   const next = appendBubble(state, "assistant", "", at);
-  return { ...next, currentAssistantId: next.nextId - 1 };
+  const bubbleId = next.nextId - 1;
+  // ツール呼び出しだけの応答は usage の方が先に届くので、ここで作ったバブルへ回す
+  const withMeta = next.pendingUsage || next.pendingMetrics
+    ? updateBubble(next, bubbleId, (bubble) => ({
+        ...bubble,
+        usage: next.pendingUsage,
+        metrics: next.pendingMetrics,
+      }))
+    : next;
+  return {
+    ...withMeta,
+    currentAssistantId: bubbleId,
+    pendingUsage: undefined,
+    pendingMetrics: undefined,
+  };
 }
 
 function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
@@ -115,6 +151,8 @@ function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: B
     text: message.text,
     tools: [],
     at: message.at,
+    usage: message.usage,
+    metrics: message.metrics,
   }));
   return { bubbles, nextId };
 }
@@ -161,6 +199,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionThinkingLevel: payload.thinkingLevel,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
+        context: payload.context,
+        pendingUsage: undefined,
+        pendingMetrics: undefined,
       };
       if (payload.run?.toolCalls?.length && (payload.status === "running" || payload.status === "completed")) {
         const last = [...bubbles].reverse().find((b) => b.role === "assistant");
@@ -186,6 +227,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds: {},
         runStatus: "running",
         activity: "実行を開始しました",
+        // 前の run の保留値を引き継がない
+        pendingUsage: undefined,
+        pendingMetrics: undefined,
       };
     }
 
@@ -225,6 +269,25 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }));
     }
 
+    case "usage": {
+      // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
+      const next = action.context ? { ...state, context: action.context } : state;
+      if (state.currentAssistantId !== null) {
+        return updateBubble(next, state.currentAssistantId, (b) => ({
+          ...b,
+          usage: action.usage ?? b.usage,
+          metrics: action.metrics ?? b.metrics,
+        }));
+      }
+      // まだ本文もツールカードも届いていない (tool 呼び出しだけの message_end が先に届く)。
+      // 直前の run のバブルを書き換えず、値を保留して次に作るバブルへ回す。
+      return {
+        ...next,
+        pendingUsage: action.usage ?? state.pendingUsage,
+        pendingMetrics: action.metrics ?? state.pendingMetrics,
+      };
+    }
+
     case "status":
       return { ...state, activity: action.text || "処理中…" };
 
@@ -252,6 +315,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activity,
         runStatus: queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status,
         queueDepth,
+        // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)
+        context: action.context ?? state.context,
+        // バブルが作られないまま run が終わった保留値は、次の run へ持ち越さない
+        pendingUsage: undefined,
+        pendingMetrics: undefined,
       };
     }
 

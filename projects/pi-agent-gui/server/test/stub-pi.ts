@@ -5,7 +5,7 @@
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff } from "../src/agent";
-import type { AgentDef, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "../src/schema";
+import type { AgentDef, ContextUsage, ModelOption, ModelRef, SkillDef, ThinkingLevel, Usage } from "../src/schema";
 import type { PiSessionEvent, PiSessionLike, PiSessionEventListener } from "../src/sessions";
 
 export interface StubModelInput {
@@ -60,8 +60,27 @@ export function modelOptionOf(model: PiAiModel<Api>): ModelOption {
     name: model.name,
     supportsThinking: getSupportedThinkingLevels(model).some((level) => level !== "off"),
     thinkingLevels: getSupportedThinkingLevels(model) as ThinkingLevel[],
+    contextWindow: model.contextWindow,
   };
 }
+
+/** assistant メッセージに載せる既定の usage (provider が報告する値を模する) */
+export const STUB_USAGE: Usage = {
+  input: 1234,
+  output: 56,
+  cacheRead: 789,
+  cacheWrite: 12,
+  reasoning: 21,
+  totalTokens: 2091,
+  cost: { input: 0.001, output: 0.002, cacheRead: 0.0003, cacheWrite: 0.0001, total: 0.0034 },
+};
+
+/** getContextUsage() の既定値 (分母はモデルの contextWindow に合わせる) */
+export const STUB_CONTEXT_USAGE: ContextUsage = {
+  tokens: 43_008,
+  contextWindow: 128_000,
+  percent: 33.6,
+};
 
 export interface StubSessionOptions {
   reply?: string;
@@ -72,6 +91,14 @@ export interface StubSessionOptions {
   thinkingLevel?: string;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
   setModelFailures?: number;
+  /** assistant へ載せる usage。null で usage 非対応プロバイダ (キー省略) を再現する */
+  usage?: Usage | null;
+  /** getContextUsage() の戻り値。null で SDK 非対応 (undefined を返す) を再現する */
+  contextUsage?: ContextUsage | null;
+  /** compaction 直後の再現: SDK が履歴へ入れるまで getContextUsage() が返す値 */
+  contextUsageBeforeHistory?: ContextUsage;
+  /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
+  thinkingDelta?: string;
 }
 
 export interface StubSession extends PiSessionLike {
@@ -88,6 +115,8 @@ export interface StubSession extends PiSessionLike {
 export function createStubSession(options: StubSessionOptions = {}): StubSession {
   const { reply = "スタブの返答です", chunkDelayMs = 0, setModelDelayMs = 0 } = options;
   const listeners = new Set<PiSessionEventListener>();
+  // 実 SDK はリスナーへ message_end を配った後に SessionManager へ入れるため、その間だけ context が古い
+  let historyUpdated = true;
   const sleepers = new Set<() => void>();
   const sleep = (ms: number) => new Promise<void>((resolveSleep) => {
     if (ms <= 0) {
@@ -117,6 +146,16 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     // SDK と同様に非対応値をモデル能力へ補正する
     setThinkingLevel(level: string) {
       session.thinkingLevel = clampThinkingLevel(session.model, level as ThinkingLevel);
+    },
+    getContextUsage() {
+      if (options.contextUsage === null) return undefined;
+      const usage = options.contextUsage ?? STUB_CONTEXT_USAGE;
+      const contextWindow = session.model?.contextWindow ?? usage.contextWindow;
+      if (!historyUpdated && options.contextUsageBeforeHistory) {
+        return { ...options.contextUsageBeforeHistory, contextWindow };
+      }
+      // 分母は実効モデルに合わせる (モデル切替後も整合させる)
+      return { ...usage, contextWindow };
     },
     async setModel(model: unknown) {
       if (setModelDelayMs > 0) await sleep(setModelDelayMs);
@@ -160,8 +199,20 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           content: [{ type: "text", text: "" }],
           stopReason: "stop",
           timestamp: Date.now(),
+          // usage 非対応プロバイダを再現するときはキー自体を作らない
+          ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
         };
         session.messages.push(assistant);
+        if (options.thinkingDelta) {
+          await sleep(chunkDelayMs);
+          if (!session.abortRequested) {
+            // SDK は thinking を content へ積むが、BFF が見るのは delta の有無だけ
+            session.emit({
+              type: "message_update",
+              assistantMessageEvent: { type: "thinking_delta", delta: options.thinkingDelta },
+            });
+          }
+        }
         const chunks = [reply.slice(0, 3), reply.slice(3)].filter(Boolean);
         for (const chunk of chunks) {
           await sleep(chunkDelayMs);
@@ -173,6 +224,14 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           });
         }
         if (session.abortRequested) assistant.stopReason = "aborted";
+        // SDK は確定したメッセージを agent state へ入れてから (同じ参照で) message_end を出す
+        historyUpdated = false;
+        try {
+          session.emit({ type: "message_end", message: assistant });
+        } finally {
+          // 実 SDK はリスナーへ配信した後、同じターンで SessionManager へ追加する
+          historyUpdated = true;
+        }
       } finally {
         session.emit({ type: "agent_settled" });
         session.isStreaming = false;
@@ -193,6 +252,14 @@ export interface StubPiOptions {
   reply?: string;
   chunkDelayMs?: number;
   setModelDelayMs?: number;
+  /** assistant へ載せる usage。null で usage 非対応プロバイダ (キー省略) を再現する */
+  usage?: Usage | null;
+  /** getContextUsage() の戻り値。null で SDK 非対応 (undefined を返す) を再現する */
+  contextUsage?: ContextUsage | null;
+  /** compaction 直後の再現: SDK が履歴へ入れるまで getContextUsage() が返す値 */
+  contextUsageBeforeHistory?: ContextUsage;
+  /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
+  thinkingDelta?: string;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
   setModelFailures?: number;
   availableModels?: PiAiModel<Api>[];

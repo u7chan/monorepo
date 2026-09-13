@@ -3,6 +3,7 @@ import type { Bubble, ToolCard } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { toolCallCopyText } from "../lib/copy-content";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
+import { messageMetaLine, messageMetaTitle } from "../lib/usageFormat";
 import type { AgentSuggestion } from "../types";
 
 const TOOL_SUMMARY_MAX_LENGTH = 96;
@@ -235,6 +236,9 @@ function MessageView({
   onCopyTool: (card: ToolCard) => void;
 }) {
   const isUser = bubble.role === "user";
+  // 応答のメタ情報は user 側には無い。compact は応答時間と tok/s だけに絞る。
+  const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
+  const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   return (
     <article className={["animate-rise group/bubble flex", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : ""].join(" ")}>
       <div
@@ -273,7 +277,13 @@ function MessageView({
         ) : null}
         {/* 本文が無くツールだけの assistant でも時刻を出す (コピーボタンは本文があるときだけ) */}
         {bubble.text || bubble.at !== undefined ? (
-          <div className={["mt-1 flex items-center gap-2", isUser ? "justify-end" : ""].join(" ")}>
+          <div
+            className={[
+              // メタ情報が長い / 狭いときは時刻行の下へ折り返す (数字の途中で折らない)
+              "mt-1 flex flex-wrap items-center gap-x-2 gap-y-1",
+              isUser ? "justify-end" : "",
+            ].join(" ")}
+          >
             {bubble.at !== undefined ? (
               <time
                 dateTime={new Date(bubble.at).toISOString()}
@@ -282,6 +292,14 @@ function MessageView({
               >
                 {messageTimeLabel(bubble.at)}
               </time>
+            ) : null}
+            {metaLine ? (
+              <span
+                title={metaTitle}
+                className="shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums text-ink-faint"
+              >
+                {metaLine}
+              </span>
             ) : null}
             {bubble.text ? (
               <CopyButton copied={copied} onClick={onCopy} label="メッセージをコピー" reveal={REVEAL_MESSAGE} />

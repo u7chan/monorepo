@@ -128,6 +128,7 @@ export default function App() {
           sending={desk.sending}
           stopVisible={desk.stopVisible}
           queueDepth={desk.chat.queueDepth}
+          context={desk.chat.context}
           settings={desk.composerSettings}
           agents={desk.catalog.agents}
           agentId={desk.agentId}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { effortLabel, type ComposerSettings } from "../hooks/useAgentDesk";
 import type { LayoutMode } from "../lib/layout";
-import type { AgentDef, ModelRef, ThinkingLevel } from "../types";
+import { contextGauge } from "../lib/usageFormat";
+import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
 import { SelectField } from "./SelectField";
 import { SlidersIcon } from "./icons";
 
@@ -11,6 +12,8 @@ export type ComposerProps = {
   sending: boolean;
   stopVisible: boolean;
   queueDepth: number;
+  /** セッションのコンテキスト使用量。未取得でも分母 (モデルの contextWindow) だけでゲージを出す */
+  context?: ContextUsage;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
   /** エージェント候補と選択中の定義 (会話中いつでも切り替えられるよう入力欄の上に置く) */
@@ -66,6 +69,7 @@ export function Composer({
   sending,
   stopVisible,
   queueDepth,
+  context,
   settings,
   agents,
   agentId,
@@ -98,6 +102,12 @@ export function Composer({
   const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
   const notice = settings.modelWarning ?? settings.effortNotice;
   const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
+  const contextWindowOfModel = settings.modelOptions.find(
+    (option) => `${option.provider}/${option.id}` === settings.model,
+  )?.contextWindow;
+  const gauge = contextGauge(context, contextWindowOfModel);
+  const gaugeColor =
+    gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
   useEffect(() => {
     const el = inputRef.current;
@@ -271,9 +281,21 @@ export function Composer({
           : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
       ].join(" ")}
     >
-      {activity ? (
-        <div aria-live="polite" className="min-h-[21px] break-words px-1 pb-1.5 text-[11px] text-ink-muted">
-          {activity}
+      {/* activity が空でもゲージだけは常時出す (コンテキスト量はいつでも見たい) */}
+      {activity || gauge ? (
+        <div className="flex min-h-[21px] items-center gap-2 px-1 pb-1.5 text-[11px] text-ink-muted">
+          <span aria-live="polite" className="min-w-0 flex-1 break-words">
+            {activity}
+          </span>
+          {gauge ? (
+            <span
+              aria-label="コンテキスト使用量"
+              className={["shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums", gaugeColor].join(" ")}
+            >
+              ctx <span aria-hidden="true">{gauge.bar}</span> {gauge.percent}{" "}
+              <span className="text-ink-ghost">{gauge.detail}</span>
+            </span>
+          ) : null}
         </div>
       ) : null}
       <form
