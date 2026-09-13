@@ -90,19 +90,16 @@ const WARN_PERCENT = 70;
 const DANGER_PERCENT = 90;
 
 /**
- * Composer の context ゲージ。SDK が tokens / percent を持たない間も分母 (モデルの
- * contextWindow) だけで表示でき、compaction 直後 (tokens: null) は不明として出す。
+ * Composer の context ゲージ。セッションが使用量を返す前 (新規チャット / 応答前) は分母も
+ * 分からないため undefined を返してゲージごと出さない。compaction 直後 (tokens: null) だけは
+ * 「不明」として出し、百分率を ? にする。
  * バーは文字ではなく CSS で描く (ブロック要素グリフは端末のフォント次第で崩れる)。
  */
-export function contextGauge(
-  context?: ContextUsage,
-  fallbackWindow?: number,
-  compact = false,
-): ContextGauge | undefined {
-  const contextWindow = context?.contextWindow ?? fallbackWindow;
-  if (!contextWindow || contextWindow <= 0) return undefined;
-  const percent = context?.percent ?? (context?.tokens != null ? (context.tokens / contextWindow) * 100 : undefined);
-  const tokens = context?.tokens != null ? formatTokens(context.tokens) : "?";
+export function contextGauge(context?: ContextUsage, compact = false): ContextGauge | undefined {
+  if (!context || context.contextWindow <= 0) return undefined;
+  const { contextWindow, tokens: rawTokens } = context;
+  const percent = context.percent ?? (rawTokens != null ? (rawTokens / contextWindow) * 100 : undefined);
+  const tokens = rawTokens != null ? formatTokens(rawTokens) : "?";
   return {
     fill: percent === undefined ? null : Math.min(1, Math.max(0, percent / 100)),
     percent: percent === undefined ? "?" : `${Math.round(percent)}%`,

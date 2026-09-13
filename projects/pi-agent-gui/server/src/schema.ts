@@ -197,8 +197,6 @@ export const ModelOptionSchema = z.object({
   name: z.string(),
   supportsThinking: z.boolean(),
   thinkingLevels: z.array(ThinkingLevelSchema),
-  /** ctx ゲージの分母。応答前でも表示できるようにする */
-  contextWindow: z.number(),
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
 

@@ -147,21 +147,18 @@ test("context ゲージの閾値は 70% 超で warn、90% 超で danger", () => 
   assert.equal(at(120)?.fill, 1);
 });
 
-test("context ゲージは tokens / percent が無い間も分母だけで出す", () => {
-  // compaction 直後 (tokens: null) は不明として出す
+test("context ゲージは使用量が無いうちは出さない", () => {
+  // 新規チャット / 応答前は分母も分からない
+  assert.equal(contextGauge(undefined), undefined);
+  // 分母が無ければゲージごと出さない
+  assert.equal(contextGauge({ tokens: null, contextWindow: 0, percent: null }), undefined);
+  // compaction 直後 (tokens: null) は分母が有るので「不明」として出す
   assert.deepEqual(contextGauge({ tokens: null, contextWindow: 200_000, percent: null }), {
     fill: null,
     percent: "?",
     detail: "(?/200k)",
     level: "normal",
   });
-  // 応答前 (context 未取得) はモデルの contextWindow を分母に使う
-  assert.equal(contextGauge(undefined, 200_000)?.detail, "(?/200k)");
-  assert.equal(contextGauge(undefined, 200_000)?.percent, "?");
-  assert.equal(contextGauge(undefined, 200_000)?.fill, null);
-  // 分母が無ければゲージごと出さない
-  assert.equal(contextGauge(undefined, undefined), undefined);
-  assert.equal(contextGauge({ tokens: null, contextWindow: 0, percent: null }), undefined);
 });
 
 test("percent が無くても tokens から百分率を出す", () => {
@@ -173,7 +170,7 @@ test("percent が無くても tokens から百分率を出す", () => {
 
 test("compact では絶対値を落とし、百分率だけ残す", () => {
   const context: ContextUsage = { tokens: 68_000, contextWindow: 200_000, percent: 34 };
-  assert.equal(contextGauge(context, undefined, true)?.detail, "");
-  assert.equal(contextGauge(context, undefined, true)?.percent, "34%");
-  assert.equal(contextGauge(context, undefined, false)?.detail, "(68k/200k)");
+  assert.equal(contextGauge(context, true)?.detail, "");
+  assert.equal(contextGauge(context, true)?.percent, "34%");
+  assert.equal(contextGauge(context, false)?.detail, "(68k/200k)");
 });

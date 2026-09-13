@@ -12,7 +12,7 @@ export type ComposerProps = {
   sending: boolean;
   stopVisible: boolean;
   queueDepth: number;
-  /** セッションのコンテキスト使用量。未取得でも分母 (モデルの contextWindow) だけでゲージを出す */
+  /** セッションのコンテキスト使用量。未取得 (新規チャット / 応答前) の間はゲージを出さない */
   context?: ContextUsage;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
@@ -102,10 +102,7 @@ export function Composer({
   const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
   const notice = settings.modelWarning ?? settings.effortNotice;
   const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
-  const contextWindowOfModel = settings.modelOptions.find(
-    (option) => `${option.provider}/${option.id}` === settings.model,
-  )?.contextWindow;
-  const gauge = contextGauge(context, contextWindowOfModel, compact);
+  const gauge = contextGauge(context, compact);
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
