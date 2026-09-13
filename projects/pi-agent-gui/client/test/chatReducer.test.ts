@@ -184,14 +184,91 @@ test("usage アクションは開いている assistant バブルと context を
   assert.deepEqual(overwritten.context, CONTEXT, "context はイベントに無ければ直前の値を保つ");
 });
 
-test("usage アクションは currentAssistantId が無ければ最後の assistant バブルへ寄せる", () => {
-  // running の resync 直後 (ツールコール無し) は currentAssistantId が null のまま
-  const resynced = chatReducer(initialChatState, { type: "resync", payload: payloadWithUsage() });
-  assert.equal(resynced.currentAssistantId, null);
+test("usage は本文・ツールカードより先に届いても次の assistant バブルへ回す", () => {
+  // 1 つ目の run: 本文と usage が揃った assistant バブル
+  const first = chatReducer(initialChatState, { type: "runStart", prompt: "1回目", at: 100 });
+  const firstText = chatReducer(first, { type: "text", delta: "回答1", at: 200 });
+  const firstUsage = chatReducer(firstText, { type: "usage", usage: USAGE, metrics: METRICS });
+  const firstBubbleId = firstUsage.bubbles.at(-1)?.id;
+  assert.deepEqual(firstUsage.bubbles.at(-1)?.usage, USAGE);
 
-  const applied = chatReducer(resynced, { type: "usage", usage: USAGE, metrics: METRICS });
-  assert.deepEqual(applied.bubbles[1]?.usage, USAGE);
-  assert.deepEqual(applied.bubbles[1]?.metrics, METRICS);
+  // 2 つ目の run はツール呼び出しだけ。SDK は message_end → tool_execution_start の順なので usage が先に届く
+  const second = chatReducer(firstUsage, { type: "runStart", prompt: "2回目", at: 300 });
+  const countBeforeUsage = second.bubbles.length;
+  const secondUsage: Usage = { ...USAGE, input: 9000, output: 100 };
+  const secondMetrics: MessageMetrics = { durationMs: 400, ttftMs: 200 };
+  const pending = chatReducer(second, { type: "usage", usage: secondUsage, metrics: secondMetrics });
+
+  assert.equal(pending.bubbles.length, countBeforeUsage, "まだバブルを作らない (空のバブルを出さない)");
+  assert.deepEqual(
+    pending.bubbles.find((bubble) => bubble.id === firstBubbleId)?.usage,
+    USAGE,
+    "前の run のバブルを上書きしない",
+  );
+  assert.deepEqual(pending.bubbles.find((bubble) => bubble.id === firstBubbleId)?.metrics, METRICS);
+
+  const withTool = chatReducer(pending, { type: "toolStart", id: "tool-1", name: "read", args: "README.md", at: 400 });
+  assert.equal(withTool.bubbles.length, countBeforeUsage + 1, "ツールカードで作られるバブルへ回る");
+  const lastBubble = withTool.bubbles.at(-1);
+  assert.deepEqual(lastBubble?.usage, secondUsage);
+  assert.deepEqual(lastBubble?.metrics, secondMetrics);
+  assert.equal(lastBubble?.tools.length, 1);
+
+  // 保留値は使ったら消える (次の応答へ持ち越さない)
+  assert.equal(withTool.pendingUsage, undefined);
+  assert.equal(withTool.pendingMetrics, undefined);
+});
+
+test("最初の応答でも usage を捨てず、後から届く本文へ付ける", () => {
+  // 非ストリーミングの最終本文は BFF の finish で message_end より後に届く
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const countBeforeUsage = started.bubbles.length;
+  const pending = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS });
+  assert.equal(pending.bubbles.length, countBeforeUsage, "user バブルだけのまま");
+
+  const text = chatReducer(pending, { type: "text", delta: "回答", at: 200 });
+  assert.equal(text.bubbles.length, countBeforeUsage + 1);
+  const assistant = text.bubbles.at(-1);
+  assert.equal(assistant?.role, "assistant");
+  assert.equal(assistant?.text, "回答");
+  assert.deepEqual(assistant?.usage, USAGE);
+  assert.deepEqual(assistant?.metrics, METRICS);
+  assert.equal(text.pendingUsage, undefined);
+});
+
+test("保留した usage は run をまたがず、resync でも消える", () => {
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const pending = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS });
+
+  // バブルができないまま run が終わったら捨てる
+  const ended = chatReducer(pending, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(ended.pendingUsage, undefined);
+  const nextTool = chatReducer(ended, { type: "toolStart", id: "tool-1", name: "read", args: "x", at: 300 });
+  assert.equal(nextTool.bubbles[0]?.usage, undefined, "次の run へ持ち越さない");
+
+  // resync はサーバー payload が正なので保留値を捨てる
+  const resynced = chatReducer(pending, { type: "resync", payload: payloadWithUsage() });
+  assert.equal(resynced.pendingUsage, undefined);
+  assert.deepEqual(resynced.bubbles[1]?.usage, USAGE);
+});
+
+test("run_end の context は usage の値を上書きする", () => {
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const stale: ContextUsage = { tokens: null, contextWindow: 128_000, percent: null };
+  const withUsage = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS, context: stale });
+  assert.deepEqual(withUsage.context, stale);
+
+  const ended = chatReducer(withUsage, {
+    type: "runEnd",
+    status: "completed",
+    queueDepth: 0,
+    context: CONTEXT,
+  });
+  assert.deepEqual(ended.context, CONTEXT, "SDK の履歴反映後の値を採用する");
+
+  // context を伴わない run_end では直前の値を保つ
+  const kept = chatReducer(ended, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.deepEqual(kept.context, CONTEXT);
 });
 
 test("usage だけのイベントでもバブルが無ければ context だけ反映する", () => {

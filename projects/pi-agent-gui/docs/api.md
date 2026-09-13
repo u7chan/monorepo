@@ -323,7 +323,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
-`context` は SDK の `getContextUsage()`（`tokens` / `contextWindow` / `percent`）。compaction 直後は `tokens` と `percent` が `null` になる。SDK がこの API を持たないときはキーを省略する。
+`context` は SDK の `getContextUsage()`（`tokens` / `contextWindow` / `percent`）。compaction 直後は `tokens` と `percent` が `null` になる。SDK がこの API を持たないときはキーを省略する。SDK は `message_end` を購読者へ配った後に履歴へ入れるため、`usage` イベント時点の `context` は直前の応答までの値（compaction 直後は不明値）になる。今回の応答を反映した確定値は `run_end` の `context` で配り、リロード / resync はこの payload を正とする。
 
 ### `PATCH /api/sessions/:id/settings`
 
@@ -365,8 +365,8 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 | `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |
-| `run_end` | `{ runId, status, error, messageCount, queueDepth }` |
-| `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()`） |
+| `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }` |
+| `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `resync` | セッションペイロード全体（バッファを逃した場合） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 

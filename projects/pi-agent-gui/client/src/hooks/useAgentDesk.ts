@@ -368,6 +368,7 @@ export function useAgentDesk() {
           status: entry.data.status,
           queueDepth: entry.data.queueDepth,
           error: entry.data.error,
+          context: entry.data.context,
         });
         if (entry.data.status === "error" && entry.data.error) {
           setRuntimeStatus(runtimeStatusForError(new Error(entry.data.error)));

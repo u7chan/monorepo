@@ -114,6 +114,10 @@ test("assistant usage reaches the client through SSE and the session payload", a
       "バブルが開いている間に届く",
     );
 
+    // context は SDK の履歴反映後に run_end でも配る (usage の値は 1 応答分古い)
+    const runEnd = events.find((entry) => entry.type === "run_end");
+    assert.deepEqual(runEnd?.data.context, STUB_CONTEXT_USAGE);
+
     // リロード / resync の正は payload 側 (同じ値が戻る)
     const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
     assert.deepEqual(payload.messages.at(-1).usage, STUB_USAGE);

@@ -507,6 +507,33 @@ test("omits usage and context keys the SDK does not report, keeping the BFF metr
   await store.close();
 });
 
+test("delivers the context again after the SDK has added the message to its history", async () => {
+  const catalog = createAgentCatalog();
+  // compaction 直後: message_end の時点では SDK がまだ今回の応答を履歴へ入れていないので不明値
+  const beforeHistory: ContextUsage = { tokens: null, contextWindow: 128_000, percent: null };
+  const afterHistory: ContextUsage = { tokens: 120, contextWindow: 128_000, percent: 0.1 };
+  const store = new SessionStore({
+    pi: createStubPi({ chunkDelayMs: 5, contextUsage: afterHistory, contextUsageBeforeHistory: beforeHistory }),
+    catalog,
+  });
+  const record = await store.create({ agentId: "agent-general" });
+  const events: EventEntry[] = [];
+  store.subscribe(record, 0, (entry) => events.push(entry));
+
+  store.postMessage(record, "compaction 直後の応答");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const usageEvent = events.find((entry) => entry.type === "usage");
+  const runEnd = events.find((entry) => entry.type === "run_end");
+  assert.ok(usageEvent && runEnd);
+  assert.deepEqual(usageEvent.data.context, beforeHistory, "usage は SDK の履歴反映前なので不明値");
+  // ここで確定値を配らないと、クライアントはリロードするまでゲージを ? のままにする
+  assert.deepEqual(runEnd.data.context, afterHistory, "run_end は履歴反映後の値を配る");
+  assert.deepEqual(store.payload(record).context, afterHistory, "payload も同じ値");
+
+  await store.close();
+});
+
 test("keeps a reported zero usage as is and tolerates a post-compaction context", async () => {
   const catalog = createAgentCatalog();
   const zeroUsage: Usage = {

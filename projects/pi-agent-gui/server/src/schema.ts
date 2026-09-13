@@ -321,6 +321,8 @@ export const EventDataSchemas = {
     queueDepth: z.number(),
     error: z.string().optional(),
     messageCount: z.number().optional(),
+    // message_end 時点の context は SDK が履歴へ入れる前で古いため、確定値は run_end で配る
+    context: ContextUsageSchema.optional(),
   }),
   resync: SessionPayloadSchema,
   session_deleted: z.object({ sessionId: z.string() }),

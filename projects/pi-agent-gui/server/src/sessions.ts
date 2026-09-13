@@ -683,6 +683,9 @@ export class SessionStore {
         error: run.error,
         messageCount: session.messages.length,
         queueDepth: record.queue.length,
+        // SDK は message_end をリスナーへ配ってから履歴へ入れるため、usage イベントの context は
+        // 直前の応答までの値になる (compaction 直後は不明値のまま)。ここでは履歴反映済みの値を配る。
+        context: contextUsageOf(session),
       });
 
       if (record.queue.length > 0) {

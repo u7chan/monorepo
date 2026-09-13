@@ -95,6 +95,8 @@ export interface StubSessionOptions {
   usage?: Usage | null;
   /** getContextUsage() の戻り値。null で SDK 非対応 (undefined を返す) を再現する */
   contextUsage?: ContextUsage | null;
+  /** compaction 直後の再現: SDK が履歴へ入れるまで getContextUsage() が返す値 */
+  contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
 }
@@ -113,6 +115,8 @@ export interface StubSession extends PiSessionLike {
 export function createStubSession(options: StubSessionOptions = {}): StubSession {
   const { reply = "スタブの返答です", chunkDelayMs = 0, setModelDelayMs = 0 } = options;
   const listeners = new Set<PiSessionEventListener>();
+  // 実 SDK はリスナーへ message_end を配った後に SessionManager へ入れるため、その間だけ context が古い
+  let historyUpdated = true;
   const sleepers = new Set<() => void>();
   const sleep = (ms: number) => new Promise<void>((resolveSleep) => {
     if (ms <= 0) {
@@ -146,8 +150,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     getContextUsage() {
       if (options.contextUsage === null) return undefined;
       const usage = options.contextUsage ?? STUB_CONTEXT_USAGE;
+      const contextWindow = session.model?.contextWindow ?? usage.contextWindow;
+      if (!historyUpdated && options.contextUsageBeforeHistory) {
+        return { ...options.contextUsageBeforeHistory, contextWindow };
+      }
       // 分母は実効モデルに合わせる (モデル切替後も整合させる)
-      return { ...usage, contextWindow: session.model?.contextWindow ?? usage.contextWindow };
+      return { ...usage, contextWindow };
     },
     async setModel(model: unknown) {
       if (setModelDelayMs > 0) await sleep(setModelDelayMs);
@@ -216,8 +224,14 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           });
         }
         if (session.abortRequested) assistant.stopReason = "aborted";
-        // SDK は確定したメッセージを履歴へ入れてから (同じ参照で) message_end を出す
-        session.emit({ type: "message_end", message: assistant });
+        // SDK は確定したメッセージを agent state へ入れてから (同じ参照で) message_end を出す
+        historyUpdated = false;
+        try {
+          session.emit({ type: "message_end", message: assistant });
+        } finally {
+          // 実 SDK はリスナーへ配信した後、同じターンで SessionManager へ追加する
+          historyUpdated = true;
+        }
       } finally {
         session.emit({ type: "agent_settled" });
         session.isStreaming = false;
@@ -242,6 +256,8 @@ export interface StubPiOptions {
   usage?: Usage | null;
   /** getContextUsage() の戻り値。null で SDK 非対応 (undefined を返す) を再現する */
   contextUsage?: ContextUsage | null;
+  /** compaction 直後の再現: SDK が履歴へ入れるまで getContextUsage() が返す値 */
+  contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
