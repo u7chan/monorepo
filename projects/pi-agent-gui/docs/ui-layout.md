@@ -57,7 +57,7 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 4 項目を固定する（client test は DOM を使わない純粋なロジックのみ、という方針）。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 4 項目を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

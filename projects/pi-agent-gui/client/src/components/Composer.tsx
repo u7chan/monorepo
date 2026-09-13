@@ -21,6 +21,8 @@ export type ComposerProps = {
   agentId: string;
   /** compact (portrait / landscape) では Model / Effort を畳んで入力を最優先にする */
   mode: LayoutMode;
+  /** メイン領域にチャットが出ているか。非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
+  visible?: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
   onChangeModel: (model: ModelRef) => void;
@@ -74,6 +76,7 @@ export function Composer({
   agents,
   agentId,
   mode,
+  visible = true,
   onSend,
   onStop,
   onChangeModel,
@@ -106,12 +109,14 @@ export function Composer({
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
+  // 非表示中は scrollHeight が 0 なので測らず、visible の復帰で測り直す (下書きが最小高へ潰れるのを防ぐ)
   useEffect(() => {
+    if (!visible) return;
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
-  }, [value, maxTextareaHeight]);
+  }, [value, maxTextareaHeight, visible]);
 
   const submit = () => {
     const text = value.trim();
