@@ -34,7 +34,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 }
 ```
 
-`modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`contextWindow` は UI の ctx ゲージの分母で、セッションの payload が `context` を返す前（応答前・新規チャット）でもこれだけでゲージを出せる。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
+`modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`contextWindow` は UI の Context ゲージの分母で、セッションの payload が `context` を返す前（応答前・新規チャット）でもこれだけでゲージを出せる。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
 
 ## ファイル一覧
 

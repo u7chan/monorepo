@@ -78,15 +78,13 @@ export function messageMetaTitle(
 export type ContextGaugeLevel = "normal" | "warn" | "danger";
 
 export type ContextGauge = {
-  bar: string;
+  /** バーのフィル幅 (0..1)。percent が不明なときは null (aria-valuenow も出さない) */
+  fill: number | null;
   percent: string;
   detail: string;
   level: ContextGaugeLevel;
 };
 
-const GAUGE_SEGMENTS = 5;
-const FILLED = "▓";
-const EMPTY = "░";
 // pi TUI footer と同じ閾値 (70% 超で warn、90% 超で danger)
 const WARN_PERCENT = 70;
 const DANGER_PERCENT = 90;
@@ -94,19 +92,23 @@ const DANGER_PERCENT = 90;
 /**
  * Composer の context ゲージ。SDK が tokens / percent を持たない間も分母 (モデルの
  * contextWindow) だけで表示でき、compaction 直後 (tokens: null) は不明として出す。
+ * バーは文字ではなく CSS で描く (ブロック要素グリフは端末のフォント次第で崩れる)。
  */
-export function contextGauge(context?: ContextUsage, fallbackWindow?: number): ContextGauge | undefined {
+export function contextGauge(
+  context?: ContextUsage,
+  fallbackWindow?: number,
+  compact = false,
+): ContextGauge | undefined {
   const contextWindow = context?.contextWindow ?? fallbackWindow;
   if (!contextWindow || contextWindow <= 0) return undefined;
   const percent = context?.percent ?? (context?.tokens != null ? (context.tokens / contextWindow) * 100 : undefined);
-  const filled = percent === undefined || percent <= 0
-    ? 0
-    : Math.min(GAUGE_SEGMENTS, Math.max(1, Math.round((percent / 100) * GAUGE_SEGMENTS)));
   const tokens = context?.tokens != null ? formatTokens(context.tokens) : "?";
   return {
-    bar: FILLED.repeat(filled) + EMPTY.repeat(GAUGE_SEGMENTS - filled),
+    fill: percent === undefined ? null : Math.min(1, Math.max(0, percent / 100)),
     percent: percent === undefined ? "?" : `${Math.round(percent)}%`,
-    detail: `(${tokens}/${formatTokens(contextWindow)})`,
+    // compact はラベル (Context) とバーの分だけ横幅を食うので、絶対値を落として
+    // 隣の activity が折り返さないようにする
+    detail: compact ? "" : `(${tokens}/${formatTokens(contextWindow)})`,
     level:
       percent !== undefined && percent > DANGER_PERCENT
         ? "danger"

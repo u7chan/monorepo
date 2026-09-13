@@ -128,9 +128,9 @@ test("ホバー詳細は報告が無い項目を省き、何も無ければ unde
   assert.equal(messageMetaTitle(undefined, undefined), undefined);
 });
 
-test("context ゲージは 5 段のバーと百分率を返す", () => {
+test("context ゲージはフィル幅と百分率を返す", () => {
   const gauge = contextGauge({ tokens: 68_000, contextWindow: 200_000, percent: 34 });
-  assert.deepEqual(gauge, { bar: "▓▓░░░", percent: "34%", detail: "(68k/200k)", level: "normal" });
+  assert.deepEqual(gauge, { fill: 0.34, percent: "34%", detail: "(68k/200k)", level: "normal" });
 });
 
 test("context ゲージの閾値は 70% 超で warn、90% 超で danger", () => {
@@ -140,15 +140,17 @@ test("context ゲージの閾値は 70% 超で warn、90% 超で danger", () => 
   assert.equal(at(90)?.level, "warn");
   assert.equal(at(90.1)?.level, "danger");
   assert.equal(at(100)?.level, "danger");
-  // 極小でも 0 本にはしない
-  assert.equal(at(1)?.bar, "▓░░░░");
-  assert.equal(at(100)?.bar, "▓▓▓▓▓");
+  // fill は百分率そのもの (見える幅は描画側の最小幅で確保する)
+  assert.equal(at(1)?.fill, 0.01);
+  assert.equal(at(100)?.fill, 1);
+  // 分母を超えて報告されてもバーは振り切らない
+  assert.equal(at(120)?.fill, 1);
 });
 
 test("context ゲージは tokens / percent が無い間も分母だけで出す", () => {
   // compaction 直後 (tokens: null) は不明として出す
   assert.deepEqual(contextGauge({ tokens: null, contextWindow: 200_000, percent: null }), {
-    bar: "░░░░░",
+    fill: null,
     percent: "?",
     detail: "(?/200k)",
     level: "normal",
@@ -156,6 +158,7 @@ test("context ゲージは tokens / percent が無い間も分母だけで出す
   // 応答前 (context 未取得) はモデルの contextWindow を分母に使う
   assert.equal(contextGauge(undefined, 200_000)?.detail, "(?/200k)");
   assert.equal(contextGauge(undefined, 200_000)?.percent, "?");
+  assert.equal(contextGauge(undefined, 200_000)?.fill, null);
   // 分母が無ければゲージごと出さない
   assert.equal(contextGauge(undefined, undefined), undefined);
   assert.equal(contextGauge({ tokens: null, contextWindow: 0, percent: null }), undefined);
@@ -164,5 +167,13 @@ test("context ゲージは tokens / percent が無い間も分母だけで出す
 test("percent が無くても tokens から百分率を出す", () => {
   const context: ContextUsage = { tokens: 50_000, contextWindow: 200_000, percent: null };
   assert.equal(contextGauge(context)?.percent, "25%");
+  assert.equal(contextGauge(context)?.fill, 0.25);
   assert.equal(contextGauge(context)?.level, "normal");
+});
+
+test("compact では絶対値を落とし、百分率だけ残す", () => {
+  const context: ContextUsage = { tokens: 68_000, contextWindow: 200_000, percent: 34 };
+  assert.equal(contextGauge(context, undefined, true)?.detail, "");
+  assert.equal(contextGauge(context, undefined, true)?.percent, "34%");
+  assert.equal(contextGauge(context, undefined, false)?.detail, "(68k/200k)");
 });
