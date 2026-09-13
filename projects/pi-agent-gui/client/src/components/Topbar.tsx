@@ -1,5 +1,5 @@
 import { ThemeSwitcher } from "../theme/ThemeSwitcher";
-import type { RuntimeStatus } from "../hooks/useAgentDesk";
+import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { RuntimeAlert } from "./RuntimeAlert";
 
 export type TopbarProps = {

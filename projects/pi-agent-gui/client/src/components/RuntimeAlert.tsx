@@ -1,4 +1,8 @@
-import type { RuntimeStatus } from "../hooks/useAgentDesk";
+import {
+  AUTH_REQUIRED_GUIDE,
+  SANDBOX_REQUIRED_GUIDE,
+  type RuntimeStatus,
+} from "../hooks/runtimeStatus";
 
 export type RuntimeAlertProps = {
   runtimeStatus: RuntimeStatus;
@@ -6,9 +10,33 @@ export type RuntimeAlertProps = {
   compact?: boolean;
 };
 
-/** ランタイムのエラー詳細 (APIキー未設定など)。error のときだけ描画する。 */
+/** ガイド文のバッククォートをインラインコードとして描画する。 */
+function GuideText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/`([^`]+)`/).map((part, index) =>
+        index % 2 === 1 ? (
+          <code key={index} className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-ink-soft">
+            {part}
+          </code>
+        ) : (
+          <span key={index}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/** ランタイムのエラー詳細 (APIキー未設定・実行環境未設定など)。error のときだけ描画する。 */
 export function RuntimeAlert({ runtimeStatus, compact = false }: RuntimeAlertProps) {
   if (!runtimeStatus.error || !runtimeStatus.detail) return null;
+
+  // APIキー / .env の案内は認証エラーのときだけ出す (サンドボックス由来の 503 と混同させない)。
+  const guide = runtimeStatus.authRequired
+    ? AUTH_REQUIRED_GUIDE
+    : runtimeStatus.sandboxRequired
+      ? SANDBOX_REQUIRED_GUIDE
+      : null;
 
   return (
     <div
@@ -24,10 +52,9 @@ export function RuntimeAlert({ runtimeStatus, compact = false }: RuntimeAlertPro
         <p className={["break-words leading-relaxed text-ink-soft", compact ? "mt-0.5" : "mt-1"].join(" ")}>
           {runtimeStatus.detail}
         </p>
-        {runtimeStatus.authRequired ? (
+        {guide ? (
           <p className={["break-words leading-relaxed text-ink-muted", compact ? "mt-1" : "mt-2"].join(" ")}>
-            <code className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-ink-soft">cp .env.example .env</code>
-            <span className="ml-1">で設定ファイルを作成し、APIキーを入力してからサーバーを再起動してください。</span>
+            <GuideText text={guide} />
           </p>
         ) : null}
       </div>

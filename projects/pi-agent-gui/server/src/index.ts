@@ -20,6 +20,11 @@ async function main() {
     if (!bff.pi?.selectedModel) {
       console.log("[pi-agent-gui] API key or pi authentication is required before sending a message.");
     }
+    if (!bff.pi?.sandboxConfigured) {
+      console.log(
+        "[pi-agent-gui] sandbox is not configured (PI_SANDBOX_URL / PI_SANDBOX_TOKEN): tool execution and new sessions fail with 503. See the local startup steps in README.",
+      );
+    }
   });
 
   const shutdown = async () => {

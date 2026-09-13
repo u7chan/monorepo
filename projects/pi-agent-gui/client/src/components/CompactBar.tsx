@@ -1,4 +1,4 @@
-import type { RuntimeStatus } from "../hooks/useAgentDesk";
+import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import type { LayoutMode } from "../lib/layout";
 import { MenuIcon } from "./icons";
 import { RuntimeAlert } from "./RuntimeAlert";
