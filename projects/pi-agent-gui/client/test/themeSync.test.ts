@@ -112,7 +112,7 @@ test("保存値の解決: 有効な id はそのまま、無効な値は system 
   assert.equal(parseStoredThemeChoice("midnight"), "midnight");
   assert.equal(parseStoredThemeChoice("system"), "system");
   assert.equal(parseStoredThemeChoice(null), "system");
-  // 削除済みテーマ (#1278 の terminal など) が残っていても system と同じ解決結果にする
+  // 削除済みテーマ (過去に消した terminal など) が残っていても system と同じ解決結果にする
   assert.equal(parseStoredThemeChoice("terminal"), "system");
   assert.equal(parseStoredThemeChoice(""), "system");
   assert.equal(parseStoredThemeChoice("MIDNIGHT"), "system");

@@ -1,4 +1,4 @@
-// ファイルツリーの状態更新 (#1284)。DOM を使わず、開閉・子のマージ・エラー保持の遷移だけを固定する。
+// ファイルツリーの状態更新。DOM を使わず、開閉・子のマージ・エラー保持の遷移だけを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

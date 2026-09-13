@@ -1,4 +1,13 @@
-import type { ChatMessage, RunStatus, SessionPayload, ThinkingLevel, ToolCall } from "../types";
+import type {
+  ChatMessage,
+  ContextUsage,
+  MessageMetrics,
+  RunStatus,
+  SessionPayload,
+  ThinkingLevel,
+  ToolCall,
+  Usage,
+} from "../types";
 
 export type ToolPhase = "running" | "done" | "failed";
 
@@ -18,6 +27,10 @@ export type Bubble = {
   tools: ToolCard[];
   /** メッセージの作成時刻 (epoch ms)。履歴に時刻が無い場合は undefined */
   at?: number;
+  /** プロバイダが報告した使用量 (数値なのでマスク不要) */
+  usage?: Usage;
+  /** BFF 計測の応答時間。リロード後も resync で戻る */
+  metrics?: MessageMetrics;
 };
 
 export type ChatState = {
@@ -38,6 +51,8 @@ export type ChatState = {
   supportsThinking: boolean;
   /** 実効モデルで選べる Effort の候補 (非推論は ["off"] のみ) */
   availableThinkingLevels: ThinkingLevel[];
+  /** セッションのコンテキスト使用量。応答前や未作成のチャットでは undefined */
+  context?: ContextUsage;
 };
 
 export type ChatAction =
@@ -48,6 +63,7 @@ export type ChatAction =
   | { type: "text"; delta: string; at: number }
   | { type: "toolStart"; id: string; name: string; args: string; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
+  | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "status"; text: string }
   | { type: "queued"; position: number; queueDepth: number }
   | { type: "queueCleared" }
@@ -67,6 +83,7 @@ export const initialChatState: ChatState = {
   sessionThinkingLevel: undefined,
   supportsThinking: false,
   availableThinkingLevels: [],
+  context: undefined,
 };
 
 function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
@@ -115,6 +132,8 @@ function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: B
     text: message.text,
     tools: [],
     at: message.at,
+    usage: message.usage,
+    metrics: message.metrics,
   }));
   return { bubbles, nextId };
 }
@@ -161,6 +180,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionThinkingLevel: payload.thinkingLevel,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
+        context: payload.context,
       };
       if (payload.run?.toolCalls?.length && (payload.status === "running" || payload.status === "completed")) {
         const last = [...bubbles].reverse().find((b) => b.role === "assistant");
@@ -222,6 +242,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             ? { ...card, phase: action.isError ? "failed" : "done", output: action.output }
             : card,
         ),
+      }));
+    }
+
+    case "usage": {
+      // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
+      // resync 直後は currentAssistantId が無いので、最後の assistant バブルへ寄せる。
+      const bubbleId =
+        state.currentAssistantId ??
+        [...state.bubbles].reverse().find((bubble) => bubble.role === "assistant")?.id;
+      const next = action.context ? { ...state, context: action.context } : state;
+      if (bubbleId === undefined) return next;
+      return updateBubble(next, bubbleId, (b) => ({
+        ...b,
+        usage: action.usage ?? b.usage,
+        metrics: action.metrics ?? b.metrics,
       }));
     }
 

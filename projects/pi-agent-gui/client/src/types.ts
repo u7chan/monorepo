@@ -8,10 +8,12 @@ export type {
   AgentSuggestion,
   Catalog,
   ChatMessage,
+  ContextUsage,
   EventEntry,
   FileEntry,
   FileListing,
   Health,
+  MessageMetrics,
   ModelOption,
   ModelRef,
   PostMessageResult,
@@ -23,6 +25,7 @@ export type {
   StopResult,
   ThinkingLevel,
   ToolCall,
+  Usage,
 } from "server";
 
 /** SSE イベント型名 (useSessionEvents の EVENT_TYPES 用に server の EventEntry から導出) */

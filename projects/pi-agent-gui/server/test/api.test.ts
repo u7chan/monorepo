@@ -8,7 +8,7 @@ import test from "node:test";
 import type { Hono } from "hono";
 import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
-import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
+import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_PLAIN_MODEL, STUB_USAGE } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
   method: "POST",
@@ -87,6 +87,38 @@ test("server exposes the async session API end to end", async () => {
     const gone = await app.request(`/api/sessions/${created.sessionId}`);
     assert.equal(gone.status, 404);
     assert.deepEqual(await jsonBody(gone), { error: "Session not found" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("assistant usage reaches the client through SSE and the session payload", async () => {
+  const pi = createStubPi({ chunkDelayMs: 5 });
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const posted = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "usage を見せて" }));
+    assert.equal(posted.status, 202);
+    const events = await collectSse(eventsResponse, (list) => list.some((entry) => entry.type === "run_end"));
+
+    const usageEvents = events.filter((entry) => entry.type === "usage");
+    assert.equal(usageEvents.length, 1, "assistant の message_end ごとに 1 件");
+    const usageEvent = usageEvents[0];
+    assert.deepEqual(usageEvent.data.usage, STUB_USAGE);
+    assert.ok(usageEvent.data.metrics.durationMs >= 5, "chunk の遅延が duration に乗る");
+    assert.deepEqual(usageEvent.data.context, STUB_CONTEXT_USAGE);
+    assert.ok(
+      events.indexOf(usageEvent) < events.findIndex((entry) => entry.type === "run_end"),
+      "バブルが開いている間に届く",
+    );
+
+    // リロード / resync の正は payload 側 (同じ値が戻る)
+    const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
+    assert.deepEqual(payload.messages.at(-1).usage, STUB_USAGE);
+    assert.deepEqual(payload.messages.at(-1).metrics, usageEvent.data.metrics);
+    assert.deepEqual(payload.context, STUB_CONTEXT_USAGE);
   } finally {
     await bff.close();
   }
@@ -190,6 +222,11 @@ test("health exposes the model picker options and the app default thinking level
     assert.deepEqual(
       health.modelOptions.map((option: { name: string }) => option.name),
       ["Stub Model", "Stub Plain"],
+    );
+    // ctx ゲージの分母は応答前でも出せるようにする
+    assert.deepEqual(
+      health.modelOptions.map((option: { contextWindow: number }) => option.contextWindow),
+      [128_000, 128_000],
     );
   } finally {
     await bff.close();

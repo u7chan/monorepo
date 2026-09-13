@@ -11,7 +11,9 @@ import type {
   AgentPayloadInfo,
   AgentSkillInfo,
   ChatMessage,
+  ContextUsage,
   EventEntry,
+  MessageMetrics,
   ModelRef,
   RunStatus,
   SessionPayload,
@@ -21,7 +23,9 @@ import type {
   SkillDef,
   ThinkingLevel,
   ToolCall,
+  Usage,
 } from "./schema";
+import { ContextUsageSchema, UsageSchema } from "./schema";
 
 const MAX_EVENT_LOG = 2000;
 const MAX_QUEUE_DEPTH = 10;
@@ -95,6 +99,48 @@ function modelLabel(model?: { provider: string; id: string } | null): string | u
   return `${model.provider}/${model.id}`;
 }
 
+/** 契約外の usage (部分的な実装・旧 SDK) は数字として扱わず、キーごと落とす。 */
+function parseUsage(raw: unknown): Usage | undefined {
+  const parsed = UsageSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function contextUsageOf(session: PiSessionLike): ContextUsage | undefined {
+  const parsed = ContextUsageSchema.safeParse(session.getContextUsage?.());
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * BFF が観測したイベント到着時刻から応答時間を組む (SDK は完了時刻を持たない)。
+ * tok/s は最初の delta からのスパンで割り、スパンが無ければ全体の duration で割る。
+ */
+export function computeMessageMetrics({
+  startedAt,
+  firstTokenAt,
+  endedAt,
+  outputTokens,
+}: {
+  startedAt: number | undefined;
+  firstTokenAt: number | undefined;
+  endedAt: number;
+  outputTokens: number | undefined;
+}): MessageMetrics | undefined {
+  if (startedAt === undefined) return undefined;
+  const durationMs = endedAt - startedAt;
+  if (durationMs < 0) return undefined;
+  const metrics: MessageMetrics = { durationMs };
+  if (firstTokenAt !== undefined) {
+    const ttftMs = firstTokenAt - startedAt;
+    if (ttftMs >= 0) metrics.ttftMs = ttftMs;
+  }
+  const streamSpan = firstTokenAt === undefined ? durationMs : endedAt - firstTokenAt;
+  const span = streamSpan > 0 ? streamSpan : durationMs;
+  if (span > 0 && outputTokens !== undefined && outputTokens > 0) {
+    metrics.tokensPerSecond = (outputTokens * 1000) / span;
+  }
+  return metrics;
+}
+
 function httpError(statusCode: number, message: string): HttpLikeError {
   const error = new Error(message) as HttpLikeError;
   error.statusCode = statusCode;
@@ -108,7 +154,7 @@ function httpError(statusCode: number, message: string): HttpLikeError {
 /** pi SDK から届くランタイムイベントの緩い形 (必要なフィールドのみ) */
 export interface PiSessionEvent {
   type?: string;
-  message?: { role?: string } | null;
+  message?: { role?: string; usage?: unknown } | null;
   assistantMessageEvent?: { type?: string; delta?: string } | null;
   toolCallId?: string;
   toolName?: string;
@@ -128,7 +174,14 @@ export interface PiSessionLike {
   sessionId: string;
   model?: { provider: string; id: string } | null;
   thinkingLevel?: string;
-  messages: Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string; timestamp?: number }>;
+  messages: Array<{
+    role: string;
+    content: unknown;
+    stopReason?: string;
+    errorMessage?: string;
+    timestamp?: number;
+    usage?: unknown;
+  }>;
   isStreaming: boolean;
   /** SDK の isIdle (実行・compaction・retry が無い) */
   isIdle: boolean;
@@ -142,6 +195,8 @@ export interface PiSessionLike {
   /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
   getAvailableThinkingLevels(): string[];
   supportsThinking(): boolean;
+  /** SDK が持たない実装 (スタブ・旧 SDK) では undefined を返してよい */
+  getContextUsage?(): unknown;
   dispose?(): void;
   disposed?: boolean;
   sessionManager?: { getCwd?(): string } | null;
@@ -188,6 +243,8 @@ export interface SessionRecord {
   queue: string[];
   run: RunState | null;
   tools: Map<string, ToolCall>;
+  /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
+  messageMetrics: WeakMap<object, MessageMetrics>;
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
   changingSettings: boolean;
 }
@@ -217,17 +274,21 @@ function lastAssistantMessage(session: PiSessionLike) {
   return undefined;
 }
 
-function sessionMessages(session: PiSessionLike, masker: SecretMasker): ChatMessage[] {
-  return session.messages
+function sessionMessages(record: SessionRecord, masker: SecretMasker): ChatMessage[] {
+  return record.session.messages
     .filter((message) => message.role === "user" || message.role === "assistant")
     .map((message) => {
       const text = masker.mask(contentText(message.content));
+      const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
+      const metrics = record.messageMetrics.get(message);
       return {
         role: message.role as "user" | "assistant",
         text,
         stopReason: message.role === "assistant" ? message.stopReason : undefined,
         // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
         ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
+        ...(usage ? { usage } : {}),
+        ...(metrics ? { metrics } : {}),
       };
     })
     .filter((message) => message.text || message.role === "user");
@@ -312,6 +373,7 @@ export class SessionStore {
       queue: [],
       run: null,
       tools: new Map(),
+      messageMetrics: new WeakMap(),
       changingSettings: false,
     };
     this.records.set(record.id, record);
@@ -467,6 +529,7 @@ export class SessionStore {
     const { session } = record;
     const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
       (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
+    const context = contextUsageOf(session);
     return {
       sessionId: record.id,
       piSessionId: session.sessionId,
@@ -497,7 +560,8 @@ export class SessionStore {
             toolCalls: [...record.tools.values()],
           }
         : null,
-      messages: sessionMessages(session, this.masker),
+      messages: sessionMessages(record, this.masker),
+      ...(context ? { context } : {}),
     };
   }
 
@@ -509,7 +573,7 @@ export class SessionStore {
       agentName: record.agent.name,
       status: this.statusOf(record),
       queueDepth: record.queue.length,
-      messageCount: sessionMessages(record.session, this.masker).length,
+      messageCount: sessionMessages(record, this.masker).length,
       createdAt: record.createdAt,
       lastUsedAt: record.lastUsedAt,
       model: modelLabel(record.session.model),
@@ -581,6 +645,9 @@ export class SessionStore {
 
     let finished = false;
     let currentAssistantText = "";
+    // 応答時間は SDK が持たないため、イベントの到着時刻で測る (assistant メッセージごとにリセット)。
+    let assistantStartedAt: number | undefined;
+    let firstTokenAt: number | undefined;
     // 差分はそのまま配信せず、秘密値の前方一致になり得る末尾を保留する (アシスタントメッセージごとに作り直す)。
     let deltaMasker = createStreamingSecretMasker(this.masker);
 
@@ -633,18 +700,26 @@ export class SessionStore {
           case "message_start":
             if (event.message?.role === "assistant") {
               currentAssistantText = "";
+              assistantStartedAt = Date.now();
+              firstTokenAt = undefined;
               deltaMasker = createStreamingSecretMasker(this.masker);
             }
             break;
-          case "message_update":
-            if (event.assistantMessageEvent?.type === "text_delta") {
-              const emitted = deltaMasker.push(event.assistantMessageEvent.delta ?? "");
+          case "message_update": {
+            const assistantEvent = event.assistantMessageEvent;
+            if (assistantEvent?.type === "text_delta") {
+              firstTokenAt ??= Date.now();
+              const emitted = deltaMasker.push(assistantEvent.delta ?? "");
               if (emitted) {
                 currentAssistantText += emitted;
                 this.emit(record, "text", { delta: emitted });
               }
+            } else if (assistantEvent?.type === "thinking_delta") {
+              // 思考だけが先に流れるモデルでも TTFT を測れる
+              firstTokenAt ??= Date.now();
             }
             break;
+          }
           case "message_end":
             // アシスタントメッセージの確定時に、保留していた末尾を流す。
             if (event.message?.role === "assistant") {
@@ -653,6 +728,19 @@ export class SessionStore {
                 currentAssistantText += flushed;
                 this.emit(record, "text", { delta: flushed });
               }
+              const usage = parseUsage(event.message.usage);
+              const metrics = computeMessageMetrics({
+                startedAt: assistantStartedAt,
+                firstTokenAt,
+                endedAt: Date.now(),
+                outputTokens: usage?.output,
+              });
+              if (metrics) record.messageMetrics.set(event.message, metrics);
+              if (usage || metrics) {
+                this.emit(record, "usage", { usage, metrics, context: contextUsageOf(session) });
+              }
+              assistantStartedAt = undefined;
+              firstTokenAt = undefined;
             }
             break;
           case "tool_execution_start": {

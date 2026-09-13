@@ -10,6 +10,7 @@ const EVENT_TYPES: SSEEventType[] = [
   "queued",
   "queue_cleared",
   "run_end",
+  "usage",
   "resync",
 ];
 

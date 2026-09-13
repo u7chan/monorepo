@@ -344,6 +344,14 @@ export function useAgentDesk() {
       case "tool_end":
         dispatch({ type: "toolEnd", id: entry.data.id, isError: entry.data.isError, output: entry.data.output });
         return;
+      case "usage":
+        dispatch({
+          type: "usage",
+          usage: entry.data.usage,
+          metrics: entry.data.metrics,
+          context: entry.data.context,
+        });
+        return;
       case "status":
         dispatch({ type: "status", text: entry.data.text });
         return;
