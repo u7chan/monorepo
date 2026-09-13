@@ -30,7 +30,7 @@ export default function App() {
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
   const openNav = useCallback(() => setNavOpen(true), []);
   const closeNav = useCallback(() => setNavOpen(false), []);
-  /** 設定ページ → チャット。ページのヘッダと Escape から呼ぶ */
+  /** 設定ページ → チャット。compact のページヘッダと Escape から呼ぶ (desktop はサイドバーの導線だけ) */
   const backToChat = useCallback(() => setSidebarMode("nav"), []);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む

@@ -4,7 +4,7 @@ import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../li
 import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { messageTimeLabel } from "../lib/messageTime";
 import type { Project, SessionSummary } from "../types";
-import { ArrowLeftIcon, ChevronIcon, CloseIcon, FolderIcon, PlusIcon, TrashIcon } from "./icons";
+import { ArrowLeftIcon, ChevronIcon, CloseIcon, FolderIcon, GearIcon, PlusIcon, TrashIcon } from "./icons";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -331,7 +331,11 @@ export function Sidebar({
             onClick={() => newChat()}
             className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent-text"
           >
-            <span className="text-[18px] leading-3 text-accent-text">＋</span> 新しい会話
+            {/* 文字の「＋」は端末のフォントで字形と大きさが変わるため、他の追加ボタンと同じ PlusIcon で描く */}
+            <span className="text-accent-text">
+              <PlusIcon />
+            </span>
+            <span>新しい会話</span>
           </button>
 
           {/* プロジェクト階層と未所属チャット。まとめて 1 つのスクロール領域にし、設定を下部に固定する */}
@@ -418,9 +422,7 @@ export function Sidebar({
             onClick={() => onSelectMode("settings")}
             className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-line bg-soft px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
           >
-            <span aria-hidden className="text-[13px] leading-none">
-              ⚙
-            </span>
+            <GearIcon />
             <span className="min-w-0 flex-1 truncate text-left">設定</span>
             <span className="text-ink-faint">
               <ChevronIcon />

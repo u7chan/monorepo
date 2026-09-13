@@ -17,7 +17,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 メイン領域は チャット / 設定ページ のどちらかを出し、サイドバーのモード（nav / settings）と一致する。対応は `client/src/lib/settingsNav.ts` の `mainViewFor` が持ち、mode と settingsSection の state は `App` が持つ。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
 
 - desktop: `Topbar`（エラー時の接続状態と見出しだけの帯）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ 外観（`AppearancePage`）の 4 つ。ヘッダは 見出し + 操作 + 「アプリに戻る」で、戻り導線はこの 1 つに揃える。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方を優先する）。`Tab` は設定ページの操作を回って「アプリに戻る」に到達できる（dialog のフォーカス拘束は無い）
+- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ 外観（`AppearancePage`）の 4 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
 - `FileTreePage`（作業ディレクトリのファイルツリー）は設定ナビの「ファイル」から開く。渡すパスは選択中セッションの実効 cwd で、未作成チャットは選択中プロジェクトの cwd、未所属は `""`（ワークスペース root）。**この cwd がツリーの root になり**、`GET /api/files` へは root 自身を `path=<cwd>`、配下を `path=<cwd>/<name>` で問い合わせる（未所属は `path=.`）。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。設定ページの中でもヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
   - `CompactBar` はチャットのときに「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
