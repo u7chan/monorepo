@@ -7,10 +7,10 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 ## コマンド
 
 - `pnpm install` — 依存のインストール
+- `pnpm dev` — 開発用の一括起動（サンドボックス + BFF + Vite。`scripts/dev.mjs`。トークンは自動生成。http://localhost:5173）
+- `pnpm dev:bff` / `pnpm dev:sandbox` / `pnpm dev:web` — 個別起動（BFF / サンドボックス / Vite。BFF のみ等に使う）
 - `pnpm build` — クライアントのプロダクションビルド（`client/dist/` に出力）
-- `pnpm start` / `pnpm dev` — BFF 起動（http://127.0.0.1:4317。tsx で実行。`pnpm build` 済みの `client/dist/` を配信）
-- `pnpm start:sandbox` / `pnpm dev:sandbox` — ツール実行サンドボックス起動（既定 :8080。BFF に `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が必要）
-- `pnpm dev:web` — Vite 開発サーバー起動（http://localhost:5173、HMR 付き。`/api` は 4317 へプロキシ）
+- `pnpm start` / `pnpm start:sandbox` — 本番相当の起動（BFF http://127.0.0.1:4317 / サンドボックス 既定 :8080）。BFF には `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が必要
 - `pnpm test` — node:test によるテスト（pi へのスタブを使用。実 API を呼ばないこと）
 - `pnpm typecheck` — server / client 両方の `tsc --noEmit`
 - `docker build --target test .` — 型チェック・テスト・フロントビルド（実APIは呼ばない）
@@ -27,6 +27,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 - `server/src/schema.ts` — zod スキーマ + DTO 型（API 契約の正。client もここを参照する）
 - `server/src/redact.ts` / `src/secret-guard.ts` — APIキー保護（マスク本体 / SDK接続）。ツール実行はサンドボックスへ分離済みで、BFF は子プロセスを起こさない
 - `client/` — フロントエンド（Vite + React + TypeScript + Tailwind CSS v4）。レイアウトモード（desktop / portrait / landscape）は `src/lib/layout.ts` が判定する
+- `scripts/dev.mjs` — 開発用の一括起動（サンドボックスを別プロセスで立て、BFF と Vite を続けて起動する）
 - `server/test/` — node:test（pi はスタブ。listen せず `app.request()` で検証）
 - `client/test/` — node:test（DOM を使わない純粋なロジックのみ。`client/src/hooks/settingsChange.ts` の応答適用ガードなど）
 

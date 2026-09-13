@@ -21,11 +21,11 @@ const SANDBOX_REQUIRED_REASON =
   "BFF にサンドボックスの接続情報が無いため、セッション作成（送信）が 503 になります。";
 
 /**
- * 実行環境の復旧手順。サンドボックスは `.env` を読まないため、起動コマンド自体にトークン・
- * 作業領域・bind アドレスを並べる (コマンドと環境変数は README「ローカルで起動する（Docker なし）」と揃える)。
+ * 実行環境の復旧手順。`.env` は BFF だけが読むため、サンドボックスへ渡す値まで示す
+ * (コマンドと環境変数は README「ローカルで起動する（Docker なし）」と揃える)。
  */
 export const SANDBOX_REQUIRED_GUIDE =
-  "サンドボックスは `.env` を読まないため、`SANDBOX_HOST=127.0.0.1 PI_SANDBOX_TOKEN=<16文字以上の共有トークン> PI_SANDBOX_CWD=$PWD pnpm start:sandbox` で別プロセスとして起動し（`PI_APP_CWD` は同じパスに揃える）、BFF には `PI_SANDBOX_URL=http://127.0.0.1:8080` と同名の `PI_SANDBOX_TOKEN` を設定して再起動してください（詳細: README「ローカルで起動する（Docker なし）」）。";
+  "ローカルでは `pnpm dev` でサンドボックスごと起動し直してください（共有トークンと作業領域は dev スクリプトが渡します）。個別に起動している場合は、サンドボックスへ `SANDBOX_HOST=127.0.0.1` / `PI_SANDBOX_TOKEN`（16文字以上）/ `PI_SANDBOX_CWD` を CLI で渡し、BFF へ `PI_SANDBOX_URL` と同名のトークンを設定してください。";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
