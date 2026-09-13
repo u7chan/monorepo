@@ -20,7 +20,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 
 - `server/src/app.ts` — Hono ルーティング / SSE / 静的配信（`client/dist/`）+ `AppType` export（client の型ソース）
 - `server/src/index.ts` — BFF 起動エントリ（BFF の listen はこのファイルだけ）
-- `server/src/sandbox/` — ツール実行サンドボックス（BFF と別プロセス / 別コンテナ）。`service.ts` 実行API、`client.ts` BFF側クライアント、`remote-tools.ts` リモートツール定義、`index.ts` 起動エントリ
+- `server/src/sandbox/` — ツール実行サンドボックス（BFF と別プロセス / 別コンテナ）。`service.ts` 実行API、`client.ts` BFF側クライアント、`remote-tools.ts` リモートツール定義、`root-cwd.ts` 作業領域の準備（失敗時は案内を出して終了）、`index.ts` 起動エントリ
 - `server/src/sessions.ts` — セッションとラン（非同期実行）の管理
 - `server/src/agent.ts` — pi SDK ランタイムの生成
 - `server/src/agents.ts` — エージェント / スキル定義

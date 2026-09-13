@@ -2,11 +2,11 @@
  * サンドボックス側の起動エントリ (BFF とは別プロセス・別コンテナ。同一イメージを command 差し替えで共用する)。
  * 環境変数は docs/api.md を参照。listen はこのファイルだけが行う。
  */
-import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { SANDBOX_DEFAULT_PORT } from "./protocol";
+import { prepareRootCwd } from "./root-cwd";
 import { createSandboxService } from "./service";
 
 const ENTRY_PATH = fileURLToPath(import.meta.url);
@@ -23,13 +23,18 @@ async function main() {
     );
     process.exit(1);
   }
+  // 作業領域を用意できないときは案内を出して終了する (ツール実行がランタイムに失敗するより起動時に止める)。
   // 永続作業領域が無い場合 (ローカル実行など) はここで作る。
-  await mkdir(ROOT_CWD, { recursive: true });
+  const prepared = await prepareRootCwd(ROOT_CWD);
+  if (!prepared.ok) {
+    console.error(`[pi-agent-gui-sandbox] ${prepared.message}`);
+    process.exit(1);
+  }
 
-  const service = createSandboxService({ token: TOKEN, rootCwd: ROOT_CWD });
+  const service = createSandboxService({ token: TOKEN, rootCwd: prepared.path });
   const server = serve({ fetch: service.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[pi-agent-gui-sandbox] http://${HOST}:${info.port}`);
-    console.log(`[pi-agent-gui-sandbox] working directory: ${ROOT_CWD}`);
+    console.log(`[pi-agent-gui-sandbox] working directory: ${prepared.path}`);
   });
 
   const shutdown = () => {
