@@ -1,216 +1,49 @@
 # pi agent GUI
 
-`projects/pi-agent-gui` は継続して保守するブラウザGUIです。既存の `projects/aiagent` とは別のアプリで、依存更新はDependabotで追います。
+pi SDK を BFF に埋め込んだ小さなブラウザ GUI（`projects/pi-agent-gui`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript で、client は `hono/client` で型安全に API を呼びます。セッションとエージェント/スキル定義はメモリ内のみで、再起動すると消えます。
 
-pi SDK を BFF に埋め込んだ小さなブラウザ GUI です。フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は **Hono + TypeScript**（入力検証は zod）で構築し、client は `hono/client` で型安全に API を呼びます。BFF がプロダクションビルドを配信します。
+メッセージ送信は即時に返り、エージェントはバックグラウンドで動き続けます（ブラウザを閉じても継続）。作業用ツール（read / bash / edit / write / grep / find / ls）は BFF から分離したサンドボックスプロセスで実行します。
 
-メッセージを送るとエージェントは**バックグラウンドで動き続けます**。ブラウザを閉じても処理は止まらず、複数の会話（セッション）を並行して進められます。停止は画面の「停止」ボタンまたは API で明示的に行います。
+## ローカルで起動する（Docker なし）
 
-作業用ツール（ファイル操作・シェル・検索）は **BFF から分離されたサンドボックスサービス**で実行されます。BFF は LLM 認証情報をサンドボックスへ渡さず、サンドボックスは `.env` も読みません（見えるのは起動時に CLI で渡した環境変数だけです）。ただし分離の強さは起動構成に依存し、ホスト上の別プロセスとして動かす場合は同一ユーザー・同一環境なので、別コンテナで動かす場合ほど強くありません（[保証しないこと](#保証しないこと残存リスク)）。
-
-## 起動
-
-Node.js 24 と pnpm 10.34.5 を使用します。`client/` と `server/` は一つのpnpm workspaceとして管理し、このディレクトリでコマンドを実行してください。
-
-サンドボックス（ツール実行サービス）は**常に別プロセスで起動**します。BFF はサンドボックスが無いとセッションを作れず（503）、ローカル実行へフォールバックしません。ローカルで動かすだけなら Docker は不要です（イメージを作るときは [Docker / CI・CD](#docker--cicd)）。
-
-### ローカルで起動する（Docker なし）
-
-#### 1. 依存のインストールと設定（初回のみ）
+Node.js 24 と pnpm 10.34.5 を使います。初回だけ `pnpm install`。
 
 ```bash
-pnpm install
-
-# APIキーを設定（プロジェクト直下の .env は start/dev から自動で読み込まれます）
-cp .env.example .env
-# .env の ANTHROPIC_API_KEY（または利用するプロバイダーのキー）を編集する
+pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http://localhost:5173
 ```
 
-`~/.pi/agent/auth.json` など既存の pi の OAuth 認証もそのまま使えるため、APIキーの新規設定は必須ではありません。
+- サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します（ローカルで Docker は不要）
+- 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`
+- APIキーは `cp .env.example .env` で設定できます。`~/.pi/agent/auth.json` があれば不要です（`.env` を読むのは BFF だけ）
+- 停止は Ctrl-C（3 プロセスまとめて止まります）
 
-`.env` を読むのは BFF だけです。サンドボックスは `.env` を読まないので、サンドボックス側の値（トークン・作業領域・bind アドレス）は下の例のように CLI の環境変数で渡してください。
+## 環境変数
 
-#### 2. サンドボックスを起動する（ターミナル 1）
+| 変数 | 説明 |
+| --- | --- |
+| `PI_APP_CWD` | 作業ディレクトリ（既定: このディレクトリ） |
+| `PI_MODEL` / `PI_MODELS` | 既定モデルの固定 / 選択できるモデルの whitelist |
+| `PI_THINKING` | 既定の Effort |
+| `PORT` / `HOST` | BFF の待受（既定 4317 / 127.0.0.1） |
+| `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` | 外部のサンドボックスへ繋ぐ場合のみ（`pnpm dev` は自動で設定） |
+| `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
 
-```bash
-SANDBOX_HOST=127.0.0.1 \
-PI_SANDBOX_TOKEN=dev-shared-token-change-me \
-PI_SANDBOX_CWD=$PWD \
-pnpm start:sandbox
-```
+一覧は [docs/api.md](docs/api.md) の環境変数表と [.env.example](.env.example) を参照してください。
 
-- `PI_SANDBOX_TOKEN` は BFF と共有する 16 文字以上のトークンです。LLM の APIキーとは別の値を使います
-- `PI_SANDBOX_CWD` はツール実行の作業領域です。書込み可能なディレクトリを指定し、BFF の `PI_APP_CWD` と同じパスへ揃えてください（BFF とサンドボックスでパス解決を一致させる）。未設定ならイメージ契約どおり `/workspace` を使い、ホストで書込みできないときは起動時に案内を出して終了します
-- `SANDBOX_HOST` の既定は `0.0.0.0`（全インターフェース）です。ローカルでは `127.0.0.1` を指定して LAN へ公開しないようにします。`SANDBOX_PORT` の既定は `8080` です
+## セキュリティ
 
-#### 3. BFF を起動する（ターミナル 2）
-
-本番相当（`pnpm build` の成果物を BFF が配信）:
-
-```bash
-pnpm build
-PI_SANDBOX_URL=http://127.0.0.1:8080 PI_SANDBOX_TOKEN=dev-shared-token-change-me PI_APP_CWD=$PWD pnpm start
-```
-
-ブラウザで <http://127.0.0.1:4317> を開きます。
-
-フロントエンドのホットリロードを使う場合は、BFF を `pnpm dev` に差し替えて Vite 開発サーバーを追加します（3 プロセス）。
-
-```bash
-# ターミナル 2
-PI_SANDBOX_URL=http://127.0.0.1:8080 PI_SANDBOX_TOKEN=dev-shared-token-change-me PI_APP_CWD=$PWD pnpm dev
-
-# ターミナル 3
-pnpm dev:web
-```
-
-ブラウザで <http://localhost:5173> を開きます。`/api` へのリクエストは Vite が BFF（:4317）へプロキシします。
-
-`pnpm build` で `client/dist/` にプロダクションビルドが生成されます。ビルド済みクライアントが無い状態で開くと 503 と案内が表示されます。
-
-APIキーやサンドボックスが未設定でも画面は起動しますが、送信はできません。画面に表示される案内に従って設定し、サーバーを再起動してください。`.env` へサンドボックス用の値を書いておけば、BFF 側は `pnpm start` だけで起動できます（サンドボックスは `.env` を読まないため、CLI での指定は必要です）。
-
-### モデルやポートを変える
-
-```bash
-# 使用モデルを固定する場合
-PI_MODEL=anthropic/claude-sonnet-4-5 pnpm start
-
-# 表示・選択できるモデルをこのデプロイの提供分だけに絞る場合（provider/model をカンマ区切り）
-PI_MODELS=anthropic/claude-sonnet-4-5,openai/gpt-5.6-luna pnpm start
-
-# 推論の強さ（Effort）を既定で変える場合
-PI_THINKING=high pnpm start
-
-# 作業ディレクトリやポートを変える場合
-PI_APP_CWD=/path/to/project PORT=4318 pnpm start
-```
-
-`PI_MODEL` に指定したモデルが認証済みの候補に無い場合は、別のモデルへ黙って切り替えず、画面の Model 選択にエラーとして表示します。利用できるモデルを入力欄から選べばそのまま使えます。
-
-`PI_MODELS` は Model / Effort ピッカーに出すモデルを列挙する whitelist です（`PI_AGENT_TOOLS` と同じカンマ区切り）。未指定なら認証済みモデルを全件表示します。ここに無いモデルは一覧から消えるだけでなく、`POST /api/sessions` の `model` 指定や会話ごとの設定変更でも 400 になります。`PI_MODEL` が whitelist 外の場合も他モデルへは切り替えずエラー表示です。whitelist と利用可能モデルが交差しないときは、`/api/health` が `errorCode: "model_whitelist_empty"` と PI_MODELS を名指ししたエラーを返し、`ready: false` になります。`provider/model` 形式でない項目が混じった場合は、設定ミスに気づけるよう起動時にエラーになります。
-
-## 使い方
-
-- メッセージ送信は即時に返却され、応答は画面にストリーミングされます。実行中も入力でき、送信したメッセージは待機キューに入り順番に実行されます
-- 左サイドバーにセッション一覧が出ます（実行中はドットが点滅）。クリックで切り替え、×で削除できます
-- 「新しい会話」でセッションを追加できます。既存の会話は残り、裏で実行中の処理も続きます
-- 「停止」で実行中の処理と待機キューを取り消せます
-- ツール呼び出しの履歴は回答前にまとめて省略表示され、クリックすると各ツールの引数と出力を確認できます（既定は折りたたみ）
-- 各メッセージの本文下に時刻が出ます（当日は `12:50`、同じ年は `9/5`、それ以外は `2025/9/5`。ホバーで `2026/9/5(土) 12:50`）。表記は日本語（`ja-JP`）固定で、ブラウザの locale 設定には依存しません。セッション一覧の時刻も同じ表記です
-- 「エージェント / スキルを管理」から、指示文を書いたスキルを作成してエージェントに割り当てられます。割り当てたスキルは新しい会話のシステムプロンプトに反映されます
-- サイドバー（スマートフォンはドロワー）の「作業ディレクトリ」カードを押すと、作業領域のファイルツリーが開きます。ディレクトリは展開したときに読み込み、ファイルは選択表示のみです（内容のプレビュー・編集・保存・作成・削除・アップロード・ダウンロードはできません）。ファイル監視による自動更新はせず、更新は「再読み込み」で行います。サーバーが並び順と 1 ディレクトリ 500 件の上限を決め、打ち切ったときは画面に注記が出ます
-- 入力欄の上のエージェント選択で、使うエージェントをいつでも切り替えられます。選ぶとそのエージェントで新しい会話を始めます（表示中の会話はセッション一覧に残ります）
-- Model / Effort はエージェント選択の右のボタンで開く追加設定です。開くとその会話のモデルと推論の強さをいつでも切り替えられます。同じ会話・履歴・タイトルを保ったまま変わり、他の会話には影響しません。変更中はピッカーと送信が一時的に無効になります。表示中のモデルはこのピッカーで確認します
-- エージェントの管理画面では、そのエージェントで新しい会話を始めるときの Model / Effort を「未指定」込みで指定できます。未指定の項目はアプリ既定が使われます。定義の変更は既存の会話に遡及しません。同じ画面で、空の会話の最初の画面に出る定型プロンプト（ボタン）も編集でき、定義が無いエージェントではボタンが出ません
-- 管理画面の「インポート」「エクスポート」から、エージェントとスキルの定義を JSON ファイルで入出力できます
-- テーマを切り替えられます（desktop は画面右上、スマートフォンはドロワー下部）。6 プリセット（ミッドナイト / デイライト / モカ / フォレスト / サクラ / スカイ）とシステム追従から選択でき、選択はブラウザに保存されます
-- PC とスマートフォンの両方に対応しています。幅と高さでレイアウトを切り替え、スマートフォンや低いウィンドウでは「エージェントと現在の会話」だけを載せた compact なバーと、ドロワー（セッション一覧・エージェント / スキル管理・作業ディレクトリ・テーマ）に縮退します。エージェント選択は compact でも入力欄の上に残り、Model / Effort はその右のボタンで開きます。長い会話や設定画面はそれぞれの領域内でスクロールします
-- レイアウトモードの判定と各モードの構成は [docs/ui-layout.md](docs/ui-layout.md) を参照してください
-
-セッションとエージェント/スキル定義はメモリ内だけで保持し、サーバー再起動でサンプルに戻ります。
-
-エージェントには `read / bash / edit / write / grep / find / ls` を渡しています。これらはすべてサンドボックスサービス内で実行され、BFF プロセスは任意の作業コードを実行しません。サンドボックスの作業領域でコマンド実行・ファイル変更を行えるため、信頼できる環境だけで使ってください。
-
-## APIキーの保護
-
-LLM 認証情報は BFF だけが保持し、ツール実行は認証付きの別サービス（サンドボックス）へ分離しています。
-
-- **実行の分離**: read / bash / edit / write / grep / find / ls のすべての作業用ツールは、BFF とは別プロセス（デプロイ時は別コンテナ）のサンドボックスサービスで実行されます。BFF はツール引数を認証付きAPIへ中継するだけで、任意の作業コードを BFF 上で実行しません。bash・ripgrep・fd はサンドボックス側で動きます
-- **認証情報の非共有**: サンドボックスへ渡すのは実行APIの認証用の共有トークン（`PI_SANDBOX_TOKEN`）だけで、LLM 認証情報は渡しません。未認証の要求は 401 で拒否します。APIのポートは Docker では publish せず、ホストで起動するときは `SANDBOX_HOST=127.0.0.1` を指定して外部へ公開しません
-- **対象のマスク**: pi が認証に使う既知の環境変数（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY` など。pi-ai のプロバイダー解決に追従し、`AWS_BEARER_TOKEN_BEDROCK` のような解決外のキー変数も補完）の非空値。独自プロバイダーのキーは `PI_SECRET_ENV_VARS` で追加します（明示指定した変数は値の長さに関係なく保護。自動解決分は 8 文字未満を通常出力の過剰改変防止のため対象外とします）。AWS の IAM 認証情報（`AWS_ACCESS_KEY_ID` など）と OAuth トークンは対象外です
-- **ツール出力のマスク**: ツールの途中出力・最終出力・エラーに既知のキーが現れた場合、LLM・SSE・ログのいずれへも渡る前に `[REDACTED]` へ置換します。シェル以外のツール（read / grep など）の出力も対象です。ストリーミングではキーがチャンク境界をまたいでも生の値が現れないよう、前方一致になり得る末尾を保留してから配信します。SDKが出力を末尾Nバイトへ切り詰めることでキーの先頭が欠けた場合、また grep が一致行を500文字へ切り詰めることでキーの末尾が欠けた場合も、部分一致（4 文字以上）を置換します
-
-### 保証しないこと（残存リスク）
-
-- 非rootコンテナ・別プロセス分離は完全な隔離ではありません。同一ユーザーのサンドボックス内では、会話間のセキュリティ分離はありません。ファイル・ポート・Git の共有情報は競合し得ます
-- ホスト上の別プロセスとして起動したサンドボックスは、BFF と同一ユーザー・同一環境です。親シェルから export した APIキーは継承され、同一ユーザーが読める認証ファイル（`~/.pi/agent/auth.json` など）も読めます。この構成の分離はプロセス分離であり、コンテナ分離ではありません
-- サンドボックスから外向きの通信は制限していません。ツールで実行したコードはネットワークへ到達できます（ネットワーク制限・リソース上限はデプロイ側の運用に委ねます）
-- bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれます。ファイル自体はマスクされませんが、そのファイルを読むツール出力はマスクされます
-- ユーザーがチャットへ直接貼ったキーはモデルへはそのまま渡ります（画面・SSE・イベントログにはマスクが掛かります）
-- 分割・Base64など変換されたキーや、未登録の秘密情報は検出できません。OAuth トークンの取得・更新は対象外です
-- ユーザーが作業領域へ置いたファイルの内容はツールから読めます。認証情報を作業領域へ置かないでください
-
-設計の詳細は [docs/architecture.md](docs/architecture.md) の「APIキー漏洩の抑制」を参照してください。
-
-## 構成
-
-- `server/`: BFF（Hono + TypeScript）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType` export、`src/schema.ts` が zod スキーマと DTO 型（API 契約の正）、`src/sessions.ts` がセッションとラン（非同期実行）、`src/agent.ts` が pi SDK ランタイム生成とモデル候補、`src/agents.ts` がエージェント定義とスキル割り当て。APIキー保護は `src/redact.ts`（マスク本体）、`src/secret-guard.ts`（SDK接続）が担う
-- `server/src/sandbox/`: ツール実行サンドボックス（BFF と別プロセス）。`src/sandbox/service.ts` が認証付きツール実行API（NDJSON ストリーム）と作業領域の一覧API（`GET /v1/files`。JSON）、`src/sandbox/client.ts` が BFF 側クライアント、`src/sandbox/remote-tools.ts` が SDK 組込みツールのリモート定義、`src/sandbox/index.ts` が起動エントリ
-- `client/`: チャット UI（Vite + React 19 + TypeScript + Tailwind CSS v4）。`pnpm build` で `client/dist/` にビルドされ、BFF が配信する。`src/api.ts` は hc 型安全クライアント、`src/lib/layout.ts` がレイアウトモード（幅と高さ）の判定、`src/components/FileTreeScreen.tsx` が作業ディレクトリのファイル画面（ツリーの状態遷移は `src/lib/fileTree.ts` の純関数）
-- `server/test/`: node:test（pi はスタブで実 API を呼ばない）
-- `client/test/`: node:test（DOM を使わない純粋なクライアントロジックのみ。設定変更応答の競合など）
+- **ログイン認証はありません。インターネットや LAN へ公開しないでください**（既定の待受は `127.0.0.1`）
+- ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。信頼できる環境だけで使ってください
+- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します。ただし `pnpm dev` のようにホストで別プロセスとして起動した場合、サンドボックスは起動元シェルの環境を継承するため、export 済みの APIキーと同一ユーザーが読める認証ファイルは見えます（コンテナ分離ではこの継承はありません）
+- `pnpm dev` の分離はプロセス分離です（同一ユーザー・同一環境）。コンテナ分離の設計と残存リスクは [docs/architecture.md](docs/architecture.md) を参照してください
 
 ## ドキュメント
 
-- [AGENTS.md](AGENTS.md) — エージェント向けの最小ガイド
-- [docs/architecture.md](docs/architecture.md) — 非同期実行とセッション管理の設計
-- [docs/api.md](docs/api.md) — HTTP API リファレンス（SSE イベント定義を含む）
-- [docs/ui-layout.md](docs/ui-layout.md) — レイアウトモードの判定とモバイル向けシェル
+- [AGENTS.md](AGENTS.md) — エージェント向けの最小ガイド（検証コマンド・コメント方針）
+- [docs/architecture.md](docs/architecture.md) — 非同期実行・サンドボックス分離・APIキー保護の設計
+- [docs/api.md](docs/api.md) — HTTP API リファレンス（環境変数表・SSE イベント）
+- [docs/persistence.md](docs/persistence.md) — 永続化される範囲と再デプロイ時の挙動
+- [docs/ui-layout.md](docs/ui-layout.md) — レイアウトモードの判定
 - [docs/migration.md](docs/migration.md) — 移植元・履歴保存・CI対応の変更点
 
-## Docker / CI・CD
-
-モノレポのPR CIは `test` ステージで型チェック、スタブを用いたテスト（server: 非同期実行と API、client: レイアウトモード判定と設定変更の応答適用）、フロントエンドビルドを実行します。専用のlinterはまだ導入していません。mainへのマージ後は既存CDが `final` ステージをビルドし、次のイメージをGHCRへpushします（自動デプロイは行いません）。`final` のビルドも `test` を経由します。
-
-```text
-ghcr.io/u7chan/monorepo/pi-agent-gui:latest
-```
-
-このプロジェクトのディレクトリでローカル検証できます。
-
-```bash
-docker build --target test --build-arg COMMIT_HASH="$(git rev-parse --short HEAD)" .
-docker build --target final --build-arg COMMIT_HASH="$(git rev-parse --short HEAD)" -t pi-agent-gui:local .
-docker run --rm --init -p 127.0.0.1:4317:4317 pi-agent-gui:local
-```
-
-ブラウザで <http://127.0.0.1:4317> を開きます。認証なしでも画面・`/api/health`・エージェント定義を確認できますが、実際のモデル実行には認証が必要です。テストやイメージビルドにAPIキーは不要です。
-
-この 1 コンテナ起動にはサンドボックスが含まれないため、セッション作成（メッセージ送信）は 503 になります。送信まで確認するときは、次の「サンドボックス（ツール実行サービス）を分離して動かす」の 2 コンテナ構成を使ってください。
-
-作業ディレクトリとAPIキーを渡す例:
-
-```bash
-# ANTHROPIC_API_KEY は事前にホストの環境変数へ設定する
-docker run --rm --init -p 127.0.0.1:4317:4317 \
-  -e ANTHROPIC_API_KEY \
-  --mount type=bind,src=/absolute/path/to/workspace,dst=/workspace \
-  pi-agent-gui:local
-```
-
-- **ログイン認証を備えたWebサービスではありません。インターネットやLANへ直接公開しないでください。** コンテナ内は `HOST=0.0.0.0` ですが、ホストの公開先は必ず `127.0.0.1` に限定します。
-- 非rootの `node` ユーザー（UID/GID 1000）で動きます。mount先はこのユーザーが読み書きできる権限にしてください。アプリ本体は書き換えできず、既定の作業先は `/workspace` です。
-- エージェントはmount先のファイル変更やbash実行ができます。Docker socket、ホーム全体、不要な秘密情報はmountしないでください。
-- APIキーは上の例のようにホスト側から環境変数（`-e ANTHROPIC_API_KEY`）で渡します。キー入りの `.env` を `/workspace` へマウントしないでください。エージェントのツールがそのファイルを読めます。APIキーやOAuth認証ファイルをイメージへ焼き込まないでください。OAuthを使う場合は専用の認証領域を実行時に渡し、更新時の書込みも考慮してください。ホストの `~/.pi` は自動共有されません。
-- Bash、Git、ripgrep、fd-find、Node.jsを同梱しています。任意の開発環境が揃っているわけではありません。必要なツールは用途に合わせて追加してください。
-- セッションとエージェント／スキル定義はメモリ内のみで、コンテナを再起動すると消えます。必要な定義は画面からエクスポートしてください。
-
-### サンドボックス（ツール実行サービス）を分離して動かす
-
-イメージはBFFとサンドボックスで共用し、`command` だけ差し替えて2コンテナで起動します。ツール実行API（`8080`）はホストへpublishせず、BFFとのみ内部ネットワークで到達します。
-
-```bash
-docker network create pi-agent-gui-net
-
-# サンドボックス（作業領域を永続マウントする。BFF にはマウントしない）
-docker run -d --name pi-agent-gui-sandbox --network pi-agent-gui-net \
-  -e PI_SANDBOX_TOKEN=<16文字以上の共有トークン> \
-  --mount type=bind,src=/absolute/path/to/workspace,dst=/workspace \
-  pi-agent-gui:local node --import tsx src/sandbox/index.ts
-
-# BFF（作業領域はマウントしない）
-docker run --rm --init --name pi-agent-gui --network pi-agent-gui-net -p 127.0.0.1:4317:4317 \
-  -e ANTHROPIC_API_KEY \
-  -e PI_SANDBOX_URL=http://pi-agent-gui-sandbox:8080 \
-  -e PI_SANDBOX_TOKEN=<16文字以上の共有トークン> \
-  pi-agent-gui:local
-```
-
-- `PI_SANDBOX_TOKEN` は BFF とサンドボックスの2コンテナにだけ渡す実行API認証用の共有トークンです（16 文字以上。不足するとサンドボックスは起動時に終了します）。LLM認証情報とは別の値を使い、他の環境変数やファイルへ展開しません
-- サンドボックスはコンテナ内で `0.0.0.0`（`SANDBOX_HOST` の既定）に bind し、公開ポートは publish しません。BFF からは `http://pi-agent-gui-sandbox:8080` で到達します
-- 一覧 API（`GET /api/files`）は読み取り専用で、サンドボックスから見た作業領域だけを返します。root 外の拒否は URL 経由の不正参照を防ぐ入力検証で、エージェントが `bash` / `read` で読み取れる範囲は変わりません
-- サンドボックスは非rootの `node` ユーザー（UID/GID 1000）で動くため、マウント先はこのユーザーが読み書きできる所有権にしてください
-- 正式なCompose構成・永続領域・資格情報の配置はデプロイ側リポジトリ（self-hosted-runner）で管理します
-
-CDの仕組みは [モノレポのCI/CD](../../docs/about-cicd.md) を参照してください。
+配布イメージは main マージ後の CD が GHCR（`ghcr.io/u7chan/monorepo/pi-agent-gui:latest`）へ push します。CD の仕組みは [モノレポのCI/CD](../../docs/about-cicd.md) を参照してください。

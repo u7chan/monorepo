@@ -8,10 +8,12 @@
   "scripts": {
     "start": "pnpm --filter server start",
     "start:sandbox": "pnpm --filter server start:sandbox",
-    "dev": "pnpm --filter server dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:bff": "pnpm --filter server dev",
     "dev:sandbox": "pnpm --filter server dev:sandbox",
     "dev:web": "pnpm --filter client dev",
     "build": "pnpm --filter client build",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
     "test": "pnpm --filter server test && pnpm --filter client test",
     "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck"
   },

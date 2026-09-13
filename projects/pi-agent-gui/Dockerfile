@@ -17,7 +17,7 @@ COPY server/ ./server/
 FROM dependencies AS test
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
-RUN pnpm typecheck && pnpm test && pnpm build
+RUN pnpm check
 
 FROM test AS builder
 
