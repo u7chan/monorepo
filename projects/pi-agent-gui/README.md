@@ -37,17 +37,9 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - LLM の APIキーは BFF だけが持ち、サンドボックス（とその子プロセス）へ渡しません。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します
 - `pnpm dev` の分離はプロセス分離です（同一ユーザー・同一環境）。コンテナ分離の設計と残存リスクは [docs/architecture.md](docs/architecture.md) を参照してください
 
-## 構成
-
-- `server/` — BFF（Hono）。`src/app.ts` がルーティング / SSE / 静的配信と `AppType`、`src/schema.ts` が API 契約の正、`src/sessions.ts` がセッションとランの管理、`src/agent.ts` が pi SDK ランタイム、`src/agents.ts` がエージェント / スキル定義
-- `server/src/sandbox/` — ツール実行サンドボックス（別プロセス。Docker では別コンテナで、同じイメージを command 差し替えで共用）
-- `client/` — チャット UI。レイアウト判定は `src/lib/layout.ts`、ファイルツリーは `src/lib/fileTree.ts`
-- `scripts/dev.mjs` — 開発用の一括起動（サンドボックス + BFF + Vite）
-- `server/test/` `client/test/` — node:test（pi はスタブ。実 API は呼びません）
-
 ## ドキュメント
 
-- [AGENTS.md](AGENTS.md) — エージェント向けの最小ガイド（全コマンド、Docker / CI）
+- [AGENTS.md](AGENTS.md) — エージェント向けの最小ガイド（検証コマンド・コメント方針）
 - [docs/architecture.md](docs/architecture.md) — 非同期実行・サンドボックス分離・APIキー保護の設計
 - [docs/api.md](docs/api.md) — HTTP API リファレンス（環境変数表・SSE イベント）
 - [docs/persistence.md](docs/persistence.md) — 永続化される範囲と再デプロイ時の挙動
