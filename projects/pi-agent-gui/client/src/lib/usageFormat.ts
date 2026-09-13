@@ -44,8 +44,9 @@ export function messageMetaLine(
     if (metrics.tokensPerSecond !== undefined) {
       parts.push(formatTokensPerSecond(metrics.tokensPerSecond));
     }
-    if (compact) return parts.join(" · ");
   }
+  // compact は metrics の有無で分岐させない (metrics が無ければトークンだけを出すのではなく何も出さない)
+  if (compact) return parts.join(" · ");
   const tokens: string[] = [];
   if (usage) {
     if (usage.input > 0) tokens.push(`↑${formatTokens(usage.input)}`);

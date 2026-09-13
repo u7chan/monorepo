@@ -73,6 +73,17 @@ test("compact は応答時間と tok/s だけに絞る", () => {
   assert.equal(messageMetaLine(USAGE, METRICS, true), "1.8s · 42.3 tok/s");
 });
 
+test("compact は metrics が無ければトークンを出さず、メタ行ごと出さない", () => {
+  // compact の判定が metrics の有無に依存すると、usage だけの応答でトークンが出てしまう
+  assert.equal(messageMetaLine(USAGE, undefined, true), "");
+  const hugeUsage: Usage = { ...USAGE, input: 1_200_000, output: 123_000 };
+  assert.equal(messageMetaLine(hugeUsage, undefined, true), "");
+  // 応答時間だけあるときはそれを出す
+  assert.equal(messageMetaLine(hugeUsage, { durationMs: 1800 }, true), "1.8s");
+  // 同じ usage でも desktop はトークンを出す (compact だけの制限)
+  assert.equal(messageMetaLine(hugeUsage, undefined, false), "↑1.2M ↓123k");
+});
+
 test("報告が無い項目は 0 と偽らずに出さない", () => {
   const zeroUsage: Usage = {
     input: 0,
