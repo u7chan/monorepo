@@ -171,6 +171,52 @@ test("projects resolve the session cwd and are reported as a root-relative path"
   await store.close();
 });
 
+test("create rejects a project that disappears while the runtime is creating the session", async () => {
+  // create() は resolveProject() の後で await pi.createSession() を挟むため、その間に
+  // DELETE /api/projects/:id (remove + destroyByProject) が走ると破棄対象のスナップショットに載らない。
+  // 登録直前の再確認で孤児を残さず 400 にすることを固定する。
+  const catalog = createAgentCatalog();
+  const projects = new ProjectStore();
+  const project = projects.create({ cwd: "proj-a" });
+  const base = createStubPi();
+  let releaseCreate: () => void = () => {};
+  const creating = new Promise<void>((resolveCreate) => {
+    releaseCreate = resolveCreate;
+  });
+  let started = false;
+  const pi = {
+    ...base,
+    createSession: async (input: Parameters<typeof base.createSession>[0] = {}) => {
+      started = true;
+      await creating;
+      return base.createSession(input);
+    },
+  };
+  const store = new SessionStore({ pi, catalog, projects });
+
+  const pending = store.create({ agentId: "agent-general", projectId: project.id });
+  await waitFor(() => started, 3000, "runtime session creation started");
+
+  // セッション作成中にプロジェクトを削除する (destroyByProject にはこのセッションが見えていない)
+  projects.remove(project.id);
+  await store.destroyByProject(project.id);
+  releaseCreate();
+
+  await assert.rejects(pending, (error: Error & { statusCode?: number }) => {
+    assert.equal(error.statusCode, 400);
+    assert.match(error.message, /Project not found/);
+    return true;
+  });
+  assert.equal(store.size, 0, "削除済みプロジェクトを参照するセッションを登録しない");
+  assert.deepEqual(store.list(), []);
+
+  const created = base.sessions.at(-1) as StubSession;
+  await waitFor(() => created.disposed === true, 3000, "created session disposal");
+  assert.equal(created.disposed, true, "作成済みの SDK セッションは dispose する");
+
+  await store.close();
+});
+
 test("destroyByProject aborts, disposes and notifies only its own sessions", async () => {
   const catalog = createAgentCatalog();
   const projects = new ProjectStore();

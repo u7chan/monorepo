@@ -378,6 +378,14 @@ export class SessionStore {
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: project?.cwd ?? "",
     });
+    // 上記の await 中に DELETE /api/projects/:id が走ると、このセッションは破棄対象の
+    // スナップショットに含まれない。登録の直前に存在を再確認し、消えていれば作った SDK セッションを
+    // dispose して 400 にする (削除済みプロジェクトを参照する孤児を records に残さない)。
+    // この確認と records.set() の間に await を挟むと再び競合するため、必ず同期で登録する。
+    if (projectId !== undefined && !this.projects?.get(projectId)) {
+      (session as PiSessionLike).dispose?.();
+      throw httpError(400, `Project not found: ${projectId}`);
+    }
     const record: SessionRecord = {
       id: randomUUID(),
       session: session as PiSessionLike,
