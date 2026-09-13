@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { ArrowLeftIcon, MenuIcon } from "./icons";
 
 export type SettingsPageProps = {
-  /** チャットへ戻る (サイドバーのモードも nav へ揃える) */
+  /** チャットへ戻る (サイドバーのモードも nav へ揃える)。compact ではヘッダにも出す */
   onBack: () => void;
   /** compact layout。ヘッダが CompactBar の代わりになるため nav の導線を出す */
   compact?: boolean;
@@ -15,7 +15,7 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
   title: string;
   /** タイトル下の補足 (ワークスペース root のパスなど) */
   caption?: ReactNode;
-  /** ヘッダ右の操作 (再読み込み / インポートなど)。「アプリに戻る」はこの右に固定で出る */
+  /** ヘッダ右の操作 (再読み込み / インポートなど)。compact では「アプリに戻る」がこの右に続く */
   actions?: ReactNode;
   /** 管理操作の結果表示 (aria-live) */
   note?: { text: string; error: boolean };
@@ -24,7 +24,7 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
 
 /**
  * 設定ページの共通の外装。元の full screen dialog をやめてメイン列に置くため、
- * ヘッダ + 本文 (+ ノート) を viewport の高さいっぱいに組む。戻り導線は「アプリに戻る」の 1 つだけにする。
+ * ヘッダ + 本文 (+ ノート) を viewport の高さいっぱいに組む。
  */
 export function SettingsPageLayout({
   eyebrow,
@@ -67,10 +67,13 @@ export function SettingsPageLayout({
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {actions}
-          <button type="button" onClick={onBack} className="btn-quiet">
-            <ArrowLeftIcon />
-            アプリに戻る
-          </button>
+          {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。compact はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
+          {compact ? (
+            <button type="button" onClick={onBack} className="btn-quiet">
+              <ArrowLeftIcon />
+              アプリに戻る
+            </button>
+          ) : null}
         </div>
       </header>
 

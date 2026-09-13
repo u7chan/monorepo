@@ -185,6 +185,26 @@ export function SlidersIcon() {
   );
 }
 
+/** 設定 (歯車の絵文字はフォント差で字形と大きさが変わるため図形で描く) */
+export function GearIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <circle cx="8" cy="8" r="4" />
+      <circle cx="8" cy="8" r="1.6" />
+      <path d="M8 4.1V2.1M8 11.9v2M4.1 8h-2M11.9 8h2M5.24 5.24 3.83 3.83M10.76 5.24l1.41-1.41M5.24 10.76l-1.41 1.41M10.76 10.76l1.41 1.41" />
+    </svg>
+  );
+}
+
 /** ツリーの展開 (開いているときは親側で回転させる) */
 export function ChevronIcon() {
   return (
