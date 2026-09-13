@@ -318,16 +318,20 @@ export type ChatAreaProps = {
   /** 選択中エージェントの定型プロンプト。未定義 / 空ならボタン行ごと出さない */
   suggestions?: AgentSuggestion[];
   onSuggestion: (prompt: string) => void;
+  /** メイン領域にチャットが出ているか。非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
+  visible?: boolean;
 };
 
-export function ChatArea({ bubbles, compact = false, suggestions = [], onSuggestion }: ChatAreaProps) {
+export function ChatArea({ bubbles, compact = false, suggestions = [], onSuggestion, visible = true }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
 
+  // 設定ページから戻ったときにも最新位置へ戻す (非表示中は scrollHeight が 0 になる)
   useEffect(() => {
+    if (!visible) return;
     const el = chatAreaRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [bubbles]);
+  }, [bubbles, visible]);
 
   return (
     <section

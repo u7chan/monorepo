@@ -6,11 +6,11 @@ import { isThemeId, type ThemeChoice } from "./themes";
 export type ThemeSwitcherProps = {
   /** レイアウト調整用のクラスを外部から差し込む */
   className?: string;
-  /** ドロワーなど compact な領域向け。iOS の focus 時ズームを避けるため 16px 以上にする */
+  /** mobile の compact layout 向け (画面幅いっぱいに広げ、iOS の focus 時ズームを避けて 16px 以上にする) */
   compact?: boolean;
 };
 
-/** コンパクトなテーマ選択 (desktop の Topbar と、drawer の下部に置く) */
+/** テーマ選択 (設定の「外観」ページに置く) */
 export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps) {
   const { choice, resolvedId, setChoice, themes } = useTheme();
 

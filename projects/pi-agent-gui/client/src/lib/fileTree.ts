@@ -1,7 +1,7 @@
 /**
  * ファイルツリーの状態更新 (開閉・子のマージ・エラー保持)。DOM に依存しない純関数だけを置き、
- * 取得の起動と描画は FileTreeScreen が担う。キーは画面の root 相対パスで、画面の root が "."。
- * 画面の root からワークスペース root 相対 (GET /api/files の path) への変換は fileTreeFetchPath が担う。
+ * 取得の起動と描画は FileTreePage が担う。キーはページの root 相対パスで、ページの root が "."。
+ * ページの root からワークスペース root 相対 (GET /api/files の path) への変換は fileTreeFetchPath が担う。
  */
 import type { FileEntry } from "../types";
 

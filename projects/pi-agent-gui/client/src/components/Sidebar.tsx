@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { ThemeSwitcher } from "../theme/ThemeSwitcher";
 import type { AgentDesk } from "../hooks/useAgentDesk";
+import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { messageTimeLabel } from "../lib/messageTime";
 import type { Project, SessionSummary } from "../types";
@@ -204,17 +204,6 @@ function ProjectRow({
   );
 }
 
-export type SidebarMode = "nav" | "settings";
-
-/** settings モードの項目 (押すと既存の ManagerScreen / FileTreeScreen を開く) */
-export type SettingsSection = "agents" | "skills" | "files";
-
-const SETTINGS_ITEMS: { section: SettingsSection; label: string }[] = [
-  { section: "agents", label: "エージェント" },
-  { section: "skills", label: "スキル" },
-  { section: "files", label: "ファイル" },
-];
-
 export type SidebarProps = Omit<
   Pick<
     AgentDesk,
@@ -233,6 +222,8 @@ export type SidebarProps = Omit<
   /** nav: プロジェクト階層 / settings: 設定ナビ。App が持ち、drawer を閉じても保たれる */
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
+  /** settings モードでメイン領域に出ているページ (項目のハイライトに使う) */
+  activeSettingsSection: SettingsSection;
   /** 選択中プロジェクト配下に新しい会話を作る (未所属を選んでいれば未所属) */
   newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
@@ -240,6 +231,7 @@ export type SidebarProps = Omit<
   deleteProject: (projectId: string) => void;
   /** プロジェクト追加の dialog を開く */
   onNewProject: () => void;
+  /** settings モードの項目。メイン領域のページを切り替える */
   onOpenSettingsSection: (section: SettingsSection) => void;
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
   onClose?: () => void;
@@ -250,6 +242,7 @@ export type SidebarProps = Omit<
 export function Sidebar({
   mode,
   onSelectMode,
+  activeSettingsSection,
   onNewProject,
   onOpenSettingsSection,
   onClose,
@@ -306,19 +299,29 @@ export function Sidebar({
             アプリに戻る
           </button>
           <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">設定</div>
-          {SETTINGS_ITEMS.map((item) => (
-            <button
-              key={item.section}
-              type="button"
-              onClick={() => onOpenSettingsSection(item.section)}
-              className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-line bg-soft px-3 text-xs text-ink transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
-            >
-              <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-              <span className="text-ink-faint">
-                <ChevronIcon />
-              </span>
-            </button>
-          ))}
+          {SETTINGS_SECTIONS.map((item) => {
+            const active = item.section === activeSettingsSection;
+            return (
+              <button
+                key={item.section}
+                type="button"
+                // 押すとメイン領域のページが切り替わる。開いているページを他と区別する
+                aria-current={active ? "page" : undefined}
+                onClick={() => onOpenSettingsSection(item.section)}
+                className={[
+                  "flex min-h-10 w-full items-center gap-2 rounded-lg border px-3 text-xs transition-colors",
+                  active
+                    ? "border-accent/35 bg-accent-wash text-accent-text"
+                    : "border-line bg-soft text-ink hover:border-accent/50 hover:bg-hover hover:text-accent-text",
+                ].join(" ")}
+              >
+                <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                <span className="text-ink-faint">
+                  <ChevronIcon />
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : (
         <>
@@ -369,9 +372,23 @@ export function Sidebar({
               )}
             </section>
 
-            {/* 未所属セッションは常時展開 (0 件でも見出しとプレースホルダを出す) */}
+            {/* 未所属セッションは常時展開 (0 件でも見出しとプレースホルダを出す)。
+                見出し自体を押せるようにし、「新しい会話」の作成先を未所属へ戻せるようにする (他の戻し方が無い) */}
             <section className="grid gap-2">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Chats</div>
+              <button
+                type="button"
+                onClick={() => selectProject("")}
+                aria-current={selectedProjectId ? undefined : "true"}
+                title="未所属を「新しい会話」の作成先にする"
+                className={[
+                  "flex min-h-[34px] w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-colors",
+                  // プロジェクト行と同じ弱いハイライトで「作成先」であることを示す
+                  selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
+                ].join(" ")}
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Chats</span>
+                <span className="min-w-0 flex-1 truncate text-[10px] text-ink-ghost">未所属</span>
+              </button>
               {unassigned.length === 0 ? (
                 <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">未所属のセッションはありません</div>
               ) : (
@@ -392,7 +409,7 @@ export function Sidebar({
         </>
       )}
 
-      {/* フットノート + 設定 + テーマ (sheet のみ) */}
+      {/* フットノート + 設定 */}
       <div className="mt-auto grid gap-2">
         <div className="text-[10px] leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
         {mode === "nav" ? (
@@ -409,13 +426,6 @@ export function Sidebar({
               <ChevronIcon />
             </span>
           </button>
-        ) : null}
-        {/* テーマ切替の入口は desktop の Topbar にしかないため、drawer にも置く */}
-        {sheet ? (
-          <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-3">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">テーマ</div>
-            <ThemeSwitcher compact />
-          </div>
         ) : null}
       </div>
     </aside>
