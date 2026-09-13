@@ -122,12 +122,16 @@ async function main() {
   await assertPortFree(BFF_PORT);
 
   log(`作業領域: ${APP_CWD}`);
+  if (process.env.PI_SANDBOX_CWD) {
+    log(`PI_SANDBOX_CWD は使わず、BFF と同じ ${APP_CWD} をサンドボックスへ渡します`);
+  }
   log(`サンドボックスを起動します (http://127.0.0.1:${SANDBOX_PORT})`);
   const sandbox = start("sandbox", "start:sandbox", {
     SANDBOX_HOST: "127.0.0.1",
     SANDBOX_PORT: String(SANDBOX_PORT),
     PI_SANDBOX_TOKEN: TOKEN,
-    PI_SANDBOX_CWD: process.env.PI_SANDBOX_CWD || APP_CWD,
+    // BFF と別のディレクトリを使うと表示と実際のツール実行場所がずれるため、一括起動では常に揃える
+    PI_SANDBOX_CWD: APP_CWD,
   });
   await waitUntilReady(`http://127.0.0.1:${SANDBOX_PORT}/healthz`, sandbox, "サンドボックス");
 
