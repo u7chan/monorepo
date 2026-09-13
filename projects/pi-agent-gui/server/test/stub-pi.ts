@@ -60,7 +60,6 @@ export function modelOptionOf(model: PiAiModel<Api>): ModelOption {
     name: model.name,
     supportsThinking: getSupportedThinkingLevels(model).some((level) => level !== "off"),
     thinkingLevels: getSupportedThinkingLevels(model) as ThinkingLevel[],
-    contextWindow: model.contextWindow,
   };
 }
 

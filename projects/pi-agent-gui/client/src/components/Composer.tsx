@@ -12,7 +12,7 @@ export type ComposerProps = {
   sending: boolean;
   stopVisible: boolean;
   queueDepth: number;
-  /** セッションのコンテキスト使用量。未取得でも分母 (モデルの contextWindow) だけでゲージを出す */
+  /** セッションのコンテキスト使用量。未取得 (セッション未作成 / SDK が使用量を返さない) の間はゲージを出さない */
   context?: ContextUsage;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
@@ -102,10 +102,7 @@ export function Composer({
   const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
   const notice = settings.modelWarning ?? settings.effortNotice;
   const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
-  const contextWindowOfModel = settings.modelOptions.find(
-    (option) => `${option.provider}/${option.id}` === settings.model,
-  )?.contextWindow;
-  const gauge = contextGauge(context, contextWindowOfModel);
+  const gauge = contextGauge(context, compact);
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
@@ -289,11 +286,28 @@ export function Composer({
           </span>
           {gauge ? (
             <span
-              aria-label="コンテキスト使用量"
               className={["shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums", gaugeColor].join(" ")}
             >
-              ctx <span aria-hidden="true">{gauge.bar}</span> {gauge.percent}{" "}
-              <span className="text-ink-ghost">{gauge.detail}</span>
+              Context
+              {/* バーは CSS 描画。ブロック要素のグリフは端末のフォント次第で崩れるうえ、
+                  等幅にならないので tabular-nums も効かない */}
+              <span
+                role="progressbar"
+                aria-label="コンテキスト使用量"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={gauge.fill === null ? undefined : Math.round(gauge.fill * 100)}
+                className="mx-1 inline-block h-[5px] w-10 overflow-hidden rounded-full bg-line-strong align-middle"
+              >
+                {gauge.fill === null || gauge.fill <= 0 ? null : (
+                  // 極小の百分率でも「空」と見分けが付くように最小幅を持たせる
+                  <span
+                    className="block h-full rounded-full bg-current"
+                    style={{ width: `${gauge.fill * 100}%`, minWidth: 2 }}
+                  />
+                )}
+              </span>{" "}
+              {gauge.percent} {gauge.detail ? <span className="text-ink-ghost">{gauge.detail}</span> : null}
             </span>
           ) : null}
         </div>

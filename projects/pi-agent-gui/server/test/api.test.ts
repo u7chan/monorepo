@@ -227,11 +227,6 @@ test("health exposes the model picker options and the app default thinking level
       health.modelOptions.map((option: { name: string }) => option.name),
       ["Stub Model", "Stub Plain"],
     );
-    // ctx ゲージの分母は応答前でも出せるようにする
-    assert.deepEqual(
-      health.modelOptions.map((option: { contextWindow: number }) => option.contextWindow),
-      [128_000, 128_000],
-    );
   } finally {
     await bff.close();
   }

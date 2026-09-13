@@ -169,7 +169,6 @@ function modelOptionOf(model: PiAiModel<Api>): ModelOption {
     name: model.name || `${model.provider}/${model.id}`,
     supportsThinking: levels.some((level) => level !== "off"),
     thinkingLevels: levels,
-    contextWindow: model.contextWindow,
   };
 }
 
