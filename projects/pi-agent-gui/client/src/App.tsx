@@ -183,6 +183,7 @@ export default function App() {
             onSuggestion={handleSend}
           />
           <Composer
+            visible={mainView === "chat"}
             activity={desk.chat.activity}
             runtimeReady={desk.health?.ready !== false}
             sending={desk.sending}

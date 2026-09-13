@@ -470,12 +470,15 @@ export function useAgentDesk() {
 
   const createProject = useCallback(async (input: CreateProjectInput): Promise<Project> => {
     const { project } = await apiCreateProject(input);
-    // 一覧を先に取り直してから選択する (取得に失敗したときの古い一覧で選択が未所属へ戻らないように)
-    await refreshProjects();
+    // 作成応答で一覧を更新してから選択する。ここで GET に依存すると、失敗時に一覧へ無い id を
+    // 選択中にしてしまう (行も選択も出ず、未作成チャットのファイル画面 root もずれる)
+    const list = [...projectsRef.current.filter((item) => item.id !== project.id), project];
+    projectsRef.current = list;
+    setProjects(list);
     // 作った直後の「新しい会話」が別の場所へ行かないよう、作成先を新しいプロジェクトへ移す
     selectProject(project.id);
     return project;
-  }, [refreshProjects, selectProject]);
+  }, [selectProject]);
 
   const deleteProject = useCallback(async (projectId: string): Promise<void> => {
     const project = projectsRef.current.find((item) => item.id === projectId);
