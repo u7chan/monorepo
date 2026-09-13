@@ -15,6 +15,7 @@ function payload(sessionId: string, thinkingLevel = "low"): SessionPayload {
   return {
     sessionId,
     piSessionId: `pi-${sessionId}`,
+    cwd: "",
     status: "idle",
     title: "",
     createdAt: 1,

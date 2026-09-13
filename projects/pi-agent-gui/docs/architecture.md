@@ -60,6 +60,16 @@ startRun():
 - セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（エージェント切替・「新しい会話」・起動時の復元先無しはローカル状態のリセットだけで完結する）。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
 
+## プロジェクトとセッション cwd
+
+プロジェクトは `server/src/projects.ts` の `ProjectStore` が持つメモリ内の実体（`{ id, name, cwd, createdAt }`）で、`cwd` はワークスペース root 相対のパスだけを持つ（絶対パスで保存するとマウント先の変更で壊れる）。root 自身は登録できない（未所属セッションの作業場所と重複するため）。作成は「新規ディレクトリ作成（サンドボックスの `POST /v1/dirs`）」と「既存ディレクトリの登録（`GET /v1/files` がディレクトリ以外で失敗する性質で確認）」の両方で、BFF は作業領域のファイルシステムへ直接触らない。削除は登録解除だけで、配下セッションを `SessionStore.destroyByProject()` で停止（実行中は abort）・破棄し、ディレクトリは残す。
+
+セッションの作業ディレクトリは作成時に所属プロジェクトから決まり、SDK セッションへ固定される（`resourceLoader` / `createAgentSession({ cwd })` / `SessionManager.inMemory(cwd)` / `createRemoteToolDefinitions({ cwd })`）。未所属セッションは root（`PI_APP_CWD`）で動く。`SessionPayload.cwd` は root 相対（未所属は `""`）で配り、root の絶対パスは `health.cwd`（表示用）にだけ現れる。所属を後から変える API は無く、SDK セッション側にも作成後に cwd を変える API は無い。
+
+プロジェクトは**実行時の隔離ではない**。cwd はツールのパス解決の起点を変えるだけで、サンドボックス内のファイル・ポート・プロセスは全セッションで共有される（bash がある以上、未所属セッションから他プロジェクトのディレクトリも操作できる）。隔離が必要になった時点でコンテナ・データ領域分離として別に設計する。
+
+ツール実行はリクエストごとの `cwd`（root 相対）を受け取り、サンドボックスが root 配下の実在ディレクトリへ解決してから、その実パスごとに生成・キャッシュしたツール定義で実行する（`Map<実パス, definitions>`）。`..` や symlink で root の外へ出る指定は 400。この検証も cwd の起点を決めるだけで、サンドボックスが読める範囲を絞るものではない。
+
 ## Model / Effort の解決と変更
 
 アプリ既定モデルは `ModelRuntime.getAvailable()` の結果（認証済みモデルのみ）から決める。`PI_MODEL` を明示していればそれを使い、利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。`PI_MODEL` 未指定なら先頭候補を使う。
@@ -97,7 +107,7 @@ POST /api/sessions { model?, thinkingLevel? }
 
 ## ライフサイクル / 制限
 
-- セッションはプロセスのメモリ内のみ。1 時間未使用のアイドルセッションは SWEEP で破棄（実行中・キューありは対象外）。
+- セッションとプロジェクトはプロセスのメモリ内のみ。1 時間未使用のアイドルセッションは SWEEP で破棄（実行中・キューありは対象外）。
 - サーバ終了時は全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。
 
@@ -136,7 +146,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 
 ### パスと並行実行
 
-- BFF のセッション cwd（`PI_APP_CWD=/workspace`）とサンドボックスの作業領域（`PI_SANDBOX_CWD=/workspace`）を同じコンテナ内パスに揃え、パス変換なしでサンドボックス側へ解決させる。作業領域の永続マウントはサンドボックスだけへ付け、BFF には付けない
+- BFF のワークスペース root（`PI_APP_CWD=/workspace`）とサンドボックスの作業領域 root（`PI_SANDBOX_CWD=/workspace`）を同じコンテナ内パスに揃え、パス変換なしでサンドボックス側へ解決させる。セッションごとの作業ディレクトリは root 相対で渡し、サンドボックスが root と結合して実パスにする（§プロジェクトとセッション cwd）。作業領域の永続マウントはサンドボックスだけへ付け、BFF には付けない
 - 実行は toolCallId / executionId 単位で独立し、複数セッションの並行実行でも要求と出力が混線しない。ブラウザ切断はランに影響せず（§ランのライフサイクル）、明示停止（`POST /stop` → `session.abort()`）だけが対象のツール実行を中断する
 
 ### 配布イメージと起動契約

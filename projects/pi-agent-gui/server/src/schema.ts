@@ -152,10 +152,30 @@ export const ChatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
+/**
+ * ワークスペース内のプロジェクト。cwd は rootCwd 相対で、DB へ写せるよう列はこの 4 つに保つ。
+ * 後から所属を変える API は無いため、配下セッションの cwd も作成時に固定される。
+ */
+export const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** rootCwd 相対の正規化パス (root 自身は登録できない) */
+  cwd: z.string(),
+  createdAt: z.number(),
+});
+export type Project = z.infer<typeof ProjectSchema>;
+
+export const ProjectsResponseSchema = z.object({
+  projects: z.array(ProjectSchema),
+});
+export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
+
 export const SessionPayloadSchema = z.object({
   sessionId: z.string(),
   piSessionId: z.string(),
-  cwd: z.string().optional(),
+  /** rootCwd 相対の作業ディレクトリ (未所属は "" = root) */
+  cwd: z.string(),
+  projectId: z.string().optional(),
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
   /** 実効モデルが推論に対応しているか (SDK の supportsThinking 相当) */
@@ -187,6 +207,7 @@ export const SessionSummarySchema = z.object({
   createdAt: z.number(),
   lastUsedAt: z.number(),
   model: z.string().optional(),
+  projectId: z.string().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
@@ -272,8 +293,19 @@ export const CreateSessionBodySchema = z.object({
   // 未指定ならエージェント定義 → アプリ既定の順に解決する (null は 400)
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
+  // 未指定は未所属 (cwd = root)。未知の id は 400
+  projectId: z.string().min(1).optional(),
 });
 export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
+
+export const CreateProjectBodySchema = z.object({
+  cwd: z.string(),
+  /** 省略時は cwd の basename */
+  name: z.string().optional(),
+  /** true ならサンドボックスでディレクトリを作成する (省略時は既存ディレクトリの確認のみ) */
+  create: z.boolean().optional(),
+});
+export type CreateProjectBody = z.infer<typeof CreateProjectBodySchema>;
 
 /** チャット設定変更。省略は現在値維持、null・空 body は 400 */
 export const UpdateSessionSettingsBodySchema = z.object({

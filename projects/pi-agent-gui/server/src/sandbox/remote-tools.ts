@@ -43,8 +43,10 @@ const TOOL_FACTORIES: Record<RemoteToolName, RemoteToolFactory> = {
 };
 
 export interface RemoteToolDefinitionOptions {
-  /** サンドボックスの作業領域と同じパスを指すため、パス変換は不要 */
+  /** セッションの作業ディレクトリ (絶対パス)。組込み定義のメタデータに使う */
   cwd: string;
+  /** サンドボックスへ要求する作業ディレクトリ (rootCwd 相対。"" は root) */
+  sandboxCwd: string;
   client: SandboxToolClient;
   masker: SecretMasker;
   /** PI_AGENT_TOOLS 由来の登録ツール名 */
@@ -53,7 +55,7 @@ export interface RemoteToolDefinitionOptions {
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, client, masker, tools } = options;
+  const { cwd, sandboxCwd, client, masker, tools } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -75,9 +77,11 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
           prepareArguments: local.prepareArguments,
           execute: async (toolCallId, params, signal, onUpdate, _ctx) => {
             // BFF 側の実ファイルシステム (ctx の cwd) は渡さず、サンドボックス側だけをパス解決の源にする。
+            // セッションの cwd は rootCwd 相対で渡し、サンドボックス側で root 配下の実パスへ解決させる。
             const result = await client.execute(name, {
               toolCallId,
               params,
+              cwd: sandboxCwd || undefined,
               signal,
               onUpdate: onUpdate as ((partial: { content: unknown; details?: unknown }) => void) | undefined,
             });

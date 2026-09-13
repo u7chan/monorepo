@@ -11,6 +11,7 @@ import {
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
+import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
@@ -57,9 +58,12 @@ export interface CreateSessionInput {
   model?: ModelRef;
   /** 解決済みの指定。未指定ならアプリ既定。 */
   thinkingLevel?: ThinkingLevel;
+  /** rootCwd 相対の作業ディレクトリ。省略・空文字はワークスペース root。 */
+  cwd?: string;
 }
 
 export interface PiBff {
+  /** ワークスペース root の絶対パス (サンドボックスの rootCwd と同じパスを指す契約) */
   cwd: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
@@ -184,7 +188,8 @@ function modelLabel(model?: PiModelRef | null): string | undefined {
 }
 
 export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}): Promise<PiBff> {
-  const projectCwd = resolve(cwd);
+  // rootCwd は「ワークスペース root」で、セッションごとの cwd はここからの相対パスで解決する。
+  const rootCwd = resolve(cwd);
   const agentDir = getAgentDir();
   const modelRuntime = await ModelRuntime.create({
     authPath: join(agentDir, "auth.json"),
@@ -250,7 +255,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     skills = [],
     model,
     thinkingLevel,
+    cwd: requestedCwd = "",
   }: CreateSessionInput = {}): Promise<{ session: unknown }> {
+    // 不正な cwd はモデル解決より先に 400 にする (実行できない指定を 503 の裏に隠さない)
+    const { relative: relativeCwd, absolute: sessionCwd } = resolveWorkspaceCwd(rootCwd, requestedCwd);
     // 明示されたモデルは利用可能一覧と厳密照合する
     const modelObject = model ? resolveModel(model) : selectedModel;
     if (model && !modelObject) {
@@ -290,7 +298,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       .map((skill) => `<skill name="${skill.name}">\n${skill.prompt}\n</skill>`);
 
     const resourceLoader = new DefaultResourceLoader({
-      cwd: projectCwd,
+      cwd: sessionCwd,
       agentDir,
       settingsManager,
       // Web には拡張ダイアログに答える TUI が無いため決定論を優先し、noExtensions でも
@@ -306,18 +314,19 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     await resourceLoader.reload();
 
     const options: CreateAgentSessionOptions = {
-      cwd: projectCwd,
+      cwd: sessionCwd,
       agentDir,
       modelRuntime,
       model: modelObject,
       thinkingLevel: (thinkingLevel ?? defaultThinkingLevel) as CreateAgentSessionOptions["thinkingLevel"],
       resourceLoader,
       settingsManager,
-      sessionManager: SessionManager.inMemory(projectCwd),
+      sessionManager: SessionManager.inMemory(sessionCwd),
       tools: configuredTools(),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
       customTools: createRemoteToolDefinitions({
-        cwd: projectCwd,
+        cwd: sessionCwd,
+        sandboxCwd: relativeCwd,
         client: sandboxClient,
         masker: secretMasker,
         tools: configuredTools(),
@@ -328,7 +337,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   }
 
   return {
-    cwd: projectCwd,
+    cwd: rootCwd,
     agentDir,
     modelRuntime,
     selectedModel,

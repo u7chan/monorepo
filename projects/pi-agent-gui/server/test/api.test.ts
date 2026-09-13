@@ -8,6 +8,7 @@ import test from "node:test";
 import type { Hono } from "hono";
 import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
+import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_PLAIN_MODEL, STUB_USAGE } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
@@ -26,6 +27,26 @@ async function createSession(app: Hono, agentId = "agent-general") {
   const response = await app.request("/api/sessions", jsonPost({ agentId }));
   assert.equal(response.status, 201);
   return (await response.json()) as { sessionId: string };
+}
+
+/** /api/files と /api/projects が使うサンドボックスの stub。受けたパスを記録する。 */
+function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; listings: string[] } {
+  const dirs: string[] = [];
+  const listings: string[] = [];
+  return {
+    dirs,
+    listings,
+    workspace: {
+      listFiles: async (path: string) => {
+        listings.push(path);
+        return { path: path || ".", entries: [], truncated: false };
+      },
+      createDir: async (path: string) => {
+        dirs.push(path);
+        return { path };
+      },
+    },
+  };
 }
 
 type ParsedSseEvent = { id: number | null; type: string; data: any };
@@ -87,6 +108,161 @@ test("server exposes the async session API end to end", async () => {
     const gone = await app.request(`/api/sessions/${created.sessionId}`);
     assert.equal(gone.status, 404);
     assert.deepEqual(await jsonBody(gone), { error: "Session not found" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("projects are created from a new or an existing directory and listed in creation order", async () => {
+  const { workspace, dirs, listings } = stubWorkspace();
+  // プロジェクトはモデルランタイムに依存しない (pi: null でも登録できる)
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const { app } = bff;
+  try {
+    assert.deepEqual(await jsonBody(app.request("/api/projects")), { projects: [] });
+
+    const created = await app.request("/api/projects", jsonPost({ cwd: "proj-a", create: true }));
+    assert.equal(created.status, 201);
+    const createdBody = await jsonBody(created);
+    assert.equal(createdBody.project.cwd, "proj-a");
+    assert.equal(createdBody.project.name, "proj-a", "name 省略時は cwd の basename");
+    assert.equal(typeof createdBody.project.id, "string");
+    assert.equal(typeof createdBody.project.createdAt, "number");
+    assert.deepEqual(dirs, ["proj-a"], "create: true はサンドボックスで mkdir する");
+    assert.deepEqual(listings, []);
+
+    const existing = await app.request(
+      "/api/projects",
+      jsonPost({ cwd: "nested/existing/", name: "既存ディレクトリ" }),
+    );
+    assert.equal(existing.status, 201);
+    assert.equal((await jsonBody(existing)).project.cwd, "nested/existing", "cwd は正規化して保存する");
+    assert.deepEqual(listings, ["nested/existing"], "create 省略時は一覧取得でディレクトリを確認する");
+
+    const listed = await jsonBody(app.request("/api/projects"));
+    assert.deepEqual(
+      listed.projects.map((project: { cwd: string; name: string }) => [project.cwd, project.name]),
+      [["proj-a", "proj-a"], ["nested/existing", "既存ディレクトリ"]],
+    );
+
+    // 同じ cwd の二重登録は 409 (サンドボックスへは触らない)
+    const duplicate = await app.request("/api/projects", jsonPost({ cwd: "proj-a", create: true }));
+    assert.equal(duplicate.status, 409);
+    assert.match((await jsonBody(duplicate)).error, /already exists/);
+    assert.deepEqual(dirs, ["proj-a"]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("project creation rejects an absolute path, traversal and the workspace root", async () => {
+  const { workspace, dirs, listings } = stubWorkspace();
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const { app } = bff;
+  try {
+    for (const cwd of ["/etc", "../outside", "a/../../b", "", "."]) {
+      const response = await app.request("/api/projects", jsonPost({ cwd }));
+      assert.equal(response.status, 400, `cwd=${JSON.stringify(cwd)}`);
+    }
+    // body の形が違う場合も 400
+    assert.equal((await app.request("/api/projects", jsonPost({}))).status, 400);
+    assert.equal((await app.request("/api/projects", jsonPost({ cwd: "a", create: "yes" }))).status, 400);
+
+    assert.deepEqual(dirs, []);
+    assert.deepEqual(listings, []);
+    assert.deepEqual((await jsonBody(app.request("/api/projects"))).projects, []);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("project creation relays sandbox failures and answers 503 without a sandbox", async () => {
+  const unconfigured = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  try {
+    const response = await unconfigured.app.request("/api/projects", jsonPost({ cwd: "proj" }));
+    assert.equal(response.status, 503);
+    assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
+  } finally {
+    await unconfigured.close();
+  }
+
+  // 実在しないディレクトリ (サンドボックスの 404) は文言ごとそのまま返す
+  const missing = await createBffApp({
+    cwd: "/tmp/project",
+    pi: null,
+    workspace: {
+      listFiles: async () => {
+        throw new SandboxRequestError("Path not found: /workspace/nope", 404);
+      },
+      createDir: async (path: string) => ({ path }),
+    },
+  });
+  try {
+    const response = await missing.app.request("/api/projects", jsonPost({ cwd: "nope" }));
+    assert.equal(response.status, 404);
+    assert.match((await jsonBody(response)).error, /Path not found/);
+    assert.deepEqual((await jsonBody(missing.app.request("/api/projects"))).projects, []);
+  } finally {
+    await missing.close();
+  }
+});
+
+test("sessions bind to a project and are destroyed with it", async () => {
+  const pi = createStubPi({ chunkDelayMs: 40 });
+  const { workspace, dirs, listings } = stubWorkspace();
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi), workspace });
+  const { app } = bff;
+  try {
+    const project = (await jsonBody(
+      await app.request("/api/projects", jsonPost({ cwd: "proj-a", create: true })),
+    )).project;
+
+    // 未所属セッションの cwd は root ("")
+    const unaffiliated = await jsonBody(app.request("/api/sessions", jsonPost({ agentId: "agent-general" })));
+    assert.equal(unaffiliated.cwd, "");
+    assert.equal(unaffiliated.projectId, undefined);
+
+    const response = await app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-general", projectId: project.id }),
+    );
+    assert.equal(response.status, 201);
+    const payload = await jsonBody(response);
+    assert.equal(payload.projectId, project.id);
+    assert.equal(payload.cwd, "proj-a", "payload.cwd は rootCwd 相対");
+    assert.equal(pi.createInputs.at(-1)?.cwd, "proj-a", "SDK へも所属プロジェクトの cwd を渡す");
+
+    const listed = await jsonBody(app.request("/api/sessions"));
+    const bound = listed.sessions.find((session: { sessionId: string }) => session.sessionId === payload.sessionId);
+    const free = listed.sessions.find((session: { sessionId: string }) => session.sessionId === unaffiliated.sessionId);
+    assert.equal(bound.projectId, project.id);
+    assert.equal("projectId" in free, false, "未所属はキー自体を省略する");
+
+    // 未知の projectId は未所属へ落とさず 400
+    const unknown = await app.request("/api/sessions", jsonPost({ agentId: "agent-general", projectId: "ghost" }));
+    assert.equal(unknown.status, 400);
+    assert.match((await jsonBody(unknown)).error, /Project not found/);
+
+    // 実行中のセッションも削除で abort → dispose される
+    await app.request(`/api/sessions/${payload.sessionId}/messages`, jsonPost({ text: "実行中" }));
+    const running = pi.sessions.at(-1)!;
+
+    const deleted = await app.request(`/api/projects/${project.id}`, { method: "DELETE" });
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await jsonBody(deleted), { ok: true });
+
+    assert.equal(running.abortRequested, true);
+    assert.equal(running.disposed, true);
+
+    assert.equal((await app.request(`/api/sessions/${payload.sessionId}`)).status, 404);
+    const remaining = await jsonBody(app.request("/api/sessions"));
+    assert.deepEqual(remaining.sessions.map((session: { sessionId: string }) => session.sessionId), [unaffiliated.sessionId]);
+    assert.deepEqual((await jsonBody(app.request("/api/projects"))).projects, []);
+    // ディレクトリは触らない (削除でサンドボックスを呼ばない)
+    assert.deepEqual(dirs, ["proj-a"]);
+    assert.deepEqual(listings, []);
+
+    assert.equal((await app.request(`/api/projects/${project.id}`, { method: "DELETE" })).status, 404);
   } finally {
     await bff.close();
   }
