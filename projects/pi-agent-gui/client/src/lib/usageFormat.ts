@@ -90,7 +90,7 @@ const WARN_PERCENT = 70;
 const DANGER_PERCENT = 90;
 
 /**
- * Composer の context ゲージ。セッションが使用量を返す前 (新規チャット / 応答前) は分母も
+ * Composer の context ゲージ。セッションが未作成の間 (チャット開始前) は使用量も分母も
  * 分からないため undefined を返してゲージごと出さない。compaction 直後 (tokens: null) だけは
  * 「不明」として出し、百分率を ? にする。
  * バーは文字ではなく CSS で描く (ブロック要素グリフは端末のフォント次第で崩れる)。

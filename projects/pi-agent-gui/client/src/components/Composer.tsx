@@ -12,7 +12,7 @@ export type ComposerProps = {
   sending: boolean;
   stopVisible: boolean;
   queueDepth: number;
-  /** セッションのコンテキスト使用量。未取得 (新規チャット / 応答前) の間はゲージを出さない */
+  /** セッションのコンテキスト使用量。未取得 (セッション未作成 / SDK が使用量を返さない) の間はゲージを出さない */
   context?: ContextUsage;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;

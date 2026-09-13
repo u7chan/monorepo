@@ -51,7 +51,7 @@ export type ChatState = {
   supportsThinking: boolean;
   /** 実効モデルで選べる Effort の候補 (非推論は ["off"] のみ) */
   availableThinkingLevels: ThinkingLevel[];
-  /** セッションのコンテキスト使用量。応答前や未作成のチャットでは undefined */
+  /** セッションのコンテキスト使用量。セッション未作成、または payload 未取得の間は undefined */
   context?: ContextUsage;
   /** usage が本文 / ツールカードより先に届いたときの保留値 (次に作る assistant バブルへ回す) */
   pendingUsage?: Usage;
