@@ -48,11 +48,17 @@ test("原因の分からない 503 は APIキー未設定にしない", () => {
   assert.notEqual(status.sandboxRequired, true);
 });
 
-test("復旧手順にサンドボックスの起動コマンドと環境変数を含める", () => {
-  // 警告内のコマンドは README のローカル起動手順と揃える
-  for (const token of ["pnpm start:sandbox", "PI_SANDBOX_URL", "PI_SANDBOX_TOKEN"]) {
-    assert.ok(SANDBOX_REQUIRED_GUIDE.includes(token), token);
+test("復旧手順はサンドボックス側へ渡す環境変数まで示す", () => {
+  // 警告内のコマンドは README のローカル起動手順と揃える。`.env` は BFF しか読まないため、
+  // サンドボックスの起動コマンド自体にトークン・作業領域・bind アドレスが必要。
+  const command = SANDBOX_REQUIRED_GUIDE.slice(0, SANDBOX_REQUIRED_GUIDE.indexOf("pnpm start:sandbox"));
+  for (const token of ["SANDBOX_HOST=127.0.0.1", "PI_SANDBOX_TOKEN=<16文字以上", "PI_SANDBOX_CWD=$PWD"]) {
+    assert.ok(command.includes(token), token);
   }
+  // BFF 側の接続情報と、BFF の作業領域をサンドボックスと揃える指示も必要
+  assert.ok(SANDBOX_REQUIRED_GUIDE.includes("PI_SANDBOX_URL=http://127.0.0.1:8080"));
+  assert.ok(SANDBOX_REQUIRED_GUIDE.includes("PI_APP_CWD"));
+  assert.ok(SANDBOX_REQUIRED_GUIDE.includes("README"));
 });
 
 test("ready: true かつ sandboxConfigured: false なら実行環境の案内を出す", () => {
