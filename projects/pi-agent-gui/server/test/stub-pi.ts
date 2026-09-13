@@ -98,6 +98,11 @@ export interface StubSessionOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /**
+   * prompt ごとに 1 件消費する preflight compaction (null は圧縮しない)。
+   * 実 SDK は送信メッセージを組み立てる前に compaction を走らせる。
+   */
+  preflightCompactions?: Array<StubCompactionOptions | null>;
 }
 
 /** SDK の SessionEntry と同じ形の append-only ログ。getBranch() が返す */
@@ -148,6 +153,8 @@ export interface StubSession extends PiSessionLike {
   readonly entries: StubSessionEntry[];
   /** compaction を 1 回実行する (実 SDK と同じ順序でイベントと entry / messages を更新する) */
   compact(options?: StubCompactionOptions): Promise<void>;
+  /** overflow 回復の再現: 失敗した assistant を agent state から外す (entry には残す) */
+  dropLastAssistantFromState(): void;
 }
 
 /**
@@ -233,6 +240,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     get entries(): StubSessionEntry[] {
       return [...entries];
     },
+    /** entry へ積むのと同時に agent state へも入れる (compaction では context の組み替えで置き換わる) */
+    appendMessage(message: NonNullable<StubSessionEntry["message"]>): StubSessionEntry {
+      const entry = appendEntry({ type: "message", message });
+      session.messages.push(message);
+      return entry;
+    },
     supportsThinking: () => Boolean(session.model?.reasoning),
     getAvailableThinkingLevels: () => getSupportedThinkingLevels(session.model),
     // SDK と同様に非対応値をモデル能力へ補正する
@@ -277,6 +290,14 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     },
     dispose() {
       session.disposed = true;
+    },
+    dropLastAssistantFromState() {
+      for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+        if (session.messages[index].role === "assistant") {
+          session.messages.splice(index, 1);
+          return;
+        }
+      }
     },
     async compact(compaction: StubCompactionOptions = {}) {
       const reason = compaction.reason ?? "threshold";
@@ -343,13 +364,16 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       session.abortRequested = false;
       session.isStreaming = true;
       try {
-        // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)
-        appendEntry({
-          type: "message",
-          message: { role: "user", content: text, timestamp: Date.now() },
-        });
-        session.messages = contextMessages();
+        // 実 SDK は送信メッセージを組み立てる前に preflight の compaction を走らせる
+        const preflight = options.preflightCompactions?.shift();
+        if (preflight) await session.compact(preflight);
         session.emit({ type: "agent_start" });
+        // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)。
+        // 実 SDK は prompt メッセージにも message_start / message_end を出し、message_end の時点で agent state へ入れる。
+        const userMessage = { role: "user", content: text, timestamp: Date.now() };
+        session.appendMessage(userMessage);
+        session.emit({ type: "message_start", message: userMessage });
+        session.emit({ type: "message_end", message: userMessage });
         session.emit({ type: "message_start", message: { role: "assistant" } });
         const assistant = {
           role: "assistant",
@@ -359,8 +383,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           // usage 非対応プロバイダを再現するときはキー自体を作らない
           ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
         };
-        appendEntry({ type: "message", message: assistant });
-        session.messages = contextMessages();
+        session.appendMessage(assistant);
         if (options.thinkingDelta) {
           await sleep(chunkDelayMs);
           if (!session.abortRequested) {
@@ -422,6 +445,8 @@ export interface StubPiOptions {
   thinkingDelta?: string;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
   setModelFailures?: number;
+  /** prompt ごとに消費する preflight compaction (StubSessionOptions と同じ) */
+  preflightCompactions?: Array<StubCompactionOptions | null>;
   availableModels?: PiAiModel<Api>[];
   /** null を渡すとアプリ既定モデル無し (認証済み候補はある) を再現する */
   selectedModel?: PiAiModel<Api> | null;

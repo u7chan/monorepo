@@ -119,6 +119,100 @@ test("compaction_end は compaction を配ってから resync で同じ状態を
   await store.close();
 });
 
+test("送信メッセージを積む前の compaction でも resync はそのメッセージを含んでから届く", async () => {
+  // 実 SDK の prompt() は送信メッセージを組み立てる前に preflight の compaction を走らせる。
+  // 1 往復目はそのまま、2 往復目の送信時に圧縮させる。
+  const catalog = createAgentCatalog();
+  const pi = createStubPi({
+    chunkDelayMs: CHUNK_DELAY_MS,
+    preflightCompactions: [
+      null,
+      { reason: "threshold", summarizeCount: 1, summary: "1回目の要約", tokensBefore: 40_000 },
+    ],
+  });
+  const store = new SessionStore({ pi, catalog });
+  const record = await store.create({ agentId: "agent-general" });
+
+  await runTurn(store, record, "1つ目");
+
+  const events: EventEntry[] = [];
+  store.subscribe(record, record.seq, (entry) => events.push(entry));
+  await runTurn(store, record, "2つ目");
+
+  const types = events.map((entry) => entry.type);
+  const compactionPosition = types.indexOf("compaction");
+  const resyncPosition = types.indexOf("resync");
+  assert.ok(compactionPosition >= 0, "compaction イベントが届く");
+  assert.ok(resyncPosition > compactionPosition, "resync は compaction の後に届く");
+
+  const resyncEvent = events[resyncPosition];
+  assert.equal(resyncEvent.type, "resync");
+  if (resyncEvent.type === "resync") {
+    // 送信メッセージが agent state へ入るまで resync を遅らせる (入る前だとそのメッセージが消える)
+    assert.deepEqual(resyncEvent.data.messages.map((message) => message.text), ["スタブの返答です", "2つ目"]);
+    assert.equal(resyncEvent.data.compactions[0].beforeMessageIndex, 1);
+  }
+
+  const payload = store.payload(record);
+  assert.deepEqual(payload.messages.map((message) => message.text), [
+    "スタブの返答です",
+    "2つ目",
+    "スタブの返答です",
+  ]);
+  assert.equal(payload.compactions[0].beforeMessageIndex, 1, "区切りは送信メッセージの手前");
+
+  await store.close();
+});
+
+test("overflow 回復で agent state から外れたメッセージがあっても区切り位置は messages と揃う", async () => {
+  const catalog = createAgentCatalog();
+  // 失敗した assistant に本文が入ってから圧縮するため、chunk 間隔を広げる
+  const pi = createStubPi({ chunkDelayMs: 200 });
+  const store = new SessionStore({ pi, catalog });
+  const record = await store.create({ agentId: "agent-general" });
+  const session = pi.sessions[0] as StubSession;
+
+  await runTurn(store, record, "1つ目");
+
+  store.postMessage(record, "2つ目");
+  await waitFor(
+    () => {
+      const last = store.payload(record).messages.at(-1);
+      return last?.role === "assistant" && last.text.length > 0;
+    },
+    3000,
+    "assistant first chunk",
+  );
+  await session.compact({
+    reason: "overflow",
+    summarizeCount: 1,
+    summary: "溢れた会話の要約",
+    tokensBefore: 50_000,
+  });
+  // 実 SDK は willRetry の compaction_end を配った後に失敗した assistant を agent state から外す
+  // (entry には残るので、位置を entry だけで数えると 1 件ずれる)
+  session.dropLastAssistantFromState();
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+  await runTurn(store, record, "3つ目");
+
+  const payload = store.payload(record);
+  assert.deepEqual(payload.messages.map((message) => message.text), [
+    "スタブの返答です",
+    "2つ目",
+    "3つ目",
+    "スタブの返答です",
+  ]);
+  const index = payload.compactions[0].beforeMessageIndex;
+  assert.equal(index, 2);
+  assert.deepEqual(
+    payload.messages.slice(index).map((message) => message.text),
+    ["3つ目", "スタブの返答です"],
+    "区切りの後ろは圧縮後に積んだメッセージだけ",
+  );
+
+  await store.close();
+});
+
 test("複数回の compaction は全件を保持し、位置を持つのは最新の 1 件だけになる", async () => {
   const { store, record } = await createFixture();
 

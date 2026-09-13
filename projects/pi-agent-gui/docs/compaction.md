@@ -16,9 +16,9 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 | 理由 | `manual` = 手動 / `threshold` = 自動 / `overflow` = 上限超過。区切りと要約一覧の両方で区別する |
 | 数値 | 区切りに出すのは `tokensBefore` のみ（pi TUI と同じ）。`estimatedTokensAfter` は推定値であり Context ゲージ（provider 実測）と食い違って見えるため出さない。DTO には保持する |
 | 要約 | 折りたたみ（既定は畳む）。開くと全要約を古い→新しいの通し番号付きで一覧表示する |
-| 位置 | 区切りを位置に出せるのは最新の 1 件だけ（`beforeMessageIndex`）。複数回のときは「この会話は N 回圧縮されました」を要約一覧の先頭に出す |
+| 位置 | 区切りを位置に出せるのは最新の 1 件だけ（`beforeMessageIndex`）。位置は `messages` と同じ集合を数えて求め、entry は「compaction より手前か」の判定にだけ使う。複数回のときは「この会話は N 回圧縮されました」を要約一覧の先頭に出す |
 | 圧縮前の元メッセージ | 表示しない（entry ベースの履歴 DTO は対象外） |
-| 反映 | `compaction` イベントの直後に届く `resync` で `messages` / `compactions` を置き換える。リロード・再接続はサーバー payload を正とする |
+| 反映 | `compaction` イベントの後に届く `resync` で `messages` / `compactions` を置き換える。SDK は送信メッセージを履歴へ入れる前に compaction を走らせることがあるため、その場合は送信メッセージが入ってから `resync` を配る（先に配るとそのメッセージが履歴から消える）。リロード・再接続はサーバー payload を正とする |
 | 失敗・中断 | `result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らず、履歴と区切りを変えない（既存の status 遷移とエラー表示に任せる） |
 
 要約は `messages` に混ぜず `SessionPayload.compactions` として配り、`messages` は従来どおり role `user` / `assistant` だけにする。要約テキストは他の出力と同じマスカーを通してから配る。

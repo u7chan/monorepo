@@ -349,27 +349,41 @@ function branchEntriesOf(session: PiSessionLike): PiSessionEntryLike[] {
   return Array.isArray(entries) ? (entries as PiSessionEntryLike[]) : [];
 }
 
-/** messages に載るメッセージを生む entry から、表示対象 (sessionMessages と同じ条件) かを判定する */
-function isDisplayableMessageEntry(entry: PiSessionEntryLike): boolean {
-  if (entry.type !== "message") return false;
-  const role = entry.message?.role;
-  if (role !== "user" && role !== "assistant") return false;
-  return Boolean(contentText(entry.message?.content)) || role === "user";
+/**
+ * sessionMessages() の表示条件と同じ (片方を変えるときは両方を揃える)。
+ * 位置を数えるときも messages と同じ集合を見るために使う。
+ */
+function isDisplayableMessage(
+  message: { role: string; content: unknown },
+  masker: SecretMasker,
+): boolean {
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  return Boolean(masker.mask(contentText(message.content))) || message.role === "user";
 }
 
 /**
  * 最新の compaction で context に残った古い側の表示メッセージ数 = 区切りを置く messages の index。
- * firstKeptEntryId は model 変更などの metadata entry を指し得るため、entry id の一致ではなく
- * 「その位置以降」で数える。
+ * messages は agent state 由来なので、entry だけで数えると overflow 回復で agent state から
+ * 外れたメッセージの分だけずれる。位置は messages 側を数え、entry は「compaction より手前か」
+ * の判定にだけ使う。
  */
-function keptMessageCount(entries: PiSessionEntryLike[], compactionIndex: number): number {
-  const firstKeptEntryId = entries[compactionIndex].firstKeptEntryId;
-  let keeping = false;
+function keptMessageCount(
+  record: SessionRecord,
+  entries: PiSessionEntryLike[],
+  compactionIndex: number,
+  masker: SecretMasker,
+): number {
+  const entryIndexByMessage = new Map<object, number>();
+  entries.forEach((entry, index) => {
+    if (entry.type === "message" && entry.message) entryIndexByMessage.set(entry.message, index);
+  });
   let count = 0;
-  for (let index = 0; index < compactionIndex; index += 1) {
-    const entry = entries[index];
-    if (!keeping && entry.id === firstKeptEntryId) keeping = true;
-    if (keeping && isDisplayableMessageEntry(entry)) count += 1;
+  for (const message of record.session.messages) {
+    const index = entryIndexByMessage.get(message);
+    // context 先頭の compactionSummary など、entry に対応しないメッセージは数えない
+    if (index === undefined || index >= compactionIndex) continue;
+    if (!isDisplayableMessage(message, masker)) continue;
+    count += 1;
   }
   return count;
 }
@@ -703,7 +717,9 @@ export class SessionStore {
         tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : 0,
         ...(usage ? { usage } : {}),
         ...(entry.fromHook === true ? { fromHook: true } : {}),
-        ...(entryIndex === latestIndex ? { beforeMessageIndex: keptMessageCount(entries, entryIndex) } : {}),
+        ...(entryIndex === latestIndex
+          ? { beforeMessageIndex: keptMessageCount(record, entries, entryIndex, this.masker) }
+          : {}),
         ...(meta?.reason ? { reason: meta.reason } : {}),
         ...(meta?.estimatedTokensAfter !== undefined
           ? { estimatedTokensAfter: meta.estimatedTokensAfter }
@@ -815,6 +831,10 @@ export class SessionStore {
     let firstTokenAt: number | undefined;
     // 差分はそのまま配信せず、秘密値の前方一致になり得る末尾を保留する (アシスタントメッセージごとに作り直す)。
     let deltaMasker = createStreamingSecretMasker(this.masker);
+    // 送信メッセージの message_end を観測済みか。SDK の prompt() は送信メッセージを組み立てる前に
+    // compaction を走らせるため、その時点の resync は送信メッセージを欠いた履歴になる。
+    let promptRecorded = false;
+    let pendingCompactionResync = false;
 
     const finish = ({ error, stopped = false }: { error?: string; stopped?: boolean } = {}): void => {
       if (finished) return;
@@ -839,6 +859,12 @@ export class SessionStore {
         if (remainder) this.emit(record, "text", { delta: remainder });
       }
 
+      // 送信メッセージを観測できないままターンが終わった場合の保険 (通常は message_end で配る)
+      if (pendingCompactionResync) {
+        pendingCompactionResync = false;
+        this.emitResync(record);
+      }
+
       run.status = stopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
       if (error) run.error = this.masker.mask(error);
@@ -861,6 +887,15 @@ export class SessionStore {
     const onEvent: PiSessionEventListener = (event) => {
       if (finished) return;
       try {
+        // SDK は prompt メッセージの message_end を配る前に agent state へ入れる。
+        // それを待ってから、送信メッセージを欠いたままの resync を配る。
+        if (event.type === "message_end" && event.message?.role === "user") {
+          promptRecorded = true;
+          if (pendingCompactionResync) {
+            pendingCompactionResync = false;
+            this.emitResync(record);
+          }
+        }
         switch (event.type) {
           case "agent_start":
             this.emit(record, "status", { state: "thinking", text: "考え中…" });
@@ -964,7 +999,9 @@ export class SessionStore {
             const compaction = compactions[compactions.length - 1];
             if (!compaction) break;
             this.emit(record, "compaction", { compaction, count: compactions.length });
-            this.emitResync(record);
+            // 送信メッセージがまだ履歴に入っていなければ、入った時点 (message_end) まで遅らせる
+            if (promptRecorded) this.emitResync(record);
+            else pendingCompactionResync = true;
             break;
           }
           case "auto_retry_start":
