@@ -17,6 +17,8 @@ export type {
   ModelOption,
   ModelRef,
   PostMessageResult,
+  Project,
+  ProjectsResponse,
   RunPayload,
   RunStatus,
   SessionPayload,

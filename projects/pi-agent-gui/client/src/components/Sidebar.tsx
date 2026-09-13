@@ -1,8 +1,10 @@
+import { useState, type ReactNode } from "react";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher";
 import type { AgentDesk } from "../hooks/useAgentDesk";
+import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { messageTimeLabel } from "../lib/messageTime";
-import type { SessionSummary } from "../types";
-import { ChevronIcon, CloseIcon } from "./icons";
+import type { Project, SessionSummary } from "../types";
+import { ArrowLeftIcon, ChevronIcon, CloseIcon, FolderIcon, PlusIcon, TrashIcon } from "./icons";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -87,46 +89,185 @@ function SessionRow({
   );
 }
 
+/** プロジェクト行の右端の操作 (行の選択とは別のクリック領域にする) */
+function RowAction({
+  label,
+  onClick,
+  danger = false,
+  hoverOnly = false,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  /** ホバーできる端末では隠しておく (タッチ端末では常時表示) */
+  hoverOnly?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className={[
+        "grid size-7 shrink-0 place-items-center rounded-md text-ink-ghost transition-colors hover:bg-hover",
+        danger ? "hover:text-danger" : "hover:text-accent-text",
+        hoverOnly ? "can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100" : null,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ProjectRow({
+  project,
+  sessions,
+  sessionId,
+  selected,
+  open,
+  onSelect,
+  onToggle,
+  onNewChat,
+  onDelete,
+  onSelectSession,
+  onDeleteSession,
+}: {
+  project: Project;
+  sessions: SessionSummary[];
+  sessionId: string;
+  selected: boolean;
+  open: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+  onNewChat: () => void;
+  onDelete: () => void;
+  onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+}) {
+  return (
+    <div className="grid gap-1">
+      {/* 行の選択 (作成先) は弱いハイライトに留め、開いているセッションの行と区別する */}
+      <div
+        className={[
+          "group flex min-h-[42px] items-center gap-1 rounded-lg border pr-1.5 transition-colors",
+          selected ? "border-accent/25 bg-accent-wash/60" : "border-transparent hover:bg-hover",
+        ].join(" ")}
+      >
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-current={selected ? "true" : undefined}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left"
+        >
+          <span className="shrink-0 text-ink-faint">
+            <FolderIcon />
+          </span>
+          <span className="grid min-w-0 flex-1 gap-0.5">
+            <strong className="truncate text-xs text-ink">{project.name}</strong>
+            <small className="truncate text-[10px] text-ink-muted">{project.cwd}</small>
+          </span>
+        </button>
+        <RowAction label={open ? "折りたたむ" : "展開する"} onClick={onToggle}>
+          <span className={["block transition-transform", open ? "rotate-90" : ""].join(" ")}>
+            <ChevronIcon />
+          </span>
+        </RowAction>
+        <RowAction label="このプロジェクトに新しい会話" onClick={onNewChat} hoverOnly>
+          <PlusIcon />
+        </RowAction>
+        <RowAction label="プロジェクトを削除" onClick={onDelete} hoverOnly danger>
+          <TrashIcon />
+        </RowAction>
+      </div>
+      {open ? (
+        sessions.length === 0 ? (
+          <div className="ml-3 border-l border-line pl-2 py-1 text-[11px] text-ink-faint">セッションはありません</div>
+        ) : (
+          <div className="ml-3 grid gap-1 border-l border-line pl-1.5">
+            {sessions.map((item) => (
+              <SessionRow
+                key={item.sessionId}
+                item={item}
+                active={item.sessionId === sessionId}
+                onSelect={() => onSelectSession(item.sessionId)}
+                onDelete={() => onDeleteSession(item.sessionId)}
+              />
+            ))}
+          </div>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+export type SidebarMode = "nav" | "settings";
+
+/** settings モードの項目 (押すと既存の ManagerScreen / FileTreeScreen を開く) */
+export type SettingsSection = "agents" | "skills" | "files";
+
+const SETTINGS_ITEMS: { section: SettingsSection; label: string }[] = [
+  { section: "agents", label: "エージェント" },
+  { section: "skills", label: "スキル" },
+  { section: "files", label: "ファイル" },
+];
+
 export type SidebarProps = Omit<
   Pick<
     AgentDesk,
-    | "catalog"
     | "sessions"
     | "sessionId"
-    | "cwd"
-    | "selectedAgent"
+    | "projects"
+    | "selectedProjectId"
+    | "selectProject"
     | "newChat"
     | "selectSession"
     | "deleteSession"
+    | "deleteProject"
   >,
-  "newChat" | "selectSession" | "deleteSession"
+  "newChat" | "selectSession" | "deleteSession" | "deleteProject"
 > & {
-  newChat: (agentId?: string) => void;
+  /** nav: プロジェクト階層 / settings: 設定ナビ。App が持ち、drawer を閉じても保たれる */
+  mode: SidebarMode;
+  onSelectMode: (mode: SidebarMode) => void;
+  /** 選択中プロジェクト配下に新しい会話を作る (未所属を選んでいれば未所属) */
+  newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
-  onOpenManager: () => void;
-  /** 「作業ディレクトリ」カードからファイル画面を開く (desktop の Sidebar と drawer で共通) */
-  onOpenFiles: () => void;
+  deleteProject: (projectId: string) => void;
+  /** プロジェクト追加の dialog を開く */
+  onNewProject: () => void;
+  onOpenSettingsSection: (section: SettingsSection) => void;
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
   onClose?: () => void;
   /** sidebar: desktop の左カラム / sheet: モバイルのドロワー内 */
   variant?: "sidebar" | "sheet";
 };
 
-export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sidebar", ...props }: SidebarProps) {
+export function Sidebar({
+  mode,
+  onSelectMode,
+  onNewProject,
+  onOpenSettingsSection,
+  onClose,
+  variant = "sidebar",
+  ...props
+}: SidebarProps) {
   const sheet = variant === "sheet";
-  const { catalog, sessions, sessionId, cwd, selectedAgent, newChat, selectSession, deleteSession } = props;
-
-  const assignedSkills = (selectedAgent?.skillIds || [])
-    .map((skillId) => catalog.skills.find((skill) => skill.id === skillId))
-    .filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
+  const { sessions, sessionId, projects, selectedProjectId, selectProject, newChat, selectSession, deleteSession, deleteProject } =
+    props;
+  /** 折りたたんだプロジェクト (既定は展開)。drawer を閉じると消えるが、desktop では保たれる */
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const { groups, unassigned } = groupSessionsByProject(sessions, projects);
 
   return (
     <aside
       className={[
         "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
-        // 高さが足りない compact では drawer 全体を 1 つのスクロール領域にする。
-        // 一覧だけを flex-1 にすると固定部分だけで高さを使い切り、一覧が 0px に潰れる
+        // 高さが足りない compact でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
         "overflow-y-auto",
         sheet ? null : "border-r border-line",
       ]
@@ -154,99 +295,121 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
         ) : null}
       </div>
 
-      {/* 新しい会話 */}
-      <button
-        type="button"
-        onClick={() => newChat()}
-        className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent-text"
-      >
-        <span className="text-[18px] leading-3 text-accent-text">＋</span> 新しい会話
-      </button>
-
-      {/* エージェント: 選択は Composer へ移した (会話中いつでも切り替えられるように)。ここは選択中の定義の名前・説明・スキルを見せる */}
-      <div className="grid gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">エージェント</div>
-        <div className="truncate text-xs text-ink" title={selectedAgent?.name}>
-          {selectedAgent?.name || "エージェント未選択"}
-        </div>
-        {/* 説明とスキルは drawer では畳む (agent の詳細は管理画面で見る) */}
-        {sheet ? null : (
-          <>
-            <div className="min-h-[30px] text-[11px] leading-relaxed text-ink-soft">
-              {selectedAgent?.description || "エージェントを選択してください"}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {assignedSkills.map((skill) => (
-                <span key={skill.id} className="rounded border border-accent/20 bg-accent-wash px-1.5 py-0.5 text-[10px] text-accent-text">
-                  {skill.name}
-                </span>
-              ))}
-            </div>
-          </>
-        )}
-        <button
-          type="button"
-          onClick={onOpenManager}
-          className="flex min-h-9 w-full items-center gap-1.5 rounded-lg border border-line px-3 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
-        >
-          <span aria-hidden className="text-[13px] leading-none">⚙</span>
-          <span className="min-w-0 flex-1 truncate text-left">エージェント / スキルを管理</span>
-          <span className="text-ink-faint">
-            <ChevronIcon />
-          </span>
-        </button>
-      </div>
-
-      {/* セッション */}
-      <div className="grid gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">セッション</div>
-        {sessions.length === 0 ? (
-          <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">セッションはまだありません</div>
-        ) : (
-          <div
-            className={[
-              "scrollbar-thin grid gap-1 pr-0.5",
-              // desktop の sidebar は高さが固定されるので、一覧だけ独立スクロールにする
-              sheet ? null : "max-h-66 overflow-y-auto",
-            ]
-              .filter(Boolean)
-              .join(" ")}
+      {mode === "settings" ? (
+        <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-0.5">
+          <button
+            type="button"
+            onClick={() => onSelectMode("nav")}
+            className="flex min-h-10 w-full items-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
           >
-            {sessions.map((item) => (
-              <SessionRow
-                key={item.sessionId}
-                item={item}
-                active={item.sessionId === sessionId}
-                onSelect={() => {
-                  // 選択中の行かどうかは呼び出し側が判断する (drawer は選択済みでも閉じる)
-                  void selectSession(item.sessionId);
-                }}
-                onDelete={() => void deleteSession(item.sessionId)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+            <ArrowLeftIcon />
+            アプリに戻る
+          </button>
+          <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">設定</div>
+          {SETTINGS_ITEMS.map((item) => (
+            <button
+              key={item.section}
+              type="button"
+              onClick={() => onOpenSettingsSection(item.section)}
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-line bg-soft px-3 text-xs text-ink transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
+            >
+              <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+              <span className="text-ink-faint">
+                <ChevronIcon />
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* 新しい会話 */}
+          <button
+            type="button"
+            onClick={() => newChat()}
+            className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent-text"
+          >
+            <span className="text-[18px] leading-3 text-accent-text">＋</span> 新しい会話
+          </button>
 
-      {/* 作業ディレクトリ + テーマ (sheet のみ) + フットノート */}
+          {/* プロジェクト階層と未所属チャット。まとめて 1 つのスクロール領域にし、設定を下部に固定する */}
+          <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-0.5">
+            <section className="grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Projects</div>
+                <button
+                  type="button"
+                  onClick={onNewProject}
+                  className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-dashed border-line px-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                >
+                  <PlusIcon />
+                  New Project
+                </button>
+              </div>
+              {groups.length === 0 ? (
+                <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">プロジェクトはまだありません</div>
+              ) : (
+                <div className="grid gap-1.5">
+                  {groups.map((group) => (
+                    <ProjectRow
+                      key={group.project.id}
+                      project={group.project}
+                      sessions={group.sessions}
+                      sessionId={sessionId}
+                      selected={group.project.id === selectedProjectId}
+                      open={!collapsed[group.project.id]}
+                      onSelect={() => selectProject(group.project.id)}
+                      onToggle={() => setCollapsed((prev) => ({ ...prev, [group.project.id]: !prev[group.project.id] }))}
+                      onNewChat={() => newChat(undefined, group.project.id)}
+                      onDelete={() => deleteProject(group.project.id)}
+                      onSelectSession={selectSession}
+                      onDeleteSession={deleteSession}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* 未所属セッションは常時展開 (0 件でも見出しとプレースホルダを出す) */}
+            <section className="grid gap-2">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Chats</div>
+              {unassigned.length === 0 ? (
+                <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">未所属のセッションはありません</div>
+              ) : (
+                <div className="grid gap-1">
+                  {unassigned.map((item) => (
+                    <SessionRow
+                      key={item.sessionId}
+                      item={item}
+                      active={item.sessionId === sessionId}
+                      onSelect={() => selectSession(item.sessionId)}
+                      onDelete={() => deleteSession(item.sessionId)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+
+      {/* フットノート + 設定 + テーマ (sheet のみ) */}
       <div className="mt-auto grid gap-2">
-        {/* カード全体をボタンにしても見た目とグリッドは変えない (入口の追加のみ) */}
-        <button
-          type="button"
-          onClick={onOpenFiles}
-          aria-haspopup="dialog"
-          aria-label="作業ディレクトリのファイルを表示"
-          title="作業ディレクトリのファイルを表示"
-          className="flex items-center gap-2 rounded-lg border border-line bg-soft px-3 py-3 text-left transition-colors hover:border-accent/50 hover:bg-hover"
-        >
-          <span className="grid min-w-0 flex-1 gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">作業ディレクトリ</span>
-            <code className="truncate text-[11px] leading-normal text-ink-soft">{cwd || "読み込み中…"}</code>
-          </span>
-          <span className="text-ink-faint">
-            <ChevronIcon />
-          </span>
-        </button>
+        <div className="text-[10px] leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
+        {mode === "nav" ? (
+          <button
+            type="button"
+            onClick={() => onSelectMode("settings")}
+            className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-line bg-soft px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
+          >
+            <span aria-hidden className="text-[13px] leading-none">
+              ⚙
+            </span>
+            <span className="min-w-0 flex-1 truncate text-left">設定</span>
+            <span className="text-ink-faint">
+              <ChevronIcon />
+            </span>
+          </button>
+        ) : null}
         {/* テーマ切替の入口は desktop の Topbar にしかないため、drawer にも置く */}
         {sheet ? (
           <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-3">
@@ -254,7 +417,6 @@ export function Sidebar({ onOpenManager, onOpenFiles, onClose, variant = "sideba
             <ThemeSwitcher compact />
           </div>
         ) : null}
-        <div className="text-[10px] leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
       </div>
     </aside>
   );

@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 import {
   ApiError,
+  createProject as apiCreateProject,
   createSession,
+  deleteProject as apiDeleteProject,
   deleteSession as apiDeleteSession,
   getCatalog,
   getHealth,
   getSession,
+  listProjects,
   listSessions,
   postMessage,
   stopSession,
   updateSessionSettings,
+  type CreateProjectInput,
 } from "../api";
 import type {
   AgentDef,
@@ -18,6 +22,7 @@ import type {
   Health,
   ModelOption,
   ModelRef,
+  Project,
   RunStatus,
   SessionPayload,
   SessionSummary,
@@ -31,6 +36,7 @@ import { createRequestGate } from "./requestGate";
 
 const SESSION_KEY = "pi-agent-session";
 const AGENT_KEY = "pi-agent-agent";
+const PROJECT_KEY = "pi-agent-project";
 const alwaysCurrent = () => true;
 
 /** Effort の全段階 (モデルを解決できないときの案内表示に使う) */
@@ -86,8 +92,13 @@ export function useAgentDesk() {
   const [health, setHealth] = useState<Health | null>(null);
   const [catalog, setCatalog] = useState<Catalog>({ agents: [], skills: [] });
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem(SESSION_KEY) || "");
   const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");
+  /** 選択中プロジェクト (「新しい会話」の作成先)。"" は未所属 */
+  const [selectedProjectId, setSelectedProjectIdState] = useState<string>(
+    () => localStorage.getItem(PROJECT_KEY) || "",
+  );
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [cwd, setCwd] = useState<string>("");
   const [sending, setSending] = useState(false);
@@ -102,12 +113,24 @@ export function useAgentDesk() {
   const selectionSeqRef = useRef(0);
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
+  const projectsRef = useRef<Project[]>([]);
+  /** ワークスペース root の絶対パス (health.cwd)。未所属セッションの作業場所の表示に使う */
+  const rootCwdRef = useRef("");
+  const selectedProjectIdRef = useRef(selectedProjectId);
+  selectedProjectIdRef.current = selectedProjectId;
   const preselectionRef = useRef<SettingsSelection>(preselection);
   preselectionRef.current = preselection;
 
   const setAgentId = useCallback((id: string) => {
     setAgentIdState(id);
     localStorage.setItem(AGENT_KEY, id);
+  }, []);
+
+  /** 作成先プロジェクトの選択。ensureSession は送信時に読むため、state の反映を待たず ref も更新する */
+  const selectProject = useCallback((id: string): void => {
+    selectedProjectIdRef.current = id;
+    setSelectedProjectIdState(id);
+    localStorage.setItem(PROJECT_KEY, id);
   }, []);
 
   /** 選択中エージェントが無ければ先頭にフォールバックする */
@@ -142,9 +165,31 @@ export function useAgentDesk() {
     }
   }, [beginSessionsRequest]);
 
+  const [beginProjectsRequest] = useState(createRequestGate);
+  const refreshProjects = useCallback(async (isCurrent = alwaysCurrent): Promise<Project[]> => {
+    const canApply = beginProjectsRequest(isCurrent);
+    try {
+      const { projects: list } = await listProjects();
+      if (!canApply()) return list;
+      projectsRef.current = list;
+      setProjects(list);
+      // プロジェクトはメモリ内のみ。再起動や別画面での削除で選択が消えていたら未所属へ戻す
+      // (存在しない作成先を見えないまま使い続けない)
+      if (selectedProjectIdRef.current && !list.some((project) => project.id === selectedProjectIdRef.current)) {
+        selectProject("");
+      }
+      return list;
+    } catch {
+      return projectsRef.current;
+    }
+  }, [beginProjectsRequest, selectProject]);
+
   const applyHealth = useCallback((next: Health) => {
     setHealth(next);
-    setCwd(next.cwd || "");
+    rootCwdRef.current = next.cwd || "";
+    // セッション選択中は payload の cwd (root 相対) を正とする。health.cwd は root の絶対パスで意味が違い、
+    // 選択直後の refreshHealth で塗り替えると作業ディレクトリの表示が root へ戻ってしまう
+    if (!sessionIdRef.current) setCwd(next.cwd || "");
     const status = runtimeStatusForHealth(next);
     setRuntimeStatus(status);
     if (status.error && !next.ready && status.detail) {
@@ -165,7 +210,8 @@ export function useAgentDesk() {
 
   const applySnapshot = useCallback((payload: SessionPayload) => {
     lastSeqRef.current = payload.lastSeq || 0;
-    setCwd((prev) => payload.cwd || prev);
+    // 未所属 ("") は root へ戻す。前のセッションの相対 cwd を残すと、表示中の作業場所が別の場所に見える
+    setCwd(payload.cwd || rootCwdRef.current);
     // 会話の実効モデルは chat.sessionModel (resync) に入る。ここで runtimeStatus に書くと
     // health の再取得で上書きされるため、入力欄のピッカーは chat 側から導出する。
     dispatch({ type: "resync", payload });
@@ -206,24 +252,32 @@ export function useAgentDesk() {
    * 未作成の新規チャットへ戻す。セッションは最初の送信時に ensureSession() が作るため、
    * 送信前に POST /api/sessions を呼ばず、一覧にも空の行を残さない。
    */
-  const newChat = useCallback((nextAgentId?: string): void => {
+  const newChat = useCallback((nextAgentId?: string, nextProjectId?: string): void => {
     // エージェントを指定されたときだけ表示を切り替える (未作成チャットで選択した agent が最初の送信に使われる)
     if (nextAgentId) setAgentId(nextAgentId);
+    // プロジェクト行の「＋」から呼ばれる。作成先を先に移し、その後の表示と送信先を一致させる
+    if (nextProjectId !== undefined) selectProject(nextProjectId);
     selectionSeqRef.current += 1;
     localStorage.removeItem(SESSION_KEY);
     sessionIdRef.current = "";
     lastSeqRef.current = 0;
     setSessionId("");
+    // 未作成チャットの作業場所は選択中プロジェクト (未所属なら root)。前のセッションの cwd を持ち越さない
+    setCwd(rootCwdRef.current);
     dispatch({ type: "newChat" });
-  }, [setAgentId]);
+  }, [selectProject, setAgentId]);
 
   /** 未作成チャットの最初の送信時だけセッションを作り、送信先の sessionId を返す */
   const ensureSession = useCallback(async (): Promise<string> => {
     const existing = sessionIdRef.current;
     if (existing) return existing;
     const selection = selectionSeqRef.current;
-    // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる
-    const session = await createSession(agentId || undefined, preselectionRef.current);
+    // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる。未所属 ("") はキーを送らず root に任せる
+    const projectId = selectedProjectIdRef.current;
+    const session = await createSession(agentId || undefined, {
+      ...preselectionRef.current,
+      ...(projectId ? { projectId } : {}),
+    });
     setPreselection({});
     // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
     if (selectionSeqRef.current !== selection) return session.sessionId;
@@ -417,6 +471,36 @@ export function useAgentDesk() {
     }
   }, [refreshSessions, selectSession]);
 
+  const createProject = useCallback(async (input: CreateProjectInput): Promise<Project> => {
+    const { project } = await apiCreateProject(input);
+    // 一覧を先に取り直してから選択する (取得に失敗したときの古い一覧で選択が未所属へ戻らないように)
+    await refreshProjects();
+    // 作った直後の「新しい会話」が別の場所へ行かないよう、作成先を新しいプロジェクトへ移す
+    selectProject(project.id);
+    return project;
+  }, [refreshProjects, selectProject]);
+
+  const deleteProject = useCallback(async (projectId: string): Promise<void> => {
+    const project = projectsRef.current.find((item) => item.id === projectId);
+    const count = sessionsRef.current.filter((item) => item.projectId === projectId).length;
+    const head = project ? `「${project.name}」を削除します。` : "";
+    if (!window.confirm(`${head}配下の ${count} 件のセッションを停止して削除します。ディレクトリは残ります。`)) return;
+    try {
+      await apiDeleteProject(projectId);
+    } catch (error) {
+      console.error(error);
+      return;
+    }
+    await refreshProjects();
+    const list = await refreshSessions();
+    // 破棄された配下セッションを表示したままにしない (サーバーは停止・破棄まで行う)
+    if (sessionIdRef.current && !list.some((item) => item.sessionId === sessionIdRef.current)) {
+      const next = list[0];
+      if (next) await selectSession(next.sessionId);
+      else newChatRef.current();
+    }
+  }, [refreshProjects, refreshSessions, selectSession]);
+
   // --- 起動とポーリング ---
 
   const boot = useEffectEvent(async (isCurrent: () => boolean) => {
@@ -426,12 +510,17 @@ export function useAgentDesk() {
       applyHealth(h);
       await loadCatalog(isCurrent);
       if (!isCurrent()) return;
+      // プロジェクトを先に取る。配下セッションを持たない一覧で描画すると、起動直後に Chats へ一瞬出る
+      await refreshProjects(isCurrent);
+      if (!isCurrent()) return;
       const list = await refreshSessions(isCurrent);
       if (!isCurrent()) return;
       const stored = localStorage.getItem(SESSION_KEY) || "";
       const target = list.find((item) => item.sessionId === stored) || list[0];
-      // 復元先が無ければ未作成チャットのまま。セッションは最初の送信時に作る (起動時に空の行を増やさない)。
+      // 復元先が無ければ未作成チャットへ戻す。セッションは最初の送信時に作る (起動時に空の行を増やさない)。
+      // 消えたセッションの id を残すと、選択中の作業場所 (cwd) を root として見せられない
       if (target) await selectSession(target.sessionId, isCurrent);
+      else newChatRef.current();
     } catch (error) {
       if (!isCurrent()) return;
       const status = runtimeStatusForError(error);
@@ -458,6 +547,7 @@ export function useAgentDesk() {
   }, [refreshSessions]);
 
   const selectedAgent: AgentDef | undefined = catalog.agents.find((agent) => agent.id === agentId);
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
   // --- 入力欄の Model / Effort ピッカー ---
@@ -510,6 +600,9 @@ export function useAgentDesk() {
     health,
     catalog,
     sessions,
+    projects,
+    selectedProject,
+    selectedProjectId,
     sessionId,
     agentId,
     setAgentId,
@@ -523,11 +616,15 @@ export function useAgentDesk() {
     stopVisible,
     loadCatalog,
     refreshSessions,
+    refreshProjects,
     selectSession,
+    selectProject,
     newChat,
     sendMessage,
     stopAgent,
     deleteSession,
+    createProject,
+    deleteProject,
     changeModel,
     changeThinkingLevel,
   };

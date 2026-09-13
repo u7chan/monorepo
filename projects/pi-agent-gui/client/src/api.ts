@@ -8,6 +8,8 @@ import type {
   Health,
   ModelRef,
   PostMessageResult,
+  Project,
+  ProjectsResponse,
   SessionPayload,
   SessionSummary,
   SkillDef,
@@ -134,6 +136,38 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   return (await res.json()) as FileListing;
 };
 
+// --- projects ---
+
+/** プロジェクト一覧 (サーバーの作成順)。並び順はサーバーが決めるため再ソートしない。 */
+export const listProjects = async (): Promise<ProjectsResponse> => {
+  const res = await client.api.projects.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** プロジェクトの新規作成 / 既存登録の入力。cwd はワークスペース root 相対 (root 自身は登録できない)。 */
+export type CreateProjectInput = {
+  cwd: string;
+  /** 省略時はサーバーが cwd の basename を使う */
+  name?: string;
+  /** true ならディレクトリを作成する (省略時は既存ディレクトリの登録) */
+  create?: boolean;
+};
+
+export const createProject = async (input: CreateProjectInput): Promise<{ project: Project }> => {
+  const res = await client.api.projects.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  // 400 (cwd 不正) / 409 (登録済み) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
+  return (await res.json()) as { project: Project };
+};
+
+/** 登録解除 (配下セッションはサーバーが停止・破棄し、ディレクトリは残る) */
+export const deleteProject = async (projectId: string): Promise<unknown> => {
+  const res = await client.api.projects[":id"].$delete({ param: { id: projectId } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
 // --- sessions ---
 
 export const listSessions = async (): Promise<{ sessions: SessionSummary[] }> => {
@@ -148,9 +182,15 @@ export type SessionOverrides = {
   thinkingLevel?: ThinkingLevel;
 };
 
+/** 作成時の所属。未指定は未所属 (cwd = ワークスペース root)。 */
+export type CreateSessionOverrides = SessionOverrides & { projectId?: string };
+
 /** 201 でセッションの完全な payload が返る */
-export const createSession = async (agentId?: string, overrides: SessionOverrides = {}): Promise<SessionPayload> => {
-  const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel } = { ...overrides };
+export const createSession = async (
+  agentId?: string,
+  overrides: CreateSessionOverrides = {},
+): Promise<SessionPayload> => {
+  const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel; projectId?: string } = { ...overrides };
   if (agentId) json.agentId = agentId;
   const res = await client.api.sessions.$post({ json });
   if (!res.ok) throw await apiError(res);
