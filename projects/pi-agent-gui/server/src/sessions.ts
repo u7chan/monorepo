@@ -41,8 +41,6 @@ const SUMMARY_TEXT_MAX = 900;
 const ARGS_TEXT_MAX = 260;
 const PROMPT_TEXT_MAX = 300;
 
-export const MAX_MESSAGE_CHARS = 8000;
-
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

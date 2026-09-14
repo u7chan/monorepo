@@ -31,6 +31,7 @@ function statusDotClass(status: string): string {
   }
 }
 
+/** 行の選択と削除は別の button にする (入れ子の interactive control を作らない) */
 function SessionRow({
   item,
   active,
@@ -51,41 +52,35 @@ function SessionRow({
   ].filter(Boolean);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={[
-        "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-        "min-h-[42px]",
-        active ? "border border-accent/35 bg-accent-wash" : "border border-transparent bg-soft hover:bg-hover",
+        "group flex min-h-[42px] items-center gap-1 rounded-lg border pr-1.5 transition-colors",
+        active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
       ].join(" ")}
     >
-      <span className={statusDotClass(item.status)} aria-hidden />
-      <span className="grid min-w-0 flex-1 gap-0.5">
-        <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
-        <small className="truncate text-[10px] text-ink-muted">{bits.join(" · ")}</small>
-      </span>
-      <span
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={active ? "true" : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left"
+      >
+        <span className={statusDotClass(item.status)} aria-hidden />
+        <span className="grid min-w-0 flex-1 gap-0.5">
+          <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
+          <small className="truncate text-[10px] text-ink-muted">{bits.join(" · ")}</small>
+        </span>
+      </button>
+      <button
+        type="button"
         title="セッションを削除"
         aria-label="セッションを削除"
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.stopPropagation();
-            onDelete();
-          }
-        }}
+        onClick={onDelete}
         // タッチ端末では常時表示する (ChatArea のコピーボタンと同じ can-hover の使い方)
         className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-[13px] leading-none text-ink-ghost transition-colors group-hover:text-danger hover:bg-danger/20 hover:text-danger can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100"
       >
         ×
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 

@@ -88,7 +88,6 @@ export function Composer({
   const landscape = mode === "landscape";
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState("");
-  const [stopping, setStopping] = useState(false);
   /** Model / Effort の追加設定を開いているか (既定は畳む) */
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -136,15 +135,6 @@ export function Composer({
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       submit();
-    }
-  };
-
-  const handleStop = async () => {
-    setStopping(true);
-    try {
-      onStop();
-    } finally {
-      setStopping(false);
     }
   };
 
@@ -256,11 +246,11 @@ export function Composer({
     </button>
   );
 
+  // 停止ボタンの表示は desk の run status (stopVisible) が正。ここに通信中フラグは持たない
   const stopButton = stopVisible ? (
     <button
       type="button"
-      onClick={() => void handleStop()}
-      disabled={stopping}
+      onClick={onStop}
       className={[
         "shrink-0 cursor-pointer bg-transparent p-0 text-[10px] text-warn transition-colors hover:brightness-125",
         compact ? "px-1 py-0.5" : "",
