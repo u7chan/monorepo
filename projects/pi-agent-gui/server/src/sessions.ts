@@ -7,13 +7,13 @@
  * run-events / session-projection / compaction-view / session-payload の純関数・アダプタへ出す。
  */
 import { randomUUID } from "node:crypto";
-import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
+import type { PiBff } from "./agent";
 import type { AgentCatalog } from "./agents";
 import { compactionsOf } from "./compaction-view";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
-import { createRunEventBridge, type RunSettlement } from "./run-events";
+import { createRunEventBridge, userFacingError, type RunSettlement } from "./run-events";
 import type {
   CreateSessionOptions,
   PostMessageResultInternal,
@@ -44,18 +44,6 @@ const QUEUE_DELAY_MS = 200;
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const TITLE_MAX = 60;
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function userFacingError(error: unknown): string {
-  const message = messageFor(error);
-  if (/No API key found|Provider is not configured|No model selected/i.test(message)) {
-    return AUTH_REQUIRED_MESSAGE;
-  }
-  return message;
-}
 
 export interface HttpLikeError extends Error {
   statusCode?: number;
@@ -437,7 +425,7 @@ export class SessionStore {
 
       run.status = stopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
-      if (error) run.error = this.masker.mask(userFacingError(error));
+      if (error) run.error = this.masker.mask(error);
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,
@@ -471,7 +459,7 @@ export class SessionStore {
       if (!finished) finish();
       unsubscribe();
     }).catch((error) => {
-      if (!finished) finish({ error });
+      if (!finished) finish({ error: userFacingError(error) });
       unsubscribe();
     });
 
