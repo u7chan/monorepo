@@ -11,6 +11,8 @@ export type {
   CompactionInfo,
   CompactionReason,
   ContextUsage,
+  CreateAgentBody,
+  CreateSkillBody,
   EventEntry,
   FileEntry,
   FileListing,
@@ -29,6 +31,8 @@ export type {
   StopResult,
   ThinkingLevel,
   ToolCall,
+  UpdateAgentBody,
+  UpdateSkillBody,
   Usage,
 } from "server";
 

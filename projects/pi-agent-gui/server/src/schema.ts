@@ -313,7 +313,7 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
-// catalog CRUD の body は zod で厳格化しない (agents 側の正規化ロジックが正)
+// route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 // ---------------------------------------------------------------------------
 
 export const PostMessageBodySchema = z.object({
@@ -352,6 +352,36 @@ export const ReplaceCatalogBodySchema = z.object({
   skills: z.array(z.unknown()),
 });
 export type ReplaceCatalogBody = z.infer<typeof ReplaceCatalogBodySchema>;
+
+// 全キー任意にするのは、空 body の PATCH を no-op として通し、必須判定を catalog の文言のまま残すため。
+// null は「指定解除」、キー省略は「現在値の維持」で、どちらも catalog が解釈する。
+const agentBodyShape = {
+  name: z.string().optional(),
+  description: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  skillIds: z.array(z.string()).nullish(),
+  model: ModelRefSchema.nullish(),
+  thinkingLevel: ThinkingLevelSchema.nullish(),
+  suggestions: z.array(AgentSuggestionSchema).nullish(),
+};
+
+export const CreateAgentBodySchema = z.object(agentBodyShape);
+export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
+
+export const UpdateAgentBodySchema = z.object(agentBodyShape);
+export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
+
+const skillBodyShape = {
+  name: z.string().optional(),
+  description: z.string().optional(),
+  prompt: z.string().optional(),
+};
+
+export const CreateSkillBodySchema = z.object(skillBodyShape);
+export type CreateSkillBody = z.infer<typeof CreateSkillBodySchema>;
+
+export const UpdateSkillBodySchema = z.object(skillBodyShape);
+export type UpdateSkillBody = z.infer<typeof UpdateSkillBodySchema>;
 
 // ---------------------------------------------------------------------------
 // SSE イベント (sessions.ts の emit 呼び出しを正とする)

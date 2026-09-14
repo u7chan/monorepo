@@ -22,17 +22,6 @@ export function httpError(statusCode: number, message: string): Error {
   return error;
 }
 
-export async function readJsonBody(c: Context): Promise<unknown> {
-  const text = await c.req.text();
-  const trimmed = text.trim();
-  if (!trimmed) return {};
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    throw httpError(400, "Request body must be valid JSON");
-  }
-}
-
 /** Content-Length を信用せず、body を読みながら上限を見る。 */
 async function readBodyText(request: Request, maxBytes: number): Promise<string> {
   const body = request.body;
@@ -56,7 +45,7 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string>
 
 /**
  * /api/* の POST/PATCH/PUT に適用するボディガード。
- * 読み取ったテキストを Hono の bodyCache に戻して、後段の zValidator / readJsonBody に再読み込みを許す。
+ * 読み取ったテキストを Hono の bodyCache に戻して、後段の zValidator に再読み込みを許す。
  */
 export async function bodyGuard(c: Context, next: () => Promise<void>) {
   const method = c.req.method;

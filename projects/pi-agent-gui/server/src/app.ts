@@ -12,11 +12,15 @@ import { createProjectRoutes } from "./routes/projects";
 import { createSessionRoutes } from "./routes/sessions";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
+  CreateAgentBodySchema,
   CreateProjectBodySchema,
   CreateSessionBodySchema,
+  CreateSkillBodySchema,
   PostMessageBodySchema,
   ReplaceCatalogBodySchema,
+  UpdateAgentBodySchema,
   UpdateSessionSettingsBodySchema,
+  UpdateSkillBodySchema,
 } from "./schema";
 
 // client は本ファイルを型ソースとして参照するため DTO 型を再配布する
@@ -56,14 +60,50 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => catalogRoutes.replace(c, c.req.valid("json")),
     )
-    .post("/api/agents", catalogRoutes.createAgent)
-    .patch("/api/agents/:id", catalogRoutes.updateAgent)
-    .put("/api/agents/:id", catalogRoutes.updateAgent)
+    .post(
+      "/api/agents",
+      zValidator("json", CreateAgentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.createAgent(c, c.req.valid("json")),
+    )
+    .patch(
+      "/api/agents/:id",
+      zValidator("json", UpdateAgentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/agents/:id",
+      zValidator("json", UpdateAgentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
+    )
     .delete("/api/agents/:id", catalogRoutes.removeAgent)
     .get("/api/skills", catalogRoutes.listSkills)
-    .post("/api/skills", catalogRoutes.createSkill)
-    .patch("/api/skills/:id", catalogRoutes.updateSkill)
-    .put("/api/skills/:id", catalogRoutes.updateSkill)
+    .post(
+      "/api/skills",
+      zValidator("json", CreateSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.createSkill(c, c.req.valid("json")),
+    )
+    .patch(
+      "/api/skills/:id",
+      zValidator("json", UpdateSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/skills/:id",
+      zValidator("json", UpdateSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
+    )
     .delete("/api/skills/:id", catalogRoutes.removeSkill)
     .get("/api/sessions", sessionRoutes.list)
     .post(
