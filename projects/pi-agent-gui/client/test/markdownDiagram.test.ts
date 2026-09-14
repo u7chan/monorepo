@@ -11,9 +11,12 @@ import {
   DIAGRAM_MAX_EDGES,
   DIAGRAM_MAX_LABEL,
   DIAGRAM_MAX_LENGTH,
+  DIAGRAM_MAX_LINES,
   DIAGRAM_MAX_MESSAGES,
   DIAGRAM_MAX_NODES,
   DIAGRAM_MAX_PARTICIPANTS,
+  DIAGRAM_LINE_HEIGHT,
+  diagramLineWidth,
   parseDiagram,
 } from "../src/lib/markdown/diagram";
 import type { DiagramModel } from "../src/lib/markdown/diagram";
@@ -152,12 +155,13 @@ test("flowchart: ノードの矩形は重ならず、図は内容に合わせて
 test("flowchart: 逆向きのエッジと自己ループでも落ちない", () => {
   const diagram = flow(["a --> b", "b --> a", "a -.-> a"]);
   assert.equal(diagram.edges.length, 3);
-  const [a] = diagram.boxes;
+  const [a, b] = diagram.boxes;
   const back = diagram.edges[1].points;
-  const end = back[back.length - 1];
-  // 戻るエッジも相手の境界で止まる (外側のレーンから横に入る)
-  assert.equal(end.y, a.y + a.h / 2);
-  assert.equal(end.x, a.x + a.w);
+  // 出発は下端をレーンの側へずらした点で、行き先の上端で止まる
+  assert.equal(back.length, 6);
+  assert.equal(back[0].y, b.y + b.h);
+  assert.equal(Math.abs(back[0].x - (b.x + b.w / 2)), 10);
+  assert.deepEqual(back[back.length - 1], { x: a.x + a.w / 2, y: a.y });
   assert.equal(diagram.edges[2].points.length, 4);
   assert.equal(diagram.edges[2].dashed, true);
 });
@@ -174,6 +178,36 @@ function crosses(a: { x: number; y: number; w: number; h: number }, start: { x: 
   return start.y > a.y && start.y < a.y + a.h && across;
 }
 
+/** どのエッジも (自分が接するノードも含めて) ノードの矩形を貫通していないことを確かめる */
+function assertNoCrossing(diagram: DiagramModel): void {
+  for (const edge of diagram.edges) {
+    for (let index = 0; index < edge.points.length - 1; index += 1) {
+      for (const box of diagram.boxes) {
+        assert.ok(
+          !crosses(box, edge.points[index], edge.points[index + 1]),
+          `[${edge.points[index].x},${edge.points[index].y}]→[${edge.points[index + 1].x},${edge.points[index + 1].y}] が ${box.label} を横切る`,
+        );
+      }
+    }
+  }
+}
+
+/** 折り返した各行がボックスとキャンバスに収まっていることを確かめる (文字が消えない) */
+function assertTextInsideBoxes(diagram: DiagramModel): void {
+  // 折り返しで消えてよいのは空白だけ (文字そのものは消さない)
+  const strip = (value: string) => value.replace(/\s+/g, "");
+  for (const box of diagram.boxes) {
+    assert.ok(box.lines.length >= 1 && box.lines.length <= DIAGRAM_MAX_LINES, `${box.label} の行数`);
+    assert.equal(strip(box.lines.join("")), strip(box.label), `${box.label} の文字が欠けている`);
+    assert.ok(Math.max(...box.lines.map(diagramLineWidth)) <= box.w, `${box.label} の行がボックス幅を超える`);
+    assert.ok(box.lines.length * DIAGRAM_LINE_HEIGHT <= box.h + 1, `${box.label} の行がボックス高を超える`);
+    assert.ok(
+      box.x >= 0 && box.y >= 0 && box.x + box.w <= diagram.width && box.y + box.h <= diagram.height,
+      `${box.label} がキャンバス外`,
+    );
+  }
+}
+
 test("flowchart: 戻るエッジは中間のノードを横切らない", () => {
   // E → A が 3 ランクを戻る (外側のレーンへ回る)
   const diagram = model([
@@ -185,13 +219,28 @@ test("flowchart: 戻るエッジは中間のノードを横切らない", () => 
     "  D --> E",
     "  E --> A",
   ].join("\n"));
-  for (const edge of diagram.edges) {
-    for (let index = 0; index < edge.points.length - 1; index += 1) {
-      for (const box of diagram.boxes) {
-        assert.ok(!crosses(box, edge.points[index], edge.points[index + 1]), `${box.label} を線が横切る`);
-      }
-    }
-  }
+  assertNoCrossing(diagram);
+});
+
+test("flowchart: 戻るエッジは同じランクの兄弟ノードを横切らない (レビュー再現)", () => {
+  const diagram = flow(["A[開始] --> B{分岐}", "A --> C[並列処理]", "C --> A"]);
+  assertNoCrossing(diagram);
+  // C の下端からランクの下のすき間へ抜け、外側のレーンを通って A の上端へ入る
+  const back = diagram.edges[2].points;
+  const [a, , c] = diagram.boxes;
+  assert.equal(back.length, 6);
+  assert.equal(back[0].y, c.y + c.h);
+  assert.deepEqual(back[back.length - 1], { x: a.x + a.w / 2, y: a.y });
+  assert.ok(back[2].x < Math.min(...diagram.boxes.map((box) => box.x)), "レーンが全ノードの外側に無い");
+});
+
+test("flowchart: 戻るエッジの外側レーンは重ならない", () => {
+  // 同じ側へ戻る複数本は、レーンを 1 本ずつ外へずらす
+  const diagram = flow(["a --> b", "a --> c", "d --> a", "e --> a", "f --> a", "b --> d", "c --> e", "d --> f"]);
+  assertNoCrossing(diagram);
+  const lanes = diagram.edges.filter((edge) => edge.points.length === 6).map((edge) => edge.points[2].x);
+  assert.ok(lanes.length >= 3, `戻るエッジが ${lanes.length} 本しかない`);
+  assert.equal(new Set(lanes).size, lanes.length, `レーンが重なっている: ${lanes.join(",")}`);
 });
 
 test("flowchart: 裸の参照は形状つきの宣言を上書きしない", () => {
@@ -270,6 +319,112 @@ test("sequenceDiagram: Note over は対象の参加者を覆う", () => {
   // ノートはメッセージの下に置く
   assert.ok(one.y > diagram.edges[0].points[0].y);
   assert.ok(one.y < both.y);
+});
+
+test("ラベル: 長い日本語ラベルを折り返してボックスとキャンバスに収める (レビュー再現)", () => {
+  // 39 文字 (推定 448px) はボックス幅の上限 260px を超えるため、止むを得ず折り返す
+  const label = "あ".repeat(39);
+  const diagram = flow([`A[短い] --> B[${label}]`]);
+  assertTextInsideBoxes(diagram);
+  const [, long] = diagram.boxes;
+  assert.deepEqual(long.lines, ["あ".repeat(20), "あ".repeat(19)]);
+  // 高さは行数から決まる
+  assert.equal(long.h, 34 + (long.lines.length - 1) * DIAGRAM_LINE_HEIGHT);
+  assert.ok(long.w <= 260);
+  assert.ok(diagram.width >= long.x + long.w);
+});
+
+test("ラベル: sequenceDiagram の長い participant ラベルも折り返す (レビュー再現)", () => {
+  const label = "い".repeat(40);
+  const diagram = sequence([`participant A as ${label}`, "participant B as BFF", "A->>B: x"]);
+  assertTextInsideBoxes(diagram);
+  const [a, b] = diagram.boxes;
+  assert.ok(a.lines.length > 1, "折り返していない");
+  // 参加者ボックスは高さを揃える (ライフラインの開始位置を合わせる)
+  assert.equal(a.h, b.h);
+  assert.ok(a.w <= 360);
+  assert.ok(diagram.lifelines[0].y1 > a.y + a.h);
+});
+
+test("ラベル: 折り返しは決定的で、空白で折れるところは空白で折る", () => {
+  const label = Array.from({ length: 12 }, (_, index) => `語彙${index}`).join(" ");
+  const source = `flowchart TD\n  A[${label}]`;
+  const lines = model(source).boxes[0].lines;
+  assert.deepEqual(model(source).boxes[0].lines, lines);
+  assert.ok(lines.every((line) => !line.startsWith(" ") && !line.endsWith(" ")));
+  assert.ok(lines.every((line) => line.split(" ").length >= 1));
+  // 語の途中で切らない (空白で折った行は語の数だけで構成される)
+  const withSpace = lines.filter((line) => line.includes(" "));
+  assert.ok(withSpace.length > 0);
+});
+
+test("ラベル: 6 行に収まらないラベルは ok: false になる (文字を消さない)", () => {
+  // ひし形・円は 1 行に入る幅が狭いので、同じ文字数でも 6 行を超える
+  const label = "あ".repeat(DIAGRAM_MAX_LABEL);
+  assert.equal(parseDiagram(`flowchart TD\n  A[短い] --> B{${label}}`).ok, false);
+  assert.equal(parseDiagram(`flowchart TD\n  A[短い] --> B((${label}))`).ok, false);
+  // 矩形は 120 文字 (20 文字 × 6 行) まで収まる
+  const rect = parseDiagram(`flowchart TD\n  A[短い] --> B[${label}]`);
+  assert.ok(rect.ok);
+  assert.equal(rect.model.boxes[1].lines.length, DIAGRAM_MAX_LINES);
+});
+
+test("性質: 固定シードのランダム flowchart でもノードを横切らない", () => {
+  // 線形合同法で入力を作る (同じ並びを何度でも再現できる)
+  let state = 20260914;
+  const rand = (): number => ((state = (state * 1664525 + 1013904223) >>> 0) / 0x100000000);
+  const pick = <T,>(values: T[]): T => values[Math.floor(rand() * values.length)] as T;
+  const labels = ["開始", "判定", "処理 A", "queue", "結果を返す", "x", "あ".repeat(30), "次の段階へ進む処理"];
+  let backEdges = 0;
+  // 層ごとのノード名。層とランクを一致させ、エッジは隣の層 (または循環を作る逆向き) だけにする
+  const build = () => {
+    const lines = ["flowchart TD"];
+    const layers: string[][] = [];
+    let count = 0;
+    const layerCount = 2 + Math.floor(rand() * 3);
+    for (let layer = 0; layer < layerCount; layer += 1) {
+      const band: string[] = [];
+      const size = 1 + Math.floor(rand() * 3);
+      for (let at = 0; at < size; at += 1) {
+        count += 1;
+        const name = `n${count}`;
+        band.push(name);
+        // 矩形・丸め・ひし形を混ぜる (形状で折り返し幅が変わる)
+        const shape = pick(["[", "[", "(", "{"]);
+        const close = shape === "[" ? "]" : shape === "(" ? ")" : "}";
+        lines.push(`  ${name}${shape}${pick(labels)}${close}`);
+      }
+      layers.push(band);
+    }
+    // 各ノードは前の層から 1 本以上受ける (層とランクを一致させる)
+    const pairs: [string, string][] = [];
+    for (let layer = 1; layer < layers.length; layer += 1) {
+      for (const name of layers[layer]) {
+        const from = pick(layers[layer - 1]);
+        pairs.push([from, name]);
+        lines.push(`  ${from} --> ${name}`);
+        if (rand() < 0.35) lines.push(`  ${from} -.->|補足| ${name}`);
+      }
+    }
+    // 逆向きのエッジ 1〜2 本で循環を作る (排行の計算では後退エッジになる)
+    const backs = 1 + Math.floor(rand() * 2);
+    for (let at = 0; at < backs && pairs.length > 0; at += 1) {
+      const [from, to] = pairs[Math.floor(rand() * pairs.length)];
+      backEdges += 1;
+      lines.push(`  ${to} -->|戻る| ${from}`);
+    }
+    if (rand() < 0.2) lines.push(`  ${pick(layers[0])} -.-> ${pick(layers[0])}`);
+    return lines;
+  };
+
+  for (let run = 0; run < 300; run += 1) {
+    const source = build().join("\n");
+    const result = parseDiagram(source);
+    assert.ok(result.ok, `解析に失敗した:\n${source}`);
+    assertNoCrossing(result.model);
+    assertTextInsideBoxes(result.model);
+  }
+  assert.ok(backEdges > 0, "戻るエッジを含む入力が 1 件も生成されていない");
 });
 
 test("決定性: 同じ入力からは座標まで一致するモデルになる", () => {

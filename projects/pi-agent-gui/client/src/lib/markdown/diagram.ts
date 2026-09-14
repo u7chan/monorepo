@@ -11,8 +11,12 @@
 
 /** フェンス本文の文字数 */
 export const DIAGRAM_MAX_LENGTH = 20000;
-/** ラベル 1 つの文字数 */
-export const DIAGRAM_MAX_LABEL = 200;
+/** ラベル 1 つの文字数。幅の上限で折り返して 6 行に収まる長さにする */
+export const DIAGRAM_MAX_LABEL = 120;
+/** ラベルの折り返し行数の上限。超えるラベルは文字を消さずにソース表示へ落とす */
+export const DIAGRAM_MAX_LINES = 6;
+/** 折り返した 1 行の高さ (px)。CSS のフォントサイズと併せて SVG 側もこの値で置く */
+export const DIAGRAM_LINE_HEIGHT = 16;
 /** flowchart のノード数 */
 export const DIAGRAM_MAX_NODES = 60;
 /** flowchart のエッジ数 */
@@ -37,7 +41,10 @@ export type DiagramBox = {
   y: number;
   w: number;
   h: number;
+  /** 原文のラベル。表示は折り返し後の lines を使う */
   label: string;
+  /** 折り返し後の行 (1 行以上 DIAGRAM_MAX_LINES 行以下)。箱の中央に縦に並べる */
+  lines: string[];
 };
 
 /** points は直交パスの頂点列。dashed は `-.->` / `-->>` の破線 */
@@ -72,7 +79,10 @@ export type DiagramParseResult = { ok: true; model: DiagramModel } | { ok: false
 
 /* ===== 解析 (flowchart) ===== */
 
-type FlowNode = { id: string; label: string; shape: DiagramShape | null };
+/** 解析直後のノード。折り返し行 (lines) は形状が確定したあとの最終パスで決まる */
+type ParsedNode = { id: string; label: string; shape: DiagramShape | null };
+
+type FlowNode = ParsedNode & { lines: string[] };
 
 type FlowEdge = { from: string; to: string; dashed: boolean; label: string | null };
 
@@ -116,7 +126,7 @@ function readId(line: string, at: number): { id: string; next: number } | null {
  * `id` / `id[label]` / `id(label)` / `id((label))` / `id{label}` を読む。
  * ラベルは字面どおり (実体参照はデコードしない)。閉じ区切りが無いときは null。
  */
-function readNodeRef(line: string, at: number): { node: FlowNode; next: number } | null {
+function readNodeRef(line: string, at: number): { node: ParsedNode; next: number } | null {
   const id = readId(line, at);
   if (id === null) return null;
   const delimiter = SHAPE_DELIMITERS.find((entry) => line.startsWith(entry.open, id.next));
@@ -136,10 +146,10 @@ function readArrow(line: string, at: number): { dashed: boolean; next: number } 
 }
 
 /** 1 行を `A[foo] -->|label| B --> C` の形に分解する。解釈できない行は null (行を落とさない) */
-function parseFlowLine(line: string): { nodes: FlowNode[]; edges: FlowEdge[] } | null {
+function parseFlowLine(line: string): { nodes: ParsedNode[]; edges: FlowEdge[] } | null {
   const first = readNodeRef(line, 0);
   if (first === null) return null;
-  const nodes: FlowNode[] = [first.node];
+  const nodes: ParsedNode[] = [first.node];
   const edges: FlowEdge[] = [];
   let from = first.node.id;
   let cursor = skipSpace(line, first.next);
@@ -209,6 +219,50 @@ function textWidth(text: string, fontSize: number): number {
   return units * fontSize;
 }
 
+/**
+ * ラベル 1 行分の幅の見積もり (px)。折り返しとボックスの寸法、および
+ * 「テキストが所属ボックスに収まっているか」の検証 (テスト) に使う。
+ */
+export function diagramLineWidth(text: string): number {
+  return textWidth(text, FONT_SIZE);
+}
+
+/**
+ * ラベルを決定的に折り返す。空白があれば語の境界で折り、語が 1 行に収まらないときは
+ * 1 文字単位で切る (文字幅は textWidth の見積もりだけを使う)。
+ */
+function wrapLabel(label: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let current = "";
+  for (const word of label.split(/\s+/)) {
+    if (word === "") continue;
+    const candidate = current === "" ? word : `${current} ${word}`;
+    if (textWidth(candidate, FONT_SIZE) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current !== "") {
+      lines.push(current);
+      current = "";
+    }
+    if (textWidth(word, FONT_SIZE) <= maxWidth) {
+      current = word;
+      continue;
+    }
+    let piece = "";
+    for (const char of word) {
+      if (piece !== "" && textWidth(piece + char, FONT_SIZE) > maxWidth) {
+        lines.push(piece);
+        piece = "";
+      }
+      piece += char;
+    }
+    current = piece;
+  }
+  if (current !== "") lines.push(current);
+  return lines.length === 0 ? [label] : lines;
+}
+
 /* ===== レイアウトの寸法 ===== */
 
 /** 内容の外側に空ける余白 */
@@ -231,28 +285,52 @@ const MESSAGE_PITCH = 34;
 const SELF_LOOP_W = 58;
 const SELF_LOOP_H = 18;
 const NOTE_PAD_X = 10;
-const NOTE_LINE_H = 16;
 const NOTE_GAP = 12;
+/** 戻るエッジの外側レーンの間隔。同じ側を使う 2 本目以降を 1 本ずつ外へずらす */
+const LANE_PITCH = 14;
+/** 戻るエッジの出発点を横へずらす幅 (同じ境界を共有する前向きエッジと線が重ならないように) */
+const EXIT_SHIFT = 10;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** ノードの寸法。文字幅の見積もりから決まるので、同じラベルからは同じ寸法になる */
+/** 1 行に使える最大幅。折り返しの幅とボックス幅の上限をこの値から決める */
+function contentWidth(shape: DiagramShape | null): number {
+  switch (shape) {
+    case "diamond":
+      // ひし形は頂点に向けて細くなるため、中央でも使える幅は半分ほどになる
+      return Math.floor((NODE_MAX_W - 24) / 1.5);
+    case "circle":
+      // 円は内接する弦の長さが直径なので、さらに狭くする
+      return Math.floor((NODE_MAX_W - 16) * 0.66);
+    default:
+      return NODE_MAX_W - 28;
+  }
+}
+
+/** 形状に合わせて折り返す。上限行数を超えるラベルは解析失敗にして文字を消さない */
+function wrapForShape(label: string, shape: DiagramShape | null): string[] | null {
+  const lines = wrapLabel(label, contentWidth(shape));
+  return lines.length > DIAGRAM_MAX_LINES ? null : lines;
+}
+
+/** ノードの寸法。折り返し後の各行から決まるので、同じラベルからは同じ寸法になる */
 function nodeSize(node: FlowNode): { w: number; h: number } {
-  const text = Math.ceil(textWidth(node.label, FONT_SIZE));
+  const text = Math.max(0, ...node.lines.map((line) => Math.ceil(textWidth(line, FONT_SIZE))));
+  const grow = (node.lines.length - 1) * DIAGRAM_LINE_HEIGHT;
   switch (node.shape) {
     case "diamond": {
       // ひし形は頂点に向けて細くなるため、文字の 1.5 倍の幅を確保する
-      return { w: clamp(Math.ceil(text * 1.5) + 24, DIAMOND_MIN_W, NODE_MAX_W), h: DIAMOND_H };
+      return { w: clamp(Math.ceil(text * 1.5) + 24, DIAMOND_MIN_W, NODE_MAX_W), h: DIAMOND_H + grow };
     }
     case "circle": {
       // 円は内接する弦の長さが直径なので、さらに広めに取る
-      const diameter = clamp(Math.ceil(text / 0.66) + 16, CIRCLE_MIN, NODE_MAX_W);
+      const diameter = clamp(Math.ceil(text / 0.66) + 16, CIRCLE_MIN, NODE_MAX_W) + grow;
       return { w: diameter, h: diameter };
     }
     default:
-      return { w: clamp(text + 28, NODE_MIN_W, NODE_MAX_W), h: NODE_H };
+      return { w: clamp(text + 28, NODE_MIN_W, NODE_MAX_W), h: NODE_H + grow };
   }
 }
 
@@ -340,7 +418,14 @@ function placeNodes(order: FlowNode[], rank: Map<string, number>, horizontal: bo
       let top = (contentH - heights[index]) / 2;
       band.forEach((node, at) => {
         const size = sizes[index][at];
-        const box = { ...size, x: left + (widths[index] - size.w) / 2, y: top, label: node.label, shape: node.shape ?? "rect" };
+        const box = {
+          ...size,
+          x: left + (widths[index] - size.w) / 2,
+          y: top,
+          label: node.label,
+          lines: node.lines,
+          shape: node.shape ?? "rect" as const,
+        };
         placed.set(node.id, { node, box, rank: index });
         top += size.h + NODE_GAP;
       });
@@ -357,7 +442,14 @@ function placeNodes(order: FlowNode[], rank: Map<string, number>, horizontal: bo
       let left = (contentW - widths[index]) / 2;
       band.forEach((node, at) => {
         const size = sizes[index][at];
-        const box = { ...size, x: left, y: top + (heights[index] - size.h) / 2, label: node.label, shape: node.shape ?? "rect" };
+        const box = {
+          ...size,
+          x: left,
+          y: top + (heights[index] - size.h) / 2,
+          label: node.label,
+          lines: node.lines,
+          shape: node.shape ?? "rect" as const,
+        };
         placed.set(node.id, { node, box, rank: index });
         left += size.w + NODE_GAP;
       });
@@ -397,33 +489,72 @@ function frameOf(placed: Placed[]): Frame {
 }
 
 /**
- * エッジを直交 (縦 → 横 → 縦) でノードの境界から境界へ引く。
- * 折れはランク間のすき間で作るので、線がランクの帯を横切らない。
+ * 外側レーンを使うエッジ (戻るエッジと、2 ランク以上先へ進むエッジ) のレーンを決める。
+ * レーンは全ノードの外側 (ランク軸に直交する向き) に取り、同じ側を使う 2 本目以降は
+ * 1 本ずつ外へずらす。入力順に決まるので同じ図からは同じレーンになる。
  */
-function routeEdge(edge: FlowEdge, placed: Map<string, Placed>, bands: Band[], frame: Frame, horizontal: boolean): DiagramEdge {
+function planLanes(edges: FlowEdge[], placed: Map<string, Placed>, frame: Frame, horizontal: boolean): (number | null)[] {
+  let usedBefore = 0;
+  let usedAfter = 0;
+  return edges.map((edge) => {
+    const from = placed.get(edge.from);
+    const to = placed.get(edge.to);
+    // 隣のランクへのエッジはすき間だけで折れ、自己ループは別に描く
+    if (from === undefined || to === undefined || edge.from === edge.to || to.rank - from.rank === 1) return null;
+    // レーンの側は、行き先の中心に近い方 (ランク軸に直交する座標で決まる) を使う
+    const before =
+      (horizontal ? to.box.y + to.box.h / 2 : to.box.x + to.box.w / 2) <
+      (horizontal ? from.box.y + from.box.h / 2 : from.box.x + from.box.w / 2);
+    if (before) {
+      usedBefore += 1;
+      const base = horizontal ? frame.minY - RANK_GAP / 2 : frame.minX - RANK_GAP / 2;
+      return base - (usedBefore - 1) * LANE_PITCH;
+    }
+    usedAfter += 1;
+    const base = horizontal ? frame.maxY + RANK_GAP / 2 : frame.maxX + RANK_GAP / 2;
+    return base + (usedAfter - 1) * LANE_PITCH;
+  });
+}
+
+/**
+ * エッジを直交 (縦 → 横 → 縦) でノードの境界から境界へ引く。
+ * 水平に動くのはノードの無い帯 (ランク間のすき間か、外側に確保したレーン) だけにする。
+ */
+function routeEdge(
+  edge: FlowEdge,
+  placed: Map<string, Placed>,
+  bands: Band[],
+  lane: number | null,
+  horizontal: boolean,
+): DiagramEdge {
   const from = placed.get(edge.from);
   const to = placed.get(edge.to);
   if (from === undefined || to === undefined) {
     return { points: [], dashed: edge.dashed, label: edge.label, labelAt: null };
   }
   if (edge.from === edge.to) {
-    // 自己ループは右側に小さな矩形を描く (ランクには効かせない)
-    const x = from.box.x + from.box.w;
-    const y1 = from.box.y + from.box.h * 0.3;
-    const y2 = from.box.y + from.box.h * 0.7;
-    return {
-      points: [
-        { x, y: y1 },
-        { x: x + SELF_LOOP_W, y: y1 },
-        { x: x + SELF_LOOP_W, y: y2 },
-        { x, y: y2 },
-      ],
-      dashed: edge.dashed,
-      label: edge.label,
-      labelAt: edge.label === null ? null : { x: x + SELF_LOOP_W + 6, y: y2 + 3, anchor: "start" },
-    };
+    // 自己ループはランクのすき間へ落として描く (隣のノードを横切らないように)
+    const gap = bands[from.rank].end + RANK_GAP / 2;
+    const center = horizontal ? from.box.y + from.box.h / 2 : from.box.x + from.box.w / 2;
+    const edgeAt = horizontal ? from.box.x + from.box.w : from.box.y + from.box.h;
+    const shift = Math.min(SELF_LOOP_W / 2, Math.max(2, (horizontal ? from.box.h : from.box.w) / 2 - 4));
+    const points: DiagramPoint[] = horizontal
+      ? [
+          { x: edgeAt, y: center - shift },
+          { x: gap, y: center - shift },
+          { x: gap, y: center + shift },
+          { x: edgeAt, y: center + shift },
+        ]
+      : [
+          { x: center - shift, y: edgeAt },
+          { x: center - shift, y: gap },
+          { x: center + shift, y: gap },
+          { x: center + shift, y: edgeAt },
+        ];
+    return { points, dashed: edge.dashed, label: edge.label, labelAt: labelPosition(points, edge.label) };
   }
-  const points = to.rank > from.rank ? forwardPoints(from, to, bands, horizontal) : backPoints(from, to, frame, horizontal);
+  const points =
+    lane === null ? forwardPoints(from, to, bands, horizontal) : detourPoints(from, to, bands, lane, horizontal);
   return { points, dashed: edge.dashed, label: edge.label, labelAt: labelPosition(points, edge.label) };
 }
 
@@ -443,32 +574,39 @@ function forwardPoints(from: Placed, to: Placed, bands: Band[], horizontal: bool
 }
 
 /**
- * 戻る向き: ランク軸に直交する外側のレーンへ回り込ませる。ランクは戻る向きより必ず
- * 小さいので、レーンが縮退して中間のランクを横切ることはない。
+ * 外側レーンを使う向き (戻るエッジと 2 ランク以上先へ進むエッジ): 出発ノードの下端から
+ * ランクの下のすき間へ抜け、全ノードの外側のレーンを通って、行き先ランクの上のすき間から入る。
+ * 水平移動はノードの矩形が無い帯だけで行うため、どのノードの矩形も横切らない
+ * (行き先が最上段のときは図の上端に専用の帯を取る)。
  */
-function backPoints(from: Placed, to: Placed, frame: Frame, horizontal: boolean): DiagramPoint[] {
-  const before = horizontal
-    ? to.box.y + to.box.h / 2 < from.box.y + from.box.h / 2
-    : to.box.x + to.box.w / 2 < from.box.x + from.box.w / 2;
-  const lane = horizontal
-    ? before
-      ? frame.minY - RANK_GAP / 2
-      : frame.maxY + RANK_GAP / 2
-    : before
-      ? frame.minX - RANK_GAP / 2
-      : frame.maxX + RANK_GAP / 2;
-  const start: DiagramPoint = horizontal
-    ? { x: from.box.x + from.box.w / 2, y: before ? from.box.y : from.box.y + from.box.h }
-    : { x: before ? from.box.x : from.box.x + from.box.w, y: from.box.y + from.box.h / 2 };
-  const end: DiagramPoint = horizontal
-    ? { x: to.box.x + to.box.w / 2, y: before ? to.box.y : to.box.y + to.box.h }
-    : { x: before ? to.box.x : to.box.x + to.box.w, y: to.box.y + to.box.h / 2 };
+function detourPoints(from: Placed, to: Placed, bands: Band[], lane: number, horizontal: boolean): DiagramPoint[] {
+  const after = bands[from.rank].end + RANK_GAP / 2;
+  const before = bands[to.rank].start - RANK_GAP / 2;
+  const fromCenter = horizontal ? from.box.y + from.box.h / 2 : from.box.x + from.box.w / 2;
+  const toCenter = horizontal ? to.box.y + to.box.h / 2 : to.box.x + to.box.w / 2;
+  // 出発点はレーンの側へずらし、同じ境界を使う前向きエッジと重ならないようにする
+  const shift = Math.min(EXIT_SHIFT, Math.max(2, (horizontal ? from.box.h : from.box.w) / 2 - 4));
+  const exit = fromCenter + (lane < fromCenter ? -shift : shift);
   return horizontal
-    ? [start, { x: start.x, y: lane }, { x: end.x, y: lane }, end]
-    : [start, { x: lane, y: start.y }, { x: lane, y: end.y }, end];
+    ? [
+        { x: from.box.x + from.box.w, y: exit },
+        { x: after, y: exit },
+        { x: after, y: lane },
+        { x: before, y: lane },
+        { x: before, y: toCenter },
+        { x: to.box.x, y: toCenter },
+      ]
+    : [
+        { x: exit, y: from.box.y + from.box.h },
+        { x: exit, y: after },
+        { x: lane, y: after },
+        { x: lane, y: before },
+        { x: toCenter, y: before },
+        { x: toCenter, y: to.box.y },
+      ];
 }
 
-/** ラベルは折れ線の中央の区間の外側に置く (mermaid の見た目に合わせる) */
+/** ラベルは折れ線の後ろから 2 番目の区間 (ノードの無い帯) の外側に置く */
 function labelPosition(points: DiagramPoint[], label: string | null): DiagramEdge["labelAt"] {
   if (label === null || points.length === 0) return null;
   if (points.length === 2) {
@@ -476,7 +614,8 @@ function labelPosition(points: DiagramPoint[], label: string | null): DiagramEdg
     if (start.x === end.x) return { x: start.x + 6, y: (start.y + end.y) / 2 + 3.5, anchor: "start" };
     return { x: (start.x + end.x) / 2, y: start.y - 5, anchor: "middle" };
   }
-  const [bend, next] = [points[1], points[2]];
+  const bend = points[points.length - 3];
+  const next = points[points.length - 2];
   if (bend.y === next.y) return { x: (bend.x + next.x) / 2, y: bend.y - 4.5, anchor: "middle" };
   return { x: bend.x + 6, y: (bend.y + next.y) / 2 + 3.5, anchor: "start" };
 }
@@ -490,25 +629,34 @@ function layoutFlowchart(order: FlowNode[], edges: FlowEdge[], direction: string
   const byId = new Map(placed.map((entry) => [entry.node.id, entry]));
   const bands = bandsOf(placed, horizontal);
   const frame = frameOf(placed);
+  const lanes = planLanes(edges, byId, frame, horizontal);
   return normalize({
     kind: "flowchart",
     title: `mermaid · flowchart ${direction}`,
     boxes: placed.map((entry) => entry.box),
-    edges: edges.map((edge) => routeEdge(edge, byId, bands, frame, horizontal)),
+    edges: edges.map((edge, index) => routeEdge(edge, byId, bands, lanes[index], horizontal)),
     notes: [],
     lifelines: [],
   });
 }
 
-type SeqParticipant = { id: string; label: string };
+type SeqParticipant = { id: string; label: string; lines: string[] };
 
 function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]): DiagramModel {
   // 参加者ボックスは等幅・等間隔にする (ライフラインを縦に通すため)
   const boxW = clamp(
-    Math.max(...participants.map((entry) => Math.ceil(textWidth(entry.label, FONT_SIZE)) + PARTICIPANT_PAD)),
+    Math.max(
+      ...participants.map(
+        (entry) =>
+          Math.max(0, ...entry.lines.map((line) => Math.ceil(textWidth(line, FONT_SIZE)))) + PARTICIPANT_PAD,
+      ),
+    ),
     PARTICIPANT_MIN_W,
     PARTICIPANT_MAX_W,
   );
+  // 行数が違っても高さは揃える (ライフラインの開始位置を 1 本に合わせるため)
+  const rows = Math.max(...participants.map((entry) => entry.lines.length));
+  const boxH = PARTICIPANT_H + (rows - 1) * DIAGRAM_LINE_HEIGHT;
   // 間隔は「行間のラベル」と「自己メッセージのループ + ラベル」が収まる幅にする
   const needed = elements.map((element) => {
     if (element.kind === "note") return 0;
@@ -524,12 +672,13 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
     x: index * pitch,
     y: 0,
     w: boxW,
-    h: PARTICIPANT_H,
+    h: boxH,
     label: entry.label,
+    lines: entry.lines,
   }));
   const edges: DiagramEdge[] = [];
   const notes: DiagramNote[] = [];
-  let cursor = PARTICIPANT_H + 26;
+  let cursor = boxH + 26;
   for (const element of elements) {
     const from = lifelineX(at.get(element.from) ?? 0);
     const to = lifelineX(at.get(element.to) ?? 0);
@@ -538,7 +687,7 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
       const left = Math.min(from, to) - boxW / 2 - 8;
       const right = Math.max(from, to) + boxW / 2 + 8;
       const width = Math.max(right - left, Math.ceil(textWidth(element.text, NOTE_FONT_SIZE)) + NOTE_PAD_X * 2);
-      const height = NOTE_LINE_H + 12;
+      const height = DIAGRAM_LINE_HEIGHT + 12;
       const center = (left + right) / 2;
       notes.push({ x: center - width / 2, y: cursor + 6, w: width, h: height, lines: [element.text] });
       cursor += height + NOTE_GAP;
@@ -567,7 +716,7 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
     }
     cursor += MESSAGE_PITCH;
   }
-  const lifelineTop = PARTICIPANT_H + 8;
+  const lifelineTop = boxH + 8;
   const lifelineBottom = cursor + 6;
   const lifelines = participants.map((_, index) => ({
     x1: lifelineX(index),
@@ -593,6 +742,13 @@ function normalize(model: Omit<DiagramModel, "width" | "height">): DiagramModel 
   for (const box of model.boxes) {
     grow(box.x, box.y);
     grow(box.x + box.w, box.y + box.h);
+    // 折り返した各行の矩形も含める (テキストがキャンバスの外へ出ないことを保証する)
+    const halfWidth = Math.max(0, ...box.lines.map((line) => textWidth(line, FONT_SIZE))) / 2;
+    const halfHeight = (box.lines.length * DIAGRAM_LINE_HEIGHT) / 2;
+    const centerX = box.x + box.w / 2;
+    const centerY = box.y + box.h / 2;
+    grow(centerX - halfWidth, centerY - halfHeight);
+    grow(centerX + halfWidth, centerY + halfHeight);
   }
   for (const lifeline of model.lifelines) {
     grow(lifeline.x1, lifeline.y1);
@@ -651,7 +807,7 @@ export function parseDiagram(source: string): DiagramParseResult {
 
 function parseFlow(lines: string[], direction: string): DiagramParseResult {
   const order: string[] = [];
-  const known = new Map<string, FlowNode>();
+  const known = new Map<string, ParsedNode>();
   const edges: FlowEdge[] = [];
   for (const line of lines) {
     const parsed = parseFlowLine(line);
@@ -669,7 +825,15 @@ function parseFlow(lines: string[], direction: string): DiagramParseResult {
     edges.push(...parsed.edges);
   }
   if (order.length === 0 || order.length > DIAGRAM_MAX_NODES || edges.length > DIAGRAM_MAX_EDGES) return { ok: false };
-  const nodes = order.map((id) => known.get(id)).filter((node): node is FlowNode => node !== undefined);
+  const nodes: FlowNode[] = [];
+  for (const id of order) {
+    const node = known.get(id);
+    if (node === undefined) continue;
+    const lines = wrapForShape(node.label, node.shape);
+    // 上限行数に収まらないラベルは、文字を消さずに図全体をソース表示へ落とす
+    if (lines === null) return { ok: false };
+    nodes.push({ ...node, lines });
+  }
   return { ok: true, model: layoutFlowchart(nodes, edges, direction) };
 }
 
@@ -680,7 +844,7 @@ function parseSequence(lines: string[]): DiagramParseResult {
   const add = (id: string, label: string | null): string => {
     const previous = known.get(id);
     if (previous === undefined) {
-      const entry = { id, label: label ?? id };
+      const entry = { id, label: label ?? id, lines: [] };
       known.set(id, entry);
       order.push(entry);
       return id;
@@ -718,5 +882,12 @@ function parseSequence(lines: string[]): DiagramParseResult {
   if (order.length === 0 || order.length > DIAGRAM_MAX_PARTICIPANTS || elements.length > DIAGRAM_MAX_MESSAGES) {
     return { ok: false };
   }
-  return { ok: true, model: layoutSequence(order, elements) };
+  const participants: SeqParticipant[] = [];
+  for (const entry of order) {
+    const lines = wrapLabel(entry.label, PARTICIPANT_MAX_W - PARTICIPANT_PAD);
+    // 上限行数に収まらないラベルは、文字を消さずに図全体をソース表示へ落とす
+    if (lines.length > DIAGRAM_MAX_LINES) return { ok: false };
+    participants.push({ ...entry, lines });
+  }
+  return { ok: true, model: layoutSequence(participants, elements) };
 }

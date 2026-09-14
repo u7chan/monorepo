@@ -58,7 +58,8 @@ MessageView (assistant の本文)
 | 1 段落でインライン数式の判定に使う文字数（探索した分だけ減る） | 20000 | `MAX_MATH_STEPS` (`inline.ts`) |
 | インライン数式 1 つの探索範囲（開きの位置から閉じを探す距離） | 4096 | `MAX_MATH_SPAN` (`inline.ts`) |
 | 数式 1 つの中身の文字数 / ノード数（解析本体。実質はブロック数式に効く） | 20000 / 4000 | `LATEX_MAX_LENGTH` / `LATEX_MAX_NODES` (`latex.ts`) |
-| 図フェンスのソース文字数 / ラベル 1 つの文字数 | 20000 / 200 | `DIAGRAM_MAX_LENGTH` / `DIAGRAM_MAX_LABEL` (`diagram.ts`) |
+| 図フェンスのソース文字数 / ラベル 1 つの文字数 | 20000 / 120 | `DIAGRAM_MAX_LENGTH` / `DIAGRAM_MAX_LABEL` (`diagram.ts`) |
+| 図のラベル 1 つの折り返し行数 | 6 | `DIAGRAM_MAX_LINES` (`diagram.ts`) |
 | flowchart のノード数 / エッジ数 | 60 / 120 | `DIAGRAM_MAX_NODES` / `DIAGRAM_MAX_EDGES` (`diagram.ts`) |
 | sequenceDiagram の参加者数 / メッセージ数（Note を含む） | 20 / 60 | `DIAGRAM_MAX_PARTICIPANTS` / `DIAGRAM_MAX_MESSAGES` (`diagram.ts`) |
 | 生 HTML の入れ子 / インライン記法の入れ子 | 8 段 | `html.ts` / `inline.ts` |
@@ -104,6 +105,9 @@ MessageView (assistant の本文)
 - `%%` の行コメントと空行は無視する。ノードの並びは初出順で、同じ id を裸で参照しても既存のラベルは消えない（形状つきの宣言が後から来たらそちらを採る）
 - id は英数字と `_` だけにする（`-` は矢印と衝突するため使えない）。日本語のラベルは `[]` `()` `{}` `(())` の中に書く
 - ラベルは字面どおりに扱い、実体参照はデコードしない。区切り文字（`]` `)` `}`）はラベルに含められない
+- ラベルは文字幅の見積もりで決定的に折り返す（空白があれば語の境界で、語が 1 行に収まらないときは 1 文字単位）。ノード / 参加者ボックスの高さは行数から決まり、ひし形・円は行数に応じて高さ・直径も伸びる
+- 折り返しは最大 6 行。6 行に収まらないラベルは例外にせず図全体をソース表示にする（ひし形・円は 1 行に入る幅が狭いため、長いラベルでは矩形より先にこの上限に当たる）
+- ラベルは 120 文字まで。折り返した各行の矩形もキャンバスの計算に含めるので、テキストが SVG の外へ出て切り落とされることはない
 - `subgraph` `end` `direction` `style` `class` `classDef` `click` `linkStyle` は予約語として行ごとエラーにする（未対応の記法を黙って 1 ノードに化けさせない）
 - **解釈できない非空行が 1 つでもあれば図全体をソース表示にする**（行を黙って落とさない）。`flowchart BT` / `flowchart RL` と `gantt` / `pie` / `classDiagram` / `stateDiagram` / `erDiagram` / `mindmap` / `journey` も同じ
 - 解析に失敗したときは例外を投げず、`CodeBlock`（`lang="mermaid"`）で原文を出して「未対応の記法のためソースを表示しています（対応: flowchart / sequenceDiagram）」を 1 行添える
@@ -112,8 +116,9 @@ MessageView (assistant の本文)
 
 - 同じ入力からは必ず同じモデル（座標・順序まで一致）になる。ノードの寸法はラベルから決まる（上限あり）ので、幅だけが変わる
 - エッジは直交（縦 → 横 → 縦）で、ノードの境界から出て境界で止まる。矢印は SVG の `marker` で描き、`id` は `useId()` で図ごとに一意にする
-- 折れはランク間のすき間で作るので、隣のランクへのエッジは線がランクの帯を横切らない。2 ランク以上先へ進むエッジは、行き先の列（行）を通る区間で中間のランクのノードと交差することがある（障害物回避はしない）
-- 逆向きのエッジはランク軸に直交する外側のレーンへ回り込ませ、中間のランクを横切らないようにする（ランクの計算には後退エッジとして使わない）。自己ループは右側の小さな矩形で描く
+- 折れはランク間のすき間で作るので、隣のランクへのエッジは線がランクの帯を横切らない。2 ランク以上先へ進むエッジと戻る向きのエッジは、ランク軸に直交する外側のレーン（全ノードの左外 / 右外）へ回り込ませ、同じ側を使う 2 本目以降は 1 本ずつ外へずらす。**よってどのエッジもノードの矩形を横切らない**
+- 行き先が最上段・出発点が最下段のときは図の外側に専用の帯を取る（必要な分だけ `normalize` がキャンバスを広げる）。自己ループはランクの下のすき間へ落として描く（隣のノードを横切らないように）
+- 戻る向きのエッジはランクの計算には後退エッジとして使わない（そのまま使うとランクが際限なく伸びるため）
 - sequenceDiagram は参加者ボックスを等間隔に並べ、破線のライフラインを下へ伸ばし、メッセージを入力順に行間隔で置く。Note は対象の参加者幅（`Note over A,B` は 2 人の幅）に広げたアクセント色の破線枠にする
 - SVG は実寸の `width` / `height` と `viewBox` を持ち、内容 + 余白で決まる。種別ラベル（`mermaid · flowchart TD` / `mermaid · sequenceDiagram`）と、生 Markdown をコピーするボタンを `figcaption` に出す
 - SVG には `role="img"` と種別ラベルの `aria-label` を付ける。横に長い図は折り返さず、`.md-diagram-body` を横スクロールにする
@@ -154,5 +159,5 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownHtml.test.ts` | 許可リスト / 属性の除去 / `on*` `javascript:` の拒否 / 未閉じは原文 / `safeUrl` |
 | `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / CSS との対応 |
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
-| `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / SSR した HTML にインライン style が出ない |
+| `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でどのエッジもノードを横切らない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |

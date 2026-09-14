@@ -1,6 +1,7 @@
 import { memo, useId, useMemo } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { parseDiagram } from "../../lib/markdown/diagram";
+import { DIAGRAM_LINE_HEIGHT } from "../../lib/markdown/diagram";
 import type { DiagramBox, DiagramModel } from "../../lib/markdown/diagram";
 import { CopyButton, REVEAL_CODE } from "../chat/CopyButton";
 import { CodeBlock } from "./CodeBlock";
@@ -84,7 +85,7 @@ function DiagramSvg({ model }: { model: DiagramModel }) {
               key={lineIndex}
               className="md-diagram-note-label"
               x={note.x + note.w / 2}
-              y={note.y + 6 + lineIndex * 16 + 11}
+              y={note.y + 6 + lineIndex * DIAGRAM_LINE_HEIGHT + 11}
               textAnchor="middle"
             >
               {line}
@@ -92,17 +93,19 @@ function DiagramSvg({ model }: { model: DiagramModel }) {
           ))}
         </g>
       ))}
-      {model.boxes.map((box, index) => (
-        <text
-          key={index}
-          className="md-diagram-label"
-          x={box.x + box.w / 2}
-          y={box.y + box.h / 2 + 4}
-          textAnchor="middle"
-        >
-          {box.label}
-        </text>
-      ))}
+      {model.boxes.map((box, index) =>
+        box.lines.map((line, lineIndex) => (
+          <text
+            key={`${index}-${lineIndex}`}
+            className="md-diagram-label"
+            x={box.x + box.w / 2}
+            y={box.y + box.h / 2 + 4 + (lineIndex - (box.lines.length - 1) / 2) * DIAGRAM_LINE_HEIGHT}
+            textAnchor="middle"
+          >
+            {line}
+          </text>
+        )),
+      )}
       {model.edges.map((edge, index) =>
         edge.label === null || edge.labelAt === null ? null : (
           <text
