@@ -11,7 +11,6 @@ export function AgentField({
   agents: AgentDef[];
   agentId: string;
   compact: boolean;
-  /** 選択中のエージェントで新しい会話を始める */
   onChangeAgent: (agentId: string) => void;
 }) {
   return (

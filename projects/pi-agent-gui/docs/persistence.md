@@ -48,17 +48,17 @@ DBの種類・スキーマ・復元方式はこの資料では決めない。
 プロジェクト（ワークスペース内ディレクトリの登録。`server/src/projects.ts`）もメモリ内のみで、
 再デプロイ後は未所属チャット（作業場所 = ワークスペース root）に戻る。
 登録が消えてもディレクトリと中身は作業領域に残るため、再デプロイ後に登録し直せるよう
-列は `{ id, name, cwd, createdAt }` の 4 つに保ち、cwd は root 相対で持つ（[architecture.md](architecture.md)）。
+列は `{ id, name, cwd, createdAt }` の 4 つに保ち、cwd は root 相対で持つ（[projects.md](projects.md)）。
 
 ブラウザのリロード・再接続は、BFF が保持している会話を再取得する動作であり、
 DBへの永続化を意味しない。アイドルセッションの破棄条件などは
-[architecture.md](architecture.md) を参照する。
+[run-lifecycle.md](run-lifecycle.md) を参照する。
 
 ### compaction entry の保存
 
 会話履歴を永続化するときは、`messages` だけでなく **compaction entry も保存対象にする**。
 圧縮で context から外れた元メッセージも entry には残るため、entry を保存しないと
-区切り位置（`firstKeptEntryId` 以降）も要約も後から再現できない。DTO の形（[api.md](api.md) の
+区切り位置（`firstKeptEntryId` 以降）も要約も後から再現できない。DTO の形（[api-sessions.md](api-sessions.md) の
 `compactions`）はそのまま写せる形に保つ。
 
 - `id` / `parentId` / `timestamp` / `summary` / `firstKeptEntryId` / `tokensBefore` / `usage` / `fromHook` は SDK の `CompactionEntry` の値。アプリ独自の連番は振らず、この `id` で一意に参照する

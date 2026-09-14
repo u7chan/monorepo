@@ -20,10 +20,8 @@ import {
 } from "./themes";
 
 export type ThemeContextValue = {
-  /** ユーザーの選択。"system" なら OS 設定に追従する */
   choice: ThemeChoice;
   setChoice: (choice: ThemeChoice) => void;
-  /** choice を解決した実際のテーマ id (html の data-theme に反映する) */
   resolvedId: ThemeId;
   themes: typeof THEMES;
 };

@@ -9,14 +9,11 @@ import { MessageView } from "./chat/MessageView";
 
 export type ChatAreaProps = {
   bubbles: Bubble[];
-  /** 会話の圧縮履歴 (古い→新しい)。最新の 1 件だけが区切りの位置を持つ */
   compactions?: CompactionInfo[];
-  /** モバイルの compact layout (本文幅を優先して余白と avatar を詰める) */
   compact?: boolean;
-  /** 選択中エージェントの定型プロンプト。未定義 / 空ならボタン行ごと出さない */
   suggestions?: AgentSuggestion[];
   onSuggestion: (prompt: string) => void;
-  /** メイン領域にチャットが出ているか。非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
+  /** 非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
   visible?: boolean;
 };
 

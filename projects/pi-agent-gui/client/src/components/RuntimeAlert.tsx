@@ -6,11 +6,9 @@ import {
 
 export type RuntimeAlertProps = {
   runtimeStatus: RuntimeStatus;
-  /** モバイルの compact bar 用に一回り小さくする */
   compact?: boolean;
 };
 
-/** ガイド文のバッククォートをインラインコードとして描画する。 */
 function GuideText({ text }: { text: string }) {
   return (
     <>
@@ -27,7 +25,6 @@ function GuideText({ text }: { text: string }) {
   );
 }
 
-/** ランタイムのエラー詳細 (APIキー未設定・実行環境未設定など)。error のときだけ描画する。 */
 export function RuntimeAlert({ runtimeStatus, compact = false }: RuntimeAlertProps) {
   if (!runtimeStatus.error || !runtimeStatus.detail) return null;
 

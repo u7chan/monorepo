@@ -1,9 +1,7 @@
 import { ThemeSwitcher } from "../theme/ThemeSwitcher";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
-/**
- * テーマの選択ページ。テーマ切替の入口をここに一本化し、Topbar と drawer のカードには置かない。
- */
+/** テーマ切替の入口はここに一本化する (Topbar / drawer には置かない) */
 export function AppearancePage({ compact = false, onBack, onOpenNav }: SettingsPageProps) {
   return (
     <SettingsPageLayout

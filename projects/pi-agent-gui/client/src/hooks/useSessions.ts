@@ -31,13 +31,12 @@ export type UseSessionsParams = {
   agentId: string;
   setAgentId: (id: string) => void;
   selectProject: (id: string) => void;
-  /** 送信時に state の反映を待たず読む選択中プロジェクト */
+  /** state の反映を待たず読む (ensureSession が送信時に参照) */
   selectedProjectIdRef: RefObject<string>;
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
-/** セッションの一覧・選択と、その作成 / 切替 / 削除 (SSE の適用まで) */
 export function useSessions({
   dispatch,
   agentId,
@@ -49,10 +48,8 @@ export function useSessions({
 }: UseSessionsParams) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem(SESSION_KEY) || "");
-  /** ワークスペース root 相対 ("" は root) */
   const [cwd, setCwd] = useState<string>("");
   const [settingsChanging, setSettingsChanging] = useState(false);
-  /** 未作成チャットの作成前選択 (作成時に使ってクリアする) */
   const [preselection, setPreselection] = useState<SettingsSelection>({});
   const [epoch, setEpoch] = useState(0);
 
@@ -128,7 +125,6 @@ export function useSessions({
     [applySelectedSession, refreshHealth],
   );
 
-  /** 空のセッション行は作らず、表示だけ未作成チャットへ戻す */
   const newChat = useCallback(
     (nextAgentId?: string, nextProjectId?: string): void => {
       // 未作成チャットで選んだ agent は、最初の送信で作るセッションの初期値になる
@@ -151,7 +147,6 @@ export function useSessions({
   const newChatRef = useRef(newChat);
   newChatRef.current = newChat;
 
-  /** 未作成チャットの最初の送信時だけセッションを作り、送信先の sessionId を返す */
   const ensureSession = useCallback(async (): Promise<string> => {
     const existing = sessionIdRef.current;
     if (existing) return existing;
@@ -171,7 +166,6 @@ export function useSessions({
     return session.sessionId;
   }, [agentId, applySelectedSession, refreshHealth, refreshSessions, selectedProjectIdRef]);
 
-  /** 未作成チャットでは作成前の選択として保持する */
   const changeSessionSettings = useCallback(
     async (selection: SettingsSelection): Promise<void> => {
       const id = sessionIdRef.current;
@@ -263,7 +257,6 @@ export function useSessions({
     [refreshSessions, selectSession],
   );
 
-  /** 削除で一覧から消えたセッションを表示したままにしない */
   const reselectIfMissing = useCallback(
     async (list: SessionSummary[]): Promise<void> => {
       const current = sessionIdRef.current;
@@ -275,7 +268,6 @@ export function useSessions({
     [selectSession],
   );
 
-  /** 保存された選択を復元し、無ければ未作成チャットのままにする */
   const restoreSession = useCallback(
     async (list: SessionSummary[], isCurrent = alwaysCurrent): Promise<void> => {
       const stored = localStorage.getItem(SESSION_KEY) || "";

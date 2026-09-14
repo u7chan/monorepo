@@ -38,9 +38,8 @@ export interface SessionRecord {
   id: string;
   session: PiSessionLike;
   agentId: string;
-  /** 所属プロジェクト。未所属はキーを省略する (model? と同じ扱い) */
   projectId?: string;
-  /** 作成時点のエージェント表示情報 (定義の編集・削除の影響を受けないスナップショット) */
+  /** 作成時点のスナップショット (定義の編集・削除の影響を受けない) */
   agent: AgentPayloadInfo;
   title: string;
   createdAt: number;
@@ -61,10 +60,8 @@ export interface SessionRecord {
 
 export interface CreateSessionOptions {
   agentId?: string;
-  /** 作成時のチャット指定 (未指定ならエージェント定義 → アプリ既定) */
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
-  /** 所属プロジェクト。未指定は未所属 (cwd = root)。未知の id は 400 */
   projectId?: string;
 }
 

@@ -7,11 +7,7 @@ import type { FileEntry } from "../types";
 
 export const FILE_TREE_ROOT = ".";
 
-/**
- * 画面の root (ワークスペース root 相対) を正規化する。"" とワークスペース root 自身の絶対パス
- * (health.cwd) は "." へ畳む。GET /api/files の path は root 相対だけを受け付けるため、
- * 絶対パスを渡すと root 外として 400 になる。
- */
+// 絶対パス (health.cwd) のまま GET /api/files へ渡すと root 外として 400 になるため "." へ畳む
 export function normalizeFileTreeRoot(cwd: string): string {
   const path = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
   if (!path || path === FILE_TREE_ROOT) return FILE_TREE_ROOT;
@@ -31,11 +27,9 @@ export function fileTreeFetchPath(cwd: string, path: string): string {
 
 export type FileTreeDirectoryState = {
   open: boolean;
-  /** 取得中 (プレースホルダ行を出す) */
   loading: boolean;
   /** 未取得は undefined。空ディレクトリ (空配列) と区別する */
   children?: FileEntry[];
-  /** サーバーが件数上限で打ち切ったか */
   truncated?: boolean;
   /** このディレクトリだけの取得エラー (他のディレクトリの表示は維持する) */
   error?: string;
@@ -43,12 +37,10 @@ export type FileTreeDirectoryState = {
 
 export type FileTreeState = Record<string, FileTreeDirectoryState>;
 
-/** 開いたときに root から読み込む初期状態。 */
 export function createFileTreeState(): FileTreeState {
   return { [FILE_TREE_ROOT]: { open: true, loading: false } };
 }
 
-/** parent ("." は画面の root) 配下の子のキー。 */
 export function fileTreeChildPath(parent: string, name: string): string {
   return parent === FILE_TREE_ROOT ? name : `${parent}/${name}`;
 }
@@ -59,7 +51,7 @@ export function toggleFileTreeDirectory(state: FileTreeState, path: string): Fil
   return { ...state, [path]: { ...node, open: !node.open } };
 }
 
-/** 取得開始。前回のエラーを消して、再試行できるようにする。 */
+/** 前回のエラーを消して、再試行できるようにする */
 export function beginFileTreeLoad(state: FileTreeState, path: string): FileTreeState {
   const node = state[path] ?? { open: false, loading: false };
   return { ...state, [path]: { ...node, loading: true, error: undefined } };
@@ -93,13 +85,11 @@ export function applyFileTreeListing(
   return next;
 }
 
-/** パスの先頭セグメント (直接の子の名前)。root 自身 ("") はどの子とも一致しない。 */
 function firstSegment(rest: string): string {
   const slash = rest.indexOf("/");
   return slash === -1 ? rest : rest.slice(0, slash);
 }
 
-/** 取得失敗。そのディレクトリにだけエラーを残し、他はそのまま維持する。 */
 export function applyFileTreeError(state: FileTreeState, path: string, message: string): FileTreeState {
   const node = state[path] ?? { open: false, loading: false };
   return { ...state, [path]: { ...node, loading: false, error: message } };

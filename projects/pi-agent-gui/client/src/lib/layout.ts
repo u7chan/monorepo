@@ -1,6 +1,5 @@
 /** レイアウトモードの判定。閾値の理由は docs/ui-layout.md を参照。 */
 
-/** desktop shell (252px sidebar + main) を出す下限 */
 export const DESKTOP_MIN_WIDTH = 720;
 export const DESKTOP_MIN_HEIGHT = 560;
 

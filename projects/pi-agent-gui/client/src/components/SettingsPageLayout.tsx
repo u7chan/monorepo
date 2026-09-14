@@ -2,22 +2,17 @@ import type { ReactNode } from "react";
 import { ArrowLeftIcon, MenuIcon } from "./icons";
 
 export type SettingsPageProps = {
-  /** チャットへ戻る (サイドバーのモードも nav へ揃える)。compact ではヘッダにも出す */
   onBack: () => void;
-  /** compact layout。ヘッダが CompactBar の代わりになるため nav の導線を出す */
   compact?: boolean;
-  /** compact のときだけ使う。ドロワー (NavSheet) を開く */
   onOpenNav?: () => void;
 };
 
 export type SettingsPageLayoutProps = SettingsPageProps & {
   eyebrow: string;
   title: string;
-  /** タイトル下の補足 (ワークスペース root のパスなど) */
   caption?: ReactNode;
-  /** ヘッダ右の操作 (再読み込み / インポートなど)。compact では「アプリに戻る」がこの右に続く */
   actions?: ReactNode;
-  /** 管理操作の結果表示 (aria-live) */
+  /** aria-live で読み上げる */
   note?: { text: string; error: boolean };
   children: ReactNode;
 };

@@ -23,9 +23,7 @@ export function projectSessionPayload({
   masker,
 }: {
   record: SessionRecord;
-  /** SessionStore.statusOf が導出した値 (record だけでは run と isStreaming の合成が要る) */
   status: RunStatus;
-  /** rootCwd 相対。SessionStore が所属プロジェクトから解決する */
   cwd: string;
   masker: SecretMasker;
 }): SessionPayload {
@@ -37,7 +35,6 @@ export function projectSessionPayload({
     sessionId: record.id,
     piSessionId: session.sessionId,
     cwd,
-    // 未所属はキーごと省略する (model? と同じ扱い)
     ...(record.projectId ? { projectId: record.projectId } : {}),
     model: modelLabel(session.model),
     thinkingLevel: session.thinkingLevel,

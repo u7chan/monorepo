@@ -19,4 +19,4 @@ why（コードから読めない理由・制約・落とし穴）だけを1〜2
 ## 参照
 
 - [README.md](README.md) — 起動方法（`pnpm dev`）・環境変数・セキュリティ
-- [docs/](docs) — 設計と API の詳細（architecture / api / persistence / ui-layout / migration）
+- [docs/](docs) — 設計と API の詳細。入口は [docs/README.md](docs/README.md) の変更テーマ別索引

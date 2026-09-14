@@ -8,7 +8,6 @@ export function ContextGauge({
   compact,
 }: {
   activity: string;
-  /** 未取得 (セッション未作成 / SDK が使用量を返さない) の間はゲージを出さない */
   context?: ContextUsage;
   compact: boolean;
 }) {

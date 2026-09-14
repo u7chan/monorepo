@@ -17,16 +17,12 @@ const EVENT_TYPES: SSEEventType[] = [
 
 export type UseSessionEventsParams = {
   sessionId: string | null;
-  /** 強制再接続用カウンタ (同一セッションで再接続するときに increment) */
   epoch: number;
-  /** 再接続時の after= に使う最終 seq (イベント処理側が更新する) */
   lastSeqRef: RefObject<number>;
   onEvent: (entry: EventEntry) => void;
-  /** readyState が CLOSED になった (セッション消失・サーバー再起動など) */
   onClosed: () => void;
 };
 
-/** /api/sessions/:id/events への SSE 接続 */
 export function useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClosed }: UseSessionEventsParams): void {
   // 常に最新の処理を呼ぶが、コールバックの変更では再接続させない。
   const handleEvent = useEffectEvent(onEvent);

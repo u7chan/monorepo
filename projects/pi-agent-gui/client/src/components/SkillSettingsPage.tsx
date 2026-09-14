@@ -9,14 +9,9 @@ type SkillForm = { name: string; description: string; prompt: string };
 
 export type SkillSettingsPageProps = SettingsPageProps & {
   catalog: Catalog;
-  /** カタログ再読込 (保存・削除・インポート後) */
   refreshCatalog: () => Promise<Catalog>;
 };
 
-/**
- * スキル定義の管理ページ。エージェントページと同じ組 (一覧 + フォーム) をメイン領域に置き、
- * 割り当て先は「エージェント」ページで決める。
- */
 export function SkillSettingsPage({ catalog, refreshCatalog, compact = false, onBack, onOpenNav }: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: DEFINITIONS_NOTE, error: false });

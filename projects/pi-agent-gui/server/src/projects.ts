@@ -65,9 +65,7 @@ export function resolveWorkspaceCwd(
 }
 
 export interface CreateProjectInput {
-  /** 正規化済みの rootCwd 相対パス */
   cwd: string;
-  /** 省略時は cwd の basename */
   name?: string;
 }
 
@@ -78,7 +76,7 @@ export class ProjectStore {
     this.projects = new Map(projects.map((project) => [project.id, project]));
   }
 
-  /** 作成順 (Map の挿入順) の一覧 */
+  /** 作成順 (Map の挿入順) */
   list(): Project[] {
     return [...this.projects.values()];
   }
@@ -87,7 +85,6 @@ export class ProjectStore {
     return this.projects.get(id);
   }
 
-  /** cwd の二重登録を検出する (同じディレクトリを 2 つのプロジェクトにしない) */
   findByCwd(cwd: string): Project | undefined {
     return [...this.projects.values()].find((project) => project.cwd === cwd);
   }

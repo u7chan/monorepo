@@ -7,7 +7,7 @@ export function toolCallCopyText(card: Pick<ToolCard, "name" | "args" | "output"
   return lines.join("\n");
 }
 
-/** 履歴をまとめてコピーするときの整形。UI の行番号と一致するよう通し番号を付ける */
+/** UI の行番号と一致するよう通し番号を付ける */
 export function toolHistoryCopyText(cards: Pick<ToolCard, "name" | "args" | "output">[]): string {
   return cards.map((card, index) => `#${index + 1} ${toolCallCopyText(card)}`).join("\n\n");
 }

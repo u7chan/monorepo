@@ -10,11 +10,10 @@ import { SessionStore } from "./sessions";
 
 export type CreateBffAppOptions = {
   cwd?: string;
-  /** テストは明示的な pi (null も含む) を渡してランタイム構築をスキップする */
+  /** null を渡すとランタイム構築をスキップする (テスト用) */
   pi?: PiBff | null;
-  /** ファイル一覧とプロジェクト作成のサンドボックス。未指定なら env から生成し、null なら未設定として 503 を返す */
+  /** 未指定なら env から生成し、null なら未設定として 503 を返す */
   workspace?: SandboxWorkspaceClient | null;
-  /** テスト用: 静的配信のルートディレクトリ (既定は client/dist) */
   clientDistDir?: string;
 };
 

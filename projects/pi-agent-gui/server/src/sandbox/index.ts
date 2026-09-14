@@ -1,6 +1,6 @@
 /**
  * サンドボックス側の起動エントリ (BFF とは別プロセス・別コンテナ。同一イメージを command 差し替えで共用する)。
- * 環境変数は docs/api.md を参照。listen はこのファイルだけが行う。
+ * 環境変数は docs/sandbox-api.md を参照。listen はこのファイルだけが行う。
  */
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";

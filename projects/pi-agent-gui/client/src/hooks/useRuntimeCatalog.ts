@@ -12,7 +12,6 @@ export type UseRuntimeCatalogParams = {
   dispatch: Dispatch<ChatAction>;
 };
 
-/** BFF の health と agent / skill 定義 (カタログ) の取得・正規化 */
 export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   const [health, setHealth] = useState<Health | null>(null);
   const [catalog, setCatalog] = useState<Catalog>({ agents: [], skills: [] });

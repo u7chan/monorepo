@@ -30,10 +30,9 @@ export class ApiError extends Error {
   }
 }
 
-/** 型安全クライアント (Vite dev は /api を 4317 にプロキシ済み) */
+// Vite dev は /api を 4317 へプロキシするため同一オリジンで扱える
 const client = hc<AppType>(location.origin);
 
-/** !ok のレスポンスから ApiError を作る (body の {error} を優先し、読めなければ HTTP <status>)。 */
 async function apiError(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => null);
   const message =
@@ -42,8 +41,6 @@ async function apiError(res: Response): Promise<ApiError> {
       : `HTTP ${res.status}`;
   return new ApiError(message, res.status);
 }
-
-// --- health / catalog ---
 
 export const getHealth = async (): Promise<Health> => {
   const res = await client.api.health.$get();
@@ -58,14 +55,11 @@ export const getCatalog = async (): Promise<Catalog> => {
   return res.json();
 };
 
-/** 定義の一括置換 (インポート) */
 export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unknown[] }): Promise<Catalog> => {
   const res = await client.api.agents.$put({ json: catalog });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
-
-// --- agents CRUD ---
 
 export const createAgent = async (input: CreateAgentBody): Promise<{ agent: AgentDef }> => {
   const res = await client.api.agents.$post({ json: input });
@@ -85,8 +79,6 @@ export const deleteAgent = async (id: string): Promise<unknown> => {
   return res.json();
 };
 
-// --- skills CRUD ---
-
 export const createSkill = async (input: CreateSkillBody): Promise<{ skill: SkillDef }> => {
   const res = await client.api.skills.$post({ json: input });
   if (!res.ok) throw await apiError(res);
@@ -105,12 +97,7 @@ export const deleteSkill = async (id: string): Promise<unknown> => {
   return res.json();
 };
 
-// --- files ---
-
-/**
- * 作業ディレクトリ (サンドボックスの作業領域) の一覧。path は root 相対で、既定は root (".")。
- * サーバーが並び順と上限を決めるため、クライアントでは再ソートしない。
- */
+// 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない
 export const getFiles = async (path = "."): Promise<FileListing> => {
   const res = await client.api.files.$get({ query: { path } });
   if (!res.ok) throw await apiError(res);
@@ -118,21 +105,15 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   return (await res.json()) as FileListing;
 };
 
-// --- projects ---
-
-/** プロジェクト一覧 (サーバーの作成順)。並び順はサーバーが決めるため再ソートしない。 */
 export const listProjects = async (): Promise<ProjectsResponse> => {
   const res = await client.api.projects.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
 
-/** プロジェクトの新規作成 / 既存登録の入力。cwd はワークスペース root 相対 (root 自身は登録できない)。 */
 export type CreateProjectInput = {
   cwd: string;
-  /** 省略時はサーバーが cwd の basename を使う */
   name?: string;
-  /** true ならディレクトリを作成する (省略時は既存ディレクトリの登録) */
   create?: boolean;
 };
 
@@ -143,14 +124,12 @@ export const createProject = async (input: CreateProjectInput): Promise<{ projec
   return (await res.json()) as { project: Project };
 };
 
-/** 登録解除 (配下セッションはサーバーが停止・破棄し、ディレクトリは残る) */
+// 配下セッションは停止・破棄される (ワークスペースのディレクトリは残る)
 export const deleteProject = async (projectId: string): Promise<unknown> => {
   const res = await client.api.projects[":id"].$delete({ param: { id: projectId } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
-
-// --- sessions ---
 
 export const listSessions = async (): Promise<{ sessions: SessionSummary[] }> => {
   const res = await client.api.sessions.$get();
@@ -158,16 +137,13 @@ export const listSessions = async (): Promise<{ sessions: SessionSummary[] }> =>
   return res.json();
 };
 
-/** 未指定の項目は定義 → アプリ既定へ解決される */
 export type SessionOverrides = {
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
 };
 
-/** 作成時の所属。未指定は未所属 (cwd = ワークスペース root)。 */
 export type CreateSessionOverrides = SessionOverrides & { projectId?: string };
 
-/** 201 でセッションの完全な payload が返る */
 export const createSession = async (
   agentId?: string,
   overrides: CreateSessionOverrides = {},
@@ -191,7 +167,6 @@ export const deleteSession = async (sessionId: string): Promise<unknown> => {
   return res.json();
 };
 
-/** 省略した項目は現在値を維持する。SDK 補正後の実効値を含む SessionPayload が返る。 */
 export const updateSessionSettings = async (
   sessionId: string,
   settings: SessionOverrides,
@@ -210,7 +185,7 @@ export const stopSession = async (sessionId: string): Promise<StopResult> => {
   return res.json();
 };
 
-/** 202 を即時返す。実行はバックグラウンドで続き、イベントは SSE で届く。 */
+// 202 を即時返す。実行は裏で続き、進捗は SSE で届く
 export const postMessage = async (sessionId: string, text: string): Promise<PostMessageResult> => {
   const res = await client.api.sessions[":id"].messages.$post({ json: { text }, param: { id: sessionId } });
   if (!res.ok) throw await apiError(res);

@@ -160,11 +160,9 @@ export const CompactionInfoSchema = z.object({
   tokensBefore: z.number(),
   /** 要約生成に使った LLM 呼び出しの使用量 (将来使う値として落とさない) */
   usage: UsageSchema.optional(),
-  /** extension が生成した圧縮かどうか */
   fromHook: z.boolean().optional(),
   /** 区切りを置く messages の index (この index の手前)。最新の compaction だけが持つ */
   beforeMessageIndex: z.number().optional(),
-  /** compaction_end の reason */
   reason: CompactionReasonSchema.optional(),
   /** compaction_end の推定値。UI には出さないが永続化を見据えて保持する */
   estimatedTokensAfter: z.number().optional(),
@@ -209,7 +207,6 @@ export const SessionPayloadSchema = z.object({
   projectId: z.string().optional(),
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
-  /** 実効モデルが推論に対応しているか (SDK の supportsThinking 相当) */
   supportsThinking: z.boolean().optional(),
   /** 実効モデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
   availableThinkingLevels: z.array(ThinkingLevelSchema).optional(),
@@ -244,7 +241,6 @@ export const SessionSummarySchema = z.object({
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
-/** モデル選択肢。server が SDK から解決して health で返す。 */
 export const ModelOptionSchema = z.object({
   provider: z.string(),
   id: z.string(),
@@ -264,13 +260,11 @@ export const HealthSchema = z.object({
   ok: z.boolean().optional(),
   availableModels: z.array(z.string()).optional(),
   modelOptions: z.array(ModelOptionSchema).optional(),
-  /** アプリ既定の thinkingLevel */
   defaultThinkingLevel: ThinkingLevelSchema.optional(),
   /** 明示 PI_MODEL が利用不能なときの理由 (ready は true のまま) */
   defaultModelError: z.string().optional(),
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
-  /** PI_SANDBOX_URL / PI_SANDBOX_TOKEN が揃っているか (未設定ならセッション作成が 503) */
   sandboxConfigured: z.boolean().optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
@@ -333,9 +327,7 @@ export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
 
 export const CreateProjectBodySchema = z.object({
   cwd: z.string(),
-  /** 省略時は cwd の basename */
   name: z.string().optional(),
-  /** true ならサンドボックスでディレクトリを作成する (省略時は既存ディレクトリの確認のみ) */
   create: z.boolean().optional(),
 });
 export type CreateProjectBody = z.infer<typeof CreateProjectBodySchema>;
@@ -441,7 +433,6 @@ type EventEntryFor<T extends SSEEventType> = {
   at: number;
 };
 
-/** type で data を絞り込める判別可能ユニオン */
 export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];

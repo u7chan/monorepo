@@ -8,7 +8,7 @@ export async function copyToClipboard(text: string): Promise<void> {
       await navigator.clipboard.writeText(text);
       return;
     } catch {
-      // フォールバックへ
+      // 権限・フォーカス等で失敗した場合は textarea 経由へ
     }
   }
 

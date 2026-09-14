@@ -11,7 +11,6 @@ import { createRequestGate } from "./requestGate";
 const PROJECT_KEY = "pi-agent-project";
 const alwaysCurrent = () => true;
 
-/** プロジェクトの一覧・選択 (「新しい会話」の作成先) と登録・解除 */
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectIdState] = useState<string>(
@@ -63,10 +62,7 @@ export function useProjects() {
     [beginProjectsRequest, selectProject],
   );
 
-  /**
-   * 登録解除 API と一覧の更新。実際に解除できたかを返す。
-   * 配下セッションの停止・破棄に伴う表示の回復は呼び出し元 (画面向け facade) が行う。
-   */
+  /** 解除できたかを返す。配下セッションの表示回復は呼び出し元 (facade) が行う */
   const deleteProject = useCallback(
     async (projectId: string): Promise<boolean> => {
       try {

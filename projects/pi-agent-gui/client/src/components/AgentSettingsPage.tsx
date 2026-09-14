@@ -7,13 +7,10 @@ import type { Catalog, ModelOption, ThinkingLevel } from "../types";
 
 export type AgentSettingsPageProps = SettingsPageProps & {
   catalog: Catalog;
-  /** 現在選択中のエージェント (編集初期選択と削除後のフォールバックに使う) */
   agentId: string;
-  /** カタログ再読込 (保存・削除・インポート後)。agentId の正規化も行われる */
+  /** agentId の正規化も行われる */
   refreshCatalog: () => Promise<Catalog>;
-  /** モデル候補 (health より) */
   modelOptions: ModelOption[];
-  /** アプリ既定モデル (provider/id) */
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
 };
@@ -40,7 +37,7 @@ export function AgentSettingsPage({
     setNoteText("新しいエージェントを作成します。");
   };
 
-  /** 読み込んだ定義に合わせて選択を寄せる (新定義に無いエージェントを編集対象のまま残さない) */
+  /** 新定義に無いエージェントを編集対象のまま残さない */
   const selectAfterImport = (next: Catalog) => {
     setEditingId(next.agents.some((agent) => agent.id === agentId) ? agentId : next.agents[0]?.id || null);
   };

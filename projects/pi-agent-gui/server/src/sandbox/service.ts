@@ -37,17 +37,14 @@ type AnyToolDefinition = ToolDefinition<any, any, any>;
 type ExecuteUpdateCallback = NonNullable<Parameters<AnyToolDefinition["execute"]>[3]>;
 
 export interface SandboxServiceOptions {
-  /** Bearer トークン (空や短すぎる値はここで弾く) */
+  /** 空や短すぎる値はここで弾く */
   token: string;
-  /** ツール実行の既定 cwd (サンドボックス内の作業領域) */
   rootCwd?: string;
 }
 
 export interface SandboxService {
   app: Hono;
-  /** 実行中の executionId → AbortController (診断・テスト用) */
   executions: Map<string, AbortController>;
-  /** 全実行を中断して終了する (shutdown 用) */
   close: () => void;
 }
 

@@ -22,23 +22,17 @@ export type SidebarProps = Omit<
   >,
   "newChat" | "selectSession" | "deleteSession" | "deleteProject"
 > & {
-  /** nav: プロジェクト階層 / settings: 設定ナビ。App が持ち、drawer を閉じても保たれる */
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
-  /** settings モードでメイン領域に出ているページ (項目のハイライトに使う) */
   activeSettingsSection: SettingsSection;
-  /** 選択中プロジェクト配下に新しい会話を作る (未所属を選んでいれば未所属) */
   newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
-  /** プロジェクト追加の dialog を開く */
   onNewProject: () => void;
-  /** settings モードの項目。メイン領域のページを切り替える */
   onOpenSettingsSection: (section: SettingsSection) => void;
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
   onClose?: () => void;
-  /** sidebar: desktop の左カラム / sheet: モバイルのドロワー内 */
   variant?: "sidebar" | "sheet";
 };
 
@@ -55,7 +49,6 @@ export function Sidebar({
   const sheet = variant === "sheet";
   const { sessions, sessionId, projects, selectedProjectId, selectProject, newChat, selectSession, deleteSession, deleteProject } =
     props;
-  /** 折りたたんだプロジェクト (既定は展開)。drawer を閉じると消えるが、desktop では保たれる */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
 
