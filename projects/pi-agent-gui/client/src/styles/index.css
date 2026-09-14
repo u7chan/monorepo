@@ -485,7 +485,7 @@ html[data-theme="sky"] {
   }
 
   /* ===== Markdown 本文 (client/src/components/markdown) =====
-   * 値はモック (.proposal/pi-agent-gui-markdown-renderer/proposal.html) と揃える。
+   * 本文は 13px / 行間 1.75 で、見出しとコードだけ周囲より濃くする。
    * インライン style は使わない (本番 CSP は style-src 'self')。 */
 
   .md {
