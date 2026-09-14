@@ -828,6 +828,161 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   }
 });
 
+test("catalog CRUD validates the JSON body shape at the HTTP boundary", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    // 作成は client が送る形 (model / thinkingLevel の null と空 suggestions) をそのまま受ける
+    const created = await app.request(
+      "/api/agents",
+      jsonPost({ name: " 型付き ", model: null, thinkingLevel: null, suggestions: [] }),
+    );
+    assert.equal(created.status, 201);
+    const createdAgent = (await jsonBody(created)).agent;
+    assert.equal(createdAgent.name, "型付き");
+    assert.equal(Object.hasOwn(createdAgent, "model"), false);
+    assert.equal(Object.hasOwn(createdAgent, "thinkingLevel"), false);
+    const agentPath = `/api/agents/${createdAgent.id}`;
+
+    // PATCH はキー省略で現在値を維持し、null で解除する
+    const set = await app.request(
+      agentPath,
+      jsonPatch({ model: { provider: "stub", id: "stub-model" }, thinkingLevel: "high" }),
+    );
+    assert.equal(set.status, 200);
+    const setAgent = (await jsonBody(set)).agent;
+    assert.deepEqual(setAgent.model, { provider: "stub", id: "stub-model" });
+    assert.equal(setAgent.thinkingLevel, "high");
+
+    const kept = await app.request(agentPath, jsonPatch({ name: "維持" }));
+    assert.equal(kept.status, 200);
+    const keptAgent = (await jsonBody(kept)).agent;
+    assert.equal(keptAgent.name, "維持");
+    assert.deepEqual(keptAgent.model, { provider: "stub", id: "stub-model" });
+    assert.equal(keptAgent.thinkingLevel, "high");
+
+    const cleared = await app.request(agentPath, jsonPatch({ model: null, thinkingLevel: null }));
+    assert.equal(cleared.status, 200);
+    const clearedAgent = (await jsonBody(cleared)).agent;
+    assert.equal(Object.hasOwn(clearedAgent, "model"), false);
+    assert.equal(Object.hasOwn(clearedAgent, "thinkingLevel"), false);
+
+    // 空 body の PATCH は no-op (bodyGuard が "{}" に置き換える)
+    const noop = await app.request(agentPath, jsonPatch({}));
+    assert.equal(noop.status, 200);
+    assert.deepEqual(await jsonBody(noop), { agent: clearedAgent });
+
+    const noBody = await app.request(agentPath, { method: "PATCH" });
+    assert.equal(noBody.status, 200);
+    assert.deepEqual(await jsonBody(noBody), { agent: clearedAgent });
+
+    // route は形・型だけを見る。違反は 400 で、必須判定の文言は catalog のまま
+    for (const body of [{ name: 1 }, { model: "x" }, { thinkingLevel: "ultra" }, { suggestions: "x" }, { skillIds: "x" }]) {
+      const invalid = await app.request("/api/agents", jsonPost(body));
+      assert.equal(invalid.status, 400, JSON.stringify(body));
+      assert.equal((await jsonBody(invalid)).error, "Invalid request body");
+
+      const invalidPatch = await app.request(agentPath, jsonPatch(body));
+      assert.equal(invalidPatch.status, 400, JSON.stringify(body));
+      assert.equal((await jsonBody(invalidPatch)).error, "Invalid request body");
+    }
+
+    const nameless = await app.request("/api/agents", jsonPost({ description: "名前がない" }));
+    assert.equal(nameless.status, 400);
+    assert.equal((await jsonBody(nameless)).error, "Agent name is required");
+
+    const createdSkill = await app.request(
+      "/api/skills",
+      jsonPost({ name: "スキル", description: "説明", prompt: "プロンプト" }),
+    );
+    assert.equal(createdSkill.status, 201);
+    const skillPath = `/api/skills/${(await jsonBody(createdSkill)).skill.id}`;
+
+    const updatedSkill = await app.request(skillPath, jsonPatch({ prompt: "変更後" }));
+    assert.equal(updatedSkill.status, 200);
+    assert.equal((await jsonBody(updatedSkill)).skill.name, "スキル");
+
+    const invalidSkill = await app.request(skillPath, jsonPatch({ prompt: 1 }));
+    assert.equal(invalidSkill.status, 400);
+    assert.equal((await jsonBody(invalidSkill)).error, "Invalid request body");
+
+    const promptless = await app.request("/api/skills", jsonPost({ name: "プロンプトなし" }));
+    assert.equal(promptless.status, 400);
+    assert.equal((await jsonBody(promptless)).error, "Skill name and prompt are required");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("catalog CRUD reads the JSON body whatever the request Content-Type is", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const agentPath = "/api/agents/agent-general";
+    // fetch は string body に text/plain を補うため、Content-Type 無しはバイト列で送る
+    const noContentType = await app.request(agentPath, {
+      method: "PATCH",
+      body: new TextEncoder().encode(JSON.stringify({ name: "改名" })),
+    });
+    assert.equal(noContentType.status, 200);
+    assert.equal((await jsonBody(noContentType)).agent.name, "改名");
+
+    const textPlain = await app.request(agentPath, {
+      method: "PATCH",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ description: "説明を変える" }),
+    });
+    assert.equal(textPlain.status, 200);
+    assert.equal((await jsonBody(textPlain)).agent.description, "説明を変える");
+
+    // zValidator の Content-Type 判定では弾かれる形 (セミコロン前の空白)
+    const spacedJson = await app.request(agentPath, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json ; charset=utf-8" },
+      body: JSON.stringify({ systemPrompt: "役割を変える" }),
+    });
+    assert.equal(spacedJson.status, 200);
+    assert.equal((await jsonBody(spacedJson)).agent.systemPrompt, "役割を変える");
+
+    const skillPath = "/api/skills/skill-small-steps";
+    const skill = await app.request(skillPath, {
+      method: "PATCH",
+      body: new TextEncoder().encode(JSON.stringify({ prompt: "プロンプトを変える" })),
+    });
+    assert.equal(skill.status, 200);
+    assert.equal((await jsonBody(skill)).skill.prompt, "プロンプトを変える");
+
+    // 形・型の検証も Content-Type に依らない
+    const invalid = await app.request(agentPath, {
+      method: "PATCH",
+      body: new TextEncoder().encode(JSON.stringify({ name: 1 })),
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal((await jsonBody(invalid)).error, "Invalid request body");
+
+    // 壊れた JSON は Content-Type に関係なく 400 (無しはバイト列で送る)
+    const brokenBodies = [
+      { headers: {}, body: new TextEncoder().encode("{oops") },
+      { headers: { "Content-Type": "text/plain" }, body: "{oops" },
+      { headers: { "Content-Type": "application/json" }, body: "{oops" },
+    ];
+    for (const broken of brokenBodies) {
+      const response = await app.request(agentPath, { method: "PATCH", ...broken });
+      assert.equal(response.status, 400, JSON.stringify(broken.headers));
+      assert.equal((await jsonBody(response)).error, "Request body must be valid JSON");
+    }
+
+    const unchanged = await jsonBody(app.request("/api/agents"));
+    assert.equal(
+      unchanged.agents.find((agent: { id: string }) => agent.id === "agent-general").name,
+      "改名",
+      "400 は body を適用しない",
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
 test("static files are served with cache and security headers", async () => {
   const distDir = await mkdtemp(join(tmpdir(), "bff-static-"));
   await mkdir(join(distDir, "assets"), { recursive: true });

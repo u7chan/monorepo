@@ -1,5 +1,6 @@
-import type { Context } from "hono";
+import type { Context, Env, Input, MiddlewareHandler, TypedResponse } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { z } from "zod";
 import { SandboxRequestError } from "./sandbox/client";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -22,15 +23,43 @@ export function httpError(statusCode: number, message: string): Error {
   return error;
 }
 
-export async function readJsonBody(c: Context): Promise<unknown> {
-  const text = await c.req.text();
-  const trimmed = text.trim();
-  if (!trimmed) return {};
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    throw httpError(400, "Request body must be valid JSON");
-  }
+/** 検証失敗時に route 側が返す応答。戻り値型に渡すことで 400 の応答型を route の契約に残す */
+type JsonBodyErrorResponse = Response | TypedResponse<{ error: string }, 400, "json">;
+
+type JsonBodyParseResult<S extends z.ZodType> = z.ZodSafeParseResult<z.output<S>>;
+
+/** addValidatedData が object しか受け取らないため、body schema の出力は object に限定する */
+type JsonBodySchema = z.ZodType<object>;
+
+/**
+ * Content-Type を見ずに JSON body を読む zValidator("json") の代替。
+ * zValidator は Content-Type が JSON でなければ body を読まず {} を検証するため、旧 readJsonBody と同じ入力解釈を保つ。
+ */
+export function jsonBodyValidator<
+  S extends JsonBodySchema,
+  E extends Env = any,
+  P extends string = string,
+  V extends Input = { in: { json: z.input<S> }; out: { json: z.output<S> } },
+>(
+  schema: S,
+  hook: (result: JsonBodyParseResult<S>, c: Context<E, P>) => JsonBodyErrorResponse | void,
+): MiddlewareHandler<E, P, V, JsonBodyErrorResponse> {
+  return async (c, next) => {
+    const text = (await c.req.text()).trim();
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      throw httpError(400, "Request body must be valid JSON");
+    }
+    const result = schema.safeParse(parsed);
+    if (!result.success) {
+      // hook が応答を返さない場合も、未検証の body のまま handler を動かさない
+      return hook(result, c) ?? c.json({ error: "Invalid request body" }, 400);
+    }
+    c.req.addValidatedData("json", result.data);
+    await next();
+  };
 }
 
 /** Content-Length を信用せず、body を読みながら上限を見る。 */
@@ -56,7 +85,7 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string>
 
 /**
  * /api/* の POST/PATCH/PUT に適用するボディガード。
- * 読み取ったテキストを Hono の bodyCache に戻して、後段の zValidator / readJsonBody に再読み込みを許す。
+ * 読み取ったテキストを Hono の bodyCache に戻して、後段の body validator に再読み込みを許す。
  */
 export async function bodyGuard(c: Context, next: () => Promise<void>) {
   const method = c.req.method;

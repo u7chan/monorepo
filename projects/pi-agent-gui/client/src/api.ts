@@ -2,8 +2,9 @@ import { hc } from "hono/client";
 import type { AppType } from "server";
 import type {
   AgentDef,
-  AgentSuggestion,
   Catalog,
+  CreateAgentBody,
+  CreateSkillBody,
   FileListing,
   Health,
   ModelRef,
@@ -15,6 +16,8 @@ import type {
   SkillDef,
   StopResult,
   ThinkingLevel,
+  UpdateAgentBody,
+  UpdateSkillBody,
 } from "./types";
 
 export class ApiError extends Error {
@@ -64,30 +67,14 @@ export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unkno
 
 // --- agents CRUD ---
 
-/** model / thinkingLevel / suggestions の null は指定解除 (省略は現在値の維持) */
-export type AgentDefinitionInput = Pick<
-  AgentDef,
-  "name" | "description" | "systemPrompt" | "skillIds"
-> & {
-  model?: ModelRef | null;
-  thinkingLevel?: ThinkingLevel | null;
-  suggestions?: AgentSuggestion[] | null;
-};
-
-export const createAgent = async (input: AgentDefinitionInput): Promise<{ agent: AgentDef }> => {
+export const createAgent = async (input: CreateAgentBody): Promise<{ agent: AgentDef }> => {
   const res = await client.api.agents.$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
 
-export const updateAgent = async (
-  id: string,
-  input: Partial<AgentDefinitionInput>,
-): Promise<{ agent: AgentDef }> => {
-  // catalog CRUD の body は zod 厳格化しないため hc の input 型に json が現れない。
-  // 実行時は args.json が JSON body になるので、宣言済みの引数型に寄せて送る。
-  type PatchArgs = Parameters<(typeof client.api.agents)[":id"]["$patch"]>[0];
-  const res = await client.api.agents[":id"].$patch({ param: { id }, json: input } as PatchArgs);
+export const updateAgent = async (id: string, input: UpdateAgentBody): Promise<{ agent: AgentDef }> => {
+  const res = await client.api.agents[":id"].$patch({ param: { id }, json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
@@ -100,19 +87,14 @@ export const deleteAgent = async (id: string): Promise<unknown> => {
 
 // --- skills CRUD ---
 
-export const createSkill = async (input: Pick<SkillDef, "name" | "description" | "prompt">): Promise<{ skill: SkillDef }> => {
+export const createSkill = async (input: CreateSkillBody): Promise<{ skill: SkillDef }> => {
   const res = await client.api.skills.$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
 
-export const updateSkill = async (
-  id: string,
-  input: Partial<Pick<SkillDef, "name" | "description" | "prompt">>,
-): Promise<{ skill: SkillDef }> => {
-  // updateAgent と同じ理由で json を引数型に寄せる
-  type PatchArgs = Parameters<(typeof client.api.skills)[":id"]["$patch"]>[0];
-  const res = await client.api.skills[":id"].$patch({ param: { id }, json: input } as PatchArgs);
+export const updateSkill = async (id: string, input: UpdateSkillBody): Promise<{ skill: SkillDef }> => {
+  const res = await client.api.skills[":id"].$patch({ param: { id }, json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

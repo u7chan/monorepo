@@ -1,21 +1,23 @@
 import type { Context } from "hono";
 import type { AgentCatalog } from "../agents";
-import { readJsonBody } from "../http";
-import type { ReplaceCatalogBody } from "../schema";
+import type {
+  CreateAgentBody,
+  CreateSkillBody,
+  ReplaceCatalogBody,
+  UpdateAgentBody,
+  UpdateSkillBody,
+} from "../schema";
 
 export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
-  const updateAgent = async (c: Context) => {
-    const agentId = c.req.param("id") ?? "";
-    const body = (await readJsonBody(c)) as Record<string, unknown>;
-    const agent = catalog.updateAgent(agentId, body);
+  // body は route で形・型を検証済み。キー省略の解釈と正規化は catalog が正
+  const updateAgent = (c: Context, body: UpdateAgentBody) => {
+    const agent = catalog.updateAgent(c.req.param("id") ?? "", body);
     if (!agent) return c.json({ error: "Agent not found" }, 404);
     return c.json({ agent });
   };
 
-  const updateSkill = async (c: Context) => {
-    const skillId = c.req.param("id") ?? "";
-    const body = (await readJsonBody(c)) as Record<string, unknown>;
-    const skill = catalog.updateSkill(skillId, body);
+  const updateSkill = (c: Context, body: UpdateSkillBody) => {
+    const skill = catalog.updateSkill(c.req.param("id") ?? "", body);
     if (!skill) return c.json({ error: "Skill not found" }, 404);
     return c.json({ skill });
   };
@@ -25,11 +27,7 @@ export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
 
     replace: (c: Context, body: ReplaceCatalogBody) => c.json(catalog.replace(body)),
 
-    createAgent: async (c: Context) => {
-      // 正規化とエラー文言は catalog 側が正なので body はそのまま渡す
-      const body = (await readJsonBody(c)) as Record<string, unknown>;
-      return c.json({ agent: catalog.createAgent(body) }, 201);
-    },
+    createAgent: (c: Context, body: CreateAgentBody) => c.json({ agent: catalog.createAgent(body) }, 201),
 
     updateAgent,
 
@@ -42,10 +40,7 @@ export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
 
     listSkills: (c: Context) => c.json({ skills: catalog.listSkills() }),
 
-    createSkill: async (c: Context) => {
-      const body = (await readJsonBody(c)) as Record<string, unknown>;
-      return c.json({ skill: catalog.createSkill(body) }, 201);
-    },
+    createSkill: (c: Context, body: CreateSkillBody) => c.json({ skill: catalog.createSkill(body) }, 201),
 
     updateSkill,
 

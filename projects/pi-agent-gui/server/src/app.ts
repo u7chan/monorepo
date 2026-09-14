@@ -4,7 +4,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { zValidator } from "@hono/zod-validator";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
-import { bodyGuard, messageFor, statusCodeOf } from "./http";
+import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
@@ -12,11 +12,15 @@ import { createProjectRoutes } from "./routes/projects";
 import { createSessionRoutes } from "./routes/sessions";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
+  CreateAgentBodySchema,
   CreateProjectBodySchema,
   CreateSessionBodySchema,
+  CreateSkillBodySchema,
   PostMessageBodySchema,
   ReplaceCatalogBodySchema,
+  UpdateAgentBodySchema,
   UpdateSessionSettingsBodySchema,
+  UpdateSkillBodySchema,
 } from "./schema";
 
 // client は本ファイルを型ソースとして参照するため DTO 型を再配布する
@@ -56,14 +60,50 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => catalogRoutes.replace(c, c.req.valid("json")),
     )
-    .post("/api/agents", catalogRoutes.createAgent)
-    .patch("/api/agents/:id", catalogRoutes.updateAgent)
-    .put("/api/agents/:id", catalogRoutes.updateAgent)
+    .post(
+      "/api/agents",
+      jsonBodyValidator(CreateAgentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.createAgent(c, c.req.valid("json")),
+    )
+    .patch(
+      "/api/agents/:id",
+      jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/agents/:id",
+      jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
+    )
     .delete("/api/agents/:id", catalogRoutes.removeAgent)
     .get("/api/skills", catalogRoutes.listSkills)
-    .post("/api/skills", catalogRoutes.createSkill)
-    .patch("/api/skills/:id", catalogRoutes.updateSkill)
-    .put("/api/skills/:id", catalogRoutes.updateSkill)
+    .post(
+      "/api/skills",
+      jsonBodyValidator(CreateSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.createSkill(c, c.req.valid("json")),
+    )
+    .patch(
+      "/api/skills/:id",
+      jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/skills/:id",
+      jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
+    )
     .delete("/api/skills/:id", catalogRoutes.removeSkill)
     .get("/api/sessions", sessionRoutes.list)
     .post(
