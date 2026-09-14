@@ -2,6 +2,7 @@
 
 Web-based file server built with Bun + Hono + HTMX.
 Current features include empty file creation, per-directory Zip download via `/file/archive`, unauthenticated public file serving via `GET /public/*`, and GUI-based user management via `/admin/users`.
+Integrating systems publish into `public/` through the REST API; see "External Integration" for the generic contract.
 
 ## GUI Move
 
@@ -83,9 +84,8 @@ All browse/API requests use a virtual path that maps to one of two scopes:
 
 `GET /public/*` is unauthenticated and serves files directly from `UPLOAD_DIR/public/`, including HTML, XHTML, and SVG.
 
-- **Trusted content premise**: HTML/XHTML/SVG delivery via `/public/*` assumes the content was placed there by an explicit user action or a user-confirmed Internal API call. This is not a mechanism for safely hosting untrusted content on the same origin.
-- Active content (HTML/XHTML/SVG) is served with its native MIME type. Sanitization and XSS prevention are enforced at upload/update/rename time via server-side validation (see Issue #815 / `src/utils/htmlValidation.ts`), not at delivery time.
-- **Admin-only write for active content**: When auth is enabled, only `admin`-role users can upload, update, or rename files to HTML/XHTML/SVG extensions in the `public/` scope. Regular `user`-role requests are rejected with 403. In auth-disabled (anonymous) mode this restriction does not apply.
+- **Trusted content premise**: HTML/XHTML/SVG delivery via `/public/*` assumes the content was placed there by an explicit user action or an intentional API write by an integrating system. It is not a mechanism for safely hosting untrusted content on the same origin.
+- Active content (HTML/XHTML/SVG) is served with its native MIME type. The server does not sanitize content and applies no extension-based write restriction: any caller with write access to `public/` (any authenticated role when auth is enabled, or anyone when auth is disabled) can place and overwrite active content. See "External Integration" for the write path.
 - This route bypasses session authentication — it is always accessible.
 - Path traversal is detected and blocked at the handler level.
 - Directories are rejected with 404.
@@ -146,17 +146,35 @@ API paths also change:
 - Old: `GET /api/` (admin) → all user dirs
 - New: `GET /api/private/` (admin) → all user dirs
 
-## Public HTML/SVG Validation (Issue #815)
+## External Integration
 
-`POST /api/upload` and `POST /api/update` apply server-side validation when saving HTML/XHTML/SVG files (`.html`, `.htm`, `.xhtml`, `.svg`) to the `public/` scope.
+Integrating systems publish files through the REST API and read them back from `public/`. The contract below is intentionally generic: do not name specific integrating systems in this document.
 
-- This is a **trusted content** guardrail. It is not a mechanism to safely host untrusted content on the same origin.
-- Validation is implemented in `src/utils/htmlValidation.ts` (`validatePublicHtml`).
-- The following are rejected: `<script>`, `on*` event handler attributes, `javascript:` URLs, `<iframe>`, `<object>`, `<embed>`, `meta[http-equiv]`, `<foreignObject>`.
-- On upload failure, the file appears in the `failed` array with a `reason` field.
-- On update failure, a `400 ValidationError` response is returned.
-- Files in `private/` scope are not validated.
-- Non-HTML/SVG files are not validated regardless of scope.
+No server-side changes are required to add an integrating system. It only needs credentials (when auth is enabled) and its own namespace under `public/`.
+
+### Read (public delivery)
+
+- `GET /public/<path>` — unauthenticated. Serves `UPLOAD_DIR/public/<path>` as-is, including HTML/XHTML/SVG.
+- `Content-Type` is inferred from the file extension (`mime-types`). Unknown extensions fall back to `application/octet-stream`.
+- Directories return 404 and path traversal returns 403.
+- No `Cache-Control` or CORS headers are sent, and `Range` requests are not supported (the whole file is returned).
+
+### Write
+
+1. `POST /login` — only needed when auth is enabled (`AUTH_DIR`). Form fields `username`, `password`, `returnTo`. Success sets the `session` cookie and redirects; a failed login returns 401 with the login page HTML.
+2. `POST /api/upload` — multipart with `files` (up to 10) and `path` (virtual path). When `path` is an existing directory or ends with `/`, the uploaded file name is appended; otherwise `path` is used as the destination file path. Parent directories are created automatically, and same-name files are overwritten. Response: `{ success, uploaded: string[], failed: { name, reason }[] }`.
+3. With auth disabled there is no login step: API requests are anonymous and have full write access.
+
+### Health check
+
+- `GET /healthz` — unauthenticated, registered before the auth middleware. Returns `{ "status": "ok" }`, or 503 `{ "status": "unavailable" }` when `public/` or `private/` is not readable, writable, and executable.
+
+### Namespacing and isolation limits
+
+- Give each integrating system a dedicated top-level directory (`public/<namespace>/...`). This is a convention only; nothing enforces it.
+- `public/` is world-readable and shared. Any credential with write access to `public/` can overwrite or delete another system's files.
+- Per-namespace quotas, rate limiting, and audit trails do not exist, and there is no signed-URL or token mechanism for serving non-public content.
+- When auth is enabled, a `user`-role credential can write to `public/` as well as its own `private/<username>/`; only `private/` is role-isolated.
 
 ## Important
 
