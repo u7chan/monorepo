@@ -16,11 +16,13 @@ assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライ�
 MessageView (assistant の本文)
   └─ MarkdownView          text → MdBlock[]        lib/markdown/parse.ts
         ├─ コードフェンス → MdToken[]              lib/markdown/highlight.ts
+        ├─ 数式 ($$ / \[) → MathNode               lib/markdown/latex.ts
+        │     └─ レイアウト (CSS クラス + 派生値)   lib/markdown/latexLayout.ts
         ├─ 表 / リスト / 引用 → 再帰的に parse + 描画
         └─ 段落・見出し → MdInline[]               lib/markdown/inline.ts
-              └─ 強調 / コードスパン / リンク / 生 HTML / 自動リンク
-                    └─ HtmlNode                    lib/markdown/html.ts
-  └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline}.tsx
+              └─ 強調 / コードスパン / リンク / 生 HTML / 自動リンク / インライン数式
+                    └─ HtmlNode / MathNode         lib/markdown/{html,latex}.ts
+  └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline,MathView}.tsx
 ```
 
 `parse.ts` は 1 段だけブロックに分ける。リスト項目・引用の中身は `source` 文字列として保持し、描画側が `MarkdownBlocks` を再帰的に呼ぶ。この形にすると、props が文字列だけで済むためブロック単位の `memo` が効き、ストリーミング中は伸びているブロックだけを解析し直す。
@@ -38,7 +40,7 @@ MessageView (assistant の本文)
 | コードフェンス | ✓ | ts / tsx / js / json / bash / python / css / html / diff / md。未知の言語はハイライトなし |
 | 生 HTML | △ | 下記の許可リストのみ |
 | 実体参照 `&amp;` `&#65;` | △ | 生 HTML の中のテキストだけ標準 5 種（`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`）と数値参照を戻す。markdown 本文（生 HTML の外）はそのまま表示する |
-| 数式 `$…$` `$$…$$` | ✗ | 現時点は原文表示（後続の PR で対応する） |
+| 数式 `$…$` `\(…\)` `$$…$$` `\[…\]` | ✓ | 前後に空白が無い `$` だけでインライン数式にする。対応コマンドは下記 |
 | 図 ` ```mermaid ` | ✗ | 現時点はコードブロックとして素通し（後続の PR で対応する） |
 | HTML ブロック / 脚注 / 定義リスト / 表のセル内改行 / 遅延継続行 | ✗ | 原文表示 |
 
@@ -50,11 +52,39 @@ MessageView (assistant の本文)
 | --- | --- | --- |
 | 本文全体（これを超えると Markdown にせずプレーン表示） | 200 KB | `MARKDOWN_MAX_LENGTH` (`parse.ts`) |
 | コードブロックのハイライト | 40 KB | `HIGHLIGHT_MAX_LENGTH` (`highlight.ts`) |
-| 1 段落で試す区切り（強調・リンク・コードスパン）の回数 | 2000 | `inline.ts` |
+| 1 段落で試す区切り（強調・リンク・コードスパン・数式）の回数 | 2000 | `inline.ts` |
 | 1 段落で生 HTML を走査する文字数 | 20000 | `inline.ts` / `html.ts` |
+| 1 段落でインライン数式の判定に使う文字数（探索した分だけ減る） | 20000 | `MAX_MATH_STEPS` (`inline.ts`) |
+| インライン数式 1 つの探索範囲（開きの位置から閉じを探す距離） | 4096 | `MAX_MATH_SPAN` (`inline.ts`) |
+| 数式 1 つの中身の文字数 / ノード数（解析本体。実質はブロック数式に効く） | 20000 / 4000 | `LATEX_MAX_LENGTH` / `LATEX_MAX_NODES` (`latex.ts`) |
 | 生 HTML の入れ子 / インライン記法の入れ子 | 8 段 | `html.ts` / `inline.ts` |
 
 未終端のフェンスは `closed: false` として「生成中…」表示にし、本文は途中までハイライトする（閉じたフェンスに戻ればコピー操作が出る）。ブロック単位の `memo` により、伸びているブロック以外は再解析しない。
+
+数式は `parseMarkdown` と `parseInline` の段階で解析し終える（`MdBlock` / `MdInline` が `MathNode` を持つ）。`MathView` は AST からレイアウトモデルを作るところだけを `memo` の入力単位で行い、再描画のたびに解析し直さない。
+
+## 数式（LaTeX サブセット）
+
+分数・根号・上下限・行列を CSS（flex / grid / 罫線）だけで組む。KaTeX は使わない。
+
+| 種類 | 記法 |
+| --- | --- |
+| 構造 | `\frac{}{}` `\sqrt{}` `\sqrt[n]{}` `\left…\right`（`( ) [ ] \{ \} | .`）`\text{}` `{}` |
+| 大型演算子 | `\sum` `\int` `\prod` `\lim`（`_` `^` は上下に積む） |
+| 行列 | `\begin{pmatrix}…\end{pmatrix}`（`&` が列、`\\` が行）`\begin{cases}…\end{cases}` |
+| 上下付き | `^` `_` |
+| 空白 | `\quad` `\qquad` |
+| 関数名（立体） | `\log` `\ln` `\sin` `\cos` `\tan` `\exp` `\max` `\min` |
+| 記号 | ギリシャ文字（`\alpha`〜`\Omega`）と `\le \ge \ne \pm \times \cdot \div \to \infty \partial \nabla \approx \equiv \in \subset \cup \cap \forall \exists \Rightarrow \Leftrightarrow \cdots \ldots` |
+
+- インライン数式は `$…$` と `\(…\)` の 2 通り。`$…$` は 3 条件すべてのときだけ数式にする: ① 開き `$` の直後が空白でない ② 同じ段落内に閉じがあり、その直前が空白でない ③ 解析が成功する
+- ① ② は `$` 専用の条件（通貨記号と衝突させないため）。`\(…\)` は区切りが衝突しないので空白を見ず、`\)` があれば数式にする（`\( x \)` も数式になる）
+- ①② が欠けた `$` は地の文のまま、③ で落ちたときだけ記法ごと原文（`literal` → `<code class="md-lit">`）にする
+- ①② は前後の空白しか見ないため、空白の無い通貨記号が同じ段落に 2 つ以上あると数式として解釈されうる
+- インライン数式 1 つの探索範囲は 4096 文字まで（`MAX_MATH_SPAN` = 開きから閉じを探す距離）。超えると閉じを見つけられず地の文のまま残るので、`$…$` / `\(…\)` の中身は 4094 文字が実質の上限になる（解析本体の 20000 文字はブロック数式に効く）
+- 解析に失敗したとき（引数不足 / 閉じない環境 / 上限超過 / 未対応コマンド）は例外を投げず、原文を等幅で出す。ブロックは `$$` を含む原文を改行ごと出す
+- 行列の列数は 6 まで、括弧の拡大は 4 段階まで。高さは実寸を測らず、分数・大型演算子・行列の段数から決める（同じ入力からは必ず同じレイアウトになる）
+- 地の文・未終端の `$$` は数式にせずそのまま出す（未終端の `$$` は段落の中の文字になる）
 
 ## 生 HTML の許可リスト
 
@@ -78,8 +108,9 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 ## テーマ
 
 - シンタックスの色は 6 テーマすべてが `--c-syn-{key,str,num,com,fn,type,op}` を定義し、`.tok-*` クラスだけを付ける（`client/src/styles/index.css`）。インライン `style` は使わない
+- 数式は `.math-inline` / `.math-block` / `.frac` / `.bigop` / `.sqrt` / `.matrix` / `.mtx` / `.cases` / `.delim` / `.mat` / `.mop` のクラスだけで組み、色は既存の `--c-ink*` / `--c-line*` / `--c-accent*` を使う（新規カラートークンは増やさない）
 - 種別と CSS の対応、および 6 テーマ分の定義漏れは `client/test/markdownHighlight.test.ts` が固定する
-- 横に長いもの（コード / 表）は折り返さず、その要素だけ横スクロールする
+- 横に長いもの（コード / 表 / 数式）は折り返さず、その要素だけ横スクロールする
 
 ## テスト
 
@@ -89,4 +120,5 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownInline.test.ts` | 強調の入れ子 / コードスパン / リンク / 自動リンク / エスケープ / 改行 / 無言で消さない |
 | `client/test/markdownHtml.test.ts` | 許可リスト / 属性の除去 / `on*` `javascript:` の拒否 / 未閉じは原文 / `safeUrl` |
 | `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / CSS との対応 |
+| `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |

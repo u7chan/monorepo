@@ -20,7 +20,35 @@ export type MdBlock =
   | { kind: "list"; ordered: boolean; start: number; items: MdListItem[] }
   | { kind: "quote"; source: string }
   | { kind: "table"; align: MdAlign[]; header: string[]; rows: string[][] }
+  /** text は数式の中身、source は区切り込みの原文 (解析に失敗したときは source を出す) */
+  | { kind: "math"; text: string; source: string }
   | { kind: "hr" };
+
+/** 数式の環境。どちらも `&` で列、`\\` で行を区切る */
+export type MathEnv = "pmatrix" | "cases";
+
+/**
+ * 数式 (LaTeX サブセット) の解析結果。DOM / React に依存しない値だけで表し、
+ * 見た目は latexLayout.ts が CSS クラスのモデルへ写す。
+ */
+export type MathNode =
+  | { kind: "row"; children: MathNode[] }
+  /** 変数・数字・ギリシャ文字など */
+  | { kind: "text"; text: string }
+  /** 演算子と関数名。前後の空きは CSS 側が持つ */
+  | { kind: "op"; text: string }
+  /** width は \quad (1) / \qquad (2)。0 は本文中の空白 1 つ */
+  | { kind: "space"; width: 0 | 1 | 2 }
+  | { kind: "frac"; num: MathNode; den: MathNode }
+  /** index は \sqrt[n] の n。無いときは null */
+  | { kind: "sqrt"; index: MathNode | null; body: MathNode }
+  /** 上下限つきの大型演算子 (\sum \int \prod \lim)。下限は lower に置く */
+  | { kind: "bigop"; glyph: string; lower: MathNode | null; upper: MathNode | null }
+  | { kind: "script"; base: MathNode; sub: MathNode | null; sup: MathNode | null }
+  /** \left…\right。delimiter 無し (`.`) の側は空文字になる */
+  | { kind: "fenced"; open: string; close: string; body: MathNode }
+  /** rows は行 → セル。セルは row ノードで、列数は行ごとに違ってよい */
+  | { kind: "grid"; env: MathEnv; rows: MathNode[][] };
 
 /** 生 HTML の許可タグ。これ以外のタグはタグごと原文表示にする */
 export type HtmlTag =
@@ -65,4 +93,6 @@ export type MdInline =
   /** src は同一オリジン (= 相対パス) だけ。それ以外は literal に落ちる */
   | { kind: "image"; src: string; alt: string }
   | { kind: "break" }
-  | { kind: "html"; node: HtmlNode };
+  | { kind: "html"; node: HtmlNode }
+  /** インライン数式。解析に失敗した `$…$` は literal (原文) になるので、ここには来ない */
+  | { kind: "math"; node: MathNode };

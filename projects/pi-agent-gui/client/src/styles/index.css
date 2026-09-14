@@ -777,4 +777,150 @@ html[data-theme="sky"] {
   .tok-op {
     color: var(--c-syn-op);
   }
+
+  /* ===== 数式 (LaTeX サブセット) =====
+   * 分数・根号・上下限・行列を CSS だけで組む。色は既存トークンだけを使い、
+   * 6 テーマの再定義を不要にする (インライン style は本番の CSP で効かない)。 */
+
+  .math-inline {
+    white-space: nowrap;
+    font-family: "DejaVu Serif", "Liberation Serif", serif;
+    font-size: 1.02em;
+    color: var(--c-ink);
+  }
+  /* 横に長い式は折り返さず、数式だけ横スクロールする */
+  .math-block {
+    margin: 10px 0;
+    padding: 10px 12px;
+    overflow-x: auto;
+    text-align: center;
+    white-space: nowrap;
+    background: var(--c-panel);
+    border: 1px solid var(--c-line);
+    border-radius: 10px;
+    font-family: "DejaVu Serif", "Liberation Serif", serif;
+    font-size: 14px;
+    line-height: 1.9;
+    color: var(--c-ink);
+  }
+  .frac {
+    display: inline-flex;
+    flex-direction: column;
+    vertical-align: -0.5em;
+    text-align: center;
+    margin: 0 0.18em;
+    font-size: 0.95em;
+  }
+  .frac > .num {
+    border-bottom: 1px solid currentColor;
+    padding: 0 0.28em;
+  }
+  .frac > .den {
+    padding: 0 0.28em;
+  }
+  .bigop {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: -0.52em;
+    margin: 0 0.12em;
+    line-height: 1;
+  }
+  .bigop > .top,
+  .bigop > .bot {
+    font-size: 0.6em;
+    color: var(--c-ink-soft);
+  }
+  .bigop > .glyph {
+    font-size: 1.6em;
+    line-height: 0.95;
+  }
+  /* \lim は語なので記号と同じ大きさにしない */
+  .bigop-word > .glyph {
+    font-size: 1em;
+    padding: 0 0.1em;
+  }
+  .sqrt {
+    display: inline-flex;
+    align-items: flex-start;
+  }
+  .sqrt > .radical {
+    font-size: 1.15em;
+  }
+  .sqrt > .rad {
+    border-top: 1px solid currentColor;
+    padding: 0 0.18em;
+  }
+  .sqrt > .idx {
+    font-size: 0.55em;
+    vertical-align: 0.6em;
+    margin-right: -0.25em;
+  }
+  .mat {
+    font-style: normal;
+  }
+  .mop {
+    margin: 0 0.18em;
+  }
+  .msp {
+    display: inline-block;
+    width: 1em;
+  }
+  .msp-wide {
+    display: inline-block;
+    width: 2em;
+  }
+  .matrix {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: -0.32em;
+  }
+  .mtx {
+    display: inline-grid;
+    column-gap: 1em;
+    row-gap: 0.05em;
+    padding: 0 0.2em;
+    text-align: center;
+  }
+  .cases {
+    display: inline-grid;
+    column-gap: 0.9em;
+    row-gap: 0.05em;
+    padding-left: 0.25em;
+    text-align: left;
+  }
+  .mgc1 {
+    grid-template-columns: repeat(1, auto);
+  }
+  .mgc2 {
+    grid-template-columns: repeat(2, auto);
+  }
+  .mgc3 {
+    grid-template-columns: repeat(3, auto);
+  }
+  .mgc4 {
+    grid-template-columns: repeat(4, auto);
+  }
+  .mgc5 {
+    grid-template-columns: repeat(5, auto);
+  }
+  .mgc6 {
+    grid-template-columns: repeat(6, auto);
+  }
+  .delim {
+    line-height: 1;
+    color: var(--c-ink-soft);
+  }
+  .delim-1 {
+    font-size: 1.3em;
+  }
+  .delim-2 {
+    font-size: 2.05em;
+  }
+  .delim-3 {
+    font-size: 2.8em;
+  }
+  .delim-4 {
+    font-size: 3.5em;
+  }
 }

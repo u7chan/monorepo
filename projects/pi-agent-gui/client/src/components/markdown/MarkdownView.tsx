@@ -4,6 +4,7 @@ import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../lib/markdown/parse";
 import type { MdAlign, MdBlock, MdHeadingLevel, MdInline, MdListItem } from "../../lib/markdown/types";
 import { CodeBlock } from "./CodeBlock";
 import { HtmlInline } from "./HtmlInline";
+import { MathBlock, MathInline } from "./MathView";
 
 /**
  * assistant 本文の Markdown 描画の入口。
@@ -42,6 +43,8 @@ const MdBlockView = memo(
         return <MdQuote source={block.source} />;
       case "table":
         return <MdTable align={block.align} header={block.header} rows={block.rows} />;
+      case "math":
+        return <MathBlock text={block.text} source={block.source} />;
       case "hr":
         return <hr className="md-hr" />;
     }
@@ -183,6 +186,8 @@ function InlineNode({ node }: { node: MdInline }) {
       return <img className="md-img" src={node.src} alt={node.alt} />;
     case "html":
       return <HtmlInline node={node.node} />;
+    case "math":
+      return <MathInline node={node.node} />;
   }
 }
 
@@ -192,6 +197,7 @@ function blocksEqual(a: MdBlock, b: MdBlock): boolean {
   if (a.kind === "heading" && b.kind === "heading") return a.level === b.level && a.source === b.source;
   if (a.kind === "paragraph" && b.kind === "paragraph") return a.source === b.source;
   if (a.kind === "quote" && b.kind === "quote") return a.source === b.source;
+  if (a.kind === "math" && b.kind === "math") return a.text === b.text && a.source === b.source;
   if (a.kind === "hr" && b.kind === "hr") return true;
   if (a.kind === "code" && b.kind === "code") return a.lang === b.lang && a.text === b.text && a.closed === b.closed;
   if (a.kind === "list" && b.kind === "list") {
