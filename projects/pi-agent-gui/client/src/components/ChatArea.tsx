@@ -7,7 +7,7 @@ import {
   compactionHistoryLabel,
   compactionSummaryHeading,
 } from "../lib/compaction";
-import { toolCallCopyText } from "../lib/copy-content";
+import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 import { messageMetaLine, messageMetaTitle } from "../lib/usageFormat";
 import type { AgentSuggestion, CompactionInfo } from "../types";
@@ -20,17 +20,19 @@ function abbreviatedToolSummary(card: ToolCard): string {
   return `${summary.slice(0, TOOL_SUMMARY_MAX_LENGTH - 1)}…`;
 }
 
-function phaseLabel(phase: ToolCard["phase"]): string {
-  return phase === "running" ? "実行中" : phase === "failed" ? "エラー" : "完了";
-}
-
-function phaseColor(phase: ToolCard["phase"]): string {
-  return phase === "done" ? "text-ink-faint" : phase === "failed" ? "text-danger-text" : "text-accent-text";
-}
-
-// 位相で文字幅が変わると (実測 完了 18 / 実行中 27 / エラー 27.42px) 左隣のコピーボタンとサマリーの
+// 位相で文字幅が変わると (実測 実行中 27 / エラー 27.42px) 右隣のコピーボタンとサマリーの
 // truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
 const PHASE_LABEL_CLASS = "w-[3.25em] shrink-0 text-right whitespace-nowrap font-sans text-[9px]";
+
+/** 完了は既定なので出さず、スロットだけ残して行の右端が動かないようにする */
+function PhaseLabel({ phase }: { phase: ToolCard["phase"] }) {
+  if (phase === "done") return <span className={PHASE_LABEL_CLASS} />;
+  return (
+    <span className={`${PHASE_LABEL_CLASS} ${phase === "failed" ? "text-danger-text" : "text-accent-text"}`}>
+      {phase === "failed" ? "エラー" : "実行中"}
+    </span>
+  );
+}
 
 // 2 枚の紙を閉じた矩形で重ねると 14px では交差線が潰れるため、後ろの紙は開いたパスで描く
 function CopyIcon() {
@@ -110,7 +112,12 @@ function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onCli
       type="button"
       aria-label={copied ? "コピーしました" : label}
       title={copied ? "コピーしました" : label}
-      onClick={onClick}
+      // summary の中に置くため、クリックを既定動作 (details の開閉) と親へ伝えない
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
       className={[
         // 本文の邪魔をしないよう、面や枠は持たせずアイコンの色だけで状態を示す
         "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
@@ -125,12 +132,6 @@ function CopyButton({ copied, onClick, label, reveal }: { copied: boolean; onCli
 /** ホバー可能なデバイスだけホバー / フォーカスで出し、タッチ端末は常に表示する */
 const REVEAL_MESSAGE = "can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100 focus-visible:opacity-100";
 const REVEAL_TOOL = "can-hover:opacity-0 can-hover:group-hover/row:opacity-100 focus-visible:opacity-100";
-
-function historyPhase(cards: ToolCard[]): ToolCard["phase"] {
-  if (cards.some((card) => card.phase === "running")) return "running";
-  if (cards.some((card) => card.phase === "failed")) return "failed";
-  return "done";
-}
 
 function historyPreview(cards: ToolCard[]): string {
   if (cards.length === 1) return abbreviatedToolSummary(cards[0]);
@@ -153,31 +154,44 @@ function ToolCallRow({
   onCopy: () => void;
 }) {
   return (
-    <li className={["group/row min-w-0 py-2.5", index > 0 ? "border-t border-line" : ""].join(" ")}>
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">{String(index + 1).padStart(2, "0")}</span>
-        <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
-        {/* 完了ラベルの左に置く。opacity-0 でも幅を保つので完了位置はサマリー行の右端と揃う */}
-        <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal={REVEAL_TOOL} />
-        <span className={`${PHASE_LABEL_CLASS} ${phaseColor(card.phase)}`}>{phaseLabel(card.phase)}</span>
-      </div>
-      {/* 本文幅を広く使いたいので、compact では詳細のインデントを詰める */}
-      <div className={["mt-1.5 grid gap-1.5 text-ink-muted", compact ? "pl-3" : "pl-6"].join(" ")}>
-        {card.args ? (
-          <div className="grid min-w-0 gap-0.5">
-            <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">引数</span>
-            <code className="whitespace-pre-wrap break-words">{card.args}</code>
-          </div>
-        ) : null}
-        {card.phase === "running" ? (
-          <div className="text-accent-text">実行中…</div>
-        ) : card.output ? (
-          <div className="grid min-w-0 gap-0.5">
-            <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">出力</span>
-            <pre className="m-0 whitespace-pre-wrap break-words font-mono">{card.output}</pre>
-          </div>
-        ) : null}
-      </div>
+    <li className="group/row min-w-0">
+      <details
+        className={[
+          // 行ごとに面と枠を持たせて区切りを明確にし、失敗したコールは枠の色でも見分けられるようにする
+          "rounded-lg border bg-soft/20 transition-colors",
+          card.phase === "failed" ? "border-danger/50" : "border-line/70",
+        ].join(" ")}
+      >
+        <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus">
+          <ChevronIcon />
+          <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">{String(index + 1).padStart(2, "0")}</span>
+          <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
+          <PhaseLabel phase={card.phase} />
+          <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal={REVEAL_TOOL} />
+        </summary>
+        {/* 本文幅を広く使いたいので、compact では詳細のインデントを詰める */}
+        <div
+          className={[
+            "grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted",
+            compact ? "pl-3" : "pl-6",
+          ].join(" ")}
+        >
+          {card.args ? (
+            <div className="grid min-w-0 gap-0.5">
+              <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">引数</span>
+              <code className="whitespace-pre-wrap break-words">{card.args}</code>
+            </div>
+          ) : null}
+          {card.phase === "running" ? (
+            <div className="text-accent-text">実行中…</div>
+          ) : card.output ? (
+            <div className="grid min-w-0 gap-0.5">
+              <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">出力</span>
+              <pre className="m-0 whitespace-pre-wrap break-words font-mono">{card.output}</pre>
+            </div>
+          ) : null}
+        </div>
+      </details>
     </li>
   );
 }
@@ -186,16 +200,21 @@ function ToolHistoryView({
   cards,
   hasResponse,
   copiedId,
+  copiedAll,
+  onCopyAll,
   compact,
   onCopyTool,
 }: {
   cards: ToolCard[];
   hasResponse: boolean;
   copiedId: string;
+  copiedAll: boolean;
+  onCopyAll: () => void;
   compact: boolean;
   onCopyTool: (card: ToolCard) => void;
 }) {
-  const phase = historyPhase(cards);
+  // 代表ステータスは持たない。畳んでいても実行中だけは分かるようにサマリーへ出す (完了 / エラーは各コールが見せる)
+  const running = cards.some((card) => card.phase === "running");
   return (
     <details
       className={[
@@ -208,9 +227,10 @@ function ToolHistoryView({
         <span className="shrink-0 font-sans text-[10px] text-ink-soft">ツール履歴</span>
         <span className="shrink-0 font-sans text-[9px] text-ink-faint">{cards.length}件</span>
         <span className="min-w-0 flex-1 truncate">{historyPreview(cards)}</span>
-        <span className={`${PHASE_LABEL_CLASS} ${phaseColor(phase)}`}>{phaseLabel(phase)}</span>
+        {running ? <PhaseLabel phase="running" /> : null}
+        <CopyButton copied={copiedAll} onClick={onCopyAll} label="ツール履歴をすべてコピー" reveal="" />
       </summary>
-      <ol className="m-0 grid list-none border-t border-line px-2 pb-1">
+      <ol className="m-0 grid list-none gap-1.5 border-t border-line px-2 py-2">
         {cards.map((card, index) => (
           <ToolCallRow
             key={card.id}
@@ -233,6 +253,8 @@ function MessageView({
   onCopy,
   copiedId,
   onCopyTool,
+  copiedAll,
+  onCopyAll,
 }: {
   bubble: Bubble;
   copied: boolean;
@@ -240,6 +262,8 @@ function MessageView({
   onCopy: () => void;
   copiedId: string;
   onCopyTool: (card: ToolCard) => void;
+  copiedAll: boolean;
+  onCopyAll: () => void;
 }) {
   const isUser = bubble.role === "user";
   // 応答のメタ情報は user 側には無い。compact は応答時間と tok/s だけに絞る。
@@ -267,6 +291,8 @@ function MessageView({
             cards={bubble.tools}
             hasResponse={Boolean(bubble.text)}
             copiedId={copiedId}
+            copiedAll={copiedAll}
+            onCopyAll={onCopyAll}
             compact={compact}
             onCopyTool={onCopyTool}
           />
@@ -433,6 +459,8 @@ export function ChatArea({ bubbles, compactions = [], compact = false, suggestio
                   onCopy={() => void copyMessage(bubble.text, `bubble_${bubble.id}`)}
                   copiedId={copiedId}
                   onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
+                  copiedAll={copiedId === `tools_${bubble.id}`}
+                  onCopyAll={() => void copyMessage(toolHistoryCopyText(bubble.tools), `tools_${bubble.id}`)}
                 />
               </Fragment>
             ))}

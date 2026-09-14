@@ -1,7 +1,7 @@
 // ツールコールのコピーテキスト整形のテスト。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toolCallCopyText } from "../src/lib/copy-content";
+import { toolCallCopyText, toolHistoryCopyText } from "../src/lib/copy-content";
 
 test("name のみの場合は tool 行のみ", () => {
   assert.equal(toolCallCopyText({ name: "read", args: "", output: "" }), "tool: read");
@@ -15,4 +15,16 @@ test("args / output を含めて整形する", () => {
 test("output が複数行でもそのまま保持する", () => {
   const text = toolCallCopyText({ name: "read", args: "", output: "line1\nline2" });
   assert.equal(text, "tool: read\noutput:\nline1\nline2");
+});
+
+test("履歴のコピーは行番号つきのブロックを空行で区切る", () => {
+  const text = toolHistoryCopyText([
+    { name: "ls", args: ".", output: "src" },
+    { name: "find", args: ".", output: "" },
+  ]);
+  assert.equal(text, "#1 tool: ls\nargs: .\noutput:\nsrc\n\n#2 tool: find\nargs: .");
+});
+
+test("履歴が空なら空文字", () => {
+  assert.equal(toolHistoryCopyText([]), "");
 });
