@@ -1,26 +1,19 @@
-import { readFile } from "node:fs/promises";
-import { dirname, extname, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
-import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { zValidator } from "@hono/zod-validator";
-import { AUTH_REQUIRED_MESSAGE, createPiBff } from "./agent";
-import type { PiBff } from "./agent";
-import { createAgentCatalog } from "./agents";
-import { normalizeProjectCwd, ProjectStore } from "./projects";
-import {
-  createSandboxToolClientFromEnv,
-  SandboxRequestError,
-  type SandboxWorkspaceClient,
-} from "./sandbox/client";
-import { SessionStore } from "./sessions";
+import { createBffContext } from "./bootstrap";
+import type { CreateBffAppOptions } from "./bootstrap";
+import { bodyGuard, messageFor, statusCodeOf } from "./http";
+import { createCatalogRoutes } from "./routes/catalog";
+import { createFileRoutes } from "./routes/files";
+import { createHealthRoutes } from "./routes/health";
+import { createProjectRoutes } from "./routes/projects";
+import { createSessionRoutes } from "./routes/sessions";
+import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
   CreateProjectBodySchema,
   CreateSessionBodySchema,
-  FileListingSchema,
   PostMessageBodySchema,
   ReplaceCatalogBodySchema,
   UpdateSessionSettingsBodySchema,
@@ -28,440 +21,91 @@ import {
 
 // client は本ファイルを型ソースとして参照するため DTO 型を再配布する
 export * from "./schema";
-
-const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const DEFAULT_CLIENT_DIST_DIR = resolve(ROOT_DIR, "client", "dist");
-const MAX_BODY_BYTES = 64 * 1024;
-// sessions 側の上限とは別 (HTTP 層の契約)
-const MAX_MESSAGE_CHARS = 20_000;
-const SSE_HEARTBEAT_MS = 15_000;
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".json": "application/json; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-  ".txt": "text/plain; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".webmanifest": "application/manifest+json",
-};
-
-const STATIC_CSP = "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function statusCodeOf(error: unknown): number | undefined {
-  if (error && typeof error === "object" && "statusCode" in error) {
-    const value = (error as { statusCode?: unknown }).statusCode;
-    if (typeof value === "number") return value;
-  }
-  return undefined;
-}
-
-function httpError(statusCode: number, message: string): Error {
-  const error = new Error(message);
-  (error as { statusCode?: number }).statusCode = statusCode;
-  return error;
-}
-
-function modelLabel(model: unknown): string | undefined {
-  if (!model || typeof model !== "object") return undefined;
-  const { provider, id } = model as { provider?: unknown; id?: unknown };
-  return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
-}
-
-/** 空ボディは {} として扱い、壊れた JSON は 400。 */
-async function readJsonBody(c: Context): Promise<unknown> {
-  const text = await c.req.text();
-  const trimmed = text.trim();
-  if (!trimmed) return {};
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    throw httpError(400, "Request body must be valid JSON");
-  }
-}
-
-/** Content-Length を信用せず、body を読みながら上限を見る。 */
-async function readBodyText(request: Request, maxBytes: number): Promise<string> {
-  const body = request.body;
-  if (!body) return "";
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel().catch(() => {});
-      throw httpError(413, "Request body is too large");
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  return text + decoder.decode();
-}
-
-/**
- * /api/* の POST/PATCH/PUT に適用するボディガード。
- * 読み取ったテキストを Hono の bodyCache に戻して、後段の zValidator / readJsonBody に再読み込みを許す。
- */
-async function bodyGuard(c: Context, next: () => Promise<void>) {
-  const method = c.req.method;
-  if (method === "POST" || method === "PATCH" || method === "PUT") {
-    const contentLength = Number.parseInt(c.req.header("content-length") ?? "", 10);
-    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-      return c.json({ error: "Request body is too large" }, 413);
-    }
-    const text = await readBodyText(c.req.raw, MAX_BODY_BYTES);
-    // bodyCache の型は解決後の値だが、ランタイムは Promise を期待するため型を吐く。
-    (c.req.bodyCache as { text?: unknown }).text = Promise.resolve(text.trim() ? text : "{}");
-  }
-  await next();
-}
-
-export type CreateBffAppOptions = {
-  cwd?: string;
-  /** テストは明示的な pi (null も含む) を渡してランタイム構築をスキップする */
-  pi?: PiBff | null;
-  /** ファイル一覧とプロジェクト作成のサンドボックス。未指定なら env から生成し、null なら未設定として 503 を返す */
-  workspace?: SandboxWorkspaceClient | null;
-  /** テスト用: 静的配信のルートディレクトリ (既定は client/dist) */
-  clientDistDir?: string;
-};
+export type { CreateBffAppOptions };
 
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
-  const { cwd = process.cwd(), clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
-  const injectedPi = opts.pi;
-  let pi: PiBff | null = injectedPi ?? null;
-  let initError: string | undefined;
-  if (injectedPi === undefined) {
-    try {
-      pi = await createPiBff({ cwd });
-    } catch (error) {
-      initError = messageFor(error);
-      console.error(`[pi-agent-gui] Pi runtime unavailable: ${initError}`);
-    }
-  }
+  const { clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
+  const { cwd, pi, initError, catalog, projects, store, workspace } = await createBffContext(opts);
 
-  const catalog = createAgentCatalog();
-  const projects = new ProjectStore();
-  const store = new SessionStore({ pi, catalog, masker: pi?.secretMasker, projects });
-  // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
-  const workspace =
-    opts.workspace !== undefined ? opts.workspace : createSandboxToolClientFromEnv(process.env) ?? null;
-  const sandboxNotConfigured = { error: "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" };
-
-  /** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
-  const sandboxFailure = (c: Context, error: unknown) =>
-    c.json(
-      { error: messageFor(error) },
-      (error instanceof SandboxRequestError ? error.status : 502) as ContentfulStatusCode,
-    );
-
-  const updateAgentHandler = async (c: Context) => {
-    const agentId = c.req.param("id") ?? "";
-    const body = (await readJsonBody(c)) as Record<string, unknown>;
-    const agent = catalog.updateAgent(agentId, body);
-    if (!agent) return c.json({ error: "Agent not found" }, 404);
-    return c.json({ agent });
-  };
-
-  const updateSkillHandler = async (c: Context) => {
-    const skillId = c.req.param("id") ?? "";
-    const body = (await readJsonBody(c)) as Record<string, unknown>;
-    const skill = catalog.updateSkill(skillId, body);
-    if (!skill) return c.json({ error: "Skill not found" }, 404);
-    return c.json({ skill });
-  };
-
-  const findSession = (c: Context) => store.get(c.req.param("id") ?? "");
-
-  const stopSessionHandler = async (c: Context) => {
-    const record = findSession(c);
-    if (!record) return c.json({ error: "Session not found" }, 404);
-    const result = await store.stop(record);
-    return c.json({ sessionId: record.id, ...result });
-  };
+  const healthRoutes = createHealthRoutes({ pi, initError, cwd });
+  const fileRoutes = createFileRoutes({ workspace });
+  const catalogRoutes = createCatalogRoutes({ catalog });
+  const projectRoutes = createProjectRoutes({ projects, store, workspace });
+  const sessionRoutes = createSessionRoutes({ store });
 
   const app = new Hono()
-  .use("/api/*", bodyGuard)
-
-  // --- health ---
-
-  .get("/api/health", (c) => {
-    // ready は「runtime が使え、利用可能モデルが 1 つ以上ある」の意で、
-    // 明示 PI_MODEL が使えるかどうかとは分離する (defaultModelError)。
-    const availableModels = pi?.availableModels ?? [];
-    const ready = Boolean(pi) && availableModels.length > 0;
-    // PI_MODELS が候補を全部落としたなら、認証の有無より先に whitelist 側を原因として示す。
-    const whitelistEmpty = Boolean(pi && pi.modelWhitelistExcludesAll);
-    const authRequired = Boolean(pi && !ready && !whitelistEmpty && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
-    const errorCode: "authentication_required" | "model_whitelist_empty" | "runtime_unavailable" | undefined = whitelistEmpty
-      ? "model_whitelist_empty"
-      : authRequired
-        ? "authentication_required"
-        : initError || (pi && !ready)
-          ? "runtime_unavailable"
-          : undefined;
-    return c.json({
-      ok: true,
-      ready,
-      cwd: pi?.cwd || resolve(cwd),
-      model: modelLabel(pi?.selectedModel),
-      availableModels:
-        availableModels.map(modelLabel).filter((m): m is string => m != null),
-      modelOptions: pi?.modelOptions ?? [],
-      defaultThinkingLevel: pi?.defaultThinkingLevel ?? "medium",
-      defaultModelError: pi?.defaultModelError,
-      tools: pi?.tools || [],
-      availabilityError: pi?.availabilityError,
-      sandboxConfigured: pi?.sandboxConfigured ?? false,
-      errorCode,
-      error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
+    .use("/api/*", bodyGuard)
+    .get("/api/health", healthRoutes.health)
+    .get("/api/files", fileRoutes.list)
+    .get("/api/projects", projectRoutes.list)
+    .post(
+      "/api/projects",
+      zValidator("json", CreateProjectBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => projectRoutes.create(c, c.req.valid("json")),
+    )
+    .delete("/api/projects/:id", projectRoutes.remove)
+    .get("/api/agents", catalogRoutes.snapshot)
+    .put(
+      "/api/agents",
+      zValidator("json", ReplaceCatalogBodySchema, (result, c) =>
+        result.success
+          ? undefined
+          : c.json({ error: "Definitions must contain skills and agents arrays" }, 400),
+      ),
+      (c) => catalogRoutes.replace(c, c.req.valid("json")),
+    )
+    .post("/api/agents", catalogRoutes.createAgent)
+    .patch("/api/agents/:id", catalogRoutes.updateAgent)
+    .put("/api/agents/:id", catalogRoutes.updateAgent)
+    .delete("/api/agents/:id", catalogRoutes.removeAgent)
+    .get("/api/skills", catalogRoutes.listSkills)
+    .post("/api/skills", catalogRoutes.createSkill)
+    .patch("/api/skills/:id", catalogRoutes.updateSkill)
+    .put("/api/skills/:id", catalogRoutes.updateSkill)
+    .delete("/api/skills/:id", catalogRoutes.removeSkill)
+    .get("/api/sessions", sessionRoutes.list)
+    .post(
+      "/api/sessions",
+      zValidator("json", CreateSessionBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => sessionRoutes.create(c, c.req.valid("json")),
+    )
+    .patch(
+      "/api/sessions/:id/settings",
+      zValidator("json", UpdateSessionSettingsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid session settings" }, 400),
+      ),
+      (c) => sessionRoutes.updateSettings(c, c.req.valid("json")),
+    )
+    .get("/api/sessions/:id", sessionRoutes.get)
+    .delete("/api/sessions/:id", sessionRoutes.remove)
+    .post("/api/sessions/:id/stop", sessionRoutes.stop)
+    .post("/api/sessions/:id/abort", sessionRoutes.stop)
+    .post(
+      "/api/sessions/:id/messages",
+      zValidator("json", PostMessageBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "text is required" }, 400),
+      ),
+      (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
+    )
+    .get("/api/sessions/:id/events", sessionRoutes.events)
+    // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
+    .get("*", serveClientAssets(clientDistDir))
+    .notFound((c) => c.json({ error: "Not found" }, 404))
+    .onError((error, c) => {
+      // hono validator の JSON パース失敗 (HTTPException 400) は契約の文言に寄せる
+      if (error instanceof HTTPException && error.status === 400) {
+        return c.json({ error: "Request body must be valid JSON" }, 400);
+      }
+      return c.json(
+        { error: messageFor(error) },
+        (statusCodeOf(error) ?? 500) as ContentfulStatusCode,
+      );
     });
-  })
-  // --- files ---
 
-  // セッションに依存させない (セッションが無くても開ける必要がある) ため、トップレベルに置く。
-  .get("/api/files", async (c) => {
-    if (!workspace) return c.json(sandboxNotConfigured, 503);
-    const path = c.req.query("path") ?? ".";
-    let listing: unknown;
-    try {
-      listing = await workspace.listFiles(path);
-    } catch (error) {
-      return sandboxFailure(c, error);
-    }
-    const parsed = FileListingSchema.safeParse(listing);
-    if (!parsed.success) {
-      return c.json({ error: "サンドボックスのファイル一覧が不正です" }, 502);
-    }
-    return c.json(parsed.data);
-  })
-
-  // --- projects ---
-
-  .get("/api/projects", (c) => c.json({ projects: projects.list() }))
-  .post(
-    "/api/projects",
-    zValidator("json", CreateProjectBodySchema, (result, c) =>
-      result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-    ),
-    async (c) => {
-      const body = c.req.valid("json");
-      let cwd: string;
-      try {
-        cwd = normalizeProjectCwd(body.cwd);
-      } catch (error) {
-        return c.json({ error: messageFor(error) }, 400);
-      }
-      // 重複はサンドボックスへ触る前に弾く (作成要求で既存ディレクトリを触らない)
-      if (projects.findByCwd(cwd)) {
-        return c.json({ error: `Project already exists: ${cwd}` }, 409);
-      }
-      if (!workspace) return c.json(sandboxNotConfigured, 503);
-      try {
-        // create 省略時は一覧取得で「実在するディレクトリ」を確認する (ディレクトリ以外では失敗する)
-        if (body.create) await workspace.createDir(cwd);
-        else await workspace.listFiles(cwd);
-      } catch (error) {
-        return sandboxFailure(c, error);
-      }
-      return c.json({ project: projects.create({ cwd, name: body.name }) }, 201);
-    },
-  )
-  .delete("/api/projects/:id", async (c) => {
-    const id = c.req.param("id") ?? "";
-    if (!projects.get(id)) return c.json({ error: "Project not found" }, 404);
-    // 先に登録を外し、破棄中の並行作成で孤児セッションを作らない (ディレクトリは触らない)
-    projects.remove(id);
-    await store.destroyByProject(id);
-    return c.json({ ok: true });
-  })
-
-  .get("/api/agents", (c) => c.json(catalog.snapshot()))
-  .put(
-    "/api/agents",
-    zValidator("json", ReplaceCatalogBodySchema, (result, c) =>
-      result.success
-        ? undefined
-        : c.json({ error: "Definitions must contain skills and agents arrays" }, 400),
-    ),
-    (c) => {
-      const body = c.req.valid("json");
-      return c.json(catalog.replace(body));
-    },
-  )
-  .post("/api/agents", async (c) => {
-    // 正規化とエラー文言は catalog 側が正なので body はそのまま渡す
-    const body = (await readJsonBody(c)) as Record<string, unknown>;
-    return c.json({ agent: catalog.createAgent(body) }, 201);
-  })
-  .patch("/api/agents/:id", updateAgentHandler)
-  .put("/api/agents/:id", updateAgentHandler)
-
-  .delete("/api/agents/:id", (c) => {
-    if (!catalog.removeAgent(c.req.param("id") ?? "")) {
-      return c.json({ error: "Agent cannot be deleted (or it is the last agent)" }, 400);
-    }
-    return c.json({ ok: true });
-  })
-  .get("/api/skills", (c) => c.json({ skills: catalog.listSkills() }))
-  .post("/api/skills", async (c) => {
-    const body = (await readJsonBody(c)) as Record<string, unknown>;
-    return c.json({ skill: catalog.createSkill(body) }, 201);
-  })
-  .patch("/api/skills/:id", updateSkillHandler)
-  .put("/api/skills/:id", updateSkillHandler)
-
-  .delete("/api/skills/:id", (c) => {
-    if (!catalog.removeSkill(c.req.param("id") ?? "")) {
-      return c.json({ error: "Skill not found" }, 404);
-    }
-    return c.json({ ok: true });
-  })
-  .get("/api/sessions", (c) => c.json({ sessions: store.list() }))
-  .post(
-    "/api/sessions",
-    zValidator("json", CreateSessionBodySchema, (result, c) =>
-      result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-    ),
-    async (c) => {
-      const body = c.req.valid("json");
-      const record = await store.create({
-        agentId: body.agentId,
-        model: body.model,
-        thinkingLevel: body.thinkingLevel,
-        projectId: body.projectId,
-      });
-      return c.json(store.payload(record), 201);
-    },
-  )
-  .patch(
-    "/api/sessions/:id/settings",
-    zValidator("json", UpdateSessionSettingsBodySchema, (result, c) =>
-      result.success ? undefined : c.json({ error: "Invalid session settings" }, 400),
-    ),
-    async (c) => {
-      const record = findSession(c);
-      if (!record) return c.json({ error: "Session not found" }, 404);
-      const body = c.req.valid("json");
-      if (body.model === undefined && body.thinkingLevel === undefined) {
-        return c.json({ error: "model or thinkingLevel is required" }, 400);
-      }
-      const payload = await store.updateSettings(record, {
-        model: body.model,
-        thinkingLevel: body.thinkingLevel,
-      });
-      return c.json(payload);
-    },
-  )
-  .get("/api/sessions/:id", (c) => {
-    const record = findSession(c);
-    if (!record) return c.json({ error: "Session not found" }, 404);
-    return c.json(store.payload(record));
-  })
-  .delete("/api/sessions/:id", async (c) => {
-    const record = findSession(c);
-    if (!record) return c.json({ error: "Session not found" }, 404);
-    await store.destroy(record);
-    return c.json({ ok: true });
-  })
-  .post("/api/sessions/:id/stop", stopSessionHandler)
-  .post("/api/sessions/:id/abort", stopSessionHandler)
-
-  .post(
-    "/api/sessions/:id/messages",
-    zValidator("json", PostMessageBodySchema, (result, c) =>
-      result.success ? undefined : c.json({ error: "text is required" }, 400),
-    ),
-    async (c) => {
-      const record = findSession(c);
-      if (!record) return c.json({ error: "Session not found" }, 404);
-      const body = c.req.valid("json");
-      const text = body.text.trim();
-      if (!text) return c.json({ error: "text is required" }, 400);
-      if (text.length > MAX_MESSAGE_CHARS) {
-        return c.json(
-          { error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` },
-          413,
-        );
-      }
-      // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
-      const result = store.postMessage(record, text);
-      return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
-    },
-  )
-  .get("/api/sessions/:id/events", (c) => {
-    const record = findSession(c);
-    if (!record) return c.json({ error: "Session not found" }, 404);
-    // Last-Event-ID を優先し、なければ ?after= (元の実装と同じ優先順位)
-    const lastEventId = c.req.header("Last-Event-ID");
-    const rawAfter = lastEventId ?? c.req.query("after");
-    const parsedAfter = Number.parseInt(rawAfter ?? "", 10);
-    const after = Number.isNaN(parsedAfter) ? undefined : parsedAfter;
-
-    return withSseHeaders(
-      streamSSE(c, async (stream) => {
-        let requestCleanup: () => void = () => {};
-        stream.onAbort(() => requestCleanup());
-        await stream.write(": connected\n\n");
-        if (stream.aborted) return;
-        const unsubscribe = store.subscribe(
-          record,
-          after,
-          (entry) => {
-            void stream.writeSSE({
-              id: String(entry.seq),
-              event: entry.type,
-              data: JSON.stringify(entry.data),
-            });
-          },
-          () => requestCleanup(),
-        );
-        const heartbeat = setInterval(() => {
-          void stream.write(": ping\n\n");
-        }, SSE_HEARTBEAT_MS);
-        heartbeat.unref?.();
-        // 切断 (onAbort) と store の close のどちらからでも同じ後始末を通す。
-        await new Promise<void>((resolveCleanup) => {
-          requestCleanup = () => {
-            clearInterval(heartbeat);
-            unsubscribe();
-            resolveCleanup();
-          };
-        });
-      }),
-    );
-  })
-  .get("*", async (c) => {
-    let pathname = c.req.path;
-    try {
-      pathname = decodeURIComponent(pathname);
-    } catch {
-      return c.json({ error: "Not found" }, 404);
-    }
-    const response = await serveStaticPath(pathname, clientDistDir);
-    return response ?? c.json({ error: "Not found" }, 404);
-  })
-  .notFound((c) => c.json({ error: "Not found" }, 404))
-  .onError((error, c) => {
-    // hono validator の JSON パース失敗 (HTTPException 400) は契約の文言に寄せる
-    if (error instanceof HTTPException && error.status === 400) {
-      return c.json({ error: "Request body must be valid JSON" }, 400);
-    }
-    return c.json(
-      { error: messageFor(error) },
-      (statusCodeOf(error) ?? 500) as ContentfulStatusCode,
-    );
-  });
   return {
     app,
     store,
@@ -476,57 +120,3 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 }
 
 export type AppType = Awaited<ReturnType<typeof createBffApp>>["app"];
-
-/** streamSSE は charset 等を設定しないため、SSE のヘッダをここで上書きする */
-function withSseHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  headers.set("Content-Type", "text/event-stream; charset=utf-8");
-  headers.set("Cache-Control", "no-cache, no-transform");
-  headers.set("X-Accel-Buffering", "no");
-  headers.set("X-Content-Type-Options", "nosniff");
-  return new Response(response.body, { status: response.status, headers });
-}
-
-function clientBuildMissingResponse(): Response {
-  return new Response("Client build missing. Run: pnpm build", {
-    status: 503,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": STATIC_CSP,
-    },
-  });
-}
-
-/** 配信できなければ null を返す (呼び出し元が 404 にする)。 */
-async function serveStaticPath(pathname: string, clientDistDir: string): Promise<Response | null> {
-  if (pathname !== "/" && !pathname.startsWith("/")) return null;
-  const relativePath = pathname === "/" || pathname === "/index.html" ? "index.html" : pathname.slice(1);
-  const filePath = resolve(clientDistDir, relativePath);
-  // client/dist の外は絶対に配信しない (traversal guard)
-  if (filePath !== clientDistDir && !filePath.startsWith(clientDistDir + sep)) return null;
-
-  let body: Buffer;
-  try {
-    body = await readFile(filePath);
-  } catch (error) {
-    // 未ビルドなら案内を出し、それ以外は 404 にする。
-    const code = (error as NodeJS.ErrnoException).code;
-    if (relativePath === "index.html" && (code === "ENOENT" || code === "ENOTDIR")) {
-      return clientBuildMissingResponse();
-    }
-    return null;
-  }
-
-  // Vite はハッシュ付きファイルを assets/ 配下に出すため長期キャッシュ、それ以外は no-cache。
-  const isHashedAsset = relativePath.startsWith("assets/");
-  return new Response(new Uint8Array(body), {
-    headers: {
-      "Content-Type": CONTENT_TYPES[extname(filePath)] ?? "application/octet-stream",
-      "Cache-Control": isHashedAsset ? "public, max-age=31536000, immutable" : "no-cache",
-      "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": STATIC_CSP,
-    },
-  });
-}
