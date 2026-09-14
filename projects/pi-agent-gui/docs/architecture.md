@@ -25,11 +25,6 @@
 
 セッション状態の所有者は `SessionStore` 1 つに保つ（create と project 削除・settings 変更中の送信抑止・queue / run / subscriber は複数箇所へ分けると競合を追えなくなる）。pi イベント変換と DTO 組み立ては純関数・アダプタとして外へ出し、ストア本体はライフサイクルだけを持つ。
 
-## API 契約の置き方
-
-- 入出力の DTO は `server/src/schema.ts`（zod）が正。リクエストボディは `@hono/zod-validator` で検証し、レスポンス型はハンドラの戻り値から推論される。client は `hc<AppType>` でこの契約を型として参照する。詳細は [api.md](api.md)。
-- カタログ CRUD の body はわざと pass-through（zod 厳格化しない）。エージェント名の必須チェックや `model` / `thinkingLevel` の正規化・日本語エラー文言は `agents.ts` 側が正（[api-catalog.md](api-catalog.md)）。
-
 ## ドキュメントの読み方
 
 変更テーマ別の入口は [README.md](README.md) の索引にまとめている。個別の設計は次のドキュメントを正とする。
