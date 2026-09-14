@@ -16,10 +16,11 @@ import {
   DIAGRAM_MAX_NODES,
   DIAGRAM_MAX_PARTICIPANTS,
   DIAGRAM_LINE_HEIGHT,
+  diagramEdgeLabelWidth,
   diagramLineWidth,
   parseDiagram,
 } from "../src/lib/markdown/diagram";
-import type { DiagramModel } from "../src/lib/markdown/diagram";
+import type { DiagramEdge, DiagramModel } from "../src/lib/markdown/diagram";
 
 /** 解析に成功することを確かめたうえでモデルを返す */
 function model(source: string): DiagramModel {
@@ -206,6 +207,89 @@ function assertTextInsideBoxes(diagram: DiagramModel): void {
       `${box.label} がキャンバス外`,
     );
   }
+  for (const edge of diagram.edges) {
+    if (edge.label === null || edge.labelAt === null) continue;
+    const rect = labelRectOf(edge.label, edge.labelAt);
+    assert.ok(
+      rect.x >= -0.01 && rect.y >= -0.01 && rect.x + rect.w <= diagram.width + 0.01 && rect.y + rect.h <= diagram.height + 0.01,
+      `${edge.label} のラベルがキャンバス外`,
+    );
+  }
+  for (const note of diagram.notes) {
+    assert.ok(
+      note.x >= 0 && note.y >= 0 && note.x + note.w <= diagram.width && note.y + note.h <= diagram.height,
+      `Note がキャンバス外`,
+    );
+  }
+}
+
+/* ===== エッジラベルの衝突判定 (実装とは別に組み立てる) ===== */
+
+type Rect = { x: number; y: number; w: number; h: number };
+type Segment = { x1: number; y1: number; x2: number; y2: number };
+
+/** 実装が保証するエッジラベルと線の余白 (px) */
+const LABEL_CLEARANCE = 3;
+
+/** エッジラベルの実寸矩形。文字幅は実装と同じ見積もりを使う */
+function labelRectOf(label: string, at: NonNullable<DiagramEdge["labelAt"]>): Rect {
+  const width = diagramEdgeLabelWidth(label);
+  const left = at.anchor === "middle" ? at.x - width / 2 : at.anchor === "end" ? at.x - width : at.x;
+  return { x: left, y: at.y - 8, w: width, h: 11 };
+}
+
+function inflate(rect: Rect, by: number): Rect {
+  return { x: rect.x - by, y: rect.y - by, w: rect.w + by * 2, h: rect.h + by * 2 };
+}
+
+function segmentsOf(edge: DiagramEdge): Segment[] {
+  const segments: Segment[] = [];
+  for (let index = 0; index + 1 < edge.points.length; index += 1) {
+    const from = edge.points[index];
+    const to = edge.points[index + 1];
+    segments.push({ x1: from.x, y1: from.y, x2: to.x, y2: to.y });
+  }
+  return segments;
+}
+
+/** 矢印の先 (終点の手前 8px・幅 8px) の外接矩形 */
+function headRectOf(edge: DiagramEdge): Rect | null {
+  const last = edge.points[edge.points.length - 1];
+  const before = edge.points[edge.points.length - 2];
+  if (last === undefined || before === undefined) return null;
+  if (last.y === before.y) return { x: last.x - Math.sign(last.x - before.x) * 8, y: last.y - 4, w: 8, h: 8 };
+  return { x: last.x - 4, y: last.y - Math.sign(last.y - before.y) * 8, w: 8, h: 8 };
+}
+
+function segmentHitsRect(segment: Segment, rect: Rect): boolean {
+  const left = Math.min(segment.x1, segment.x2);
+  const right = Math.max(segment.x1, segment.x2);
+  const top = Math.min(segment.y1, segment.y2);
+  const bottom = Math.max(segment.y1, segment.y2);
+  if (segment.x1 === segment.x2) {
+    return segment.x1 > rect.x && segment.x1 < rect.x + rect.w && bottom > rect.y && top < rect.y + rect.h;
+  }
+  return segment.y1 > rect.y && segment.y1 < rect.y + rect.h && right > rect.x && left < rect.x + rect.w;
+}
+
+/** どのラベルも、どの線分 (矢印の先を含む)・他のラベル・ノードから CLEARANCE 以上離れている */
+function assertLabelsClear(diagram: DiagramModel): void {
+  const segments = diagram.edges.flatMap(segmentsOf);
+  const heads = diagram.edges.map(headRectOf).filter((rect): rect is Rect => rect !== null);
+  const nodes: Rect[] = diagram.boxes.map((box) => ({ x: box.x, y: box.y, w: box.w, h: box.h }));
+  const placed: Rect[] = [];
+  for (const edge of diagram.edges) {
+    if (edge.label === null || edge.labelAt === null) continue;
+    const rect = labelRectOf(edge.label, edge.labelAt);
+    const test = inflate(rect, LABEL_CLEARANCE);
+    for (const segment of segments) {
+      assert.ok(!segmentHitsRect(segment, test), `${edge.label} のラベルを線が貫く`);
+    }
+    for (const head of heads) assert.ok(!overlaps(head, test), `${edge.label} のラベルが矢印に重なる`);
+    for (const node of nodes) assert.ok(!overlaps(node, test), `${edge.label} のラベルがノードに重なる`);
+    for (const other of placed) assert.ok(!overlaps(other, test), `${edge.label} のラベルが他のラベルと重なる`);
+    placed.push(rect);
+  }
 }
 
 test("flowchart: 戻るエッジは中間のノードを横切らない", () => {
@@ -369,12 +453,13 @@ test("ラベル: 6 行に収まらないラベルは ok: false になる (文字
   assert.equal(rect.model.boxes[1].lines.length, DIAGRAM_MAX_LINES);
 });
 
-test("性質: 固定シードのランダム flowchart でもノードを横切らない", () => {
+test("性質: 固定シードのランダム flowchart で線がノードを横切らず、ラベルも線に貫かれない", () => {
   // 線形合同法で入力を作る (同じ並びを何度でも再現できる)
   let state = 20260914;
   const rand = (): number => ((state = (state * 1664525 + 1013904223) >>> 0) / 0x100000000);
   const pick = <T,>(values: T[]): T => values[Math.floor(rand() * values.length)] as T;
   const labels = ["開始", "判定", "処理 A", "queue", "結果を返す", "x", "あ".repeat(30), "次の段階へ進む処理"];
+  const edgeLabels = ["成功", "NG", "再試行", "ラベル", "yes", "補足", "あ".repeat(12), "very long edge label"];
   let backEdges = 0;
   // 層ごとのノード名。層とランクを一致させ、エッジは隣の層 (または循環を作る逆向き) だけにする
   const build = () => {
@@ -402,8 +487,8 @@ test("性質: 固定シードのランダム flowchart でもノードを横切�
       for (const name of layers[layer]) {
         const from = pick(layers[layer - 1]);
         pairs.push([from, name]);
-        lines.push(`  ${from} --> ${name}`);
-        if (rand() < 0.35) lines.push(`  ${from} -.->|補足| ${name}`);
+        lines.push(`  ${from} -->|${pick(edgeLabels)}| ${name}`);
+        if (rand() < 0.35) lines.push(`  ${from} -.->|${pick(edgeLabels)}| ${name}`);
       }
     }
     // 逆向きのエッジ 1〜2 本で循環を作る (排行の計算では後退エッジになる)
@@ -413,7 +498,9 @@ test("性質: 固定シードのランダム flowchart でもノードを横切�
       backEdges += 1;
       lines.push(`  ${to} -->|戻る| ${from}`);
     }
-    if (rand() < 0.2) lines.push(`  ${pick(layers[0])} -.-> ${pick(layers[0])}`);
+    // 自己ループ (ランク下のすき間へ落として描く)。上の層と下の層の両方で作る
+    if (rand() < 0.3) lines.push(`  ${pick(layers[0])} -.->|${pick(edgeLabels)}| ${pick(layers[0])}`);
+    if (rand() < 0.3) lines.push(`  ${pick(layers[layers.length - 1])} -.->|${pick(edgeLabels)}| ${pick(layers[layers.length - 1])}`);
     return lines;
   };
 
@@ -422,9 +509,75 @@ test("性質: 固定シードのランダム flowchart でもノードを横切�
     const result = parseDiagram(source);
     assert.ok(result.ok, `解析に失敗した:\n${source}`);
     assertNoCrossing(result.model);
+    assertLabelsClear(result.model);
     assertTextInsideBoxes(result.model);
   }
   assert.ok(backEdges > 0, "戻るエッジを含む入力が 1 件も生成されていない");
+});
+
+test("flowchart: 自己ループのラベルが同じノードの他エッジに貫かれない (レビュー再現)", () => {
+  const diagram = flow(["A[再試行ループ] -->|再試行| A", "A --> B[終了]"]);
+  assertNoCrossing(diagram);
+  assertLabelsClear(diagram);
+  assertTextInsideBoxes(diagram);
+  // ラベルは周回の横に置く (ノード中心 x に置くと A → B の縦線が貫く)
+  const node = diagram.boxes[0];
+  assert.notEqual(diagram.edges[0].labelAt?.x, node.x + node.w / 2);
+});
+
+test("flowchart: 同じすき間を共有するラベルも互いに重ならない (レビュー再現)", () => {
+  const diagram = flow(["A[処理] -->|ラベル| B[次の処理]", "A -->|再試行| A", "B --> C[終了]"]);
+  assertNoCrossing(diagram);
+  assertLabelsClear(diagram);
+  assertTextInsideBoxes(diagram);
+});
+
+test("flowchart: 2 ランク以上先へ進むエッジのラベルも線に貫かれない (レビュー再現)", () => {
+  const diagram = flow([
+    "A[開始] --> B[処理]",
+    "B -->|成功| C[検証]",
+    "B -->|失敗| D[再投入]",
+    "C -->|NG| D",
+    "D -->|戻す| B",
+  ]);
+  assertNoCrossing(diagram);
+  assertLabelsClear(diagram);
+  assertTextInsideBoxes(diagram);
+});
+
+test("ラベル: 衝突を避けた位置は決定的で、動かしてもキャンバス内に残る", () => {
+  const source = [
+    "flowchart TD",
+    "  A[処理] -->|ラベル| B[次の処理]",
+    "  A -->|再試行| A",
+    "  B --> C[終了]",
+  ].join("\n");
+  const first = model(source);
+  assert.deepEqual(parseDiagram(source), parseDiagram(source));
+  assert.deepEqual(
+    model(source).edges.map((edge) => edge.labelAt),
+    first.edges.map((edge) => edge.labelAt),
+  );
+  // 動いたラベルがある (暫定位置のままではない) ことと、それでも (B)(C) を満たすこと
+  assert.ok(
+    first.edges.some((edge) => edge.label !== null && edge.labelAt !== null && edge.labelAt.x !== edge.points[0].x + 7),
+    "衝突解決でラベルが 1 つも動いていない",
+  );
+  assertLabelsClear(first);
+  assertTextInsideBoxes(first);
+});
+
+test("sequenceDiagram: メッセージのラベルが線と重ならない", () => {
+  const diagram = sequence([
+    "participant A as client",
+    "participant B as BFF",
+    "A->>B: POST /api/sessions/:id/runs",
+    "B-->>A: SSE: text（差分）",
+    "Note over A: 解析はトークンごとに走る",
+    "A->>A: MarkdownView 再描画",
+  ]);
+  assertLabelsClear(diagram);
+  assertTextInsideBoxes(diagram);
 });
 
 test("決定性: 同じ入力からは座標まで一致するモデルになる", () => {

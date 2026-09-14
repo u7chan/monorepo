@@ -34,6 +34,15 @@ export type DiagramShape = "rect" | "round" | "diamond" | "circle";
 
 export type DiagramPoint = { x: number; y: number };
 
+/** ラベルの位置。anchor は SVG の text-anchor と同じ意味 */
+export type LabelPlacement = DiagramPoint & { anchor: "middle" | "start" | "end" };
+
+/** テキストや図形の矩形 (ラベル・ノード・矢印の衝突判定に使う) */
+type Rect = { x: number; y: number; w: number; h: number };
+
+/** 軸に平行な線分 (エッジの 1 区間) */
+type Segment = { x1: number; y1: number; x2: number; y2: number };
+
 /** 図形 1 つ。x / y は左上で、circle のときは w = h = 直径 */
 export type DiagramBox = {
   shape: DiagramShape;
@@ -53,7 +62,7 @@ export type DiagramEdge = {
   dashed: boolean;
   label: string | null;
   /** ラベルの位置と text-anchor。ラベルが無いときは null */
-  labelAt: (DiagramPoint & { anchor: "middle" | "start" }) | null;
+  labelAt: LabelPlacement | null;
 };
 
 /** Note over の枠。lines は行ごとの文字列 */
@@ -227,6 +236,11 @@ export function diagramLineWidth(text: string): number {
   return textWidth(text, FONT_SIZE);
 }
 
+/** エッジラベル 1 行分の幅の見積もり (px)。ラベルの衝突判定と同じ値 */
+export function diagramEdgeLabelWidth(text: string): number {
+  return textWidth(text, EDGE_FONT_SIZE);
+}
+
 /**
  * ラベルを決定的に折り返す。空白があれば語の境界で折り、語が 1 行に収まらないときは
  * 1 文字単位で切る (文字幅は textWidth の見積もりだけを使う)。
@@ -290,6 +304,18 @@ const NOTE_GAP = 12;
 const LANE_PITCH = 14;
 /** 戻るエッジの出発点を横へずらす幅 (同じ境界を共有する前向きエッジと線が重ならないように) */
 const EXIT_SHIFT = 10;
+/**
+ * エッジラベルと線の間に空ける余白 (px)。候補の判定はこの分広げた矩形で行う。
+ * ランク間のすき間 38px の中で「線からもノードからも離れる」ために 3px にする。
+ */
+const LABEL_CLEARANCE = 3;
+/** 判定に足す余裕 (px)。座標が小数のときに CLEARANCE ちょうどの接触が誤差で交差に見えるのを避ける */
+const LABEL_EPSILON = 0.5;
+/** ラベルのベースラインを線から離す距離 (px)。行の高さと CLEARANCE を足しても線に届かない値にする */
+const LABEL_OFFSET = 7;
+/** ラベルを衝突から逃がすときの刻み幅と候補数 */
+const LABEL_STEP = 12;
+const LABEL_STEPS = 8;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -478,12 +504,16 @@ function bandsOf(placed: Placed[], horizontal: boolean): Band[] {
 }
 
 function frameOf(placed: Placed[]): Frame {
+  return frameOfBoxes(placed.map((entry) => entry.box));
+}
+
+function frameOfBoxes(boxes: DiagramBox[]): Frame {
   const frame: Frame = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
-  for (const entry of placed) {
-    frame.minX = Math.min(frame.minX, entry.box.x);
-    frame.maxX = Math.max(frame.maxX, entry.box.x + entry.box.w);
-    frame.minY = Math.min(frame.minY, entry.box.y);
-    frame.maxY = Math.max(frame.maxY, entry.box.y + entry.box.h);
+  for (const box of boxes) {
+    frame.minX = Math.min(frame.minX, box.x);
+    frame.maxX = Math.max(frame.maxX, box.x + box.w);
+    frame.minY = Math.min(frame.minY, box.y);
+    frame.maxY = Math.max(frame.maxY, box.y + box.h);
   }
   return frame;
 }
@@ -551,7 +581,14 @@ function routeEdge(
           { x: center + shift, y: gap },
           { x: center + shift, y: edgeAt },
         ];
-    return { points, dashed: edge.dashed, label: edge.label, labelAt: labelPosition(points, edge.label) };
+    // ラベルは周回の横 (線と交差しない位置) に仮置きし、衝突するときは配置パスが動かす
+    const labelAt: LabelPlacement | null =
+      edge.label === null
+        ? null
+        : horizontal
+          ? { x: gap + LABEL_OFFSET, y: center + 3.5, anchor: "start" }
+          : { x: center + shift + LABEL_OFFSET, y: gap - LABEL_OFFSET, anchor: "start" };
+    return { points, dashed: edge.dashed, label: edge.label, labelAt };
   }
   const points =
     lane === null ? forwardPoints(from, to, bands, horizontal) : detourPoints(from, to, bands, lane, horizontal);
@@ -607,20 +644,155 @@ function detourPoints(from: Placed, to: Placed, bands: Band[], lane: number, hor
 }
 
 /** ラベルは折れ線の後ろから 2 番目の区間 (ノードの無い帯) の外側に置く */
-function labelPosition(points: DiagramPoint[], label: string | null): DiagramEdge["labelAt"] {
+function labelPosition(points: DiagramPoint[], label: string | null): LabelPlacement | null {
   if (label === null || points.length === 0) return null;
   if (points.length === 2) {
     const [start, end] = points;
-    if (start.x === end.x) return { x: start.x + 6, y: (start.y + end.y) / 2 + 3.5, anchor: "start" };
-    return { x: (start.x + end.x) / 2, y: start.y - 5, anchor: "middle" };
+    if (start.x === end.x) return { x: start.x + LABEL_OFFSET, y: (start.y + end.y) / 2 + 3.5, anchor: "start" };
+    return { x: (start.x + end.x) / 2, y: start.y - LABEL_OFFSET, anchor: "middle" };
   }
   const bend = points[points.length - 3];
   const next = points[points.length - 2];
-  if (bend.y === next.y) return { x: (bend.x + next.x) / 2, y: bend.y - 4.5, anchor: "middle" };
-  return { x: bend.x + 6, y: (bend.y + next.y) / 2 + 3.5, anchor: "start" };
+  if (bend.y === next.y) return { x: (bend.x + next.x) / 2, y: bend.y - LABEL_OFFSET, anchor: "middle" };
+  return { x: bend.x + LABEL_OFFSET, y: (bend.y + next.y) / 2 + 3.5, anchor: "start" };
 }
 
-function layoutFlowchart(order: FlowNode[], edges: FlowEdge[], direction: string): DiagramModel {
+/* ===== エッジラベルの配置 ===== */
+
+/** ラベル 1 行の実寸の矩形。行の高さは文字サイズの見積もりから決める */
+function labelRect(label: string, at: LabelPlacement): Rect {
+  const width = textWidth(label, EDGE_FONT_SIZE);
+  const left = at.anchor === "middle" ? at.x - width / 2 : at.anchor === "end" ? at.x - width : at.x;
+  return { x: left, y: at.y - EDGE_FONT_SIZE * 0.8, w: width, h: EDGE_FONT_SIZE * 1.1 };
+}
+
+function inflate(rect: Rect, by: number): Rect {
+  return { x: rect.x - by, y: rect.y - by, w: rect.w + by * 2, h: rect.h + by * 2 };
+}
+
+/** 境界に触れるだけは交差とみなさない (線がノードの境界で止まるのを許すため) */
+function overlap(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+function segmentHits(segment: Segment, rect: Rect): boolean {
+  const left = Math.min(segment.x1, segment.x2);
+  const right = Math.max(segment.x1, segment.x2);
+  const top = Math.min(segment.y1, segment.y2);
+  const bottom = Math.max(segment.y1, segment.y2);
+  if (segment.x1 === segment.x2) {
+    return segment.x1 > rect.x && segment.x1 < rect.x + rect.w && bottom > rect.y && top < rect.y + rect.h;
+  }
+  return segment.y1 > rect.y && segment.y1 < rect.y + rect.h && right > rect.x && left < rect.x + rect.w;
+}
+
+/** 矢印の先 (終点の手前 8px・幅 8px の三角形) の外接矩形 */
+function headRect(edge: DiagramEdge): Rect | null {
+  const last = edge.points[edge.points.length - 1];
+  const before = edge.points[edge.points.length - 2];
+  if (last === undefined || before === undefined) return null;
+  const back = 8;
+  const side = 4;
+  if (last.y === before.y) {
+    return { x: last.x - Math.sign(last.x - before.x) * back, y: last.y - side, w: back, h: side * 2 };
+  }
+  return { x: last.x - side, y: last.y - Math.sign(last.y - before.y) * back, w: side * 2, h: back };
+}
+
+/** 図形の外側 (ノード列の外のマージン) の範囲。ラベルの逃げ場として使う */
+type FarBounds = { left: number; right: number };
+
+/**
+ * ラベルの候補位置。暫定位置 → ノードの無い帯の中で左右 → 上下 → 図形の外側のマージンの
+ * 順に試すので、同じ入力からは必ず同じ位置になる。
+ */
+function labelCandidates(base: LabelPlacement, far: FarBounds, width: number): LabelPlacement[] {
+  const candidates: LabelPlacement[] = [base];
+  for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, x: base.x + step * LABEL_STEP });
+  for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, x: base.x - step * LABEL_STEP });
+  for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, y: base.y - step * LABEL_STEP });
+  for (let step = 1; step <= LABEL_STEPS; step += 1) candidates.push({ ...base, y: base.y + step * LABEL_STEP });
+  // 最後は図形の外側へ退避する。線も図形も無いので、同じ場所に別のラベルが来たときだけ
+  // 次の段へ進む。広いラベルが後続を塞がないよう、間隔は自分の幅から決める
+  // (キャンバスは normalize が広げる)
+  const stride = Math.max(LABEL_STEP, width + LABEL_STEP);
+  for (let step = 0; step < LABEL_STEPS; step += 1) {
+    for (const shift of [0, LABEL_STEP, -LABEL_STEP]) {
+      candidates.push({ x: far.right + step * stride, y: base.y + shift, anchor: "start" });
+      candidates.push({ x: far.left - step * stride, y: base.y + shift, anchor: "end" });
+    }
+  }
+  return candidates;
+}
+
+/**
+ * ラベルを線 (矢印の先を含む)・他のラベル・ノード・Note から CLEARANCE 以上离し、
+ * 置ける位置を 1 つ返す。どこにも置けないときは null (呼び出し側がソース表示にする)。
+ */
+function placeLabel(
+  label: string,
+  base: LabelPlacement,
+  far: FarBounds,
+  obstacles: { segments: Segment[]; rects: Rect[] },
+): LabelPlacement | null {
+  for (const candidate of labelCandidates(base, far, textWidth(label, EDGE_FONT_SIZE))) {
+    const test = inflate(labelRect(label, candidate), LABEL_CLEARANCE + LABEL_EPSILON);
+    if (obstacles.segments.some((segment) => segmentHits(segment, test))) continue;
+    if (obstacles.rects.some((rect) => overlap(rect, test))) continue;
+    return candidate;
+  }
+  return null;
+}
+
+/**
+ * 全エッジラベルを衝突の無い位置へ置く。先に決めたラベルを優先するので入力順に決まる。
+ * 置けないラベルが 1 つでもあれば null を返し、図全体をソース表示に落とす。
+ */
+function placeEdgeLabels(model: Omit<DiagramModel, "width" | "height">) {
+  const segments: Segment[] = [];
+  const rects: Rect[] = model.boxes.map((box) => ({ x: box.x, y: box.y, w: box.w, h: box.h }));
+  rects.push(...model.notes.map((note) => ({ x: note.x, y: note.y, w: note.w, h: note.h })));
+  // 逃げ場は図形 (ノード・Note・エッジ) の外側に取る
+  const far: FarBounds = { left: Infinity, right: -Infinity };
+  for (const box of model.boxes) {
+    far.left = Math.min(far.left, box.x);
+    far.right = Math.max(far.right, box.x + box.w);
+  }
+  for (const note of model.notes) {
+    far.left = Math.min(far.left, note.x);
+    far.right = Math.max(far.right, note.x + note.w);
+  }
+  for (const edge of model.edges) {
+    for (const point of edge.points) {
+      far.left = Math.min(far.left, point.x);
+      far.right = Math.max(far.right, point.x);
+    }
+  }
+  for (const edge of model.edges) {
+    for (let index = 0; index + 1 < edge.points.length; index += 1) {
+      const from = edge.points[index];
+      const to = edge.points[index + 1];
+      segments.push({ x1: from.x, y1: from.y, x2: to.x, y2: to.y });
+    }
+    const head = headRect(edge);
+    if (head !== null) rects.push(head);
+  }
+  const placed: Rect[] = [];
+  const edges: DiagramEdge[] = [];
+  for (const edge of model.edges) {
+    if (edge.label === null || edge.labelAt === null) {
+      edges.push(edge);
+      continue;
+    }
+    const at = placeLabel(edge.label, edge.labelAt, far, { segments, rects: [...rects, ...placed] });
+    if (at === null) return null;
+    placed.push(labelRect(edge.label, at));
+    edges.push({ ...edge, labelAt: at });
+  }
+  return { ...model, edges };
+}
+
+function layoutFlowchart(order: FlowNode[], edges: FlowEdge[], direction: string): DiagramModel | null {
   const horizontal = direction === "LR";
   const indexOf = new Map(order.map((node, index) => [node.id, index]));
   const back = findBackEdges(indexOf, edges);
@@ -630,19 +802,21 @@ function layoutFlowchart(order: FlowNode[], edges: FlowEdge[], direction: string
   const bands = bandsOf(placed, horizontal);
   const frame = frameOf(placed);
   const lanes = planLanes(edges, byId, frame, horizontal);
-  return normalize({
-    kind: "flowchart",
+  const withEdges = {
+    kind: "flowchart" as const,
     title: `mermaid · flowchart ${direction}`,
     boxes: placed.map((entry) => entry.box),
     edges: edges.map((edge, index) => routeEdge(edge, byId, bands, lanes[index], horizontal)),
     notes: [],
     lifelines: [],
-  });
+  };
+  const labeled = placeEdgeLabels(withEdges);
+  return labeled === null ? null : normalize(labeled);
 }
 
 type SeqParticipant = { id: string; label: string; lines: string[] };
 
-function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]): DiagramModel {
+function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]): DiagramModel | null {
   // 参加者ボックスは等幅・等間隔にする (ライフラインを縦に通すため)
   const boxW = clamp(
     Math.max(
@@ -704,14 +878,14 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
         ],
         dashed: element.dashed,
         label: element.text,
-        labelAt: { x: from + SELF_LOOP_W + 6, y: y + SELF_LOOP_H - 3, anchor: "start" },
+        labelAt: { x: from + SELF_LOOP_W + LABEL_OFFSET, y: y + SELF_LOOP_H - 4, anchor: "start" },
       });
     } else {
       edges.push({
         points: [{ x: from, y }, { x: to, y }],
         dashed: element.dashed,
         label: element.text,
-        labelAt: { x: (from + to) / 2, y: y - 6, anchor: "middle" },
+        labelAt: { x: (from + to) / 2, y: y - LABEL_OFFSET, anchor: "middle" },
       });
     }
     cursor += MESSAGE_PITCH;
@@ -724,7 +898,9 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
     x2: lifelineX(index),
     y2: lifelineBottom,
   }));
-  return normalize({ kind: "sequence", title: "mermaid · sequenceDiagram", boxes, edges, notes, lifelines });
+  const withEdges = { kind: "sequence" as const, title: "mermaid · sequenceDiagram", boxes, edges, notes, lifelines };
+  const labeled = placeEdgeLabels(withEdges);
+  return labeled === null ? null : normalize(labeled);
 }
 
 /** 内容の外側に余白を付ける。Note のはみ出しなどで負になった座標はここで吸収する */
@@ -761,10 +937,9 @@ function normalize(model: Omit<DiagramModel, "width" | "height">): DiagramModel 
   for (const edge of model.edges) {
     for (const point of edge.points) grow(point.x, point.y);
     if (edge.label === null || edge.labelAt === null) continue;
-    const width = textWidth(edge.label, EDGE_FONT_SIZE);
-    const left = edge.labelAt.anchor === "middle" ? edge.labelAt.x - width / 2 : edge.labelAt.x;
-    grow(left, edge.labelAt.y - EDGE_FONT_SIZE);
-    grow(left + width, edge.labelAt.y + 3);
+    const rect = labelRect(edge.label, edge.labelAt);
+    grow(rect.x, rect.y);
+    grow(rect.x + rect.w, rect.y + rect.h);
   }
   const dx = MARGIN - minX;
   const dy = MARGIN - minY;
@@ -834,7 +1009,9 @@ function parseFlow(lines: string[], direction: string): DiagramParseResult {
     if (lines === null) return { ok: false };
     nodes.push({ ...node, lines });
   }
-  return { ok: true, model: layoutFlowchart(nodes, edges, direction) };
+  // ラベルを線から離せないときは、重ねて描かずに図全体をソース表示へ落とす
+  const model = layoutFlowchart(nodes, edges, direction);
+  return model === null ? { ok: false } : { ok: true, model };
 }
 
 function parseSequence(lines: string[]): DiagramParseResult {
@@ -889,5 +1066,7 @@ function parseSequence(lines: string[]): DiagramParseResult {
     if (lines.length > DIAGRAM_MAX_LINES) return { ok: false };
     participants.push({ ...entry, lines });
   }
-  return { ok: true, model: layoutSequence(participants, elements) };
+  // ラベルを線から離せないときは、重ねて描かずに図全体をソース表示へ落とす
+  const model = layoutSequence(participants, elements);
+  return model === null ? { ok: false } : { ok: true, model };
 }
