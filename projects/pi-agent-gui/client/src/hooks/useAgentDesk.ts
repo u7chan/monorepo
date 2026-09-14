@@ -1,509 +1,121 @@
-import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
-import {
-  ApiError,
-  createProject as apiCreateProject,
-  createSession,
-  deleteProject as apiDeleteProject,
-  deleteSession as apiDeleteSession,
-  getCatalog,
-  getHealth,
-  getSession,
-  listProjects,
-  listSessions,
-  postMessage,
-  stopSession,
-  updateSessionSettings,
-  type CreateProjectInput,
-} from "../api";
-import type {
-  AgentDef,
-  Catalog,
-  EventEntry,
-  Health,
-  ModelOption,
-  ModelRef,
-  Project,
-  RunStatus,
-  SessionPayload,
-  SessionSummary,
-  ThinkingLevel,
-} from "../types";
+import { useCallback, useEffect, useEffectEvent, useReducer, useState } from "react";
+import { getHealth, postMessage, stopSession } from "../api";
+import { deriveComposerSettings } from "../lib/composerSettings";
 import { chatReducer, initialChatState } from "./chatReducer";
-import { applySettingsChange, type SettingsSelection } from "./settingsChange";
-import { runtimeStatusForError, runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
-import { useSessionEvents } from "./useSessionEvents";
-import { createRequestGate } from "./requestGate";
+import { runtimeStatusForError } from "./runtimeStatus";
+import { sendChatMessage, stopRun } from "./sessionActions";
+import type { SettingsSelection } from "./settingsChange";
+import { useProjects } from "./useProjects";
+import { useRuntimeCatalog } from "./useRuntimeCatalog";
+import { useSessions } from "./useSessions";
 
-const SESSION_KEY = "pi-agent-session";
-const AGENT_KEY = "pi-agent-agent";
-const PROJECT_KEY = "pi-agent-project";
-const alwaysCurrent = () => true;
-
-/** Effort の全段階 (モデルを解決できないときの案内表示に使う) */
-export const ALL_THINKING_LEVELS: ThinkingLevel[] = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-];
-
-const EFFORT_LABELS: Record<ThinkingLevel, string> = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "xHigh",
-  max: "Max",
-};
-
-export function effortLabel(level: string): string {
-  return EFFORT_LABELS[level as ThinkingLevel] ?? level;
-}
-
-/** 未作成チャットでは初期値になる */
+/** 実装は ../lib/composerSettings。既存の import 先を保つ互換 export */
+export { ALL_THINKING_LEVELS, effortLabel, type ComposerSettings } from "../lib/composerSettings";
 export type { SettingsSelection };
 
-/** 入力欄付近の Model / Effort ピッカーに渡す状態 */
-export type ComposerSettings = {
-  modelOptions: ModelOption[];
-  /** 現在の値 (チャット実効値 or 作成前の選択値) */
-  model?: string;
-  thinkingLevel?: string;
-  supportsThinking: boolean;
-  thinkingLevels: ThinkingLevel[];
-  /** 保存済み/既定モデルが候補に無いときの警告 */
-  modelWarning?: string;
-  /** Effort 候補をモデル能力から引けないときの案内 */
-  effortNotice?: string;
-  /** 生成中・キュー待ち・設定変更通信中は Model / Effort を無効化する */
-  disabled: boolean;
-  /** 設定変更通信中は送信も待たせる */
-  changing: boolean;
-  /** 有効なモデルが無いため送信しても作成できないときの理由 */
-  sendBlockedReason?: string;
-};
-
+/**
+ * 画面 (App) から見た facade。実装は責務ごとに分ける: health / catalog は useRuntimeCatalog、
+ * project 一覧・選択は useProjects、session の一覧・lifecycle・SSE は useSessions、
+ * 送信 / 停止の手順は sessionActions、Model / Effort の導出は lib/composerSettings。
+ */
 export function useAgentDesk() {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
-  const [health, setHealth] = useState<Health | null>(null);
-  const [catalog, setCatalog] = useState<Catalog>({ agents: [], skills: [] });
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem(SESSION_KEY) || "");
-  const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");
-  /** 選択中プロジェクト (「新しい会話」の作成先)。"" は未所属 */
-  const [selectedProjectId, setSelectedProjectIdState] = useState<string>(
-    () => localStorage.getItem(PROJECT_KEY) || "",
-  );
-  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
-  /** 現在のビューの作業ディレクトリ (ワークスペース root 相対。"" は root)。ファイル画面の tree root と同じ単位 */
-  const [cwd, setCwd] = useState<string>("");
   const [sending, setSending] = useState(false);
-  /** PATCH /settings の通信中 */
-  const [settingsChanging, setSettingsChanging] = useState(false);
-  /** 未作成チャットの作成前選択 (作成時に使ってクリアする) */
-  const [preselection, setPreselection] = useState<SettingsSelection>({});
-  const [epoch, setEpoch] = useState(0);
 
-  const lastSeqRef = useRef(0);
-  /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
-  const selectionSeqRef = useRef(0);
-  const sessionIdRef = useRef(sessionId);
-  const sessionsRef = useRef<SessionSummary[]>([]);
-  const projectsRef = useRef<Project[]>([]);
-  const selectedProjectIdRef = useRef(selectedProjectId);
-  selectedProjectIdRef.current = selectedProjectId;
-  const preselectionRef = useRef<SettingsSelection>(preselection);
-  preselectionRef.current = preselection;
+  const {
+    health,
+    catalog,
+    runtimeStatus,
+    setRuntimeStatus,
+    agentId,
+    setAgentId,
+    selectedAgent,
+    loadCatalog,
+    refreshHealth,
+    applyHealth,
+  } = useRuntimeCatalog({ dispatch });
+  const {
+    projects,
+    selectedProjectId,
+    selectedProjectIdRef,
+    selectedProject,
+    selectProject,
+    refreshProjects,
+    createProject,
+    deleteProject: removeProject,
+  } = useProjects();
+  const {
+    sessions,
+    sessionId,
+    sessionIdRef,
+    cwd,
+    preselection,
+    settingsChanging,
+    refreshSessions,
+    selectSession,
+    newChat,
+    ensureSession,
+    deleteSession,
+    reselectIfMissing,
+    restoreSession,
+    changeModel,
+    changeThinkingLevel,
+  } = useSessions({
+    dispatch,
+    agentId,
+    setAgentId,
+    selectProject,
+    selectedProjectIdRef,
+    refreshHealth,
+    setRuntimeStatus,
+  });
 
-  const setAgentId = useCallback((id: string) => {
-    setAgentIdState(id);
-    localStorage.setItem(AGENT_KEY, id);
-  }, []);
+  const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
-  /** 作成先プロジェクトの選択。ensureSession は送信時に読むため、state の反映を待たず ref も更新する */
-  const selectProject = useCallback((id: string): void => {
-    selectedProjectIdRef.current = id;
-    setSelectedProjectIdState(id);
-    localStorage.setItem(PROJECT_KEY, id);
-  }, []);
-
-  /** 選択中エージェントが無ければ先頭にフォールバックする */
-  const normalizeAgentId = useCallback((next: Catalog): string => {
-    const valid = next.agents.some((agent) => agent.id === agentId);
-    const id = valid ? agentId : next.agents[0]?.id || "";
-    localStorage.setItem(AGENT_KEY, id);
-    setAgentIdState(id);
-    return id;
-  }, [agentId]);
-
-  const loadCatalog = useCallback(async (isCurrent = alwaysCurrent): Promise<Catalog> => {
-    const next = await getCatalog();
-    if (!isCurrent()) return next;
-    setCatalog(next);
-    normalizeAgentId(next);
-    return next;
-  }, [normalizeAgentId]);
-
-  const [beginSessionsRequest] = useState(createRequestGate);
-  const refreshSessions = useCallback(async (isCurrent = alwaysCurrent): Promise<SessionSummary[]> => {
-    const canApply = beginSessionsRequest(isCurrent);
-    try {
-      const { sessions: list } = await listSessions();
-      if (!canApply()) return list;
-      sessionsRef.current = list;
-      setSessions(list);
-      return list;
-    } catch {
-      // サーバーが一時的に届かないときは前回のリストを保持
-      return sessionsRef.current;
-    }
-  }, [beginSessionsRequest]);
-
-  const [beginProjectsRequest] = useState(createRequestGate);
-  const refreshProjects = useCallback(async (isCurrent = alwaysCurrent): Promise<Project[]> => {
-    const canApply = beginProjectsRequest(isCurrent);
-    try {
-      const { projects: list } = await listProjects();
-      if (!canApply()) return list;
-      projectsRef.current = list;
-      setProjects(list);
-      // プロジェクトはメモリ内のみ。再起動や別画面での削除で選択が消えていたら未所属へ戻す
-      // (存在しない作成先を見えないまま使い続けない)
-      if (selectedProjectIdRef.current && !list.some((project) => project.id === selectedProjectIdRef.current)) {
-        selectProject("");
-      }
-      return list;
-    } catch {
-      return projectsRef.current;
-    }
-  }, [beginProjectsRequest, selectProject]);
-
-  const applyHealth = useCallback((next: Health) => {
-    setHealth(next);
-    // cwd はセッション payload の root 相対値だけを正とする。health.cwd はワークスペース root の絶対パスで、
-    // ファイル画面の tree root (= GET /api/files の path) とは単位が違う
-    const status = runtimeStatusForHealth(next);
-    setRuntimeStatus(status);
-    if (status.error && !next.ready && status.detail) {
-      dispatch({ type: "setActivity", text: status.detail });
-    }
-  }, []);
-
-  const refreshHealth = useCallback(async (isCurrent = alwaysCurrent): Promise<Health | null> => {
-    try {
-      const next = await getHealth();
-      if (!isCurrent()) return null;
-      applyHealth(next);
-      return next;
-    } catch {
-      return null;
-    }
-  }, [applyHealth]);
-
-  const applySnapshot = useCallback((payload: SessionPayload) => {
-    lastSeqRef.current = payload.lastSeq || 0;
-    // 未所属 ("") は root。payload.cwd は root 相対なので、そのままファイル画面の tree root に使える
-    setCwd(payload.cwd || "");
-    // 会話の実効モデルは chat.sessionModel (resync) に入る。ここで runtimeStatus に書くと
-    // health の再取得で上書きされるため、入力欄のピッカーは chat 側から導出する。
-    dispatch({ type: "resync", payload });
-  }, []);
-
-  /** 選択中セッションの表示を payload で置き換える (selectSession / ensureSession 共通) */
-  const applySelectedSession = useCallback((payload: SessionPayload) => {
-    sessionIdRef.current = payload.sessionId;
-    setSessionId(payload.sessionId);
-    const nextAgentId = payload.agent?.id || agentId;
-    localStorage.setItem(SESSION_KEY, payload.sessionId);
-    localStorage.setItem(AGENT_KEY, nextAgentId);
-    setAgentIdState(nextAgentId);
-    applySnapshot(payload);
-    setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
-  }, [agentId, applySnapshot]);
-
-  const selectSession = useCallback(async (id: string, isCurrent = alwaysCurrent): Promise<void> => {
-    // getSession の待機中にセッション作成が返っても、この選択を奪わせない
-    selectionSeqRef.current += 1;
-    try {
-      const payload = await getSession(id);
-      if (!isCurrent()) return;
-      applySelectedSession(payload);
-      void refreshHealth(isCurrent);
-    } catch {
-      if (!isCurrent()) return;
-      localStorage.removeItem(SESSION_KEY);
-      sessionIdRef.current = "";
-      setSessionId("");
-      const fallback = sessionsRef.current.find((item) => item.sessionId !== id);
-      if (fallback) return selectSession(fallback.sessionId, isCurrent);
-      return newChatRef.current();
-    }
-  }, [applySelectedSession, refreshHealth]);
-
-  /**
-   * 未作成の新規チャットへ戻す。セッションは最初の送信時に ensureSession() が作るため、
-   * 送信前に POST /api/sessions を呼ばず、一覧にも空の行を残さない。
-   */
-  const newChat = useCallback((nextAgentId?: string, nextProjectId?: string): void => {
-    // エージェントを指定されたときだけ表示を切り替える (未作成チャットで選択した agent が最初の送信に使われる)
-    if (nextAgentId) setAgentId(nextAgentId);
-    // プロジェクト行の「＋」から呼ばれる。作成先を先に移し、その後の表示と送信先を一致させる
-    if (nextProjectId !== undefined) selectProject(nextProjectId);
-    selectionSeqRef.current += 1;
-    localStorage.removeItem(SESSION_KEY);
-    sessionIdRef.current = "";
-    lastSeqRef.current = 0;
-    setSessionId("");
-    // 未作成チャットの作業場所は選択中プロジェクト (未所属なら "" = root)。前のセッションの cwd を持ち越さない
-    setCwd("");
-    dispatch({ type: "newChat" });
-  }, [selectProject, setAgentId]);
-
-  /** 未作成チャットの最初の送信時だけセッションを作り、送信先の sessionId を返す */
-  const ensureSession = useCallback(async (): Promise<string> => {
-    const existing = sessionIdRef.current;
-    if (existing) return existing;
-    const selection = selectionSeqRef.current;
-    // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる。未所属 ("") はキーを送らず root に任せる
-    const projectId = selectedProjectIdRef.current;
-    const session = await createSession(agentId || undefined, {
-      ...preselectionRef.current,
-      ...(projectId ? { projectId } : {}),
-    });
-    setPreselection({});
-    // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
-    if (selectionSeqRef.current !== selection) return session.sessionId;
-    applySelectedSession(session);
-    await refreshSessions();
-    void refreshHealth();
-    return session.sessionId;
-  }, [agentId, applySelectedSession, refreshHealth, refreshSessions]);
-
-  /** チャット単位の Model / Effort 変更。未作成なら作成前の選択として保持する */
-  const changeSessionSettings = useCallback(async (selection: SettingsSelection): Promise<void> => {
-    const id = sessionIdRef.current;
-    if (!id) {
-      setPreselection((prev) => ({ ...prev, ...selection }));
-      return;
-    }
-    setSettingsChanging(true);
-    try {
-      await applySettingsChange(id, selection, {
-        // 各 await の後に「まだ同じチャットか」を確認し、切替済みの古い応答は適用しない。
-        isCurrentSession: () => sessionIdRef.current === id,
-        request: updateSessionSettings,
-        recover: getSession,
-        applyPayload: applySnapshot,
-        onSuccess: () => {
-          dispatch({ type: "setActivity", text: "設定を変更しました" });
-        },
-        onError: (error) => {
-          if (error instanceof ApiError && error.status === 409) {
-            dispatch({ type: "setActivity", text: error.message });
-            return;
-          }
-          const status = runtimeStatusForError(error);
-          setRuntimeStatus(status);
-          dispatch({ type: "setActivity", text: status.detail || status.text });
-        },
+  const sendMessage = useCallback(
+    async (text: string): Promise<void> => {
+      await sendChatMessage(text, {
+        health,
+        busy: sending || settingsChanging,
+        sessionIdRef,
+        ensureSession,
+        refreshSessions,
+        post: postMessage,
+        dispatch,
+        setSending,
+        setRuntimeStatus,
       });
-    } finally {
-      setSettingsChanging(false);
-    }
-  }, [applySnapshot]);
-
-  const changeModel = useCallback(
-    (model: ModelRef): void => {
-      void changeSessionSettings({ model });
     },
-    [changeSessionSettings],
+    [
+      dispatch,
+      ensureSession,
+      health,
+      refreshSessions,
+      sending,
+      sessionIdRef,
+      settingsChanging,
+      setRuntimeStatus,
+    ],
   );
-
-  const changeThinkingLevel = useCallback(
-    (thinkingLevel: ThinkingLevel): void => {
-      void changeSessionSettings({ thinkingLevel });
-    },
-    [changeSessionSettings],
-  );
-
-  // selectSession ↔ newChat の相互参照用
-  const newChatRef = useRef(newChat);
-  newChatRef.current = newChat;
-
-  // --- SSE イベント処理 ---
-
-  const onEvent = useCallback((entry: EventEntry) => {
-    if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);
-    switch (entry.type) {
-      case "resync":
-        applySnapshot(entry.data);
-        return;
-      case "run_start":
-        dispatch({ type: "runStart", prompt: entry.data.prompt, at: entry.at });
-        return;
-      case "text":
-        dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
-        return;
-      case "tool_start":
-        dispatch({ type: "toolStart", id: entry.data.id, name: entry.data.name, args: entry.data.args, at: entry.at });
-        return;
-      case "tool_end":
-        dispatch({ type: "toolEnd", id: entry.data.id, isError: entry.data.isError, output: entry.data.output });
-        return;
-      case "usage":
-        dispatch({
-          type: "usage",
-          usage: entry.data.usage,
-          metrics: entry.data.metrics,
-          context: entry.data.context,
-        });
-        return;
-      case "compaction":
-        dispatch({ type: "compaction", compaction: entry.data.compaction, count: entry.data.count });
-        return;
-      case "status":
-        dispatch({ type: "status", text: entry.data.text });
-        return;
-      case "queued":
-        dispatch({ type: "queued", position: entry.data.position, queueDepth: entry.data.queueDepth });
-        void refreshSessions();
-        return;
-      case "queue_cleared":
-        dispatch({ type: "queueCleared" });
-        return;
-      case "run_end":
-        dispatch({
-          type: "runEnd",
-          status: entry.data.status,
-          queueDepth: entry.data.queueDepth,
-          error: entry.data.error,
-          context: entry.data.context,
-        });
-        if (entry.data.status === "error" && entry.data.error) {
-          setRuntimeStatus(runtimeStatusForError(new Error(entry.data.error)));
-        }
-        void refreshSessions();
-        return;
-    }
-  }, [applySnapshot, refreshSessions]);
-
-  const onClosed = useCallback(() => {
-    // SSE が CLOSED になったとき: 一覧を更新し、まだあれば再接続、無ければ次のセッションへ
-    void refreshHealth();
-    void refreshSessions().then((list) => {
-      const current = sessionIdRef.current;
-      if (list.some((item) => item.sessionId === current)) {
-        setEpoch((e) => e + 1);
-      } else {
-        const next = list[0];
-        if (next) void selectSession(next.sessionId);
-        else newChatRef.current();
-      }
-    });
-  }, [refreshHealth, refreshSessions, selectSession]);
-
-  useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClosed });
-
-  // --- アクション ---
-
-  const sendMessage = useCallback(async (text: string): Promise<void> => {
-    if (!text || sending || settingsChanging) return;
-    setSending(true);
-    try {
-      if (health && !health.ready) {
-        throw new Error(health.error || "APIキーまたは認証設定を確認してください");
-      }
-      // 送信先は ensureSession の戻り値で受ける。ensureSession は refreshSessions を await するため、
-      // その間に切り替えられると sessionIdRef を読み直した先が空になり、入力が黙って消える。
-      const targetId = await ensureSession();
-      // 切替後は表示と別セッションになる。入力もセッションも捨てずに送信だけ続け、
-      // 現在の表示のバブル / 実行状態は触らない (一覧は postMessage 後の refreshSessions が更新する)。
-      const sameChat = sessionIdRef.current === targetId;
-      if (sameChat) dispatch({ type: "localUser", text, at: Date.now() });
-
-      // 202 即時返却。実行はバックグラウンドで続き、イベントは SSE で届く
-      const result = await postMessage(targetId, text);
-      if (sameChat) {
-        if (result.queued) {
-          dispatch({ type: "setRun", runStatus: "running", queueDepth: result.queueDepth, activity: `実行中のため待機キューに追加しました（${result.queueDepth}件目）` });
-        } else {
-          dispatch({ type: "setRun", runStatus: "running", queueDepth: 0, activity: "実行を開始しました" });
-        }
-      }
-      void refreshSessions();
-    } catch (error) {
-      const status = runtimeStatusForError(error);
-      dispatch({ type: "setActivity", text: status.detail || status.text });
-      setRuntimeStatus(status);
-    } finally {
-      setSending(false);
-    }
-  }, [health, sending, settingsChanging, ensureSession, refreshSessions]);
 
   const stopAgent = useCallback(async (): Promise<void> => {
-    const id = sessionIdRef.current;
-    if (!id) return;
-    try {
-      const result = await stopSession(id);
-      dispatch({ type: "setRun", runStatus: (result.status || "idle") as RunStatus, queueDepth: 0, activity: "停止要求を送信しました" });
-    } catch (error) {
-      console.error(error);
-    }
-  }, []);
+    await stopRun({ sessionIdRef, stop: stopSession, dispatch });
+  }, [dispatch, sessionIdRef]);
 
-  const deleteSession = useCallback(async (id: string): Promise<void> => {
-    if (!window.confirm("このセッションを削除しますか？実行中の処理は停止されます。")) return;
-    try {
-      await apiDeleteSession(id);
-    } catch (error) {
-      console.error(error);
-    }
-    const list = await refreshSessions();
-    if (id === sessionIdRef.current) {
-      const next = list[0];
-      if (next) await selectSession(next.sessionId);
-      else newChatRef.current();
-    }
-  }, [refreshSessions, selectSession]);
-
-  const createProject = useCallback(async (input: CreateProjectInput): Promise<Project> => {
-    const { project } = await apiCreateProject(input);
-    // 進行中の一覧取得は応答を待たずに無効化する (遅れて成功した古い一覧が、作成直後の一覧と
-    // 選択を上書きしないように)。一覧は作成応答だけで更新し、選択を GET の成否に依存させない
-    beginProjectsRequest();
-    const list = [...projectsRef.current.filter((item) => item.id !== project.id), project];
-    projectsRef.current = list;
-    setProjects(list);
-    // 作った直後の「新しい会話」が別の場所へ行かないよう、作成先を新しいプロジェクトへ移す
-    selectProject(project.id);
-    return project;
-  }, [beginProjectsRequest, selectProject]);
-
-  const deleteProject = useCallback(async (projectId: string): Promise<void> => {
-    const project = projectsRef.current.find((item) => item.id === projectId);
-    const count = sessionsRef.current.filter((item) => item.projectId === projectId).length;
-    const head = project ? `「${project.name}」を削除します。` : "";
-    if (!window.confirm(`${head}配下の ${count} 件のセッションを停止して削除します。ディレクトリは残ります。`)) return;
-    try {
-      await apiDeleteProject(projectId);
-    } catch (error) {
-      console.error(error);
-      return;
-    }
-    await refreshProjects();
-    const list = await refreshSessions();
-    // 破棄された配下セッションを表示したままにしない (サーバーは停止・破棄まで行う)
-    if (sessionIdRef.current && !list.some((item) => item.sessionId === sessionIdRef.current)) {
-      const next = list[0];
-      if (next) await selectSession(next.sessionId);
-      else newChatRef.current();
-    }
-  }, [refreshProjects, refreshSessions, selectSession]);
+  const deleteProject = useCallback(
+    async (projectId: string): Promise<void> => {
+      const project = projects.find((item) => item.id === projectId);
+      const count = sessions.filter((item) => item.projectId === projectId).length;
+      const head = project ? `「${project.name}」を削除します。` : "";
+      if (!window.confirm(`${head}配下の ${count} 件のセッションを停止して削除します。ディレクトリは残ります。`)) {
+        return;
+      }
+      if (!(await removeProject(projectId))) return;
+      // サーバーは配下セッションまで停止・破棄する
+      await reselectIfMissing(await refreshSessions());
+    },
+    [projects, refreshSessions, removeProject, reselectIfMissing, sessions],
+  );
 
   // --- 起動とポーリング ---
 
@@ -519,12 +131,7 @@ export function useAgentDesk() {
       if (!isCurrent()) return;
       const list = await refreshSessions(isCurrent);
       if (!isCurrent()) return;
-      const stored = localStorage.getItem(SESSION_KEY) || "";
-      const target = list.find((item) => item.sessionId === stored) || list[0];
-      // 復元先が無ければ未作成チャットへ戻す。セッションは最初の送信時に作る (起動時に空の行を増やさない)。
-      // 消えたセッションの id を残すと、選択中の作業場所 (cwd) を root として見せられない
-      if (target) await selectSession(target.sessionId, isCurrent);
-      else newChatRef.current();
+      await restoreSession(list, isCurrent);
     } catch (error) {
       if (!isCurrent()) return;
       const status = runtimeStatusForError(error);
@@ -550,53 +157,16 @@ export function useAgentDesk() {
     };
   }, [refreshSessions]);
 
-  const selectedAgent: AgentDef | undefined = catalog.agents.find((agent) => agent.id === agentId);
-  const selectedProject = projects.find((project) => project.id === selectedProjectId);
-  const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
-
-  // --- 入力欄の Model / Effort ピッカー ---
-
-  const modelOptions = health?.modelOptions ?? [];
-  const modelLabelOf = (ref?: ModelRef): string | undefined =>
-    ref ? `${ref.provider}/${ref.id}` : undefined;
-  const findOption = (label?: string): ModelOption | undefined =>
-    label ? modelOptions.find((option) => `${option.provider}/${option.id}` === label) : undefined;
-
-  const inSession = Boolean(sessionId);
-  // 未作成のチャットはサーバーと同じ優先順位 (作成前の選択 → 定義 → アプリ既定) で表示する
-  const pendingModel = modelLabelOf(preselection.model) ??
-    modelLabelOf(selectedAgent?.model) ??
-    health?.model;
-  const pendingThinkingLevel = preselection.thinkingLevel ??
-    selectedAgent?.thinkingLevel ??
-    health?.defaultThinkingLevel;
-
-  const effectiveModel = inSession ? chat.sessionModel : pendingModel;
-  const effectiveThinkingLevel = inSession ? chat.sessionThinkingLevel : pendingThinkingLevel;
-  const effectiveOption = findOption(effectiveModel);
-  const supportsThinking = inSession ? chat.supportsThinking : effectiveOption?.supportsThinking ?? true;
-  const thinkingLevels = inSession
-    ? chat.availableThinkingLevels
-    : effectiveOption?.thinkingLevels ?? ALL_THINKING_LEVELS;
-
-  const composerSettings: ComposerSettings = {
-    modelOptions,
-    model: effectiveModel,
-    thinkingLevel: effectiveThinkingLevel,
-    supportsThinking,
-    thinkingLevels,
-    modelWarning:
-      effectiveModel && !effectiveOption
-        ? `${effectiveModel} は現在利用できません。別のモデルを選択してください。`
-        : undefined,
-    effortNotice: effectiveOption ? undefined : "使用モデルに応じて補正されます",
-    disabled: stopVisible || sending || settingsChanging,
-    changing: settingsChanging,
-    sendBlockedReason:
-      !inSession && !effectiveModel && health?.defaultModelError
-        ? health.defaultModelError
-        : undefined,
-  };
+  const composerSettings = deriveComposerSettings({
+    health,
+    selectedAgent,
+    sessionId,
+    preselection,
+    chat,
+    sending,
+    settingsChanging,
+    stopVisible,
+  });
 
   return {
     chat,
