@@ -1,19 +1,18 @@
 import type { Health } from "../types";
 
-/** ヘッダーの接続状態。モデルは含めない (会話モデルの表示は ModelDisplay が持つ) */
+/** モデルは含めない (会話モデルの表示は別コンポーネントが持つ) */
 export type RuntimeStatus = {
   text: string;
   error: boolean;
   detail?: string;
   authRequired?: boolean;
-  /** 実行環境 (サンドボックス) の復旧手順を出す */
   sandboxRequired?: boolean;
 };
 
 export const AUTH_REQUIRED_TEXT = "APIキー未設定";
 export const SANDBOX_REQUIRED_TEXT = "実行環境（サンドボックス）が未設定";
 
-/** 認証エラーの復旧手順。バッククォートで囲んだ部分は RuntimeAlert が <code> で描画する。 */
+/** バッククォートの部分は RuntimeAlert が <code> で描画する */
 export const AUTH_REQUIRED_GUIDE =
   "`cp .env.example .env` で設定ファイルを作成し、APIキーを入力してからサーバーを再起動してください。";
 
@@ -35,7 +34,6 @@ function errorText(error: unknown): string {
 const AUTH_ERROR_PATTERN = /APIキー|No API key found|Provider is not configured|No model selected/i;
 const SANDBOX_ERROR_PATTERN = /サンドボックス|sandbox/i;
 
-/** 送信時のエラーから接続状態を作る。 */
 export function runtimeStatusForError(error: unknown): RuntimeStatus {
   const detail = errorText(error);
   if (SANDBOX_ERROR_PATTERN.test(detail)) {

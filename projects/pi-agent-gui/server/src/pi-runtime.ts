@@ -64,7 +64,6 @@ export interface PiSessionLike {
   subscribe(listener: PiSessionEventListener): () => void;
   prompt(text: string): Promise<unknown>;
   abort(): Promise<unknown>;
-  /** 認証確認後にモデルと thinking を切り替える */
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
   /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
   sessionManager?: { getBranch?(): unknown[] };

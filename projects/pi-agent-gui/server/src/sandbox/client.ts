@@ -10,9 +10,7 @@ import {
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
-  /** 例: http://pi-agent-gui-sandbox:8080 (末尾スラッシュは正規化する) */
   baseUrl: string;
-  /** Bearer トークン (PI_SANDBOX_TOKEN) */
   token: string;
   /** テストで差し替える fetch 実装 */
   fetchImpl?: typeof fetch;
@@ -21,7 +19,6 @@ export interface SandboxToolClientOptions {
 export interface SandboxExecuteInput {
   toolCallId?: string;
   params: unknown;
-  /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root */
   cwd?: string;
   signal?: AbortSignal | undefined;
   onUpdate?: ((partial: { content: unknown; details?: unknown }) => void) | undefined;
@@ -58,11 +55,8 @@ export function createSandboxToolClientFromEnv(
 }
 
 export interface SandboxToolClient {
-  /** 完了 (result) まで解決し、エラーイベント・HTTP エラー・中断は reject する。 */
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
-  /** root 相対パスの一覧 (JSON)。root 外・不存在などは SandboxRequestError で reject する。 */
   listFiles(path: string): Promise<SandboxFileListing>;
-  /** root 相対のディレクトリを mkdir -p 相当で作る (既存は成功)。 */
   createDir(path: string): Promise<SandboxCreateDirResult>;
 }
 
@@ -122,7 +116,6 @@ async function jsonError(response: Response, label: string): Promise<SandboxRequ
   );
 }
 
-/** GET /v1/files (JSON 経路) */
 async function listFiles(
   path: string,
   baseUrl: string,
@@ -167,7 +160,7 @@ function errorDetailOf(text: string): string {
     const parsed = JSON.parse(trimmed) as { error?: unknown };
     if (parsed && typeof parsed.error === "string") return parsed.error;
   } catch {
-    // JSON でない本文はそのまま使う
+    // 生テキストを使う
   }
   return trimmed;
 }

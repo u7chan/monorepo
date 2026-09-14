@@ -5,20 +5,17 @@ import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
 export type SendChatMessageDeps = {
   health: Health | null;
-  /** 生成中・設定変更通信中は送信しない */
   busy: boolean;
-  /** await を挟んだ後の送信先判定に使う (render 時の state は古くなる) */
+  /** render 時の state は古くなるため、await を挟んだ後の判定に使う */
   sessionIdRef: RefObject<string>;
   ensureSession: () => Promise<string>;
   refreshSessions: () => Promise<SessionSummary[]>;
-  /** POST /api/sessions/:id/messages */
   post: (sessionId: string, text: string) => Promise<PostMessageResult>;
   dispatch: Dispatch<ChatAction>;
   setSending: (value: boolean) => void;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
-/** 入力テキストを表示中セッションへ送る。未作成チャットでは ensureSession が送信時にセッションを作る */
 export async function sendChatMessage(text: string, deps: SendChatMessageDeps): Promise<void> {
   if (!text || deps.busy) return;
   const { sessionIdRef, ensureSession, refreshSessions, post, dispatch, setSending, setRuntimeStatus } = deps;
@@ -35,7 +32,6 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     const sameChat = sessionIdRef.current === targetId;
     if (sameChat) dispatch({ type: "localUser", text, at: Date.now() });
 
-    // 202 即時返却。実行はバックグラウンドで続き、イベントは SSE で届く
     const result = await post(targetId, text);
     if (sameChat) {
       if (result.queued) {
@@ -61,12 +57,10 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
 
 export type StopRunDeps = {
   sessionIdRef: RefObject<string>;
-  /** POST /api/sessions/:id/stop */
   stop: (sessionId: string) => Promise<StopResult>;
   dispatch: Dispatch<ChatAction>;
 };
 
-/** 表示中セッションへの停止要求。セッションが無ければ何もしない */
 export async function stopRun({ sessionIdRef, stop, dispatch }: StopRunDeps): Promise<void> {
   const id = sessionIdRef.current;
   if (!id) return;

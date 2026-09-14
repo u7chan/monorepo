@@ -1,5 +1,3 @@
-/** 複数コンポーネントで共有するアイコン */
-
 export function MenuIcon() {
   return (
     <svg
@@ -32,7 +30,6 @@ export function CloseIcon() {
   );
 }
 
-/** 設定ページからチャットへ戻る (サイドバーのモードを nav に戻す) */
 export function ArrowLeftIcon() {
   return (
     <svg
@@ -51,7 +48,6 @@ export function ArrowLeftIcon() {
   );
 }
 
-/** 定義の取り込み (ファイルから読む) */
 export function ImportIcon() {
   return (
     <svg
@@ -71,7 +67,6 @@ export function ImportIcon() {
   );
 }
 
-/** 定義の書き出し (ファイルへ出す) */
 export function ExportIcon() {
   return (
     <svg
@@ -91,7 +86,6 @@ export function ExportIcon() {
   );
 }
 
-/** 一覧の再取得 */
 export function RefreshIcon() {
   return (
     <svg
@@ -127,7 +121,6 @@ export function PlusIcon() {
   );
 }
 
-/** 削除 */
 export function TrashIcon() {
   return (
     <svg
@@ -147,7 +140,6 @@ export function TrashIcon() {
   );
 }
 
-/** 保存 */
 export function CheckIcon() {
   return (
     <svg
@@ -165,7 +157,6 @@ export function CheckIcon() {
   );
 }
 
-/** Model / Effort の設定トグル */
 export function SlidersIcon() {
   return (
     <svg
@@ -245,7 +236,6 @@ export function DisclosureChevronIcon() {
   );
 }
 
-/** ファイルツリーのディレクトリ */
 export function FolderIcon() {
   return (
     <svg
@@ -263,7 +253,6 @@ export function FolderIcon() {
   );
 }
 
-/** ファイルツリーのファイル */
 export function FileIcon() {
   return (
     <svg

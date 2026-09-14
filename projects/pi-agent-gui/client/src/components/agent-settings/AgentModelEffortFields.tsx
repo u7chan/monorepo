@@ -17,7 +17,6 @@ export function AgentModelEffortFields({
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
   modelOptions: ModelOption[];
-  /** アプリ既定モデル (provider/id) */
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
   onChangeModel: (model: ModelRef | null) => void;

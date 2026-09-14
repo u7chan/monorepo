@@ -5,13 +5,9 @@ export type NavSheetProps = SidebarProps & {
   onClose: () => void;
 };
 
-/**
- * モバイルのナビゲーション。Sidebar を drawer として開く。
- * モーダル dialog にすることで、背面の inert 化と Escape での終了を標準挙動に任せる。
- */
+/** モーダル dialog にして、背面の inert 化と Escape での終了を標準挙動に任せる */
 export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  /** 開く前にフォーカスしていた要素 (閉じたときに戻す) */
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {

@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyToClipboard } from "../lib/copyToClipboard";
 
-/**
- * 直前にコピーした要素の id を copiedId に保持し、resetMs 経過でクリアする。
- * コピー可否の表示は copiedId === 対象の id で判定する。
- */
 export function useMessageCopy(resetMs = 2000) {
   const [copiedId, setCopiedId] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** 進行中のコピー要求の識別子 (完了時に最新要求かを判定する) */
   const seqRef = useRef(0);
 
   useEffect(() => {

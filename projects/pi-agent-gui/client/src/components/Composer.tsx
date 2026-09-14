@@ -12,19 +12,14 @@ export type ComposerProps = {
   sending: boolean;
   stopVisible: boolean;
   queueDepth: number;
-  /** セッションのコンテキスト使用量。未取得 (セッション未作成 / SDK が使用量を返さない) の間はゲージを出さない */
   context?: ContextUsage;
-  /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
-  /** エージェント候補と選択中の定義 */
   agents: AgentDef[];
   agentId: string;
-  /** compact (portrait / landscape) では Model / Effort を畳んで入力を最優先にする */
   mode: LayoutMode;
-  /** メイン領域にチャットが出ているか。非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
+  /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
   onSend: (text: string) => void;
-  /** 停止要求 (fire-and-forget)。完了待ちは持たず、表示は stopVisible だけを出所にする */
   onStop: () => void;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
@@ -76,7 +71,6 @@ export function Composer({
   const landscape = mode === "landscape";
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState("");
-  /** Model / Effort の追加設定を開いているか (既定は畳む) */
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;

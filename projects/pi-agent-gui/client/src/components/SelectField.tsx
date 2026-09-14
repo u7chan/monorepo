@@ -1,7 +1,7 @@
 import type { ReactNode, SelectHTMLAttributes } from "react";
 
 export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
-  /** 選択欄の幅・伸縮・余白 (chevron を選択欄の右端に合わせるため wrapper 側に置く) */
+  /** chevron を右端に合わせるため wrapper 側に置く */
   wrapperClassName?: string;
   children: ReactNode;
 };

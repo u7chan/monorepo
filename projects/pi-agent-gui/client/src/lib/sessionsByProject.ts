@@ -9,7 +9,7 @@ export type ProjectSessionGroup = {
   sessions: SessionSummary[];
 };
 
-/** lastUsedAt の降順。同時刻は元の並び (サーバーの順) を保つ。 */
+/** 同時刻は元の並び (サーバーの順) を保つ */
 function byLastUsedDesc(a: SessionSummary, b: SessionSummary): number {
   return b.lastUsedAt - a.lastUsedAt;
 }

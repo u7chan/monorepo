@@ -6,7 +6,7 @@ import { CloseIcon, FolderIcon } from "./icons";
 
 export type ProjectDialogProps = {
   onClose: () => void;
-  /** 作成 / 登録を実行する。失敗は throw してフォームに出す */
+  /** 失敗は throw してフォームに出す */
   onCreate: (input: CreateProjectInput) => Promise<unknown>;
   compact?: boolean;
 };
@@ -18,18 +18,12 @@ const MODES: { value: ProjectMode; label: string }[] = [
   { value: "register", label: "既存を登録" },
 ];
 
-/**
- * プロジェクトの新規作成 / 既存ディレクトリの登録。ワークスペース root から GET /api/files を
- * 辿って親ディレクトリ (新規) / 対象ディレクトリ (登録) を選ぶ。一覧は移動のたびに取り直す。
- */
+/** root から GET /api/files を辿って親 (新規) / 対象 (登録) ディレクトリを選ぶ。一覧は移動のたびに取り直す */
 export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  /** 開く前にフォーカスしていた要素 (閉じたときに戻す) */
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [mode, setMode] = useState<ProjectMode>("create");
-  /** いま見ているディレクトリ (root 相対)。新規作成では親、登録では対象そのもの */
   const [path, setPath] = useState(WORKSPACE_ROOT);
-  /** 配下のディレクトリ。null は取得中 */
   const [directories, setDirectories] = useState<FileEntry[] | null>(null);
   const [listingError, setListingError] = useState<string | null>(null);
   const [name, setName] = useState("");

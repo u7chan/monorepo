@@ -4,20 +4,13 @@ import { MenuIcon } from "./icons";
 import { RuntimeAlert } from "./RuntimeAlert";
 
 export type CompactBarProps = {
-  /** compact な 2 モード (desktop では Topbar を使う) */
   mode: Exclude<LayoutMode, "desktop">;
-  /** 現在の会話 (無題なら新しい会話) */
   title: string;
   agentName?: string;
   runtimeStatus: RuntimeStatus;
   onOpenNav: () => void;
 };
 
-/**
- * モバイルの app bar。常時出すのは「どのエージェントのどの会話か」と nav の導線だけにして、
- * session 一覧 / エージェント管理 / 作業ディレクトリは NavSheet へ退避する。
- * landscape は高さが最も貴重なので 1 行に畳む。
- */
 export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }: CompactBarProps) {
   const landscape = mode === "landscape";
 

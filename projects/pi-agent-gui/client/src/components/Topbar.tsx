@@ -5,10 +5,6 @@ export type TopbarProps = {
   runtimeStatus: RuntimeStatus;
 };
 
-/**
- * desktop / tablet のチャットヘッダ。エラー表示と接続状態だけの帯にして、
- * テーマ切替は設定の「外観」ページへ移した。compact な viewport では CompactBar が置き換わる。
- */
 export function Topbar({ runtimeStatus }: TopbarProps) {
   return (
     <header className="grid gap-3 px-6 pb-3 pt-5 wide:px-8 wide:pt-6">

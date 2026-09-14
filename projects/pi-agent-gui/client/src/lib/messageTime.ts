@@ -32,13 +32,10 @@ function format(kind: TimeFormat, at: number, timeZone?: string): string {
 }
 
 export type MessageTimeOptions = {
-  /** IANA タイムゾーン。省略時は実行環境の既定 */
   timeZone?: string;
-  /** 「今日」の判定基準 (epoch ms)。省略時は現在時刻 */
   now?: number;
 };
 
-/** 常時表示の短いラベル: 今日 12:50 / 同じ年 9/5 / 別の年 2025/9/5 */
 export function messageTimeLabel(at: number, options: MessageTimeOptions = {}): string {
   const { timeZone, now = Date.now() } = options;
   if (format("yearMonthDay", at, timeZone) === format("yearMonthDay", now, timeZone)) {
@@ -50,7 +47,6 @@ export function messageTimeLabel(at: number, options: MessageTimeOptions = {}): 
   return format("yearMonthDay", at, timeZone);
 }
 
-/** ホバー (title) 用の完全な日時: 2026/9/5(土) 12:50 */
 export function messageFullTimeLabel(at: number, options: MessageTimeOptions = {}): string {
   return `${format("yearMonthDayWeekday", at, options.timeZone)} ${format("time", at, options.timeZone)}`;
 }

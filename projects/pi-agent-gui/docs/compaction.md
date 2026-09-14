@@ -1,6 +1,6 @@
 # 会話の圧縮（compaction）表示
 
-pi SDK はコンテキストが上限に近づくと会話を自動で compaction（古いメッセージを要約へ置き換えて context から外す）する。BFF はその結果を履歴として残し、GUI は圧縮位置の区切りと要約を出す。DTO と SSE イベントの契約は [api.md](api.md)、保存を見据えた要件は [persistence.md](persistence.md) を正とする。
+pi SDK はコンテキストが上限に近づくと会話を自動で compaction（古いメッセージを要約へ置き換えて context から外す）する。BFF はその結果を履歴として残し、GUI は圧縮位置の区切りと要約を出す。DTO と SSE イベントの契約は [api-sessions.md](api-sessions.md)、保存を見据えた要件は [persistence.md](persistence.md) を正とする。
 
 ## SDK が起きること
 
@@ -22,6 +22,13 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 | 失敗・中断 | `result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らず、履歴と区切りを変えない（既存の status 遷移とエラー表示に任せる） |
 
 要約は `messages` に混ぜず `SessionPayload.compactions` として配り、`messages` は従来どおり role `user` / `assistant` だけにする。要約テキストは他の出力と同じマスカーを通してから配る。
+
+## 環境変数（検証用）
+
+| 変数 | 説明 |
+| --- | --- |
+| `PI_COMPACTION_RESERVE_TOKENS` | compaction を起こす閾値（コンテキストに残す余裕）。未設定・不正値は SDK 既定の `16384` |
+| `PI_COMPACTION_KEEP_RECENT_TOKENS` | compaction 後に context へ残す直近トークン数。未設定・不正値は SDK 既定の `20000` |
 
 ## 検証
 

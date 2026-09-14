@@ -32,7 +32,6 @@ export function formatCost(total: number): string {
   return `$${total.toFixed(4)}`;
 }
 
-/** バブル下の常時表示。compact (portrait / landscape) は応答時間と tok/s だけに絞る */
 export function messageMetaLine(
   usage: Usage | undefined,
   metrics: MessageMetrics | undefined,
@@ -57,7 +56,6 @@ export function messageMetaLine(
   return parts.join(" · ");
 }
 
-/** ホバー (title) の詳細。報告が無い項目は出さない */
 export function messageMetaTitle(
   usage: Usage | undefined,
   metrics: MessageMetrics | undefined,
@@ -78,7 +76,7 @@ export function messageMetaTitle(
 export type ContextGaugeLevel = "normal" | "warn" | "danger";
 
 export type ContextGauge = {
-  /** バーのフィル幅 (0..1)。percent が不明なときは null (aria-valuenow も出さない) */
+  /** percent が不明なときは null (aria-valuenow も出さない) */
   fill: number | null;
   percent: string;
   detail: string;

@@ -117,8 +117,6 @@ export function useAgentDesk() {
     [projects, refreshSessions, removeProject, reselectIfMissing, sessions],
   );
 
-  // --- 起動とポーリング ---
-
   const boot = useEffectEvent(async (isCurrent: () => boolean) => {
     try {
       const h = await getHealth();

@@ -24,18 +24,15 @@ export interface PiModelRef {
   id: string;
 }
 
-/** UI にそのまま表示する認証未設定時の案内。 */
 export const AUTH_REQUIRED_MESSAGE =
   "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、保存済みの認証情報を確認してからサーバーを再起動してください。";
 
-/** UI にそのまま表示するサンドボックス未設定時の案内。 */
 export const SANDBOX_NOT_CONFIGURED_MESSAGE =
   "サンドボックスが設定されていません。PI_SANDBOX_URL と PI_SANDBOX_TOKEN を設定してサーバーを再起動してください (ローカルでのツール実行にはフォールバックしません)。";
 
 const MODEL_UNAVAILABLE_MESSAGE =
   "利用可能なモデルがありません。既定モデルまたはプロバイダーの設定を確認してください。";
 
-/** PI_MODELS の指定が利用可能モデルと交差しなかったときの案内。 */
 export const MODEL_WHITELIST_EMPTY_MESSAGE =
   "PI_MODELS に指定したモデルが利用可能なモデルにありません。PI_MODELS の指定とプロバイダーの認証設定を確認してください。";
 
@@ -54,11 +51,9 @@ const DEFAULT_TOOLS = process.platform === "win32"
 export interface CreateSessionInput {
   agent?: AgentDef;
   skills?: SkillDef[];
-  /** 解決済みの指定。未指定ならアプリ既定。 */
   model?: ModelRef;
-  /** 解決済みの指定。未指定ならアプリ既定。 */
   thinkingLevel?: ThinkingLevel;
-  /** rootCwd 相対の作業ディレクトリ。省略・空文字はワークスペース root。 */
+  /** rootCwd 相対。省略・空文字は root */
   cwd?: string;
 }
 
@@ -67,25 +62,20 @@ export interface PiBff {
   cwd: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
-  /** アプリ既定モデル (利用可能なときのみ) */
   selectedModel: PiModelRef | undefined;
   availableModels: PiModelRef[];
-  /** picker 用の候補と能力情報 (認証済みモデルのみ) */
   modelOptions: ModelOption[];
-  /** アプリ既定の thinkingLevel */
   defaultThinkingLevel: ThinkingLevel;
   /** 明示 PI_MODEL が利用不能なときの理由 (他候補があれば ready のまま) */
   defaultModelError: string | undefined;
   availabilityError: string | undefined;
   /** PI_MODELS が候補を全部落とした (ready: false の原因が whitelist だと health が判定するため) */
   modelWhitelistExcludesAll: boolean;
-  /** PI_SANDBOX_URL / PI_SANDBOX_TOKEN が揃っていれば true (未設定ならセッション作成を 503 で拒否) */
   sandboxConfigured: boolean;
   tools: string[];
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
   createSession(input?: CreateSessionInput): Promise<{ session: unknown }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
-  /** ツール出力や SSE から既知の秘密値を除くマスカー (保護対象が無ければ素通し) */
   secretMasker: SecretMasker;
 }
 

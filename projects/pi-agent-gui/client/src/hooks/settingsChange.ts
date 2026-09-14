@@ -4,26 +4,20 @@
  */
 import type { ModelRef, SessionPayload, ThinkingLevel } from "../types";
 
-/** 作成前の選択と設定変更リクエストで共通の指定 */
 export type SettingsSelection = {
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
 };
 
 export interface SettingsChangeDeps {
-  /** 要求時に捕捉したセッションがまだ選択中か */
   isCurrentSession: () => boolean;
   request: (sessionId: string, selection: SettingsSelection) => Promise<SessionPayload>;
-  /** 失敗時にサーバーの実効状態（GET /api/sessions/:id）を取り直す */
   recover: (sessionId: string) => Promise<SessionPayload>;
   applyPayload: (payload: SessionPayload) => void;
   onSuccess: () => void;
   onError: (error: unknown) => void;
 }
 
-/**
- * 応答が返った時点でまだ同じチャットが選ばれているときだけ表示を更新し、切替済みの応答は破棄する。
- */
 export async function applySettingsChange(
   sessionId: string,
   selection: SettingsSelection,
@@ -31,7 +25,7 @@ export async function applySettingsChange(
 ): Promise<void> {
   try {
     const payload = await deps.request(sessionId, selection);
-    if (!deps.isCurrentSession()) return; // 切替済み: 古い成功応答は適用しない
+    if (!deps.isCurrentSession()) return;
     deps.applyPayload(payload);
     deps.onSuccess();
   } catch (error) {
@@ -44,7 +38,7 @@ export async function applySettingsChange(
         // セッションが消えている場合は onClosed 側の再選択に任せる
       }
     }
-    if (!deps.isCurrentSession()) return; // 切替済み: 活動表示や runtimeStatus も触らない
+    if (!deps.isCurrentSession()) return; // 切替済みの応答では活動表示や runtimeStatus も触らない
     deps.onError(error);
   }
 }

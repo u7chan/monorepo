@@ -20,14 +20,10 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
 
 export type FileTreePageProps = SettingsPageProps & {
-  /**
-   * ツリーの root (ワークスペース root 相対。"" / "." / ワークスペース root の絶対パスはワークスペース root)。
-   * 配下の取得はこのパスを前置して GET /api/files へ問い合わせる。
-   */
+  /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
   cwd: string;
 };
 
-/** 1 段あたりのインデント (px) */
 const INDENT = 16;
 
 function errorText(error: unknown): string {
@@ -41,7 +37,6 @@ function errorText(error: unknown): string {
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
  */
 export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTreePageProps) {
-  /** ツリーの起点。表示も取得もこの root 相対で揃える */
   const rootPath = normalizeFileTreeRoot(cwd);
   const [tree, setTree] = useState<FileTreeState>(createFileTreeState);
   const [selected, setSelected] = useState<string | null>(null);

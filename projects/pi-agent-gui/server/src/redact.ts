@@ -13,9 +13,8 @@ export interface SecretMaskerOptions {
   minLength?: number;
 }
 
-/** 空配列なら同一変換 (何も置換しない)。 */
 export interface SecretMasker {
-  /** 保護中の秘密値 (長い順)。 */
+  /** 長い順 */
   readonly secrets: readonly string[];
   /** ストリーミング保留幅の計算に使う最大長。 */
   readonly maxSecretLength: number;

@@ -4,13 +4,11 @@ import { useTheme } from "./ThemeProvider";
 import { isThemeId, type ThemeChoice } from "./themes";
 
 export type ThemeSwitcherProps = {
-  /** レイアウト調整用のクラスを外部から差し込む */
   className?: string;
-  /** mobile の compact layout 向け (画面幅いっぱいに広げ、iOS の focus 時ズームを避けて 16px 以上にする) */
+  /** compact 向け (画面幅いっぱいに広げ、iOS の focus 時ズームを避けて 16px 以上にする) */
   compact?: boolean;
 };
 
-/** テーマ選択 (設定の「外観」ページに置く) */
 export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps) {
   const { choice, resolvedId, setChoice, themes } = useTheme();
 

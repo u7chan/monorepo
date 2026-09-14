@@ -22,15 +22,14 @@ export default function App() {
   const compact = compactMode !== null;
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  /** nav: プロジェクト階層 / settings: 設定ナビ。drawer を閉じても保たれる */
+  // drawer を閉じても保つ
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("nav");
-  /** settings モードでメイン領域に出すページ。サイドバーの項目と一致させる */
+  // Sidebar の項目と一致させる
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("agents");
   const mainView = mainViewFor(sidebarMode);
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
   const openNav = useCallback(() => setNavOpen(true), []);
   const closeNav = useCallback(() => setNavOpen(false), []);
-  /** 設定ページ → チャット。compact のページヘッダと Escape から呼ぶ (desktop はサイドバーの導線だけ) */
   const backToChat = useCallback(() => setSidebarMode("nav"), []);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
@@ -75,9 +74,6 @@ export default function App() {
     return catalog;
   }, [desk]);
 
-  // --- nav (sidebar / drawer) ---
-
-  /** 設定ナビの項目 = メイン領域のページ。モードも settings に揃える */
   const openSettingsSection = useCallback((section: SettingsSection) => {
     setSettingsSection(section);
     setSidebarMode("settings");
@@ -149,7 +145,6 @@ export default function App() {
     <div
       className={[
         "grid h-dvh min-h-0 bg-base text-ink",
-        // compact は main だけが子なので 1 行。desktop は sidebar + main の 2 カラム
         compact ? "grid-rows-[minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]",
       ].join(" ")}
     >

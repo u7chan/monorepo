@@ -82,7 +82,7 @@ function projectCompactions(
   });
 }
 
-/** record を入力にする版 (payload 組み立てと SessionStore.compactionsOf が共有する) */
+/** record を入力にする版 */
 export function compactionsOf(record: SessionRecord, masker: SecretMasker): CompactionInfo[] {
   return projectCompactions(record.session, record.compactionMeta, masker);
 }

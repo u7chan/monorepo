@@ -12,7 +12,6 @@ export type SessionStreamDeps = {
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
-/** セッションの SSE イベントを chat 状態へ適用する */
 export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): void {
   const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus } = deps;
   if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);

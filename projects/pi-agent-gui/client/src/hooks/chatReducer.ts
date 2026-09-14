@@ -13,7 +13,6 @@ import type {
 export type ToolPhase = "running" | "done" | "failed";
 
 export type ToolCard = {
-  /** サーバー発イベントの toolCall id (ローカル生成時は採番) */
   id: string;
   name: string;
   args: string;
@@ -26,37 +25,25 @@ export type Bubble = {
   role: "user" | "assistant";
   text: string;
   tools: ToolCard[];
-  /** メッセージの作成時刻 (epoch ms)。履歴に時刻が無い場合は undefined */
   at?: number;
-  /** プロバイダが報告した使用量 (数値なのでマスク不要) */
   usage?: Usage;
-  /** BFF 計測の応答時間。リロード後も resync で戻る */
   metrics?: MessageMetrics;
 };
 
 export type ChatState = {
   bubbles: Bubble[];
   nextId: number;
-  /** 開いている assistant バブル */
   currentAssistantId: number | null;
-  /** toolCall id -> バブル id (tool_end でカードを引くため) */
   toolBubbleIds: Record<string, number>;
   runStatus: RunStatus;
   queueDepth: number;
   activity: string;
-  /** サーバーが返した実効モデル (provider/id)。未作成のチャットでは undefined */
   sessionModel?: string;
-  /** サーバー補正後の実効 Effort */
   sessionThinkingLevel?: string;
-  /** 実効モデルが推論に対応しているか */
   supportsThinking: boolean;
-  /** 実効モデルで選べる Effort の候補 (非推論は ["off"] のみ) */
   availableThinkingLevels: ThinkingLevel[];
-  /** セッションのコンテキスト使用量。セッション未作成、または payload 未取得の間は undefined */
   context?: ContextUsage;
-  /** 会話の圧縮履歴 (古い→新しい)。区切りの位置は最新の 1 件だけが持つ */
   compactions: CompactionInfo[];
-  /** usage が本文 / ツールカードより先に届いたときの保留値 (次に作る assistant バブルへ回す) */
   pendingUsage?: Usage;
   pendingMetrics?: MessageMetrics;
 };
@@ -117,7 +104,7 @@ function patchAssistant(
   return updateBubble(state, state.currentAssistantId, update);
 }
 
-/** 開いている assistant バブルを返す (なければ新規作成)。at は生成元イベントの時刻 */
+/** at は生成元イベントの時刻 */
 function ensureAssistant(state: ChatState, at?: number): ChatState {
   if (state.currentAssistantId !== null && state.bubbles.some((b) => b.id === state.currentAssistantId)) {
     return state;
@@ -162,7 +149,6 @@ function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: B
   return { bubbles, nextId };
 }
 
-/** run.toolCalls をツールカードに変換してバブルへ付ける */
 function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall[]): ChatState {
   let next = state;
   for (const call of toolCalls) {

@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { ThinkingLevelSchema } from "./schema";
 import type { AgentDef, AgentSuggestion, Catalog, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
-/** HTTP ハンドラが statusCode を参照する。 */
 export interface HttpError extends Error {
   statusCode?: number;
 }
@@ -54,7 +53,6 @@ const DEFAULT_SKILLS: SkillRecord[] = [
   },
 ];
 
-/** 既定エージェント: 素の汎用 1 体 + 職務の異なるサンプル 3 体。model / thinkingLevel は未指定のままにする。 */
 const DEFAULT_AGENTS: AgentRecord[] = [
   {
     id: "agent-general",

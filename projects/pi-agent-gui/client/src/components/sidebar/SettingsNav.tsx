@@ -7,7 +7,6 @@ export function SettingsNav({
   onOpenSettingsSection,
 }: {
   activeSettingsSection: SettingsSection;
-  /** nav モードへ戻す (メイン領域もチャットへ) */
   onSelectMode: (mode: SidebarMode) => void;
   onOpenSettingsSection: (section: SettingsSection) => void;
 }) {

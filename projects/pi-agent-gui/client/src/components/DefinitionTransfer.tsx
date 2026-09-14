@@ -3,22 +3,16 @@ import { replaceCatalog } from "../api";
 import type { Catalog } from "../types";
 import { ExportIcon, ImportIcon } from "./icons";
 
-/** メモリ内カタログの注意書き。エージェント / スキル両ページの初期ノートに使う */
 export const DEFINITIONS_NOTE = "変更はこのサーバーのメモリ内だけに保存されます。再起動するとサンプルに戻ります。";
 
 export type DefinitionTransferProps = {
   catalog: Catalog;
-  /** カタログ再読込 (agentId の正規化も行われる) */
   refreshCatalog: () => Promise<Catalog>;
-  /** 読み込んだ定義に合わせてページの選択を寄せる */
   onImported: (next: Catalog) => void;
   onNote: (text: string, error?: boolean) => void;
 };
 
-/**
- * カタログ全体 (エージェント + スキル) の書き出しと読み込み。
- * どちらの設定ページからも同じ操作をできるように共通化する。
- */
+/** エージェント / スキル両ページから同じ操作をできるように共通化する */
 export function DefinitionTransfer({ catalog, refreshCatalog, onImported, onNote }: DefinitionTransferProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 

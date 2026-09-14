@@ -10,7 +10,7 @@ type AgentForm = {
   description: string;
   systemPrompt: string;
   skillIds: string[];
-  /** null は「未指定」 (保存時は指定解除として送る) */
+  /** null は保存時に「指定解除」として送る */
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
   suggestions: AgentSuggestion[];
@@ -47,9 +47,7 @@ export function AgentEditorForm({
 }: {
   catalog: Catalog;
   editingId: string | null;
-  /** editingId が指す定義。未指定 (新規) と catalog から消えた id の両方で undefined になる */
   agent: AgentDef | undefined;
-  /** 現在選択中のエージェント (削除後のフォールバックに使う) */
   selectedAgentId: string;
   modelOptions: ModelOption[];
   defaultModel?: string;
