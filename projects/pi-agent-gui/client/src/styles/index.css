@@ -111,6 +111,15 @@ html[data-theme="midnight"] {
   --c-glow: rgba(112, 79, 182, 0.12);
   --c-backdrop: rgba(4, 6, 10, 0.78);
   --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.28);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #c9a9ff;
+  --c-syn-str: #8fd7a8;
+  --c-syn-num: #f4b46b;
+  --c-syn-com: #7c8798;
+  --c-syn-fn: #86c8f0;
+  --c-syn-type: #f0a8bd;
+  --c-syn-op: #8d97a9;
 }
 
 /* デイライト: 明るいブルーグレー×インディゴヴァイオレット */
@@ -143,6 +152,15 @@ html[data-theme="daylight"] {
   --c-glow: rgba(139, 92, 246, 0.09);
   --c-backdrop: rgba(15, 18, 28, 0.45);
   --c-shadow-panel: 0 24px 70px rgba(23, 28, 45, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #7c3aed;
+  --c-syn-str: #0f7a4a;
+  --c-syn-num: #a35a00;
+  --c-syn-com: #767f92;
+  --c-syn-fn: #1565a8;
+  --c-syn-type: #b0305f;
+  --c-syn-op: #5d6779;
 }
 
 /* モカ: 暖色茶×琥珀 */
@@ -175,6 +193,15 @@ html[data-theme="mocha"] {
   --c-glow: rgba(224, 164, 88, 0.1);
   --c-backdrop: rgba(12, 9, 6, 0.78);
   --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #f2c185;
+  --c-syn-str: #a9c98a;
+  --c-syn-num: #e8a86a;
+  --c-syn-com: #857460;
+  --c-syn-fn: #93c7d8;
+  --c-syn-type: #e39a86;
+  --c-syn-op: #9c8b76;
 }
 
 /* フォレスト: 深緑×緑 */
@@ -207,6 +234,15 @@ html[data-theme="forest"] {
   --c-glow: rgba(111, 206, 143, 0.1);
   --c-backdrop: rgba(3, 8, 5, 0.78);
   --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #c3a6ff;
+  --c-syn-str: #8fd9a1;
+  --c-syn-num: #e8c07a;
+  --c-syn-com: #6f8878;
+  --c-syn-fn: #8fc9ea;
+  --c-syn-type: #eda9b8;
+  --c-syn-op: #8ba394;
 }
 
 /* サクラ: 明るい桜色×ローズ */
@@ -239,6 +275,15 @@ html[data-theme="sakura"] {
   --c-glow: rgba(232, 162, 186, 0.14);
   --c-backdrop: rgba(43, 20, 30, 0.45);
   --c-shadow-panel: 0 24px 70px rgba(88, 45, 60, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #8b3fbf;
+  --c-syn-str: #1d7f56;
+  --c-syn-num: #a2600a;
+  --c-syn-com: #8f737e;
+  --c-syn-fn: #1f6a9c;
+  --c-syn-type: #b03a63;
+  --c-syn-op: #7a626c;
 }
 
 /* スカイ: 明るい空色×シアン */
@@ -271,6 +316,15 @@ html[data-theme="sky"] {
   --c-glow: rgba(99, 198, 238, 0.18);
   --c-backdrop: rgba(12, 32, 45, 0.42);
   --c-shadow-panel: 0 24px 70px rgba(18, 55, 80, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #6b3fbf;
+  --c-syn-str: #107a56;
+  --c-syn-num: #9c5c00;
+  --c-syn-com: #7d95a3;
+  --c-syn-fn: #0a6b91;
+  --c-syn-type: #b0355f;
+  --c-syn-op: #5d7c8d;
 }
 
 /* ラン状態ドットの pulse (旧 @keyframes pulse 相当) */
@@ -428,5 +482,299 @@ html[data-theme="sky"] {
   .theme-swatch[data-theme-id="sky"] {
     background: #e9f4fb;
     box-shadow: 0 0 0 1.5px rgba(99, 198, 238, 0.9);
+  }
+
+  /* ===== Markdown 本文 (client/src/components/markdown) =====
+   * 本文は 13px / 行間 1.75 で、見出しとコードだけ周囲より濃くする。
+   * インライン style は使わない (本番 CSP は style-src 'self')。 */
+
+  .md {
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--c-ink-soft);
+    word-break: break-word;
+  }
+  /* 先頭 / 末尾の余白はバブル側の余白に任せる */
+  .md > :first-child {
+    margin-top: 0;
+  }
+  .md > :last-child {
+    margin-bottom: 0;
+  }
+  .md h1,
+  .md h2,
+  .md h3 {
+    color: var(--c-ink-strong);
+    font-weight: 650;
+    line-height: 1.4;
+  }
+  .md h1 {
+    font-size: 18px;
+    margin: 18px 0 8px;
+  }
+  .md h2 {
+    font-size: 15px;
+    margin: 16px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--c-line);
+  }
+  .md h3 {
+    font-size: 13.5px;
+    margin: 14px 0 4px;
+  }
+  .md h4,
+  .md h5,
+  .md h6 {
+    font-size: 13px;
+    margin: 12px 0 4px;
+    color: var(--c-ink);
+  }
+  .md p {
+    margin: 8px 0;
+  }
+  .md ul,
+  .md ol {
+    margin: 8px 0;
+    padding-left: 20px;
+  }
+  /* Tailwind の preflight が消すリスト表示を戻す */
+  .md ul {
+    list-style: disc;
+  }
+  .md ul ul {
+    list-style: circle;
+  }
+  .md ul ul ul {
+    list-style: square;
+  }
+  .md ol {
+    list-style: decimal;
+  }
+  .md li {
+    margin: 3px 0;
+  }
+  .md li ul,
+  .md li ol {
+    margin: 3px 0;
+  }
+  /* 入れ子のブロックは .md をもう 1 枚挟むため、項目内の余白はここで詰める */
+  .md li > .md > p {
+    margin: 0;
+  }
+  .md blockquote {
+    margin: 10px 0;
+    padding: 2px 0 2px 12px;
+    border-left: 2px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+    background: var(--c-accent-wash);
+    color: var(--c-ink-muted);
+  }
+  .md blockquote .md {
+    color: inherit;
+  }
+  .md blockquote > .md > :first-child {
+    margin-top: 4px;
+  }
+  .md blockquote > .md > :last-child {
+    margin-bottom: 4px;
+  }
+  .md strong {
+    color: var(--c-ink);
+    font-weight: 650;
+  }
+  .md em {
+    font-style: italic;
+  }
+  .md del {
+    color: var(--c-ink-faint);
+  }
+  .md a {
+    color: var(--c-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .md code {
+    font-size: 0.9em;
+    padding: 0.1em 0.35em;
+    border-radius: 5px;
+    background: var(--c-soft);
+    border: 1px solid var(--c-line);
+    color: var(--c-ink);
+  }
+  .md kbd {
+    font-size: 0.82em;
+    padding: 0.1em 0.4em;
+    border-radius: 5px;
+    border: 1px solid var(--c-line-strong);
+    border-bottom-width: 2px;
+    background: var(--c-raised);
+    color: var(--c-ink-muted);
+  }
+  .md mark {
+    background: color-mix(in srgb, var(--c-warn) 30%, transparent);
+    color: var(--c-ink-strong);
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+  .md small {
+    font-size: 0.85em;
+  }
+  .md hr,
+  .md-hr {
+    border: 0;
+    border-top: 1px solid var(--c-line);
+    margin: 14px 0;
+  }
+  .md img,
+  .md-img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid var(--c-line);
+    vertical-align: middle;
+  }
+
+  /* タスクリスト (- [x])。マーカーが無いぶん左へ寄せて本文と揃える */
+  .md .md-task {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    list-style: none;
+    margin-left: -18px;
+  }
+  .md .md-task > .md {
+    min-width: 0;
+    flex: 1;
+  }
+  .md .md-check {
+    flex: 0 0 auto;
+    margin-top: 0.35em;
+    accent-color: var(--c-accent);
+  }
+
+  /* 表。横に長いときは折り返さず、表だけ横スクロールする */
+  .md-table-wrap {
+    margin: 10px 0;
+    overflow-x: auto;
+  }
+  .md-table {
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .md-table th,
+  .md-table td {
+    border: 1px solid var(--c-line);
+    padding: 4px 10px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .md-table td:last-child,
+  .md-table th:last-child {
+    white-space: normal;
+  }
+  .md-table th {
+    background: var(--c-soft);
+    color: var(--c-ink);
+    font-weight: 600;
+  }
+  .md-table .md-al-center {
+    text-align: center;
+  }
+  .md-table .md-al-right {
+    text-align: right;
+  }
+
+  /* コードフェンス */
+  .md-code {
+    margin: 10px 0;
+    border: 1px solid var(--c-line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--c-panel);
+  }
+  .md-code-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 6px 2px 10px;
+    border-bottom: 1px solid var(--c-line);
+    background: var(--c-soft);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--c-ink-faint);
+  }
+  .md-code-lang {
+    font-weight: 600;
+  }
+  .md-code-lines {
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--c-ink-ghost);
+  }
+  .md-code-grow {
+    flex: 1;
+  }
+  .md-code-state {
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .md-code-body {
+    margin: 0;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--c-ink);
+  }
+  /* コードブロックの中の code はインラインコードの装飾を打ち消す (上の .md code より後に置く) */
+  .md-code-body code {
+    font-size: inherit;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+  }
+  .md-code-streaming {
+    border-color: color-mix(in srgb, var(--c-accent) 45%, transparent);
+  }
+  .md-code-streaming .md-code-head {
+    color: var(--c-accent-text);
+  }
+  .md-caret {
+    display: inline-block;
+    width: 6px;
+    height: 13px;
+    vertical-align: -2px;
+    background: var(--c-accent);
+    animation: md-blink 1s steps(2, start) infinite;
+  }
+  @keyframes md-blink {
+    to {
+      visibility: hidden;
+    }
+  }
+
+  /* シンタックスハイライトの色 (--c-syn-* は各テーマのプリセットで定義する) */
+  .tok-key {
+    color: var(--c-syn-key);
+  }
+  .tok-str {
+    color: var(--c-syn-str);
+  }
+  .tok-num {
+    color: var(--c-syn-num);
+  }
+  .tok-com {
+    color: var(--c-syn-com);
+    font-style: italic;
+  }
+  .tok-fn {
+    color: var(--c-syn-fn);
+  }
+  .tok-type {
+    color: var(--c-syn-type);
+  }
+  .tok-op {
+    color: var(--c-syn-op);
   }
 }

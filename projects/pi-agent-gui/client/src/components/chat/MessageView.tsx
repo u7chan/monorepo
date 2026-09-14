@@ -1,6 +1,7 @@
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
+import { MarkdownView } from "../markdown/MarkdownView";
 import { CopyButton, REVEAL_MESSAGE } from "./CopyButton";
 import { ToolHistoryView } from "./ToolHistory";
 
@@ -72,14 +73,14 @@ export function MessageView({
           />
         ) : null}
         {bubble.text ? (
-          <div
-            className={[
-              "whitespace-pre-wrap break-words text-[13px] leading-relaxed",
-              isUser ? "rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-on-accent" : "text-ink-soft",
-            ].join(" ")}
-          >
-            {bubble.text}
-          </div>
+          isUser ? (
+            // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
+            <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-[13px] leading-relaxed text-on-accent">
+              {bubble.text}
+            </div>
+          ) : (
+            <MarkdownView text={bubble.text} />
+          )
         ) : null}
         {/* ツールだけの assistant (本文なし) でも時刻は出す */}
         {bubble.text || bubble.at !== undefined ? (

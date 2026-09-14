@@ -1,6 +1,8 @@
 /** ホバーできる端末だけホバー / フォーカスで出し、タッチ端末は常に表示する。group 名は使う側と対にする */
 export const REVEAL_MESSAGE = "can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100 focus-visible:opacity-100";
 export const REVEAL_TOOL = "can-hover:opacity-0 can-hover:group-hover/row:opacity-100 focus-visible:opacity-100";
+/** コードブロックのコピー。group 名は CodeBlock 側の figure と対にする */
+export const REVEAL_CODE = "can-hover:opacity-0 can-hover:group-hover/code:opacity-100 focus-visible:opacity-100";
 
 // 2 枚の紙を閉じた矩形で重ねると 14px では交差線が潰れるため、後ろの紙は開いたパスで描く
 function CopyIcon() {
