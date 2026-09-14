@@ -1,35 +1,42 @@
 /**
  * インメモリのセッションストア。ラン (prompt() 1 回) は HTTP リクエストから切り離して
  * バックグラウンドで走り、イベントは単調増加の seq 付きでログされるため購読者は途中参加・再接続できる。
+ *
+ * セッション状態の所有者はこのクラス 1 つに保つ (create と project 削除・settings 変更中の送信抑止・
+ * queue / run / subscriber は複数箇所へ分けると競合を追えなくなる)。pi イベント変換と DTO 組み立ては
+ * run-events / session-projection / compaction-view / session-payload の純関数・アダプタへ出す。
  */
 import { randomUUID } from "node:crypto";
 import { AUTH_REQUIRED_MESSAGE, type PiBff } from "./agent";
-import type { ProjectStore } from "./projects";
-import { createSecretMasker, createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { AgentCatalog } from "./agents";
+import { compactionsOf } from "./compaction-view";
+import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
+import type { ProjectStore } from "./projects";
+import { createSecretMasker, type SecretMasker } from "./redact";
+import { createRunEventBridge, type RunSettlement } from "./run-events";
 import type {
-  AgentDef,
+  CreateSessionOptions,
+  PostMessageResultInternal,
+  RunState,
+  SessionRecord,
+  SessionSubscriber,
+  UpdateSessionSettingsInput,
+} from "./session-record";
+import { projectSessionPayload, projectSessionSummary } from "./session-payload";
+import { truncate } from "./session-projection";
+import type {
   AgentPayloadInfo,
   AgentSkillInfo,
-  ChatMessage,
   CompactionInfo,
-  CompactionReason,
-  ContextUsage,
   EventEntry,
-  MessageMetrics,
-  ModelRef,
   Project,
   RunStatus,
   SessionPayload,
   SessionSummary,
-  SSEEventType,
-  SSEEventData,
   SkillDef,
-  ThinkingLevel,
-  ToolCall,
-  Usage,
+  SSEEventData,
+  SSEEventType,
 } from "./schema";
-import { CompactionReasonSchema, ContextUsageSchema, UsageSchema } from "./schema";
 
 const MAX_EVENT_LOG = 2000;
 const MAX_QUEUE_DEPTH = 10;
@@ -37,9 +44,6 @@ const QUEUE_DELAY_MS = 200;
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const TITLE_MAX = 60;
-const SUMMARY_TEXT_MAX = 900;
-const ARGS_TEXT_MAX = 260;
-const PROMPT_TEXT_MAX = 300;
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -57,333 +61,10 @@ export interface HttpLikeError extends Error {
   statusCode?: number;
 }
 
-function truncate(value: string | undefined | null, length: number): string {
-  if (!value) return "";
-  return value.length > length ? `${value.slice(0, length)}…` : value;
-}
-
-function contentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((part) => part && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")
-    .map((part) => (part as { text: string }).text)
-    .join("");
-}
-
-function toolArgsSummary(args: unknown, masker: SecretMasker): string {
-  if (!args || typeof args !== "object") return "";
-  const record = args as Record<string, unknown>;
-  // マスクしてから切り詰める。先に切り詰めると境界でキーの末尾が欠け、大部分が生のまま残る。
-  if (typeof record.command === "string") {
-    return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
-  }
-  const path = record.path || record.file_path || record.filePath;
-  if (typeof path === "string") return masker.mask(path);
-  try {
-    return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
-  } catch {
-    return "";
-  }
-}
-
-function toolResultSummary(result: unknown, masker: SecretMasker): string {
-  // 切り詰める前にマスクする (先に切り詰めると境界でキーの末尾が欠ける)。
-  // SDK 側の切り詰めで先頭が欠けた場合に備え maskSafe を使う。
-  return truncate(
-    masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)),
-    SUMMARY_TEXT_MAX,
-  );
-}
-
-function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
-  if (!model || (model.provider === "unknown" && model.id === "unknown")) return undefined;
-  return `${model.provider}/${model.id}`;
-}
-
-/** 契約外の usage (部分的な実装・旧 SDK) は数字として扱わず、キーごと落とす。 */
-function parseUsage(raw: unknown): Usage | undefined {
-  const parsed = UsageSchema.safeParse(raw);
-  return parsed.success ? parsed.data : undefined;
-}
-
-function contextUsageOf(session: PiSessionLike): ContextUsage | undefined {
-  const parsed = ContextUsageSchema.safeParse(session.getContextUsage?.());
-  return parsed.success ? parsed.data : undefined;
-}
-
-/**
- * BFF が観測したイベント到着時刻から応答時間を組む (SDK は完了時刻を持たない)。
- * tok/s は最初の delta からのスパンで割り、スパンが無ければ全体の duration で割る。
- */
-export function computeMessageMetrics({
-  startedAt,
-  firstTokenAt,
-  endedAt,
-  outputTokens,
-}: {
-  startedAt: number | undefined;
-  firstTokenAt: number | undefined;
-  endedAt: number;
-  outputTokens: number | undefined;
-}): MessageMetrics | undefined {
-  if (startedAt === undefined) return undefined;
-  const durationMs = endedAt - startedAt;
-  if (durationMs < 0) return undefined;
-  const metrics: MessageMetrics = { durationMs };
-  if (firstTokenAt !== undefined) {
-    const ttftMs = firstTokenAt - startedAt;
-    if (ttftMs >= 0) metrics.ttftMs = ttftMs;
-  }
-  const streamSpan = firstTokenAt === undefined ? durationMs : endedAt - firstTokenAt;
-  const span = streamSpan > 0 ? streamSpan : durationMs;
-  if (span > 0 && outputTokens !== undefined && outputTokens > 0) {
-    metrics.tokensPerSecond = (outputTokens * 1000) / span;
-  }
-  return metrics;
-}
-
 function httpError(statusCode: number, message: string): HttpLikeError {
   const error = new Error(message) as HttpLikeError;
   error.statusCode = statusCode;
   return error;
-}
-
-// ---------------------------------------------------------------------------
-// pi SDK に用途に合う型がないため、必要な分だけの最小 interface を定義する
-// ---------------------------------------------------------------------------
-
-/** compaction_end の result (SDK の CompactionResult のうち BFF が控える分) */
-export interface PiCompactionResult {
-  estimatedTokensAfter?: unknown;
-}
-
-/** pi SDK から届くランタイムイベントの緩い形 (必要なフィールドのみ) */
-export interface PiSessionEvent {
-  type?: string;
-  message?: { role?: string; usage?: unknown } | null;
-  assistantMessageEvent?: { type?: string; delta?: string } | null;
-  toolCallId?: string;
-  toolName?: string;
-  args?: unknown;
-  isError?: boolean;
-  result?: unknown;
-  attempt?: number;
-  maxAttempts?: number;
-  error?: unknown;
-  willRetry?: boolean;
-  reason?: string;
-  aborted?: boolean;
-  errorMessage?: string;
-}
-
-/** pi SDK の SessionEntry (BFF が compaction を読むのに必要な分だけ) */
-export interface PiSessionEntryLike {
-  id?: unknown;
-  parentId?: unknown;
-  timestamp?: unknown;
-  type?: unknown;
-  message?: { role?: unknown; content?: unknown } | null;
-  summary?: unknown;
-  firstKeptEntryId?: unknown;
-  tokensBefore?: unknown;
-  usage?: unknown;
-  fromHook?: unknown;
-}
-
-export type PiSessionEventListener = (event: PiSessionEvent) => void;
-
-/** pi SDK の AgentSession を差し替え可能にするための最小 interface */
-export interface PiSessionLike {
-  sessionId: string;
-  model?: { provider: string; id: string } | null;
-  thinkingLevel?: string;
-  messages: Array<{
-    role: string;
-    content: unknown;
-    stopReason?: string;
-    errorMessage?: string;
-    timestamp?: number;
-    usage?: unknown;
-  }>;
-  isStreaming: boolean;
-  /** SDK の isIdle (実行・compaction・retry が無い) */
-  isIdle: boolean;
-  subscribe(listener: PiSessionEventListener): () => void;
-  prompt(text: string): Promise<unknown>;
-  abort(): Promise<unknown>;
-  /** 認証確認後にモデルと thinking を切り替える */
-  setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
-  /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
-  sessionManager?: { getBranch?(): unknown[] };
-  /** SDK が非対応値を補正する */
-  setThinkingLevel(level: string, options?: { persist?: boolean }): void;
-  /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
-  getAvailableThinkingLevels(): string[];
-  supportsThinking(): boolean;
-  /** SDK が持たない実装 (スタブ・旧 SDK) では undefined を返してよい */
-  getContextUsage?(): unknown;
-  dispose?(): void;
-  disposed?: boolean;
-}
-
-/** テストや埋め込み側が差し込む pi ランタイムの最小 interface */
-export interface PiRuntimeLike {
-  createSession(input?: {
-    agent?: AgentDef;
-    skills?: SkillDef[];
-    model?: ModelRef;
-    thinkingLevel?: ThinkingLevel;
-    /** rootCwd 相対の作業ディレクトリ (省略・空文字は root)。BFF が絶対パスへ解決する */
-    cwd?: string;
-  }): Promise<{ session: unknown }>;
-  /** availableModels との厳密一致。スタブでは未実装でもよい */
-  resolveModel?(model: ModelRef): unknown;
-}
-
-export interface RunState {
-  id: string;
-  prompt: string;
-  status: RunStatus;
-  startedAt: number;
-  endedAt?: number;
-  error?: string;
-}
-
-/** compaction entry id に紐づく、entry へは保存されない表示用の値 */
-export interface CompactionMeta {
-  reason?: CompactionReason;
-  estimatedTokensAfter?: number;
-}
-
-export interface SessionSubscriber {
-  send: (entry: EventEntry) => void;
-  close?: () => void;
-}
-
-export interface SessionRecord {
-  id: string;
-  session: PiSessionLike;
-  agentId: string;
-  /** 所属プロジェクト。未所属はキーを省略する (model? と同じ扱い) */
-  projectId?: string;
-  /** 作成時点のエージェント表示情報 (定義の編集・削除の影響を受けないスナップショット) */
-  agent: AgentPayloadInfo;
-  title: string;
-  createdAt: number;
-  lastUsedAt: number;
-  seq: number;
-  events: EventEntry[];
-  subscribers: Set<SessionSubscriber>;
-  queue: string[];
-  run: RunState | null;
-  tools: Map<string, ToolCall>;
-  /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
-  messageMetrics: WeakMap<object, MessageMetrics>;
-  /** compaction entry id -> entry に保存されない表示用の値 (compaction_end 受信時に控える) */
-  compactionMeta: Map<string, CompactionMeta>;
-  /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
-  changingSettings: boolean;
-}
-
-export interface CreateSessionOptions {
-  agentId?: string;
-  /** 作成時のチャット指定 (未指定ならエージェント定義 → アプリ既定) */
-  model?: ModelRef;
-  thinkingLevel?: ThinkingLevel;
-  /** 所属プロジェクト。未指定は未所属 (cwd = root)。未知の id は 400 */
-  projectId?: string;
-}
-
-export interface UpdateSessionSettingsInput {
-  model?: ModelRef;
-  thinkingLevel?: ThinkingLevel;
-}
-
-export interface PostMessageResultInternal {
-  queued: boolean;
-  queueDepth: number;
-  runId?: string;
-}
-
-function lastAssistantMessage(session: PiSessionLike) {
-  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
-    if (session.messages[index].role === "assistant") return session.messages[index];
-  }
-  return undefined;
-}
-
-function sessionMessages(record: SessionRecord, masker: SecretMasker): ChatMessage[] {
-  return record.session.messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .map((message) => {
-      const text = masker.mask(contentText(message.content));
-      const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
-      const metrics = record.messageMetrics.get(message);
-      return {
-        role: message.role as "user" | "assistant",
-        text,
-        stopReason: message.role === "assistant" ? message.stopReason : undefined,
-        // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
-        ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
-        ...(usage ? { usage } : {}),
-        ...(metrics ? { metrics } : {}),
-      };
-    })
-    .filter((message) => message.text || message.role === "user");
-}
-
-/** compaction entry のうち最後の 1 件の index (context に残るのはこの 1 件だけ) */
-function latestCompactionIndex(entries: PiSessionEntryLike[]): number {
-  let latest = -1;
-  for (let index = 0; index < entries.length; index += 1) {
-    if (entries[index].type === "compaction") latest = index;
-  }
-  return latest;
-}
-
-function branchEntriesOf(session: PiSessionLike): PiSessionEntryLike[] {
-  const entries = session.sessionManager?.getBranch?.();
-  return Array.isArray(entries) ? (entries as PiSessionEntryLike[]) : [];
-}
-
-/**
- * sessionMessages() の表示条件と同じ (片方を変えるときは両方を揃える)。
- * 位置を数えるときも messages と同じ集合を見るために使う。
- */
-function isDisplayableMessage(
-  message: { role: string; content: unknown },
-  masker: SecretMasker,
-): boolean {
-  if (message.role !== "user" && message.role !== "assistant") return false;
-  return Boolean(masker.mask(contentText(message.content))) || message.role === "user";
-}
-
-/**
- * 最新の compaction で context に残った古い側の表示メッセージ数 = 区切りを置く messages の index。
- * messages は agent state 由来なので、entry だけで数えると overflow 回復で agent state から
- * 外れたメッセージの分だけずれる。位置は messages 側を数え、entry は「compaction より手前か」
- * の判定にだけ使う。
- */
-function keptMessageCount(
-  record: SessionRecord,
-  entries: PiSessionEntryLike[],
-  compactionIndex: number,
-  masker: SecretMasker,
-): number {
-  const entryIndexByMessage = new Map<object, number>();
-  entries.forEach((entry, index) => {
-    if (entry.type === "message" && entry.message) entryIndexByMessage.set(entry.message, index);
-  });
-  let count = 0;
-  for (const message of record.session.messages) {
-    const index = entryIndexByMessage.get(message);
-    // context 先頭の compactionSummary など、entry に対応しないメッセージは数えない
-    if (index === undefined || index >= compactionIndex) continue;
-    if (!isDisplayableMessage(message, masker)) continue;
-    count += 1;
-  }
-  return count;
 }
 
 export class SessionStore {
@@ -542,7 +223,7 @@ export class SessionStore {
     return this.emitResync(record);
   }
 
-  /** resync イベントを記録し、そのイベントと同じ lastSeq を持つ payload を返す */
+  /** resync は payload と同じ lastSeq を持つ (クライアントのカーソルになる) */
   emitResync(record: SessionRecord): SessionPayload {
     const payload = this.payload(record);
     payload.lastSeq = record.seq + 1;
@@ -649,97 +330,20 @@ export class SessionStore {
   }
 
   payload(record: SessionRecord): SessionPayload {
-    const { session } = record;
-    const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
-      (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
-    const context = contextUsageOf(session);
-    return {
-      sessionId: record.id,
-      piSessionId: session.sessionId,
-      cwd: this.cwdOf(record),
-      // 未所属はキーごと省略する (model? と同じ扱い)
-      ...(record.projectId ? { projectId: record.projectId } : {}),
-      model: modelLabel(session.model),
-      thinkingLevel: session.thinkingLevel,
-      supportsThinking: session.supportsThinking(),
-      availableThinkingLevels,
+    return projectSessionPayload({
+      record,
       status: this.statusOf(record),
-      title: record.title,
-      createdAt: record.createdAt,
-      lastUsedAt: record.lastUsedAt,
-      queueDepth: record.queue.length,
-      lastSeq: record.seq,
-      agent: {
-        ...record.agent,
-        skillIds: [...record.agent.skillIds],
-        skills: record.agent.skills.map((skill) => ({ ...skill })),
-      },
-      run: record.run
-        ? {
-            id: record.run.id,
-            status: record.run.status,
-            startedAt: record.run.startedAt,
-            endedAt: record.run.endedAt,
-            error: record.run.error,
-            prompt: truncate(record.run.prompt, PROMPT_TEXT_MAX),
-            toolCalls: [...record.tools.values()],
-          }
-        : null,
-      messages: sessionMessages(record, this.masker),
-      compactions: this.compactionsOf(record),
-      ...(context ? { context } : {}),
-    };
-  }
-
-  /**
-   * session.messages ではなく entry を正として圧縮履歴を組む。要約も他の出力と同じくマスクする。
-   * 圧縮位置を持つのは最新の 1 件だけ (以前の位置は SDK の context 組み替えで失われる)。
-   */
-  compactionsOf(record: SessionRecord): CompactionInfo[] {
-    const entries = branchEntriesOf(record.session);
-    const compactionIndexes = entries
-      .map((entry, index) => (entry.type === "compaction" ? index : -1))
-      .filter((index) => index >= 0);
-    if (compactionIndexes.length === 0) return [];
-    const latestIndex = compactionIndexes[compactionIndexes.length - 1];
-    return compactionIndexes.map((entryIndex) => {
-      const entry = entries[entryIndex];
-      const meta = record.compactionMeta.get(String(entry.id));
-      const usage = parseUsage(entry.usage);
-      return {
-        id: String(entry.id),
-        parentId: typeof entry.parentId === "string" ? entry.parentId : null,
-        timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
-        summary: this.masker.mask(typeof entry.summary === "string" ? entry.summary : ""),
-        firstKeptEntryId: String(entry.firstKeptEntryId ?? ""),
-        tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : 0,
-        ...(usage ? { usage } : {}),
-        ...(entry.fromHook === true ? { fromHook: true } : {}),
-        ...(entryIndex === latestIndex
-          ? { beforeMessageIndex: keptMessageCount(record, entries, entryIndex, this.masker) }
-          : {}),
-        ...(meta?.reason ? { reason: meta.reason } : {}),
-        ...(meta?.estimatedTokensAfter !== undefined
-          ? { estimatedTokensAfter: meta.estimatedTokensAfter }
-          : {}),
-      };
+      cwd: this.cwdOf(record),
+      masker: this.masker,
     });
   }
 
+  compactionsOf(record: SessionRecord): CompactionInfo[] {
+    return compactionsOf(record, this.masker);
+  }
+
   summary(record: SessionRecord): SessionSummary {
-    return {
-      sessionId: record.id,
-      title: record.title || "無題のセッション",
-      agentId: record.agentId,
-      agentName: record.agent.name,
-      status: this.statusOf(record),
-      queueDepth: record.queue.length,
-      messageCount: sessionMessages(record, this.masker).length,
-      createdAt: record.createdAt,
-      lastUsedAt: record.lastUsedAt,
-      model: modelLabel(record.session.model),
-      ...(record.projectId ? { projectId: record.projectId } : {}),
-    };
+    return projectSessionSummary({ record, status: this.statusOf(record), masker: this.masker });
   }
 
   /**
@@ -823,49 +427,17 @@ export class SessionStore {
     this.emit(record, "run_start", { runId: run.id, prompt: run.prompt });
 
     let finished = false;
-    let currentAssistantText = "";
-    // 応答時間は SDK が持たないため、イベントの到着時刻で測る (assistant メッセージごとにリセット)。
-    let assistantStartedAt: number | undefined;
-    let firstTokenAt: number | undefined;
-    // 差分はそのまま配信せず、秘密値の前方一致になり得る末尾を保留する (アシスタントメッセージごとに作り直す)。
-    let deltaMasker = createStreamingSecretMasker(this.masker);
-    // 送信メッセージの message_end を観測済みか。SDK の prompt() は送信メッセージを組み立てる前に
-    // compaction を走らせるため、その時点の resync は送信メッセージを欠いた履歴になる。
-    let promptRecorded = false;
-    let pendingCompactionResync = false;
 
-    const finish = ({ error, stopped = false }: { error?: string; stopped?: boolean } = {}): void => {
+    const finish = ({ error, stopped = false }: RunSettlement = {}): void => {
       if (finished) return;
       finished = true;
 
-      // 中断・エラー・正常完了のいずれでも、保留中の末尾をマスクして流す。
-      const flushed = deltaMasker.flush();
-      if (flushed) {
-        currentAssistantText += flushed;
-        this.emit(record, "text", { delta: flushed });
-      }
-
-      // プロバイダは通常 text delta をストリームする。このフォールバックは
-      // message_end で初めて最終テキストを含めるプロバイダ向け。
-      const finalAssistant = lastAssistantMessage(session);
-      const finalText = this.masker.mask(contentText(finalAssistant?.content));
-      if (finalText && !currentAssistantText) {
-        currentAssistantText = finalText;
-        this.emit(record, "text", { delta: finalText });
-      } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
-        const remainder = finalText.slice(currentAssistantText.length);
-        if (remainder) this.emit(record, "text", { delta: remainder });
-      }
-
-      // 送信メッセージを観測できないままターンが終わった場合の保険 (通常は message_end で配る)
-      if (pendingCompactionResync) {
-        pendingCompactionResync = false;
-        this.emitResync(record);
-      }
+      // 保留中の差分・最終テキスト・送信メッセージ待ちの resync は run_end より先に配る
+      bridge.finalize();
 
       run.status = stopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
-      if (error) run.error = this.masker.mask(error);
+      if (error) run.error = this.masker.mask(userFacingError(error));
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,
@@ -882,168 +454,24 @@ export class SessionStore {
       }
     };
 
-    const onEvent: PiSessionEventListener = (event) => {
-      if (finished) return;
-      try {
-        // SDK は prompt メッセージの message_end を配る前に agent state へ入れる。
-        // それを待ってから、送信メッセージを欠いたままの resync を配る。
-        if (event.type === "message_end" && event.message?.role === "user") {
-          promptRecorded = true;
-          if (pendingCompactionResync) {
-            pendingCompactionResync = false;
-            this.emitResync(record);
-          }
-        }
-        switch (event.type) {
-          case "agent_start":
-            this.emit(record, "status", { state: "thinking", text: "考え中…" });
-            break;
-          case "message_start":
-            if (event.message?.role === "assistant") {
-              currentAssistantText = "";
-              assistantStartedAt = Date.now();
-              firstTokenAt = undefined;
-              deltaMasker = createStreamingSecretMasker(this.masker);
-            }
-            break;
-          case "message_update": {
-            const assistantEvent = event.assistantMessageEvent;
-            if (assistantEvent?.type === "text_delta") {
-              firstTokenAt ??= Date.now();
-              const emitted = deltaMasker.push(assistantEvent.delta ?? "");
-              if (emitted) {
-                currentAssistantText += emitted;
-                this.emit(record, "text", { delta: emitted });
-              }
-            } else if (assistantEvent?.type === "thinking_delta") {
-              // 思考だけが先に流れるモデルでも TTFT を測れる
-              firstTokenAt ??= Date.now();
-            }
-            break;
-          }
-          case "message_end":
-            // アシスタントメッセージの確定時に、保留していた末尾を流す。
-            if (event.message?.role === "assistant") {
-              const flushed = deltaMasker.flush();
-              if (flushed) {
-                currentAssistantText += flushed;
-                this.emit(record, "text", { delta: flushed });
-              }
-              const usage = parseUsage(event.message.usage);
-              const metrics = computeMessageMetrics({
-                startedAt: assistantStartedAt,
-                firstTokenAt,
-                endedAt: Date.now(),
-                outputTokens: usage?.output,
-              });
-              if (metrics) record.messageMetrics.set(event.message, metrics);
-              if (usage || metrics) {
-                this.emit(record, "usage", { usage, metrics, context: contextUsageOf(session) });
-              }
-              assistantStartedAt = undefined;
-              firstTokenAt = undefined;
-            }
-            break;
-          case "tool_execution_start": {
-            const tool: ToolCall = {
-              id: event.toolCallId ?? "",
-              name: event.toolName ?? "",
-              args: toolArgsSummary(event.args, this.masker),
-              isError: false,
-              done: false,
-              output: "",
-            };
-            record.tools.set(tool.id, tool);
-            this.emit(record, "tool_start", { id: tool.id, name: tool.name, args: tool.args });
-            this.emit(record, "status", { state: "tool", text: `${tool.name} を実行中…` });
-            break;
-          }
-          case "tool_execution_end": {
-            const output = toolResultSummary(event.result, this.masker);
-            const tool = record.tools.get(event.toolCallId ?? "");
-            if (tool) {
-              tool.done = true;
-              tool.isError = Boolean(event.isError);
-              tool.output = output;
-            }
-            this.emit(record, "tool_end", {
-              id: event.toolCallId ?? "",
-              name: event.toolName ?? "",
-              isError: Boolean(event.isError),
-              output,
-            });
-            break;
-          }
-          case "compaction_start":
-            this.emit(record, "status", { state: "compacting", text: "会話を整理中…" });
-            break;
-          case "compaction_end": {
-            // result 無し / aborted / errorMessage ありは既存の status 遷移とエラー表示に任せ、
-            // 履歴と区切りは触らない (圧縮されていないのに消したように見せない)。
-            if (event.aborted || event.errorMessage || !event.result) break;
-            const result = event.result as PiCompactionResult;
-            // SDK は entry を積んで session.messages を組み替えてからこのイベントを出すため、
-            // 最新の compaction entry とそれに対応するこの result を同じイベントで紐づけられる。
-            const entries = branchEntriesOf(record.session);
-            const latestIndex = latestCompactionIndex(entries);
-            if (latestIndex < 0) break;
-            const reason = CompactionReasonSchema.safeParse(event.reason);
-            const estimated = result.estimatedTokensAfter;
-            record.compactionMeta.set(String(entries[latestIndex].id), {
-              ...(reason.success ? { reason: reason.data } : {}),
-              ...(typeof estimated === "number" ? { estimatedTokensAfter: estimated } : {}),
-            });
-            const compactions = this.compactionsOf(record);
-            const compaction = compactions[compactions.length - 1];
-            if (!compaction) break;
-            this.emit(record, "compaction", { compaction, count: compactions.length });
-            // 送信メッセージがまだ履歴に入っていなければ、入った時点 (message_end) まで遅らせる
-            if (promptRecorded) this.emitResync(record);
-            else pendingCompactionResync = true;
-            break;
-          }
-          case "auto_retry_start":
-            this.emit(record, "status", {
-              state: "retry",
-              text: `再試行中… (${event.attempt}/${event.maxAttempts})`,
-            });
-            break;
-          case "extension_error":
-            this.emit(record, "status", {
-              state: "warning",
-              text: this.masker.mask(
-                typeof event.error === "string" ? event.error : String(event.error ?? ""),
-              ),
-            });
-            break;
-          case "agent_end":
-            if (event.willRetry) {
-              this.emit(record, "status", { state: "retry", text: "再試行を準備中…" });
-            }
-            break;
-          case "agent_settled": {
-            const finalAssistant = lastAssistantMessage(session);
-            const runError = finalAssistant?.stopReason === "error"
-              ? userFacingError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
-              : undefined;
-            finish({ error: runError, stopped: finalAssistant?.stopReason === "aborted" });
-            break;
-          }
-          default:
-            break;
-        }
-      } catch (error) {
-        finish({ error: userFacingError(error) });
-      }
-    };
+    const bridge = createRunEventBridge({
+      session,
+      masker: this.masker,
+      tools: record.tools,
+      messageMetrics: record.messageMetrics,
+      compactionMeta: record.compactionMeta,
+      emit: (type, data) => this.emit(record, type, data),
+      emitResync: () => this.emitResync(record),
+      onSettled: (outcome) => finish(outcome),
+    });
 
-    const unsubscribe = session.subscribe(onEvent);
+    const unsubscribe = session.subscribe(bridge.listener);
     session.prompt(text).then(() => {
       // agent_settled は prompt() の解決より先に届くはずで、これはその保険。
       if (!finished) finish();
       unsubscribe();
     }).catch((error) => {
-      if (!finished) finish({ error: userFacingError(error) });
+      if (!finished) finish({ error });
       unsubscribe();
     });
 
@@ -1076,6 +504,25 @@ export class SessionStore {
     return entry;
   }
 }
+
+export { computeMessageMetrics } from "./run-events";
+export type {
+  PiCompactionResult,
+  PiRuntimeLike,
+  PiSessionEntryLike,
+  PiSessionEvent,
+  PiSessionEventListener,
+  PiSessionLike,
+} from "./pi-runtime";
+export type {
+  CompactionMeta,
+  CreateSessionOptions,
+  PostMessageResultInternal,
+  RunState,
+  SessionRecord,
+  SessionSubscriber,
+  UpdateSessionSettingsInput,
+} from "./session-record";
 
 /** 互換用の再エクスポート (pi ランタイムの実装として使える) */
 export type PiRuntime = PiBff;

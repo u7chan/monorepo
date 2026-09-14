@@ -19,7 +19,7 @@ POST /api/sessions/:id/messages { text }
 startRun():
   1. run オブジェクト生成（status: "running"）
   2. run_start イベントを記録
-  3. session.subscribe() で pi のイベントを変換して記録
+  3. session.subscribe() で pi のイベントを変換して記録（変換は `server/src/run-events.ts`）
      - message_update / text_delta → text
      - tool_execution_start/end    → tool_start / tool_end
      - agent_settled               → 終了判定
@@ -175,7 +175,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
    - `createRemoteToolDefinitions` が作るリモート定義を `wrapToolDefinitionWithSecretMasker` で包み、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
 3. **tool_result 拡張（同ファイル）**
    - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
-4. **BFF の送出層（`server/src/sessions.ts`）**
+4. **BFF の送出層（`server/src/sessions.ts` / `server/src/run-events.ts`）**
    - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、エラー、プロンプトのエコー、タイトル）を防御的にマスクする
    - ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
    - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする
