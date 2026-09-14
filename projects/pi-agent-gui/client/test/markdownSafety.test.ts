@@ -30,6 +30,7 @@ const allFiles = [...libFiles, ...componentFiles];
 
 test("解析と描画のソースが揃っている (走査対象が空にならない)", () => {
   assert.deepEqual(libFiles.map((file) => file.path.split("/").pop()).sort(), [
+    "diagram.ts",
     "highlight.ts",
     "html.ts",
     "inline.ts",
@@ -40,6 +41,7 @@ test("解析と描画のソースが揃っている (走査対象が空になら
   ]);
   assert.deepEqual(componentFiles.map((file) => file.path.split("/").pop()).sort(), [
     "CodeBlock.tsx",
+    "Diagram.tsx",
     "HtmlInline.tsx",
     "MarkdownView.tsx",
     "MathView.tsx",
