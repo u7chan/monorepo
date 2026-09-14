@@ -914,6 +914,75 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
   }
 });
 
+test("catalog CRUD reads the JSON body whatever the request Content-Type is", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const agentPath = "/api/agents/agent-general";
+    // fetch は string body に text/plain を補うため、Content-Type 無しはバイト列で送る
+    const noContentType = await app.request(agentPath, {
+      method: "PATCH",
+      body: new TextEncoder().encode(JSON.stringify({ name: "改名" })),
+    });
+    assert.equal(noContentType.status, 200);
+    assert.equal((await jsonBody(noContentType)).agent.name, "改名");
+
+    const textPlain = await app.request(agentPath, {
+      method: "PATCH",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ description: "説明を変える" }),
+    });
+    assert.equal(textPlain.status, 200);
+    assert.equal((await jsonBody(textPlain)).agent.description, "説明を変える");
+
+    // zValidator の Content-Type 判定では弾かれる形 (セミコロン前の空白)
+    const spacedJson = await app.request(agentPath, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json ; charset=utf-8" },
+      body: JSON.stringify({ systemPrompt: "役割を変える" }),
+    });
+    assert.equal(spacedJson.status, 200);
+    assert.equal((await jsonBody(spacedJson)).agent.systemPrompt, "役割を変える");
+
+    const skillPath = "/api/skills/skill-small-steps";
+    const skill = await app.request(skillPath, {
+      method: "PATCH",
+      body: new TextEncoder().encode(JSON.stringify({ prompt: "プロンプトを変える" })),
+    });
+    assert.equal(skill.status, 200);
+    assert.equal((await jsonBody(skill)).skill.prompt, "プロンプトを変える");
+
+    // 形・型の検証も Content-Type に依らない
+    const invalid = await app.request(agentPath, {
+      method: "PATCH",
+      body: new TextEncoder().encode(JSON.stringify({ name: 1 })),
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal((await jsonBody(invalid)).error, "Invalid request body");
+
+    // 壊れた JSON は Content-Type に関係なく 400 (無しはバイト列で送る)
+    const brokenBodies = [
+      { headers: {}, body: new TextEncoder().encode("{oops") },
+      { headers: { "Content-Type": "text/plain" }, body: "{oops" },
+      { headers: { "Content-Type": "application/json" }, body: "{oops" },
+    ];
+    for (const broken of brokenBodies) {
+      const response = await app.request(agentPath, { method: "PATCH", ...broken });
+      assert.equal(response.status, 400, JSON.stringify(broken.headers));
+      assert.equal((await jsonBody(response)).error, "Request body must be valid JSON");
+    }
+
+    const unchanged = await jsonBody(app.request("/api/agents"));
+    assert.equal(
+      unchanged.agents.find((agent: { id: string }) => agent.id === "agent-general").name,
+      "改名",
+      "400 は body を適用しない",
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
 test("static files are served with cache and security headers", async () => {
   const distDir = await mkdtemp(join(tmpdir(), "bff-static-"));
   await mkdir(join(distDir, "assets"), { recursive: true });

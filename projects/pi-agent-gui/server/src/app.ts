@@ -4,7 +4,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { zValidator } from "@hono/zod-validator";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
-import { bodyGuard, messageFor, statusCodeOf } from "./http";
+import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
@@ -62,21 +62,21 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .post(
       "/api/agents",
-      zValidator("json", CreateAgentBodySchema, (result, c) =>
+      jsonBodyValidator(CreateAgentBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.createAgent(c, c.req.valid("json")),
     )
     .patch(
       "/api/agents/:id",
-      zValidator("json", UpdateAgentBodySchema, (result, c) =>
+      jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
     )
     .put(
       "/api/agents/:id",
-      zValidator("json", UpdateAgentBodySchema, (result, c) =>
+      jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
@@ -85,21 +85,21 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/skills", catalogRoutes.listSkills)
     .post(
       "/api/skills",
-      zValidator("json", CreateSkillBodySchema, (result, c) =>
+      jsonBodyValidator(CreateSkillBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.createSkill(c, c.req.valid("json")),
     )
     .patch(
       "/api/skills/:id",
-      zValidator("json", UpdateSkillBodySchema, (result, c) =>
+      jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
     )
     .put(
       "/api/skills/:id",
-      zValidator("json", UpdateSkillBodySchema, (result, c) =>
+      jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
