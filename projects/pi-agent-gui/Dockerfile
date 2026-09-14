@@ -8,6 +8,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY client/package.json ./client/package.json
 COPY server/package.json ./server/package.json
 
+# fd は pi SDK の find ツールが起動する。Debian bookworm の fd-find (8.6.0) は find が渡す --no-require-git
+# (fd 9.0 で追加) を受け付けず git 管理外のディレクトリで必ず失敗するため、リリースバイナリを固定する。
+# test / final の両方で使う (テストは find を実行する)。
+FROM node:24-bookworm-slim AS fd
+COPY scripts/install-fd.mjs /tmp/install-fd.mjs
+RUN node /tmp/install-fd.mjs /usr/local/bin
+
 FROM manifests AS dependencies
 RUN pnpm install --frozen-lockfile
 COPY client/ ./client/
@@ -15,6 +22,7 @@ COPY server/ ./server/
 
 # CI: no credentials or live model calls; API tests use a stub runtime.
 FROM dependencies AS test
+COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 RUN pnpm check
@@ -27,11 +35,10 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 # CD: the existing pipeline builds final and pushes monorepo/pi-agent-gui.
 # BFF とサンドボックス (src/sandbox/index.ts) は同一イメージを command 差し替えで共用する。
 FROM node:24-bookworm-slim AS final
-# fd-find は Debian では fdfind という名前で入るため、SDK の find ツールが探す fd へ symlink する。
-RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep fd-find ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     && mkdir -p /workspace && chown node:node /workspace
+COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH} \
     NODE_ENV=production \

@@ -13,6 +13,15 @@ import { SANDBOX_MAX_FILE_ENTRIES, type SandboxEvent, type SandboxFileListing } 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 const HAS_BASH = existsSync("/bin/bash");
 const SKIP_REASON = "bash is not available on this platform";
+const HAS_FD = (() => {
+  for (const name of ["fd", "fdfind"]) {
+    const probe = spawnSync(name, ["--version"], { stdio: "pipe" });
+    if (!probe.error && probe.status === 0) return true;
+  }
+  return false;
+})();
+// fd が無いと SDK の find ツールがリリースバイナリを取りに行く。実行環境に fd があるときだけ回す
+const FD_SKIP_REASON = "fd is not available";
 // Windows では開発者モードが無いと symlink を作れない
 const HAS_SYMLINK = (() => {
   const dir = mkdtempSync(join(tmpdir(), "pi-sbx-symlink-check-"));
@@ -267,6 +276,20 @@ test("tool execution resolves relative paths against the requested cwd", async (
   // 同じ相対パスでも root を起点にすれば別の場所になる
   const fromRoot = await executeTool(service.app, "read", { params: { path: "note.txt" } });
   assert.ok(fromRoot.events.some((event) => event.type === "error"), "root has no note.txt");
+});
+
+test("executes find outside a git repository", { skip: !HAS_FD && FD_SKIP_REASON }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-find-"));
+  await mkdir(join(root, "src"));
+  await writeFile(join(root, "src", "app.ts"), "", "utf8");
+  await writeFile(join(root, "README.md"), "", "utf8");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  // fd に --no-require-git を渡す経路なので、git 管理外 (tmpdir) で検索できないと失敗する
+  const found = await executeTool(service.app, "find", { params: { pattern: "*.ts", path: "." } });
+  const result = found.events.find((event) => event.type === "result");
+  assert.ok(result, "find outside a git repository should succeed");
+  assert.match(eventText((result as { payload: unknown }).payload), /src\/app\.ts/);
 });
 
 test("tool execution rejects a cwd outside the workspace or not a directory", async () => {
