@@ -1,203 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { AgentDesk } from "../hooks/useAgentDesk";
-import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../lib/settingsNav";
+import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
-import { messageTimeLabel } from "../lib/messageTime";
-import type { Project, SessionSummary } from "../types";
-import { ArrowLeftIcon, ChevronIcon, CloseIcon, FolderIcon, GearIcon, PlusIcon, TrashIcon } from "./icons";
-
-const STATUS_LABELS: Record<string, string> = {
-  running: "実行中",
-  queued: "キュー待ち",
-  completed: "完了",
-  stopped: "停止",
-  error: "エラー",
-  idle: "",
-};
-
-function statusDotClass(status: string): string {
-  switch (status) {
-    case "running":
-      return "dot dot-accent dot-pulse";
-    case "queued":
-    case "stopped":
-      return "dot dot-warn";
-    case "error":
-      return "dot dot-danger";
-    case "completed":
-      return "dot dot-ok";
-    default:
-      return "dot dot-idle";
-  }
-}
-
-/** 行の選択と削除は別の button にする (入れ子の interactive control を作らない) */
-function SessionRow({
-  item,
-  active,
-  onSelect,
-  onDelete,
-}: {
-  item: SessionSummary;
-  active: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) {
-  const bits = [
-    item.agentName,
-    // 同じ表記をセッション一覧にも使う (locale 依存の toLocaleTimeString をやめる)
-    messageTimeLabel(item.lastUsedAt),
-    STATUS_LABELS[item.status],
-    item.queueDepth > 0 ? `待機${item.queueDepth}件` : "",
-  ].filter(Boolean);
-
-  return (
-    <div
-      className={[
-        "group flex min-h-[42px] items-center gap-1 rounded-lg border pr-1.5 transition-colors",
-        active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
-      ].join(" ")}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-current={active ? "true" : undefined}
-        className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left"
-      >
-        <span className={statusDotClass(item.status)} aria-hidden />
-        <span className="grid min-w-0 flex-1 gap-0.5">
-          <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
-          <small className="truncate text-[10px] text-ink-muted">{bits.join(" · ")}</small>
-        </span>
-      </button>
-      <button
-        type="button"
-        title="セッションを削除"
-        aria-label="セッションを削除"
-        onClick={onDelete}
-        // タッチ端末では常時表示する (ChatArea のコピーボタンと同じ can-hover の使い方)
-        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-[13px] leading-none text-ink-ghost transition-colors group-hover:text-danger hover:bg-danger/20 hover:text-danger can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100"
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-/** プロジェクト行の右端の操作 (行の選択とは別のクリック領域にする) */
-function RowAction({
-  label,
-  onClick,
-  danger = false,
-  hoverOnly = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  /** ホバーできる端末では隠しておく (タッチ端末では常時表示) */
-  hoverOnly?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={[
-        "grid size-7 shrink-0 place-items-center rounded-md text-ink-ghost transition-colors hover:bg-hover",
-        danger ? "hover:text-danger" : "hover:text-accent-text",
-        hoverOnly ? "can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100" : null,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ProjectRow({
-  project,
-  sessions,
-  sessionId,
-  selected,
-  open,
-  onSelect,
-  onToggle,
-  onNewChat,
-  onDelete,
-  onSelectSession,
-  onDeleteSession,
-}: {
-  project: Project;
-  sessions: SessionSummary[];
-  sessionId: string;
-  selected: boolean;
-  open: boolean;
-  onSelect: () => void;
-  onToggle: () => void;
-  onNewChat: () => void;
-  onDelete: () => void;
-  onSelectSession: (sessionId: string) => void;
-  onDeleteSession: (sessionId: string) => void;
-}) {
-  return (
-    <div className="grid gap-1">
-      {/* 行の選択 (作成先) は弱いハイライトに留め、開いているセッションの行と区別する */}
-      <div
-        className={[
-          "group flex min-h-[42px] items-center gap-1 rounded-lg border pr-1.5 transition-colors",
-          selected ? "border-accent/25 bg-accent-wash/60" : "border-transparent hover:bg-hover",
-        ].join(" ")}
-      >
-        <button
-          type="button"
-          onClick={onSelect}
-          aria-current={selected ? "true" : undefined}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left"
-        >
-          <span className="shrink-0 text-ink-faint">
-            <FolderIcon />
-          </span>
-          <span className="grid min-w-0 flex-1 gap-0.5">
-            <strong className="truncate text-xs text-ink">{project.name}</strong>
-            <small className="truncate text-[10px] text-ink-muted">{project.cwd}</small>
-          </span>
-        </button>
-        <RowAction label={open ? "折りたたむ" : "展開する"} onClick={onToggle}>
-          <span className={["block transition-transform", open ? "rotate-90" : ""].join(" ")}>
-            <ChevronIcon />
-          </span>
-        </RowAction>
-        <RowAction label="このプロジェクトに新しい会話" onClick={onNewChat} hoverOnly>
-          <PlusIcon />
-        </RowAction>
-        <RowAction label="プロジェクトを削除" onClick={onDelete} hoverOnly danger>
-          <TrashIcon />
-        </RowAction>
-      </div>
-      {open ? (
-        sessions.length === 0 ? (
-          <div className="ml-3 border-l border-line pl-2 py-1 text-[11px] text-ink-faint">セッションはありません</div>
-        ) : (
-          <div className="ml-3 grid gap-1 border-l border-line pl-1.5">
-            {sessions.map((item) => (
-              <SessionRow
-                key={item.sessionId}
-                item={item}
-                active={item.sessionId === sessionId}
-                onSelect={() => onSelectSession(item.sessionId)}
-                onDelete={() => onDeleteSession(item.sessionId)}
-              />
-            ))}
-          </div>
-        )
-      ) : null}
-    </div>
-  );
-}
+import { ChevronIcon, CloseIcon, GearIcon, PlusIcon } from "./icons";
+import { ProjectRow } from "./sidebar/ProjectRow";
+import { SessionRow } from "./sidebar/SessionRow";
+import { SettingsNav } from "./sidebar/SettingsNav";
 
 export type SidebarProps = Omit<
   Pick<
@@ -262,7 +70,6 @@ export function Sidebar({
         .filter(Boolean)
         .join(" ")}
     >
-      {/* ブランド */}
       <div className="flex items-center gap-3">
         <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-sm text-accent-strong">
           ✦
@@ -284,43 +91,13 @@ export function Sidebar({
       </div>
 
       {mode === "settings" ? (
-        <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-0.5">
-          <button
-            type="button"
-            onClick={() => onSelectMode("nav")}
-            className="flex min-h-10 w-full items-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
-          >
-            <ArrowLeftIcon />
-            アプリに戻る
-          </button>
-          <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">設定</div>
-          {SETTINGS_SECTIONS.map((item) => {
-            const active = item.section === activeSettingsSection;
-            return (
-              <button
-                key={item.section}
-                type="button"
-                // 押すとメイン領域のページが切り替わる。開いているページを他と区別する
-                aria-current={active ? "page" : undefined}
-                onClick={() => onOpenSettingsSection(item.section)}
-                className={[
-                  "flex min-h-10 w-full items-center gap-2 rounded-lg border px-3 text-xs transition-colors",
-                  active
-                    ? "border-accent/35 bg-accent-wash text-accent-text"
-                    : "border-line bg-soft text-ink hover:border-accent/50 hover:bg-hover hover:text-accent-text",
-                ].join(" ")}
-              >
-                <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-                <span className="text-ink-faint">
-                  <ChevronIcon />
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <SettingsNav
+          activeSettingsSection={activeSettingsSection}
+          onSelectMode={onSelectMode}
+          onOpenSettingsSection={onOpenSettingsSection}
+        />
       ) : (
         <>
-          {/* 新しい会話 */}
           <button
             type="button"
             onClick={() => newChat()}
@@ -333,7 +110,6 @@ export function Sidebar({
             <span>新しい会話</span>
           </button>
 
-          {/* プロジェクト階層と未所属チャット。まとめて 1 つのスクロール領域にし、設定を下部に固定する */}
           <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-0.5">
             <section className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
@@ -371,8 +147,7 @@ export function Sidebar({
               )}
             </section>
 
-            {/* 未所属セッションは常時展開 (0 件でも見出しとプレースホルダを出す)。
-                見出し自体を押せるようにし、「新しい会話」の作成先を未所属へ戻せるようにする (他の戻し方が無い) */}
+            {/* 見出しを押すと「新しい会話」の作成先を未所属へ戻せる (他の戻し方が無い)。0 件でも見出しとプレースホルダを出す */}
             <section className="grid gap-2">
               <button
                 type="button"
@@ -381,7 +156,6 @@ export function Sidebar({
                 title="未所属を「新しい会話」の作成先にする"
                 className={[
                   "flex min-h-[34px] w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-colors",
-                  // プロジェクト行と同じ弱いハイライトで「作成先」であることを示す
                   selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
                 ].join(" ")}
               >
@@ -408,7 +182,6 @@ export function Sidebar({
         </>
       )}
 
-      {/* フットノート + 設定 */}
       <div className="mt-auto grid gap-2">
         <div className="text-[10px] leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
         {mode === "nav" ? (
