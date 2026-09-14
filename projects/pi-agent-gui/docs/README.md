@@ -13,6 +13,7 @@
 | サンドボックス（ツール実行） | `server/src/sandbox/` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md) |
 | APIキーのマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | フロントエンドの状態 / テーマ / レイアウト | `client/src/hooks/`、`client/src/theme/`、`client/src/components/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
+| チャット本文の Markdown 描画 | `client/src/lib/markdown/`、`client/src/components/markdown/` | [markdown.md](markdown.md) |
 | 永続化 / 再デプロイ時の挙動 | - | [persistence.md](persistence.md) |
 | 移植の経緯 | - | [migration.md](migration.md) |
 
@@ -26,6 +27,7 @@
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数
 - [secrets.md](secrets.md) — APIキー漏洩の抑制
 - [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
+- [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセットと上限）
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API
