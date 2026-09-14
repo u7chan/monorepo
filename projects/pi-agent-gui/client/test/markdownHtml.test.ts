@@ -2,9 +2,11 @@
 //   描画する / タグは描画して属性だけ落とす / タグごと原文表示 (実行も描画もしない)
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseHtml, safeUrl } from "../src/lib/markdown/html";
+import { parseHtml, safeUrl, decodeEntities } from "../src/lib/markdown/html";
 import { parseInline } from "../src/lib/markdown/inline";
 import type { HtmlNode } from "../src/lib/markdown/types";
+
+const text = (value: string) => ({ kind: "text" as const, text: value });
 
 const ALLOWED = "b strong i em u s del ins code kbd mark small sub sup span a br hr img".split(" ");
 
@@ -171,6 +173,52 @@ test("画像は相対パスだけを通す (外部 URL は CSP で表示でき�
   assert.equal(safeUrl("./a.png", "image"), "./a.png");
   assert.equal(safeUrl("https://example.com/a.png", "image"), null);
   assert.equal(safeUrl("mailto:pi@example.com", "image"), null);
+});
+
+test("引用符無しの属性値が / で終わるときは自己終了にしない", () => {
+  // HTML のトークナイザと同じく、区切りが無い属性値の末尾の / は値に含める
+  assert.deepEqual(parseHtml("<a href=/docs/>リンク</a>", 0)?.node, {
+    kind: "element",
+    tag: "a",
+    attrs: { href: "/docs/" },
+    children: [text("リンク")],
+  });
+  assert.deepEqual(parseHtml("<img src=/x/>", 0)?.node, {
+    kind: "element",
+    tag: "img",
+    attrs: { src: "/x/", alt: "" },
+    children: [],
+  });
+  // 区切り (空白 / 引用符の閉じ) やタグ名の直後の / は自己終了のまま
+  assert.deepEqual(parseHtml("<img src=/x />", 0)?.node, {
+    kind: "element",
+    tag: "img",
+    attrs: { src: "/x", alt: "" },
+    children: [],
+  });
+  assert.deepEqual(parseHtml('<img src="/x"/>', 0)?.node, {
+    kind: "element",
+    tag: "img",
+    attrs: { src: "/x", alt: "" },
+    children: [],
+  });
+  assert.deepEqual(parseHtml("<b/>x</b>", 0)?.node, { kind: "element", tag: "b", attrs: {}, children: [] });
+});
+
+test("生 HTML の中のテキストだけ実体参照を戻す", () => {
+  assert.deepEqual(parseInline("<b>A &amp; B</b>"), [
+    { kind: "html", node: { kind: "element", tag: "b", attrs: {}, children: [text("A & B")] } },
+  ]);
+  assert.deepEqual(parseInline("<b>&lt;div&gt; &quot;q&quot; &#39;s&#39; &#65; &#x41;</b>"), [
+    { kind: "html", node: { kind: "element", tag: "b", attrs: {}, children: [text('<div> "q" \'s\' A A')] } },
+  ]);
+  // 標準 5 種と数値参照の以外は原文のまま残す (無効な符号位置も含む)
+  assert.deepEqual(parseInline("<b>&nbsp; &unknown;</b>"), [
+    { kind: "html", node: { kind: "element", tag: "b", attrs: {}, children: [text("&nbsp; &unknown;")] } },
+  ]);
+  assert.equal(decodeEntities("&#xD800;&#0;&#99999999;"), "&#xD800;&#0;&#99999999;");
+  // markdown 本文 (生 HTML の外) は解釈しない
+  assert.deepEqual(parseInline("A &amp; B"), [text("A &amp; B")]);
 });
 
 test("許可リストの判定は例外を投げない", () => {

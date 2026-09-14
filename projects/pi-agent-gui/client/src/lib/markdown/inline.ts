@@ -44,8 +44,10 @@ function scanInline(text: string, state: ScanState, depth: number, allowLinks: b
   let at = 0;
   while (at < text.length) {
     const char = text[at];
-    if (char === "\\" && ESCAPABLE.includes(text[at + 1] ?? "")) {
-      buffer += text[at + 1];
+    const escaped = text[at + 1];
+    // 末尾の `\` はエスケープする相手が無いので、そのまま本文に残す
+    if (char === "\\" && escaped !== undefined && ESCAPABLE.includes(escaped)) {
+      buffer += escaped;
       at += 2;
       continue;
     }

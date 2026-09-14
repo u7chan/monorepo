@@ -76,10 +76,11 @@ function readTag(text: string, start: number): RawTag | null {
   const inner = raw.slice(1, -1);
   const closing = inner.startsWith("/");
   const body = closing ? inner.slice(1) : inner;
-  const selfClosing = !closing && /\/\s*$/.test(body);
-  const content = selfClosing ? body.replace(/\/\s*$/, "") : body;
-  const name = /^([A-Za-z][A-Za-z0-9-]*)/.exec(content);
+  const name = /^([A-Za-z][A-Za-z0-9-]*)/.exec(body);
   if (name === null) return null;
+  // `/` を自己終了と見なすのはタグ名の直後か区切りの直後のときだけ (`<img src=/x/>` の `/` は属性値の一部)
+  const selfClosing = !closing && isSelfClosingSlash(body, name[1].length);
+  const content = selfClosing ? body.replace(/\/\s*$/, "") : body;
   const tag = name[1].toLowerCase();
   if (closing && content.slice(name[1].length).trim() !== "") return null;
   const attrs: HtmlAttrs = {};
@@ -103,6 +104,30 @@ function readTag(text: string, start: number): RawTag | null {
     }
   }
   return { closing, tag, attrs, selfClosing, end: gt + 1, raw };
+}
+
+/** 末尾の `/` が自己終了の印か。HTML のトークナイザに合わせ、区切りの無い属性値の途中の `/` は値に残す */
+function isSelfClosingSlash(body: string, nameLength: number): boolean {
+  const slash = /\/\s*$/.exec(body);
+  if (slash === null) return false;
+  if (slash.index === nameLength) return true;
+  const previous = body[slash.index - 1];
+  return previous === '"' || previous === "'" || /\s/.test(previous);
+}
+
+const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+
+/** 生 HTML のテキスト部分だけ実体参照を戻す (標準 5 種と数値参照のみ。markdown 本文はそのまま表示する) */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[A-Za-z][A-Za-z0-9]*);/g, (match, body: string) => {
+    let code: number;
+    if (body.startsWith("#x") || body.startsWith("#X")) code = Number.parseInt(body.slice(2), 16);
+    else if (body.startsWith("#")) code = Number.parseInt(body.slice(1), 10);
+    else return NAMED_ENTITIES[body] ?? match;
+    // サロゲート域や範囲外の符号位置は文字にできないので原文のまま残す
+    if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return match;
+    return String.fromCodePoint(code);
+  });
 }
 
 /** 許可タグの属性を絞る。危険な URL は null を返し、呼び出し側がタグごと原文表示へ落とす */
@@ -157,7 +182,7 @@ export function parseHtml(
       const next = text.indexOf("<", at);
       const end = next === -1 ? text.length : next;
       spend(budget, end - at);
-      children.push({ kind: "text", text: text.slice(at, end) });
+      children.push({ kind: "text", text: decodeEntities(text.slice(at, end)) });
       at = end;
       continue;
     }

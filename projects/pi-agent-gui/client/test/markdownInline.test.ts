@@ -45,6 +45,15 @@ test("エスケープした記号は文字として扱う", () => {
   assert.deepEqual(parseInline("\\`code\\`"), [text("`code`")]);
 });
 
+test("末尾のバックスラッシュはエスケープせず原文のまま残す", () => {
+  // 見出し / 引用 / リスト項目 / 表セルの本文もこの解析を通る
+  assert.deepEqual(parseInline("Windows のパスは C:\\"), [text("Windows のパスは C:\\")]);
+  assert.deepEqual(parseInline("末尾\\"), [text("末尾\\")]);
+  assert.deepEqual(parseInline("a\\b"), [text("a\\b")]);
+  // エスケープできる 2 文字は従来どおり記号として扱う
+  assert.deepEqual(parseInline("\\\\"), [text("\\")]);
+});
+
 test("リンクは URL とタイトルを持つ", () => {
   assert.deepEqual(parseInline('[GitHub](https://github.com/u7chan/monorepo "repo")'), [
     { kind: "link", href: "https://github.com/u7chan/monorepo", title: "repo", children: [text("GitHub")] },
