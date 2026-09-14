@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { effortLabel, type ComposerSettings } from "../hooks/useAgentDesk";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import type { ComposerSettings } from "../hooks/useAgentDesk";
 import type { LayoutMode } from "../lib/layout";
-import { contextGauge } from "../lib/usageFormat";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
-import { SelectField } from "./SelectField";
-import { SlidersIcon } from "./icons";
+import { AgentField } from "./composer/AgentField";
+import { ContextGauge } from "./composer/ContextGauge";
+import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortControls";
 
 export type ComposerProps = {
   activity: string;
@@ -16,7 +16,7 @@ export type ComposerProps = {
   context?: ContextUsage;
   /** チャットの実効値 / 作成前の選択値と候補 */
   settings: ComposerSettings;
-  /** エージェント候補と選択中の定義 (会話中いつでも切り替えられるよう入力欄の上に置く) */
+  /** エージェント候補と選択中の定義 */
   agents: AgentDef[];
   agentId: string;
   /** compact (portrait / landscape) では Model / Effort を畳んで入力を最優先にする */
@@ -24,10 +24,10 @@ export type ComposerProps = {
   /** メイン領域にチャットが出ているか。非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
   onSend: (text: string) => void;
+  /** 停止要求 (fire-and-forget)。完了待ちは持たず、表示は stopVisible だけを出所にする */
   onStop: () => void;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
-  /** 選択中のエージェントで新しい会話を始める */
   onChangeAgent: (agentId: string) => void;
 };
 
@@ -51,18 +51,6 @@ function ArrowUpIcon() {
       <path d="M3.5 7.25 8 2.75l4.5 4.5" />
     </svg>
   );
-}
-
-/** 候補に無いモデルも表示できるよう選択肢へ足す */
-function modelChoicesOf(settings: ComposerSettings): Array<{ value: string; label: string }> {
-  const choices = settings.modelOptions.map((option) => ({
-    value: `${option.provider}/${option.id}`,
-    label: option.name ? `${option.name}（${option.provider}/${option.id}）` : `${option.provider}/${option.id}`,
-  }));
-  if (settings.model && !choices.some((choice) => choice.value === settings.model)) {
-    choices.push({ value: settings.model, label: `${settings.model}（利用不可）` });
-  }
-  return choices;
 }
 
 export function Composer({
@@ -91,22 +79,7 @@ export function Composer({
   /** Model / Effort の追加設定を開いているか (既定は畳む) */
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const modelChoices = useMemo(() => modelChoicesOf(settings), [settings]);
-  // SDK が補正した実効値が候補に無くても表示できるようにする
-  const effortChoices = useMemo(() => {
-    const levels = [...settings.thinkingLevels];
-    const current = settings.thinkingLevel;
-    if (current && !levels.includes(current as ThinkingLevel)) levels.push(current as ThinkingLevel);
-    return levels;
-  }, [settings.thinkingLevels, settings.thinkingLevel]);
-
-  const modelDisabled = settings.disabled || settings.modelOptions.length === 0;
-  const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
-  const notice = settings.modelWarning ?? settings.effortNotice;
   const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
-  const gauge = contextGauge(context, compact);
-  const gaugeColor =
-    gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
   // 非表示中は scrollHeight が 0 なので測らず、visible の復帰で測り直す (下書きが最小高へ潰れるのを防ぐ)
   useEffect(() => {
@@ -138,115 +111,9 @@ export function Composer({
     }
   };
 
-  const handleModelChange = (next: string) => {
-    const slash = next.indexOf("/");
-    if (slash <= 0) return;
-    onChangeModel({ provider: next.slice(0, slash), id: next.slice(slash + 1) });
-  };
-
-  const fieldLabelClass = [
-    "flex min-w-0 items-center text-[10px] text-ink-faint",
-    compact ? "gap-2" : "gap-1.5",
-  ].join(" ");
-  const fieldNameClass = compact ? "w-12 shrink-0 uppercase tracking-wide" : "shrink-0 uppercase tracking-wide";
-  // compact の入力欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする
-  // (theme の色トークンが base なので Tailwind の text-base は使えない)
-  // 余白と伸縮は wrapper 側に置く (select は chevron と重ならない右余白を SelectField が持つ)
-  const selectClass = [
-    "py-1 pl-1.5 disabled:cursor-not-allowed disabled:opacity-55",
-    compact ? "text-[16px]" : "text-[11px]",
-  ].join(" ");
-  const selectWrapperClass = (maxWidth: string) => (compact ? "min-w-0 flex-1" : `min-w-0 ${maxWidth}`);
-
-  const modelField = (
-    <label className={fieldLabelClass}>
-      <span className={fieldNameClass}>Model</span>
-      <SelectField
-        aria-label="モデルを選択"
-        className={selectClass}
-        wrapperClassName={selectWrapperClass("max-w-[240px]")}
-        value={settings.model ?? ""}
-        disabled={modelDisabled}
-        onChange={(event) => handleModelChange(event.currentTarget.value)}
-      >
-        {settings.model ? null : <option value="">未選択</option>}
-        {modelChoices.map((choice) => (
-          <option key={choice.value} value={choice.value}>
-            {choice.label}
-          </option>
-        ))}
-      </SelectField>
-    </label>
-  );
-
-  const effortField = (
-    <label className={fieldLabelClass}>
-      <span className={fieldNameClass}>Effort</span>
-      <SelectField
-        aria-label="Effort を選択"
-        className={selectClass}
-        wrapperClassName={selectWrapperClass("max-w-[160px]")}
-        value={settings.thinkingLevel ?? ""}
-        disabled={effortDisabled}
-        onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}
-      >
-        {settings.thinkingLevel ? null : <option value="">未選択</option>}
-        {effortChoices.map((level) => (
-          <option key={level} value={level}>
-            {effortLabel(level)}
-          </option>
-        ))}
-      </SelectField>
-    </label>
-  );
-
-  // Model / Effort は追加設定。畳んでいるときはモデルが使えない警告だけを残す (Effort の注意書きは設定の中身なので出さない)
+  const notice = settings.modelWarning ?? settings.effortNotice;
+  // Model / Effort は追加設定。Effort の注意書きは設定の中身なので、畳んでいるときはモデルが使えない警告だけを残す
   const rowNotice = settingsOpen ? notice : settings.modelWarning;
-
-  const agentField = (
-    <label className={fieldLabelClass}>
-      <span className="shrink-0">エージェント</span>
-      <SelectField
-        aria-label="エージェントを選択"
-        className={selectClass}
-        wrapperClassName={selectWrapperClass("max-w-[200px]")}
-        value={agentId}
-        disabled={agents.length === 0}
-        onChange={(event) => {
-          const next = event.currentTarget.value;
-          if (next !== agentId) onChangeAgent(next);
-        }}
-      >
-        {agents.map((agent) => (
-          <option key={agent.id} value={agent.id}>
-            {agent.name}
-          </option>
-        ))}
-      </SelectField>
-    </label>
-  );
-
-  const settingsToggle = (
-    <button
-      type="button"
-      onClick={() => setSettingsOpen((open) => !open)}
-      aria-expanded={settingsOpen}
-      aria-label="モデルと Effort の設定"
-      title="モデルと Effort"
-      className={[
-        // compact は入力欄と高さを揃えてタップ領域も広く取る
-        "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
-        compact ? "size-9" : "size-7",
-        settingsOpen
-          ? "border-accent/50 bg-accent-wash text-accent-text"
-          : "border-line bg-raised text-ink-faint hover:text-ink-soft",
-      ].join(" ")}
-    >
-      <SlidersIcon />
-    </button>
-  );
-
-  // 停止ボタンの表示は desk の run status (stopVisible) が正。ここに通信中フラグは持たない
   const stopButton = stopVisible ? (
     <button
       type="button"
@@ -259,8 +126,6 @@ export function Composer({
       {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
     </button>
   ) : null;
-
-  // 畳んだ状態では、送信できない理由 (モデル不在) だけを残す
   const collapsedWarnings = [compact && !settingsOpen ? settings.modelWarning : undefined, settings.sendBlockedReason]
     .filter((text): text is string => Boolean(text));
 
@@ -273,40 +138,7 @@ export function Composer({
           : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
       ].join(" ")}
     >
-      {/* activity が空でもゲージだけは常時出す (コンテキスト量はいつでも見たい) */}
-      {activity || gauge ? (
-        <div className="flex min-h-[21px] items-center gap-2 px-1 pb-1.5 text-[11px] text-ink-muted">
-          <span aria-live="polite" className="min-w-0 flex-1 break-words">
-            {activity}
-          </span>
-          {gauge ? (
-            <span
-              className={["shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums", gaugeColor].join(" ")}
-            >
-              Context
-              {/* バーは CSS 描画。ブロック要素のグリフは端末のフォント次第で崩れるうえ、
-                  等幅にならないので tabular-nums も効かない */}
-              <span
-                role="progressbar"
-                aria-label="コンテキスト使用量"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={gauge.fill === null ? undefined : Math.round(gauge.fill * 100)}
-                className="mx-1 inline-block h-[5px] w-10 overflow-hidden rounded-full bg-line-strong align-middle"
-              >
-                {gauge.fill === null || gauge.fill <= 0 ? null : (
-                  // 極小の百分率でも「空」と見分けが付くように最小幅を持たせる
-                  <span
-                    className="block h-full rounded-full bg-current"
-                    style={{ width: `${gauge.fill * 100}%`, minWidth: 2 }}
-                  />
-                )}
-              </span>{" "}
-              {gauge.percent} {gauge.detail ? <span className="text-ink-ghost">{gauge.detail}</span> : null}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      <ContextGauge activity={activity} context={context} compact={compact} />
       <form
         onSubmit={handleSubmit}
         className={[
@@ -314,24 +146,35 @@ export function Composer({
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
         ].join(" ")}
       >
-        {/* エージェントは常時表示し、Model / Effort は追加設定として畳む */}
         <div className={["flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5"].join(" ")}>
-          {agentField}
-          {settingsToggle}
+          <AgentField agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
+          <ModelEffortToggle
+            open={settingsOpen}
+            compact={compact}
+            onToggle={() => setSettingsOpen((open) => !open)}
+          />
           {compact ? null : (
             <>
-              {settingsOpen ? modelField : null}
-              {settingsOpen ? effortField : null}
-              {/* 警告の置き場所は compact では footnote (collapsedWarnings) に揃える */}
+              {settingsOpen ? (
+                <ModelEffortFields
+                  settings={settings}
+                  compact={compact}
+                  onChangeModel={onChangeModel}
+                  onChangeThinkingLevel={onChangeThinkingLevel}
+                />
+              ) : null}
               {rowNotice ? <span className="min-w-0 break-words text-[10px] text-warn">{rowNotice}</span> : null}
             </>
           )}
         </div>
-        {/* compact の設定は入力欄の上に開く (横幅が足りないのでエージェントの行に並べない) */}
         {compact && settingsOpen ? (
           <div className={["grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2", landscape ? "grid-cols-2" : ""].join(" ")}>
-            {modelField}
-            {effortField}
+            <ModelEffortFields
+              settings={settings}
+              compact={compact}
+              onChangeModel={onChangeModel}
+              onChangeThinkingLevel={onChangeThinkingLevel}
+            />
             {notice ? (
               <span className={["min-w-0 break-words text-[10px] text-warn", landscape ? "col-span-2" : ""].join(" ")}>
                 {notice}
@@ -344,14 +187,7 @@ export function Composer({
             ref={inputRef}
             rows={1}
             value={value}
-            placeholder={
-              runtimeReady
-                ? // compact は 1 行の入力欄を保ちたいので Enter の説明は desktop だけに出す
-                  compact
-                  ? "メッセージを入力…"
-                  : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
-                : "APIキーを設定すると送信できます"
-            }
+            placeholder={runtimeReady ? (compact ? "メッセージを入力…" : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)") : "APIキーを設定すると送信できます"}
             className={[
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
               compact ? "min-h-9 max-h-[120px] py-1.5 text-[16px]" : "min-h-6 max-h-[180px] py-1",

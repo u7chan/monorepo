@@ -1,4 +1,4 @@
-/** モバイルのコンパクト UI 用アイコン (ChatArea と違い、複数コンポーネントで共有する) */
+/** 複数コンポーネントで共有するアイコン */
 
 export function MenuIcon() {
   return (
@@ -223,6 +223,24 @@ export function ChevronIcon() {
       className="size-3.5"
     >
       <path d="M6.25 4.25L10 8l-3.75 3.75" />
+    </svg>
+  );
+}
+
+/** 折りたたみ (details/summary) の開閉。開いた状態の回転は CSS (.tool-disclosure) が持つ */
+export function DisclosureChevronIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="tool-disclosure size-3 shrink-0"
+    >
+      <path d="M6 3.5 10.5 8 6 12.5" />
     </svg>
   );
 }
