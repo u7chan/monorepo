@@ -3,6 +3,7 @@
  * 応答時間・送信メッセージの観測) だけをここが持ち、run / queue / subscriber のライフサイクルは
  * SessionStore に残す。SDK は完了時刻を持たないため、応答時間はイベントの到着時刻で測る。
  */
+import { AUTH_REQUIRED_MESSAGE } from "./agent";
 import { recordCompactionOutcome } from "./compaction-view";
 import type { PiSessionEventListener, PiSessionLike } from "./pi-runtime";
 import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
@@ -10,6 +11,23 @@ import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
 import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall } from "./schema";
 import { contentText, toolArgsSummary, toolResultSummary } from "./session-projection";
+
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 認証・設定由来の SDK エラーは、UI が復旧手順を示せる定型文言へ置換する。
+ * throw された falsy な値も文字列化するため、エラー有無の判定はこの戻り値で行う
+ * (空メッセージの Error は空文字 = エラー無し、`throw undefined` は "undefined" = エラー)。
+ */
+export function userFacingError(error: unknown): string {
+  const message = messageFor(error);
+  if (/No API key found|Provider is not configured|No model selected/i.test(message)) {
+    return AUTH_REQUIRED_MESSAGE;
+  }
+  return message;
+}
 
 /**
  * 応答時間のうち BFF が測れる分を組む。tok/s は最初の delta からのスパンで割り、
@@ -45,7 +63,8 @@ export function computeMessageMetrics({
 /** ランの終了理由。run_end の status と error 文言は受け取った側 (SessionStore) が決める */
 export interface RunSettlement {
   stopped?: boolean;
-  error?: unknown;
+  /** 正規化済みのエラー文言 (undefined は正常終了) */
+  error?: string;
 }
 
 export interface RunEventBridgeDeps {
@@ -228,9 +247,9 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           const finalAssistant = lastAssistantMessage(session);
           onSettled({
             stopped: finalAssistant?.stopReason === "aborted",
-            ...(finalAssistant?.stopReason === "error"
-              ? { error: finalAssistant.errorMessage || "モデルの実行に失敗しました" }
-              : {}),
+            error: finalAssistant?.stopReason === "error"
+              ? userFacingError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
+              : undefined,
           });
           break;
         }
@@ -238,7 +257,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
       }
     } catch (error) {
-      onSettled({ error });
+      onSettled({ error: userFacingError(error) });
     }
   };
 

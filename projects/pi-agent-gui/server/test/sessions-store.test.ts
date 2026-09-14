@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
 import { ProjectStore } from "../src/projects";
 import { computeMessageMetrics, SessionStore } from "../src/sessions";
@@ -678,6 +679,37 @@ test("keeps a reported zero usage as is and tolerates a post-compaction context"
   const payload = store.payload(record);
   assert.deepEqual(payload.messages.at(-1)?.usage, zeroUsage, "報告された 0 はそのまま通す (表示側が隠す)");
   assert.deepEqual(payload.context, compacted, "compaction 直後の null でも壊れない");
+
+  await store.close();
+});
+
+test("normalizes the run error at the settlement callers, including falsy thrown values", async () => {
+  const catalog = createAgentCatalog();
+  const store = new SessionStore({ pi: createStubPi(), catalog });
+  const record = await store.create({ agentId: "agent-general" });
+
+  // 正規化は例外を受け取った境界で行い、status の判定も正規化後の文字列で決める。
+  // 空メッセージの Error / throw "" はエラー無し、throw された falsy な値は文言化してエラーになる。
+  const cases: Array<{ thrown: unknown; status: "completed" | "error"; error?: string }> = [
+    { thrown: new Error(), status: "completed" },
+    { thrown: "", status: "completed" },
+    { thrown: undefined, status: "error", error: "undefined" },
+    { thrown: null, status: "error", error: "null" },
+    { thrown: 0, status: "error", error: "0" },
+    { thrown: new Error("モデルの実行に失敗しました"), status: "error", error: "モデルの実行に失敗しました" },
+    { thrown: new Error("No API key found"), status: "error", error: AUTH_REQUIRED_MESSAGE },
+  ];
+
+  for (const { thrown, status, error } of cases) {
+    record.session.prompt = async () => {
+      throw thrown;
+    };
+    store.postMessage(record, "エラー経路");
+    await waitFor(() => store.statusOf(record) === status, 3000, `run status of ${String(thrown)}`);
+    const run = store.payload(record).run;
+    assert.equal(run?.status, status);
+    assert.equal(run?.error, error);
+  }
 
   await store.close();
 });
