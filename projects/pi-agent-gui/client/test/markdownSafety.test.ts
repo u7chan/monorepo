@@ -33,6 +33,8 @@ test("解析と描画のソースが揃っている (走査対象が空になら
     "highlight.ts",
     "html.ts",
     "inline.ts",
+    "latex.ts",
+    "latexLayout.ts",
     "parse.ts",
     "types.ts",
   ]);
@@ -40,6 +42,7 @@ test("解析と描画のソースが揃っている (走査対象が空になら
     "CodeBlock.tsx",
     "HtmlInline.tsx",
     "MarkdownView.tsx",
+    "MathView.tsx",
   ]);
 });
 

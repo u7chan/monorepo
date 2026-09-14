@@ -13,6 +13,8 @@ const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
 const HR = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/;
 const QUOTE = /^ {0,3}> ?(.*)$/;
 const LIST_MARKER = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+|$)/;
+/** ディスプレイ数式の開き。閉じが無ければ段落 (原文) として扱う */
+const MATH_OPEN = /^ {0,3}(\$\$|\\\[)[ \t]*(.*)$/;
 const TASK = /^\[([ xX])\][ \t]+(.*)$/;
 const DELIMITER_CELL = /^:?-+:?$/;
 
@@ -41,6 +43,12 @@ function parseLines(lines: string[]): MdBlock[] {
     if (heading !== null) {
       blocks.push({ kind: "heading", level: heading[1].length as MdHeadingLevel, source: heading[2] ?? "" });
       at += 1;
+      continue;
+    }
+    const math = readMath(lines, at);
+    if (math !== null) {
+      blocks.push(math.block);
+      at = math.next;
       continue;
     }
     if (HR.test(line)) {
@@ -92,7 +100,14 @@ function indentOf(line: string): number {
 /** 段落を中断する行 (これ以外の行は段落の続きとして連結する) */
 function startsBlock(lines: string[], at: number): boolean {
   const line = lines[at];
-  if (FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST_MARKER.test(line)) {
+  if (
+    FENCE.test(line) ||
+    HEADING.test(line) ||
+    HR.test(line) ||
+    QUOTE.test(line) ||
+    LIST_MARKER.test(line) ||
+    MATH_OPEN.test(line)
+  ) {
     return true;
   }
   return isTableStart(lines, at);
@@ -138,6 +153,45 @@ function readFence(lines: string[], start: number, fence: RegExpExecArray): { bl
     at += 1;
   }
   return { block: { kind: "code", lang, text: content.join("\n"), closed }, next: at };
+}
+
+/**
+ * `$$…$$` / `\[…\]` のブロック数式。閉じが無いときや、閉じの後に文字が残るときは null を返し、
+ * 呼び出し側が段落 (原文) として扱う。
+ */
+function readMath(lines: string[], start: number): { block: MdBlock; next: number } | null {
+  const open = MATH_OPEN.exec(lines[start]);
+  if (open === null) return null;
+  const closeMark = open[1] === "$$" ? "$$" : "\\]";
+  const body = open[2];
+  const sameLine = readMathClose(body, closeMark);
+  if (sameLine !== null) {
+    if (sameLine.rest.trim() !== "") return null;
+    return { block: { kind: "math", text: sameLine.text.trim(), source: lines[start].trim() }, next: start + 1 };
+  }
+  const content = body === "" ? [] : [body];
+  for (let at = start + 1; at < lines.length; at += 1) {
+    const close = readMathClose(lines[at], closeMark);
+    if (close === null) {
+      content.push(lines[at]);
+      continue;
+    }
+    // 閉じの後に本文が続く行はブロック数式にしない
+    if (close.rest.trim() !== "") return null;
+    content.push(close.text);
+    return {
+      block: { kind: "math", text: content.join("\n").trim(), source: lines.slice(start, at + 1).join("\n") },
+      next: at + 1,
+    };
+  }
+  return null;
+}
+
+/** 行の中の閉じ区切りを探す。見つからなければ null */
+function readMathClose(line: string, closeMark: string): { text: string; rest: string } | null {
+  const at = line.indexOf(closeMark);
+  if (at === -1) return null;
+  return { text: line.slice(0, at), rest: line.slice(at + closeMark.length) };
 }
 
 function readList(

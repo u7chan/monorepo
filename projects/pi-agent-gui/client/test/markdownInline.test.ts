@@ -97,8 +97,12 @@ test("段落内の改行は break になる", () => {
   assert.deepEqual(parseInline("1 行目\n2 行目"), [text("1 行目"), { kind: "break" }, text("2 行目")]);
 });
 
-test("数式はこの段階では解釈せず原文のまま残す", () => {
-  assert.deepEqual(parseInline("$E = mc^2$"), [text("$E = mc^2$")]);
+test("数式はインライン解析から math ノードになり、解釈できないときは原文のまま残す", () => {
+  assert.deepEqual(parseInline("$x$"), [
+    { kind: "math", node: { kind: "row", children: [text("x")] } },
+  ]);
+  // 詳細な判定規則と AST は markdownLatex.test.ts が固定する
+  assert.deepEqual(parseInline("$\\frac{1}$"), [{ kind: "literal", text: "$\\frac{1}$" }]);
   assert.deepEqual(parseInline("$$\\sum_{i=1}^N$$"), [text("$$\\sum_{i=1}^N$$")]);
 });
 

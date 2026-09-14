@@ -4,10 +4,11 @@
  */
 import { parseHtml, safeUrl } from "./html";
 import type { HtmlBudget } from "./html";
+import { parseLatex } from "./latex";
 import type { MdInline } from "./types";
 
-/** エスケープで文字に戻す記号 */
-const ESCAPABLE = "\\`*_{}[]()#+-.!~|<>";
+/** エスケープで文字に戻す記号 (数式の区切りに使う `$` も含む) */
+const ESCAPABLE = "\\`*_{}[]()#+-.!~|<>$";
 
 /** 1 回の解析で試す区切りの上限。`*` を大量に含む本文でも O(n^2) に落とさないための保険 */
 const MAX_ATTEMPTS = 2000;
@@ -21,12 +22,18 @@ const MAX_INLINE_DEPTH = 8;
 /** 1 段落で生 HTML を走査する文字数の上限 */
 const MAX_HTML_STEPS = 20000;
 
+/** インライン数式 1 つの探索範囲。離れすぎた閉じは対応させない */
+const MAX_MATH_SPAN = 4096;
+
+/** 1 段落で数式の判定に使う文字数の上限 */
+const MAX_MATH_STEPS = 20000;
+
 /** 1 段落内で共有する解析の状態 */
-type ScanState = { attempts: number; html: HtmlBudget };
+type ScanState = { attempts: number; html: HtmlBudget; math: number };
 
 /** 解析の入口。段落 1 つ分のテキストをインラインノード列にする */
 export function parseInline(text: string): MdInline[] {
-  return scanInline(text, { attempts: MAX_ATTEMPTS, html: { steps: MAX_HTML_STEPS } }, 0, true);
+  return scanInline(text, { attempts: MAX_ATTEMPTS, html: { steps: MAX_HTML_STEPS }, math: MAX_MATH_STEPS }, 0, true);
 }
 
 /** allowLinks=false はリンクのラベル内 (リンクの入れ子を作らない) */
@@ -45,6 +52,17 @@ function scanInline(text: string, state: ScanState, depth: number, allowLinks: b
   while (at < text.length) {
     const char = text[at];
     const escaped = text[at + 1];
+    // `\(` は数式の開き。閉じが無ければ下のエスケープとして `(` を出す
+    if (state.attempts > 0 && char === "\\" && escaped === "(") {
+      state.attempts -= 1;
+      const paren = readParenMath(text, at, state);
+      if (paren !== null) {
+        flush();
+        nodes.push(paren.node);
+        at = paren.end;
+        continue;
+      }
+    }
     // 末尾の `\` はエスケープする相手が無いので、そのまま本文に残す
     if (char === "\\" && escaped !== undefined && ESCAPABLE.includes(escaped)) {
       buffer += escaped;
@@ -97,6 +115,16 @@ function scanInline(text: string, state: ScanState, depth: number, allowLinks: b
         continue;
       }
     }
+    if (state.attempts > 0 && char === "$") {
+      state.attempts -= 1;
+      const math = readDollarMath(text, at, state);
+      if (math !== null) {
+        flush();
+        nodes.push(math.node);
+        at = math.end;
+        continue;
+      }
+    }
     if (allowLinks && char === "h") {
       const url = readBareUrl(text, at);
       if (url !== null) {
@@ -129,6 +157,52 @@ function readCodeSpan(text: string, start: number): { text: string; end: number 
 
 function linkNode(href: string, text: string): MdInline {
   return { kind: "link", href, title: null, children: [{ kind: "text", text }] };
+}
+
+/**
+ * `$…$`。開き直後と閉じ直前が空白でないこと、同じ段落内に閉じがあること、
+ * トークン化が成功することをすべて満たすときだけ数式にする (通貨記号と衝突させない)。
+ * 区切りは揃っているのに中身を解釈できないときは、記法ごと literal (原文) にする。
+ */
+function readDollarMath(text: string, start: number, state: ScanState): { node: MdInline; end: number } | null {
+  // `$$` はディスプレイ数式の区切りなので、ここでは解釈しない
+  if (text[start - 1] === "$" || text[start + 1] === "$") return null;
+  const after = text[start + 1];
+  if (after === undefined || /\s/.test(after)) return null;
+  if (state.math <= 0) return null;
+  const limit = Math.min(text.length, start + MAX_MATH_SPAN);
+  let at = start + 1;
+  while (at < limit) {
+    const char = text[at];
+    state.math -= 1;
+    if (state.math <= 0) return null;
+    // エスケープした `\$` は閉じにしない
+    if (char === "\\") {
+      at += 2;
+      continue;
+    }
+    if (char === "$" && text[at + 1] !== "$" && !/\s/.test(text[at - 1] ?? " ")) {
+      return mathNode(text.slice(start + 1, at), text.slice(start, at + 1), at + 1);
+    }
+    at += 1;
+  }
+  return null;
+}
+
+/** `\(…\)`。対応する `\)` が無ければ null (呼び出し側はエスケープとして `(` を出す) */
+function readParenMath(text: string, start: number, state: ScanState): { node: MdInline; end: number } | null {
+  if (state.math <= 0) return null;
+  const close = text.indexOf("\\)", start + 2);
+  if (close === -1 || close - start > MAX_MATH_SPAN) return null;
+  state.math -= close - start;
+  return mathNode(text.slice(start + 2, close), text.slice(start, close + 2), close + 2);
+}
+
+/** 数式として解釈できたら math ノードにし、できないときは記法ごと literal (原文) にする */
+function mathNode(source: string, raw: string, end: number): { node: MdInline; end: number } {
+  const parsed = parseLatex(source);
+  if (!parsed.ok) return { node: { kind: "literal", text: raw }, end };
+  return { node: { kind: "math", node: parsed.node }, end };
 }
 
 /** `<https://…>` / `<mailto:…>` / 生 HTML のいずれか。どれでもなければ null */
