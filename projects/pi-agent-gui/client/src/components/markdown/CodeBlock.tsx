@@ -5,15 +5,18 @@ import { CopyButton, REVEAL_CODE } from "../chat/CopyButton";
 
 /**
  * コードフェンスの描画。ハイライトは文字列 props で memo 化され、伸びているブロックだけを再計算する。
+ * note は呼び出し側が理由を 1 行添えるためのもの (未対応記法を原文表示に落とすときなど)。
  */
 export const CodeBlock = memo(function CodeBlock({
   lang,
   text,
   closed,
+  note,
 }: {
   lang: string | null;
   text: string;
   closed: boolean;
+  note?: string;
 }) {
   const tokens = useMemo(() => highlightCode(text, lang), [text, lang]);
   const { copiedId, copyMessage } = useMessageCopy();
@@ -49,6 +52,9 @@ export const CodeBlock = memo(function CodeBlock({
           {closed ? null : <span className="md-caret" aria-hidden="true" />}
         </code>
       </pre>
+      {note === undefined ? null : (
+        <div className="border-t border-dashed border-line px-3 pt-1 pb-2 text-[11px] text-warn">{note}</div>
+      )}
     </figure>
   );
 });

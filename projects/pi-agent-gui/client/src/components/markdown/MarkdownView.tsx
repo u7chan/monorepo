@@ -3,6 +3,7 @@ import { parseInline } from "../../lib/markdown/inline";
 import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../lib/markdown/parse";
 import type { MdAlign, MdBlock, MdHeadingLevel, MdInline, MdListItem } from "../../lib/markdown/types";
 import { CodeBlock } from "./CodeBlock";
+import { Diagram } from "./Diagram";
 import { HtmlInline } from "./HtmlInline";
 import { MathBlock, MathInline } from "./MathView";
 
@@ -36,7 +37,12 @@ const MdBlockView = memo(
       case "paragraph":
         return <MdParagraph source={block.source} />;
       case "code":
-        return <CodeBlock lang={block.lang} text={block.text} closed={block.closed} />;
+        // 図はフェンスが閉じてから描画する (未完成の本文でレイアウトを走らせない)
+        return block.lang?.toLowerCase() === "mermaid" && block.closed ? (
+          <Diagram text={block.text} />
+        ) : (
+          <CodeBlock lang={block.lang} text={block.text} closed={block.closed} />
+        );
       case "list":
         return <MdList ordered={block.ordered} start={block.start} items={block.items} />;
       case "quote":
