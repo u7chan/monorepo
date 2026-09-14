@@ -754,7 +754,8 @@ html[data-theme="sky"] {
     }
   }
 
-  /* シンタックスハイライトの色 (--c-syn-* は各テーマのプリセットで定義する) */  .tok-key {
+  /* シンタックスハイライトの色 (--c-syn-* は各テーマのプリセットで定義する) */
+  .tok-key {
     color: var(--c-syn-key);
   }
   .tok-str {

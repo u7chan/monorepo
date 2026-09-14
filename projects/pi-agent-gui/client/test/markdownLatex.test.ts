@@ -244,7 +244,8 @@ test("$ の後ろにトークン化できない中身があるときは記号ご
 });
 
 test("$$ はブロック数式になり、インラインでは解釈しない", () => {
-  assert.deepEqual(parseInline("$$\\sum_{i=1}^N$$"), [text("$$\\sum_{i=1}^N$$")]);  assert.deepEqual(parseMarkdown("$$\nx = \\frac{1}{2}\n$$"), [
+  assert.deepEqual(parseInline("$$\\sum_{i=1}^N$$"), [text("$$\\sum_{i=1}^N$$")]);
+  assert.deepEqual(parseMarkdown("$$\nx = \\frac{1}{2}\n$$"), [
     { kind: "math", text: "x = \\frac{1}{2}", source: "$$\nx = \\frac{1}{2}\n$$" },
   ]);
   assert.deepEqual(parseMarkdown("$$x = 1$$"), [{ kind: "math", text: "x = 1", source: "$$x = 1$$" }]);
