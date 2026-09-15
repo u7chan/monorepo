@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getFiles } from "../api";
 import {
   applyFileTreeError,
@@ -182,8 +182,8 @@ function EntryRow({
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(path)}
-          style={{ paddingLeft: `${depth * INDENT + 8}px` }}
-          className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 text-left text-xs text-ink transition-colors hover:bg-hover"
+          style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
+          className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
         >
           <span
             className={[
@@ -229,9 +229,9 @@ function EntryRow({
       type="button"
       aria-current={isSelected ? "true" : undefined}
       onClick={() => onSelect(path)}
-      style={{ paddingLeft: `${depth * INDENT + 32}px` }}
+      style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
       className={[
-        "flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 text-left text-xs transition-colors",
+        "flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
       ].join(" ")}
     >
@@ -256,9 +256,9 @@ function MessageRow({
   return (
     <div
       role={alert ? "alert" : undefined}
-      style={{ paddingLeft: `${depth * INDENT + 32}px` }}
+      style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
       className={[
-        "py-1.5 pr-2 text-[11px] leading-relaxed break-words",
+        "py-1.5 pr-2 pl-(--tree-indent) text-[11px] leading-relaxed break-words",
         danger ? "text-danger-text" : "text-ink-muted",
       ].join(" ")}
     >

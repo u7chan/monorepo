@@ -13,9 +13,11 @@
     "dev:sandbox": "pnpm --filter server dev:sandbox",
     "dev:web": "pnpm --filter client dev",
     "build": "pnpm --filter client build",
-    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "test": "pnpm --filter server test && pnpm --filter client test",
-    "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck"
+    "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck",
+    "lint": "oxlint client server",
+    "lint:fix": "oxlint client server --fix"
   },
   "engines": {
     "node": ">=22"
@@ -23,5 +25,9 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.85.1",
     "@earendil-works/pi-coding-agent": "^0.85.1"
+  },
+  "devDependencies": {
+    "@shadcn/lint": "^0.1.0",
+    "oxlint": "^1.82.0"
   }
 }

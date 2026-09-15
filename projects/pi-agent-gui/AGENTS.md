@@ -9,8 +9,10 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 実装したら必ずこれを実行する。
 
 ```bash
-pnpm check   # 型チェック + テスト + クライアントビルド
+pnpm check   # lint → 型チェック → テスト → クライアントビルド
 ```
+
+lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client には Design System ルール (`shadcn/*`)、server には通常の TypeScript ルールが当たる。自動修正は `pnpm lint:fix`（`shadcn/*` の指摘は自動修正されないので手で直す）。
 
 ## コメント
 
