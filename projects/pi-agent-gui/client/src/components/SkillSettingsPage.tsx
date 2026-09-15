@@ -94,9 +94,9 @@ export function SkillSettingsPage({
       }
       note={note}
     >
-      <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-[minmax(0,1fr)]">
+      <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
         <aside className="flex min-h-0 min-w-0 flex-col wide:border-r wide:border-line">
-          <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
+          <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold uppercase tracking-widest text-ink-faint">
             <span>スキル一覧</span>
             <span className="font-normal">{catalog.skills.length}</span>
           </div>
@@ -105,7 +105,7 @@ export function SkillSettingsPage({
             <button
               type="button"
               onClick={startNewSkill}
-              className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+              className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
             >
               <PlusIcon />
               新しいスキル
@@ -119,7 +119,7 @@ export function SkillSettingsPage({
                   className={itemClass(editingId === skill.id)}
                 >
                   <strong className="min-w-0 truncate text-xs text-ink">{skill.name}</strong>
-                  <span className="min-w-0 truncate text-[10px] text-ink-muted">{skill.description || "説明なし"}</span>
+                  <span className="min-w-0 truncate text-2xs text-ink-muted">{skill.description || "説明なし"}</span>
                 </button>
               ))}
             </div>
@@ -129,12 +129,12 @@ export function SkillSettingsPage({
         <section className="scrollbar-thin min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4">
           <form onSubmit={saveSkill} className="mx-auto grid max-w-2xl gap-3">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-text">SKILL</div>
+              <div className="text-2xs font-semibold uppercase tracking-label text-accent-text">SKILL</div>
               <h3 className="text-sm font-semibold text-ink-strong">
                 {editingSkill ? "スキルを編集" : "新しいスキル"}
               </h3>
             </div>
-            <label className="grid gap-1 text-[11px] text-ink-soft">
+            <label className="grid gap-1 text-1xs text-ink-soft">
               名前
               <input
                 className="field text-xs"
@@ -148,7 +148,7 @@ export function SkillSettingsPage({
                 }}
               />
             </label>
-            <label className="grid gap-1 text-[11px] text-ink-soft">
+            <label className="grid gap-1 text-1xs text-ink-soft">
               説明
               <input
                 className="field text-xs"
@@ -160,7 +160,7 @@ export function SkillSettingsPage({
                 }}
               />
             </label>
-            <label className="grid gap-1 text-[11px] text-ink-soft">
+            <label className="grid gap-1 text-1xs text-ink-soft">
               指示
               <textarea
                 className="field min-h-36 text-xs leading-relaxed"

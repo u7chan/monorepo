@@ -82,7 +82,7 @@ export function ModelEffortFields({
         <SelectField
           aria-label="モデルを選択"
           className={selectClass(compact)}
-          wrapperClassName={selectWrapperClass(compact, "max-w-[240px]")}
+          wrapperClassName={selectWrapperClass(compact, "max-w-60")}
           value={settings.model ?? ""}
           disabled={modelDisabled}
           onChange={(event) => handleModelChange(event.currentTarget.value)}
@@ -100,7 +100,7 @@ export function ModelEffortFields({
         <SelectField
           aria-label="Effort を選択"
           className={selectClass(compact)}
-          wrapperClassName={selectWrapperClass(compact, "max-w-[160px]")}
+          wrapperClassName={selectWrapperClass(compact, "max-w-40")}
           value={settings.thinkingLevel ?? ""}
           disabled={effortDisabled}
           onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}

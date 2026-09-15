@@ -133,12 +133,12 @@ export function AgentEditorForm({
     <section className="scrollbar-thin min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4">
       <form onSubmit={saveAgent} className="mx-auto grid max-w-2xl gap-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-text">AGENT</div>
+          <div className="text-2xs font-semibold uppercase tracking-label text-accent-text">AGENT</div>
           <h3 className="text-sm font-semibold text-ink-strong">
             {agent ? "エージェントを編集" : "新しいエージェント"}
           </h3>
         </div>
-        <label className="grid gap-1 text-[11px] text-ink-soft">
+        <label className="grid gap-1 text-1xs text-ink-soft">
           名前
           <input
             className="field text-xs"
@@ -152,7 +152,7 @@ export function AgentEditorForm({
             }}
           />
         </label>
-        <label className="grid gap-1 text-[11px] text-ink-soft">
+        <label className="grid gap-1 text-1xs text-ink-soft">
           説明
           <input
             className="field text-xs"
@@ -164,7 +164,7 @@ export function AgentEditorForm({
             }}
           />
         </label>
-        <label className="grid gap-1 text-[11px] text-ink-soft">
+        <label className="grid gap-1 text-1xs text-ink-soft">
           役割 / 基本指示
           <textarea
             className="field min-h-28 text-xs leading-relaxed"
@@ -193,10 +193,10 @@ export function AgentEditorForm({
           onRemove={removeSuggestion}
           onAdd={addSuggestion}
         />
-        <div className="text-[11px] text-ink-soft">割り当てるスキル</div>
+        <div className="text-1xs text-ink-soft">割り当てるスキル</div>
         <div className="grid gap-1.5">
           {catalog.skills.length === 0 ? (
-            <div className="text-[11px] text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
+            <div className="text-1xs text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
           ) : (
             catalog.skills.map((skill) => (
               <label key={skill.id} className="flex cursor-pointer items-start gap-2 rounded-lg bg-soft px-2.5 py-2">
@@ -208,7 +208,7 @@ export function AgentEditorForm({
                 />
                 <span className="min-w-0">
                   <span className="block text-xs text-ink">{skill.name}</span>
-                  <small className="block break-words text-[10px] text-ink-muted">{skill.description || ""}</small>
+                  <small className="block break-words text-2xs text-ink-muted">{skill.description || ""}</small>
                 </span>
               </label>
             ))

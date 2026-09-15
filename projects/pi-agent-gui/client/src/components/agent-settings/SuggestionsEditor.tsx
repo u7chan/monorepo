@@ -17,11 +17,11 @@ export function SuggestionsEditor({
 }) {
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">定型プロンプト</div>
+      <div className="text-2xs font-semibold uppercase tracking-label text-ink-faint">定型プロンプト</div>
       <div className="grid gap-2">
         {suggestions.map((suggestion, index) => (
           <div key={index} className="grid items-end gap-2 wide:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto]">
-            <label className="grid gap-1 text-[11px] text-ink-soft">
+            <label className="grid gap-1 text-1xs text-ink-soft">
               ラベル
               <input
                 className="field text-xs"
@@ -31,7 +31,7 @@ export function SuggestionsEditor({
                 onChange={(e) => onChange(index, { label: e.currentTarget.value })}
               />
             </label>
-            <label className="grid gap-1 text-[11px] text-ink-soft">
+            <label className="grid gap-1 text-1xs text-ink-soft">
               プロンプト
               <input
                 className="field text-xs"
@@ -57,12 +57,12 @@ export function SuggestionsEditor({
         type="button"
         disabled={suggestions.length >= SUGGESTION_LIMIT}
         onClick={onAdd}
-        className="inline-flex min-h-9 items-center justify-center gap-1.5 justify-self-start rounded-lg border border-dashed border-line px-3 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-55"
+        className="inline-flex min-h-9 items-center justify-center gap-1.5 justify-self-start rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-55"
       >
         <PlusIcon />
         追加
       </button>
-      <p className="text-[10px] leading-relaxed text-ink-ghost">
+      <p className="text-2xs leading-relaxed text-ink-ghost">
         空の会話の最初の画面にボタンとして出ます。未定義のエージェントではボタンが出ません（最大 6 件）。
       </p>
     </div>

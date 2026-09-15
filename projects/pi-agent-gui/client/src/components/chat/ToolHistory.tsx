@@ -6,7 +6,7 @@ const TOOL_SUMMARY_MAX_LENGTH = 96;
 
 // 位相で文字幅が変わると (実測 実行中 27 / エラー 27.42px) 右隣のコピーボタンとサマリーの
 // truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
-const PHASE_LABEL_CLASS = "w-[3.25em] shrink-0 text-right whitespace-nowrap font-sans text-[9px]";
+const PHASE_LABEL_CLASS = "w-[3.25em] shrink-0 text-right whitespace-nowrap font-sans text-3xs";
 
 function abbreviatedToolSummary(card: ToolCard): string {
   const summary = `${card.name}${card.args ? ` — ${card.args}` : ""}`.replace(/\s+/g, " ").trim();
@@ -54,7 +54,7 @@ function ToolCallRow({
       >
         <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus">
           <DisclosureChevronIcon />
-          <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">
+          <span className="w-6 shrink-0 font-sans text-3xs tabular-nums text-ink-ghost">
             {String(index + 1).padStart(2, "0")}
           </span>
           <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
@@ -68,7 +68,7 @@ function ToolCallRow({
         >
           {card.args ? (
             <div className="grid min-w-0 gap-0.5">
-              <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">引数</span>
+              <span className="font-sans text-3xs uppercase tracking-wide text-ink-faint">引数</span>
               <code className="whitespace-pre-wrap break-words">{card.args}</code>
             </div>
           ) : null}
@@ -76,7 +76,7 @@ function ToolCallRow({
             <div className="text-accent-text">実行中…</div>
           ) : card.output ? (
             <div className="grid min-w-0 gap-0.5">
-              <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">出力</span>
+              <span className="font-sans text-3xs uppercase tracking-wide text-ink-faint">出力</span>
               <pre className="m-0 whitespace-pre-wrap break-words font-mono">{card.output}</pre>
             </div>
           ) : null}
@@ -108,14 +108,14 @@ export function ToolHistoryView({
   return (
     <details
       className={[
-        "min-w-0 border-y border-line bg-soft/20 font-mono text-[10px] text-ink-muted",
+        "min-w-0 border-y border-line bg-soft/20 font-mono text-2xs text-ink-muted",
         hasResponse ? "mb-2.5" : "",
       ].join(" ")}
     >
       <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus">
         <DisclosureChevronIcon />
-        <span className="shrink-0 font-sans text-[10px] text-ink-soft">ツール履歴</span>
-        <span className="shrink-0 font-sans text-[9px] text-ink-faint">{cards.length}件</span>
+        <span className="shrink-0 font-sans text-2xs text-ink-soft">ツール履歴</span>
+        <span className="shrink-0 font-sans text-3xs text-ink-faint">{cards.length}件</span>
         <span className="min-w-0 flex-1 truncate">{historyPreview(cards)}</span>
         {running ? <PhaseLabel phase="running" /> : null}
         <CopyButton copied={copiedAll} onClick={onCopyAll} label="ツール履歴をすべてコピー" revealClass="" />

@@ -19,20 +19,20 @@ export function CompactionDivider({ compactions, compact }: { compactions: Compa
         ].join(" ")}
       >
         <DisclosureChevronIcon />
-        <span className="min-w-0 flex-1 text-[11px] leading-relaxed">{compactionDividerLabel(latest)}</span>
-        <span className="shrink-0 font-sans text-[9px] text-ink-faint">
+        <span className="min-w-0 flex-1 text-1xs leading-relaxed">{compactionDividerLabel(latest)}</span>
+        <span className="shrink-0 font-sans text-3xs text-ink-faint">
           {compactions.length > 1 ? `${compactions.length}件` : "要約"}
         </span>
       </summary>
       <div className={["grid gap-3 border-t border-line", compact ? "px-2.5 py-2.5" : "px-3 py-3"].join(" ")}>
-        {historyLabel ? <p className="m-0 text-[10px] text-ink-faint">{historyLabel}</p> : null}
+        {historyLabel ? <p className="m-0 text-2xs text-ink-faint">{historyLabel}</p> : null}
         <ol className="m-0 grid list-none gap-3">
           {compactions.map((compaction, index) => (
             <li key={compaction.id} className="grid min-w-0 gap-1">
-              <span className="font-sans text-[9px] uppercase tracking-wide text-ink-faint">
+              <span className="font-sans text-3xs uppercase tracking-wide text-ink-faint">
                 {compactionSummaryHeading(compaction, index)}
               </span>
-              <p className="m-0 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink-soft">
+              <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft">
                 {compaction.summary}
               </p>
             </li>

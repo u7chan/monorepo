@@ -44,16 +44,16 @@ export function ChatArea({
         " ",
       )}
     >
-      <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-[880px]"].filter(Boolean).join(" ")}>
+      <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-220"].filter(Boolean).join(" ")}>
         {bubbles.length === 0 ? (
           <div className={["mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]"].join(" ")}>
-            <div className="mx-auto mb-4 grid size-[42px] place-items-center rounded-[13px] border border-accent/25 bg-accent-wash text-lg text-accent-strong">
+            <div className="mx-auto mb-4 grid size-10.5 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-lg text-accent-strong">
               ✦
             </div>
             <h2 className={["font-semibold text-ink-strong", compact ? "text-lg" : "text-xl"].join(" ")}>
               プロジェクトの相棒です
             </h2>
-            <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+            <p className="mt-2 text-1sm leading-relaxed text-ink-soft">
               コードを読んだり、ファイルを編集したり、コマンドを実行できます。
             </p>
             {suggestions.length > 0 ? (

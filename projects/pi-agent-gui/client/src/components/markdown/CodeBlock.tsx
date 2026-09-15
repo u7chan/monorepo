@@ -55,7 +55,7 @@ export const CodeBlock = memo(function CodeBlock({
         </code>
       </pre>
       {note === undefined ? null : (
-        <div className="border-t border-dashed border-line px-3 pt-1 pb-2 text-[11px] text-warn">{note}</div>
+        <div className="border-t border-dashed border-line px-3 pt-1 pb-2 text-1xs text-warn">{note}</div>
       )}
     </figure>
   );
