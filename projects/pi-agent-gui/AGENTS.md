@@ -12,7 +12,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 pnpm check   # lint → format:check → 型チェック → テスト → クライアントビルド
 ```
 
-lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client には Design System ルール (`shadcn/*`)、server には通常の TypeScript ルールが当たる。自動修正は `pnpm lint:fix`（`shadcn/*` の指摘は自動修正されないので手で直す）。
+lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client には Design System ルール (`shadcn/*`)、server には通常の TypeScript ルールが当たる。自動修正は `pnpm lint:fix`（`shadcn/*` の指摘は自動修正されないので手で直す）。`shadcn/no-arbitrary-values` は error で、例外は Tailwind の scale に無い layout 値（grid テンプレート / vh の上限 / em・min() の幅）だけを `allow` に列挙している。追加するときは値ごとに理由を PR に書く。
 
 format は `pnpm format` で適用、`pnpm format:check` で差分の有無だけを確認する。設定は root の `.oxfmtrc.json` にあり、client / server だけが対象（root の `package.json` / `scripts/` / `docs/` は対象外）。
 
