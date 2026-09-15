@@ -27,7 +27,14 @@ export type MathLayout =
   | { kind: "fenced"; open: MathLayout | null; close: MathLayout | null; body: MathLayout }
   | { kind: "delim"; text: string; scale: number }
   /** cls は .mtx (行列) と .cases。cells は行優先で、足りないセルは empty で埋める */
-  | { kind: "matrix"; cls: "mtx" | "cases"; columns: number; cells: MathLayout[]; open: MathLayout | null; close: MathLayout | null }
+  | {
+      kind: "matrix";
+      cls: "mtx" | "cases";
+      columns: number;
+      cells: MathLayout[];
+      open: MathLayout | null;
+      close: MathLayout | null;
+    }
   | { kind: "empty" };
 
 export function toMathLayout(node: MathNode): MathLayout {
@@ -120,7 +127,9 @@ function heightOf(node: MathNode): number {
     case "sqrt":
       return heightOf(node.body) + 1;
     case "bigop":
-      return Math.max(2, node.upper === null ? 0 : heightOf(node.upper), node.lower === null ? 0 : heightOf(node.lower)) + 4;
+      return (
+        Math.max(2, node.upper === null ? 0 : heightOf(node.upper), node.lower === null ? 0 : heightOf(node.lower)) + 4
+      );
     case "script":
       return heightOf(node.base) + 1;
     case "fenced":

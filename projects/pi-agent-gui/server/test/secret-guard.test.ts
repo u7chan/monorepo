@@ -23,7 +23,7 @@ const HAS_RG = spawnSync("rg", ["--version"], { stdio: "ignore" }).status === 0;
 const RG_SKIP_REASON = "ripgrep is not available on this platform";
 
 function toolText(result: { content: Array<{ type: string; text?: string }> }): string {
-  return result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
+  return result.content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
 }
 
 test("collectSecretValues gathers configured provider env values only", () => {
@@ -33,11 +33,9 @@ test("collectSecretValues gathers configured provider env values only", () => {
     CUSTOM_KEY: CUSTOM_DUMMY,
     UNRELATED: "just-a-shell-value-but-long-enough",
   };
-  const values = collectSecretValues(
-    [{ id: "openai" }, { id: "anthropic" }, { id: "unknown-provider" }],
-    env,
-    ["CUSTOM_KEY"],
-  );
+  const values = collectSecretValues([{ id: "openai" }, { id: "anthropic" }, { id: "unknown-provider" }], env, [
+    "CUSTOM_KEY",
+  ]);
   assert.deepEqual([...values].sort(), [CUSTOM_DUMMY, OPENAI_DUMMY].sort());
 });
 
@@ -60,32 +58,33 @@ test("collectSecretValues floors auto-discovered short values but protects expli
 });
 
 test("extraSecretVarNames parses PI_SECRET_ENV_VARS and drops invalid names", () => {
-  assert.deepEqual(extraSecretVarNames({ PI_SECRET_ENV_VARS: " MY_KEY , 9bad,ok_name " }), [
-    "MY_KEY",
-    "ok_name",
-  ]);
+  assert.deepEqual(extraSecretVarNames({ PI_SECRET_ENV_VARS: " MY_KEY , 9bad,ok_name " }), ["MY_KEY", "ok_name"]);
   assert.deepEqual(extraSecretVarNames({}), []);
 });
 
-test("masked bash tool masks key values that appear in command output", { skip: !HAS_BASH && SKIP_REASON }, async () => {
-  // bash はサンドボックスで実行されるが、出力は BFF 側のマスカーを通る。
-  // ローカルの bash 定義を包んだ場合と同じセマンティクスを担保する。
-  const cwd = mkdtempSync(join(tmpdir(), "pi-guard-"));
-  const definition = wrapToolDefinitionWithSecretMasker(
-    createBashToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
-    createSecretMasker([KEY]),
-  );
-  const result = await definition.execute(
-    "t3",
-    { command: `echo "token=${KEY}"` },
-    undefined,
-    undefined,
-    undefined as never,
-  );
-  const text = toolText(result);
-  assert.ok(!text.includes(KEY), "raw key must not appear in tool output");
-  assert.ok(text.includes(`token=${REDACTED}`), `masked output expected, got: ${text}`);
-});
+test(
+  "masked bash tool masks key values that appear in command output",
+  { skip: !HAS_BASH && SKIP_REASON },
+  async () => {
+    // bash はサンドボックスで実行されるが、出力は BFF 側のマスカーを通る。
+    // ローカルの bash 定義を包んだ場合と同じセマンティクスを担保する。
+    const cwd = mkdtempSync(join(tmpdir(), "pi-guard-"));
+    const definition = wrapToolDefinitionWithSecretMasker(
+      createBashToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
+      createSecretMasker([KEY]),
+    );
+    const result = await definition.execute(
+      "t3",
+      { command: `echo "token=${KEY}"` },
+      undefined,
+      undefined,
+      undefined as never,
+    );
+    const text = toolText(result);
+    assert.ok(!text.includes(KEY), "raw key must not appear in tool output");
+    assert.ok(text.includes(`token=${REDACTED}`), `masked output expected, got: ${text}`);
+  },
+);
 
 test("shell tool wrapper masks partial updates, final output, and errors", async () => {
   const masker = createSecretMasker([KEY]);
@@ -95,12 +94,7 @@ test("shell tool wrapper masks partial updates, final output, and errors", async
     label: "Fake",
     description: "fake",
     parameters: {},
-    async execute(
-      _id: string,
-      _params: unknown,
-      _signal: unknown,
-      onUpdate?: (update: { content: unknown }) => void,
-    ) {
+    async execute(_id: string, _params: unknown, _signal: unknown, onUpdate?: (update: { content: unknown }) => void) {
       onUpdate?.({ content: [{ type: "text", text: `partial ${KEY.slice(0, 6)}` }] });
       onUpdate?.({ content: [{ type: "text", text: `full ${KEY}` }] });
       throw new Error(`boom ${KEY}`);
@@ -130,7 +124,7 @@ test("shell tool wrapper masks output truncated mid-key by the SDK", async () =>
     label: "Fake",
     description: "fake",
     parameters: {},
-  // SDK が末尾 N バイトへ切り詰めた結果、キーの先頭が欠けた状態を模倣する
+    // SDK が末尾 N バイトへ切り詰めた結果、キーの先頭が欠けた状態を模倣する
     async execute() {
       return { content: [{ type: "text", text: `${KEY.slice(3)} …` }], details: undefined };
     },
@@ -138,32 +132,36 @@ test("shell tool wrapper masks output truncated mid-key by the SDK", async () =>
 
   const wrapped = wrapToolDefinitionWithSecretMasker(inner, masker);
   const result = await wrapped.execute("t5", {}, undefined, undefined, undefined as never);
-  const text = result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
+  const text = result.content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
   assert.ok(!text.includes(KEY.slice(3)), `truncated key prefix leaked: ${text}`);
   assert.ok(text.startsWith(REDACTED), `masked output expected, got: ${text}`);
 });
 
-test("guarded grep tool masks key fragments cut by line truncation", { skip: !HAS_RG && "ripgrep is not available" }, async () => {
-  // grepツールは一致行を500文字で切り詰める。境界に跨ったキーの断片が
-  // [REDACTED] になることを、実SDKのgrepで確認する。
-  const cwd = mkdtempSync(join(tmpdir(), "pi-guard-grep-"));
-  await writeFile(join(cwd, "leak.txt"), `${"x".repeat(475)}${KEY}\n`, "utf8");
-  const masker = createSecretMasker([KEY]);
-  const grepDefinition = wrapToolDefinitionWithSecretMasker(
-    createGrepToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
-    masker,
-  );
-  const result = await grepDefinition.execute(
-    "t6",
-    { pattern: "dummy", path: cwd },
-    undefined,
-    undefined,
-    undefined as never,
-  );
-  const text = result.content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
-  assert.ok(!text.includes(KEY.slice(0, 20)), `truncated fragment leaked: ${text}`);
-  assert.ok(text.includes(REDACTED), `masked fragment expected: ${text}`);
-});
+test(
+  "guarded grep tool masks key fragments cut by line truncation",
+  { skip: !HAS_RG && "ripgrep is not available" },
+  async () => {
+    // grepツールは一致行を500文字で切り詰める。境界に跨ったキーの断片が
+    // [REDACTED] になることを、実SDKのgrepで確認する。
+    const cwd = mkdtempSync(join(tmpdir(), "pi-guard-grep-"));
+    await writeFile(join(cwd, "leak.txt"), `${"x".repeat(475)}${KEY}\n`, "utf8");
+    const masker = createSecretMasker([KEY]);
+    const grepDefinition = wrapToolDefinitionWithSecretMasker(
+      createGrepToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
+      masker,
+    );
+    const result = await grepDefinition.execute(
+      "t6",
+      { pattern: "dummy", path: cwd },
+      undefined,
+      undefined,
+      undefined as never,
+    );
+    const text = result.content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
+    assert.ok(!text.includes(KEY.slice(0, 20)), `truncated fragment leaked: ${text}`);
+    assert.ok(text.includes(REDACTED), `masked fragment expected: ${text}`);
+  },
+);
 
 test("redaction extension masks tool_result content before it reaches the LLM", async () => {
   const registered = new Map<string, (event: never) => Promise<unknown>>();

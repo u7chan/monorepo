@@ -78,12 +78,7 @@ export class SandboxRequestError extends Error {
 }
 
 /** NDJSON の execute とは別経路 (JSON 応答)。接続できない場合はサンドボックスの到達性の問題として 502 にする。 */
-async function fetchJson(
-  fetchImpl: typeof fetch,
-  url: string,
-  init: RequestInit,
-  baseUrl: string,
-): Promise<Response> {
+async function fetchJson(fetchImpl: typeof fetch, url: string, init: RequestInit, baseUrl: string): Promise<Response> {
   try {
     return await fetchImpl(url, init);
   } catch (error) {
@@ -102,10 +97,7 @@ function jsonHeaders(token: string): Record<string, string> {
 async function jsonError(response: Response, label: string): Promise<SandboxRequestError> {
   const detail = errorDetailOf(await response.text().catch(() => ""));
   if (response.status === 401 || response.status === 403) {
-    return new SandboxRequestError(
-      "サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)",
-      502,
-    );
+    return new SandboxRequestError("サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)", 502);
   }
   if (response.status === 400 || response.status === 404) {
     return new SandboxRequestError(detail || `${label} (HTTP ${response.status})`, response.status);

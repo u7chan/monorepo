@@ -148,7 +148,9 @@ export const createSession = async (
   agentId?: string,
   overrides: CreateSessionOverrides = {},
 ): Promise<SessionPayload> => {
-  const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel; projectId?: string } = { ...overrides };
+  const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel; projectId?: string } = {
+    ...overrides,
+  };
   if (agentId) json.agentId = agentId;
   const res = await client.api.sessions.$post({ json });
   if (!res.ok) throw await apiError(res);
@@ -167,10 +169,7 @@ export const deleteSession = async (sessionId: string): Promise<unknown> => {
   return res.json();
 };
 
-export const updateSessionSettings = async (
-  sessionId: string,
-  settings: SessionOverrides,
-): Promise<SessionPayload> => {
+export const updateSessionSettings = async (sessionId: string, settings: SessionOverrides): Promise<SessionPayload> => {
   const res = await client.api.sessions[":id"].settings.$patch({
     param: { id: sessionId },
     json: settings,

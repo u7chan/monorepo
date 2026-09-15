@@ -16,8 +16,7 @@ export const SANDBOX_REQUIRED_TEXT = "実行環境（サンドボックス）が
 export const AUTH_REQUIRED_GUIDE =
   "`cp .env.example .env` で設定ファイルを作成し、APIキーを入力してからサーバーを再起動してください。";
 
-const SANDBOX_REQUIRED_REASON =
-  "BFF にサンドボックスの接続情報が無いため、セッション作成（送信）が 503 になります。";
+const SANDBOX_REQUIRED_REASON = "BFF にサンドボックスの接続情報が無いため、セッション作成（送信）が 503 になります。";
 
 /**
  * 実行環境の復旧手順。`.env` は BFF だけが読むため、サンドボックスへ渡す値まで示す

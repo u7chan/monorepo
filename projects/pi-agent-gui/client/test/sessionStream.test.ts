@@ -87,10 +87,7 @@ test("refreshes the session list on queue changes", () => {
   const { record, deps } = createHarness();
 
   applySessionEvent({ seq: 1, type: "queued", data: { position: 1, queueDepth: 2, prompt: "go" }, at: 1 }, deps);
-  applySessionEvent(
-    { seq: 2, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 2 },
-    deps,
-  );
+  applySessionEvent({ seq: 2, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 2 }, deps);
 
   assert.equal(record.refreshed, 2, "キュー残数と一覧の run 状態を揃える");
 });

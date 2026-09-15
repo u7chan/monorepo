@@ -37,7 +37,10 @@ function sequence(lines: string[]): DiagramModel {
   return model(["sequenceDiagram", ...lines].join("\n"));
 }
 
-function overlaps(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
+function overlaps(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
@@ -168,7 +171,11 @@ test("flowchart: 逆向きのエッジと自己ループでも落ちない", () 
 });
 
 /** 軸に平行な線分が矩形の内側を通るか (境界に触れるだけは交差とみなさない) */
-function crosses(a: { x: number; y: number; w: number; h: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
+function crosses(
+  a: { x: number; y: number; w: number; h: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
   const left = Math.min(start.x, end.x);
   const right = Math.max(start.x, end.x);
   const top = Math.min(start.y, end.y);
@@ -211,7 +218,10 @@ function assertTextInsideBoxes(diagram: DiagramModel): void {
     if (edge.label === null || edge.labelAt === null) continue;
     const rect = labelRectOf(edge.label, edge.labelAt);
     assert.ok(
-      rect.x >= -0.01 && rect.y >= -0.01 && rect.x + rect.w <= diagram.width + 0.01 && rect.y + rect.h <= diagram.height + 0.01,
+      rect.x >= -0.01 &&
+        rect.y >= -0.01 &&
+        rect.x + rect.w <= diagram.width + 0.01 &&
+        rect.y + rect.h <= diagram.height + 0.01,
       `${edge.label} のラベルがキャンバス外`,
     );
   }
@@ -294,15 +304,17 @@ function assertLabelsClear(diagram: DiagramModel): void {
 
 test("flowchart: 戻るエッジは中間のノードを横切らない", () => {
   // E → A が 3 ランクを戻る (外側のレーンへ回る)
-  const diagram = model([
-    "flowchart LR",
-    "  A[角丸のノード] --> B(丸めのノード)",
-    "  B --> C{ひし形の分岐}",
-    "  B -.-> D((円のノード))",
-    "  C -->|はい| E[長いラベルを持つノード]",
-    "  D --> E",
-    "  E --> A",
-  ].join("\n"));
+  const diagram = model(
+    [
+      "flowchart LR",
+      "  A[角丸のノード] --> B(丸めのノード)",
+      "  B --> C{ひし形の分岐}",
+      "  B -.-> D((円のノード))",
+      "  C -->|はい| E[長いラベルを持つノード]",
+      "  D --> E",
+      "  E --> A",
+    ].join("\n"),
+  );
   assertNoCrossing(diagram);
 });
 
@@ -456,8 +468,8 @@ test("ラベル: 6 行に収まらないラベルは ok: false になる (文字
 test("性質: 固定シードのランダム flowchart で線がノードを横切らず、ラベルも線に貫かれない", () => {
   // 線形合同法で入力を作る (同じ並びを何度でも再現できる)
   let state = 20260914;
-  const rand = (): number => ((state = (state * 1664525 + 1013904223) >>> 0) / 0x100000000);
-  const pick = <T,>(values: T[]): T => values[Math.floor(rand() * values.length)] as T;
+  const rand = (): number => (state = (state * 1664525 + 1013904223) >>> 0) / 0x100000000;
+  const pick = <T>(values: T[]): T => values[Math.floor(rand() * values.length)] as T;
   const labels = ["開始", "判定", "処理 A", "queue", "結果を返す", "x", "あ".repeat(30), "次の段階へ進む処理"];
   const edgeLabels = ["成功", "NG", "再試行", "ラベル", "yes", "補足", "あ".repeat(12), "very long edge label"];
   let backEdges = 0;
@@ -500,7 +512,8 @@ test("性質: 固定シードのランダム flowchart で線がノードを横�
     }
     // 自己ループ (ランク下のすき間へ落として描く)。上の層と下の層の両方で作る
     if (rand() < 0.3) lines.push(`  ${pick(layers[0])} -.->|${pick(edgeLabels)}| ${pick(layers[0])}`);
-    if (rand() < 0.3) lines.push(`  ${pick(layers[layers.length - 1])} -.->|${pick(edgeLabels)}| ${pick(layers[layers.length - 1])}`);
+    if (rand() < 0.3)
+      lines.push(`  ${pick(layers[layers.length - 1])} -.->|${pick(edgeLabels)}| ${pick(layers[layers.length - 1])}`);
     return lines;
   };
 
@@ -546,12 +559,9 @@ test("flowchart: 2 ランク以上先へ進むエッジのラベルも線に貫�
 });
 
 test("ラベル: 衝突を避けた位置は決定的で、動かしてもキャンバス内に残る", () => {
-  const source = [
-    "flowchart TD",
-    "  A[処理] -->|ラベル| B[次の処理]",
-    "  A -->|再試行| A",
-    "  B --> C[終了]",
-  ].join("\n");
+  const source = ["flowchart TD", "  A[処理] -->|ラベル| B[次の処理]", "  A -->|再試行| A", "  B --> C[終了]"].join(
+    "\n",
+  );
   const first = model(source);
   assert.deepEqual(parseDiagram(source), parseDiagram(source));
   assert.deepEqual(
@@ -664,7 +674,10 @@ test("上限を超えた入力は ok: false (例外は投げない)", () => {
     assert.deepEqual(parseDiagram(source), { ok: false });
   }
   // 上限ちょうどは通る (境界を 1 つずらしていない)
-  assert.equal(parseDiagram(["sequenceDiagram", ...participants.slice(0, DIAGRAM_MAX_PARTICIPANTS)].join("\n")).ok, true);
+  assert.equal(
+    parseDiagram(["sequenceDiagram", ...participants.slice(0, DIAGRAM_MAX_PARTICIPANTS)].join("\n")).ok,
+    true,
+  );
   assert.equal(parseDiagram(["flowchart TD", ...edgeLines.slice(0, DIAGRAM_MAX_EDGES)].join("\n")).ok, true);
 });
 
@@ -696,7 +709,10 @@ test("lib/markdown/diagram.ts は DOM / React に依存しない", () => {
   for (const token of ["react", "document.", "window.", "measureText", "innerHTML", "dangerouslySetInnerHTML"]) {
     assert.ok(!code.includes(token), `diagram.ts に ${token} がある`);
   }
-  assert.deepEqual([...code.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]), []);
+  assert.deepEqual(
+    [...code.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]),
+    [],
+  );
 });
 
 /* ===== 描画 (react-dom/server) ===== */
@@ -737,7 +753,17 @@ test("描画: marker の id は図ごとに一意になる", () => {
 });
 
 test("描画: sequenceDiagram のライフラインとノートを出す", () => {
-  const html = render(["sequenceDiagram", "  participant A as client", "  participant B as BFF", "  A->>B: 送る", "  B-->>A: 返す", "  A->>A: 再描画", "  Note over A: メモ"].join("\n"));
+  const html = render(
+    [
+      "sequenceDiagram",
+      "  participant A as client",
+      "  participant B as BFF",
+      "  A->>B: 送る",
+      "  B-->>A: 返す",
+      "  A->>A: 再描画",
+      "  Note over A: メモ",
+    ].join("\n"),
+  );
   assert.ok(html.includes('class="md-diagram-lifeline"'));
   assert.ok(html.includes('class="md-diagram-note"'));
   assert.ok(html.includes('class="md-diagram-note-label"'));

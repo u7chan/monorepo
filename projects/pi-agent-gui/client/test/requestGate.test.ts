@@ -5,10 +5,14 @@ import { createRequestGate } from "../src/hooks/requestGate";
 test("later requests prevent older responses from overwriting the list", async () => {
   const begin = createRequestGate();
   let resolveOld!: () => void;
-  const pending = new Promise<void>((resolve) => { resolveOld = resolve; });
+  const pending = new Promise<void>((resolve) => {
+    resolveOld = resolve;
+  });
   const applied: string[] = [];
   const old = begin();
-  const oldRequest = pending.then(() => { if (old()) applied.push("old"); });
+  const oldRequest = pending.then(() => {
+    if (old()) applied.push("old");
+  });
   const latest = begin();
   if (latest()) applied.push("latest");
   resolveOld();

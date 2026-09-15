@@ -103,10 +103,7 @@ function maskTruncatedFragments(text: string, secrets: readonly string[]): strin
         }
       }
     }
-    result +=
-      fragment >= MIN_LEADING_PARTIAL
-        ? `${before.slice(0, before.length - fragment)}${REDACTED}`
-        : before;
+    result += fragment >= MIN_LEADING_PARTIAL ? `${before.slice(0, before.length - fragment)}${REDACTED}` : before;
     result += TRUNCATION_MARKER;
     rest = rest.slice(markerAt + TRUNCATION_MARKER.length);
   }

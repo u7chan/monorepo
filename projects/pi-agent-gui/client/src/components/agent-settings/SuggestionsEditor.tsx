@@ -20,10 +20,7 @@ export function SuggestionsEditor({
       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">定型プロンプト</div>
       <div className="grid gap-2">
         {suggestions.map((suggestion, index) => (
-          <div
-            key={index}
-            className="grid items-end gap-2 wide:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto]"
-          >
+          <div key={index} className="grid items-end gap-2 wide:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto]">
             <label className="grid gap-1 text-[11px] text-ink-soft">
               ラベル
               <input

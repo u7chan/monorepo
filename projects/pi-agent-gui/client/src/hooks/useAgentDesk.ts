@@ -86,16 +86,7 @@ export function useAgentDesk() {
         setRuntimeStatus,
       });
     },
-    [
-      dispatch,
-      ensureSession,
-      health,
-      refreshSessions,
-      sending,
-      sessionIdRef,
-      settingsChanging,
-      setRuntimeStatus,
-    ],
+    [dispatch, ensureSession, health, refreshSessions, sending, sessionIdRef, settingsChanging, setRuntimeStatus],
   );
 
   const stopAgent = useCallback(async (): Promise<void> => {

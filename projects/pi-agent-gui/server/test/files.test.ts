@@ -74,9 +74,17 @@ test("GET /api/files answers 503 when the sandbox is not configured", async () =
 
 test("GET /api/files maps sandbox failures and rejects malformed listings", async () => {
   const cases: Array<{ error: Error; status: number; message: RegExp }> = [
-    { error: new SandboxRequestError("Path outside the workspace: /etc", 400), status: 400, message: /outside the workspace/ },
+    {
+      error: new SandboxRequestError("Path outside the workspace: /etc", 400),
+      status: 400,
+      message: /outside the workspace/,
+    },
     { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
-    { error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502), status: 502, message: /接続できません/ },
+    {
+      error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502),
+      status: 502,
+      message: /接続できません/,
+    },
     { error: new Error("unexpected"), status: 502, message: /unexpected/ },
   ];
   for (const item of cases) {

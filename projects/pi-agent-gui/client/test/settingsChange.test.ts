@@ -91,9 +91,7 @@ test("applies the response when the same session is still selected", async () =>
   const harness = createHarness();
   await applySettingsChange(SESSION_A, { thinkingLevel: "high" }, harness.deps());
 
-  assert.deepEqual(harness.record.requests, [
-    { sessionId: SESSION_A, selection: { thinkingLevel: "high" } },
-  ]);
+  assert.deepEqual(harness.record.requests, [{ sessionId: SESSION_A, selection: { thinkingLevel: "high" } }]);
   assert.equal(harness.record.applied.length, 1);
   assert.equal(harness.record.applied[0].sessionId, SESSION_A);
   assert.equal(harness.record.successes, 1);

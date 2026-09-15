@@ -1,8 +1,4 @@
-import {
-  compactionDividerLabel,
-  compactionHistoryLabel,
-  compactionSummaryHeading,
-} from "../../lib/compaction";
+import { compactionDividerLabel, compactionHistoryLabel, compactionSummaryHeading } from "../../lib/compaction";
 import type { CompactionInfo } from "../../types";
 import { DisclosureChevronIcon } from "../icons";
 
@@ -23,9 +19,7 @@ export function CompactionDivider({ compactions, compact }: { compactions: Compa
         ].join(" ")}
       >
         <DisclosureChevronIcon />
-        <span className="min-w-0 flex-1 text-[11px] leading-relaxed">
-          {compactionDividerLabel(latest)}
-        </span>
+        <span className="min-w-0 flex-1 text-[11px] leading-relaxed">{compactionDividerLabel(latest)}</span>
         <span className="shrink-0 font-sans text-[9px] text-ink-faint">
           {compactions.length > 1 ? `${compactions.length}件` : "要約"}
         </span>

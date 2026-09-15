@@ -8,14 +8,7 @@ import {
   listSessions,
   updateSessionSettings,
 } from "../api";
-import type {
-  EventEntry,
-  Health,
-  ModelRef,
-  SessionPayload,
-  SessionSummary,
-  ThinkingLevel,
-} from "../types";
+import type { EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
 import { applySessionEvent } from "./sessionStream";

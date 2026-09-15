@@ -120,16 +120,16 @@ export function Composer({
       {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
     </button>
   ) : null;
-  const collapsedWarnings = [compact && !settingsOpen ? settings.modelWarning : undefined, settings.sendBlockedReason]
-    .filter((text): text is string => Boolean(text));
+  const collapsedWarnings = [
+    compact && !settingsOpen ? settings.modelWarning : undefined,
+    settings.sendBlockedReason,
+  ].filter((text): text is string => Boolean(text));
 
   return (
     <footer
       className={[
         "w-full min-w-0",
-        compact
-          ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]"
-          : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
+        compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
       ].join(" ")}
     >
       <ContextGauge activity={activity} context={context} compact={compact} />
@@ -142,11 +142,7 @@ export function Composer({
       >
         <div className={["flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5"].join(" ")}>
           <AgentField agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
-          <ModelEffortToggle
-            open={settingsOpen}
-            compact={compact}
-            onToggle={() => setSettingsOpen((open) => !open)}
-          />
+          <ModelEffortToggle open={settingsOpen} compact={compact} onToggle={() => setSettingsOpen((open) => !open)} />
           {compact ? null : (
             <>
               {settingsOpen ? (
@@ -162,7 +158,12 @@ export function Composer({
           )}
         </div>
         {compact && settingsOpen ? (
-          <div className={["grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2", landscape ? "grid-cols-2" : ""].join(" ")}>
+          <div
+            className={[
+              "grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2",
+              landscape ? "grid-cols-2" : "",
+            ].join(" ")}
+          >
             <ModelEffortFields
               settings={settings}
               compact={compact}
@@ -181,7 +182,13 @@ export function Composer({
             ref={inputRef}
             rows={1}
             value={value}
-            placeholder={runtimeReady ? (compact ? "メッセージを入力…" : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)") : "APIキーを設定すると送信できます"}
+            placeholder={
+              runtimeReady
+                ? compact
+                  ? "メッセージを入力…"
+                  : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
+                : "APIキーを設定すると送信できます"
+            }
             className={[
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
               compact ? "min-h-9 max-h-[120px] py-1.5 text-[16px]" : "min-h-6 max-h-[180px] py-1",
@@ -221,9 +228,7 @@ export function Composer({
         <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-[10px] text-ink-ghost">
           <span className="min-w-0 break-words">
             送信後もブラウザを閉じても処理は続きます
-            {settings.sendBlockedReason ? (
-              <span className="ml-1 text-warn">{settings.sendBlockedReason}</span>
-            ) : null}
+            {settings.sendBlockedReason ? <span className="ml-1 text-warn">{settings.sendBlockedReason}</span> : null}
           </span>
           {stopButton}
         </div>

@@ -194,11 +194,7 @@ function readMathClose(line: string, closeMark: string): { text: string; rest: s
   return { text: line.slice(0, at), rest: line.slice(at + closeMark.length) };
 }
 
-function readList(
-  lines: string[],
-  start: number,
-  first: RegExpExecArray,
-): { block: MdBlock; next: number } {
+function readList(lines: string[], start: number, first: RegExpExecArray): { block: MdBlock; next: number } {
   const baseIndent = first[1].length;
   const ordered = /^\d/.test(first[2]);
   const startNumber = ordered ? Number.parseInt(first[2], 10) : 1;
@@ -254,9 +250,7 @@ function isTableStart(lines: string[], at: number): boolean {
   const header = splitRow(lines[at]);
   const delimiter = splitRow(lines[at + 1]);
   return (
-    header.length > 0 &&
-    delimiter.length === header.length &&
-    delimiter.every((cell) => DELIMITER_CELL.test(cell))
+    header.length > 0 && delimiter.length === header.length && delimiter.every((cell) => DELIMITER_CELL.test(cell))
   );
 }
 

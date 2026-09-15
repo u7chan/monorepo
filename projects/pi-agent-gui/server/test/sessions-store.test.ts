@@ -6,13 +6,7 @@ import { ProjectStore } from "../src/projects";
 import { computeMessageMetrics, SessionStore } from "../src/sessions";
 import type { PiSessionLike } from "../src/sessions";
 import type { ContextUsage, EventEntry, Usage } from "../src/schema";
-import {
-  createStubPi,
-  STUB_CONTEXT_USAGE,
-  STUB_USAGE,
-  type StubSession,
-  waitFor,
-} from "./stub-pi";
+import { createStubPi, STUB_CONTEXT_USAGE, STUB_USAGE, type StubSession, waitFor } from "./stub-pi";
 
 test("runs a message in the background and records the conversation history", async () => {
   const catalog = createAgentCatalog();
@@ -29,7 +23,10 @@ test("runs a message in the background and records the conversation history", as
   assert.equal(payload.status, "completed");
   assert.deepEqual(
     payload.messages.map((message) => [message.role, message.text]),
-    [["user", "こんにちは"], ["assistant", "スタブの返答です"]],
+    [
+      ["user", "こんにちは"],
+      ["assistant", "スタブの返答です"],
+    ],
   );
   assert.equal(payload.title, "こんにちは");
   assert.ok(payload.lastSeq > 0);
@@ -527,22 +524,24 @@ test("omits the at key for histories without a timestamp", async () => {
 // --- 応答メタ情報 ---
 
 test("derives the response metrics from the observed event times", () => {
-  assert.deepEqual(
-    computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1900, endedAt: 2800, outputTokens: 45 }),
-    { durationMs: 1800, ttftMs: 900, tokensPerSecond: 50 },
-  );
+  assert.deepEqual(computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1900, endedAt: 2800, outputTokens: 45 }), {
+    durationMs: 1800,
+    ttftMs: 900,
+    tokensPerSecond: 50,
+  });
 
   // スパンが 0 以下なら全体の duration で割る
-  assert.deepEqual(
-    computeMessageMetrics({ startedAt: 1000, firstTokenAt: 2000, endedAt: 2000, outputTokens: 20 }),
-    { durationMs: 1000, ttftMs: 1000, tokensPerSecond: 20 },
-  );
+  assert.deepEqual(computeMessageMetrics({ startedAt: 1000, firstTokenAt: 2000, endedAt: 2000, outputTokens: 20 }), {
+    durationMs: 1000,
+    ttftMs: 1000,
+    tokensPerSecond: 20,
+  });
 
   // duration も 0 なら tok/s は出さない (ゼロ除算や Infinity を配信しない)
-  assert.deepEqual(
-    computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1000, endedAt: 1000, outputTokens: 20 }),
-    { durationMs: 0, ttftMs: 0 },
-  );
+  assert.deepEqual(computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1000, endedAt: 1000, outputTokens: 20 }), {
+    durationMs: 0,
+    ttftMs: 0,
+  });
 
   // delta を 1 度も観測していない (非ストリーミング) メッセージは TTFT 無しで平均を出す
   assert.deepEqual(
@@ -551,14 +550,14 @@ test("derives the response metrics from the observed event times", () => {
   );
 
   // usage が無い / 0 のときは tok/s を出さない
-  assert.deepEqual(
-    computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: 0 }),
-    { durationMs: 1500, ttftMs: 500 },
-  );
-  assert.deepEqual(
-    computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: undefined }),
-    { durationMs: 1500, ttftMs: 500 },
-  );
+  assert.deepEqual(computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: 0 }), {
+    durationMs: 1500,
+    ttftMs: 500,
+  });
+  assert.deepEqual(computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: undefined }), {
+    durationMs: 1500,
+    ttftMs: 500,
+  });
 
   // message_start を観測していないときは何も出さない
   assert.equal(

@@ -98,9 +98,7 @@ export function branchEntriesOf(session: PiSessionLike): PiSessionEntryLike[] {
   return Array.isArray(entries) ? (entries as PiSessionEntryLike[]) : [];
 }
 
-export function lastAssistantMessage(
-  session: PiSessionLike,
-): PiSessionLike["messages"][number] | undefined {
+export function lastAssistantMessage(session: PiSessionLike): PiSessionLike["messages"][number] | undefined {
   for (let index = session.messages.length - 1; index >= 0; index -= 1) {
     if (session.messages[index].role === "assistant") return session.messages[index];
   }

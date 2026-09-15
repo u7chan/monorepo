@@ -56,10 +56,7 @@ export function normalizeProjectCwd(value: string): string {
  * rootCwd 相対の作業ディレクトリを絶対パスへ解決する。相対形も返し、
  * サンドボックス (相対を受ける) と BFF のセッション (絶対パスを要る) へ同じ指定を渡せるようにする。
  */
-export function resolveWorkspaceCwd(
-  rootCwd: string,
-  requestedCwd: string,
-): { relative: string; absolute: string } {
+export function resolveWorkspaceCwd(rootCwd: string, requestedCwd: string): { relative: string; absolute: string } {
   const relative = normalizeWorkspacePath(requestedCwd);
   return { relative, absolute: relative ? resolve(rootCwd, relative) : resolve(rootCwd) };
 }

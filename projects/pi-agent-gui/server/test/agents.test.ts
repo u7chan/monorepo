@@ -60,12 +60,10 @@ test("built-in agents keep model and thinkingLevel unspecified", () => {
     assert.equal(Object.hasOwn(agent, "model"), false, `${agent.id} must omit model`);
     assert.equal(Object.hasOwn(agent, "thinkingLevel"), false, `${agent.id} must omit thinkingLevel`);
   }
-  assert.deepEqual(catalog.snapshot().agents.map((agent) => agent.id), [
-    "agent-general",
-    "agent-builder",
-    "agent-reviewer",
-    "agent-researcher",
-  ]);
+  assert.deepEqual(
+    catalog.snapshot().agents.map((agent) => agent.id),
+    ["agent-general", "agent-builder", "agent-reviewer", "agent-researcher"],
+  );
 });
 
 test("creates and updates agents with an independent model / thinkingLevel", () => {
@@ -120,10 +118,7 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
 test("only the code builder ships with default suggestions", () => {
   const catalog = createAgentCatalog();
   const agents = catalog.listAgents();
-  assert.deepEqual(
-    agents.find((agent) => agent.id === "agent-builder")?.suggestions,
-    DEFAULT_BUILDER_SUGGESTIONS,
-  );
+  assert.deepEqual(agents.find((agent) => agent.id === "agent-builder")?.suggestions, DEFAULT_BUILDER_SUGGESTIONS);
   for (const agent of agents) {
     if (agent.id === "agent-builder") continue;
     assert.equal(Object.hasOwn(agent, "suggestions"), false, `${agent.id} must omit suggestions`);
@@ -209,7 +204,10 @@ test("trims, truncates and deduplicates suggestions before the 6 item cap", () =
       { label: "G", prompt: "G" },
     ],
   });
-  assert.deepEqual(capped.suggestions?.map((suggestion) => suggestion.prompt), ["A", "B", "C", "D", "E", "F"]);
+  assert.deepEqual(
+    capped.suggestions?.map((suggestion) => suggestion.prompt),
+    ["A", "B", "C", "D", "E", "F"],
+  );
 });
 
 test("updates and clears agent suggestions", () => {

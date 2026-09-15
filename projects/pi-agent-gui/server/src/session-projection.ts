@@ -19,7 +19,10 @@ export function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter((part) => part && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")
+    .filter(
+      (part) =>
+        part && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string",
+    )
     .map((part) => (part as { text: string }).text)
     .join("");
 }
@@ -41,20 +44,14 @@ export function toolArgsSummary(args: unknown, masker: SecretMasker): string {
 
 export function toolResultSummary(result: unknown, masker: SecretMasker): string {
   // SDK 側の切り詰めで先頭が欠けた場合に備え maskSafe を使う。
-  return truncate(
-    masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)),
-    SUMMARY_TEXT_MAX,
-  );
+  return truncate(masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)), SUMMARY_TEXT_MAX);
 }
 
 /**
  * session.messages の表示条件。compaction の区切り位置も同じ集合を数えるため、
  * 位置を数える側と必ず共有する (片方だけ変えると区切りがずれる)。
  */
-export function isDisplayableMessage(
-  message: { role: string; content: unknown },
-  masker: SecretMasker,
-): boolean {
+export function isDisplayableMessage(message: { role: string; content: unknown }, masker: SecretMasker): boolean {
   if (message.role !== "user" && message.role !== "assistant") return false;
   return Boolean(masker.mask(contentText(message.content))) || message.role === "user";
 }

@@ -17,7 +17,15 @@ function modelChoicesOf(settings: ComposerSettings): Array<{ value: string; labe
   return choices;
 }
 
-export function ModelEffortToggle({ open, compact, onToggle }: { open: boolean; compact: boolean; onToggle: () => void }) {
+export function ModelEffortToggle({
+  open,
+  compact,
+  onToggle,
+}: {
+  open: boolean;
+  compact: boolean;
+  onToggle: () => void;
+}) {
   return (
     <button
       type="button"

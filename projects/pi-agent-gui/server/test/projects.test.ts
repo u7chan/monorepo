@@ -2,12 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  normalizeProjectCwd,
-  normalizeWorkspacePath,
-  ProjectStore,
-  resolveWorkspaceCwd,
-} from "../src/projects";
+import { normalizeProjectCwd, normalizeWorkspacePath, ProjectStore, resolveWorkspaceCwd } from "../src/projects";
 import { ProjectSchema } from "../src/schema";
 
 function isBadRequest(error: unknown): boolean {
@@ -56,7 +51,10 @@ test("stores projects in creation order and detects duplicate cwd", () => {
 
   assert.equal(first.name, "proj-a", "name defaults to the cwd basename");
   assert.equal(second.name, "表示名");
-  assert.deepEqual(store.list().map((project) => project.cwd), ["proj-a", "nested/proj-b"]);
+  assert.deepEqual(
+    store.list().map((project) => project.cwd),
+    ["proj-a", "nested/proj-b"],
+  );
   assert.equal(store.get(first.id), first);
   assert.equal(store.findByCwd("proj-a"), first);
 

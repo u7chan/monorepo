@@ -27,11 +27,7 @@ export interface SandboxErrorEvent {
   message: string;
 }
 
-export type SandboxEvent =
-  | SandboxStartEvent
-  | SandboxUpdateEvent
-  | SandboxResultEvent
-  | SandboxErrorEvent;
+export type SandboxEvent = SandboxStartEvent | SandboxUpdateEvent | SandboxResultEvent | SandboxErrorEvent;
 
 /** サンドボックス ツール実行 API の既定ポート (契約値) */
 export const SANDBOX_DEFAULT_PORT = 8080;

@@ -19,7 +19,8 @@ export function AppearancePage({ compact = false, onBack, onOpenNav }: SettingsP
             {/* compact では iOS Safari の focus 時ズームを避けるため 16px 以上にする */}
             <ThemeSwitcher compact={compact} />
             <p className="text-[10px] leading-relaxed text-ink-ghost">
-              「システムに従う」を選ぶと OS の設定に追従します。色は入力欄・メッセージ・コードなど画面全体に反映されます。
+              「システムに従う」を選ぶと OS
+              の設定に追従します。色は入力欄・メッセージ・コードなど画面全体に反映されます。
             </p>
           </div>
         </div>

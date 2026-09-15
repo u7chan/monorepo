@@ -9,7 +9,15 @@ function modelLabel(model: unknown): string | undefined {
   return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
 }
 
-export function createHealthRoutes({ pi, initError, cwd }: { pi: PiBff | null; initError: string | undefined; cwd: string }) {
+export function createHealthRoutes({
+  pi,
+  initError,
+  cwd,
+}: {
+  pi: PiBff | null;
+  initError: string | undefined;
+  cwd: string;
+}) {
   return {
     health: (c: Context) => {
       // ready は「runtime が使え、利用可能モデルが 1 つ以上ある」の意で、
@@ -19,20 +27,20 @@ export function createHealthRoutes({ pi, initError, cwd }: { pi: PiBff | null; i
       // PI_MODELS が候補を全部落としたなら、認証の有無より先に whitelist 側を原因として示す。
       const whitelistEmpty = Boolean(pi && pi.modelWhitelistExcludesAll);
       const authRequired = Boolean(pi && !ready && !whitelistEmpty && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
-      const errorCode: "authentication_required" | "model_whitelist_empty" | "runtime_unavailable" | undefined = whitelistEmpty
-        ? "model_whitelist_empty"
-        : authRequired
-          ? "authentication_required"
-          : initError || (pi && !ready)
-            ? "runtime_unavailable"
-            : undefined;
+      const errorCode: "authentication_required" | "model_whitelist_empty" | "runtime_unavailable" | undefined =
+        whitelistEmpty
+          ? "model_whitelist_empty"
+          : authRequired
+            ? "authentication_required"
+            : initError || (pi && !ready)
+              ? "runtime_unavailable"
+              : undefined;
       return c.json({
         ok: true,
         ready,
         cwd: pi?.cwd || resolve(cwd),
         model: modelLabel(pi?.selectedModel),
-        availableModels:
-          availableModels.map(modelLabel).filter((m): m is string => m != null),
+        availableModels: availableModels.map(modelLabel).filter((m): m is string => m != null),
         modelOptions: pi?.modelOptions ?? [],
         defaultThinkingLevel: pi?.defaultThinkingLevel ?? "medium",
         defaultModelError: pi?.defaultModelError,

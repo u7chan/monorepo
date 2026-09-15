@@ -1,12 +1,6 @@
 import type { Context } from "hono";
 import type { AgentCatalog } from "../agents";
-import type {
-  CreateAgentBody,
-  CreateSkillBody,
-  ReplaceCatalogBody,
-  UpdateAgentBody,
-  UpdateSkillBody,
-} from "../schema";
+import type { CreateAgentBody, CreateSkillBody, ReplaceCatalogBody, UpdateAgentBody, UpdateSkillBody } from "../schema";
 
 export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
   // body は route で形・型を検証済み。キー省略の解釈と正規化は catalog が正

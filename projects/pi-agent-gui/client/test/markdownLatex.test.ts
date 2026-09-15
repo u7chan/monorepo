@@ -25,7 +25,9 @@ function layout(source: string) {
 test("分数は分子と分母を分けて持つ", () => {
   assert.deepEqual(ast("\\frac{1}{2}"), {
     kind: "row",
-    children: [{ kind: "frac", num: { kind: "row", children: [text("1")] }, den: { kind: "row", children: [text("2")] } }],
+    children: [
+      { kind: "frac", num: { kind: "row", children: [text("1")] }, den: { kind: "row", children: [text("2")] } },
+    ],
   });
   assert.deepEqual(layout("\\frac{1}{2}"), {
     kind: "row",
@@ -78,7 +80,7 @@ test("大型演算子の上下限は横ではなく上下に積む", () => {
   });
   // `_` と `^` の順序が逆でも同じ位置に入る
   assert.deepEqual(layout("\\int^{\\infty}_{0}"), layout("\\int_{0}^{\\infty}"));
-  const integral = layout("\\int_{0}^{\\infty}"); 
+  const integral = layout("\\int_{0}^{\\infty}");
   assert.equal(integral.kind === "row" && integral.children[0].kind === "bigop" ? integral.children[0].glyph : "", "∫");
   // \lim は語なので、記号と同じ大きさに組まない (word フラグを CSS が使う)
   const lim = layout("\\lim_{x \\to 0}");
@@ -106,8 +108,14 @@ test("pmatrix は & を列、\\\\ を行にする", () => {
         kind: "grid",
         env: "pmatrix",
         rows: [
-          [{ kind: "row", children: [text("a")] }, { kind: "row", children: [text("b")] }],
-          [{ kind: "row", children: [text("c")] }, { kind: "row", children: [text("d")] }],
+          [
+            { kind: "row", children: [text("a")] },
+            { kind: "row", children: [text("b")] },
+          ],
+          [
+            { kind: "row", children: [text("c")] },
+            { kind: "row", children: [text("d")] },
+          ],
         ],
       },
     ],
@@ -151,7 +159,10 @@ test("\\left…\\right は括弧を拡大し、中身の段数で大きさを決
   const dot = layout("\\left. x \\right|");
   const oneSide = dot.kind === "row" ? dot.children[0] : null;
   assert.equal(oneSide !== null && oneSide.kind === "fenced" ? oneSide.open : null, null);
-  assert.equal(oneSide !== null && oneSide.kind === "fenced" && oneSide.close?.kind === "delim" ? oneSide.close.text : null, "|");
+  assert.equal(
+    oneSide !== null && oneSide.kind === "fenced" && oneSide.close?.kind === "delim" ? oneSide.close.text : null,
+    "|",
+  );
 });
 
 test("上付き / 下付き / グルーピング / 立体の関数名", () => {
@@ -212,7 +223,13 @@ test("インライン数式は $…$ と \\(…\\) の両方を受ける", () =>
       kind: "math",
       node: {
         kind: "row",
-        children: [text("E"), { kind: "space", width: 0 }, { kind: "op", text: "=" }, { kind: "space", width: 0 }, { kind: "script", base: text("mc"), sub: null, sup: text("2") }],
+        children: [
+          text("E"),
+          { kind: "space", width: 0 },
+          { kind: "op", text: "=" },
+          { kind: "space", width: 0 },
+          { kind: "script", base: text("mc"), sub: null, sup: text("2") },
+        ],
       },
     },
   ]);
@@ -220,7 +237,11 @@ test("インライン数式は $…$ と \\(…\\) の両方を受ける", () =>
     { kind: "math", node: { kind: "row", children: [{ kind: "script", base: text("x"), sub: null, sup: text("2") }] } },
   ]);
   // 前後の地の文はそのまま残る
-  assert.deepEqual(parseInline("前 $x$ 後"), [text("前 "), { kind: "math", node: { kind: "row", children: [text("x")] } }, text(" 後")]);
+  assert.deepEqual(parseInline("前 $x$ 後"), [
+    text("前 "),
+    { kind: "math", node: { kind: "row", children: [text("x")] } },
+    text(" 後"),
+  ]);
 });
 
 test("通貨記号は数式にしない", () => {

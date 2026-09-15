@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  createSecretMasker,
-  createStreamingSecretMasker,
-  MIN_SECRET_LENGTH,
-  REDACTED,
-} from "../src/redact";
+import { createSecretMasker, createStreamingSecretMasker, MIN_SECRET_LENGTH, REDACTED } from "../src/redact";
 
 const KEY = "sk-ant-dummy-0123456789abcdef";
 const OTHER = "AIzaSyDummyDummyDummy123456789";

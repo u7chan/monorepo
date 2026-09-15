@@ -96,10 +96,7 @@ function updateBubble(state: ChatState, id: number, update: (bubble: Bubble) => 
   return { ...state, bubbles: state.bubbles.map((b) => (b.id === id ? update(b) : b)) };
 }
 
-function patchAssistant(
-  state: ChatState,
-  update: (bubble: Bubble) => Bubble,
-): ChatState {
+function patchAssistant(state: ChatState, update: (bubble: Bubble) => Bubble): ChatState {
   if (state.currentAssistantId === null) return state;
   return updateBubble(state, state.currentAssistantId, update);
 }
@@ -112,13 +109,14 @@ function ensureAssistant(state: ChatState, at?: number): ChatState {
   const next = appendBubble(state, "assistant", "", at);
   const bubbleId = next.nextId - 1;
   // ツール呼び出しだけの応答は usage の方が先に届くので、ここで作ったバブルへ回す
-  const withMeta = next.pendingUsage || next.pendingMetrics
-    ? updateBubble(next, bubbleId, (bubble) => ({
-        ...bubble,
-        usage: next.pendingUsage,
-        metrics: next.pendingMetrics,
-      }))
-    : next;
+  const withMeta =
+    next.pendingUsage || next.pendingMetrics
+      ? updateBubble(next, bubbleId, (bubble) => ({
+          ...bubble,
+          usage: next.pendingUsage,
+          metrics: next.pendingMetrics,
+        }))
+      : next;
   return {
     ...withMeta,
     currentAssistantId: bubbleId,
@@ -203,7 +201,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
       }
       if (payload.status === "running") next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
-      else if (payload.status === "queued") next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
+      else if (payload.status === "queued")
+        next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
       else if (payload.status === "error") next = { ...next, activity: "前回の実行でエラーが発生しました" };
       else if (payload.status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
       return next;
@@ -254,9 +253,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return updateBubble(state, bubbleId, (b) => ({
         ...b,
         tools: b.tools.map((card) =>
-          card.id === action.id
-            ? { ...card, phase: action.isError ? "failed" : "done", output: action.output }
-            : card,
+          card.id === action.id ? { ...card, phase: action.isError ? "failed" : "done", output: action.output } : card,
         ),
       }));
     }

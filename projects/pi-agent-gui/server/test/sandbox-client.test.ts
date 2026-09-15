@@ -117,7 +117,10 @@ test("aborted signal triggers the cancel endpoint and rejects with Operation abo
     // cancel 要求には即座に応答する (実サーバ相当)。signal も尊重する。
     if (call.url.endsWith("/v1/executions/exec-3/cancel")) {
       assert.ok(!call.init?.signal?.aborted, "cancel request must not be issued with an already-aborted signal");
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     // 本物のサーバのように、abort されるまで終わらないストリームを返し、signal abort で read() を reject させる
     const encoder = new TextEncoder();
@@ -191,11 +194,12 @@ test("listFiles sends the encoded path and auth header, and parses the JSON list
 
 test("listFiles relays sandbox 4xx messages and maps the rest to 502", async () => {
   const sandboxError = (status: number, message: string) =>
-    stubFetch(() =>
-      new Response(JSON.stringify({ error: message }), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: message }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
     ).impl;
 
   const client = createSandboxToolClient({
@@ -283,11 +287,12 @@ test("createDir posts the path and parses the created directory", async () => {
 
 test("createDir relays sandbox 4xx messages and maps the rest to 502", async () => {
   const sandboxError = (status: number, message: string) =>
-    stubFetch(() =>
-      new Response(JSON.stringify({ error: message }), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: message }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
     ).impl;
 
   const client = createSandboxToolClient({

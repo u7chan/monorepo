@@ -89,7 +89,7 @@ async function listFiles(
 
 function eventText(payload: unknown): string {
   const content = (payload as { content?: Array<{ type: string; text?: string }> }).content ?? [];
-  return content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
+  return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
 }
 
 test("healthz is public and reports tools without secrets", async () => {
@@ -146,7 +146,10 @@ test("resolves paths against the sandbox root cwd and persists files", { skip: !
     body: JSON.stringify({ params: { path: "notes/hello.txt", content: "from sandbox" } }),
   });
   const events = await readEvents(response);
-  assert.ok(events.some((event) => event.type === "result"), "write should succeed");
+  assert.ok(
+    events.some((event) => event.type === "result"),
+    "write should succeed",
+  );
   // 相対パスは rootCwd 基準で解決される
   assert.equal(await readFile(join(root, "notes/hello.txt"), "utf8"), "from sandbox");
 });
@@ -199,10 +202,10 @@ test("cancels a running execution via the cancel endpoint", { skip: !HAS_BASH &&
   await new Promise((resolveSleep) => setTimeout(resolveSleep, 300));
   const start = events.find((event) => event.type === "start");
   assert.ok(start && "executionId" in start, "start event should arrive while sleep is running");
-  const cancelled = await service.app.request(
-    `/v1/executions/${start.executionId}/cancel`,
-    { method: "POST", headers: authHeaders() },
-  );
+  const cancelled = await service.app.request(`/v1/executions/${start.executionId}/cancel`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
   assert.equal(cancelled.status, 200);
   // 実行は 5 秒待たずに中断され、ストリームが閉じる
   const timeout = new Promise((_, rejectTimeout) =>
@@ -214,35 +217,38 @@ test("cancels a running execution via the cancel endpoint", { skip: !HAS_BASH &&
   assert.ok(!service.executions.has(start.executionId), "execution must be cleaned up");
 });
 
-test("sandbox bash does not expose the shared token or session env to child processes", { skip: !HAS_BASH && SKIP_REASON }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-sbx-env-"));
-  const service = createSandboxService({ token: TOKEN, rootCwd: root });
-  // 実起動と同じく、共有トークンが process.env にある状態を再現する
-  const previous = process.env.PI_SANDBOX_TOKEN;
-  process.env.PI_SANDBOX_TOKEN = TOKEN;
-  try {
-    const response = await service.app.request("/v1/tools/bash/execute", {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({
-        params: {
-          command:
-            'if [ -n "$PI_SANDBOX_TOKEN" ]; then echo TOKEN_LEAKED; fi; echo session=${PI_SESSION_ID:-unset}',
-        },
-      }),
-    });
-    const events = await readEvents(response);
-    const result = events.find((event) => event.type === "result");
-    assert.ok(result, "command should succeed");
-    const text = eventText((result as { payload: unknown }).payload);
-    assert.ok(!text.includes("TOKEN_LEAKED"), "PI_SANDBOX_TOKEN must not be inherited by tool child processes");
-    assert.ok(!text.includes(TOKEN), "PI_SANDBOX_TOKEN must not leak into tool output");
-    assert.match(text, /session=unset/, "session metadata env vars must be unset");
-  } finally {
-    if (previous === undefined) delete process.env.PI_SANDBOX_TOKEN;
-    else process.env.PI_SANDBOX_TOKEN = previous;
-  }
-});
+test(
+  "sandbox bash does not expose the shared token or session env to child processes",
+  { skip: !HAS_BASH && SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-env-"));
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+    // 実起動と同じく、共有トークンが process.env にある状態を再現する
+    const previous = process.env.PI_SANDBOX_TOKEN;
+    process.env.PI_SANDBOX_TOKEN = TOKEN;
+    try {
+      const response = await service.app.request("/v1/tools/bash/execute", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          params: {
+            command: 'if [ -n "$PI_SANDBOX_TOKEN" ]; then echo TOKEN_LEAKED; fi; echo session=${PI_SESSION_ID:-unset}',
+          },
+        }),
+      });
+      const events = await readEvents(response);
+      const result = events.find((event) => event.type === "result");
+      assert.ok(result, "command should succeed");
+      const text = eventText((result as { payload: unknown }).payload);
+      assert.ok(!text.includes("TOKEN_LEAKED"), "PI_SANDBOX_TOKEN must not be inherited by tool child processes");
+      assert.ok(!text.includes(TOKEN), "PI_SANDBOX_TOKEN must not leak into tool output");
+      assert.match(text, /session=unset/, "session metadata env vars must be unset");
+    } finally {
+      if (previous === undefined) delete process.env.PI_SANDBOX_TOKEN;
+      else process.env.PI_SANDBOX_TOKEN = previous;
+    }
+  },
+);
 
 test("unknown tool and invalid params return 4xx", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-invalid-"));
@@ -265,7 +271,10 @@ test("tool execution resolves relative paths against the requested cwd", async (
     cwd: "sub",
   });
   assert.equal(written.status, 200);
-  assert.ok(written.events.some((event) => event.type === "result"), "write with cwd should succeed");
+  assert.ok(
+    written.events.some((event) => event.type === "result"),
+    "write with cwd should succeed",
+  );
   assert.equal(await readFile(join(root, "sub", "note.txt"), "utf8"), "from sub");
 
   const read = await executeTool(service.app, "read", { params: { path: "note.txt" }, cwd: "sub" });
@@ -275,7 +284,10 @@ test("tool execution resolves relative paths against the requested cwd", async (
 
   // 同じ相対パスでも root を起点にすれば別の場所になる
   const fromRoot = await executeTool(service.app, "read", { params: { path: "note.txt" } });
-  assert.ok(fromRoot.events.some((event) => event.type === "error"), "root has no note.txt");
+  assert.ok(
+    fromRoot.events.some((event) => event.type === "error"),
+    "root has no note.txt",
+  );
 });
 
 test("executes find outside a git repository", { skip: !HAS_FD && FD_SKIP_REASON }, async () => {
@@ -507,49 +519,50 @@ test("files endpoint truncates at the entry limit", async () => {
   assert.equal(listing.body.entries.at(-1)?.name, `f${String(SANDBOX_MAX_FILE_ENTRIES - 1).padStart(4, "0")}.txt`);
 });
 
-test("files endpoint distinguishes symlinks and only opens targets inside the root", { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON }, async () => {
-  const root = await createListingRoot("pi-sbx-files-symlink-");
-  const outside = await createListingRoot("pi-sbx-files-outside-");
-  await symlink(join(root, "dirB"), join(root, "linkInside"));
-  await symlink(join(root, "A.txt"), join(root, "linkFile"));
-  await symlink(outside, join(root, "linkOutside"));
-  await symlink(join(root, "gone.txt"), join(root, "linkBroken"));
+test(
+  "files endpoint distinguishes symlinks and only opens targets inside the root",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const root = await createListingRoot("pi-sbx-files-symlink-");
+    const outside = await createListingRoot("pi-sbx-files-outside-");
+    await symlink(join(root, "dirB"), join(root, "linkInside"));
+    await symlink(join(root, "A.txt"), join(root, "linkFile"));
+    await symlink(outside, join(root, "linkOutside"));
+    await symlink(join(root, "gone.txt"), join(root, "linkBroken"));
 
-  const service = createSandboxService({ token: TOKEN, rootCwd: root });
-  const listing = await listFiles(service.app);
-  assert.equal(listing.status, 200);
-  const byName = new Map(listing.body.entries.map((entry) => [entry.name, entry]));
-  // type は辿った先の実体種別、symlink で区別する
-  assert.deepEqual(
-    [byName.get("linkInside")?.type, byName.get("linkInside")?.symlink],
-    ["dir", true],
-  );
-  assert.deepEqual([byName.get("linkFile")?.type, byName.get("linkFile")?.symlink], ["file", true]);
-  assert.deepEqual([byName.get("linkOutside")?.type, byName.get("linkOutside")?.symlink], ["dir", true]);
-  assert.deepEqual([byName.get("linkBroken")?.type, byName.get("linkBroken")?.symlink], ["file", true]);
-  // 一覧は symlink の指す先を列挙しない (root 配下だけ)
-  assert.deepEqual(
-    listing.body.entries.map((entry) => entry.name).filter((name) => name.startsWith("outside-")),
-    [],
-  );
-  // symlink にも size / mtime を付ける (壊れたリンクは付けない)
-  assert.equal(typeof byName.get("linkFile")?.size, "number");
-  assert.equal(byName.get("linkBroken")?.size, undefined);
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+    const listing = await listFiles(service.app);
+    assert.equal(listing.status, 200);
+    const byName = new Map(listing.body.entries.map((entry) => [entry.name, entry]));
+    // type は辿った先の実体種別、symlink で区別する
+    assert.deepEqual([byName.get("linkInside")?.type, byName.get("linkInside")?.symlink], ["dir", true]);
+    assert.deepEqual([byName.get("linkFile")?.type, byName.get("linkFile")?.symlink], ["file", true]);
+    assert.deepEqual([byName.get("linkOutside")?.type, byName.get("linkOutside")?.symlink], ["dir", true]);
+    assert.deepEqual([byName.get("linkBroken")?.type, byName.get("linkBroken")?.symlink], ["file", true]);
+    // 一覧は symlink の指す先を列挙しない (root 配下だけ)
+    assert.deepEqual(
+      listing.body.entries.map((entry) => entry.name).filter((name) => name.startsWith("outside-")),
+      [],
+    );
+    // symlink にも size / mtime を付ける (壊れたリンクは付けない)
+    assert.equal(typeof byName.get("linkFile")?.size, "number");
+    assert.equal(byName.get("linkBroken")?.size, undefined);
 
-  // root 内を指す symlink は普通に開ける (path は解決後の実ディレクトリを root 相対で返す)
-  const inside = await listFiles(service.app, "linkInside");
-  assert.equal(inside.status, 200);
-  assert.equal(inside.body.path, "dirB");
-  assert.deepEqual(
-    inside.body.entries.map((entry) => entry.name),
-    ["nested"],
-  );
+    // root 内を指す symlink は普通に開ける (path は解決後の実ディレクトリを root 相対で返す)
+    const inside = await listFiles(service.app, "linkInside");
+    assert.equal(inside.status, 200);
+    assert.equal(inside.body.path, "dirB");
+    assert.deepEqual(
+      inside.body.entries.map((entry) => entry.name),
+      ["nested"],
+    );
 
-  // root 外を指す symlink は 400 (一覧には出るが開けない)
-  const outsideOpen = await listFiles(service.app, "linkOutside");
-  assert.equal(outsideOpen.status, 400);
-  assert.match(outsideOpen.body.error ?? "", /outside the workspace/);
-});
+    // root 外を指す symlink は 400 (一覧には出るが開けない)
+    const outsideOpen = await listFiles(service.app, "linkOutside");
+    assert.equal(outsideOpen.status, 400);
+    assert.match(outsideOpen.body.error ?? "", /outside the workspace/);
+  },
+);
 
 test(
   "files endpoint judges the root boundary by the resolved path, even when the request starts outside the root",

@@ -45,6 +45,6 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   const store = new SessionStore({ pi, catalog, masker: pi?.secretMasker, projects });
   // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
   const workspace =
-    opts.workspace !== undefined ? opts.workspace : createSandboxToolClientFromEnv(process.env) ?? null;
+    opts.workspace !== undefined ? opts.workspace : (createSandboxToolClientFromEnv(process.env) ?? null);
   return { cwd, pi, initError, catalog, projects, store, workspace };
 }

@@ -21,7 +21,10 @@ test("強調は入れ子になる", () => {
 
 test("演算子や snake_case を強調と誤認しない", () => {
   assert.deepEqual(parseInline("2 * 3 * 4"), [text("2 * 3 * 4")]);
-  assert.deepEqual(parseInline("snake_case_name と _em_"), [text("snake_case_name と "), { kind: "em", children: [text("em")] }]);
+  assert.deepEqual(parseInline("snake_case_name と _em_"), [
+    text("snake_case_name と "),
+    { kind: "em", children: [text("em")] },
+  ]);
 });
 
 test("閉じの無い強調は原文のまま残す", () => {
@@ -87,7 +90,9 @@ test("自動リンクは山括弧と裸の URL の両方を受ける", () => {
 });
 
 test("画像は同一オリジン (相対パス) だけ描画し、外部 URL は原文に落とす", () => {
-  assert.deepEqual(parseInline("![図](/assets/diagram.png)"), [{ kind: "image", src: "/assets/diagram.png", alt: "図" }]);
+  assert.deepEqual(parseInline("![図](/assets/diagram.png)"), [
+    { kind: "image", src: "/assets/diagram.png", alt: "図" },
+  ]);
   assert.deepEqual(parseInline("![図](https://evil.example/x.png)"), [
     { kind: "literal", text: "![図](https://evil.example/x.png)" },
   ]);
@@ -98,9 +103,7 @@ test("段落内の改行は break になる", () => {
 });
 
 test("数式はインライン解析から math ノードになり、解釈できないときは原文のまま残す", () => {
-  assert.deepEqual(parseInline("$x$"), [
-    { kind: "math", node: { kind: "row", children: [text("x")] } },
-  ]);
+  assert.deepEqual(parseInline("$x$"), [{ kind: "math", node: { kind: "row", children: [text("x")] } }]);
   // 詳細な判定規則と AST は markdownLatex.test.ts が固定する
   assert.deepEqual(parseInline("$\\frac{1}$"), [{ kind: "literal", text: "$\\frac{1}$" }]);
   assert.deepEqual(parseInline("$$\\sum_{i=1}^N$$"), [text("$$\\sum_{i=1}^N$$")]);

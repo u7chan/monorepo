@@ -54,16 +54,17 @@ function ToolCallRow({
       >
         <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 outline-none transition-colors hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus">
           <DisclosureChevronIcon />
-          <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">{String(index + 1).padStart(2, "0")}</span>
+          <span className="w-6 shrink-0 font-sans text-[9px] tabular-nums text-ink-ghost">
+            {String(index + 1).padStart(2, "0")}
+          </span>
           <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
           <PhaseLabel phase={card.phase} />
           <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" revealClass={REVEAL_TOOL} />
         </summary>
         <div
-          className={[
-            "grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted",
-            compact ? "pl-3" : "pl-6",
-          ].join(" ")}
+          className={["grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6"].join(
+            " ",
+          )}
         >
           {card.args ? (
             <div className="grid min-w-0 gap-0.5">
