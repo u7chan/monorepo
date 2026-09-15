@@ -28,7 +28,7 @@ Herdr 管理下のペインでなければ何も作らず、その旨を報告�
 | 項目 | 既定 | 例 |
 |---|---|---|
 | 起点プロジェクト | カレントディレクトリ | `projects/portal` |
-| base ref | `main` | `main`（ユーザー指定があればそれ） |
+| base ref | ローカルの `main`（`origin/main` より遅れていれば `origin/main`） | `main` / `origin/main` |
 | branch | `feat/<project>-dev` | `feat/portal-dev` |
 | label | `<project>` | `portal` |
 | ルートペインの cwd | 起点プロジェクト配下 | `<checkout>/projects/portal` |
@@ -45,11 +45,30 @@ Herdr 管理下のペインでなければ何も作らず、その旨を報告�
 ```bash
 git -C "<起点>" rev-parse --show-toplevel
 git -C "<起点>" fetch origin
-git -C "<起点>" rev-parse --short main origin/main
+git -C "<起点>" rev-parse --short "<base>"          # 例: main
+git -C "<起点>" rev-parse --short "origin/<base>"   # 例: origin/main
 ```
 
+- `<base>` の既定は `main`。ユーザー指定があればその ref を使う。
+- `--short` は 1 つの ref しか受け付けない。`git rev-parse --short main origin/main` は `fatal: Needed a single revision`（終了コード 128）で失敗するので、ref ごとに分けて解決する。
 - 起点が Git ワークツリーの外なら止まって報告する。
-- ローカル `main` が `origin/main` より遅れている場合は、古い main から切らない。`--base origin/main` を使うか、main を fast-forward してよいかをユーザーに確認する。
+- 作成に使う base を `base_ref` として確定する（作成コマンドにはこれを渡し、`main` をハードコードしない）。
+
+```bash
+base="main"                                             # ユーザー指定があればその ref
+local_base=$(git -C "<起点>" rev-parse --short "$base")
+remote_base=$(git -C "<起点>" rev-parse --short "origin/$base")
+base_ref="$base"
+if [ "$local_base" != "$remote_base" ]; then
+  if git -C "<起点>" merge-base --is-ancestor "$base" "origin/$base"; then
+    base_ref="origin/$base"                             # ローカルの base が古い → 最新の origin 側から切る
+  else
+    echo "ローカルの $base が origin/$base と分岐しています。base をユーザーに確認する" >&2
+  fi
+fi
+```
+
+- ローカルの base が ahead / diverged の場合は、勝手に決めず base をユーザーに確認してから作成する。
 - 既存のワークツリーと branch の衝突を確認する。
 
 ```bash
@@ -59,13 +78,13 @@ git -C "<起点>" branch --list "<branch>"
 
 ### 2. 作成する
 
-`--cwd` でソース checkout を pin する。pin しないと呼び出し元ではなくクライアントの focused workspace に従い、別リポジトリを切ってしまう。
+`--cwd` でソース checkout を pin する。pin しないと呼び出し元ではなくクライアントの focused workspace に従い、別リポジトリを切ってしまう。`--base` には前段で確定した `base_ref` を渡す。
 
 ```bash
 herdr worktree create \
   --cwd "<起点>" \
   --branch "<branch>" \
-  --base main \
+  --base "$base_ref" \
   --label "<label>" \
   --no-focus
 ```
@@ -100,7 +119,7 @@ fi
 
 ```bash
 git -C "<checkout path>" branch --show-current
-git -C "<checkout path>" log --oneline -1
+git -C "<checkout path>" log --oneline -1       # 確定した base_ref の commit か
 git -C "<checkout path>" status --porcelain   # 空なら clean
 herdr pane get "<root_pane_id>"               # cwd が起点プロジェクト配下か
 ```
@@ -108,7 +127,7 @@ herdr pane get "<root_pane_id>"               # cwd が起点プロジェクト�
 ### 6. 報告する
 
 - workspace ID（label）とルートペイン ID
-- 起点プロジェクト、branch、base commit（短 SHA）
+- 起点プロジェクト、branch、base ref（`main` / `origin/main`）と base commit（短 SHA）
 - チェックアウト先の絶対パスと clean かどうか
 - ルートペインの cwd（起点プロジェクト配下になっているか）
 - branch 名に既定値を使った場合はその旨
