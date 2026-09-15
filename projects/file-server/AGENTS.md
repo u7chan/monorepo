@@ -60,10 +60,11 @@ adding screens.
   edge is clipped. It keeps a 4px bleed on the inline sides and at the block end
   (`-mx-1 px-1 pb-1 -mb-1`) because items flush with the content edge use outward
   hairlines (`ring-1`) and `focus-visible:ring-offset-2`. Each bleed pairs a
-  padding with an equal negative margin, which moves the clip boundary outward
-  without moving the content column or changing the flex height; do not remove
-  it, and do not add padding to it that shifts the content column. The block
-  start needs no bleed: `pt-3` already exceeds the 4px a ring can occupy.
+  padding with an equal negative margin: the clip boundary moves outward while
+  the content column and the space the flex layout gives the element stay put
+  (only its border box grows, by the same 4px). Do not remove it, and do not add
+  padding to it that shifts the content column. The block start needs no bleed:
+  `pt-3` already exceeds the 4px a ring can occupy.
 - Radius scale: `rounded-lg` for controls and inset panels, `rounded-xl` for
   floating surfaces. Plain text rows (breadcrumbs) are not boxed.
 - Toggle state is expressed with `aria-pressed` / `aria-expanded` and Tailwind
