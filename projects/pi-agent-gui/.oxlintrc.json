@@ -1,0 +1,40 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "jsPlugins": ["@shadcn/lint"],
+  "ignorePatterns": ["node_modules", "dist"],
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "env": {
+    "builtin": true
+  },
+  "rules": {},
+  "overrides": [
+    {
+      "files": ["client/**/*.{ts,tsx}"],
+      "env": {
+        "browser": true
+      },
+      "rules": {
+        "shadcn/no-raw-colors": "error",
+        "shadcn/no-inline-styles": "error",
+        "shadcn/no-unknown-classes": ["error", { "allow": ["md-lit"] }],
+        "shadcn/require-static-classes": "error",
+        "shadcn/no-arbitrary-values": "warn",
+        "shadcn/no-restyle": "off"
+      }
+    },
+    {
+      "files": ["server/**/*.{ts,tsx}"],
+      "env": {
+        "node": true
+      },
+      "rules": {
+        "shadcn/no-raw-colors": "off",
+        "shadcn/no-inline-styles": "off",
+        "shadcn/no-unknown-classes": "off",
+        "shadcn/require-static-classes": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/no-restyle": "off"
+      }
+    }
+  ]
+}

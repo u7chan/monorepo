@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage } from "../../types";
 
@@ -37,8 +38,8 @@ export function ContextGauge({
             {gauge.fill === null || gauge.fill <= 0 ? null : (
               // 極小の百分率でも「空」と見分けが付くように最小幅を持たせる
               <span
-                className="block h-full rounded-full bg-current"
-                style={{ width: `${gauge.fill * 100}%`, minWidth: 2 }}
+                className="block h-full w-(--gauge-fill) min-w-0.5 rounded-full bg-current"
+                style={{ "--gauge-fill": `${gauge.fill * 100}%` } as CSSProperties}
               />
             )}
           </span>{" "}

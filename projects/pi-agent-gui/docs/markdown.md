@@ -151,6 +151,7 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 - 図は `.md-diagram*` のクラスだけで組み、色は既存の `--c-panel` / `--c-soft` / `--c-raised` / `--c-line*` / `--c-ink*` / `--c-accent*` を使う（同じく新規トークンは増やさない）
 - 種別と CSS の対応、および 6 テーマ分の定義漏れは `client/test/markdownHighlight.test.ts` が固定する
 - 横に長いもの（コード / 表 / 数式）は折り返さず、その要素だけ横スクロールする
+- 原文表示の `md-lit` は CSS を持たない目印で、見た目は `.md code` が担う。Tailwind が生成するクラスではないため `.oxlintrc.json` の `shadcn/no-unknown-classes` の `allow` に登録する（`@utility` を宣言しても生成される CSS が無い）
 
 ## テスト
 
