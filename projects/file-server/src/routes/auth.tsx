@@ -71,7 +71,7 @@ function LoginPage({ returnTo, error, username }: LoginPageProps) {
                 aria-label="Show password"
                 aria-controls="password"
                 aria-pressed="false"
-                className="absolute inset-y-0 right-0 inline-flex w-10 items-center justify-center text-slate-400 transition-colors hover:text-slate-600"
+                className="absolute inset-y-0 right-0 inline-flex w-10 cursor-pointer items-center justify-center text-slate-400 transition-colors hover:text-slate-600"
               >
                 <span id="password-toggle-eye">
                   <svg

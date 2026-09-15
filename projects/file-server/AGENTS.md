@@ -45,6 +45,10 @@ adding screens.
   (surfaces, fields, alerts, badges) and `src/components/buttonStyles.ts`
   (button tones and sizes). Compose base + tone + size; do not stack conflicting
   utilities such as `px-4` on top of `px-6`.
+- Interactive controls must show a pointer cursor and a hover state. The button
+  vocabulary already carries `cursor-pointer` and `not-disabled:hover:*`, so use
+  it instead of hand-rolling a `<button>` class list. `<a>`-based actions reuse
+  the same button tokens.
 - Accent color is indigo only, and only for interactive emphasis. Everything
   else is neutral slate. Do not add gradients or a second accent.
 - Never place a bordered box inside another bordered box. `PageShell` provides
@@ -52,6 +56,11 @@ adding screens.
   (`bg-slate-50`) and spacing.
 - Keep separation to hairlines: `border`, `divide-*`, `ring-1`. Modals are the
   only surfaces that may use a shadow, because they float above a scrim.
+- `#main-content` is a scroll container, so anything that overflows its padding
+  edge is clipped. It keeps a 4px inline bleed (`-mx-1 px-1`) because items
+  flush with the content edge use outward hairlines (`ring-1`) and
+  `focus-visible:ring-offset-2`; do not remove it, and do not add horizontal
+  padding to it that shifts the content column.
 - Radius scale: `rounded-lg` for controls and inset panels, `rounded-xl` for
   floating surfaces. Plain text rows (breadcrumbs) are not boxed.
 - Toggle state is expressed with `aria-pressed` / `aria-expanded` and Tailwind

@@ -189,9 +189,13 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
             id="notification-area"
             className="fixed top-4 right-4 z-50 max-w-md"
           ></div>
+          {/* The scroll container clips at its padding edge, so it carries a
+              small inline bleed (`-mx-1 px-1`): without it the hairline rings
+              and focus rings of items flush with the content edge (the file
+              list surface, the first toolbar button) lose their outer pixel. */}
           <div
             id="main-content"
-            className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-3"
+            className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pt-3"
           >
             <div
               id="file-list-container"
