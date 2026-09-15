@@ -36,7 +36,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 ```bash
 cd projects/pi-agent-gui
-pnpm check   # typecheck + test + build
+pnpm check   # lint → typecheck → test → build
 ```
 
 - `server/test/compaction.test.ts` — `server/test/stub-pi.ts` の `compact()` で `compaction_start` / `compaction_end` を発火させ、payload（要約の分離・`beforeMessageIndex`・複数回・`firstKeptEntryId` が metadata entry を指す場合・マスク）と SSE イベント（`compaction` → `resync`、異常系では配らない）を固定する。実 API は呼ばない
