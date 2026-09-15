@@ -51,15 +51,7 @@ function DiagramSvg({ model }: { model: DiagramModel }) {
       aria-label={model.title}
     >
       <defs>
-        <marker
-          id={markerId}
-          viewBox="0 0 10 10"
-          refX="9"
-          refY="5"
-          markerWidth="6"
-          markerHeight="6"
-          orient="auto"
-        >
+        <marker id={markerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
           <path className="md-diagram-arrow" d="M0,0 L10,5 L0,10 z" />
         </marker>
       </defs>

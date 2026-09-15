@@ -17,7 +17,14 @@ export type ChatAreaProps = {
   visible?: boolean;
 };
 
-export function ChatArea({ bubbles, compactions = [], compact = false, suggestions = [], onSuggestion, visible = true }: ChatAreaProps) {
+export function ChatArea({
+  bubbles,
+  compactions = [],
+  compact = false,
+  suggestions = [],
+  onSuggestion,
+  visible = true,
+}: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
   const dividerIndex = compactionDividerIndex(compactions);
@@ -33,10 +40,9 @@ export function ChatArea({ bubbles, compactions = [], compact = false, suggestio
     <section
       ref={chatAreaRef}
       aria-live="polite"
-      className={[
-        "scrollbar-thin min-h-0 flex-1 overflow-y-auto",
-        compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
-      ].join(" ")}
+      className={["scrollbar-thin min-h-0 flex-1 overflow-y-auto", compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8"].join(
+        " ",
+      )}
     >
       <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-[880px]"].filter(Boolean).join(" ")}>
         {bubbles.length === 0 ? (

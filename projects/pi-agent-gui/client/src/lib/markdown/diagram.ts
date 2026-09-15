@@ -450,7 +450,7 @@ function placeNodes(order: FlowNode[], rank: Map<string, number>, horizontal: bo
           y: top,
           label: node.label,
           lines: node.lines,
-          shape: node.shape ?? "rect" as const,
+          shape: node.shape ?? ("rect" as const),
         };
         placed.set(node.id, { node, box, rank: index });
         top += size.h + NODE_GAP;
@@ -474,7 +474,7 @@ function placeNodes(order: FlowNode[], rank: Map<string, number>, horizontal: bo
           y: top + (heights[index] - size.h) / 2,
           label: node.label,
           lines: node.lines,
-          shape: node.shape ?? "rect" as const,
+          shape: node.shape ?? ("rect" as const),
         };
         placed.set(node.id, { node, box, rank: index });
         left += size.w + NODE_GAP;
@@ -523,7 +523,12 @@ function frameOfBoxes(boxes: DiagramBox[]): Frame {
  * レーンは全ノードの外側 (ランク軸に直交する向き) に取り、同じ側を使う 2 本目以降は
  * 1 本ずつ外へずらす。入力順に決まるので同じ図からは同じレーンになる。
  */
-function planLanes(edges: FlowEdge[], placed: Map<string, Placed>, frame: Frame, horizontal: boolean): (number | null)[] {
+function planLanes(
+  edges: FlowEdge[],
+  placed: Map<string, Placed>,
+  frame: Frame,
+  horizontal: boolean,
+): (number | null)[] {
   let usedBefore = 0;
   let usedAfter = 0;
   return edges.map((edge) => {
@@ -796,7 +801,11 @@ function layoutFlowchart(order: FlowNode[], edges: FlowEdge[], direction: string
   const horizontal = direction === "LR";
   const indexOf = new Map(order.map((node, index) => [node.id, index]));
   const back = findBackEdges(indexOf, edges);
-  const rank = assignRanks(order.map((node) => node.id), edges, back);
+  const rank = assignRanks(
+    order.map((node) => node.id),
+    edges,
+    back,
+  );
   const placed = placeNodes(order, rank, horizontal);
   const byId = new Map(placed.map((entry) => [entry.node.id, entry]));
   const bands = bandsOf(placed, horizontal);
@@ -821,8 +830,7 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
   const boxW = clamp(
     Math.max(
       ...participants.map(
-        (entry) =>
-          Math.max(0, ...entry.lines.map((line) => Math.ceil(textWidth(line, FONT_SIZE)))) + PARTICIPANT_PAD,
+        (entry) => Math.max(0, ...entry.lines.map((line) => Math.ceil(textWidth(line, FONT_SIZE)))) + PARTICIPANT_PAD,
       ),
     ),
     PARTICIPANT_MIN_W,
@@ -882,7 +890,10 @@ function layoutSequence(participants: SeqParticipant[], elements: SeqElement[]):
       });
     } else {
       edges.push({
-        points: [{ x: from, y }, { x: to, y }],
+        points: [
+          { x: from, y },
+          { x: to, y },
+        ],
         dashed: element.dashed,
         label: element.text,
         labelAt: { x: (from + to) / 2, y: y - LABEL_OFFSET, anchor: "middle" },
@@ -956,7 +967,12 @@ function normalize(model: Omit<DiagramModel, "width" | "height">): DiagramModel 
         edge.labelAt === null ? null : { x: edge.labelAt.x + dx, y: edge.labelAt.y + dy, anchor: edge.labelAt.anchor },
     })),
     notes: model.notes.map((note) => ({ ...note, x: note.x + dx, y: note.y + dy })),
-    lifelines: model.lifelines.map((line) => ({ x1: line.x1 + dx, y1: line.y1 + dy, x2: line.x2 + dx, y2: line.y2 + dy })),
+    lifelines: model.lifelines.map((line) => ({
+      x1: line.x1 + dx,
+      y1: line.y1 + dy,
+      x2: line.x2 + dx,
+      y2: line.y2 + dy,
+    })),
   };
 }
 

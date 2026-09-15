@@ -147,9 +147,7 @@ function Branch({ parent, node, depth, tree, selected, onToggle, onSelect }: Bra
           onSelect={onSelect}
         />
       ))}
-      {node.truncated ? (
-        <MessageRow depth={depth}>上限のため {entries.length} 件のみ表示しています</MessageRow>
-      ) : null}
+      {node.truncated ? <MessageRow depth={depth}>上限のため {entries.length} 件のみ表示しています</MessageRow> : null}
     </div>
   );
 }
@@ -269,7 +267,5 @@ function MessageRow({
 
 /** root 外を指す symlink は開くと 400 になるため、一覧の時点で印を付ける */
 function SymlinkMark() {
-  return (
-    <span className="shrink-0 rounded border border-line px-1 text-[9px] leading-4 text-ink-ghost">リンク</span>
-  );
+  return <span className="shrink-0 rounded border border-line px-1 text-[9px] leading-4 text-ink-ghost">リンク</span>;
 }

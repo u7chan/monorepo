@@ -44,9 +44,10 @@ When a task involves the project, inspect it with the available tools instead of
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
 `.trim();
 
-const DEFAULT_TOOLS = process.platform === "win32"
-  ? ["read", "powershell", "edit", "write", "grep", "find", "ls"]
-  : ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const DEFAULT_TOOLS =
+  process.platform === "win32"
+    ? ["read", "powershell", "edit", "write", "grep", "find", "ls"]
+    : ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
 export interface CreateSessionInput {
   agent?: AgentDef;
@@ -107,8 +108,7 @@ function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel 
     thinkingLevel = thinkingSuffix[1];
   }
 
-  const parsedLevel =
-    thinkingLevel === undefined ? undefined : parseThinkingLevel(thinkingLevel);
+  const parsedLevel = thinkingLevel === undefined ? undefined : parseThinkingLevel(thinkingLevel);
 
   const slash = reference.indexOf("/");
   const provider = slash === -1 ? process.env.PI_PROVIDER?.trim() : reference.slice(0, slash);
@@ -127,7 +127,10 @@ function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel 
 export function parseModelWhitelist(raw: string | undefined): ModelRef[] | undefined {
   const value = raw?.trim();
   if (!value) return undefined;
-  const entries = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
   if (entries.length === 0) return undefined;
   return entries.map((entry) => {
     const slash = entry.indexOf("/");
@@ -144,14 +147,9 @@ export function parseModelWhitelist(raw: string | undefined): ModelRef[] | undef
  * available と PI_MODELS の積。availableModels / modelOptions / selectedModel / resolveModel は
  * 同じ配列から導出するため、絞り込みはここ 1 箇所だけに閉じる。
  */
-export function filterModelsByWhitelist(
-  models: PiAiModel<Api>[],
-  whitelist: ModelRef[] | undefined,
-): PiAiModel<Api>[] {
+export function filterModelsByWhitelist(models: PiAiModel<Api>[], whitelist: ModelRef[] | undefined): PiAiModel<Api>[] {
   if (!whitelist) return models;
-  return models.filter((model) =>
-    whitelist.some((ref) => ref.provider === model.provider && ref.id === model.id),
-  );
+  return models.filter((model) => whitelist.some((ref) => ref.provider === model.provider && ref.id === model.id));
 }
 
 /** picker 用の能力情報。SDK のヘルパーをそのまま使い、BFF 側で模倣しない。 */
@@ -169,7 +167,10 @@ function modelOptionOf(model: PiAiModel<Api>): ModelOption {
 function configuredTools(): string[] {
   const value = process.env.PI_AGENT_TOOLS?.trim();
   if (!value) return DEFAULT_TOOLS;
-  const tools = value.split(",").map((tool) => tool.trim()).filter(Boolean);
+  const tools = value
+    .split(",")
+    .map((tool) => tool.trim())
+    .filter(Boolean);
   return tools.length > 0 ? tools : DEFAULT_TOOLS;
 }
 
@@ -193,8 +194,7 @@ export function compactionSettingsFromEnv(env: NodeJS.ProcessEnv = process.env):
 } {
   return {
     enabled: true,
-    reserveTokens:
-      parseCompactionTokenKnob(env.PI_COMPACTION_RESERVE_TOKENS) ?? DEFAULT_COMPACTION_RESERVE_TOKENS,
+    reserveTokens: parseCompactionTokenKnob(env.PI_COMPACTION_RESERVE_TOKENS) ?? DEFAULT_COMPACTION_RESERVE_TOKENS,
     keepRecentTokens:
       parseCompactionTokenKnob(env.PI_COMPACTION_KEEP_RECENT_TOKENS) ?? DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
   };
@@ -223,7 +223,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   let availabilityError: string | undefined;
 
   try {
-    availableModelList = [...await modelRuntime.getAvailable()];
+    availableModelList = [...(await modelRuntime.getAvailable())];
   } catch (error) {
     availabilityError = errorMessage(error);
   }
@@ -251,9 +251,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     const requestedProvider = requested?.model.provider;
     const hasConfiguredProvider = requestedProvider
       ? modelRuntime.getProviderAuthStatus(requestedProvider).configured
-      : modelRuntime.getProviders().some(
-          (provider) => modelRuntime.getProviderAuthStatus(provider.id).configured,
-        );
+      : modelRuntime.getProviders().some((provider) => modelRuntime.getProviderAuthStatus(provider.id).configured);
     availabilityError = hasConfiguredProvider ? MODEL_UNAVAILABLE_MESSAGE : AUTH_REQUIRED_MESSAGE;
   }
 
@@ -263,9 +261,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
 
   const modelOptions = availableModelList.map((model) => modelOptionOf(model));
   const resolveModel = (model: ModelRef): PiAiModel<Api> | undefined =>
-    availableModelList.find(
-      (candidate) => candidate.provider === model.provider && candidate.id === model.id,
-    );
+    availableModelList.find((candidate) => candidate.provider === model.provider && candidate.id === model.id);
   // 検証時だけ閾値を下げる。未設定なら SDK 既定 (16384 / 20000) で従来と同じ。
   const compactionSettings = compactionSettingsFromEnv();
 
@@ -281,16 +277,16 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // 明示されたモデルは利用可能一覧と厳密照合する
     const modelObject = model ? resolveModel(model) : selectedModel;
     if (model && !modelObject) {
-      const error = new Error(
-        `Model is not available: ${model.provider}/${model.id}`,
-      ) as Error & { statusCode?: number };
+      const error = new Error(`Model is not available: ${model.provider}/${model.id}`) as Error & {
+        statusCode?: number;
+      };
       error.statusCode = 400;
       throw error;
     }
     if (!modelObject) {
-      const error = new Error(
-        defaultModelError || availabilityError || AUTH_REQUIRED_MESSAGE,
-      ) as Error & { statusCode?: number };
+      const error = new Error(defaultModelError || availabilityError || AUTH_REQUIRED_MESSAGE) as Error & {
+        statusCode?: number;
+      };
       error.statusCode = 503;
       throw error;
     }
@@ -305,12 +301,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       retry: { enabled: true, maxRetries: 2 },
     });
     const agentPrompt = agent
-      ? [
-          `<agent_profile name="${agent.name}">`,
-          agent.description,
-          agent.systemPrompt,
-          "</agent_profile>",
-        ].filter(Boolean).join("\n")
+      ? [`<agent_profile name="${agent.name}">`, agent.description, agent.systemPrompt, "</agent_profile>"]
+          .filter(Boolean)
+          .join("\n")
       : "";
     const skillPrompts = skills
       .filter((skill) => skill && skill.name && skill.prompt)

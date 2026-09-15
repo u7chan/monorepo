@@ -1,8 +1,4 @@
-import {
-  AUTH_REQUIRED_GUIDE,
-  SANDBOX_REQUIRED_GUIDE,
-  type RuntimeStatus,
-} from "../hooks/runtimeStatus";
+import { AUTH_REQUIRED_GUIDE, SANDBOX_REQUIRED_GUIDE, type RuntimeStatus } from "../hooks/runtimeStatus";
 
 export type RuntimeAlertProps = {
   runtimeStatus: RuntimeStatus;

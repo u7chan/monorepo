@@ -33,12 +33,7 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
           {landscape ? null : (
             <div className="truncate text-[10px] text-ink-faint">{agentName || "エージェント未選択"}</div>
           )}
-          <div
-            className={[
-              "truncate font-medium text-ink-strong",
-              landscape ? "text-xs" : "text-[13px]",
-            ].join(" ")}
-          >
+          <div className={["truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-[13px]"].join(" ")}>
             {title}
           </div>
         </div>

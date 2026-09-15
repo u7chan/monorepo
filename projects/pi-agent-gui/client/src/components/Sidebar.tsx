@@ -47,8 +47,17 @@ export function Sidebar({
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
-  const { sessions, sessionId, projects, selectedProjectId, selectProject, newChat, selectSession, deleteSession, deleteProject } =
-    props;
+  const {
+    sessions,
+    sessionId,
+    projects,
+    selectedProjectId,
+    selectProject,
+    newChat,
+    selectSession,
+    deleteSession,
+    deleteProject,
+  } = props;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
 
@@ -129,7 +138,9 @@ export function Sidebar({
                       selected={group.project.id === selectedProjectId}
                       open={!collapsed[group.project.id]}
                       onSelect={() => selectProject(group.project.id)}
-                      onToggle={() => setCollapsed((prev) => ({ ...prev, [group.project.id]: !prev[group.project.id] }))}
+                      onToggle={() =>
+                        setCollapsed((prev) => ({ ...prev, [group.project.id]: !prev[group.project.id] }))
+                      }
                       onNewChat={() => newChat(undefined, group.project.id)}
                       onDelete={() => deleteProject(group.project.id)}
                       onSelectSession={selectSession}

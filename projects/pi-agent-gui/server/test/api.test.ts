@@ -72,7 +72,10 @@ test("server exposes the async session API end to end", async () => {
     assert.match(eventsResponse.headers.get("content-type") || "", /text\/event-stream/);
     assert.match(eventsResponse.headers.get("cache-control") || "", /no-transform/);
 
-    const postResponse = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "非同期で動いて" }));
+    const postResponse = await app.request(
+      `/api/sessions/${created.sessionId}/messages`,
+      jsonPost({ text: "非同期で動いて" }),
+    );
     assert.equal(postResponse.status, 202);
     const postBody = await jsonBody(postResponse);
     assert.equal(postBody.queued, false);
@@ -142,7 +145,10 @@ test("projects are created from a new or an existing directory and listed in cre
     const listed = await jsonBody(app.request("/api/projects"));
     assert.deepEqual(
       listed.projects.map((project: { cwd: string; name: string }) => [project.cwd, project.name]),
-      [["proj-a", "proj-a"], ["nested/existing", "既存ディレクトリ"]],
+      [
+        ["proj-a", "proj-a"],
+        ["nested/existing", "既存ディレクトリ"],
+      ],
     );
 
     // 同じ cwd の二重登録は 409 (サンドボックスへは触らない)
@@ -213,19 +219,15 @@ test("sessions bind to a project and are destroyed with it", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi), workspace });
   const { app } = bff;
   try {
-    const project = (await jsonBody(
-      await app.request("/api/projects", jsonPost({ cwd: "proj-a", create: true })),
-    )).project;
+    const project = (await jsonBody(await app.request("/api/projects", jsonPost({ cwd: "proj-a", create: true }))))
+      .project;
 
     // 未所属セッションの cwd は root ("")
     const unaffiliated = await jsonBody(app.request("/api/sessions", jsonPost({ agentId: "agent-general" })));
     assert.equal(unaffiliated.cwd, "");
     assert.equal(unaffiliated.projectId, undefined);
 
-    const response = await app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-general", projectId: project.id }),
-    );
+    const response = await app.request("/api/sessions", jsonPost({ agentId: "agent-general", projectId: project.id }));
     assert.equal(response.status, 201);
     const payload = await jsonBody(response);
     assert.equal(payload.projectId, project.id);
@@ -256,7 +258,10 @@ test("sessions bind to a project and are destroyed with it", async () => {
 
     assert.equal((await app.request(`/api/sessions/${payload.sessionId}`)).status, 404);
     const remaining = await jsonBody(app.request("/api/sessions"));
-    assert.deepEqual(remaining.sessions.map((session: { sessionId: string }) => session.sessionId), [unaffiliated.sessionId]);
+    assert.deepEqual(
+      remaining.sessions.map((session: { sessionId: string }) => session.sessionId),
+      [unaffiliated.sessionId],
+    );
     assert.deepEqual((await jsonBody(app.request("/api/projects"))).projects, []);
     // ディレクトリは触らない (削除でサンドボックスを呼ばない)
     assert.deepEqual(dirs, ["proj-a"]);
@@ -275,7 +280,10 @@ test("assistant usage reaches the client through SSE and the session payload", a
   try {
     const created = await createSession(app);
     const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
-    const posted = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "usage を見せて" }));
+    const posted = await app.request(
+      `/api/sessions/${created.sessionId}/messages`,
+      jsonPost({ text: "usage を見せて" }),
+    );
     assert.equal(posted.status, 202);
     const events = await collectSse(eventsResponse, (list) => list.some((entry) => entry.type === "run_end"));
 
@@ -311,13 +319,14 @@ test("compaction reaches the client through SSE and stays in the session payload
   try {
     const created = await createSession(app);
     const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
-    const posted = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "圧縮される会話" }));
+    const posted = await app.request(
+      `/api/sessions/${created.sessionId}/messages`,
+      jsonPost({ text: "圧縮される会話" }),
+    );
     assert.equal(posted.status, 202);
     const seen = collectSse(
       eventsResponse,
-      (list) =>
-        list.some((entry) => entry.type === "compaction") &&
-        list.some((entry) => entry.type === "resync"),
+      (list) => list.some((entry) => entry.type === "compaction") && list.some((entry) => entry.type === "resync"),
     );
     await pi.sessions[0].compact({
       reason: "threshold",
@@ -537,10 +546,7 @@ test("session creation resolves request → definition → app default per field
     );
     assert.equal(invalidLevel.status, 400);
 
-    const nullModel = await app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-general", model: null }),
-    );
+    const nullModel = await app.request("/api/sessions", jsonPost({ agentId: "agent-general", model: null }));
     assert.equal(nullModel.status, 400);
     assert.equal(pi.sessions.length, 3, "400 は SDK 作成まで到達しない");
   } finally {
@@ -586,9 +592,7 @@ test("a session runs on its own model when it differs from the app default", asy
     assert.equal((await jsonBody(app.request("/api/health"))).model, "stub/stub-model");
     assert.equal((await jsonBody(app.request(`/api/sessions/${session.sessionId}`))).model, "stub/stub-plain");
     const listed = await jsonBody(app.request("/api/sessions"));
-    const listedSession = listed.sessions.find(
-      (item: { sessionId: string }) => item.sessionId === session.sessionId,
-    );
+    const listedSession = listed.sessions.find((item: { sessionId: string }) => item.sessionId === session.sessionId);
     assert.equal(listedSession.model, "stub/stub-plain");
   } finally {
     await bff.close();
@@ -804,15 +808,12 @@ test("catalog endpoints expose and update agent suggestions", async () => {
       jsonPatch({ suggestions: [{ label: "足した", prompt: "追加のプロンプト" }] }),
     );
     assert.equal(saved.status, 200);
-    assert.deepEqual((await jsonBody(saved)).agent.suggestions, [
-      { label: "足した", prompt: "追加のプロンプト" },
-    ]);
+    assert.deepEqual((await jsonBody(saved)).agent.suggestions, [{ label: "足した", prompt: "追加のプロンプト" }]);
 
     const reloaded = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(
-      reloaded.agents.find((agent: { id: string }) => agent.id === "agent-builder").suggestions,
-      [{ label: "足した", prompt: "追加のプロンプト" }],
-    );
+    assert.deepEqual(reloaded.agents.find((agent: { id: string }) => agent.id === "agent-builder").suggestions, [
+      { label: "足した", prompt: "追加のプロンプト" },
+    ]);
 
     // 空配列で解除すると応答からもキーが消える
     const cleared = await app.request("/api/agents/agent-builder", jsonPatch({ suggestions: [] }));
@@ -820,7 +821,10 @@ test("catalog endpoints expose and update agent suggestions", async () => {
     assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "suggestions"), false);
     const afterClear = await jsonBody(app.request("/api/agents"));
     assert.equal(
-      Object.hasOwn(afterClear.agents.find((agent: { id: string }) => agent.id === "agent-builder"), "suggestions"),
+      Object.hasOwn(
+        afterClear.agents.find((agent: { id: string }) => agent.id === "agent-builder"),
+        "suggestions",
+      ),
       false,
     );
   } finally {
@@ -877,7 +881,13 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
     assert.deepEqual(await jsonBody(noBody), { agent: clearedAgent });
 
     // route は形・型だけを見る。違反は 400 で、必須判定の文言は catalog のまま
-    for (const body of [{ name: 1 }, { model: "x" }, { thinkingLevel: "ultra" }, { suggestions: "x" }, { skillIds: "x" }]) {
+    for (const body of [
+      { name: 1 },
+      { model: "x" },
+      { thinkingLevel: "ultra" },
+      { suggestions: "x" },
+      { skillIds: "x" },
+    ]) {
       const invalid = await app.request("/api/agents", jsonPost(body));
       assert.equal(invalid.status, 400, JSON.stringify(body));
       assert.equal((await jsonBody(invalid)).error, "Invalid request body");
@@ -1034,7 +1044,11 @@ test("missing client build answers with a 503 hint", async () => {
   }
 });
 
-async function collectSse(response: Response, predicate: (events: ParsedSseEvent[]) => boolean, timeoutMs = 5000): Promise<ParsedSseEvent[]> {
+async function collectSse(
+  response: Response,
+  predicate: (events: ParsedSseEvent[]) => boolean,
+  timeoutMs = 5000,
+): Promise<ParsedSseEvent[]> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

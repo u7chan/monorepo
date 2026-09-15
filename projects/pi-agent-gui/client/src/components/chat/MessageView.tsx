@@ -46,18 +46,30 @@ export function MessageView({
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   return (
-    <article className={["animate-rise group/bubble flex", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : ""].join(" ")}>
+    <article
+      className={["animate-rise group/bubble flex", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : ""].join(" ")}
+    >
       <div
         className={[
           "grid shrink-0 place-items-center rounded-lg font-bold",
           compact ? "size-[22px] text-[9px]" : "size-[26px] text-[10px]",
-          isUser ? "order-2 bg-accent-bright text-on-accent" : "border border-accent/25 bg-accent-wash text-accent-strong",
+          isUser
+            ? "order-2 bg-accent-bright text-on-accent"
+            : "border border-accent/25 bg-accent-wash text-accent-strong",
         ].join(" ")}
       >
         {isUser ? <UserIcon /> : "✦"}
       </div>
       {/* flex-1 は assistant だけ。user に付けるとバブル背景が列幅まで広がる */}
-      <div className={["min-w-0", isUser ? "" : "flex-1", compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]"].filter(Boolean).join(" ")}>
+      <div
+        className={[
+          "min-w-0",
+          isUser ? "" : "flex-1",
+          compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className={["text-[10px] font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1"].join(" ")}>
           {isUser ? "あなた" : "アシスタント"}
         </div>

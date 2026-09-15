@@ -81,7 +81,12 @@ function startAssistant(session: ScriptedSession): ScriptedAssistant {
 }
 
 /** 差分をチャンクに分けてストリームする (SDK の text_delta を模倣)。 */
-async function streamChunks(session: ScriptedSession, assistant: ScriptedAssistant, chunks: string[], chunkDelayMs = 0): Promise<void> {
+async function streamChunks(
+  session: ScriptedSession,
+  assistant: ScriptedAssistant,
+  chunks: string[],
+  chunkDelayMs = 0,
+): Promise<void> {
   for (const chunk of chunks) {
     if (session.abortRequested) break;
     if (chunkDelayMs) await sleep(chunkDelayMs);
@@ -95,7 +100,13 @@ async function streamChunks(session: ScriptedSession, assistant: ScriptedAssista
 
 function emitToolEnd(
   session: ScriptedSession,
-  { id, name, args, output, isError = false }: { id: string; name: string; args: unknown; output: string; isError?: boolean },
+  {
+    id,
+    name,
+    args,
+    output,
+    isError = false,
+  }: { id: string; name: string; args: unknown; output: string; isError?: boolean },
 ): void {
   session.emit({ type: "tool_execution_start", toolCallId: id, toolName: name, args });
   session.emit({
@@ -149,10 +160,7 @@ test("assistant text split across chunk boundaries is masked in SSE events", asy
   assert.equal(deltas, `回答は ${REDACTED} です`);
   const payload = store.payload(record);
   assertNoRawKey(events, payload, "chunked text");
-  assert.equal(
-    payload.messages.find((message) => message.role === "assistant")?.text,
-    `回答は ${REDACTED} です`,
-  );
+  assert.equal(payload.messages.find((message) => message.role === "assistant")?.text, `回答は ${REDACTED} です`);
   await store.close();
 });
 
@@ -331,6 +339,9 @@ test("output without secrets passes through unchanged", async () => {
   const toolEnd = events.find((entry) => entry.type === "tool_end");
   assert.equal((toolEnd?.data as { output: string }).output, "total 48\ndrwxr-x--- 8 node node 4096 .");
   const payload = store.payload(record);
-  assert.equal(payload.messages.find((message) => message.role === "assistant")?.text, "合計 48\ndrwxr-x--- 8 node node 4096 .");
+  assert.equal(
+    payload.messages.find((message) => message.role === "assistant")?.text,
+    "合計 48\ndrwxr-x--- 8 node node 4096 .",
+  );
   await store.close();
 });

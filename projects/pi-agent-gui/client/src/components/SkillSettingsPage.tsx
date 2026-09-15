@@ -12,7 +12,13 @@ export type SkillSettingsPageProps = SettingsPageProps & {
   refreshCatalog: () => Promise<Catalog>;
 };
 
-export function SkillSettingsPage({ catalog, refreshCatalog, compact = false, onBack, onOpenNav }: SkillSettingsPageProps) {
+export function SkillSettingsPage({
+  catalog,
+  refreshCatalog,
+  compact = false,
+  onBack,
+  onOpenNav,
+}: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: DEFINITIONS_NOTE, error: false });
   const [skillForm, setSkillForm] = useState<SkillForm>({ name: "", description: "", prompt: "" });

@@ -91,12 +91,18 @@ function payloadWithTimes(): SessionPayload {
 
 test("resync は履歴の at をバブルへ写す", () => {
   const state = chatReducer(initialChatState, { type: "resync", payload: payloadWithTimes() });
-  assert.deepEqual(state.bubbles.map((bubble) => bubble.at), [1700000000000, 1700000001000]);
+  assert.deepEqual(
+    state.bubbles.map((bubble) => bubble.at),
+    [1700000000000, 1700000001000],
+  );
 });
 
 test("at を持たない履歴のバブルは at が undefined になる", () => {
   const state = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
-  assert.deepEqual(state.bubbles.map((bubble) => bubble.at), [undefined, undefined]);
+  assert.deepEqual(
+    state.bubbles.map((bubble) => bubble.at),
+    [undefined, undefined],
+  );
 });
 
 test("ローカル生成のバブルは action で受け取った時刻を使う", () => {
@@ -105,7 +111,10 @@ test("ローカル生成のバブルは action で受け取った時刻を使う
 
   // runStart はローカルエコー済みの user バブルを重複させない (時刻は最初のバブルのまま)
   const echoed = chatReducer(user, { type: "runStart", prompt: "送信中", at: 200 });
-  assert.deepEqual(echoed.bubbles.map((bubble) => bubble.at), [100]);
+  assert.deepEqual(
+    echoed.bubbles.map((bubble) => bubble.at),
+    [100],
+  );
 
   const started = chatReducer(initialChatState, { type: "runStart", prompt: "新しい会話", at: 200 });
   assert.equal(started.bubbles[0]?.at, 200);
@@ -325,7 +334,10 @@ test("compaction イベントは同じ entry を差し替えながら回数と�
     compaction: { ...COMPACTION, id: "entry-compaction-2", summary: "2回目の要約", beforeMessageIndex: 0 },
     count: 2,
   });
-  assert.deepEqual(second.compactions.map((item) => item.summary), ["古い会話の要約", "2回目の要約"]);
+  assert.deepEqual(
+    second.compactions.map((item) => item.summary),
+    ["古い会話の要約", "2回目の要約"],
+  );
   assert.equal(second.activity, "会話を圧縮しました（2回目）");
   // メッセージの置き換えは resync が担う (イベントだけでは履歴を消さない)
   assert.equal(second.bubbles.length, state.bubbles.length);

@@ -1,14 +1,7 @@
 /** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
 
-export const RunStatusSchema = z.enum([
-  "idle",
-  "running",
-  "queued",
-  "completed",
-  "stopped",
-  "error",
-]);
+export const RunStatusSchema = z.enum(["idle", "running", "queued", "completed", "stopped", "error"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 export const SkillDefSchema = z.object({
@@ -20,15 +13,7 @@ export const SkillDefSchema = z.object({
 export type SkillDef = z.infer<typeof SkillDefSchema>;
 
 /** pi SDK の thinkingLevel。UI では「Effort」と表示する。 */
-export const ThinkingLevelSchema = z.enum([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
+export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
 
 /** 認証済みモデルの provider/id 参照 (SDK の Model そのものではない) */

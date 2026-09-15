@@ -59,8 +59,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [choice, setChoiceState] = useState<ThemeChoice>(readStoredChoice);
   const prefersLight = useSyncExternalStore(subscribeLightMode, lightModeSnapshot, () => false);
 
-  const resolvedId: ThemeId =
-    choice === "system" ? (prefersLight ? SYSTEM_LIGHT_ID : SYSTEM_DARK_ID) : choice;
+  const resolvedId: ThemeId = choice === "system" ? (prefersLight ? SYSTEM_LIGHT_ID : SYSTEM_DARK_ID) : choice;
 
   // theme-init.js と同じ契約: html の data-theme を同期する (初回描画前の FOUC 防止は theme-init.js 側)
   useEffect(() => {

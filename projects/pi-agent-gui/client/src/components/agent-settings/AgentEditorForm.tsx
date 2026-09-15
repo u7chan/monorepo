@@ -196,9 +196,7 @@ export function AgentEditorForm({
         <div className="text-[11px] text-ink-soft">割り当てるスキル</div>
         <div className="grid gap-1.5">
           {catalog.skills.length === 0 ? (
-            <div className="text-[11px] text-ink-faint">
-              スキルがありません。「スキル」ページから作成できます。
-            </div>
+            <div className="text-[11px] text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
           ) : (
             catalog.skills.map((skill) => (
               <label key={skill.id} className="flex cursor-pointer items-start gap-2 rounded-lg bg-soft px-2.5 py-2">

@@ -168,7 +168,11 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
             {/* 一覧だけをスクロールさせ、名前の入力と送信ボタンを常に見える位置に残す */}
             <div className="scrollbar-thin max-h-[42dvh] overflow-y-auto rounded-lg border border-line bg-soft p-1">
               {path !== WORKSPACE_ROOT ? (
-                <button type="button" onClick={() => changePath(parentWorkspacePath(path))} className={directoryRowClass}>
+                <button
+                  type="button"
+                  onClick={() => changePath(parentWorkspacePath(path))}
+                  className={directoryRowClass}
+                >
                   <span aria-hidden className="grid size-4 shrink-0 place-items-center text-ink-faint">
                     ↑
                   </span>
@@ -202,7 +206,10 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
           </div>
 
           <div className="grid gap-1.5">
-            <label htmlFor="project-name" className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
+            <label
+              htmlFor="project-name"
+              className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint"
+            >
               {mode === "create" ? "名前" : "表示名"}
             </label>
             {/* compact は iOS Safari の focus 時ズームを避けるために 16px 以上にする */}

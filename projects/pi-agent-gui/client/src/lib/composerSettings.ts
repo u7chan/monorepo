@@ -3,15 +3,7 @@ import type { SettingsSelection } from "../hooks/settingsChange";
 import type { AgentDef, Health, ModelOption, ModelRef, ThinkingLevel } from "../types";
 
 /** Effort の全段階 (使用モデルの候補を引けないときの表示に使う) */
-export const ALL_THINKING_LEVELS: ThinkingLevel[] = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-];
+export const ALL_THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 const EFFORT_LABELS: Record<ThinkingLevel, string> = {
   off: "Off",
@@ -49,17 +41,13 @@ export type ComposerSettingsInput = {
   selectedAgent?: AgentDef;
   sessionId: string;
   preselection: SettingsSelection;
-  chat: Pick<
-    ChatState,
-    "sessionModel" | "sessionThinkingLevel" | "supportsThinking" | "availableThinkingLevels"
-  >;
+  chat: Pick<ChatState, "sessionModel" | "sessionThinkingLevel" | "supportsThinking" | "availableThinkingLevels">;
   sending: boolean;
   settingsChanging: boolean;
   stopVisible: boolean;
 };
 
-const modelLabel = (ref?: ModelRef): string | undefined =>
-  ref ? `${ref.provider}/${ref.id}` : undefined;
+const modelLabel = (ref?: ModelRef): string | undefined => (ref ? `${ref.provider}/${ref.id}` : undefined);
 
 /**
  * Model / Effort ピッカーの表示値を導出する。セッションの作成待ち・設定変更の通信状態とは独立に、
@@ -74,8 +62,7 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   const inSession = Boolean(sessionId);
   // 作成済みセッションの実効値は resync で chat に入る。runtimeStatus は health の再取得で上書きされるため使わない。
   // 未作成チャットはサーバーと同じ優先順位 (作成前の選択 → 定義 → アプリ既定) で表示する
-  const pendingModel =
-    modelLabel(preselection.model) ?? modelLabel(selectedAgent?.model) ?? health?.model;
+  const pendingModel = modelLabel(preselection.model) ?? modelLabel(selectedAgent?.model) ?? health?.model;
   const pendingThinkingLevel =
     preselection.thinkingLevel ?? selectedAgent?.thinkingLevel ?? health?.defaultThinkingLevel;
 
@@ -86,8 +73,8 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
     modelOptions,
     model,
     thinkingLevel: inSession ? chat.sessionThinkingLevel : pendingThinkingLevel,
-    supportsThinking: inSession ? chat.supportsThinking : option?.supportsThinking ?? true,
-    thinkingLevels: inSession ? chat.availableThinkingLevels : option?.thinkingLevels ?? ALL_THINKING_LEVELS,
+    supportsThinking: inSession ? chat.supportsThinking : (option?.supportsThinking ?? true),
+    thinkingLevels: inSession ? chat.availableThinkingLevels : (option?.thinkingLevels ?? ALL_THINKING_LEVELS),
     modelWarning: model && !option ? `${model} は現在利用できません。別のモデルを選択してください。` : undefined,
     effortNotice: option ? undefined : "使用モデルに応じて補正されます",
     disabled: stopVisible || sending || settingsChanging,

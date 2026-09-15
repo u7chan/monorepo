@@ -4,13 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import {
-  DEFAULT_THEME,
-  SYSTEM_DARK_ID,
-  SYSTEM_LIGHT_ID,
-  THEMES,
-  parseStoredThemeChoice,
-} from "../src/theme/themes";
+import { DEFAULT_THEME, SYSTEM_DARK_ID, SYSTEM_LIGHT_ID, THEMES, parseStoredThemeChoice } from "../src/theme/themes";
 
 function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
@@ -45,9 +39,7 @@ function themeRules(pattern: RegExp): CssRule[] {
 }
 
 function idsOf(rules: CssRule[], pattern: RegExp): string[] {
-  return rules.flatMap((rule) =>
-    rule.selectors.flatMap((selector) => selector.match(pattern)?.[1] ?? []),
-  );
+  return rules.flatMap((rule) => rule.selectors.flatMap((selector) => selector.match(pattern)?.[1] ?? []));
 }
 
 const presetRules = themeRules(THEME_SELECTOR);

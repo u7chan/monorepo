@@ -188,7 +188,9 @@ async function createWorkspaceDirectory(rootCwd: string, requested: string): Pro
 async function deepestExistingPath(target: string): Promise<string> {
   let current = target;
   for (;;) {
-    const exists = await stat(current).then(() => true).catch(() => false);
+    const exists = await stat(current)
+      .then(() => true)
+      .catch(() => false);
     if (exists) return current;
     const parent = dirname(current);
     if (parent === current) return current;
@@ -259,10 +261,7 @@ async function classifyEntry(
 }
 
 /** ディレクトリ先 → ファイル、各グループ内は大文字小文字を無視した昇順 (同順はコード順で安定させる)。 */
-function compareEntries(
-  a: { name: string; type: "file" | "dir" },
-  b: { name: string; type: "file" | "dir" },
-): number {
+function compareEntries(a: { name: string; type: "file" | "dir" }, b: { name: string; type: "file" | "dir" }): number {
   if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
   const ignoringCase = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   if (ignoringCase !== 0) return ignoringCase;

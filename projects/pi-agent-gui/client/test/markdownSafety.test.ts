@@ -9,7 +9,15 @@ const LIB_DIR = "src/lib/markdown";
 const COMPONENT_DIR = "src/components/markdown";
 
 /** DOM 文字列の生成・HTML のパース・React の外での DOM 操作 */
-const FORBIDDEN = ["innerHTML", "dangerouslySetInnerHTML", "DOMParser", "document.", "window.", "eval(", "new Function"];
+const FORBIDDEN = [
+  "innerHTML",
+  "dangerouslySetInnerHTML",
+  "DOMParser",
+  "document.",
+  "window.",
+  "eval(",
+  "new Function",
+];
 /** 本番の CSP は style-src 'self' のため、インライン style 属性は使えない */
 const INLINE_STYLE = ["style={", 'style="'];
 

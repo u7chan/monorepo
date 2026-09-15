@@ -24,14 +24,75 @@ type LangSpec = {
 const WORD = /[A-Za-z_$][A-Za-z0-9_$]*/y;
 
 const TS_KEYWORDS = new Set([
-  "abstract", "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "declare",
-  "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for", "from",
-  "function", "get", "if", "implements", "import", "in", "instanceof", "interface", "let", "namespace",
-  "new", "null", "of", "private", "protected", "public", "readonly", "return", "satisfies", "set", "static",
-  "super", "switch", "this", "throw", "true", "try", "type", "typeof", "undefined", "var", "while", "yield",
+  "abstract",
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "declare",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "get",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "namespace",
+  "new",
+  "null",
+  "of",
+  "private",
+  "protected",
+  "public",
+  "readonly",
+  "return",
+  "satisfies",
+  "set",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "type",
+  "typeof",
+  "undefined",
+  "var",
+  "while",
+  "yield",
 ]);
 
-const TS_TYPES = new Set(["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown", "void"]);
+const TS_TYPES = new Set([
+  "any",
+  "bigint",
+  "boolean",
+  "never",
+  "number",
+  "object",
+  "string",
+  "symbol",
+  "unknown",
+  "void",
+]);
 
 const C_LIKE_RULES: Rule[] = [
   { kind: "com", re: /\/\/[^\n]*/y },
@@ -65,9 +126,42 @@ const JSON_SPEC: LangSpec = {
 };
 
 const PY_KEYWORDS = new Set([
-  "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else",
-  "except", "False", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "None",
-  "nonlocal", "not", "or", "pass", "raise", "return", "self", "True", "try", "while", "with", "yield",
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "False",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "None",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "self",
+  "True",
+  "try",
+  "while",
+  "with",
+  "yield",
 ]);
 
 const PYTHON_SPEC: LangSpec = {
@@ -186,7 +280,11 @@ export function highlightCode(text: string, lang: string | null): MdToken[] | nu
 /** ```` ```{ts} ```` や `TS` も受ける */
 function normalizeLang(lang: string | null): string | null {
   if (lang === null) return null;
-  const name = lang.trim().toLowerCase().replace(/^\{|\}$/g, "").replace(/^\./, "");
+  const name = lang
+    .trim()
+    .toLowerCase()
+    .replace(/^\{|\}$/g, "")
+    .replace(/^\./, "");
   return ALIASES[name] ?? null;
 }
 
@@ -218,7 +316,10 @@ function tokenize(text: string, spec: LangSpec): MdToken[] {
     const word = WORD.exec(text);
     if (word !== null) {
       const lineStart = text.lastIndexOf("\n", at - 1) + 1;
-      const kind = spec.classify?.(word[0], { linePrefix: text.slice(lineStart, at), rest: text.slice(at + word[0].length) });
+      const kind = spec.classify?.(word[0], {
+        linePrefix: text.slice(lineStart, at),
+        rest: text.slice(at + word[0].length),
+      });
       push(kind ?? "plain", word[0]);
       at += word[0].length;
       continue;

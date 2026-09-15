@@ -13,9 +13,7 @@ export function compactionReasonLabel(reason?: string): string | undefined {
   return REASON_LABELS[reason] ?? reason;
 }
 
-export function compactionDividerLabel(
-  compaction: Pick<CompactionInfo, "reason" | "tokensBefore">,
-): string {
+export function compactionDividerLabel(compaction: Pick<CompactionInfo, "reason" | "tokensBefore">): string {
   const from = `${formatTokens(compaction.tokensBefore)} tokens から`;
   const reason = compactionReasonLabel(compaction.reason);
   return `ここで会話を圧縮しました（${reason ? `${reason}: ${from}` : from}）`;

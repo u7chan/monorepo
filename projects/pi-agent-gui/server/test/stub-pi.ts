@@ -166,20 +166,21 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
   // 実 SDK はリスナーへ message_end を配った後に SessionManager へ入れるため、その間だけ context が古い
   let historyUpdated = true;
   const sleepers = new Set<() => void>();
-  const sleep = (ms: number) => new Promise<void>((resolveSleep) => {
-    if (ms <= 0) {
-      resolveSleep();
-      return;
-    }
-    const wake = () => {
-      clearTimeout(timer);
-      sleepers.delete(wake);
-      resolveSleep();
-    };
-    const timer = setTimeout(wake, ms);
-    timer.unref?.();
-    sleepers.add(wake);
-  });
+  const sleep = (ms: number) =>
+    new Promise<void>((resolveSleep) => {
+      if (ms <= 0) {
+        resolveSleep();
+        return;
+      }
+      const wake = () => {
+        clearTimeout(timer);
+        sleepers.delete(wake);
+        resolveSleep();
+      };
+      const timer = setTimeout(wake, ms);
+      timer.unref?.();
+      sleepers.add(wake);
+    });
 
   // SessionManager と同じく append-only の entry ログを持ち、messages はそこから組み立てる。
   // compaction 後も圧縮前の entry を残す (実 SDK の getBranch() と同じ性質を再現する)。
@@ -218,11 +219,13 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       if (entry.type === "message" && entry.message) return [entry.message];
       // 実 SDK と同じく role compactionSummary のメッセージが context の先頭に入る (BFF は payload から落とす)
       if (entry.type === "compaction") {
-        return [{
-          role: "compactionSummary",
-          content: entry.summary ?? "",
-          timestamp: Date.parse(entry.timestamp),
-        }];
+        return [
+          {
+            role: "compactionSummary",
+            content: entry.summary ?? "",
+            timestamp: Date.parse(entry.timestamp),
+          },
+        ];
       }
       return [];
     });
@@ -460,9 +463,7 @@ export interface StubPiOptions {
 
 export function createStubPi(options: StubPiOptions = {}) {
   const available = options.availableModels ?? [STUB_MODEL, STUB_PLAIN_MODEL];
-  const selectedModel = options.selectedModel === undefined
-    ? available[0]
-    : options.selectedModel ?? undefined;
+  const selectedModel = options.selectedModel === undefined ? available[0] : (options.selectedModel ?? undefined);
   const sessions: StubSession[] = [];
   const createInputs: StubCreateInput[] = [];
   return {
@@ -477,8 +478,7 @@ export function createStubPi(options: StubPiOptions = {}) {
     tools: ["read"],
     sessions,
     createInputs,
-    resolveModel: (ref: ModelRef) =>
-      available.find((model) => model.provider === ref.provider && model.id === ref.id),
+    resolveModel: (ref: ModelRef) => available.find((model) => model.provider === ref.provider && model.id === ref.id),
     createSession: async (input: StubCreateInput = {}) => {
       if ((options.createSessionRejects ?? 0) > 0) {
         options.createSessionRejects = (options.createSessionRejects ?? 0) - 1;
@@ -490,12 +490,14 @@ export function createStubPi(options: StubPiOptions = {}) {
       }
       createInputs.push(input);
       const model = input.model
-        ? available.find((candidate) => candidate.provider === input.model?.provider && candidate.id === input.model?.id)
+        ? available.find(
+            (candidate) => candidate.provider === input.model?.provider && candidate.id === input.model?.id,
+          )
         : selectedModel;
       if (input.model && !model) {
-        const error = new Error(
-          `Model is not available: ${input.model.provider}/${input.model.id}`,
-        ) as Error & { statusCode?: number };
+        const error = new Error(`Model is not available: ${input.model.provider}/${input.model.id}`) as Error & {
+          statusCode?: number;
+        };
         error.statusCode = 400;
         throw error;
       }

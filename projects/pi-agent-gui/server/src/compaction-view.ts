@@ -75,9 +75,7 @@ function projectCompactions(
         ? { beforeMessageIndex: keptMessageCount(session.messages, entries, entryIndex, masker) }
         : {}),
       ...(meta?.reason ? { reason: meta.reason } : {}),
-      ...(meta?.estimatedTokensAfter !== undefined
-        ? { estimatedTokensAfter: meta.estimatedTokensAfter }
-        : {}),
+      ...(meta?.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: meta.estimatedTokensAfter } : {}),
     };
   });
 }

@@ -90,12 +90,7 @@ export class SessionStore {
     return this.records.size;
   }
 
-  async create({
-    agentId,
-    model,
-    thinkingLevel,
-    projectId,
-  }: CreateSessionOptions = {}): Promise<SessionRecord> {
+  async create({ agentId, model, thinkingLevel, projectId }: CreateSessionOptions = {}): Promise<SessionRecord> {
     if (!this.pi) {
       const error = new Error("ランタイムを利用できません") as HttpLikeError;
       error.statusCode = 503;
@@ -167,10 +162,7 @@ export class SessionStore {
    * チャット単位のモデル・Effort 変更。同じ SDK セッション・履歴・タイトルを保つ。
    * 実行中・キューあり・SDK 非 idle・別の設定変更中は 409。
    */
-  async updateSettings(
-    record: SessionRecord,
-    input: UpdateSessionSettingsInput,
-  ): Promise<SessionPayload> {
+  async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
     if (
       this.isBusy(record) ||
       record.session.isStreaming ||
@@ -233,9 +225,7 @@ export class SessionStore {
   }
 
   list(): SessionSummary[] {
-    return [...this.records.values()]
-      .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
-      .map((record) => this.summary(record));
+    return [...this.records.values()].sort((a, b) => b.lastUsedAt - a.lastUsedAt).map((record) => this.summary(record));
   }
 
   statusOf(record: SessionRecord): RunStatus {
@@ -454,14 +444,17 @@ export class SessionStore {
     });
 
     const unsubscribe = session.subscribe(bridge.listener);
-    session.prompt(text).then(() => {
-      // agent_settled は prompt() の解決より先に届くはずで、これはその保険。
-      if (!finished) finish();
-      unsubscribe();
-    }).catch((error) => {
-      if (!finished) finish({ error: userFacingError(error) });
-      unsubscribe();
-    });
+    session
+      .prompt(text)
+      .then(() => {
+        // agent_settled は prompt() の解決より先に届くはずで、これはその保険。
+        if (!finished) finish();
+        unsubscribe();
+      })
+      .catch((error) => {
+        if (!finished) finish({ error: userFacingError(error) });
+        unsubscribe();
+      });
 
     return run;
   }

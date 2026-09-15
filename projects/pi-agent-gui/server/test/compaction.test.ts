@@ -20,7 +20,7 @@ async function runTurn(
   compact?: (session: StubSession) => Promise<void>,
 ): Promise<void> {
   store.postMessage(record, text);
-  const session = (record.session as StubSession);
+  const session = record.session as StubSession;
   if (compact) await compact(session);
   await waitFor(() => store.statusOf(record) === "completed", 3000, `run: ${text}`);
 }
@@ -50,11 +50,14 @@ test("compaction の要約は messages から外れ、entry を写した形で c
 
   const payload = store.payload(record);
   // context の先頭に入る role compactionSummary のメッセージは従来どおり payload に載せない
-  assert.deepEqual(payload.messages.map((message) => [message.role, message.text]), [
-    ["assistant", "スタブの返答です"],
-    ["user", "2つ目"],
-    ["assistant", "スタブの返答です"],
-  ]);
+  assert.deepEqual(
+    payload.messages.map((message) => [message.role, message.text]),
+    [
+      ["assistant", "スタブの返答です"],
+      ["user", "2つ目"],
+      ["assistant", "スタブの返答です"],
+    ],
+  );
   assert.equal(payload.compactions.length, 1);
   const [compaction] = payload.compactions;
   assert.equal(compaction.summary, "古い会話の要約");
@@ -149,16 +152,18 @@ test("送信メッセージを積む前の compaction でも resync はそのメ
   assert.equal(resyncEvent.type, "resync");
   if (resyncEvent.type === "resync") {
     // 送信メッセージが agent state へ入るまで resync を遅らせる (入る前だとそのメッセージが消える)
-    assert.deepEqual(resyncEvent.data.messages.map((message) => message.text), ["スタブの返答です", "2つ目"]);
+    assert.deepEqual(
+      resyncEvent.data.messages.map((message) => message.text),
+      ["スタブの返答です", "2つ目"],
+    );
     assert.equal(resyncEvent.data.compactions[0].beforeMessageIndex, 1);
   }
 
   const payload = store.payload(record);
-  assert.deepEqual(payload.messages.map((message) => message.text), [
-    "スタブの返答です",
-    "2つ目",
-    "スタブの返答です",
-  ]);
+  assert.deepEqual(
+    payload.messages.map((message) => message.text),
+    ["スタブの返答です", "2つ目", "スタブの返答です"],
+  );
   assert.equal(payload.compactions[0].beforeMessageIndex, 1, "区切りは送信メッセージの手前");
 
   await store.close();
@@ -196,12 +201,10 @@ test("overflow 回復で agent state から外れたメッセージがあって�
   await runTurn(store, record, "3つ目");
 
   const payload = store.payload(record);
-  assert.deepEqual(payload.messages.map((message) => message.text), [
-    "スタブの返答です",
-    "2つ目",
-    "3つ目",
-    "スタブの返答です",
-  ]);
+  assert.deepEqual(
+    payload.messages.map((message) => message.text),
+    ["スタブの返答です", "2つ目", "3つ目", "スタブの返答です"],
+  );
   const index = payload.compactions[0].beforeMessageIndex;
   assert.equal(index, 2);
   assert.deepEqual(
@@ -228,21 +231,18 @@ test("複数回の compaction は全件を保持し、位置を持つのは最�
 
   const payload = store.payload(record);
   assert.equal(payload.compactions.length, 2);
-  assert.deepEqual(payload.compactions.map((compaction) => compaction.summary), [
-    "1回目の要約",
-    "2回目の要約",
-  ]);
-  assert.deepEqual(payload.compactions.map((compaction) => compaction.reason), [
-    "threshold",
-    "overflow",
-  ]);
+  assert.deepEqual(
+    payload.compactions.map((compaction) => compaction.summary),
+    ["1回目の要約", "2回目の要約"],
+  );
+  assert.deepEqual(
+    payload.compactions.map((compaction) => compaction.reason),
+    ["threshold", "overflow"],
+  );
   // 過去の圧縮位置は context の組み替えで復元できないため、最新の 1 件だけが持つ
   assert.equal(payload.compactions[0].beforeMessageIndex, undefined);
   assert.equal(payload.compactions[1].beforeMessageIndex, payload.messages.length - 2);
-  assert.ok(
-    !payload.messages.some((message) => message.text.includes("回目の要約")),
-    "要約は messages に混ざらない",
-  );
+  assert.ok(!payload.messages.some((message) => message.text.includes("回目の要約")), "要約は messages に混ざらない");
 
   await store.close();
 });
@@ -256,10 +256,13 @@ test("firstKeptEntryId が metadata entry を指しても区切りは表示メ�
   );
 
   const payload = store.payload(record);
-  assert.deepEqual(payload.messages.map((message) => [message.role, message.text]), [
-    ["user", "2つ目"],
-    ["assistant", "スタブの返答です"],
-  ]);
+  assert.deepEqual(
+    payload.messages.map((message) => [message.role, message.text]),
+    [
+      ["user", "2つ目"],
+      ["assistant", "スタブの返答です"],
+    ],
+  );
   assert.equal(payload.compactions[0].beforeMessageIndex, 2);
   const kept = session.entries.find((entry) => entry.id === payload.compactions[0].firstKeptEntryId);
   assert.equal(kept?.type, "model_change", "firstKeptEntryId は metadata entry を指し得る");
@@ -279,10 +282,10 @@ for (const outcome of ["none", "aborted", "error"] as const) {
     assert.equal(events.filter((entry) => entry.type === "resync").length, 0);
     const payload = store.payload(record);
     assert.deepEqual(payload.compactions, []);
-    assert.deepEqual(payload.messages.map((message) => message.text), [
-      "圧縮されない会話",
-      "スタブの返答です",
-    ]);
+    assert.deepEqual(
+      payload.messages.map((message) => message.text),
+      ["圧縮されない会話", "スタブの返答です"],
+    );
     assert.equal(session.messages.length, 2, "SDK の context も組み替えない");
 
     await store.close();

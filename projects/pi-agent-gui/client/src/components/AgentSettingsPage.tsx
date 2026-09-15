@@ -61,12 +61,7 @@ export function AgentSettingsPage({
       note={note}
     >
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-[minmax(0,1fr)]">
-        <AgentList
-          agents={catalog.agents}
-          editingId={editingId}
-          onSelect={setEditingId}
-          onStartNew={startNewAgent}
-        />
+        <AgentList agents={catalog.agents} editingId={editingId} onSelect={setEditingId} onStartNew={startNewAgent} />
         <AgentEditorForm
           catalog={catalog}
           editingId={editingId}

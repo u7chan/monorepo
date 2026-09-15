@@ -35,8 +35,28 @@ test("空文字と空行だけの入力は空のブロック列になる", () =>
 });
 
 test("箇条書き / 番号付きリストは開始番号と項目を持つ", () => {
-  assert.deepEqual(parseMarkdown("- a\n- b"), [{ kind: "list", ordered: false, start: 1, items: [{ task: null, source: "a" }, { task: null, source: "b" }] }]);
-  assert.deepEqual(parseMarkdown("3. c\n4. d"), [{ kind: "list", ordered: true, start: 3, items: [{ task: null, source: "c" }, { task: null, source: "d" }] }]);
+  assert.deepEqual(parseMarkdown("- a\n- b"), [
+    {
+      kind: "list",
+      ordered: false,
+      start: 1,
+      items: [
+        { task: null, source: "a" },
+        { task: null, source: "b" },
+      ],
+    },
+  ]);
+  assert.deepEqual(parseMarkdown("3. c\n4. d"), [
+    {
+      kind: "list",
+      ordered: true,
+      start: 3,
+      items: [
+        { task: null, source: "c" },
+        { task: null, source: "d" },
+      ],
+    },
+  ]);
 });
 
 test("入れ子のリストは項目の本文に入り、描画側が再帰的に解析する", () => {
@@ -100,17 +120,20 @@ test("引用は > を外した本文を持つ", () => {
 });
 
 test("表は整列指定つきのセルに分解する", () => {
-  assert.deepEqual(parseMarkdown("| 記法 | 対応 | 備考 |\n| --- | :---: | ---: |\n| 数式 | ✓ | `\\frac` |\n| 図 | ✓ | flowchart |"), [
-    {
-      kind: "table",
-      align: ["left", "center", "right"],
-      header: ["記法", "対応", "備考"],
-      rows: [
-        ["数式", "✓", "`\\frac`"],
-        ["図", "✓", "flowchart"],
-      ],
-    },
-  ]);
+  assert.deepEqual(
+    parseMarkdown("| 記法 | 対応 | 備考 |\n| --- | :---: | ---: |\n| 数式 | ✓ | `\\frac` |\n| 図 | ✓ | flowchart |"),
+    [
+      {
+        kind: "table",
+        align: ["left", "center", "right"],
+        header: ["記法", "対応", "備考"],
+        rows: [
+          ["数式", "✓", "`\\frac`"],
+          ["図", "✓", "flowchart"],
+        ],
+      },
+    ],
+  );
 });
 
 test("区切り行の列数が合わない表は段落として残す", () => {
@@ -137,7 +160,9 @@ test("言語なしのフェンスは lang=null になる", () => {
 });
 
 test("未終端フェンスは closed=false で残りを本文にする", () => {
-  assert.deepEqual(parseMarkdown("```ts\nconst a = 1;\n"), [{ kind: "code", lang: "ts", text: "const a = 1;\n", closed: false }]);
+  assert.deepEqual(parseMarkdown("```ts\nconst a = 1;\n"), [
+    { kind: "code", lang: "ts", text: "const a = 1;\n", closed: false },
+  ]);
 });
 
 test("本文の上限は 200KB で lib 側と共有する", () => {
@@ -145,7 +170,22 @@ test("本文の上限は 200KB で lib 側と共有する", () => {
 });
 
 test("壊れた入力でも例外を投げない", () => {
-  const inputs = ["", "```", "|", ">", "- ", "[", "<b", "\u0000", "\n".repeat(10), "> > > x", "- - - -", "|a|\n|-|", "######", "***"];
+  const inputs = [
+    "",
+    "```",
+    "|",
+    ">",
+    "- ",
+    "[",
+    "<b",
+    "\u0000",
+    "\n".repeat(10),
+    "> > > x",
+    "- - - -",
+    "|a|\n|-|",
+    "######",
+    "***",
+  ];
   for (const input of inputs) {
     assert.doesNotThrow(() => parseMarkdown(input), JSON.stringify(input));
   }

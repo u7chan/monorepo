@@ -252,7 +252,11 @@ function readEmphasis(
   const close = findClose(text, start + size, char, size, !strict);
   if (close === -1) return null;
   const children = scanInline(text.slice(start + size, close), state, depth + 1, true);
-  const node: MdInline = del ? { kind: "del", children } : strong ? { kind: "strong", children } : { kind: "em", children };
+  const node: MdInline = del
+    ? { kind: "del", children }
+    : strong
+      ? { kind: "strong", children }
+      : { kind: "em", children };
   return { node, end: close + size };
 }
 

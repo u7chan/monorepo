@@ -15,13 +15,7 @@ test("non-reasoning models only support off", () => {
 });
 
 test("reasoning models expose base levels but xhigh/max only when mapped", () => {
-  assert.deepEqual(getSupportedThinkingLevels(STUB_MODEL), [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-  ]);
+  assert.deepEqual(getSupportedThinkingLevels(STUB_MODEL), ["off", "minimal", "low", "medium", "high"]);
   // xhigh / max は thinkingLevelMap が明示されているときだけ候補になる
   assert.equal(clampThinkingLevel(STUB_MODEL, "xhigh"), "high");
   assert.equal(clampThinkingLevel(STUB_MODEL, "max"), "high");
@@ -31,13 +25,7 @@ test("reasoning models expose base levels but xhigh/max only when mapped", () =>
 });
 
 test("a null entry in thinkingLevelMap removes the level and leaves a gap", () => {
-  assert.deepEqual(getSupportedThinkingLevels(STUB_HOLE_MODEL), [
-    "off",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-  ]);
+  assert.deepEqual(getSupportedThinkingLevels(STUB_HOLE_MODEL), ["off", "low", "medium", "high", "xhigh"]);
   // 穴 (minimal) を要求すると、SDK は次に大きい対応段階へ寄せる
   assert.equal(clampThinkingLevel(STUB_HOLE_MODEL, "minimal"), "low");
   assert.equal(clampThinkingLevel(STUB_HOLE_MODEL, "max"), "xhigh");

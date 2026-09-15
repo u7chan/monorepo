@@ -247,9 +247,10 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           const finalAssistant = lastAssistantMessage(session);
           onSettled({
             stopped: finalAssistant?.stopReason === "aborted",
-            error: finalAssistant?.stopReason === "error"
-              ? userFacingError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
-              : undefined,
+            error:
+              finalAssistant?.stopReason === "error"
+                ? userFacingError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
+                : undefined,
           });
           break;
         }

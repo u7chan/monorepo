@@ -30,7 +30,8 @@ export function AgentModelEffortFields({
     : undefined;
   const thinkingLevels = effortOption?.thinkingLevels ?? ALL_THINKING_LEVELS;
   const supportsThinking = effortOption?.supportsThinking ?? true;
-  const modelMissing = Boolean(modelValue) && !modelOptions.some((option) => `${option.provider}/${option.id}` === modelValue);
+  const modelMissing =
+    Boolean(modelValue) && !modelOptions.some((option) => `${option.provider}/${option.id}` === modelValue);
 
   const modelChoices = useMemo(() => {
     const choices = modelOptions.map((option) => ({

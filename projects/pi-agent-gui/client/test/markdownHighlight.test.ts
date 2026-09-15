@@ -16,7 +16,7 @@ const SAMPLES: Record<string, string> = {
   bash: '# 実行\npnpm --filter client test -- --test-name-pattern markdown\ngit switch -c "feat/x"\necho $HOME > out.txt\n',
   python: 'import os\n\n\ndef main(x: int) -> str:\n    """doc"""\n    return f"{x}"  # 文字列\n',
   css: "/* テーマ */\n.md h1, #id .cls:hover {\n  color: var(--c-ink);\n  width: 12.5rem;\n}\n",
-  html: '<!-- コメント -->\n<div class="a" data-x=\'1\'><br>text</div>\n',
+  html: "<!-- コメント -->\n<div class=\"a\" data-x='1'><br>text</div>\n",
   diff: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n-old\n+new\n context\n",
   md: "# 見出し\n\n**強調**と `code`、[link](https://example.com)\n",
 };
@@ -28,30 +28,60 @@ test("対応言語はトークンに分解し、入力を欠落させない", ()
     const tokens = highlightCode(source, lang);
     assert.ok(tokens !== null, lang);
     assert.equal(tokens.map((token) => token.text).join(""), source, lang);
-    assert.ok(tokens.every((token) => token.text !== ""), `${lang}: 空トークンを作らない`);
-    assert.ok(tokens.every((token) => KINDS.includes(token.kind)), `${lang}: 未知の種別を作らない`);
+    assert.ok(
+      tokens.every((token) => token.text !== ""),
+      `${lang}: 空トークンを作らない`,
+    );
+    assert.ok(
+      tokens.every((token) => KINDS.includes(token.kind)),
+      `${lang}: 未知の種別を作らない`,
+    );
   }
 });
 
 test("TypeScript はキーワード / 関数 / 文字列 / コメント / 数値 / 型に分かれる", () => {
   const tokens = highlightCode(SAMPLES.ts, "ts");
-  assert.deepEqual(tokensOf("key", tokens).map((token) => token.text), ["export", "function", "return"]);
-  assert.deepEqual(tokensOf("fn", tokens).map((token) => token.text), ["parseMarkdown", "scanBlocks", "split"]);
+  assert.deepEqual(
+    tokensOf("key", tokens).map((token) => token.text),
+    ["export", "function", "return"],
+  );
+  assert.deepEqual(
+    tokensOf("fn", tokens).map((token) => token.text),
+    ["parseMarkdown", "scanBlocks", "split"],
+  );
   assert.ok(tokensOf("str", tokens).some((token) => token.text === '"/\\r?\\n/"' || token.text.includes("tsx")));
-  assert.deepEqual(tokensOf("com", tokens).map((token) => token.text), ["// 純関数"]);
-  assert.deepEqual(tokensOf("num", tokens).map((token) => token.text), ["1.5"]);
-  assert.deepEqual(tokensOf("type", tokens).map((token) => token.text), ["string", "MdBlock"]);
+  assert.deepEqual(
+    tokensOf("com", tokens).map((token) => token.text),
+    ["// 純関数"],
+  );
+  assert.deepEqual(
+    tokensOf("num", tokens).map((token) => token.text),
+    ["1.5"],
+  );
+  assert.deepEqual(
+    tokensOf("type", tokens).map((token) => token.text),
+    ["string", "MdBlock"],
+  );
 });
 
 test("JSON のキーと文字列を区別し、リテラルを強調する", () => {
   const tokens = highlightCode(SAMPLES.json, "json");
-  assert.deepEqual(tokensOf("key", tokens).map((token) => token.text), ['"name"', '"count"', '"ok"', "true", '"none"', "null"]);
-  assert.deepEqual(tokensOf("str", tokens).map((token) => token.text), ['"pi-agent-gui"']);
+  assert.deepEqual(
+    tokensOf("key", tokens).map((token) => token.text),
+    ['"name"', '"count"', '"ok"', "true", '"none"', "null"],
+  );
+  assert.deepEqual(
+    tokensOf("str", tokens).map((token) => token.text),
+    ['"pi-agent-gui"'],
+  );
 });
 
 test("bash は行頭のコマンド名とオプションを塗り分ける", () => {
   const tokens = highlightCode(SAMPLES.bash, "bash");
-  assert.deepEqual(tokensOf("fn", tokens).map((token) => token.text), ["pnpm", "git", "echo"]);
+  assert.deepEqual(
+    tokensOf("fn", tokens).map((token) => token.text),
+    ["pnpm", "git", "echo"],
+  );
   assert.deepEqual(tokensOf("com", tokens), [{ kind: "com", text: "# 実行" }]);
   assert.ok(tokensOf("op", tokens).some((token) => token.text === "--filter"));
   assert.ok(tokensOf("type", tokens).some((token) => token.text === "$HOME"));
@@ -59,16 +89,34 @@ test("bash は行頭のコマンド名とオプションを塗り分ける", () 
 
 test("HTML はタグ / 属性 / 属性値に分かれる", () => {
   const tokens = highlightCode(SAMPLES.html, "html");
-  assert.deepEqual(tokensOf("key", tokens).map((token) => token.text), ["<div", "<br", "</div"]);
-  assert.deepEqual(tokensOf("type", tokens).map((token) => token.text), ["class", "data-x"]);
-  assert.deepEqual(tokensOf("str", tokens).map((token) => token.text), ['"a"', "'1'"]);
+  assert.deepEqual(
+    tokensOf("key", tokens).map((token) => token.text),
+    ["<div", "<br", "</div"],
+  );
+  assert.deepEqual(
+    tokensOf("type", tokens).map((token) => token.text),
+    ["class", "data-x"],
+  );
+  assert.deepEqual(
+    tokensOf("str", tokens).map((token) => token.text),
+    ['"a"', "'1'"],
+  );
 });
 
 test("diff は追加 / 削除 / ハンクを行単位で塗る", () => {
   const tokens = highlightCode(SAMPLES.diff, "diff");
-  assert.deepEqual(tokensOf("str", tokens).map((token) => token.text), ["+new"]);
-  assert.deepEqual(tokensOf("type", tokens).map((token) => token.text), ["-old"]);
-  assert.deepEqual(tokensOf("key", tokens).map((token) => token.text), ["@@ -1,3 +1,3 @@"]);
+  assert.deepEqual(
+    tokensOf("str", tokens).map((token) => token.text),
+    ["+new"],
+  );
+  assert.deepEqual(
+    tokensOf("type", tokens).map((token) => token.text),
+    ["-old"],
+  );
+  assert.deepEqual(
+    tokensOf("key", tokens).map((token) => token.text),
+    ["@@ -1,3 +1,3 @@"],
+  );
 });
 
 test("別名の言語も同じルールでハイライトする", () => {

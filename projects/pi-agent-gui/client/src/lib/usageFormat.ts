@@ -56,10 +56,7 @@ export function messageMetaLine(
   return parts.join(" · ");
 }
 
-export function messageMetaTitle(
-  usage: Usage | undefined,
-  metrics: MessageMetrics | undefined,
-): string | undefined {
+export function messageMetaTitle(usage: Usage | undefined, metrics: MessageMetrics | undefined): string | undefined {
   const details: string[] = [];
   if (metrics?.ttftMs !== undefined) details.push(`TTFT ${formatDurationMs(metrics.ttftMs)}`);
   if (usage) {

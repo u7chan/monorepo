@@ -54,9 +54,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .put(
       "/api/agents",
       zValidator("json", ReplaceCatalogBodySchema, (result, c) =>
-        result.success
-          ? undefined
-          : c.json({ error: "Definitions must contain skills and agents arrays" }, 400),
+        result.success ? undefined : c.json({ error: "Definitions must contain skills and agents arrays" }, 400),
       ),
       (c) => catalogRoutes.replace(c, c.req.valid("json")),
     )
@@ -140,10 +138,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       if (error instanceof HTTPException && error.status === 400) {
         return c.json({ error: "Request body must be valid JSON" }, 400);
       }
-      return c.json(
-        { error: messageFor(error) },
-        (statusCodeOf(error) ?? 500) as ContentfulStatusCode,
-      );
+      return c.json({ error: messageFor(error) }, (statusCodeOf(error) ?? 500) as ContentfulStatusCode);
     });
 
   return {

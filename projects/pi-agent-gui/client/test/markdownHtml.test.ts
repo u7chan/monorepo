@@ -79,7 +79,10 @@ test("不正な URL はタグごと原文表示に落ちる", () => {
     kind: "verbatim",
     text: '<a href="javascript:alert(1)">',
   });
-  assert.deepEqual(parseHtml('<a href="vbscript:x">x</a>', 0)?.node, { kind: "verbatim", text: '<a href="vbscript:x">' });
+  assert.deepEqual(parseHtml('<a href="vbscript:x">x</a>', 0)?.node, {
+    kind: "verbatim",
+    text: '<a href="vbscript:x">',
+  });
 });
 
 test("外部 URL の画像と src の無い画像は原文表示に落ちる", () => {
@@ -163,7 +166,16 @@ test("safeUrl は相対パスと http / https / mailto だけを通す", () => {
   assert.equal(safeUrl("mailto:pi@example.com", "link"), "mailto:pi@example.com");
   assert.equal(safeUrl("/docs/README.md", "link"), "/docs/README.md");
   assert.equal(safeUrl("#section", "link"), "#section");
-  for (const url of ["javascript:alert(1)", "data:text/html,x", "vbscript:x", "file:///etc/passwd", "//evil.example/x", "a b", "a\\b", ""]) {
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "vbscript:x",
+    "file:///etc/passwd",
+    "//evil.example/x",
+    "a b",
+    "a\\b",
+    "",
+  ]) {
     assert.equal(safeUrl(url, "link"), null, url);
   }
 });
@@ -210,7 +222,7 @@ test("生 HTML の中のテキストだけ実体参照を戻す", () => {
     { kind: "html", node: { kind: "element", tag: "b", attrs: {}, children: [text("A & B")] } },
   ]);
   assert.deepEqual(parseInline("<b>&lt;div&gt; &quot;q&quot; &#39;s&#39; &#65; &#x41;</b>"), [
-    { kind: "html", node: { kind: "element", tag: "b", attrs: {}, children: [text('<div> "q" \'s\' A A')] } },
+    { kind: "html", node: { kind: "element", tag: "b", attrs: {}, children: [text("<div> \"q\" 's' A A")] } },
   ]);
   // 標準 5 種と数値参照の以外は原文のまま残す (無効な符号位置も含む)
   assert.deepEqual(parseInline("<b>&nbsp; &unknown;</b>"), [
@@ -222,7 +234,18 @@ test("生 HTML の中のテキストだけ実体参照を戻す", () => {
 });
 
 test("許可リストの判定は例外を投げない", () => {
-  for (const input of ["<", "<>", "<>x", "</>", "<a href=>x</a>", "<a href='x'>", "<img src=>", "<b\t>", "<!x>", "<?x?>"]) {
+  for (const input of [
+    "<",
+    "<>",
+    "<>x",
+    "</>",
+    "<a href=>x</a>",
+    "<a href='x'>",
+    "<img src=>",
+    "<b\t>",
+    "<!x>",
+    "<?x?>",
+  ]) {
     assert.doesNotThrow(() => parseInline(input), JSON.stringify(input));
   }
 });

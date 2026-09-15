@@ -36,10 +36,7 @@ test("区切りは reason を区別して圧縮前トークンと一緒に出す
     "ここで会話を圧縮しました（上限超過: 1.2M tokens から）",
   );
   // reason は compaction_end を受けた BFF のプロセスでしか分からないため、無ければ tokens だけ出す
-  assert.equal(
-    compactionDividerLabel(compaction()),
-    "ここで会話を圧縮しました（68k tokens から）",
-  );
+  assert.equal(compactionDividerLabel(compaction()), "ここで会話を圧縮しました（68k tokens から）");
 });
 
 test("reason のラベルは manual / threshold / overflow を区別する", () => {
@@ -51,10 +48,7 @@ test("reason のラベルは manual / threshold / overflow を区別する", () 
 });
 
 test("要約一覧の見出しは時系列の通し番号で何回目かを示す", () => {
-  assert.equal(
-    compactionSummaryHeading(compaction({ reason: "threshold" }), 0),
-    "1回目 · 自動 · 68k tokens",
-  );
+  assert.equal(compactionSummaryHeading(compaction({ reason: "threshold" }), 0), "1回目 · 自動 · 68k tokens");
   // reason が無い (サーバー再起動で控えを失った) ときは番号とトークンだけ
   assert.equal(compactionSummaryHeading(compaction(), 1), "2回目 · 68k tokens");
 });
@@ -70,10 +64,7 @@ test("区切りの index は最新の 1 件の beforeMessageIndex だけから�
   assert.equal(compactionDividerIndex([compaction()]), undefined, "位置が無ければ区切りを出さない");
   assert.equal(compactionDividerIndex([compaction({ beforeMessageIndex: 0 })]), 0);
   // 最新が位置を持たないなら、過去の位置は使わない
-  assert.equal(
-    compactionDividerIndex([compaction({ beforeMessageIndex: 2 }), compaction()]),
-    undefined,
-  );
+  assert.equal(compactionDividerIndex([compaction({ beforeMessageIndex: 2 }), compaction()]), undefined);
   // 複数あっても読むのは最新だけ
   assert.equal(
     compactionDividerIndex([
