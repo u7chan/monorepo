@@ -149,6 +149,51 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
               animation: none;
             }
           }
+
+          /* The native Windows scrollbar draws stepper arrows on a square track
+             that runs into the rounded corners of the surface behind it. Paint a
+             thin, buttonless scrollbar instead: transparent track, rounded
+             slate-300 thumb, inset from the track ends so the thumb stays clear
+             of those corners. */
+          *::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+          }
+
+          *::-webkit-scrollbar-track {
+            margin: 6px 0;
+            background: transparent;
+          }
+
+          *::-webkit-scrollbar-corner {
+            background: transparent;
+          }
+
+          *::-webkit-scrollbar-thumb {
+            border: 2px solid transparent;
+            border-radius: 9999px;
+            background-color: #cbd5e1; /* slate-300 */
+            background-clip: content-box;
+          }
+
+          *::-webkit-scrollbar-thumb:hover {
+            background-color: #94a3b8; /* slate-400 */
+          }
+
+          *::-webkit-scrollbar-button {
+            display: none;
+            width: 0;
+            height: 0;
+          }
+
+          /* Browsers without ::-webkit-scrollbar (Firefox) get the standard
+             properties instead. */
+          @supports not selector(::-webkit-scrollbar) {
+            * {
+              scrollbar-width: thin;
+              scrollbar-color: #cbd5e1 transparent;
+            }
+          }
         `}</style>
       </head>
       <body className="box-border flex h-dvh flex-col overflow-hidden bg-slate-50 font-sans text-slate-900 antialiased">
