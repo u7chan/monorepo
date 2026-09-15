@@ -58,6 +58,17 @@ export const mockContainers: Container[] = [
     ],
     created: "2024-01-12T08:00:00Z",
   },
+  // 長いイメージ名（ghcr のレジストリパス。カード幅に収まるかの確認用）
+  {
+    id: "pqr123stu456789",
+    name: "file-server",
+    image:
+      "ghcr.io/u7chan/monorepo/file-server@sha256:0f4e2c9b1d7a3586c0be24f9a1d8e37750b6c4a2e91d3f8c7b5a6021de4f9a3c",
+    state: "running",
+    status: "Up 8 hours",
+    ports: [{ host: "0.0.0.0", publicPort: 8010, privatePort: 3000, protocol: "tcp" }],
+    created: "2024-01-22T11:00:00Z",
+  },
   // 多量ポート
   {
     id: "pqr901stu234567",

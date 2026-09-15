@@ -361,7 +361,9 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
             <ContainerCard
               key={container.id}
               container={container}
-              pendingAction={pendingAction?.containerId === container.id ? pendingAction.action : null}
+              pendingAction={
+                pendingAction?.containerId === container.id ? pendingAction.action : null
+              }
               onAction={runContainerAction}
             />
           ))}
@@ -372,7 +374,9 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
             <ContainerListItem
               key={container.id}
               container={container}
-              pendingAction={pendingAction?.containerId === container.id ? pendingAction.action : null}
+              pendingAction={
+                pendingAction?.containerId === container.id ? pendingAction.action : null
+              }
               onAction={runContainerAction}
             />
           ))}
