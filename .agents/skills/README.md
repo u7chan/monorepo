@@ -10,3 +10,4 @@
 | [fastapi](fastapi/SKILL.md) | Referenced when creating a project with FastAPI |
 | [license-check](license-check/SKILL.md) | Node/Python dependency の OSS ライセンスチェックをこの monorepo でローカル実行する時に使う |
 | [github-dependabot-maintain](github-dependabot-maintain/SKILL.md) | `.github/dependabot.yml` を `projects/` 構成と同期させる |
+| [herdr-worktree-create](herdr-worktree-create/SKILL.md) | 指定したプロジェクト起点で Herdr ワークツリー workspace を作る（base の既定は `main`） |
