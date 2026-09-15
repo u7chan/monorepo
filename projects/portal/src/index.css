@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* ホバー操作できるデバイスのみで有効なバリアント。
+ * hover: / group-hover: は生成 CSS が (hover: hover) 条件付きのため、タッチ端末では
+ * 「ホバーで出るボタン」が永久に見えなくなる。非表示はホバー端末だけに限定する。 */
+@custom-variant can-hover (@media (hover: hover));
+
 @layer base {
   :root {
     --background: #0f172a;

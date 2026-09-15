@@ -2,6 +2,8 @@
 
 import type { Container } from "../types/container";
 import { useConfig } from "../hooks/useConfig";
+import { useCopy } from "../hooks/useCopy";
+import { CopyButton, REVEAL_CARD } from "./CopyButton";
 
 export type ContainerAction = "start" | "stop";
 
@@ -96,6 +98,32 @@ function PortLinks({ ports, host }: { ports: Container["ports"]; host: string })
   );
 }
 
+/**
+ * イメージ名とコピーボタン。
+ * イメージ名は区切り文字のない長い文字列になり得るため、カード幅で折り返す
+ * (親の overflow-hidden に隠れて、はみ出しが見えなくなるのを防ぐ)。
+ */
+function ImageField({ image, truncate = false }: { image: string; truncate?: boolean }) {
+  const { copied, copy } = useCopy();
+
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <p className={`min-w-0 flex-1 text-sm text-slate-400 ${truncate ? "truncate" : ""}`}>
+        <span className="text-slate-500">Image:</span>{" "}
+        <span className="font-mono text-slate-300 wrap-anywhere" title={image}>
+          {image}
+        </span>
+      </p>
+      <CopyButton
+        copied={copied}
+        onClick={() => void copy(image)}
+        label="イメージ名をコピー"
+        revealClass={REVEAL_CARD}
+      />
+    </div>
+  );
+}
+
 function getContainerAction(container: Container): ContainerAction | null {
   if (container.state === "exited") {
     return "start";
@@ -161,7 +189,7 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
 
   return (
     <div
-      className="relative group rounded-xl border border-slate-700/50 bg-slate-800/50
+      className="relative group/card rounded-xl border border-slate-700/50 bg-slate-800/50
                  backdrop-blur-sm overflow-hidden
                  hover:border-cyan-500/50 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]
                  transition-all duration-300"
@@ -169,7 +197,7 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
       {/* グロー効果 */}
       <div
         className="absolute inset-0 bg-linear-to-br from-cyan-500/5 via-purple-500/5 to-pink-500/5
-                   opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                   opacity-0 group-hover/card:opacity-100 transition-opacity duration-500"
       />
 
       <div className="relative p-5">
@@ -178,7 +206,7 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
           <div className="flex-1 min-w-0 mr-3">
             <h3
               className="text-lg font-semibold text-slate-100 truncate
-                         group-hover:text-cyan-400 transition-colors"
+                         group-hover/card:text-cyan-400 transition-colors"
               title={container.name}
             >
               {container.name}
@@ -195,10 +223,7 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
 
         {/* イメージ情報 */}
         <div className="mb-4">
-          <p className="text-sm text-slate-400">
-            <span className="text-slate-500">Image:</span>{" "}
-            <span className="font-mono text-slate-300">{container.image}</span>
-          </p>
+          <ImageField image={container.image} />
           <p className="text-sm text-slate-400 mt-1">
             <span className="text-slate-500">Status:</span> <span>{container.status}</span>
           </p>
@@ -235,14 +260,14 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
 
   return (
     <div
-      className="relative group rounded-xl border border-slate-700/50 bg-slate-800/50
+      className="relative group/card rounded-xl border border-slate-700/50 bg-slate-800/50
                  backdrop-blur-sm overflow-hidden
                  hover:border-cyan-500/50 hover:shadow-[0_0_24px_rgba(6,182,212,0.12)]
                  transition-all duration-300"
     >
       <div
         className="absolute inset-0 bg-linear-to-r from-cyan-500/5 via-transparent to-purple-500/5
-                   opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                   opacity-0 group-hover/card:opacity-100 transition-opacity duration-500"
       />
 
       <div className="relative p-4">
@@ -251,7 +276,7 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
             <div className="min-w-0">
               <h3
                 className="truncate text-base font-semibold text-slate-100
-                           group-hover:text-cyan-400 transition-colors"
+                           group-hover/card:text-cyan-400 transition-colors"
                 title={container.name}
               >
                 {container.name}
@@ -267,10 +292,7 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
           </div>
 
           <div className="min-w-0 space-y-1">
-            <p className="truncate text-sm text-slate-400">
-              <span className="text-slate-500">Image:</span>{" "}
-              <span className="font-mono text-slate-300">{container.image}</span>
-            </p>
+            <ImageField image={container.image} truncate />
             <p className="truncate text-sm text-slate-400">
               <span className="text-slate-500">Status:</span> <span>{container.status}</span>
             </p>
