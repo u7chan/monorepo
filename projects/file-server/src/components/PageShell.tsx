@@ -126,10 +126,10 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
           }
         `}</style>
       </head>
-      <body className="box-border min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-sans">
-        <div className="mx-auto max-w-7xl p-5">
-          <div className="rounded-2xl border-2 border-indigo-200 bg-white/80 p-6 backdrop-blur-sm">
-            <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <body className="box-border flex h-dvh flex-col overflow-hidden bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-sans">
+        <div className="mx-auto flex h-full w-full max-w-7xl flex-col p-5">
+          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-indigo-200 bg-white/80 p-6 backdrop-blur-sm">
+            <header className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
               <h1 className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-3xl font-bold text-transparent">
                 File Server
               </h1>
@@ -161,7 +161,7 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
               )}
             </header>
             {user?.type === "authenticated" && (
-              <p className="mb-4 text-sm text-gray-600">
+              <p className="mb-4 shrink-0 text-sm text-gray-600">
                 {user.role === "admin"
                   ? "Current / shows the top-level public and private scopes."
                   : "Current / is your home. Shared public files are shown as a shortcut."}
@@ -171,8 +171,16 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
               id="notification-area"
               className="fixed top-5 right-5 z-50 max-w-md"
             ></div>
-            <div id="main-content">
-              <div id="file-list-container">{children}</div>
+            <div
+              id="main-content"
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            >
+              <div
+                id="file-list-container"
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                {children}
+              </div>
             </div>
           </div>
         </div>

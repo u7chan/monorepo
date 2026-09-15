@@ -36,7 +36,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
 }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
   const closeScript =
-    "document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = 'auto'; history.pushState(null, '', '/');"
+    "document.getElementById('file-viewer-container').innerHTML = ''; document.body.style.overflow = ''; history.pushState(null, '', '/');"
 
   const downloadButton = path ? (
     <a

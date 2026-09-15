@@ -14,11 +14,15 @@ export type { FileItem } from "./file-list/types"
 
 export const FileList: FC<FileListProps> = ({ view }) => {
   return (
-    <div id="file-list-container">
-      <Breadcrumbs breadcrumbs={view.breadcrumbs} />
-      <ActionBar canCreate={view.canCreate} archivePath={view.archivePath} />
-      <CreateEntryForms folderPath={view.actionPath} />
-      <DropUploadForm requestPath={view.actionPath} />
+    <div id="file-list-container" className="flex min-h-0 flex-1 flex-col">
+      {/* Kept out of the scrolling area so the header, breadcrumbs and actions
+          stay visible while the file list scrolls. */}
+      <div className="shrink-0">
+        <Breadcrumbs breadcrumbs={view.breadcrumbs} />
+        <ActionBar canCreate={view.canCreate} archivePath={view.archivePath} />
+        <CreateEntryForms folderPath={view.actionPath} />
+        <DropUploadForm requestPath={view.actionPath} />
+      </div>
       <FileEntries files={view.entries} canUpload={view.canUpload} />
     </div>
   )
