@@ -17,7 +17,7 @@ export const FileList: FC<FileListProps> = ({ view }) => {
     <div id="file-list-container" className="flex min-h-0 flex-1 flex-col">
       {/* Kept out of the scrolling area so the header, breadcrumbs and actions
           stay visible while the file list scrolls. */}
-      <div className="shrink-0">
+      <div className="shrink-0 space-y-3 pb-3">
         <Breadcrumbs breadcrumbs={view.breadcrumbs} />
         <ActionBar canCreate={view.canCreate} archivePath={view.archivePath} />
         <CreateEntryForms folderPath={view.actionPath} />

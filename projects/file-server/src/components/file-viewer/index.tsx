@@ -37,7 +37,6 @@ export const FileViewer: FC<FileViewerProps> = ({
           fileName={fileName}
           path={path}
           publicUrl={publicUrl}
-          borderColor="indigo-300"
           isEditing={true}
           showEdit={allowEdit}
           showCopy={true}
@@ -51,7 +50,6 @@ export const FileViewer: FC<FileViewerProps> = ({
         fileName={fileName}
         path={path}
         publicUrl={publicUrl}
-        borderColor="indigo-300"
         showEdit={allowEdit}
         showCopy={true}
       >
@@ -65,11 +63,7 @@ export const FileViewer: FC<FileViewerProps> = ({
     // 画像ファイル
     if (mimeType.startsWith("image/")) {
       return (
-        <FileViewerModal
-          fileName={fileName}
-          path={path}
-          borderColor="purple-300"
-        >
+        <FileViewerModal fileName={fileName} path={path}>
           <ImageViewer fileUrl={fileUrl} fileName={fileName} />
         </FileViewerModal>
       )
@@ -78,7 +72,7 @@ export const FileViewer: FC<FileViewerProps> = ({
     // 動画ファイル
     if (mimeType.startsWith("video/")) {
       return (
-        <FileViewerModal fileName={fileName} path={path} borderColor="pink-300">
+        <FileViewerModal fileName={fileName} path={path}>
           <VideoViewer fileUrl={fileUrl} mimeType={mimeType} />
         </FileViewerModal>
       )
@@ -87,12 +81,7 @@ export const FileViewer: FC<FileViewerProps> = ({
     // PDFファイル
     if (mimeType === "application/pdf") {
       return (
-        <FileViewerModal
-          fileName={fileName}
-          path={path}
-          borderColor="indigo-300"
-          layout="pdf"
-        >
+        <FileViewerModal fileName={fileName} path={path} layout="pdf">
           <PdfViewer fileUrl={fileUrl} fileName={fileName} />
         </FileViewerModal>
       )
@@ -101,12 +90,7 @@ export const FileViewer: FC<FileViewerProps> = ({
 
   // デフォルト表示
   return (
-    <FileViewerModal
-      fileName={fileName}
-      path={path}
-      borderColor="purple-300"
-      animation="animate-[slideIn_0.2s_ease-out]"
-    >
+    <FileViewerModal fileName={fileName} path={path}>
       <DefaultViewer path={path} />
     </FileViewerModal>
   )

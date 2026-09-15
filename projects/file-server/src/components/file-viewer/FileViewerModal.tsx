@@ -8,13 +8,12 @@ import { CopyIcon } from "../icons/CopyIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 import { EditIcon } from "../icons/EditIcon"
 import { ExternalLinkIcon } from "../icons/ExternalLinkIcon"
+import { modalSurfaceClassName } from "../uiStyles"
 
 interface FileViewerModalProps {
   fileName?: string
   path?: string
   publicUrl?: string
-  borderColor?: string
-  animation?: string
   isEditing?: boolean
   showEdit?: boolean
   showCopy?: boolean
@@ -26,8 +25,6 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
   fileName,
   path,
   publicUrl,
-  borderColor = "indigo-300",
-  animation,
   isEditing = false,
   showEdit = false,
   showCopy = false,
@@ -42,6 +39,8 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     <a
       href={`/file/download?path=${encodedPath}`}
       download={fileName || true}
+      title="Download"
+      aria-label="Download"
       className={secondaryIconButtonClassName}
     >
       <DownloadIcon />
@@ -53,6 +52,8 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
       href={publicUrl}
       target="_blank"
       rel="noopener noreferrer"
+      title="Open public URL"
+      aria-label="Open public URL"
       className={secondaryIconButtonClassName}
     >
       <ExternalLinkIcon />
@@ -63,6 +64,8 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     path && !isEditing && showEdit ? (
       <button
         type="button"
+        title="Edit"
+        aria-label="Edit"
         hx-get={`/file?path=${encodedPath}&edit=true`}
         hx-target="#file-viewer-container"
         hx-swap="outerHTML"
@@ -88,6 +91,8 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
   const closeButton = (
     <button
       type="button"
+      title="Close"
+      aria-label="Close"
       hx-on:click={closeScript}
       className={dismissIconButtonClassName}
     >
@@ -97,8 +102,8 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
 
   const panelClassName =
     layout === "pdf"
-      ? `bg-white p-4 sm:p-6 rounded-[1.5rem] w-full max-w-6xl h-[92vh] max-h-[92vh] overflow-hidden flex flex-col border-4 border-${borderColor} ${animation || ""}`
-      : `bg-white p-6 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col border-4 border-${borderColor} ${animation || ""}`
+      ? `${modalSurfaceClassName} modal-enter flex h-[92vh] max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden`
+      : `${modalSurfaceClassName} modal-enter flex max-h-[80vh] w-full max-w-4xl flex-col overflow-hidden`
 
   return (
     <div id="file-viewer-container">
@@ -147,15 +152,15 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
         />
       ) : null}
       <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
         hx-on:click={closeScript}
       >
         <div className={panelClassName} hx-on:click="event.stopPropagation();">
-          <div className="flex justify-between items-center mb-4 pb-4 border-b-2 border-indigo-200 flex-shrink-0">
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent truncate max-w-[70%]">
+          <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <h2 className="max-w-[70%] truncate text-base font-semibold text-slate-900">
               {fileName}
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               {downloadButton}
               {publicUrlButton}
               {copyButton}
@@ -163,7 +168,15 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
               {closeButton}
             </div>
           </div>
-          {children}
+          <div
+            className={
+              layout === "pdf"
+                ? "flex min-h-0 flex-1 flex-col p-4"
+                : "flex min-h-0 flex-1 flex-col p-5"
+            }
+          >
+            {children}
+          </div>
         </div>
       </div>
     </div>

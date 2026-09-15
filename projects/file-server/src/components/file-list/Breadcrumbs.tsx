@@ -1,3 +1,4 @@
+import { breadcrumbLinkClassName, mutedTextClassName } from "../uiStyles"
 import type { BrowseCrumb } from "./types"
 
 interface BreadcrumbsProps {
@@ -15,17 +16,20 @@ function buildBreadcrumbs(breadcrumbs: BrowseCrumb[]) {
     const hxGet = `/browse?path=${encodeURIComponent(crumb.path)}`
 
     return (
-      <span key={`${crumb.label}:${crumb.path}`}>
+      <span key={`${crumb.label}:${crumb.path}`} className="flex items-center">
+        {idx > 0 && <span className="text-slate-300">/</span>}
         <a
           href={href}
           hx-get={hxGet}
           hx-target="#file-list-container"
           hx-push-url={href}
-          className="text-indigo-600 font-semibold no-underline hover:text-purple-600 transition-colors mx-1"
+          aria-current={isLast ? "page" : undefined}
+          className={
+            isLast ? "px-1 font-medium text-slate-900" : breadcrumbLinkClassName
+          }
         >
           {crumb.label}
         </a>
-        {!isLast ? " / " : ""}
       </span>
     )
   })
@@ -33,7 +37,10 @@ function buildBreadcrumbs(breadcrumbs: BrowseCrumb[]) {
 
 export function Breadcrumbs({ breadcrumbs }: BreadcrumbsProps) {
   return (
-    <nav className="mb-4 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">
+    <nav
+      aria-label="Breadcrumb"
+      className={`flex flex-wrap items-center gap-y-1 ${mutedTextClassName}`}
+    >
       {buildBreadcrumbs(breadcrumbs)}
     </nav>
   )

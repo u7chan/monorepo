@@ -1,7 +1,22 @@
 import { type Context, Hono } from "hono"
 import { env } from "hono/adapter"
 import { setCookie } from "hono/cookie"
+import {
+  compactDangerButtonClassName,
+  compactSecondaryButtonClassName,
+  primaryButtonClassName,
+  secondaryButtonClassName,
+} from "../components/buttonStyles"
 import { PageShell } from "../components/PageShell"
+import {
+  alertErrorClassName,
+  alertSuccessClassName,
+  compactFieldClassName,
+  fieldClassName,
+  labelClassName,
+  sectionClassName,
+  sectionTitleClassName,
+} from "../components/uiStyles"
 import type { AppBindings, UserConfig } from "../types"
 import {
   isValidUsername,
@@ -33,40 +48,28 @@ function AdminUsersPage({
   success,
 }: AdminUsersPageProps) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 pb-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-gray-900">User Management</h2>
-        <a
-          href="/"
-          className="rounded-md bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
-        >
+        <h2 className="text-base font-semibold text-slate-900">
+          User Management
+        </h2>
+        <a href="/" className={secondaryButtonClassName}>
           ← Back
         </a>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {success}
-        </div>
-      )}
+      {error && <div className={alertErrorClassName}>{error}</div>}
+      {success && <div className={alertSuccessClassName}>{success}</div>}
 
-      <section className="rounded-xl border border-indigo-100 bg-white p-5">
-        <h3 className="mb-3 font-medium text-gray-800">Change My Password</h3>
+      <section className={sectionClassName}>
+        <h3 className={`mb-3 ${sectionTitleClassName}`}>Change My Password</h3>
         <form
           action="/admin/change-password"
           method="post"
           className="flex flex-wrap items-end gap-3"
         >
-          <div className="flex-1 min-w-36">
-            <label
-              for="change-current-password"
-              className="mb-1 block text-sm text-gray-600"
-            >
+          <div className="min-w-36 max-w-sm flex-1">
+            <label for="change-current-password" className={labelClassName}>
               Current password
             </label>
             <input
@@ -74,14 +77,11 @@ function AdminUsersPage({
               name="currentPassword"
               type="password"
               required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={fieldClassName}
             />
           </div>
-          <div className="flex-1 min-w-36">
-            <label
-              for="change-new-password"
-              className="mb-1 block text-sm text-gray-600"
-            >
+          <div className="min-w-36 max-w-sm flex-1">
+            <label for="change-new-password" className={labelClassName}>
               New password
             </label>
             <input
@@ -89,52 +89,50 @@ function AdminUsersPage({
               name="newPassword"
               type="password"
               required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={fieldClassName}
             />
           </div>
-          <button
-            type="submit"
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-          >
+          <button type="submit" className={primaryButtonClassName}>
             Change
           </button>
         </form>
       </section>
 
-      <section className="rounded-xl border border-indigo-100 bg-white p-5">
-        <h3 className="mb-3 font-medium text-gray-800">Users</h3>
+      <section className={sectionClassName}>
+        <h3 className={`mb-3 ${sectionTitleClassName}`}>Users</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-                <th className="pb-2 pr-4">Username</th>
-                <th className="pb-2 pr-4">Role</th>
+              <tr className="border-b border-slate-200 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
+                <th className="pr-4 pb-2">Username</th>
+                <th className="pr-4 pb-2">Role</th>
                 <th className="pb-2">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-100">
               {users.map((user) => (
                 <tr key={user.username}>
-                  <td className="py-3 pr-4 font-medium text-gray-800">
+                  <td className="py-3 pr-4 font-medium text-slate-800">
                     {user.username}
                     {user.username === currentUsername && (
-                      <span className="ml-2 text-xs text-gray-400">(you)</span>
+                      <span className="ml-2 text-xs text-slate-400">(you)</span>
                     )}
                   </td>
-                  <td className="py-3 pr-4 text-gray-600">{user.role}</td>
+                  <td className="py-3 pr-4 text-slate-600">{user.role}</td>
                   <td className="py-3">
                     {user.username === MASTER_ADMIN_USERNAME ? (
-                      <span className="text-xs text-gray-400">Protected</span>
+                      <span className="text-xs text-slate-400">Protected</span>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <form
                           action={`/admin/users/${user.username}/role`}
                           method="post"
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-2"
                         >
                           <select
                             name="role"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
+                            aria-label={`Role for ${user.username}`}
+                            className={compactFieldClassName}
                           >
                             <option
                               value="user"
@@ -151,7 +149,7 @@ function AdminUsersPage({
                           </select>
                           <button
                             type="submit"
-                            className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                            className={compactSecondaryButtonClassName}
                           >
                             Change Role
                           </button>
@@ -160,18 +158,19 @@ function AdminUsersPage({
                           <form
                             action={`/admin/users/${user.username}/password`}
                             method="post"
-                            className="flex items-center gap-1"
+                            className="flex items-center gap-2"
                           >
                             <input
                               name="newPassword"
                               type="password"
                               required
                               placeholder="New password"
-                              className="rounded border border-gray-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
+                              aria-label={`New password for ${user.username}`}
+                              className={compactFieldClassName}
                             />
                             <button
                               type="submit"
-                              className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                              className={compactSecondaryButtonClassName}
                             >
                               Reset PW
                             </button>
@@ -183,7 +182,7 @@ function AdminUsersPage({
                         >
                           <button
                             type="submit"
-                            className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-100"
+                            className={compactDangerButtonClassName}
                           >
                             Delete
                           </button>
@@ -198,18 +197,15 @@ function AdminUsersPage({
         </div>
       </section>
 
-      <section className="rounded-xl border border-indigo-100 bg-white p-5">
-        <h3 className="mb-3 font-medium text-gray-800">Create User</h3>
+      <section className={sectionClassName}>
+        <h3 className={`mb-3 ${sectionTitleClassName}`}>Create User</h3>
         <form
           action="/admin/users"
           method="post"
           className="flex flex-wrap items-end gap-3"
         >
-          <div className="flex-1 min-w-32">
-            <label
-              for="create-username"
-              className="mb-1 block text-sm text-gray-600"
-            >
+          <div className="min-w-32 max-w-sm flex-1">
+            <label for="create-username" className={labelClassName}>
               Username
             </label>
             <input
@@ -217,14 +213,11 @@ function AdminUsersPage({
               name="username"
               type="text"
               required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={fieldClassName}
             />
           </div>
-          <div className="flex-1 min-w-32">
-            <label
-              for="create-password"
-              className="mb-1 block text-sm text-gray-600"
-            >
+          <div className="min-w-32 max-w-sm flex-1">
+            <label for="create-password" className={labelClassName}>
               Password
             </label>
             <input
@@ -232,29 +225,19 @@ function AdminUsersPage({
               name="password"
               type="password"
               required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className={fieldClassName}
             />
           </div>
           <div>
-            <label
-              for="create-role"
-              className="mb-1 block text-sm text-gray-600"
-            >
+            <label for="create-role" className={labelClassName}>
               Role
             </label>
-            <select
-              id="create-role"
-              name="role"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-            >
+            <select id="create-role" name="role" className={fieldClassName}>
               <option value="user">user</option>
               <option value="admin">admin</option>
             </select>
           </div>
-          <button
-            type="submit"
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-          >
+          <button type="submit" className={primaryButtonClassName}>
             Create User
           </button>
         </form>

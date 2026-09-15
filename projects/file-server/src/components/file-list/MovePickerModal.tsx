@@ -1,11 +1,15 @@
 import type { FC } from "hono/jsx"
 import {
+  buttonBaseClassName,
   dismissButtonClassName,
   dismissIconButtonClassName,
   primaryButtonClassName,
+  secondaryToneClassName,
+  smSizeClassName,
 } from "../buttonStyles"
 import { CloseIcon } from "../icons/CloseIcon"
 import { FolderIcon } from "../icons/FolderIcon"
+import { modalSurfaceClassName, mutedTextClassName } from "../uiStyles"
 import { FormErrorMessage } from "./FormErrorMessage"
 import type { FileItem } from "./types"
 
@@ -53,13 +57,11 @@ function isInsideSource(source: string, destination: string): boolean {
   return source === destination || destination.startsWith(`${source}/`)
 }
 
-const rootButtonBaseClassName =
-  "px-3 py-1 rounded-full border-2 text-sm font-semibold cursor-pointer break-all"
-
 function rootButtonClassName(isActive: boolean): string {
-  return isActive
-    ? `${rootButtonBaseClassName} border-indigo-500 bg-indigo-500 text-white`
-    : `${rootButtonBaseClassName} border-indigo-200 bg-white text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50`
+  const tone = isActive
+    ? "bg-indigo-600 text-white ring-1 ring-indigo-600 hover:bg-indigo-700"
+    : secondaryToneClassName
+  return `${buttonBaseClassName} ${tone} ${smSizeClassName} break-all`
 }
 
 export const MovePickerModal: FC<MovePickerModalProps> = ({
@@ -78,15 +80,15 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
   return (
     <div
       data-move-picker-modal
-      className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
       hx-on:click={closePickerScript}
     >
       <div
-        className="bg-white p-6 rounded-2xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col border-4 border-indigo-300"
+        className={`${modalSurfaceClassName} modal-enter flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden`}
         hx-on:click="event.stopPropagation();"
       >
-        <div className="flex justify-between items-center mb-4 pb-4 border-b-2 border-indigo-200 flex-shrink-0 gap-3">
-          <h2 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent truncate">
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <h2 className="truncate text-base font-semibold text-slate-900">
             Move "{sourceName}"
           </h2>
           <button
@@ -99,83 +101,98 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
           </button>
         </div>
 
-        {roots.length > 1 ? (
-          <div
-            data-picker-roots
-            className="flex flex-wrap gap-2 mb-3 flex-shrink-0"
-          >
-            {roots.map((root) => {
-              const isActive = root === pickerRoot
-              return (
-                <button
-                  key={root}
-                  type="button"
-                  data-picker-root={root}
-                  aria-current={isActive ? "true" : undefined}
-                  hx-get={pickerHref(source, root)}
-                  hx-target="#move-picker-container"
-                  hx-swap="innerHTML"
-                  className={rootButtonClassName(isActive)}
-                >
-                  {root}
-                </button>
-              )
-            })}
-          </div>
-        ) : null}
-
-        <nav
-          data-picker-breadcrumbs
-          className="mb-3 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 text-sm break-all"
-        >
-          {breadcrumbs.map((crumb, idx) => {
-            const isLast = idx === breadcrumbs.length - 1
-            return (
-              <span key={`${crumb.label}:${crumb.path}`}>
-                <button
-                  type="button"
-                  hx-get={pickerHref(source, crumb.path)}
-                  hx-target="#move-picker-container"
-                  hx-swap="innerHTML"
-                  className="text-indigo-600 font-semibold hover:text-purple-600 mx-1 cursor-pointer"
-                >
-                  {crumb.label}
-                </button>
-                {!isLast ? " / " : ""}
-              </span>
-            )
-          })}
-        </nav>
-
-        <div
-          data-picker-directories
-          className="flex-1 min-h-[8rem] overflow-y-auto mb-4 border border-indigo-100 rounded-xl"
-        >
-          {directories.length === 0 ? (
-            <p className="py-8 px-4 text-center text-gray-500">
-              No subdirectories here.
-            </p>
-          ) : (
-            <ul className="list-none p-2 m-0">
-              {directories.map((dir) => {
-                const dirPath = currentDest
-                  ? `${currentDest}/${dir.name}`
-                  : dir.name
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4">
+          {roots.length > 1 ? (
+            <div
+              data-picker-roots
+              className="mb-3 flex flex-shrink-0 flex-wrap gap-2"
+            >
+              {roots.map((root) => {
+                const isActive = root === pickerRoot
                 return (
-                  <li
-                    key={dir.name}
-                    className="py-2 px-3 mb-1 rounded-lg border-2 border-transparent hover:border-indigo-300 hover:bg-indigo-50 cursor-pointer flex items-center gap-2 text-indigo-700 font-medium"
-                    hx-get={pickerHref(source, dirPath)}
+                  <button
+                    key={root}
+                    type="button"
+                    data-picker-root={root}
+                    aria-current={isActive ? "true" : undefined}
+                    hx-get={pickerHref(source, root)}
                     hx-target="#move-picker-container"
                     hx-swap="innerHTML"
+                    className={rootButtonClassName(isActive)}
                   >
-                    <FolderIcon />
-                    <span className="break-all">{dir.name}/</span>
-                  </li>
+                    {root}
+                  </button>
                 )
               })}
-            </ul>
-          )}
+            </div>
+          ) : null}
+
+          <nav
+            data-picker-breadcrumbs
+            aria-label="Destination"
+            className={`mb-2 flex flex-wrap items-center gap-y-1 break-all ${mutedTextClassName}`}
+          >
+            {breadcrumbs.map((crumb, idx) => {
+              const isLast = idx === breadcrumbs.length - 1
+              return (
+                <span
+                  key={`${crumb.label}:${crumb.path}`}
+                  className="flex items-center"
+                >
+                  {idx > 0 && <span className="text-slate-300">/</span>}
+                  <button
+                    type="button"
+                    hx-get={pickerHref(source, crumb.path)}
+                    hx-target="#move-picker-container"
+                    hx-swap="innerHTML"
+                    aria-current={isLast ? "page" : undefined}
+                    className={
+                      isLast
+                        ? "cursor-pointer px-1 font-medium text-slate-900"
+                        : "cursor-pointer rounded px-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-indigo-600"
+                    }
+                  >
+                    {crumb.label}
+                  </button>
+                </span>
+              )
+            })}
+          </nav>
+
+          <div
+            data-picker-directories
+            className="min-h-[8rem] flex-1 overflow-y-auto rounded-lg border border-slate-200"
+          >
+            {directories.length === 0 ? (
+              <p className="px-4 py-8 text-center text-slate-400">
+                No subdirectories here.
+              </p>
+            ) : (
+              <ul className="m-0 list-none divide-y divide-slate-100 p-0">
+                {directories.map((dir) => {
+                  const dirPath = currentDest
+                    ? `${currentDest}/${dir.name}`
+                    : dir.name
+                  return (
+                    <li key={dir.name}>
+                      <button
+                        type="button"
+                        hx-get={pickerHref(source, dirPath)}
+                        hx-target="#move-picker-container"
+                        hx-swap="innerHTML"
+                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-indigo-700"
+                      >
+                        <span className="flex-shrink-0 text-slate-400">
+                          <FolderIcon />
+                        </span>
+                        <span className="break-all">{dir.name}/</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
         </div>
 
         <form
@@ -184,13 +201,13 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
           hx-swap="innerHTML"
           data-inline-error-form
           data-move-form
-          className="flex-shrink-0 pt-4 border-t-2 border-indigo-200"
+          className="flex-shrink-0 border-t border-slate-200 px-5 py-4"
         >
           <input type="hidden" name="path" value={source} />
           <input type="hidden" name="destination" value={currentDest} />
-          <p className="mb-3 text-sm text-gray-600 break-all">
-            Destination:{" "}
-            <span data-picker-destination className="font-mono text-indigo-700">
+          <p className={`mb-3 break-all ${mutedTextClassName}`}>
+            Destination{" "}
+            <span data-picker-destination className="font-mono text-slate-900">
               {currentDest || "/"}
             </span>
           </p>
@@ -202,7 +219,7 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
               Choose a destination outside "{sourceName}".
             </p>
           ) : null}
-          <div className="flex gap-2 justify-end">
+          <div className="flex justify-end gap-2">
             <button
               type="button"
               className={dismissButtonClassName}

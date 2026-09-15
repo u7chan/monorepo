@@ -19,11 +19,12 @@ export function ActionBar({ canCreate, archivePath }: ActionBarProps) {
     : null
 
   return (
-    <div className="mb-4 grid grid-cols-2 gap-3 sm:flex">
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
       {canCreate && (
         <button
           id="new-file-button"
           type="button"
+          aria-pressed="false"
           className={toggleButtonIdleClassName}
           hx-on:click={toggleCreateFormScript(
             "new-file-form",
@@ -39,6 +40,7 @@ export function ActionBar({ canCreate, archivePath }: ActionBarProps) {
         <button
           id="new-folder-button"
           type="button"
+          aria-pressed="false"
           className={toggleButtonIdleClassName}
           hx-on:click={toggleCreateFormScript(
             "new-folder-form",

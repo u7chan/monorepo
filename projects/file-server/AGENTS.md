@@ -35,6 +35,28 @@ Integrating systems publish into `public/` through the REST API; see "External I
 - Indentation: tabs
 - Quotes: double quotes
 
+## UI Design
+
+The UI is a flat app shell: one page background, spacing and dividers for
+hierarchy, and only one level of bordered surface. Keep these invariants when
+adding screens.
+
+- Use the shared vocabulary instead of raw values: `src/components/uiStyles.ts`
+  (surfaces, fields, alerts, badges) and `src/components/buttonStyles.ts`
+  (button tones and sizes). Compose base + tone + size; do not stack conflicting
+  utilities such as `px-4` on top of `px-6`.
+- Accent color is indigo only, and only for interactive emphasis. Everything
+  else is neutral slate. Do not add gradients or a second accent.
+- Never place a bordered box inside another bordered box. `PageShell` provides
+  the page surface; child sections use dividers (`border-t`), inset surfaces
+  (`bg-slate-50`) and spacing.
+- Keep separation to hairlines: `border`, `divide-*`, `ring-1`. Modals are the
+  only surfaces that may use a shadow, because they float above a scrim.
+- Radius scale: `rounded-lg` for controls and inset panels, `rounded-xl` for
+  floating surfaces. Plain text rows (breadcrumbs) are not boxed.
+- Toggle state is expressed with `aria-pressed` / `aria-expanded` and Tailwind
+  variants, not with class names that JavaScript adds and removes.
+
 ## Structure
 
 - `src/index.tsx` - Entry point (re-exports `createApp()`)
@@ -43,6 +65,8 @@ Integrating systems publish into `public/` through the REST API; see "External I
 - `src/routes/` - Route definitions (admin, api, auth, browse, file, public)
 - `src/api/handlers.tsx` - API handlers
 - `src/components/` - JSX components
+- `src/components/uiStyles.ts` - Shared surface, field and text class tokens
+- `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
 - `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, move, public-route)
 - `tests/helpers/` - `createTestApp.ts` and `auth.ts` helpers

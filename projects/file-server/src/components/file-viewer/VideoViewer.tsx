@@ -7,11 +7,8 @@ interface VideoViewerProps {
 
 export const VideoViewer: FC<VideoViewerProps> = ({ fileUrl, mimeType }) => {
   return (
-    <div className="flex-1 overflow-auto flex justify-center items-center">
-      <video
-        controls
-        className="max-w-full rounded-xl border-2 border-pink-200"
-      >
+    <div className="flex flex-1 items-center justify-center overflow-auto rounded-lg bg-slate-900/95 p-4">
+      <video controls className="max-w-full rounded-md">
         <source src={fileUrl} type={mimeType} />
         <track kind="captions" src="" label="No captions" />
         Your browser does not support the video tag.

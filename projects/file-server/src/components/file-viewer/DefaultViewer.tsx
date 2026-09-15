@@ -9,8 +9,8 @@ export const DefaultViewer: FC<DefaultViewerProps> = ({ path }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-6 overflow-auto rounded-xl border-2 border-dashed border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 p-8 text-center">
-      <p className="text-lg text-gray-600">
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 overflow-auto rounded-lg bg-slate-50 p-8 text-center">
+      <p className="text-sm text-slate-500">
         This file type cannot be displayed in the browser.
       </p>
       {path ? (

@@ -1,5 +1,7 @@
 import type { Child, FC } from "hono/jsx"
 import type { UserState } from "../types"
+import { dismissButtonClassName } from "./buttonStyles"
+import { badgeClassName } from "./uiStyles"
 
 interface PageShellProps {
   children: Child
@@ -100,6 +102,8 @@ const inlineFormErrorScript = `
 `
 
 export const PageShell: FC<PageShellProps> = ({ children, user }) => {
+  const isAuthenticated = user?.type === "authenticated"
+
   return (
     <html lang="ja">
       <head>
@@ -124,63 +128,76 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
             display: block;
             min-height: min(72vh, 56rem);
           }
+
+          @keyframes modal-enter {
+            from {
+              opacity: 0;
+              transform: translateY(4px) scale(0.99);
+            }
+            to {
+              opacity: 1;
+              transform: none;
+            }
+          }
+
+          .modal-enter {
+            animation: modal-enter 0.15s ease-out;
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .modal-enter {
+              animation: none;
+            }
+          }
         `}</style>
       </head>
-      <body className="box-border flex h-dvh flex-col overflow-hidden bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-sans">
-        <div className="mx-auto flex h-full w-full max-w-7xl flex-col p-5">
-          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-indigo-200 bg-white/80 p-6 backdrop-blur-sm">
-            <header className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
-              <h1 className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-3xl font-bold text-transparent">
-                File Server
-              </h1>
-              {user?.type === "authenticated" && (
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="rounded-md bg-indigo-50 px-2 py-1 font-medium text-indigo-700">
-                    {user.username}
-                  </span>
-                  <span className="rounded-md bg-gray-100 px-2 py-1 font-medium text-gray-700">
-                    {user.role}
-                  </span>
-                  {user.role === "admin" && (
-                    <a
-                      href="/admin/users"
-                      className="rounded-md bg-indigo-50 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-100"
-                    >
-                      User Management
-                    </a>
-                  )}
-                  <form action="/logout" method="post">
-                    <button
-                      type="submit"
-                      className="rounded-md bg-gray-100 px-3 py-1.5 font-medium text-gray-700 hover:bg-gray-200"
-                    >
-                      Logout
-                    </button>
-                  </form>
-                </div>
-              )}
-            </header>
-            {user?.type === "authenticated" && (
-              <p className="mb-4 shrink-0 text-sm text-gray-600">
-                {user.role === "admin"
-                  ? "Current / shows the top-level public and private scopes."
-                  : "Current / is your home. Shared public files are shown as a shortcut."}
-              </p>
-            )}
-            <div
-              id="notification-area"
-              className="fixed top-5 right-5 z-50 max-w-md"
-            ></div>
-            <div
-              id="main-content"
-              className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-            >
-              <div
-                id="file-list-container"
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                {children}
+      <body className="box-border flex h-dvh flex-col overflow-hidden bg-slate-50 font-sans text-slate-900 antialiased">
+        <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-5 py-4">
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              File Server
+            </h1>
+            {isAuthenticated && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-slate-700">
+                  {user.username}
+                </span>
+                {user.role === "admin" && (
+                  <span className={badgeClassName}>{user.role}</span>
+                )}
+                {user.role === "admin" && (
+                  <a href="/admin/users" className={dismissButtonClassName}>
+                    User Management
+                  </a>
+                )}
+                <form action="/logout" method="post">
+                  <button type="submit" className={dismissButtonClassName}>
+                    Logout
+                  </button>
+                </form>
               </div>
+            )}
+          </header>
+          {isAuthenticated && (
+            <p className="shrink-0 pt-3 text-sm text-slate-500">
+              {user.role === "admin"
+                ? "Current / shows the top-level public and private scopes."
+                : "Current / is your home. Shared public files are shown as a shortcut."}
+            </p>
+          )}
+          <div
+            id="notification-area"
+            className="fixed top-4 right-4 z-50 max-w-md"
+          ></div>
+          <div
+            id="main-content"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-3"
+          >
+            <div
+              id="file-list-container"
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              {children}
             </div>
           </div>
         </div>
