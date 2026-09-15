@@ -57,14 +57,26 @@ adding screens.
 - Keep separation to hairlines: `border`, `divide-*`, `ring-1`. Modals are the
   only surfaces that may use a shadow, because they float above a scrim.
 - `#main-content` is a scroll container, so anything that overflows its padding
-  edge is clipped. It keeps a 4px inline bleed (`-mx-1 px-1`) because items
-  flush with the content edge use outward hairlines (`ring-1`) and
-  `focus-visible:ring-offset-2`; do not remove it, and do not add horizontal
-  padding to it that shifts the content column.
+  edge is clipped. It keeps a 4px bleed on the inline sides and at the block end
+  (`-mx-1 px-1 pb-1 -mb-1`) because items flush with the content edge use outward
+  hairlines (`ring-1`) and `focus-visible:ring-offset-2`. Each bleed pairs a
+  padding with an equal negative margin: the clip boundary moves outward while
+  the content column and the space the flex layout gives the element stay put
+  (only its border box grows, by the same 4px). Do not remove it, and do not add
+  padding to it that shifts the content column. The block start needs no bleed:
+  `pt-3` already exceeds the 4px a ring can occupy.
 - Radius scale: `rounded-lg` for controls and inset panels, `rounded-xl` for
   floating surfaces. Plain text rows (breadcrumbs) are not boxed.
 - Toggle state is expressed with `aria-pressed` / `aria-expanded` and Tailwind
   variants, not with class names that JavaScript adds and removes.
+- Scrollbars are styled once in `PageShell`: a 10px gutter with a transparent
+  track and a rounded slate-300 thumb inset 6px from the track ends, so no
+  stepper arrows and no square track run into the rounded corners of the surface
+  behind them (the native Windows scrollbar does both). Styling
+  `::-webkit-scrollbar` also turns the platform overlay into a classic
+  scrollbar, which is the intended consistent look; Firefox keeps the standard
+  `scrollbar-width` / `scrollbar-color` behind
+  `@supports not selector(::-webkit-scrollbar)`.
 
 ## Structure
 
