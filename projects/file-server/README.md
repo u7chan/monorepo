@@ -11,7 +11,7 @@ Bun + Hono + HTMX で構築されたWebベースのファイルサーバー/マ�
 - ファイルプレビュー・編集（テキスト、画像、動画、PDF ※テキストはブラウザ上で直接編集可能）
 - 表示中ディレクトリ配下の Zip ダウンロード（親ディレクトリのラッパーなし）
 - 空ファイル作成
-- ファイル/ディレクトリの削除・リネーム
+- ファイル/ディレクトリの削除・リネーム・移動（`public/` ⇄ 自分の `private/<username>/` のクロススコープ移動を含む）
 - ディレクトリ作成
 - **外部公開URL配信 (`GET /public/*`)**: 認証不要で `UPLOAD_DIR/public/` 以下のファイルを直接配信（HTML/XHTML/SVG を含む）。
 - **スコープ分離**: `UPLOAD_DIR` を `public/`・`private/` に分割し、ユーザーごとに保存領域を隔離
@@ -130,7 +130,24 @@ tests/
 | POST | `/api/file` | 空ファイル作成 |
 | POST | `/api/mkdir` | ディレクトリ作成 |
 | POST | `/api/rename` | ファイル/ディレクトリのリネーム |
+| GET | `/api/move/picker` | 移動先ディレクトリピッカー（HTMX） |
+| POST | `/api/move` | ファイル/ディレクトリ移動（`public` ⇄ 自分の `private` のクロススコープ移動を含む） |
 | POST | `/api/update` | ファイル更新（テキスト編集保存） |
+
+#### 移動（Move）
+
+`POST /api/move` は `public/` と `private/` をまたぐ移動を、操作者自身の private ホームとの間でのみ許可する。
+
+| 操作者 | クロススコープ移動で使える private 側 |
+|--------|--------------------------------------|
+| `user` | `private/<自分のusername>`（ホーム自身またはその配下） |
+| `admin` | `private/<自分のusername>`（他ユーザーのホームとの間は `CrossUser` で拒否） |
+| auth 無効（anonymous） | `private/` 全体（ユーザー境界がないため） |
+
+- 同一スコープ内の移動は従来どおり。admin の `private/alice` → `private/bob` のようなユーザー間移動も引き続き可能
+- `public` / `private` / `private/<username>` の根そのものはクロススコープ移動のソースにできない（`InvalidSource`）
+- ピッカー（`GET /api/move/picker`）は許可ルート（例: `public` と `private/<自分のusername>`）を切り替えて移動先を選ぶ。許可ルート外の `dest` はソース側のルートに丸められる
+- `public/` と `private/` は同一ファイルシステム上に置くこと。別ボリュームをまたぐ移動は `fs.rename` の `EXDEV` となり `CrossDevice`（501）で失敗する（コピー＋削除のフォールバックは未対応）
 
 ### 外部システム連携
 

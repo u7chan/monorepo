@@ -14,6 +14,7 @@ interface MovePickerModalProps {
   sourceName: string
   currentDest: string
   pickerRoot: string
+  roots: string[]
   directories: FileItem[]
 }
 
@@ -48,16 +49,31 @@ function pickerHref(source: string, dest: string): string {
   return `/api/move/picker?source=${encodeURIComponent(source)}&dest=${encodeURIComponent(dest)}`
 }
 
+function isInsideSource(source: string, destination: string): boolean {
+  return source === destination || destination.startsWith(`${source}/`)
+}
+
+const rootButtonBaseClassName =
+  "px-3 py-1 rounded-full border-2 text-sm font-semibold cursor-pointer break-all"
+
+function rootButtonClassName(isActive: boolean): string {
+  return isActive
+    ? `${rootButtonBaseClassName} border-indigo-500 bg-indigo-500 text-white`
+    : `${rootButtonBaseClassName} border-indigo-200 bg-white text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50`
+}
+
 export const MovePickerModal: FC<MovePickerModalProps> = ({
   source,
   sourceName,
   currentDest,
   pickerRoot,
+  roots,
   directories,
 }) => {
   const breadcrumbs = buildPickerBreadcrumbs(pickerRoot, currentDest)
   const sourceParent = source.split("/").slice(0, -1).join("/")
   const isSameAsSourceParent = currentDest === sourceParent
+  const isInvalidDestination = isInsideSource(source, currentDest)
 
   return (
     <div
@@ -82,6 +98,31 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
             <CloseIcon />
           </button>
         </div>
+
+        {roots.length > 1 ? (
+          <div
+            data-picker-roots
+            className="flex flex-wrap gap-2 mb-3 flex-shrink-0"
+          >
+            {roots.map((root) => {
+              const isActive = root === pickerRoot
+              return (
+                <button
+                  key={root}
+                  type="button"
+                  data-picker-root={root}
+                  aria-current={isActive ? "true" : undefined}
+                  hx-get={pickerHref(source, root)}
+                  hx-target="#move-picker-container"
+                  hx-swap="innerHTML"
+                  className={rootButtonClassName(isActive)}
+                >
+                  {root}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
 
         <nav
           data-picker-breadcrumbs
@@ -153,6 +194,14 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
               {currentDest || "/"}
             </span>
           </p>
+          {isInvalidDestination ? (
+            <p
+              data-picker-invalid-destination
+              className="mb-3 text-sm text-red-600"
+            >
+              Choose a destination outside "{sourceName}".
+            </p>
+          ) : null}
           <div className="flex gap-2 justify-end">
             <button
               type="button"
@@ -164,7 +213,7 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
             <button
               type="submit"
               className={primaryButtonClassName}
-              disabled={isSameAsSourceParent}
+              disabled={isSameAsSourceParent || isInvalidDestination}
             >
               Move here
             </button>

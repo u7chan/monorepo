@@ -194,7 +194,7 @@ describe("POST /api/move", () => {
     expect(json.error.name).toBe("PathError")
   })
 
-  it("rejects moving across public and private scopes", async () => {
+  it("moves a file from public to private when auth is disabled", async () => {
     await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
 
     const body = new URLSearchParams({
@@ -202,12 +202,73 @@ describe("POST /api/move", () => {
       destination: "private",
     })
     const res = await postMove(body)
+    expect(res.status).toBe(301)
+    expect(res.headers.get("location")).toBe("/?path=public")
+    expect(
+      await readFile(path.join(UPLOAD_DIR, "private", "src.txt"), "utf-8"),
+    ).toBe("hello")
+  })
+
+  it("moves a folder with contents from private to public when auth is disabled", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "private", "inventory", "src-dir"), {
+      recursive: true,
+    })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "inventory", "src-dir", "inside.txt"),
+      "payload",
+    )
+
+    const body = new URLSearchParams({
+      path: "private/inventory/src-dir",
+      destination: "public",
+    })
+    const res = await postMove(body)
+    expect(res.status).toBe(301)
+    expect(
+      await readFile(
+        path.join(UPLOAD_DIR, "public", "src-dir", "inside.txt"),
+        "utf-8",
+      ),
+    ).toBe("payload")
+    expect(
+      Bun.file(
+        path.join(UPLOAD_DIR, "private", "inventory", "src-dir"),
+      ).exists(),
+    ).resolves.toBe(false)
+  })
+
+  it("rejects moving a scope root across scopes", async () => {
+    for (const [source, destination] of [
+      ["public", "private"],
+      ["private", "public"],
+    ]) {
+      const body = new URLSearchParams({ path: source, destination })
+      const res = await postMove(body)
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as {
+        success: boolean
+        error: { name: string }
+      }
+      expect(json.error.name).toBe("InvalidSource")
+    }
+  })
+
+  it("rejects moving a top-level private entry across scopes when auth is disabled", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "private", "home-like"), {
+      recursive: true,
+    })
+
+    const body = new URLSearchParams({
+      path: "private/home-like",
+      destination: "public",
+    })
+    const res = await postMove(body)
     expect(res.status).toBe(400)
     const json = (await res.json()) as {
       success: boolean
       error: { name: string }
     }
-    expect(json.error.name).toBe("CrossScope")
+    expect(json.error.name).toBe("InvalidSource")
   })
 
   it("rejects moving a directory into itself", async () => {
@@ -365,7 +426,63 @@ describe("POST /api/move", () => {
     ).toBe("secret")
   })
 
-  it("rejects admin moving across public and private scopes", async () => {
+  it("allows admin to move a file from public into their own home", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2" },
+    ])
+    await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "public/src.txt",
+      destination: "private/admin",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(301)
+    expect(
+      await readFile(
+        path.join(UPLOAD_DIR, "private", "admin", "src.txt"),
+        "utf-8",
+      ),
+    ).toBe("hello")
+  })
+
+  it("allows admin to move a file from their own home into public", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "admin"), {
+      recursive: true,
+    })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "admin", "mine.txt"),
+      "mine",
+    )
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "private/admin/mine.txt",
+      destination: "public",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(301)
+    expect(
+      await readFile(path.join(UPLOAD_DIR, "public", "mine.txt"), "utf-8"),
+    ).toBe("mine")
+  })
+
+  it("rejects admin moving public into another user's home with CrossUser", async () => {
     app = await createTestApp({
       uploadDir: UPLOAD_DIR,
       authDir: AUTH_DIR,
@@ -384,12 +501,208 @@ describe("POST /api/move", () => {
       destination: "private/alice",
     })
     const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(403)
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string; message: string }
+    }
+    expect(json.success).toBe(false)
+    expect(json.error.name).toBe("CrossUser")
+    expect(json.error.message).toBe("Cannot move across user boundaries")
+  })
+
+  it("rejects admin moving another user's file into public with CrossUser", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "src.txt"),
+      "secret",
+    )
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "private/alice/src.txt",
+      destination: "public",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(403)
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string }
+    }
+    expect(json.error.name).toBe("CrossUser")
+  })
+
+  it("rejects admin moving a home root across scopes", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "private/alice",
+      destination: "public",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
     expect(res.status).toBe(400)
     const json = (await res.json()) as {
       success: boolean
       error: { name: string }
     }
-    expect(json.error.name).toBe("CrossScope")
+    expect(json.error.name).toBe("InvalidSource")
+  })
+
+  it("keeps admin able to move a home root within private scope", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2" },
+      { username: "bob", password: "password3" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "inside.txt"),
+      "payload",
+    )
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "private/alice",
+      destination: "private/bob",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(301)
+    expect(
+      await readFile(
+        path.join(UPLOAD_DIR, "private", "bob", "alice", "inside.txt"),
+        "utf-8",
+      ),
+    ).toBe("payload")
+  })
+
+  it("allows a regular user to move a file from public into their own home", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([{ username: "alice", password: "password1" }])
+    await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "public/src.txt",
+      destination: "private/alice",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(301)
+    expect(
+      await readFile(
+        path.join(UPLOAD_DIR, "private", "alice", "src.txt"),
+        "utf-8",
+      ),
+    ).toBe("hello")
+  })
+
+  it("allows a regular user to move a file from their own home into public", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([{ username: "alice", password: "password1" }])
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), {
+      recursive: true,
+    })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "mine.txt"),
+      "mine",
+    )
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "private/alice/mine.txt",
+      destination: "public",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(301)
+    expect(
+      await readFile(path.join(UPLOAD_DIR, "public", "mine.txt"), "utf-8"),
+    ).toBe("mine")
+  })
+
+  it("rejects a regular user moving public into another user's home", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "alice", password: "password1" },
+      { username: "bob", password: "password2" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+    await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "public/src.txt",
+      destination: "private/bob",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(403)
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string }
+    }
+    expect(json.error.name).toBe("Forbidden")
+  })
+
+  it("rejects a regular user moving another user's file into public", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "alice", password: "password1" },
+      { username: "bob", password: "password2" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+    await writeFile(path.join(UPLOAD_DIR, "private", "bob", "x.txt"), "x")
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const body = new URLSearchParams({
+      path: "private/bob/x.txt",
+      destination: "public",
+    })
+    const res = await postMove(body, { cookie: session.cookie })
+    expect(res.status).toBe(403)
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string }
+    }
+    expect(json.error.name).toBe("Forbidden")
   })
 })
 
@@ -464,18 +777,115 @@ describe("GET /api/move/picker", () => {
     expect(res.status).toBe(403)
   })
 
-  it("clamps a destination from the wrong scope back to the source's scope root", async () => {
+  it("clamps a destination outside every allowed root back to the source's scope root", async () => {
     await mkdir(path.join(UPLOAD_DIR, "public", "a"), { recursive: true })
     await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
 
     const res = await app.request(
       new Request(
-        "http://localhost/api/move/picker?source=public%2Fsrc.txt&dest=private",
+        "http://localhost/api/move/picker?source=public%2Fsrc.txt&dest=elsewhere",
       ),
     )
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain('value="public"')
     expect(text).toContain("a/")
+  })
+
+  it("exposes public and the caller's own home as picker roots", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "alice", password: "password1" },
+      { username: "bob", password: "password2" },
+    ])
+    await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request("http://localhost/api/move/picker?source=public%2Fsrc.txt", {
+        headers: { cookie: session.cookie },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('data-picker-root="public"')
+    expect(text).toContain('data-picker-root="private/alice"')
+    expect(text).not.toContain("private/bob")
+  })
+
+  it("clamps another user's home back to the source's scope root", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "alice", password: "password1" },
+      { username: "bob", password: "password2" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "bob"), { recursive: true })
+    await writeFile(path.join(UPLOAD_DIR, "public", "src.txt"), "hello")
+
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request(
+        "http://localhost/api/move/picker?source=public%2Fsrc.txt&dest=private%2Fbob",
+        { headers: { cookie: session.cookie } },
+      ),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('value="public"')
+    expect(text).not.toContain('value="private/bob"')
+  })
+
+  it("limits an admin to the private tree for another user's entry", async () => {
+    app = await createTestApp({
+      uploadDir: UPLOAD_DIR,
+      authDir: AUTH_DIR,
+      sessionSecret: SESSION_SECRET,
+    })
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+      { username: "alice", password: "password2" },
+    ])
+    await mkdir(path.join(UPLOAD_DIR, "private", "alice"), { recursive: true })
+    await writeFile(
+      path.join(UPLOAD_DIR, "private", "alice", "src.txt"),
+      "secret",
+    )
+
+    const session = await createTestSession("admin", SESSION_SECRET)
+    const res = await app.request(
+      new Request(
+        "http://localhost/api/move/picker?source=private%2Falice%2Fsrc.txt",
+        { headers: { cookie: session.cookie } },
+      ),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).not.toContain("data-picker-roots")
+    expect(text).toContain('value="private/alice"')
+    expect(text).not.toContain('data-picker-root="public"')
+  })
+
+  it("disables moving a directory into its own subtree", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "public", "foo", "bar"), {
+      recursive: true,
+    })
+
+    const res = await app.request(
+      new Request(
+        "http://localhost/api/move/picker?source=public%2Ffoo&dest=public%2Ffoo%2Fbar",
+      ),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("data-picker-invalid-destination")
+    expect(text).toContain("disabled")
   })
 })
