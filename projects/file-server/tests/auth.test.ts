@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdir, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createApp } from "../src/app"
 import { getSessionSecretFilePath, getUsersFilePath } from "../src/utils/auth"
@@ -189,6 +189,136 @@ describe("auth", () => {
         { name: "bob", type: "dir" },
       ]),
     )
+  })
+
+  it("auto-creates the private home directory for admins", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+    ])
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+    const homeDir = path.join(UPLOAD_DIR, "private", "admin")
+    await expect(stat(homeDir)).rejects.toThrow()
+
+    const res = await app.request(
+      new Request("http://localhost/?path=", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect((await stat(homeDir)).isDirectory()).toBe(true)
+  })
+
+  it("recreates the admin private home directory after it is deleted", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+    ])
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+    const homeDir = path.join(UPLOAD_DIR, "private", "admin")
+
+    await app.request(
+      new Request("http://localhost/?path=", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+    expect((await stat(homeDir)).isDirectory()).toBe(true)
+
+    await rm(homeDir, { recursive: true, force: true })
+    await expect(stat(homeDir)).rejects.toThrow()
+
+    const res = await app.request(
+      new Request("http://localhost/?path=", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect((await stat(homeDir)).isDirectory()).toBe(true)
+  })
+
+  it("allows admin to create a folder inside the auto-created home directory", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+    ])
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+
+    const body = new URLSearchParams({ path: "private/admin", folder: "docs" })
+    const res = await app.request(
+      new Request("http://localhost/api/mkdir", {
+        method: "POST",
+        body,
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          cookie: adminSession.cookie,
+        },
+      }),
+    )
+
+    expect(res.status).toBe(301)
+    expect(
+      (
+        await stat(path.join(UPLOAD_DIR, "private", "admin", "docs"))
+      ).isDirectory(),
+    ).toBe(true)
+  })
+
+  it("keeps the private root read-only for admins", async () => {
+    await writeUsers([
+      { username: "admin", password: "password1", role: "admin" },
+    ])
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+
+    const body = new URLSearchParams({ path: "private", folder: "anydir" })
+    const res = await app.request(
+      new Request("http://localhost/api/mkdir", {
+        method: "POST",
+        body,
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          cookie: adminSession.cookie,
+        },
+      }),
+    )
+    const json = (await res.json()) as {
+      success: boolean
+      error: { name: string }
+    }
+
+    expect(res.status).toBe(403)
+    expect(json.success).toBe(false)
+    expect(json.error.name).toBe("Forbidden")
+    await expect(
+      stat(path.join(UPLOAD_DIR, "private", "anydir")),
+    ).rejects.toThrow()
+  })
+
+  it("auto-creates the private home directory for regular users", async () => {
+    await writeUsers([{ username: "alice", password: "password1" }])
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const homeDir = path.join(UPLOAD_DIR, "private", "alice")
+    await expect(stat(homeDir)).rejects.toThrow()
+
+    const res = await app.request(
+      new Request("http://localhost/?path=", {
+        headers: { cookie: session.cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect((await stat(homeDir)).isDirectory()).toBe(true)
+  })
+
+  it("does not create a private home directory when authentication is disabled", async () => {
+    app = await createTestApp({ uploadDir: UPLOAD_DIR })
+
+    const res = await app.request(
+      new Request("http://localhost/?path=", {
+        redirect: "manual",
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(await readdir(path.join(UPLOAD_DIR, "private"))).toEqual([])
   })
 
   it("renders / as a home view for regular users", async () => {

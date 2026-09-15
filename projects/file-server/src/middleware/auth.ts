@@ -95,11 +95,11 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
   }
   c.set("user", authenticated)
 
-  if (authenticated.role === "user") {
-    await mkdir(path.join(uploadBaseDir, "private", authenticated.username), {
-      recursive: true,
-    })
-  }
+  // Every authenticated user, including admins, gets a private home directory.
+  // mkdir is idempotent, so this also recreates a deleted home on the next request.
+  await mkdir(path.join(uploadBaseDir, "private", authenticated.username), {
+    recursive: true,
+  })
 
   return next()
 }
