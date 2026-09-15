@@ -49,7 +49,7 @@ export function SessionRow({
   return (
     <div
       className={[
-        "group flex min-h-[42px] items-center gap-1 rounded-lg border pr-1.5 transition-colors",
+        "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors",
         active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
       ].join(" ")}
     >

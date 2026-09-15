@@ -44,7 +44,7 @@ export function ChatArea({
         " ",
       )}
     >
-      <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-[880px]"].filter(Boolean).join(" ")}>
+      <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-220"].filter(Boolean).join(" ")}>
         {bubbles.length === 0 ? (
           <div className={["mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]"].join(" ")}>
             <div className="mx-auto mb-4 grid size-10.5 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-lg text-accent-strong">

@@ -159,7 +159,7 @@ export function Sidebar({
                 aria-current={selectedProjectId ? undefined : "true"}
                 title="未所属を「新しい会話」の作成先にする"
                 className={[
-                  "flex min-h-[34px] w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-colors",
+                  "flex min-h-8.5 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-colors",
                   selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
                 ].join(" ")}
               >

@@ -52,7 +52,7 @@ export function MessageView({
       <div
         className={[
           "grid shrink-0 place-items-center rounded-lg font-bold",
-          compact ? "size-[22px] text-3xs" : "size-[26px] text-2xs",
+          compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
           isUser
             ? "order-2 bg-accent-bright text-on-accent"
             : "border border-accent/25 bg-accent-wash text-accent-strong",

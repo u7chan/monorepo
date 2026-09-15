@@ -129,7 +129,7 @@ export function Composer({
     <footer
       className={[
         "w-full min-w-0",
-        compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
+        compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       ].join(" ")}
     >
       <ContextGauge activity={activity} context={context} compact={compact} />
@@ -191,7 +191,7 @@ export function Composer({
             }
             className={[
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-              compact ? "min-h-9 max-h-[120px] py-1.5 text-md" : "min-h-6 max-h-[180px] py-1",
+              compact ? "min-h-9 max-h-30 py-1.5 text-md" : "min-h-6 max-h-45 py-1",
             ].join(" ")}
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
