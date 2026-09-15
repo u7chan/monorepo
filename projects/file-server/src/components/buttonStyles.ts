@@ -22,9 +22,9 @@ const mdSizeClassName = "px-4 py-2 text-sm"
 
 export const smSizeClassName = "px-3 py-1.5 text-sm"
 
-const iconSizeClassName = "h-9 w-9 p-0"
-
-const iconSmSizeClassName = "h-8 w-8 p-0"
+/** Icon-only control. Uses the `sm` height so square buttons sit flush with
+ * `compact*ButtonClassName` in the same toolbar. */
+const iconSizeClassName = "h-8 w-8 p-0"
 
 export const primaryButtonClassName = `${buttonBaseClassName} ${primaryToneClassName} ${mdSizeClassName}`
 
@@ -40,7 +40,7 @@ export const secondaryIconButtonClassName = `${buttonBaseClassName} ${secondaryT
 
 export const dismissIconButtonClassName = `${buttonBaseClassName} ${ghostToneClassName} ${iconSizeClassName}`
 
-export const dangerIconButtonClassName = `${buttonBaseClassName} ${dangerToneClassName} ${iconSmSizeClassName}`
+export const dangerIconButtonClassName = `${buttonBaseClassName} ${dangerToneClassName} ${iconSizeClassName}`
 
 /** Row action button: icon-only on narrow screens, icon + label from `md`. */
 export const rowActionToggleClassName = `${buttonBaseClassName} ${secondaryToneClassName} h-8 w-8 p-0 text-sm md:w-auto md:px-3 aria-expanded:bg-indigo-50 aria-expanded:text-indigo-700 aria-expanded:ring-indigo-300 aria-expanded:not-disabled:hover:bg-indigo-100`
