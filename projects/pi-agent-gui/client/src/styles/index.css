@@ -11,6 +11,21 @@
   /* desktop 内のゆとり用。compact (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
   --breakpoint-wide: 900px;
 
+  /* 小さい UI テキスト。Tailwind 既定の段 (xs=12px / sm=14px / base=16px) だけでは足りず、
+   * この UI はその下の 3 段 (11 / 10 / 9px) と 13px も使うので、下行き (1xs / 2xs / 3xs) と
+   * 上行き (1sm) を足す。名前は既定の段と同じ t-shirt 記法で、数字が大きいほど小さい。
+   * 16px は text-base が使えない (--color-base という色トークンが text-base を取り、
+   * フォントサイズではなく色になる) ため md を当てる。
+   * 値はフォントサイズだけを持たせる (line-height は足さない)。行間は使う側が leading-* で決める。 */
+  --text-3xs: 9px;
+  --text-2xs: 10px;
+  --text-1xs: 11px;
+  --text-1sm: 13px;
+  --text-md: 16px;
+
+  /* uppercase の小見出し (eyebrow) の字間。tracking-widest (0.1em) より広く取る */
+  --tracking-label: 0.14em;
+
   /* メッセージ出現用 (旧 @keyframes rise 相当) */
   --animate-rise: rise 180ms ease-out;
   @keyframes rise {

@@ -34,7 +34,7 @@ export function SettingsPageLayout({
 }: SettingsPageLayoutProps) {
   return (
     // minmax(0,1fr) で列幅を viewport に固定する (auto だと nowrap のパス文字列に引き伸ばされる)
-    <section className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+    <section className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
       <header
         className={[
           "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line",
@@ -42,7 +42,7 @@ export function SettingsPageLayout({
         ].join(" ")}
       >
         {/* タイトル列に最小幅を持たせ、狭い viewport では操作行の方を折り返す (文字が数文字幅まで潰れるのを防ぐ) */}
-        <div className="flex min-w-0 flex-1 basis-[240px] items-center gap-2.5">
+        <div className="flex min-w-0 flex-1 basis-60 items-center gap-2.5">
           {/* compact ではヘッダが CompactBar の代わりになる。無いと設定ページ間を移動できない */}
           {compact && onOpenNav ? (
             <button
@@ -55,7 +55,7 @@ export function SettingsPageLayout({
             </button>
           ) : null}
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">{eyebrow}</div>
+            <div className="text-2xs font-semibold uppercase tracking-label text-ink-ghost">{eyebrow}</div>
             <h2 className="text-lg font-semibold text-ink-strong">{title}</h2>
             {caption ? <div className="min-w-0">{caption}</div> : null}
           </div>
@@ -82,7 +82,7 @@ export function SettingsPageLayout({
         <div
           aria-live="polite"
           className={[
-            "border-t border-line px-5 py-2.5 text-[11px] break-words",
+            "border-t border-line px-5 py-2.5 text-1xs break-words",
             note.error ? "text-danger-text" : "text-ink-muted",
           ].join(" ")}
         >

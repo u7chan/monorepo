@@ -21,19 +21,19 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
           aria-hidden
           className={[
             "grid shrink-0 place-items-center rounded-lg border border-accent/25 bg-accent-wash text-accent-strong",
-            landscape ? "size-6 text-[11px]" : "size-7 text-xs",
+            landscape ? "size-6 text-1xs" : "size-7 text-xs",
           ].join(" ")}
         >
           ✦
         </span>
         {landscape ? (
-          <span className="shrink-0 text-[10px] text-ink-faint">{agentName || "エージェント未選択"}</span>
+          <span className="shrink-0 text-2xs text-ink-faint">{agentName || "エージェント未選択"}</span>
         ) : null}
         <div className="min-w-0 flex-1">
           {landscape ? null : (
-            <div className="truncate text-[10px] text-ink-faint">{agentName || "エージェント未選択"}</div>
+            <div className="truncate text-2xs text-ink-faint">{agentName || "エージェント未選択"}</div>
           )}
-          <div className={["truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-[13px]"].join(" ")}>
+          <div className={["truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm"].join(" ")}>
             {title}
           </div>
         </div>

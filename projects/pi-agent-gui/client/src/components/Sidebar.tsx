@@ -78,7 +78,7 @@ export function Sidebar({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink-strong">agent desk</div>
-          <div className="text-[10px] text-ink-faint">local workspace</div>
+          <div className="text-2xs text-ink-faint">local workspace</div>
         </div>
         {sheet && onClose ? (
           <button
@@ -115,18 +115,18 @@ export function Sidebar({
           <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-0.5">
             <section className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Projects</div>
+                <div className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">Projects</div>
                 <button
                   type="button"
                   onClick={onNewProject}
-                  className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-dashed border-line px-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-dashed border-line px-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
                   <PlusIcon />
                   New Project
                 </button>
               </div>
               {groups.length === 0 ? (
-                <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">プロジェクトはまだありません</div>
+                <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">プロジェクトはまだありません</div>
               ) : (
                 <div className="grid gap-1.5">
                   {groups.map((group) => (
@@ -163,11 +163,11 @@ export function Sidebar({
                   selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
                 ].join(" ")}
               >
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">Chats</span>
-                <span className="min-w-0 flex-1 truncate text-[10px] text-ink-ghost">未所属</span>
+                <span className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">Chats</span>
+                <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>
               </button>
               {unassigned.length === 0 ? (
-                <div className="rounded-lg px-1 py-1 text-[11px] text-ink-faint">未所属のセッションはありません</div>
+                <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">未所属のセッションはありません</div>
               ) : (
                 <div className="grid gap-1">
                   {unassigned.map((item) => (
@@ -187,7 +187,7 @@ export function Sidebar({
       )}
 
       <div className="mt-auto grid gap-2">
-        <div className="text-[10px] leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
+        <div className="text-2xs leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
         {mode === "nav" ? (
           <button
             type="button"

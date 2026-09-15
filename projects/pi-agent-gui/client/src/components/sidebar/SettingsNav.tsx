@@ -20,7 +20,7 @@ export function SettingsNav({
         <ArrowLeftIcon />
         アプリに戻る
       </button>
-      <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">設定</div>
+      <div className="px-1 pt-1 text-2xs font-semibold uppercase tracking-widest text-ink-faint">設定</div>
       {SETTINGS_SECTIONS.map((item) => {
         const active = item.section === activeSettingsSection;
         return (

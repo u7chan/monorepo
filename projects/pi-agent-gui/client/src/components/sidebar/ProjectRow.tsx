@@ -82,7 +82,7 @@ export function ProjectRow({
           </span>
           <span className="grid min-w-0 flex-1 gap-0.5">
             <strong className="truncate text-xs text-ink">{project.name}</strong>
-            <small className="truncate text-[10px] text-ink-muted">{project.cwd}</small>
+            <small className="truncate text-2xs text-ink-muted">{project.cwd}</small>
           </span>
         </button>
         <RowAction label={open ? "折りたたむ" : "展開する"} onClick={onToggle}>
@@ -99,7 +99,7 @@ export function ProjectRow({
       </div>
       {open ? (
         sessions.length === 0 ? (
-          <div className="ml-3 border-l border-line pl-2 py-1 text-[11px] text-ink-faint">セッションはありません</div>
+          <div className="ml-3 border-l border-line pl-2 py-1 text-1xs text-ink-faint">セッションはありません</div>
         ) : (
           <div className="ml-3 grid gap-1 border-l border-line pl-1.5">
             {sessions.map((item) => (

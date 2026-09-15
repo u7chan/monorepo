@@ -145,11 +145,11 @@ export default function App() {
     <div
       className={[
         "grid h-dvh min-h-0 bg-base text-ink",
-        compact ? "grid-rows-[minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]",
+        compact ? "grid-rows-1" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-1",
       ].join(" ")}
     >
       {compact ? null : <Sidebar {...navProps} />}
-      <main className="grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-hidden">
+      <main className="grid min-h-0 grid-rows-1 overflow-hidden">
         {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
             実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
         <div
