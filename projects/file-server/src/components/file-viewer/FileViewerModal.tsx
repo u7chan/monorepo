@@ -8,7 +8,7 @@ import { CopyIcon } from "../icons/CopyIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 import { EditIcon } from "../icons/EditIcon"
 import { ExternalLinkIcon } from "../icons/ExternalLinkIcon"
-import { modalSurfaceClassName } from "../uiStyles"
+import { modalSurfaceClassName, verticalDividerClassName } from "../uiStyles"
 
 interface FileViewerModalProps {
   fileName?: string
@@ -100,6 +100,10 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
     </button>
   )
 
+  const hasToolbarActions = Boolean(
+    downloadButton || publicUrlButton || copyButton || editButton,
+  )
+
   const panelClassName =
     layout === "pdf"
       ? `${modalSurfaceClassName} modal-enter flex h-[92vh] max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden`
@@ -156,15 +160,23 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
         hx-on:click={closeScript}
       >
         <div className={panelClassName} hx-on:click="event.stopPropagation();">
-          <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-            <h2 className="max-w-[70%] truncate text-base font-semibold text-slate-900">
+          <div className="flex flex-shrink-0 items-center gap-3 border-b border-slate-200 px-5 py-3">
+            <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-slate-900">
               {fileName}
             </h2>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               {downloadButton}
               {publicUrlButton}
               {copyButton}
               {editButton}
+              {/* Actions and dismissal are different roles: keep one hairline
+                  between them instead of relying on tone alone. */}
+              {hasToolbarActions && (
+                <span
+                  aria-hidden="true"
+                  className={`${verticalDividerClassName} mx-1`}
+                />
+              )}
               {closeButton}
             </div>
           </div>

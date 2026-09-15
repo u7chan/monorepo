@@ -56,6 +56,14 @@ adding screens.
   (`bg-slate-50`) and spacing.
 - Keep separation to hairlines: `border`, `divide-*`, `ring-1`. Modals are the
   only surfaces that may use a shadow, because they float above a scrim.
+- List rows are separated by `divide-slate-200` and the whole row is the hover
+  target (`hover:bg-slate-100` on the row, not only on its label). The hover
+  tint has to differ from the page background (`bg-slate-50`), otherwise a
+  hovered row reads as a hole in the surface instead of a highlighted row.
+- Icon-only controls use the `h-8 w-8` icon size in `buttonStyles.ts`, so they
+  match the compact text buttons beside them. Header toolbars put one
+  `verticalDividerClassName` hairline between the actions and the dismissal
+  (close), so the two roles stay distinguishable without extra chrome.
 - `#main-content` is a scroll container, so anything that overflows its padding
   edge is clipped. It keeps a 4px bleed on the inline sides and at the block end
   (`-mx-1 px-1 pb-1 -mb-1`) because items flush with the content edge use outward

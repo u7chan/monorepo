@@ -39,7 +39,7 @@ export function FileEntries({ files, canUpload }: FileEntriesProps) {
           </p>
         </div>
       ) : (
-        <ul className="list-none divide-y divide-slate-100 p-0">
+        <ul className="list-none divide-y divide-slate-200 p-0">
           {files.map((file) => (
             <FileRow key={file.path} file={file} />
           ))}
