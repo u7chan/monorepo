@@ -7,9 +7,13 @@ Integrating systems publish into `public/` through the REST API; see "External I
 ## GUI Move
 
 - The browse list exposes a `Move` action alongside `Rename` and `Delete`. Clicking it opens a directory-picker modal served by `GET /api/move/picker`.
-- The picker is scope-bound: sources under `public/` can only choose destinations under `public/`, and sources under `private/<username>/` are limited to the same scope (admins see the entire `private/` tree; regular users see only their own `private/<username>/`).
-- Submitting selects the current picker directory as the destination and posts to `POST /api/move`, which moves the entry while preserving its basename. Renaming is handled by the existing `Rename` action.
-- `POST /api/move` errors: `PathError` (traversal/invalid path), `Forbidden` (no write permission on source or destination), `CrossScope` (public ⇄ private rejected even for admin), `DestNotFound`, `DestNotDirectory`, `InvalidDestination` (moving a directory into itself or a subdirectory), `AlreadyExists`.
+- Cross-scope moves are allowed only between `public/` and the caller's own private home:
+  - `user` / `admin`: `private/<username>` (home itself or below it). An admin crossing into another user's home is rejected with `CrossUser` (403); a move between users inside `private/` is unchanged.
+  - Auth disabled (anonymous): the whole `private/` tree, since there is no user boundary.
+  - The picker offers one root button per allowed root; a `dest` outside every root is clamped back to the source's root (default first root).
+- `public` / `private` scope roots and `private/<username>` roots cannot be moved across scopes (`InvalidSource` 400). In-scope moves keep their existing behaviour, including an admin moving `private/alice` into `private/bob`.
+- The picker disables "Move here" when the destination is the source's parent or lies inside the source subtree. Submitting selects the current picker directory as the destination and posts to `POST /api/move`, which moves the entry while preserving its basename. Renaming is handled by the existing `Rename` action.
+- `POST /api/move` errors: `PathError` (traversal/invalid path), `Forbidden` (no write permission on source or destination), `CrossScope` (unknown scope boundary), `CrossUser` (crossing a user boundary), `InvalidSource` (scope/home root moved across scopes), `DestNotFound`, `DestNotDirectory`, `InvalidDestination` (moving a directory into itself or a subdirectory), `AlreadyExists`, `CrossDevice` (501; `public/` and `private/` must be on the same filesystem because the move uses `fs.rename`).
 
 ## File Raw and Download Routes
 

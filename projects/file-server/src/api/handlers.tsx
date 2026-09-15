@@ -17,6 +17,13 @@ import {
 } from "../utils/apiHelpers"
 import { getFileList } from "../utils/fileListing"
 import { normalizeRelativePath, resolveUploadPath } from "../utils/fileUtils"
+import { mapMovePathError, movePath } from "../utils/fsMove"
+import {
+  checkCrossScopeMove,
+  getMovePickerRoots,
+  getMoveScope,
+  isWithinVirtualPath,
+} from "../utils/moveScope"
 import { isPathTraversal } from "../utils/pathTraversal"
 import {
   errorResponse,
@@ -323,31 +330,11 @@ export async function renameHandler(c: Context<AppBindings>) {
   return renderFileListResponse(c, baseDir, normalizedParentPath)
 }
 
-function getTopScope(virtualPath: string): string | null {
-  const parts = virtualPath.split("/").filter(Boolean)
-  return parts[0] ?? null
-}
-
 function containsParentSegment(p: string): boolean {
   return p
     .replaceAll("\\", "/")
     .split("/")
     .some((seg) => seg === "..")
-}
-
-function resolveMovePickerRoot(
-  user:
-    | { type: "anonymous" }
-    | { type: "authenticated"; username: string; role: "admin" | "user" },
-  scope: "public" | "private",
-): string {
-  if (scope === "public") {
-    return "public"
-  }
-  if (user.type === "authenticated" && user.role === "user") {
-    return `private/${user.username}`
-  }
-  return "private"
 }
 
 export async function moveHandler(c: Context<AppBindings>) {
@@ -382,14 +369,17 @@ export async function moveHandler(c: Context<AppBindings>) {
     return errorResponse(c, "Forbidden", "Access denied", 403)
   }
 
-  const sourceScope = getTopScope(normalizedSource)
-  const destinationScope = getTopScope(normalizedDestination)
-  if (sourceScope !== destinationScope) {
+  const crossScopeError = checkCrossScopeMove(
+    user,
+    normalizedSource,
+    normalizedDestination,
+  )
+  if (crossScopeError) {
     return errorResponse(
       c,
-      "CrossScope",
-      "Cannot move across public and private scopes",
-      400,
+      crossScopeError.name,
+      crossScopeError.message,
+      crossScopeError.status,
     )
   }
 
@@ -469,7 +459,15 @@ export async function moveHandler(c: Context<AppBindings>) {
     }
   }
 
-  await rename(sourcePath, finalDestinationPath)
+  try {
+    await movePath(sourcePath, finalDestinationPath)
+  } catch (err: unknown) {
+    const failure = mapMovePathError(err)
+    if (failure) {
+      return errorResponse(c, failure.name, failure.message, failure.status)
+    }
+    throw err
+  }
 
   return renderFileListResponse(c, baseDir, sourceParent)
 }
@@ -500,27 +498,30 @@ export async function movePickerHandler(c: Context<AppBindings>) {
     return errorResponse(c, "Forbidden", "Access denied", 403)
   }
 
-  const scope = getTopScope(normalizedSource)
-  if (scope !== "public" && scope !== "private") {
+  const scope = getMoveScope(normalizedSource)
+  if (!scope) {
     return errorResponse(c, "PathError", "Invalid source scope", 400)
   }
 
-  const pickerRoot = resolveMovePickerRoot(user, scope)
+  const roots = getMovePickerRoots(user, normalizedSource)
+  const fallbackRoot = roots[0]
 
   let currentDest: string
   if (destParam === undefined) {
     const sourceParent = normalizeRelativePath(path.dirname(normalizedSource))
-    currentDest = sourceParent || pickerRoot
+    currentDest = sourceParent || fallbackRoot
   } else {
     const normalized = normalizeRelativePath(destParam)
-    currentDest = normalized || pickerRoot
+    currentDest = normalized || fallbackRoot
   }
 
   if (isPathTraversal(currentDest)) {
     return errorResponse(c, "PathError", "Invalid destination", 400)
   }
 
-  if (currentDest !== pickerRoot && !currentDest.startsWith(`${pickerRoot}/`)) {
+  const pickerRoot =
+    roots.find((root) => isWithinVirtualPath(root, currentDest)) ?? fallbackRoot
+  if (!isWithinVirtualPath(pickerRoot, currentDest)) {
     currentDest = pickerRoot
   }
 
@@ -540,6 +541,7 @@ export async function movePickerHandler(c: Context<AppBindings>) {
         sourceName={path.basename(normalizedSource)}
         currentDest={currentDest}
         pickerRoot={pickerRoot}
+        roots={roots}
         directories={directories}
       />,
     )
