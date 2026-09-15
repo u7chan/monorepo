@@ -5,7 +5,7 @@ export const DeleteIcon: FC = () => (
     width="18"
     height="18"
     viewBox="0 0 24 24"
-    className="h-[18px] w-[18px] shrink-0 text-white"
+    className="h-[18px] w-[18px] shrink-0"
     fill="none"
     stroke="currentColor"
     stroke-width="2"

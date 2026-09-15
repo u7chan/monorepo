@@ -1,6 +1,4 @@
-const ACTIVE_TOGGLE_CLASSES =
-  "'ring-2', 'ring-purple-400', 'bg-purple-50', 'border-purple-300', 'text-purple-700'"
-
+/** Toggle one inline form and mirror the pressed state on the two toolbar buttons. */
 export const toggleCreateFormScript = (
   formId: string,
   otherFormId: string,
@@ -13,28 +11,32 @@ export const toggleCreateFormScript = (
 	if (isHidden) {
 		form.classList.remove('hidden');
 		otherForm.classList.add('hidden');
-		this.classList.add(${ACTIVE_TOGGLE_CLASSES});
-		otherButton.classList.remove(${ACTIVE_TOGGLE_CLASSES});
+		this.setAttribute('aria-pressed', 'true');
+		otherButton.setAttribute('aria-pressed', 'false');
 	} else {
 		form.classList.add('hidden');
-		this.classList.remove(${ACTIVE_TOGGLE_CLASSES});
+		this.setAttribute('aria-pressed', 'false');
 	}
 `
 
+/**
+ * Drop feedback is expressed with `data-dragging` so the Tailwind variants that
+ * style it stay in the markup instead of being injected as class names here.
+ */
 export const dropZoneDragOverScript = `
 	event.preventDefault();
 	event.dataTransfer.dropEffect = 'copy';
-	this.classList.add('border-purple-500', 'bg-purple-50');
+	this.setAttribute('data-dragging', 'true');
 `
 
 export const dropZoneDragLeaveScript = `
 	event.preventDefault();
-	this.classList.remove('border-purple-500', 'bg-purple-50');
+	this.removeAttribute('data-dragging');
 `
 
 export const dropZoneDropScript = `
 	event.preventDefault();
-	this.classList.remove('border-purple-500', 'bg-purple-50');
+	this.removeAttribute('data-dragging');
 	const files = event.dataTransfer.files;
 	if (files.length > 0) {
 		const input = document.getElementById('drop-upload-input');
@@ -56,6 +58,7 @@ export const fileInputChangeScript =
 
 export const stopPropagationScript = "event.stopPropagation()"
 
+/** Open one row's rename form, closing any other open one. */
 export const renameButtonScript = (
   renameFormId: string,
   renameInputId: string,
@@ -66,10 +69,10 @@ export const renameButtonScript = (
 	const container = document.getElementById('file-list-container');
 	const shouldOpen = form.classList.contains('hidden');
 	container.querySelectorAll('[data-rename-form]').forEach((el) => el.classList.add('hidden'));
-	container.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove(${ACTIVE_TOGGLE_CLASSES}));
+	container.querySelectorAll('[data-rename-button]').forEach((el) => el.setAttribute('aria-expanded', 'false'));
 	if (shouldOpen) {
 		form.classList.remove('hidden');
-		this.classList.add(${ACTIVE_TOGGLE_CLASSES});
+		this.setAttribute('aria-expanded', 'true');
 		input.focus();
 		input.select();
 	}
@@ -78,5 +81,5 @@ export const renameButtonScript = (
 export const closeRenameFormScript = (renameFormId: string) => `
 	event.stopPropagation();
 	document.getElementById('${renameFormId}').classList.add('hidden');
-	document.querySelectorAll('[data-rename-button]').forEach((el) => el.classList.remove(${ACTIVE_TOGGLE_CLASSES}));
+	document.querySelectorAll('[data-rename-button]').forEach((el) => el.setAttribute('aria-expanded', 'false'));
 `

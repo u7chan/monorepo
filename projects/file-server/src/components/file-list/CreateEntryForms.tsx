@@ -1,4 +1,5 @@
 import { primaryButtonClassName } from "../buttonStyles"
+import { fieldClassName, insetPanelClassName } from "../uiStyles"
 import { FormErrorMessage } from "./FormErrorMessage"
 
 interface CreateEntryFormsProps {
@@ -18,19 +19,22 @@ export function CreateEntryForms({ folderPath }: CreateEntryFormsProps) {
         hx-post="/api/file"
         hx-target="#file-list-container"
         hx-swap="innerHTML"
-        className="hidden mb-4 p-4 bg-white rounded-xl border-2 border-indigo-200"
+        className={`hidden ${insetPanelClassName} p-4`}
       >
         <input type="hidden" name="path" value={folderPath} />
-        <input
-          type="text"
-          name="file"
-          placeholder="New file name"
-          required
-          className="px-4 py-2 border-2 border-indigo-300 rounded-lg mr-2 focus:outline-none focus:border-purple-500 transition-colors"
-        />
-        <button type="submit" className={`${primaryButtonClassName} px-6`}>
-          Create File
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            name="file"
+            placeholder="New file name"
+            aria-label="New file name"
+            required
+            className={`${fieldClassName} sm:max-w-sm`}
+          />
+          <button type="submit" className={primaryButtonClassName}>
+            Create File
+          </button>
+        </div>
         <FormErrorMessage />
       </form>
 
@@ -40,19 +44,22 @@ export function CreateEntryForms({ folderPath }: CreateEntryFormsProps) {
         hx-post="/api/mkdir"
         hx-target="#file-list-container"
         hx-swap="innerHTML"
-        className="hidden mb-4 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200"
+        className={`hidden ${insetPanelClassName} p-4`}
       >
         <input type="hidden" name="path" value={folderPath} />
-        <input
-          type="text"
-          name="folder"
-          placeholder="New folder name"
-          required
-          className="px-4 py-2 border-2 border-indigo-300 rounded-lg mr-2 focus:outline-none focus:border-purple-500 transition-colors"
-        />
-        <button type="submit" className={`${primaryButtonClassName} px-6`}>
-          Create Folder
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            name="folder"
+            placeholder="New folder name"
+            aria-label="New folder name"
+            required
+            className={`${fieldClassName} sm:max-w-sm`}
+          />
+          <button type="submit" className={primaryButtonClassName}>
+            Create Folder
+          </button>
+        </div>
         <FormErrorMessage />
       </form>
     </>

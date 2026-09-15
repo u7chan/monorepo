@@ -11,7 +11,7 @@ export const TextEditor: FC<TextEditorProps> = ({ content, path }) => {
 
   return (
     <form
-      className="flex flex-col flex-1 min-h-0"
+      className="flex min-h-0 flex-1 flex-col"
       hx-post="/api/update"
       hx-target="#file-viewer-container"
       hx-swap="outerHTML"
@@ -21,12 +21,12 @@ export const TextEditor: FC<TextEditorProps> = ({ content, path }) => {
         data-copy-source
         name="content"
         placeholder="This file is empty. Start typing..."
-        className="flex-1 w-full bg-gradient-to-br from-indigo-50 to-purple-50 p-4 rounded-xl border-2 border-indigo-200 resize-none font-mono text-sm leading-relaxed focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+        className="w-full flex-1 resize-none rounded-lg border border-slate-300 bg-white p-4 font-mono text-sm leading-relaxed text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         style="min-height: 300px;"
       >
         {content}
       </textarea>
-      <div className="flex justify-end gap-2 mt-4 pt-4 border-t-2 border-indigo-200">
+      <div className="mt-4 flex justify-end gap-2 border-t border-slate-200 pt-4">
         <button
           type="button"
           className={dismissButtonClassName}

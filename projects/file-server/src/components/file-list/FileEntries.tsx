@@ -15,13 +15,13 @@ interface FileEntriesProps {
 
 export function FileEntries({ files, canUpload }: FileEntriesProps) {
   const emptyStateClassName = canUpload
-    ? "py-12 px-4 text-center text-gray-500 cursor-pointer hover:text-indigo-600 transition-colors"
-    : "py-12 px-4 text-center text-gray-500"
+    ? "py-14 px-4 text-center text-slate-400 cursor-pointer transition-colors hover:text-indigo-600"
+    : "py-14 px-4 text-center text-slate-400"
 
   return (
     <div
       id="file-drop-zone"
-      className="min-h-0 flex-1 overflow-y-auto border-2 border-dashed border-transparent rounded-xl transition-all duration-200"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl bg-white ring-1 ring-slate-200 transition-[box-shadow,background-color] data-[dragging]:bg-indigo-50 data-[dragging]:ring-2 data-[dragging]:ring-indigo-400"
       hx-on:dragover={canUpload ? dropZoneDragOverScript : undefined}
       hx-on:dragleave={canUpload ? dropZoneDragLeaveScript : undefined}
       hx-on:drop={canUpload ? dropZoneDropScript : undefined}
@@ -39,18 +39,18 @@ export function FileEntries({ files, canUpload }: FileEntriesProps) {
           </p>
         </div>
       ) : (
-        <ul className="list-none p-0">
+        <ul className="list-none divide-y divide-slate-100 p-0">
           {files.map((file) => (
             <FileRow key={file.path} file={file} />
           ))}
         </ul>
       )}
-      {canUpload && (
+      {canUpload && files.length > 0 && (
         <div
-          className="py-4 text-center text-gray-400 text-sm opacity-0 hover:opacity-100 transition-opacity cursor-pointer hover:text-indigo-600"
+          className="mt-auto cursor-pointer py-4 text-center text-xs text-slate-400 transition-colors hover:text-indigo-600"
           hx-on:click={openUploadDialogScript}
         >
-          <p>Drag and drop files here to upload</p>
+          <p>Drop files here to upload</p>
         </div>
       )}
     </div>

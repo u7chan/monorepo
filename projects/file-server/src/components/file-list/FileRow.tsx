@@ -3,13 +3,14 @@ import {
   dangerIconButtonClassName,
   dismissButtonClassName,
   primaryButtonClassName,
-  secondaryButtonClassName,
+  rowActionToggleClassName,
 } from "../buttonStyles"
 import { DeleteIcon } from "../icons/DeleteIcon"
 import { EditIcon } from "../icons/EditIcon"
 import { FileIcon } from "../icons/FileIcon"
 import { FolderIcon } from "../icons/FolderIcon"
 import { MoveIcon } from "../icons/MoveIcon"
+import { badgeClassName, fieldClassName } from "../uiStyles"
 import {
   closeRenameFormScript,
   renameButtonScript,
@@ -35,7 +36,7 @@ export function FileRow({ file }: FileRowProps) {
 
   return (
     <li
-      className="py-3 px-4 mb-2 rounded-xl border-2 border-transparent hover:border-indigo-300 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-purple-50 cursor-pointer transition-all duration-200"
+      className="group cursor-pointer transition-colors hover:bg-slate-50"
       hx-get={
         file.type === "dir"
           ? `/browse?path=${encodedPath}`
@@ -48,42 +49,30 @@ export function FileRow({ file }: FileRowProps) {
         file.type === "dir" ? browseHref : `/file?path=${encodedPath}`
       }
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-indigo-700 font-medium transition-colors hover:text-purple-600">
-          {file.type === "dir" ? (
-            <>
-              <span className="flex-shrink-0">
-                <FolderIcon />
-              </span>
-              <span className="break-all min-w-0">{file.name}/</span>
-            </>
-          ) : (
-            <>
-              <span className="flex-shrink-0">
-                <FileIcon />
-              </span>
-              <span className="break-all min-w-0">{file.name}</span>
-            </>
-          )}
-          {file.badge && (
-            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-indigo-700">
-              {file.badge}
-            </span>
-          )}
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+        <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden font-medium text-slate-700 group-hover:text-indigo-700">
+          <span className="flex-shrink-0 text-slate-400">
+            {file.type === "dir" ? <FolderIcon /> : <FileIcon />}
+          </span>
+          <span className="min-w-0 break-all">
+            {file.name}
+            {file.type === "dir" ? "/" : ""}
+          </span>
+          {file.badge && <span className={badgeClassName}>{file.badge}</span>}
         </span>
 
         <div className="flex shrink-0 items-center gap-2 md:gap-4">
           {file.type === "file" && (
-            <div className="hidden md:block md:w-30 text-right">
+            <div className="hidden text-right text-sm text-slate-400 tabular-nums md:block md:w-24">
               {formatFileSize(file.size || 0)}
             </div>
           )}
-          <div className="hidden md:block md:w-45 text-right text-gray-600 text-sm">
+          <div className="hidden text-right text-sm text-slate-400 tabular-nums md:block md:w-40">
             {file.mtime && formatTimestamp(new Date(file.mtime))}
           </div>
           {showRowActions && (
             <div
-              className="flex shrink-0 justify-end gap-2"
+              className="flex shrink-0 items-center justify-end gap-1"
               hx-on:click={stopPropagationScript}
             >
               {file.canMove && (
@@ -91,18 +80,13 @@ export function FileRow({ file }: FileRowProps) {
                   type="button"
                   title="Move"
                   aria-label="Move"
-                  className={`${secondaryButtonClassName} h-8 w-8 px-0 md:w-auto md:px-3`}
+                  className={rowActionToggleClassName}
                   hx-get={`/api/move/picker?source=${encodedPath}`}
                   hx-target="#move-picker-container"
                   hx-swap="innerHTML"
                 >
-                  <span className="md:hidden">
-                    <MoveIcon />
-                  </span>
-                  <span className="hidden md:flex md:items-center md:gap-2">
-                    <MoveIcon />
-                    <span>Move</span>
-                  </span>
+                  <MoveIcon />
+                  <span className="hidden md:inline">Move</span>
                 </button>
               )}
               {file.canRename && (
@@ -110,17 +94,13 @@ export function FileRow({ file }: FileRowProps) {
                   type="button"
                   title="Rename"
                   aria-label="Rename"
+                  aria-expanded="false"
                   data-rename-button
-                  className={`${secondaryButtonClassName} h-8 w-8 px-0 md:w-auto md:px-3`}
+                  className={rowActionToggleClassName}
                   hx-on:click={renameButtonScript(renameFormId, renameInputId)}
                 >
-                  <span className="md:hidden">
-                    <EditIcon />
-                  </span>
-                  <span className="hidden md:flex md:items-center md:gap-2">
-                    <EditIcon />
-                    <span>Rename</span>
-                  </span>
+                  <EditIcon />
+                  <span className="hidden md:inline">Rename</span>
                 </button>
               )}
               {file.canDelete && (
@@ -153,18 +133,18 @@ export function FileRow({ file }: FileRowProps) {
           hx-post="/api/rename"
           hx-target="#file-list-container"
           hx-swap="innerHTML"
-          className="hidden mt-3 pt-3 border-t border-indigo-100"
+          className="hidden px-4 pb-4"
           hx-on:click={stopPropagationScript}
         >
           <input type="hidden" name="path" value={file.path} />
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row">
             <input
               id={renameInputId}
               type="text"
               name="name"
               value={file.name}
               required
-              className="px-4 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
+              className={`${fieldClassName} sm:max-w-sm`}
             />
             <div className="flex gap-2">
               <button type="submit" className={primaryButtonClassName}>
