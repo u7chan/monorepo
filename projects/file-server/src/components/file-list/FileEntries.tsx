@@ -21,7 +21,7 @@ export function FileEntries({ files, canUpload }: FileEntriesProps) {
   return (
     <div
       id="file-drop-zone"
-      className="border-2 border-dashed border-transparent rounded-xl transition-all duration-200"
+      className="min-h-0 flex-1 overflow-y-auto border-2 border-dashed border-transparent rounded-xl transition-all duration-200"
       hx-on:dragover={canUpload ? dropZoneDragOverScript : undefined}
       hx-on:dragleave={canUpload ? dropZoneDragLeaveScript : undefined}
       hx-on:drop={canUpload ? dropZoneDropScript : undefined}
