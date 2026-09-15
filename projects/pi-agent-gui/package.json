@@ -13,11 +13,13 @@
     "dev:sandbox": "pnpm --filter server dev:sandbox",
     "dev:web": "pnpm --filter client dev",
     "build": "pnpm --filter client build",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
     "test": "pnpm --filter server test && pnpm --filter client test",
     "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck",
     "lint": "oxlint client server",
-    "lint:fix": "oxlint client server --fix"
+    "lint:fix": "oxlint client server --fix",
+    "format": "oxfmt client server",
+    "format:check": "oxfmt client server --check"
   },
   "engines": {
     "node": ">=22"
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@shadcn/lint": "^0.1.0",
+    "oxfmt": "0.67.0",
     "oxlint": "^1.82.0"
   }
 }

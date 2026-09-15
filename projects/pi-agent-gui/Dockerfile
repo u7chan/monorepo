@@ -5,8 +5,9 @@ WORKDIR /app
 
 FROM base AS manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# pnpm check の oxlint が読む。CI は Docker 内で check を実行するため、ここで渡さないと shadcn ルールが無言でスキップされる。
-COPY .oxlintrc.json ./
+# pnpm check が読む lint / format の設定。CI は Docker 内で check を実行するので、ここで渡さないと
+# oxlint は shadcn ルールを無言でスキップし、oxfmt はデフォルト設定で判定して format:check が落ちる。
+COPY .oxlintrc.json .oxfmtrc.json ./
 COPY client/package.json ./client/package.json
 COPY server/package.json ./server/package.json
 
