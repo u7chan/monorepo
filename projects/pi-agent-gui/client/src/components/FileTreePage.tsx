@@ -26,6 +26,8 @@ export type FileTreePageProps = SettingsPageProps & {
 };
 
 const INDENT = 16;
+/** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
+const FILE_INDENT = 32;
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -182,7 +184,7 @@ function EntryRow({
           aria-expanded={open}
           onClick={() => onToggle(path)}
           style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
-          className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
+          className="flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
         >
           <span
             className={cn(
@@ -228,9 +230,9 @@ function EntryRow({
       type="button"
       aria-current={isSelected ? "true" : undefined}
       onClick={() => onSelect(path)}
-      style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
+      style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
-        "flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
+        "flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
       )}
     >
@@ -255,7 +257,7 @@ function MessageRow({
   return (
     <div
       role={alert ? "alert" : undefined}
-      style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
+      style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
         "py-1.5 pr-2 pl-(--tree-indent) text-1xs leading-relaxed break-words",
         danger ? "text-danger-text" : "text-ink-muted",

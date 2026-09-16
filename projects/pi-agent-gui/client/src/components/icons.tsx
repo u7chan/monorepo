@@ -40,7 +40,7 @@ export function ArrowLeftIcon() {
       strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-3.5 shrink-0"
+      className="size-4 shrink-0"
     >
       <path d="M12.5 8H3.75" />
       <path d="M7.25 3.75 3 8l4.25 4.25" />
@@ -114,7 +114,7 @@ export function PlusIcon() {
       stroke="currentColor"
       strokeWidth="1.6"
       strokeLinecap="round"
-      className="size-3.5 shrink-0"
+      className="size-4 shrink-0"
     >
       <path d="M8 3.25v9.5M3.25 8h9.5" />
     </svg>
@@ -179,8 +179,8 @@ export function SlidersIcon() {
 /**
  * 設定 (歯車の絵文字はフォント差で字形と大きさが変わるため図形で描く)
  *
- * 外周 1 本は 6 枚歯の輪郭 (中心 (8, 8) / 歯先 r 6.7 / 歯底 r 5)。8 枚歯は 14px では線が密になり歯車に見えない。
- * 中心の穴は r 2。これ未満だと 14px (DPR 1) で穴が線に埋もれて点に見える。
+ * 外周 1 本は 6 枚歯の輪郭 (中心 (8, 8) / 歯先 r 6.7 / 歯底 r 5)。8 枚歯は 16px では線が密になり歯車に見えない。
+ * 中心の穴は r 2。これ未満だと 16px (DPR 1) で穴が線に埋もれて点に見える。
  */
 export function GearIcon() {
   return (
@@ -192,10 +192,63 @@ export function GearIcon() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-3.5 shrink-0"
+      className="size-4 shrink-0"
     >
       <path d="M9.71 3.3 9.51 1.47 6.49 1.47 6.29 3.3 4.79 4.17 3.1 3.43 1.59 6.04 3.08 7.13 3.08 8.87 1.59 9.96 3.1 12.57 4.79 11.83 6.29 12.7 6.49 14.53 9.51 14.53 9.71 12.7 11.21 11.83 12.9 12.57 14.41 9.96 12.92 8.87 12.92 7.13 14.41 6.04 12.9 3.43 11.21 4.17Z" />
       <circle cx="8" cy="8" r="2" />
+    </svg>
+  );
+}
+
+/** エージェント (設定ナビ)。エージェントごとの違いは文字で示すので、行の印はこの 1 種類で足りる */
+export function SparkleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M8 2.25 9.55 6.45 13.75 8 9.55 9.55 8 13.75 6.45 9.55 2.25 8 6.45 6.45Z" />
+    </svg>
+  );
+}
+
+/** スキル (設定ナビ) */
+export function BoltIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M9.4 2.5 4.25 8.75h3.1L6.7 13.5l5.05-6.25h-3.1z" />
+    </svg>
+  );
+}
+
+/** 外観 (設定ナビ)。明暗の半円でテーマ切替を表す (この画面の内容はテーマの選択だけ) */
+export function ThemeIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      className="size-4 shrink-0"
+    >
+      <circle cx="8" cy="8" r="5.5" />
+      <path fill="currentColor" stroke="none" d="M8 2.5a5.5 5.5 0 0 1 0 11z" />
     </svg>
   );
 }

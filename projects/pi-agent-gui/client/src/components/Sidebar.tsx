@@ -3,7 +3,8 @@ import type { AgentDesk } from "../hooks/useAgentDesk";
 import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
-import { ChevronIcon, CloseIcon, GearIcon, PlusIcon } from "./icons";
+import { CloseIcon, GearIcon, PlusIcon } from "./icons";
+import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
 import { SessionRow } from "./sidebar/SessionRow";
 import { SettingsNav } from "./sidebar/SettingsNav";
@@ -188,17 +189,7 @@ export function Sidebar({
       <div className="mt-auto grid gap-2">
         <div className="text-2xs leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
         {mode === "nav" ? (
-          <button
-            type="button"
-            onClick={() => onSelectMode("settings")}
-            className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-line bg-soft px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
-          >
-            <GearIcon />
-            <span className="min-w-0 flex-1 truncate text-left">設定</span>
-            <span className="text-ink-faint">
-              <ChevronIcon />
-            </span>
-          </button>
+          <MenuItem variant="nav" icon={<GearIcon />} label="設定" onClick={() => onSelectMode("settings")} />
         ) : null}
       </div>
     </aside>
