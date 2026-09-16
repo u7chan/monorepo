@@ -213,8 +213,14 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
                   )}
                 </span>
                 {/* The identity above is a label, the controls below are
-                    buttons: a hairline keeps the two groups apart. */}
-                <span aria-hidden="true" className={verticalDividerClassName} />
+                    buttons: a hairline keeps the two groups apart. Below `sm`
+                    the controls wrap onto their own line, where the hairline
+                    would be left dangling at the end of the first line, so it
+                    only appears once both groups fit on one line. */}
+                <span
+                  aria-hidden="true"
+                  className={`${verticalDividerClassName} hidden sm:block`}
+                />
                 <div className="flex flex-wrap items-center gap-2">
                   {user.role === "admin" && (
                     <a
