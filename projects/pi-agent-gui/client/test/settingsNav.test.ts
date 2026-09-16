@@ -8,13 +8,14 @@ test("settings モードでは設定ページ、nav モードではチャット�
   assert.equal(mainViewFor("nav"), "chat");
 });
 
-test("設定ナビはエージェント / スキル / ファイル / 外観 の 4 項目をこの順で持つ", () => {
+test("設定ナビはエージェント / スキル / ファイル / バックアップ / 外観 の 5 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
       ["agents", "エージェント"],
       ["skills", "スキル"],
       ["files", "ファイル"],
+      ["backup", "バックアップ"],
       ["appearance", "外観"],
     ],
   );

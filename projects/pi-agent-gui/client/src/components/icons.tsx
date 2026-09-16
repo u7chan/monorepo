@@ -323,3 +323,23 @@ export function FileIcon() {
     </svg>
   );
 }
+
+/** バックアップ (蓋付きの箱)。線を増やしすぎず、16px で蓋と本体の 2 面に見える太さに留める */
+export function ArchiveIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M3 3.25h10c.41 0 .75.34.75.75v1c0 .41-.34.75-.75.75H3c-.41 0-.75-.34-.75-.75V4c0-.41.34-.75.75-.75Z" />
+      <path d="M3.5 6.5v5.75c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V6.5" />
+      <path d="M6.75 9.25h2.5" />
+    </svg>
+  );
+}

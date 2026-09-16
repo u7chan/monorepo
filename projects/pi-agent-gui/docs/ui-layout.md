@@ -17,11 +17,11 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 メイン領域は チャット / 設定ページ のどちらかを出し、サイドバーのモード（nav / settings）と一致する。対応は `client/src/lib/settingsNav.ts` の `mainViewFor` が持ち、mode と settingsSection の state は `App` が持つ。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
 
 - desktop: `Topbar`（エラー時の接続状態と見出しだけの帯）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ 外観（`AppearancePage`）の 4 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
+- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ バックアップ（`BackupPage`）/ 外観（`AppearancePage`）の 5 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
 - `FileTreePage`（作業ディレクトリのファイルツリー）は設定ナビの「ファイル」から開く。渡すパスは選択中セッションの実効 cwd で、未作成チャットは選択中プロジェクトの cwd、未所属は `""`（ワークスペース root）。**この cwd がツリーの root になり**、`GET /api/files` へは root 自身を `path=<cwd>`、配下を `path=<cwd>/<name>` で問い合わせる（未所属は `path=.`）。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。設定ページの中でもヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
   - `CompactBar` はチャットのときに「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
-  - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / 外観 の間を移動できない
+  - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / バックアップ / 外観 の間を移動できない
   - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）は `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッションの項目を選ぶとドロワーは閉じ（選択後に主画面で続ける操作はプロジェクト行の「＋」）、設定の項目を選ぶと閉じてからそのページをメイン領域に出す。折りたたみ chevron は選択ではないので閉じない
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）
@@ -53,13 +53,13 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 ### settings モード
 
-「アプリに戻る」+ エージェント / スキル / ファイル / 外観 の 4 項目。項目は左にアイコンを置く 30px の行（行間 4px、外枠なし）で、メイン領域のページを切り替える（メイン領域の切替と mode の対応は [モードごとの構成](#モードごとの構成)）。開いている項目は `bg-accent` の塗りで示し、内側の一覧（エージェント / スキル）の選択は `accent-wash` にしてページの選択と区別する。行の寸法は `client/src/components/MenuItem.tsx` が 1 箇所で持ち、内側の一覧（`DefinitionList`）と共有する。テーマ切替の入口は「外観」に一本化し、`Topbar` とドロワーのカードには置かない。
+「アプリに戻る」+ エージェント / スキル / ファイル / バックアップ / 外観 の 5 項目。項目は左にアイコンを置く 30px の行（行間 4px、外枠なし）で、メイン領域のページを切り替える（メイン領域の切替と mode の対応は [モードごとの構成](#モードごとの構成)）。開いている項目は `bg-accent` の塗りで示し、内側の一覧（エージェント / スキル）の選択は `accent-wash` にしてページの選択と区別する。行の寸法は `client/src/components/MenuItem.tsx` が 1 箇所で持ち、内側の一覧（`DefinitionList`）と共有する。テーマ切替の入口は「外観」に一本化し、`Topbar` とドロワーのカードには置かない。
 
 一覧は `Projects` と `Chats` をまとめて 1 つのスクロール領域にし、`設定` は下部に固定する。desktop では高さが足りないとき、compact では drawer 全体のスクロールで全項目へ到達できる。
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 4 項目を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 5 項目を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

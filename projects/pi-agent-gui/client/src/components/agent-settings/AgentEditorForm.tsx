@@ -225,10 +225,7 @@ export function AgentEditorForm({
               削除
             </button>
           ) : null}
-          <button
-            type="submit"
-            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110"
-          >
+          <button type="submit" className="btn-primary flex-1">
             <CheckIcon />
             保存
           </button>

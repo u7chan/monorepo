@@ -241,11 +241,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
             <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
               キャンセル
             </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
-            >
+            <button type="submit" disabled={!canSubmit} className="btn-primary">
               {mode === "create" ? "作成" : "登録"}
             </button>
           </div>
