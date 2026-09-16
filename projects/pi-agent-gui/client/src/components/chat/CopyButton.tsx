@@ -1,8 +1,12 @@
-/** ホバーできる端末だけホバー / フォーカスで出し、タッチ端末は常に表示する。group 名は使う側と対にする */
-export const REVEAL_MESSAGE = "can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100 focus-visible:opacity-100";
-export const REVEAL_TOOL = "can-hover:opacity-0 can-hover:group-hover/row:opacity-100 focus-visible:opacity-100";
-/** コードブロックのコピー。group 名は CodeBlock 側の figure と対にする */
-export const REVEAL_CODE = "can-hover:opacity-0 can-hover:group-hover/code:opacity-100 focus-visible:opacity-100";
+/** コピーボタンの出し方。group 名は使う側の親要素と対にする */
+export type CopyReveal = "message" | "tool" | "code";
+
+/** ホバーできる端末だけホバー / フォーカスで出し、タッチ端末は常に表示する */
+const REVEAL_CLASS: Record<CopyReveal, string> = {
+  message: "can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100 focus-visible:opacity-100",
+  tool: "can-hover:opacity-0 can-hover:group-hover/row:opacity-100 focus-visible:opacity-100",
+  code: "can-hover:opacity-0 can-hover:group-hover/code:opacity-100 focus-visible:opacity-100",
+};
 
 // 2 枚の紙を閉じた矩形で重ねると 14px では交差線が潰れるため、後ろの紙は開いたパスで描く
 function CopyIcon() {
@@ -44,12 +48,13 @@ export function CopyButton({
   copied,
   onClick,
   label,
-  revealClass,
+  reveal,
 }: {
   copied: boolean;
   onClick: () => void;
   label: string;
-  revealClass: string;
+  /** 省略すると常に表示する */
+  reveal?: CopyReveal;
 }) {
   return (
     <button
@@ -64,7 +69,9 @@ export function CopyButton({
       }}
       className={[
         "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
-        copied ? "text-ok opacity-100" : ["text-ink-faint hover:text-accent-text", revealClass].join(" "),
+        copied
+          ? "text-ok opacity-100"
+          : ["text-ink-faint hover:text-accent-text", reveal ? REVEAL_CLASS[reveal] : ""].join(" "),
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

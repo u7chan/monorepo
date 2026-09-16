@@ -1,6 +1,25 @@
 import type { ReactNode, SelectHTMLAttributes } from "react";
 
+/** select の密度。余白と文字サイズはこの表が持ち、呼び出し側は layout だけを渡す */
+export type SelectFieldDensity = "sm" | "md" | "lg";
+
+/** md は .field の既定の余白 (px-2.5 py-2) をそのまま使う */
+const PADDING_CLASS: Record<SelectFieldDensity, string> = {
+  sm: "py-1 pl-1.5",
+  md: "",
+  lg: "py-1.5 pl-2",
+};
+
+const TEXT_CLASS: Record<SelectFieldDensity, string> = {
+  sm: "text-1xs",
+  md: "text-xs",
+  lg: "text-xs",
+};
+
 export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  /** touch 端末では iOS の focus 時ズームを避けるため 16px にする */
+  compact?: boolean;
+  density?: SelectFieldDensity;
   /** chevron を右端に合わせるため wrapper 側に置く */
   wrapperClassName?: string;
   children: ReactNode;
@@ -9,14 +28,29 @@ export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
 /**
  * select のドロップダウン矢印はブラウザが位置を決めるため右端に寄りすぎる。矢印だけ自前の chevron に
  * 置き換えて余白を揃える。幅と伸縮は wrapper が担い、select は w-full で wrapper に追従する。
+ * 見た目は density と compact が持ち、className は layout (位置・幅) のためだけに開けている。
  */
-export function SelectField({ wrapperClassName, className, children, ...props }: SelectFieldProps) {
+export function SelectField({
+  wrapperClassName,
+  className,
+  compact = false,
+  density = "md",
+  children,
+  ...props
+}: SelectFieldProps) {
   return (
     <span className={["relative inline-flex min-w-0 items-center", wrapperClassName].filter(Boolean).join(" ")}>
       {/* peer を付けるのは、無効化したときの薄表示を chevron にも効かせるため */}
       <select
         {...props}
-        className={["field peer w-full cursor-pointer appearance-none pr-8", className].filter(Boolean).join(" ")}
+        className={[
+          "field peer w-full cursor-pointer appearance-none pr-8 disabled:cursor-not-allowed disabled:opacity-55",
+          PADDING_CLASS[density],
+          compact ? "text-md" : TEXT_CLASS[density],
+          className,
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
         {children}
       </select>

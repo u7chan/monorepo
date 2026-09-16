@@ -24,7 +24,8 @@ export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps
       <span aria-hidden className="theme-swatch" data-theme-id={resolvedId} />
       <SelectField
         aria-label="テーマ"
-        className={compact ? "py-1.5 pl-2 text-md" : "py-1.5 pl-2 text-xs"}
+        density="lg"
+        compact={compact}
         wrapperClassName={compact ? "min-w-0 flex-1" : undefined}
         value={choice}
         onChange={handleChange}
