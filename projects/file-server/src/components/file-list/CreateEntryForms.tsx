@@ -18,7 +18,7 @@ export function CreateEntryForms({ folderPath }: CreateEntryFormsProps) {
         data-inline-error-form
         hx-post="/api/file"
         hx-target="#file-list-container"
-        hx-swap="innerHTML"
+        hx-swap="outerHTML"
         className={`hidden ${insetPanelClassName} p-4`}
       >
         <input type="hidden" name="path" value={folderPath} />
@@ -43,7 +43,7 @@ export function CreateEntryForms({ folderPath }: CreateEntryFormsProps) {
         data-inline-error-form
         hx-post="/api/mkdir"
         hx-target="#file-list-container"
-        hx-swap="innerHTML"
+        hx-swap="outerHTML"
         className={`hidden ${insetPanelClassName} p-4`}
       >
         <input type="hidden" name="path" value={folderPath} />

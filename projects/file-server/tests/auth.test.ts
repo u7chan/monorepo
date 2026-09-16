@@ -114,6 +114,21 @@ describe("auth", () => {
     expect(body).toContain("Invalid username or password")
   })
 
+  it("does not render a file list container on pages without a list", async () => {
+    const loginRes = await app.request(new Request("http://localhost/login"))
+    expect(loginRes.status).toBe(200)
+    expect(await loginRes.text()).not.toContain('id="file-list-container"')
+
+    const adminSession = await createTestSession("admin", SESSION_SECRET)
+    const adminRes = await app.request(
+      new Request("http://localhost/admin/users", {
+        headers: { cookie: adminSession.cookie },
+      }),
+    )
+    expect(adminRes.status).toBe(200)
+    expect(await adminRes.text()).not.toContain('id="file-list-container"')
+  })
+
   it("isolates files by authenticated user directory", async () => {
     await writeUsers([
       { username: "alice", password: "password1" },

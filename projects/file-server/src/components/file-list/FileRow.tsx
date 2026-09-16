@@ -35,6 +35,9 @@ export function FileRow({ file }: FileRowProps) {
   const showRowActions = file.canRename || file.canDelete || file.canMove
 
   return (
+    /* The directory row replaces the list root itself: `outerHTML` carries the
+       FileList partial's id through the swap, so `#file-list-container` stays
+       unique. */
     <li
       className="group cursor-pointer transition-colors hover:bg-slate-100"
       hx-get={
@@ -45,6 +48,7 @@ export function FileRow({ file }: FileRowProps) {
       hx-target={
         file.type === "dir" ? "#file-list-container" : "#file-viewer-container"
       }
+      hx-swap={file.type === "dir" ? "outerHTML" : undefined}
       hx-push-url={
         file.type === "dir" ? browseHref : `/file?path=${encodedPath}`
       }
@@ -107,7 +111,7 @@ export function FileRow({ file }: FileRowProps) {
                 <form
                   hx-post="/api/delete"
                   hx-target="#file-list-container"
-                  hx-swap="innerHTML"
+                  hx-swap="outerHTML"
                   hx-confirm={`Are you sure you want to delete ${file.name}?`}
                 >
                   <input type="hidden" name="path" value={file.path} />
@@ -132,7 +136,7 @@ export function FileRow({ file }: FileRowProps) {
           data-inline-error-form
           hx-post="/api/rename"
           hx-target="#file-list-container"
-          hx-swap="innerHTML"
+          hx-swap="outerHTML"
           className="hidden px-4 pb-4"
           hx-on:click={stopPropagationScript}
         >

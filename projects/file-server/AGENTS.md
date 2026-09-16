@@ -100,6 +100,14 @@ adding screens.
 - `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, move, public-route)
 - `tests/helpers/` - `createTestApp.ts` and `auth.ts` helpers
 
+### List Refresh (HTMX)
+
+`#file-list-container` is rendered only by the `FileList` partial root. `PageShell`'s
+content wrapper is id-less, so pages without a list (`/login`, `/admin/users`) do not
+expose the id. Every control that refreshes the list must target it with
+`hx-swap="outerHTML"`: the response root carries the id itself, so replacing the
+element keeps exactly one `#file-list-container` in the document.
+
 ## Environment Variables
 
 - `UPLOAD_DIR` - File storage root directory (default: `./tmp`)

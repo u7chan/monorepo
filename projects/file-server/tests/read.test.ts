@@ -9,6 +9,10 @@ function zipBodyText(body: ArrayBuffer): string {
   return Buffer.from(body).toString("latin1")
 }
 
+function countOccurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1
+}
+
 describe("read - API listing", () => {
   const UPLOAD_DIR = "./tmp-test-read"
   let app: Awaited<ReturnType<typeof createTestApp>>
@@ -129,6 +133,13 @@ describe("browse endpoint /", () => {
     expect(text).toContain("public")
     expect(text).toContain("private")
     expect(text).toContain('id="file-list-container"')
+  })
+
+  it("should render #file-list-container exactly once on the full page", async () => {
+    const res = await app.request(new Request("http://localhost/?path=public"))
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(countOccurrences(text, 'id="file-list-container"')).toBe(1)
   })
 
   it("should render directory listing in public scope as HTML", async () => {
@@ -509,9 +520,26 @@ describe("browse endpoint /browse (htmx)", () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toContain("browse-test.txt")
-    expect(text).toContain('id="file-list-container"')
+    expect(text.startsWith('<div id="file-list-container"')).toBe(true)
+    expect(countOccurrences(text, 'id="file-list-container"')).toBe(1)
     expect(text).not.toContain("<html")
     expect(text).not.toContain("<head>")
+  })
+
+  it("should swap the file list container with outerHTML from every control", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "public/swap"), { recursive: true })
+
+    const res = await app.request(
+      new Request("http://localhost/browse?path=public"),
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    const targetingTags =
+      text.match(/<[^>]*hx-target="#file-list-container"[^>]*>/g) ?? []
+    expect(targetingTags.length).toBeGreaterThan(0)
+    for (const tag of targetingTags) {
+      expect(tag).toContain('hx-swap="outerHTML"')
+    }
   })
 
   it("should return nested directory listing", async () => {
