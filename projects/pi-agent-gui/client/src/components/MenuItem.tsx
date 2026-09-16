@@ -69,9 +69,9 @@ export function MenuItem({
           {icon}
         </span>
       ) : null}
-      {/* 選択中の色を説明文まで届かせるため、色は行ではなく各段で決める */}
       <span className="grid min-w-0 flex-1 gap-1">
-        <span className="truncate text-xs">{label}</span>
+        {/* アイコンの箱 (size-4) と高さを揃える: 揃わないと self-start のアイコンが 1 行目の中央から外れる */}
+        <span className="truncate text-xs leading-4">{label}</span>
         {description ? (
           <span
             className={cn(

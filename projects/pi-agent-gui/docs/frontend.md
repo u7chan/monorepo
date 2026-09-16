@@ -16,6 +16,7 @@
 
 - コンポーネントは自分の見た目（余白・文字サイズ・色・効果）を持ち、呼び出し側が `className` / `wrapperClassName` で上書きできるのは layout（位置・幅・伸縮）だけにする。見た目の切替は props で表す（例: `SelectField` の `density`（`sm` / `md` / `lg`）と `compact`、`CopyButton` の `reveal`）。
 - この契約は `shadcn/no-restyle`（`.oxlintrc.json` で `allow: ["layout"]`）が検査する。コンポーネントの認識は `settings.shadcn.componentImports` の正規表現で行い、client は path alias を持たずコンポーネントを相対 import でしか参照しないため `^\.\.?/` を登録している（この指定は client/src 配下の全 module に当たるが、JSX のタグとして解決されるのはコンポーネントだけ）。
+- バーやゲージなどの図形は CSS（幅と背景色）で描く。ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならないため `tabular-nums` も効かない。
 - 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes` が error）。ヘルパー関数の戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す。
 
 ## チャット状態とレンダリング

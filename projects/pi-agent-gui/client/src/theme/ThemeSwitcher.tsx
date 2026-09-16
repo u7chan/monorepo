@@ -21,7 +21,6 @@ export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps
 
   return (
     <div className={cn("inline-flex items-center gap-1.5 text-xs", className)}>
-      {/* 解決中のテーマの色見本 (色は index.css の .theme-swatch で定義) */}
       <span aria-hidden className="theme-swatch" data-theme-id={resolvedId} />
       <SelectField
         aria-label="テーマ"

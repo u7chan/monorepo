@@ -211,7 +211,6 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
             <label htmlFor="project-name" className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
               {mode === "create" ? "名前" : "表示名"}
             </label>
-            {/* compact は iOS Safari の focus 時ズームを避けるために 16px 以上にする */}
             <input
               id="project-name"
               value={name}
