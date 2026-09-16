@@ -26,8 +26,6 @@ export function ContextGauge({
       {gauge ? (
         <span className={cn("shrink-0 font-sans text-2xs whitespace-nowrap tabular-nums", gaugeColor)}>
           Context
-          {/* バーは CSS 描画。ブロック要素のグリフは端末のフォント次第で崩れるうえ、
-              等幅にならないので tabular-nums も効かない */}
           <span
             role="progressbar"
             aria-label="コンテキスト使用量"
