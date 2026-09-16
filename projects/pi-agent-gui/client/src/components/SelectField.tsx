@@ -41,7 +41,6 @@ export function SelectField({
 }: SelectFieldProps) {
   return (
     <span className={cn("relative inline-flex min-w-0 items-center", wrapperClassName)}>
-      {/* peer を付けるのは、無効化したときの薄表示を chevron にも効かせるため */}
       <select
         {...props}
         className={cn(

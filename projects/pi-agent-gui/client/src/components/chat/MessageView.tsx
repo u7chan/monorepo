@@ -91,7 +91,6 @@ export function MessageView({
             <MarkdownView text={bubble.text} />
           )
         ) : null}
-        {/* ツールだけの assistant (本文なし) でも時刻は出す */}
         {bubble.text || bubble.at !== undefined ? (
           <div
             className={cn(
