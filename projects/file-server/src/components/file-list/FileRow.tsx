@@ -36,7 +36,7 @@ export function FileRow({ file }: FileRowProps) {
 
   return (
     <li
-      className="group cursor-pointer transition-colors hover:bg-slate-50"
+      className="group cursor-pointer transition-colors hover:bg-slate-100"
       hx-get={
         file.type === "dir"
           ? `/browse?path=${encodedPath}`
@@ -137,7 +137,7 @@ export function FileRow({ file }: FileRowProps) {
           hx-on:click={stopPropagationScript}
         >
           <input type="hidden" name="path" value={file.path} />
-          <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row">
+          <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 sm:flex-row">
             <input
               id={renameInputId}
               type="text"

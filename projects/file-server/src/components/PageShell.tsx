@@ -1,7 +1,7 @@
 import type { Child, FC } from "hono/jsx"
 import type { UserState } from "../types"
-import { dismissButtonClassName } from "./buttonStyles"
-import { badgeClassName } from "./uiStyles"
+import { compactSecondaryButtonClassName } from "./buttonStyles"
+import { badgeClassName, verticalDividerClassName } from "./uiStyles"
 
 interface PageShellProps {
   children: Child
@@ -203,23 +203,42 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
               File Server
             </h1>
             {isAuthenticated && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-slate-700">
-                  {user.username}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-700">
+                    {user.username}
+                  </span>
+                  {user.role === "admin" && (
+                    <span className={badgeClassName}>{user.role}</span>
+                  )}
                 </span>
-                {user.role === "admin" && (
-                  <span className={badgeClassName}>{user.role}</span>
-                )}
-                {user.role === "admin" && (
-                  <a href="/admin/users" className={dismissButtonClassName}>
-                    User Management
-                  </a>
-                )}
-                <form action="/logout" method="post">
-                  <button type="submit" className={dismissButtonClassName}>
-                    Logout
-                  </button>
-                </form>
+                {/* The identity above is a label, the controls below are
+                    buttons: a hairline keeps the two groups apart. Hide it
+                    below `sm`: at narrow widths the header wraps and a
+                    standalone hairline is left dangling at the end of the
+                    line. */}
+                <span
+                  aria-hidden="true"
+                  className={`${verticalDividerClassName} hidden sm:block`}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {user.role === "admin" && (
+                    <a
+                      href="/admin/users"
+                      className={compactSecondaryButtonClassName}
+                    >
+                      User Management
+                    </a>
+                  )}
+                  <form action="/logout" method="post">
+                    <button
+                      type="submit"
+                      className={compactSecondaryButtonClassName}
+                    >
+                      Logout
+                    </button>
+                  </form>
+                </div>
               </div>
             )}
           </header>

@@ -2,10 +2,10 @@ import type { FC } from "hono/jsx"
 
 export const DeleteIcon: FC = () => (
   <svg
-    width="18"
-    height="18"
+    width="16"
+    height="16"
     viewBox="0 0 24 24"
-    className="h-[18px] w-[18px] shrink-0"
+    className="h-4 w-4 shrink-0"
     fill="none"
     stroke="currentColor"
     stroke-width="2"

@@ -26,7 +26,10 @@ export const compactFieldClassName =
 export const labelClassName = "mb-1 block text-sm font-medium text-slate-700"
 
 export const badgeClassName =
-  "inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tracking-wide text-slate-600 uppercase"
+  "inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tracking-wide text-slate-600 uppercase ring-1 ring-slate-200"
+
+/** Vertical hairline between a quiet label group and the controls next to it. */
+export const verticalDividerClassName = "h-5 w-px shrink-0 bg-slate-200"
 
 export const mutedTextClassName = "text-sm text-slate-500"
 
