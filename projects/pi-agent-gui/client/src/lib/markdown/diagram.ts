@@ -372,8 +372,8 @@ function findBackEdges(indexOf: Map<string, number>, edges: FlowEdge[]): boolean
     outgoing[indexOf.get(edge.from) ?? 0].push(index);
   });
   // 0 = 未訪問 / 1 = 訪問中 / 2 = 完了。訪問中のノードへ戻るエッジが閉路を作る
-  const state = new Array<number>(indexOf.size).fill(0);
-  const back = new Array<boolean>(edges.length).fill(false);
+  const state = Array.from({ length: indexOf.size }, () => 0);
+  const back = Array.from({ length: edges.length }, () => false);
   const visit = (node: number): void => {
     state[node] = 1;
     for (const index of outgoing[node]) {

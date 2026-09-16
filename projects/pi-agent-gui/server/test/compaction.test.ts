@@ -82,7 +82,7 @@ test("compaction の要約は messages から外れ、entry を写した形で c
 });
 
 test("compaction_end は compaction を配ってから resync で同じ状態を配る", async () => {
-  const { store, record, session } = await createFixture();
+  const { store, record } = await createFixture();
   const events: EventEntry[] = [];
   store.subscribe(record, record.seq, (entry) => events.push(entry));
 

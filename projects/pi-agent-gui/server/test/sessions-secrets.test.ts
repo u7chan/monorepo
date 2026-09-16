@@ -43,7 +43,7 @@ function createScriptedSession(run: RunScript): ScriptedSession {
       return () => listeners.delete(listener);
     },
     emit(event: PiSessionEvent) {
-      for (const listener of [...listeners]) listener(event);
+      for (const listener of listeners) listener(event);
     },
     async abort() {
       session.abortRequested = true;
@@ -220,8 +220,9 @@ test("error messages are masked before run_end and status events", async () => {
   await waitFor(() => store.statusOf(record) === "error", 3000, "run error");
 
   const runEnd = events.find((entry) => entry.type === "run_end");
-  assert.equal(runEnd?.data.status, "error");
-  assert.equal((runEnd?.data as { error?: string }).error, `Provider rejected: ${REDACTED}`);
+  assert.ok(runEnd, "run_end が記録される");
+  assert.equal(runEnd.data.status, "error");
+  assert.equal((runEnd.data as { error?: string }).error, `Provider rejected: ${REDACTED}`);
   const payload = store.payload(record);
   assertNoRawKey(events, payload, "error surfaces");
 });
@@ -241,7 +242,8 @@ test("user prompt is masked in echo surfaces but the model input stays as typed"
   await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
 
   const runStart = events.find((entry) => entry.type === "run_start");
-  assert.equal((runStart?.data as { prompt: string }).prompt, `私のキーは ${REDACTED} です`);
+  assert.ok(runStart, "run_start が記録される");
+  assert.equal((runStart.data as { prompt: string }).prompt, `私のキーは ${REDACTED} です`);
   const payload = store.payload(record);
   assert.equal(payload.title, `私のキーは ${REDACTED} です`);
   assert.equal(payload.run?.prompt, `私のキーは ${REDACTED} です`);
@@ -301,8 +303,10 @@ test("args and output truncated at their limits are masked before truncation", a
 
   const toolStart = events.find((entry) => entry.type === "tool_start");
   const toolEnd = events.find((entry) => entry.type === "tool_end");
-  const args = (toolStart?.data as { args: string }).args;
-  const output = (toolEnd?.data as { output: string }).output;
+  assert.ok(toolStart, "tool_start が記録される");
+  assert.ok(toolEnd, "tool_end が記録される");
+  const args = (toolStart.data as { args: string }).args;
+  const output = (toolEnd.data as { output: string }).output;
   // 切り詰め後のテキストにも完全体はおろか大部分も残らない
   assert.ok(!args.includes(KEY.slice(0, 20)), `args leaked: ${args}`);
   assert.ok(args.includes(REDACTED), `masked args expected: ${args}`);
@@ -337,7 +341,8 @@ test("output without secrets passes through unchanged", async () => {
     .join("");
   assert.equal(deltas, "合計 48\ndrwxr-x--- 8 node node 4096 .");
   const toolEnd = events.find((entry) => entry.type === "tool_end");
-  assert.equal((toolEnd?.data as { output: string }).output, "total 48\ndrwxr-x--- 8 node node 4096 .");
+  assert.ok(toolEnd, "tool_end が記録される");
+  assert.equal((toolEnd.data as { output: string }).output, "total 48\ndrwxr-x--- 8 node node 4096 .");
   const payload = store.payload(record);
   assert.equal(
     payload.messages.find((message) => message.role === "assistant")?.text,

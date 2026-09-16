@@ -137,31 +137,27 @@ test("shell tool wrapper masks output truncated mid-key by the SDK", async () =>
   assert.ok(text.startsWith(REDACTED), `masked output expected, got: ${text}`);
 });
 
-test(
-  "guarded grep tool masks key fragments cut by line truncation",
-  { skip: !HAS_RG && "ripgrep is not available" },
-  async () => {
-    // grepツールは一致行を500文字で切り詰める。境界に跨ったキーの断片が
-    // [REDACTED] になることを、実SDKのgrepで確認する。
-    const cwd = mkdtempSync(join(tmpdir(), "pi-guard-grep-"));
-    await writeFile(join(cwd, "leak.txt"), `${"x".repeat(475)}${KEY}\n`, "utf8");
-    const masker = createSecretMasker([KEY]);
-    const grepDefinition = wrapToolDefinitionWithSecretMasker(
-      createGrepToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
-      masker,
-    );
-    const result = await grepDefinition.execute(
-      "t6",
-      { pattern: "dummy", path: cwd },
-      undefined,
-      undefined,
-      undefined as never,
-    );
-    const text = result.content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
-    assert.ok(!text.includes(KEY.slice(0, 20)), `truncated fragment leaked: ${text}`);
-    assert.ok(text.includes(REDACTED), `masked fragment expected: ${text}`);
-  },
-);
+test("guarded grep tool masks key fragments cut by line truncation", { skip: !HAS_RG && RG_SKIP_REASON }, async () => {
+  // grepツールは一致行を500文字で切り詰める。境界に跨ったキーの断片が
+  // [REDACTED] になることを、実SDKのgrepで確認する。
+  const cwd = mkdtempSync(join(tmpdir(), "pi-guard-grep-"));
+  await writeFile(join(cwd, "leak.txt"), `${"x".repeat(475)}${KEY}\n`, "utf8");
+  const masker = createSecretMasker([KEY]);
+  const grepDefinition = wrapToolDefinitionWithSecretMasker(
+    createGrepToolDefinition(cwd) as Parameters<typeof wrapToolDefinitionWithSecretMasker>[0],
+    masker,
+  );
+  const result = await grepDefinition.execute(
+    "t6",
+    { pattern: "dummy", path: cwd },
+    undefined,
+    undefined,
+    undefined as never,
+  );
+  const text = result.content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
+  assert.ok(!text.includes(KEY.slice(0, 20)), `truncated fragment leaked: ${text}`);
+  assert.ok(text.includes(REDACTED), `masked fragment expected: ${text}`);
+});
 
 test("redaction extension masks tool_result content before it reaches the LLM", async () => {
   const registered = new Map<string, (event: never) => Promise<unknown>>();

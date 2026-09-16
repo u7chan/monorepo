@@ -44,6 +44,7 @@ export function safeUrl(raw: string, kind: "link" | "image"): string | null {
   const value = raw.trim().replace(/&amp;/g, "&");
   if (value === "") return null;
   // 制御文字・空白・バックスラッシュを含む URL は解釈しない (ブラウザごとの解釈揺れを避ける)
+  // oxlint-disable-next-line no-control-regex -- 制御文字を弾くのが目的なので意図どおり
   if (/[\u0000-\u0020\u007f\\]/.test(value)) return null;
   const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(value);
   if (scheme !== null) {

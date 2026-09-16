@@ -57,8 +57,10 @@ test("forwards onUpdate, resolves with the result payload, and sends auth header
   assert.deepEqual(updates[0].content, [{ type: "text", text: "partial" }]);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "http://sandbox.test:8080/v1/tools/bash/execute");
-  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
-  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.deepEqual(JSON.parse(String(init.body)), {
     toolCallId: "call-1",
     params: { command: "echo final" },
   });
@@ -186,7 +188,9 @@ test("listFiles sends the encoded path and auth header, and parses the JSON list
   assert.deepEqual(listing.entries, [{ name: "app.ts", type: "file", size: 3 }]);
   assert.equal(listing.truncated, false);
   assert.equal(calls[0].url, "http://sandbox.test:8080/v1/files?path=src%2Fclient");
-  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
   // path が空でも query は落とさない (サンドボックス側の既定は root)
   await client.listFiles("");
   assert.equal(calls[1].url, "http://sandbox.test:8080/v1/files?path=");
@@ -280,9 +284,11 @@ test("createDir posts the path and parses the created directory", async () => {
   const result = await client.createDir("a/b");
   assert.deepEqual(result, { path: "a/b" });
   assert.equal(calls[0].url, "http://sandbox.test:8080/v1/dirs");
-  assert.equal(calls[0].init?.method, "POST");
-  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
-  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { path: "a/b" });
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal(init.method, "POST");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.deepEqual(JSON.parse(String(init.body)), { path: "a/b" });
 });
 
 test("createDir relays sandbox 4xx messages and maps the rest to 502", async () => {
