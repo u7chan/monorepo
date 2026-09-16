@@ -10,6 +10,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
+| テキストプレビュー | `GET /api/files/preview` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills` | [api-catalog.md](api-catalog.md) |
@@ -77,6 +78,20 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 - 502: サンドボックスへ到達できない / 認証失敗 / サンドボックス側のエラー / 契約外の応答（BFF が zod で検証して弾く）
 
 client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型として参照し、ディレクトリを展開したときにそのパスだけを取得する（遅延ロード）。並び順はサーバーが決めるため再ソートしない。自動更新は無く、画面の「再読み込み」で取り直す。`path` はワークスペース root 相対のままで、選択中セッションの配下を表示するときはクライアントがそのセッションの `cwd`（root 相対）を前置してパスを組み立てる。
+
+## テキストプレビュー
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/preview?path=<root 相対>` | テキストファイルの内容（UTF-8、256 KiB 以下） |
+
+`{ "text": "内容" }` を返す（`Cache-Control: no-store`）。サンドボックスの `GET /v1/files/preview` に委譲し、root 内の通常ファイルのみ読み取る。HTML や Markdown も実行・レンダリングせずプレーンテキストとして扱う。
+
+- 400 / 404: バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+- 502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）
+
+ファイル画面で選択するとツリーの下に表示する。「閉じる」または一覧の再読み込みで解除し、選択変更時は古いリクエストを中断する。低い viewport ではツリー側が縮んでプレビュー本文の高さを残す。
 
 ## プロジェクト
 

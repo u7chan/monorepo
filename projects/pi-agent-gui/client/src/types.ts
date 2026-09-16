@@ -16,6 +16,7 @@ export type {
   EventEntry,
   FileEntry,
   FileListing,
+  FilePreview,
   Health,
   MessageMetrics,
   ModelOption,

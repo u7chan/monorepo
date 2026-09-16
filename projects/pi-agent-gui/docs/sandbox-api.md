@@ -6,6 +6,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
+| GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
 | POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
 | POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
 | POST | `/v1/executions/:id/cancel` | 実行中のツールを中断 |

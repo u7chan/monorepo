@@ -83,6 +83,14 @@ export interface SandboxFileListing {
 /** 1 ディレクトリあたりの上限 (SDK の ls ツールの既定上限に揃える) */
 export const SANDBOX_MAX_FILE_ENTRIES = 500;
 
+/** GET /v1/files/preview の応答。UTF-8 へデコード済みのテキスト。 */
+export interface SandboxFilePreview {
+  text: string;
+}
+
+/** プレビューで読むファイルサイズの上限 (これより大きいと 400)。 */
+export const SANDBOX_MAX_PREVIEW_BYTES = 256 * 1024;
+
 /** 1 イベント = 1 行。 */
 export function encodeSandboxEvent(event: SandboxEvent): string {
   return `${JSON.stringify(event)}\n`;

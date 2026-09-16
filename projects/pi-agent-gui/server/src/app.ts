@@ -41,6 +41,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)
     .get("/api/files", fileRoutes.list)
+    .get("/api/files/preview", fileRoutes.preview)
     .get("/api/projects", projectRoutes.list)
     .post(
       "/api/projects",

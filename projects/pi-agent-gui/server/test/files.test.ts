@@ -24,6 +24,7 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
   return {
     paths,
     workspace: {
+      previewFile: async () => ({ text: "hello" }),
       listFiles: async (path: string) => {
         paths.push(path);
         if (result instanceof Error) throw result;
@@ -36,6 +37,35 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
 }
 
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
+
+test("GET /api/files/preview validates responses and does not cache content", async () => {
+  const { workspace } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  try {
+    workspace.previewFile = async (path) => ({ text: path });
+    const response = await bff.app.request("/api/files/preview?path=src%2Fhello.txt");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.deepEqual(await response.json(), { text: "src/hello.txt" });
+    workspace.previewFile = async () => ({ text: 42 }) as unknown as { text: string };
+    assert.equal((await bff.app.request("/api/files/preview?path=x")).status, 502);
+    workspace.previewFile = async () => {
+      throw new SandboxRequestError("missing", 404);
+    };
+    assert.equal((await bff.app.request("/api/files/preview?path=x")).status, 404);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/preview answers 503 when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  try {
+    assert.equal((await bff.app.request("/api/files/preview?path=README.md")).status, 503);
+  } finally {
+    await bff.close();
+  }
+});
 
 test("GET /api/files relays the sandbox listing", async () => {
   const { workspace, paths } = stubFiles();

@@ -5,7 +5,7 @@
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import { realpath as realpathCallback, type Dirent } from "node:fs";
-import { lstat, mkdir, readdir, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
@@ -22,6 +22,7 @@ import { Hono } from "hono";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
+  SANDBOX_MAX_PREVIEW_BYTES,
   encodeSandboxEvent,
   type SandboxCreateDirRequestBody,
   type SandboxExecuteRequestBody,
@@ -115,6 +116,7 @@ async function readJsonBody(request: Request): Promise<unknown> {
 async function resolveWorkspaceDirectory(
   rootCwd: string,
   requested: string,
+  directory = true,
 ): Promise<{ root: string; target: string }> {
   // root 自体も realpath で解決し、両辺を実パスで比較する (root の symlink 経由でも判定が崩れないように)
   const root = await realpathNative(rootCwd).catch((error: unknown) => {
@@ -143,7 +145,8 @@ async function resolveWorkspaceDirectory(
 
   const targetStat = await stat(target).catch(() => undefined);
   if (!targetStat) throw pathError(404, `Path not found: ${candidate}`);
-  if (!targetStat.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
+  if (directory && !targetStat.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
+  if (!directory && !targetStat.isFile()) throw pathError(400, `Not a regular file: ${candidate}`);
   return { root, target };
 }
 
@@ -447,6 +450,39 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         "X-Accel-Buffering": "no",
       },
     });
+  });
+
+  app.get("/v1/files/preview", async (c) => {
+    try {
+      const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
+      const handle = await open(target, "r");
+      try {
+        const limit = SANDBOX_MAX_PREVIEW_BYTES;
+        if (!(await handle.stat()).isFile()) throw pathError(400, "Not a regular file");
+        // stat 後の増大でも無制限に読み込まない。
+        const buffer = Buffer.alloc(limit + 1);
+        let size = 0;
+        while (size < buffer.length) {
+          const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
+          if (!bytesRead) break;
+          size += bytesRead;
+        }
+        if (size > limit) throw pathError(400, "プレビューは256 KiB以下のファイルに対応しています");
+        let text: string;
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
+        } catch {
+          throw pathError(400, "UTF-8のテキストファイルのみプレビューできます");
+        }
+        // oxlint-disable-next-line no-control-regex -- バイナリ判定のため制御文字を検出する。
+        if (/[\u0000-\u0008\u000e-\u001f]/u.test(text)) throw pathError(400, "バイナリファイルはプレビューできません");
+        return c.json({ text });
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      return c.json({ error: messageFor(error) }, ((error as { statusCode?: number }).statusCode ?? 400) as 400);
+    }
   });
 
   app.get("/v1/files", async (c) => {

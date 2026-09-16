@@ -7,6 +7,7 @@ import {
   type SandboxCreateDirResult,
   type SandboxEvent,
   type SandboxFileListing,
+  type SandboxFilePreview,
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
@@ -39,6 +40,16 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   return {
     execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
     listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+    previewFile: async (path) => {
+      const response = await fetchJson(
+        fetchImpl,
+        `${baseUrl}/v1/files/preview?path=${encodeURIComponent(path)}`,
+        { headers: jsonHeaders(token) },
+        baseUrl,
+      );
+      if (!response.ok) throw await jsonError(response, "プレビューを取得できませんでした");
+      return (await response.json()) as SandboxFilePreview;
+    },
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
   };
 }
@@ -55,13 +66,14 @@ export function createSandboxToolClientFromEnv(
 }
 
 export interface SandboxToolClient {
+  previewFile(path: string): Promise<SandboxFilePreview>;
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
 }
 
 /** /api/files とプロジェクト作成が使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
-export type SandboxWorkspaceClient = Pick<SandboxToolClient, "listFiles" | "createDir">;
+export type SandboxWorkspaceClient = Pick<SandboxToolClient, "listFiles" | "createDir" | "previewFile">;
 
 /**
  * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
