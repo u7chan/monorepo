@@ -284,12 +284,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       return () => listeners.delete(listener);
     },
     emit(event: PiSessionEvent) {
-      for (const listener of [...listeners]) listener(event);
+      for (const listener of listeners) listener(event);
     },
     async abort() {
       if (!session.isStreaming) return;
       session.abortRequested = true;
-      for (const wake of [...sleepers]) wake();
+      for (const wake of sleepers) wake();
     },
     dispose() {
       session.disposed = true;

@@ -1,7 +1,7 @@
 // 作業領域の準備失敗を、生のスタックではなく再現手順つきの案内として返すことを検証する。
 // (Docker の既定 /workspace は契約のまま維持し、ホスト実行だけを案内の対象にする)
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

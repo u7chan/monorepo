@@ -4,7 +4,6 @@ import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
 import { ProjectStore } from "../src/projects";
 import { computeMessageMetrics, SessionStore } from "../src/sessions";
-import type { PiSessionLike } from "../src/sessions";
 import type { ContextUsage, EventEntry, Usage } from "../src/schema";
 import { createStubPi, STUB_CONTEXT_USAGE, STUB_USAGE, type StubSession, waitFor } from "./stub-pi";
 

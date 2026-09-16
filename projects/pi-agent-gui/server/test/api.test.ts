@@ -9,7 +9,7 @@ import type { Hono } from "hono";
 import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
-import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_PLAIN_MODEL, STUB_USAGE } from "./stub-pi";
+import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
   method: "POST",

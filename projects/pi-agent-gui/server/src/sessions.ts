@@ -475,7 +475,8 @@ export class SessionStore {
     if (record.events.length > MAX_EVENT_LOG) {
       record.events.splice(0, record.events.length - MAX_EVENT_LOG);
     }
-    for (const subscriber of [...record.subscribers]) {
+    // 送信中に購読を解除した相手には送らない (Set の反復は削除に強い)
+    for (const subscriber of record.subscribers) {
       try {
         subscriber.send(entry);
       } catch {
