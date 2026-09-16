@@ -213,10 +213,10 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
                   )}
                 </span>
                 {/* The identity above is a label, the controls below are
-                    buttons: a hairline keeps the two groups apart. Below `sm`
-                    the controls wrap onto their own line, where the hairline
-                    would be left dangling at the end of the first line, so it
-                    only appears once both groups fit on one line. */}
+                    buttons: a hairline keeps the two groups apart. Hide it
+                    below `sm`: at narrow widths the header wraps and a
+                    standalone hairline is left dangling at the end of the
+                    line. */}
                 <span
                   aria-hidden="true"
                   className={`${verticalDividerClassName} hidden sm:block`}
