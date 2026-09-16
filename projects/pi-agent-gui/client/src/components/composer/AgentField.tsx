@@ -19,7 +19,7 @@ export function AgentField({
       <SelectField
         aria-label="エージェントを選択"
         className={selectClass(compact)}
-        wrapperClassName={selectWrapperClass(compact, "max-w-[200px]")}
+        wrapperClassName={selectWrapperClass(compact, "max-w-50")}
         value={agentId}
         disabled={agents.length === 0}
         onChange={(event) => {

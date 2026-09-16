@@ -80,7 +80,7 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
       title="作業ディレクトリ"
       // 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる)
       caption={
-        <code className="block truncate text-[11px] leading-normal text-ink-muted">
+        <code className="block truncate text-1xs leading-normal text-ink-muted">
           {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
         </code>
       }
@@ -133,7 +133,7 @@ function Branch({ parent, node, depth, tree, selected, onToggle, onSelect }: Bra
   const entries = node.children ?? [];
   return (
     // 明示的な minmax(0,1fr) で行幅を容器に固定する (auto だと長い名前の max-content まで広がり、省略記号ではなく overflow で切れる)
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5">
+    <div className="grid min-w-0 grid-cols-1 gap-0.5">
       {entries.length === 0 ? <MessageRow depth={depth}>（空）</MessageRow> : null}
       {entries.map((entry) => (
         <EntryRow
@@ -256,7 +256,7 @@ function MessageRow({
       role={alert ? "alert" : undefined}
       style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
       className={[
-        "py-1.5 pr-2 pl-(--tree-indent) text-[11px] leading-relaxed break-words",
+        "py-1.5 pr-2 pl-(--tree-indent) text-1xs leading-relaxed break-words",
         danger ? "text-danger-text" : "text-ink-muted",
       ].join(" ")}
     >
@@ -267,5 +267,5 @@ function MessageRow({
 
 /** root 外を指す symlink は開くと 400 になるため、一覧の時点で印を付ける */
 function SymlinkMark() {
-  return <span className="shrink-0 rounded border border-line px-1 text-[9px] leading-4 text-ink-ghost">リンク</span>;
+  return <span className="shrink-0 rounded border border-line px-1 text-3xs leading-4 text-ink-ghost">リンク</span>;
 }

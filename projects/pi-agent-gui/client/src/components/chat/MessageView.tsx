@@ -52,7 +52,7 @@ export function MessageView({
       <div
         className={[
           "grid shrink-0 place-items-center rounded-lg font-bold",
-          compact ? "size-[22px] text-[9px]" : "size-[26px] text-[10px]",
+          compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
           isUser
             ? "order-2 bg-accent-bright text-on-accent"
             : "border border-accent/25 bg-accent-wash text-accent-strong",
@@ -70,7 +70,7 @@ export function MessageView({
           .filter(Boolean)
           .join(" ")}
       >
-        <div className={["text-[10px] font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1"].join(" ")}>
+        <div className={["text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1"].join(" ")}>
           {isUser ? "あなた" : "アシスタント"}
         </div>
         {!isUser && bubble.tools.length > 0 ? (
@@ -87,7 +87,7 @@ export function MessageView({
         {bubble.text ? (
           isUser ? (
             // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
-            <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-[13px] leading-relaxed text-on-accent">
+            <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed text-on-accent">
               {bubble.text}
             </div>
           ) : (
@@ -107,7 +107,7 @@ export function MessageView({
               <time
                 dateTime={new Date(bubble.at).toISOString()}
                 title={messageFullTimeLabel(bubble.at)}
-                className="shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums text-ink-ghost"
+                className="shrink-0 whitespace-nowrap font-sans text-2xs tabular-nums text-ink-ghost"
               >
                 {messageTimeLabel(bubble.at)}
               </time>
@@ -115,7 +115,7 @@ export function MessageView({
             {metaLine ? (
               <span
                 title={metaTitle}
-                className="shrink-0 whitespace-nowrap font-sans text-[10px] tabular-nums text-ink-faint"
+                className="shrink-0 whitespace-nowrap font-sans text-2xs tabular-nums text-ink-faint"
               >
                 {metaLine}
               </span>

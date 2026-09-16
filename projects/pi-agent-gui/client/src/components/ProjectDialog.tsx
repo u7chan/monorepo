@@ -131,7 +131,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-ghost">PROJECT</div>
+          <div className="text-2xs font-semibold uppercase tracking-label text-ink-ghost">PROJECT</div>
           <h2 className="text-base font-semibold text-ink-strong">プロジェクトを追加</h2>
         </div>
         <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
@@ -159,10 +159,10 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
         <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-4 py-3.5">
           <div className="grid gap-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
+            <div className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">
               {mode === "create" ? "親ディレクトリ" : "登録するディレクトリ"}
             </div>
-            <code className="block truncate rounded-lg border border-line bg-soft px-2.5 py-2 text-[11px] text-ink-soft">
+            <code className="block truncate rounded-lg border border-line bg-soft px-2.5 py-2 text-1xs text-ink-soft">
               {path === WORKSPACE_ROOT ? "ワークスペース root" : path}
             </code>
             {/* 一覧だけをスクロールさせ、名前の入力と送信ボタンを常に見える位置に残す */}
@@ -180,13 +180,13 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
                 </button>
               ) : null}
               {listingError ? (
-                <p role="alert" className="px-2 py-1.5 text-[11px] leading-relaxed text-danger-text">
+                <p role="alert" className="px-2 py-1.5 text-1xs leading-relaxed text-danger-text">
                   {listingError}
                 </p>
               ) : directories === null ? (
-                <p className="px-2 py-1.5 text-[11px] text-ink-muted">読み込み中…</p>
+                <p className="px-2 py-1.5 text-1xs text-ink-muted">読み込み中…</p>
               ) : directories.length === 0 ? (
-                <p className="px-2 py-1.5 text-[11px] text-ink-muted">サブディレクトリはありません</p>
+                <p className="px-2 py-1.5 text-1xs text-ink-muted">サブディレクトリはありません</p>
               ) : (
                 directories.map((entry) => (
                   <button
@@ -206,10 +206,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
           </div>
 
           <div className="grid gap-1.5">
-            <label
-              htmlFor="project-name"
-              className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint"
-            >
+            <label htmlFor="project-name" className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">
               {mode === "create" ? "名前" : "表示名"}
             </label>
             {/* compact は iOS Safari の focus 時ズームを避けるために 16px 以上にする */}
@@ -219,9 +216,9 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
               onChange={(event) => setName(event.currentTarget.value)}
               disabled={busy}
               placeholder={mode === "create" ? "新しいディレクトリ名" : "ディレクトリ名"}
-              className={["field", compact ? "text-[16px]" : "text-xs"].join(" ")}
+              className={["field", compact ? "text-md" : "text-xs"].join(" ")}
             />
-            <p className="text-[11px] leading-relaxed text-ink-muted">
+            <p className="text-1xs leading-relaxed text-ink-muted">
               {mode === "create"
                 ? `ワークスペース内に ${projectChildPath(path, name.trim() || "…")} を作成します。`
                 : "選択中の既存ディレクトリを登録します。ディレクトリの中身は変更しません。"}
@@ -233,7 +230,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
           <p
             role={footerNote.danger ? "alert" : undefined}
             className={[
-              "min-w-0 flex-1 text-[11px] leading-relaxed",
+              "min-w-0 flex-1 text-1xs leading-relaxed",
               footerNote.danger ? "text-danger-text" : "text-ink-muted",
             ].join(" ")}
           >

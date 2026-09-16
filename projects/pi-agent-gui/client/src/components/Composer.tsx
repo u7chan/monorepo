@@ -113,7 +113,7 @@ export function Composer({
       type="button"
       onClick={onStop}
       className={[
-        "shrink-0 cursor-pointer bg-transparent p-0 text-[10px] text-warn transition-colors hover:brightness-125",
+        "shrink-0 cursor-pointer bg-transparent p-0 text-2xs text-warn transition-colors hover:brightness-125",
         compact ? "px-1 py-0.5" : "",
       ].join(" ")}
     >
@@ -129,14 +129,14 @@ export function Composer({
     <footer
       className={[
         "w-full min-w-0",
-        compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-[880px] px-6 pb-5 wide:px-8",
+        compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       ].join(" ")}
     >
       <ContextGauge activity={activity} context={context} compact={compact} />
       <form
         onSubmit={handleSubmit}
         className={[
-          "grid rounded-[13px] border border-line-strong bg-panel/90 shadow-panel",
+          "grid rounded-xl border border-line-strong bg-panel/90 shadow-panel",
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
         ].join(" ")}
       >
@@ -153,7 +153,7 @@ export function Composer({
                   onChangeThinkingLevel={onChangeThinkingLevel}
                 />
               ) : null}
-              {rowNotice ? <span className="min-w-0 break-words text-[10px] text-warn">{rowNotice}</span> : null}
+              {rowNotice ? <span className="min-w-0 break-words text-2xs text-warn">{rowNotice}</span> : null}
             </>
           )}
         </div>
@@ -171,7 +171,7 @@ export function Composer({
               onChangeThinkingLevel={onChangeThinkingLevel}
             />
             {notice ? (
-              <span className={["min-w-0 break-words text-[10px] text-warn", landscape ? "col-span-2" : ""].join(" ")}>
+              <span className={["min-w-0 break-words text-2xs text-warn", landscape ? "col-span-2" : ""].join(" ")}>
                 {notice}
               </span>
             ) : null}
@@ -191,7 +191,7 @@ export function Composer({
             }
             className={[
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-              compact ? "min-h-9 max-h-[120px] py-1.5 text-[16px]" : "min-h-6 max-h-[180px] py-1",
+              compact ? "min-h-9 max-h-30 py-1.5 text-md" : "min-h-6 max-h-45 py-1",
             ].join(" ")}
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
@@ -217,7 +217,7 @@ export function Composer({
       </form>
       {compact ? (
         collapsedWarnings.length > 0 || stopVisible ? (
-          <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-[10px] text-ink-ghost">
+          <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
             {collapsedWarnings.length > 0 ? (
               <span className="mr-auto min-w-0 break-words text-warn">{collapsedWarnings.join(" / ")}</span>
             ) : null}
@@ -225,7 +225,7 @@ export function Composer({
           </div>
         ) : null
       ) : (
-        <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-[10px] text-ink-ghost">
+        <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-2xs text-ink-ghost">
           <span className="min-w-0 break-words">
             送信後もブラウザを閉じても処理は続きます
             {settings.sendBlockedReason ? <span className="ml-1 text-warn">{settings.sendBlockedReason}</span> : null}

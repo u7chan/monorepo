@@ -49,7 +49,7 @@ export function SessionRow({
   return (
     <div
       className={[
-        "group flex min-h-[42px] items-center gap-1 rounded-lg border pr-1.5 transition-colors",
+        "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors",
         active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
       ].join(" ")}
     >
@@ -62,7 +62,7 @@ export function SessionRow({
         <span className={statusDotClass(item.status)} aria-hidden />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
-          <small className="truncate text-[10px] text-ink-muted">{bits.join(" · ")}</small>
+          <small className="truncate text-2xs text-ink-muted">{bits.join(" · ")}</small>
         </span>
       </button>
       <button
@@ -71,7 +71,7 @@ export function SessionRow({
         aria-label="セッションを削除"
         onClick={onDelete}
         // タッチ端末では常時表示する
-        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-[13px] leading-none text-ink-ghost transition-colors group-hover:text-danger hover:bg-danger/20 hover:text-danger can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100"
+        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-1sm leading-none text-ink-ghost transition-colors group-hover:text-danger hover:bg-danger/20 hover:text-danger can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100"
       >
         ×
       </button>

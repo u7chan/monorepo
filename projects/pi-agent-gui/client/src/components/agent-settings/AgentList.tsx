@@ -21,7 +21,7 @@ export function AgentList({
 }) {
   return (
     <aside className="flex min-h-0 min-w-0 flex-col wide:border-r wide:border-line">
-      <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
+      <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold uppercase tracking-widest text-ink-faint">
         <span>エージェント一覧</span>
         <span className="font-normal">{agents.length}</span>
       </div>
@@ -29,7 +29,7 @@ export function AgentList({
         <button
           type="button"
           onClick={onStartNew}
-          className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+          className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
         >
           <PlusIcon />
           新しいエージェント
@@ -43,7 +43,7 @@ export function AgentList({
               className={itemClass(editingId === agent.id)}
             >
               <strong className="min-w-0 truncate text-xs text-ink">{agent.name}</strong>
-              <span className="min-w-0 truncate text-[10px] text-ink-muted">{agent.description || "説明なし"}</span>
+              <span className="min-w-0 truncate text-2xs text-ink-muted">{agent.description || "説明なし"}</span>
             </button>
           ))}
         </div>
