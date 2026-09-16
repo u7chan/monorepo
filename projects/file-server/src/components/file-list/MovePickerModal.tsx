@@ -198,7 +198,7 @@ export const MovePickerModal: FC<MovePickerModalProps> = ({
         <form
           hx-post="/api/move"
           hx-target="#file-list-container"
-          hx-swap="innerHTML"
+          hx-swap="outerHTML"
           data-inline-error-form
           data-move-form
           className="flex-shrink-0 border-t border-slate-200 px-5 py-4"

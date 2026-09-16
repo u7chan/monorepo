@@ -22,6 +22,7 @@ function buildBreadcrumbs(breadcrumbs: BrowseCrumb[]) {
           href={href}
           hx-get={hxGet}
           hx-target="#file-list-container"
+          hx-swap="outerHTML"
           hx-push-url={href}
           aria-current={isLast ? "page" : undefined}
           className={

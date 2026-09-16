@@ -265,12 +265,10 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
             id="main-content"
             className="-mx-1 -mb-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pt-3 pb-1"
           >
-            <div
-              id="file-list-container"
-              className="flex min-h-0 flex-1 flex-col"
-            >
-              {children}
-            </div>
+            {/* No id here: `#file-list-container` belongs to the FileList
+                partial root, so pages without a list (/login, /admin/users)
+                do not expose it. */}
+            <div className="flex min-h-0 flex-1 flex-col">{children}</div>
           </div>
         </div>
         <div id="file-viewer-container"></div>

@@ -14,6 +14,9 @@ export type { FileItem } from "./file-list/types"
 
 export const FileList: FC<FileListProps> = ({ view }) => {
   return (
+    /* This root is the only element carrying `#file-list-container`. Controls
+       that refresh the list must swap it with `hx-swap="outerHTML"`, so the
+       replacement brings the id with it and the document keeps exactly one. */
     <div id="file-list-container" className="flex min-h-0 flex-1 flex-col">
       {/* Kept out of the scrolling area so the header, breadcrumbs and actions
           stay visible while the file list scrolls. */}

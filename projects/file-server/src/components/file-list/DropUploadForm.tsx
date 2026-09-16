@@ -15,7 +15,7 @@ export function DropUploadForm({ requestPath }: DropUploadFormProps) {
         id="drop-upload-form"
         hx-post="/api/upload"
         hx-target="#file-list-container"
-        hx-swap="innerHTML"
+        hx-swap="outerHTML"
         hx-encoding="multipart/form-data"
         className="hidden"
       >
