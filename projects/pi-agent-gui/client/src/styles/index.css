@@ -386,7 +386,7 @@ html[data-theme="sky"] {
 @layer components {
   /* input / select / textarea 共通 */
   .field {
-    @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink outline-none transition-colors focus:border-focus;
+    @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink transition-colors outline-none focus:border-focus;
   }
 
   /* アイコン + ラベルの副次ボタン (全画面 dialog のヘッダ操作など) */

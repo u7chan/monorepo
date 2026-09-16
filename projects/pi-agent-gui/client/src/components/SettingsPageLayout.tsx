@@ -55,7 +55,7 @@ export function SettingsPageLayout({
             </button>
           ) : null}
           <div className="min-w-0">
-            <div className="text-2xs font-semibold uppercase tracking-label text-ink-ghost">{eyebrow}</div>
+            <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">{eyebrow}</div>
             <h2 className="text-lg font-semibold text-ink-strong">{title}</h2>
             {caption ? <div className="min-w-0">{caption}</div> : null}
           </div>

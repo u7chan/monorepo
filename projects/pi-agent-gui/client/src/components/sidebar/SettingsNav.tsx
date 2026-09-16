@@ -11,7 +11,7 @@ export function SettingsNav({
   onOpenSettingsSection: (section: SettingsSection) => void;
 }) {
   return (
-    <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-0.5">
+    <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-2 overflow-y-auto pr-0.5">
       <button
         type="button"
         onClick={() => onSelectMode("nav")}
@@ -20,7 +20,7 @@ export function SettingsNav({
         <ArrowLeftIcon />
         アプリに戻る
       </button>
-      <div className="px-1 pt-1 text-2xs font-semibold uppercase tracking-widest text-ink-faint">設定</div>
+      <div className="px-1 pt-1 text-2xs font-semibold tracking-widest text-ink-faint uppercase">設定</div>
       {SETTINGS_SECTIONS.map((item) => {
         const active = item.section === activeSettingsSection;
         return (

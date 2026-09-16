@@ -99,7 +99,7 @@ export function ProjectRow({
       </div>
       {open ? (
         sessions.length === 0 ? (
-          <div className="ml-3 border-l border-line pl-2 py-1 text-1xs text-ink-faint">セッションはありません</div>
+          <div className="ml-3 border-l border-line py-1 pl-2 text-1xs text-ink-faint">セッションはありません</div>
         ) : (
           <div className="ml-3 grid gap-1 border-l border-line pl-1.5">
             {sessions.map((item) => (

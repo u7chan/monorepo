@@ -130,10 +130,10 @@ export function AgentEditorForm({
   };
 
   return (
-    <section className="scrollbar-thin min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4">
+    <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <form onSubmit={saveAgent} className="mx-auto grid max-w-2xl gap-3">
         <div>
-          <div className="text-2xs font-semibold uppercase tracking-label text-accent-text">AGENT</div>
+          <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">AGENT</div>
           <h3 className="text-sm font-semibold text-ink-strong">
             {agent ? "エージェントを編集" : "新しいエージェント"}
           </h3>
@@ -208,7 +208,7 @@ export function AgentEditorForm({
                 />
                 <span className="min-w-0">
                   <span className="block text-xs text-ink">{skill.name}</span>
-                  <small className="block break-words text-2xs text-ink-muted">{skill.description || ""}</small>
+                  <small className="block text-2xs break-words text-ink-muted">{skill.description || ""}</small>
                 </span>
               </label>
             ))

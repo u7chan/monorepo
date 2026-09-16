@@ -95,7 +95,7 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
       }
     >
       {/* ツリーは行のインデントだけを持ち、幅は画面いっぱいに使う */}
-      <div className="scrollbar-thin min-h-0 overflow-x-hidden overflow-y-auto px-3 py-3">
+      <div className="min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3">
         {root.error ? (
           <MessageRow depth={0} danger alert>
             {root.error}

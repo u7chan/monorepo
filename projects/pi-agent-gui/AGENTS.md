@@ -14,7 +14,7 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 
 lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client には Design System ルール (`shadcn/*`)、server には通常の TypeScript ルールが当たる。`categories.correctness`（`no-unused-vars` / `no-unsafe-optional-chaining` など）は error で、意図的に残す違反だけを理由コメント付きで disable する (`// oxlint-disable-next-line <rule> -- 理由`)。自動修正は `pnpm lint:fix`（`shadcn/*` の指摘は自動修正されないので手で直す）。コンポーネントは見た目（余白・文字サイズ・色・効果）を自分で持ち、呼び出し側の `className` は layout だけにする（`shadcn/no-restyle`）。見た目の切替が要るときは呼び出し側でクラスを足さず、コンポーネントに props を足す。`shadcn/no-arbitrary-values` は error で、`allow` に列挙する例外は Tailwind の scale に無い layout 値（grid テンプレート / `max-h` の vh・dvh / em 幅 / min() 幅）だけ。追加するときは値ごとに理由を PR に書く。整数 px は scale で書ける（`--spacing` = 0.25rem の倍数で、倍率に小数を使える）ので、ルールが検出しない組み立て方（メソッド呼び出しで組んだ className など）でも scale 値へ寄せる。
 
-format は `pnpm format` で適用、`pnpm format:check` で差分の有無だけを確認する。設定は root の `.oxfmtrc.json` にあり、client / server だけが対象（root の `package.json` / `scripts/` / `docs/` は対象外）。
+format は `pnpm format` で適用、`pnpm format:check` で差分の有無だけを確認する。設定は root の `.oxfmtrc.json` にあり、client / server だけが対象（root の `package.json` / `scripts/` / `docs/` は対象外）。oxfmt は `className` / `class` の静的文字列と CSS の `@apply` のクラス順も揃える。順序は `sortTailwindcss.stylesheet` に指定した `client/src/styles/index.css` から `@theme` の独自トークン込みで決まるため、この CSS を動かすときは設定のパスも直す（stylesheet を読めないと `format:check` は ENOENT で失敗する）。`["...", cond ? "..." : "..."].join(" ")` のように実行時に組み立てる文字列は対象外で、並び順は揃わない。
 
 ## コメント
 

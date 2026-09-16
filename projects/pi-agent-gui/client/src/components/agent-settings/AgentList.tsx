@@ -21,11 +21,11 @@ export function AgentList({
 }) {
   return (
     <aside className="flex min-h-0 min-w-0 flex-col wide:border-r wide:border-line">
-      <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold uppercase tracking-widest text-ink-faint">
+      <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold tracking-widest text-ink-faint uppercase">
         <span>エージェント一覧</span>
         <span className="font-normal">{agents.length}</span>
       </div>
-      <div className="scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 max-h-[30vh] wide:max-h-none">
+      <div className="max-h-[30vh] min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3 wide:max-h-none">
         <button
           type="button"
           onClick={onStartNew}

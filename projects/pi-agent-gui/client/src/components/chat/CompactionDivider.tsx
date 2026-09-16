@@ -29,10 +29,10 @@ export function CompactionDivider({ compactions, compact }: { compactions: Compa
         <ol className="m-0 grid list-none gap-3">
           {compactions.map((compaction, index) => (
             <li key={compaction.id} className="grid min-w-0 gap-1">
-              <span className="font-sans text-3xs uppercase tracking-wide text-ink-faint">
+              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">
                 {compactionSummaryHeading(compaction, index)}
               </span>
-              <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft">
+              <p className="m-0 text-xs leading-relaxed break-words whitespace-pre-wrap text-ink-soft">
                 {compaction.summary}
               </p>
             </li>

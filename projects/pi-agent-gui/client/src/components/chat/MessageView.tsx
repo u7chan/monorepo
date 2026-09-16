@@ -87,7 +87,7 @@ export function MessageView({
         {bubble.text ? (
           isUser ? (
             // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
-            <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed text-on-accent">
+            <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed break-words whitespace-pre-wrap text-on-accent">
               {bubble.text}
             </div>
           ) : (
@@ -107,7 +107,7 @@ export function MessageView({
               <time
                 dateTime={new Date(bubble.at).toISOString()}
                 title={messageFullTimeLabel(bubble.at)}
-                className="shrink-0 whitespace-nowrap font-sans text-2xs tabular-nums text-ink-ghost"
+                className="shrink-0 font-sans text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
               >
                 {messageTimeLabel(bubble.at)}
               </time>
@@ -115,7 +115,7 @@ export function MessageView({
             {metaLine ? (
               <span
                 title={metaTitle}
-                className="shrink-0 whitespace-nowrap font-sans text-2xs tabular-nums text-ink-faint"
+                className="shrink-0 font-sans text-2xs whitespace-nowrap text-ink-faint tabular-nums"
               >
                 {metaLine}
               </span>

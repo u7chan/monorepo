@@ -112,10 +112,10 @@ export function Sidebar({
             <span>新しい会話</span>
           </button>
 
-          <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-0.5">
+          <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-0.5">
             <section className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">Projects</div>
+                <div className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Projects</div>
                 <button
                   type="button"
                   onClick={onNewProject}
@@ -163,7 +163,7 @@ export function Sidebar({
                   selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
                 ].join(" ")}
               >
-                <span className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">Chats</span>
+                <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
                 <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>
               </button>
               {unassigned.length === 0 ? (
