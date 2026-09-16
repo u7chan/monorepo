@@ -10,6 +10,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
+| テキストプレビュー | `GET /api/files/preview` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills` | [api-catalog.md](api-catalog.md) |
@@ -80,9 +81,17 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 
 ## テキストプレビュー
 
-`GET /api/files/preview?path=<root 相対>` は `{ "text": "内容" }` を返す（`Cache-Control: no-store`）。サンドボックスの `GET /v1/files/preview` に委譲し、root 内の通常ファイルのみ読み取る。UTF-8のみ、256 KiB以下。バイナリ・非対応文字コード・上限超過・ディレクトリ・root外は400、不存在は404、未設定は503。HTMLやMarkdownも実行・レンダリングせずプレーンテキストで表示する。
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/preview?path=<root 相対>` | テキストファイルの内容（UTF-8、256 KiB 以下） |
 
-ファイル画面で選択するとツリーの下に表示する。「閉じる」または一覧の再読み込みで解除する。選択変更時は古いリクエストを中断する。
+`{ "text": "内容" }` を返す（`Cache-Control: no-store`）。サンドボックスの `GET /v1/files/preview` に委譲し、root 内の通常ファイルのみ読み取る。HTML や Markdown も実行・レンダリングせずプレーンテキストとして扱う。
+
+- 400 / 404: バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+- 502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）
+
+ファイル画面で選択するとツリーの下に表示する。「閉じる」または一覧の再読み込みで解除し、選択変更時は古いリクエストを中断する。
 
 ## プロジェクト
 

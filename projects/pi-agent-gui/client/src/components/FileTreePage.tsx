@@ -98,38 +98,41 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
         </button>
       }
     >
-      <div
-        className={cn(
-          "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
-          selected ? "max-h-64 shrink-0" : "flex-1",
-        )}
-      >
-        {root.error ? (
-          <MessageRow depth={0} danger alert>
-            {root.error}
-          </MessageRow>
-        ) : null}
-        {root.children ? (
-          <Branch
-            parent={FILE_TREE_ROOT}
-            node={root}
-            depth={0}
-            tree={tree}
-            selected={selected}
-            onToggle={toggle}
-            onSelect={setSelected}
+      {/* 親は 3 行グリッドなので、ツリーとプレビューを 1 要素にまとめる (2 要素渡すとプレビューが note 行へ入り、ツリーが潰れる) */}
+      <div className="flex min-h-0 flex-col">
+        <div
+          className={cn(
+            "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
+            selected ? "max-h-64 shrink-0" : "flex-1",
+          )}
+        >
+          {root.error ? (
+            <MessageRow depth={0} danger alert>
+              {root.error}
+            </MessageRow>
+          ) : null}
+          {root.children ? (
+            <Branch
+              parent={FILE_TREE_ROOT}
+              node={root}
+              depth={0}
+              tree={tree}
+              selected={selected}
+              onToggle={toggle}
+              onSelect={setSelected}
+            />
+          ) : root.error ? null : (
+            <MessageRow depth={0}>読み込み中…</MessageRow>
+          )}
+        </div>
+        {selected ? (
+          <FilePreview
+            key={fileTreeFetchPath(rootPath, selected)}
+            path={fileTreeFetchPath(rootPath, selected)}
+            onClose={() => setSelected(null)}
           />
-        ) : root.error ? null : (
-          <MessageRow depth={0}>読み込み中…</MessageRow>
-        )}
+        ) : null}
       </div>
-      {selected ? (
-        <FilePreview
-          key={fileTreeFetchPath(rootPath, selected)}
-          path={fileTreeFetchPath(rootPath, selected)}
-          onClose={() => setSelected(null)}
-        />
-      ) : null}
     </SettingsPageLayout>
   );
 }

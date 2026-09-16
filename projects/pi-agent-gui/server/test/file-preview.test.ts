@@ -25,6 +25,9 @@ test("preview accepts bounded UTF-8 files and rejects unsafe paths", async () =>
     for (const path of ["binary", "invalid", "large", ".", "outside", "../missing"])
       assert.equal((await request(path)).status, 400, path);
     assert.equal((await request("missing")).status, 404);
+    // 境界 (ちょうど上限) は通す
+    await writeFile(join(root, "limit"), "a".repeat(256 * 1024));
+    assert.equal((await request("limit")).status, 200);
     assert.equal((await service.app.request("/v1/files/preview?path=text")).status, 401);
   } finally {
     await rm(root, { recursive: true, force: true });

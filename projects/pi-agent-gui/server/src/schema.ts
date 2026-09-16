@@ -277,6 +277,13 @@ export const FileListingSchema = z.object({
 });
 export type FileListing = z.infer<typeof FileListingSchema>;
 
+/**
+ * テキストプレビュー (サンドボックス GET /v1/files/preview の応答)。
+ * サンドボックス側の上限はバイト数で、ここは UTF-16 単位の防御。UTF-8 ではバイト数 ≥ 単位数なので通った文字列を弾かない。
+ */
+export const FilePreviewSchema = z.object({ text: z.string().max(256 * 1024) });
+export type FilePreview = z.infer<typeof FilePreviewSchema>;
+
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),

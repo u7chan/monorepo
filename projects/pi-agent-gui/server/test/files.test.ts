@@ -58,6 +58,15 @@ test("GET /api/files/preview validates responses and does not cache content", as
   }
 });
 
+test("GET /api/files/preview answers 503 when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  try {
+    assert.equal((await bff.app.request("/api/files/preview?path=README.md")).status, 503);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("GET /api/files relays the sandbox listing", async () => {
   const { workspace, paths } = stubFiles();
   // pi が無くても (ready: false でも) ツリーは開ける

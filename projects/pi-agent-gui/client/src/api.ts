@@ -6,6 +6,7 @@ import type {
   CreateAgentBody,
   CreateSkillBody,
   FileListing,
+  FilePreview,
   Health,
   ModelRef,
   PostMessageResult,
@@ -105,10 +106,11 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   return (await res.json()) as FileListing;
 };
 
-export const getFilePreview = async (path: string, signal: AbortSignal): Promise<{ text: string }> => {
+export const getFilePreview = async (path: string, signal: AbortSignal): Promise<FilePreview> => {
   const res = await client.api.files.preview.$get({ query: { path } }, { init: { signal } });
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as { text: string };
+  // 400 (root 外 / バイナリ等) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
+  return (await res.json()) as FilePreview;
 };
 
 export const listProjects = async (): Promise<ProjectsResponse> => {

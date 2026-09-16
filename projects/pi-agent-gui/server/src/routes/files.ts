@@ -1,7 +1,6 @@
 import type { Context } from "hono";
-import { z } from "zod";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
-import { FileListingSchema } from "../schema";
+import { FileListingSchema, FilePreviewSchema } from "../schema";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /** セッションに依存させない (セッションが無くても開ける必要がある) ため、トップレベルのルートにする。 */
@@ -10,9 +9,7 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
     preview: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
       try {
-        const parsed = z
-          .object({ text: z.string().max(256 * 1024) })
-          .safeParse(await workspace.previewFile(c.req.query("path") ?? ""));
+        const parsed = FilePreviewSchema.safeParse(await workspace.previewFile(c.req.query("path") ?? ""));
         if (!parsed.success) return c.json({ error: "サンドボックスのプレビューが不正です" }, 502);
         c.header("Cache-Control", "no-store");
         return c.json(parsed.data);
