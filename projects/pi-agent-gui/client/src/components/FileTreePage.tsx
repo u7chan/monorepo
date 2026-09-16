@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getFiles } from "../api";
+import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import {
   applyFileTreeError,
@@ -97,7 +98,12 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
         </button>
       }
     >
-      <div className="min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3">
+      <div
+        className={cn(
+          "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
+          selected ? "max-h-64 shrink-0" : "flex-1",
+        )}
+      >
         {root.error ? (
           <MessageRow depth={0} danger alert>
             {root.error}
@@ -117,6 +123,13 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
           <MessageRow depth={0}>読み込み中…</MessageRow>
         )}
       </div>
+      {selected ? (
+        <FilePreview
+          key={fileTreeFetchPath(rootPath, selected)}
+          path={fileTreeFetchPath(rootPath, selected)}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
     </SettingsPageLayout>
   );
 }

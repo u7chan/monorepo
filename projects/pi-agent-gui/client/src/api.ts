@@ -105,6 +105,12 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   return (await res.json()) as FileListing;
 };
 
+export const getFilePreview = async (path: string, signal: AbortSignal): Promise<{ text: string }> => {
+  const res = await client.api.files.preview.$get({ query: { path } }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as { text: string };
+};
+
 export const listProjects = async (): Promise<ProjectsResponse> => {
   const res = await client.api.projects.$get();
   if (!res.ok) throw await apiError(res);
