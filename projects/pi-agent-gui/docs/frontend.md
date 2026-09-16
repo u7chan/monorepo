@@ -12,6 +12,12 @@
 - `client/public/theme-init.js` は React 初回描画より前に `data-theme` を適用する外部 classic script。ここを React 側でやると初期化完了までテーマなしで点滅するため、意図的に React の外に置いている。ロジック（localStorage のキー、system 追従の解決）は `ThemeProvider` と同じ選択結果になるよう同期を取る（system の解決先 id は `client/test/themeSync.test.ts` が突き合わせる）。
 - BFF の CSP は `style-src 'self'`（インラインスタイル不可）のため、テーマはすべて外部 CSS + 属性切替で実装する。`<style>` の注入やインライン `style` 属性には頼らない。
 
+## コンポーネントの契約
+
+- コンポーネントは自分の見た目（余白・文字サイズ・色・効果）を持ち、呼び出し側が `className` / `wrapperClassName` で上書きできるのは layout（位置・幅・伸縮）だけにする。見た目の切替は props で表す（例: `SelectField` の `density`（`sm` / `md` / `lg`）と `compact`、`CopyButton` の `reveal`）。
+- この契約は `shadcn/no-restyle`（`.oxlintrc.json` で `allow: ["layout"]`）が検査する。コンポーネントの認識は `settings.shadcn.componentImports` の正規表現で行い、client は path alias を持たずコンポーネントを相対 import でしか参照しないため `^\.\.?/` を登録している（この指定は client/src 配下の全 module に当たるが、JSX のタグとして解決されるのはコンポーネントだけ）。
+- 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes` が error）。ヘルパー関数の戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す。
+
 ## チャット状態とレンダリング
 
 - SSE イベント（`text` / `tool_start` / `tool_end` / `run_end` など）を React の reducer で受け、イベントログから UI 状態（メッセージ列、ツールカード、実行状態）を導出して仮想 DOM へ反映する。旧 `app.js` のようにイベントハンドラで DOM を直接書き換えるのではなく、「イベントの適用」を純粋な状態遷移として書くことで、再接続時のリプレイ / `resync` も同じ reducer で処理できる。

@@ -6,6 +6,11 @@
   "categories": {
     "correctness": "error"
   },
+  "settings": {
+    "shadcn": {
+      "componentImports": ["^\\.\\.?/"]
+    }
+  },
   "env": {
     "builtin": true
   },
@@ -36,7 +41,7 @@
             ]
           }
         ],
-        "shadcn/no-restyle": "off"
+        "shadcn/no-restyle": ["error", { "allow": ["layout"] }]
       }
     },
     {
