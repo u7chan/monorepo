@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { createSkill, deleteSkill, updateSkill } from "../api";
-import { cn } from "../lib/cn";
 import type { Catalog } from "../types";
+import { DefinitionList } from "./DefinitionList";
 import { DEFINITIONS_NOTE, DefinitionTransfer } from "./DefinitionTransfer";
+import { MenuItem } from "./MenuItem";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { CheckIcon, PlusIcon, TrashIcon } from "./icons";
+import { BoltIcon, CheckIcon, TrashIcon } from "./icons";
 
 type SkillForm = { name: string; description: string; prompt: string };
 
@@ -70,13 +71,6 @@ export function SkillSettingsPage({
     }
   };
 
-  const itemClass = (active: boolean) =>
-    cn(
-      // 長い説明文が一覧のグリッド幅を押し広げないようにする。
-      "flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
-      active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
-    );
-
   return (
     <SettingsPageLayout
       eyebrow="CONFIGURATION"
@@ -96,36 +90,19 @@ export function SkillSettingsPage({
       note={note}
     >
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
-        <aside className="flex min-h-0 min-w-0 flex-col wide:border-r wide:border-line">
-          <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-            <span>スキル一覧</span>
-            <span className="font-normal">{catalog.skills.length}</span>
-          </div>
-
-          <div className="max-h-[30vh] min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3 wide:max-h-none">
-            <button
-              type="button"
-              onClick={startNewSkill}
-              className="mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
-            >
-              <PlusIcon />
-              新しいスキル
-            </button>
-            <div className="grid min-w-0 gap-1">
-              {catalog.skills.map((skill) => (
-                <button
-                  key={skill.id}
-                  type="button"
-                  onClick={() => setEditingId(skill.id)}
-                  className={itemClass(editingId === skill.id)}
-                >
-                  <strong className="min-w-0 truncate text-xs text-ink">{skill.name}</strong>
-                  <span className="min-w-0 truncate text-2xs text-ink-muted">{skill.description || "説明なし"}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </aside>
+        <DefinitionList title="スキル一覧" count={catalog.skills.length} addLabel="新しいスキル" onAdd={startNewSkill}>
+          {catalog.skills.map((skill) => (
+            <MenuItem
+              key={skill.id}
+              icon={<BoltIcon />}
+              label={skill.name}
+              description={skill.description || "説明なし"}
+              selected={editingId === skill.id}
+              current="true"
+              onClick={() => setEditingId(skill.id)}
+            />
+          ))}
+        </DefinitionList>
 
         <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
           <form onSubmit={saveSkill} className="mx-auto grid max-w-2xl gap-3">

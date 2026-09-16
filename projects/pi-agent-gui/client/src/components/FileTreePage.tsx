@@ -182,7 +182,7 @@ function EntryRow({
           aria-expanded={open}
           onClick={() => onToggle(path)}
           style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
-          className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
+          className="flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
         >
           <span
             className={cn(
@@ -230,7 +230,7 @@ function EntryRow({
       onClick={() => onSelect(path)}
       style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
       className={cn(
-        "flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
+        "flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
       )}
     >
