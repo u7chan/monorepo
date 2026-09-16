@@ -131,8 +131,8 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
-          <div className="text-2xs font-semibold uppercase tracking-label text-ink-ghost">PROJECT</div>
-          <h2 className="text-base font-semibold text-ink-strong">プロジェクトを追加</h2>
+          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">PROJECT</div>
+          <h2 className="font-semibold text-base text-ink-strong">プロジェクトを追加</h2>
         </div>
         <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
           <CloseIcon />
@@ -157,16 +157,16 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
       </div>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="scrollbar-thin grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-4 py-3.5">
+        <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-3.5 overflow-y-auto px-4 py-3.5">
           <div className="grid gap-1.5">
-            <div className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">
+            <div className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
               {mode === "create" ? "親ディレクトリ" : "登録するディレクトリ"}
             </div>
             <code className="block truncate rounded-lg border border-line bg-soft px-2.5 py-2 text-1xs text-ink-soft">
               {path === WORKSPACE_ROOT ? "ワークスペース root" : path}
             </code>
             {/* 一覧だけをスクロールさせ、名前の入力と送信ボタンを常に見える位置に残す */}
-            <div className="scrollbar-thin max-h-[42dvh] overflow-y-auto rounded-lg border border-line bg-soft p-1">
+            <div className="max-h-[42dvh] scrollbar-thin overflow-y-auto rounded-lg border border-line bg-soft p-1">
               {path !== WORKSPACE_ROOT ? (
                 <button
                   type="button"
@@ -206,7 +206,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
           </div>
 
           <div className="grid gap-1.5">
-            <label htmlFor="project-name" className="text-2xs font-semibold uppercase tracking-widest text-ink-faint">
+            <label htmlFor="project-name" className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
               {mode === "create" ? "名前" : "表示名"}
             </label>
             {/* compact は iOS Safari の focus 時ズームを避けるために 16px 以上にする */}

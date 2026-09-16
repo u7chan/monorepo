@@ -62,7 +62,7 @@ export function AgentModelEffortFields({
 
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
-      <div className="text-2xs font-semibold uppercase tracking-label text-ink-faint">Model / Effort</div>
+      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">Model / Effort</div>
       <div className="grid gap-2 wide:grid-cols-2">
         <label className="grid gap-1 text-1xs text-ink-soft">
           Model

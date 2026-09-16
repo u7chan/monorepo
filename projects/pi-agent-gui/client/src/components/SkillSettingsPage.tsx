@@ -96,12 +96,12 @@ export function SkillSettingsPage({
     >
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
         <aside className="flex min-h-0 min-w-0 flex-col wide:border-r wide:border-line">
-          <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold uppercase tracking-widest text-ink-faint">
+          <div className="flex items-baseline gap-1.5 border-b border-line px-3 py-2 text-2xs font-semibold tracking-widest text-ink-faint uppercase">
             <span>スキル一覧</span>
             <span className="font-normal">{catalog.skills.length}</span>
           </div>
 
-          <div className="scrollbar-thin min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 max-h-[30vh] wide:max-h-none">
+          <div className="max-h-[30vh] min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3 wide:max-h-none">
             <button
               type="button"
               onClick={startNewSkill}
@@ -126,10 +126,10 @@ export function SkillSettingsPage({
           </div>
         </aside>
 
-        <section className="scrollbar-thin min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4">
+        <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
           <form onSubmit={saveSkill} className="mx-auto grid max-w-2xl gap-3">
             <div>
-              <div className="text-2xs font-semibold uppercase tracking-label text-accent-text">SKILL</div>
+              <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">SKILL</div>
               <h3 className="text-sm font-semibold text-ink-strong">
                 {editingSkill ? "スキルを編集" : "新しいスキル"}
               </h3>

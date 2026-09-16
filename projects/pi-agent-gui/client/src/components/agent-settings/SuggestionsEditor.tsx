@@ -17,7 +17,7 @@ export function SuggestionsEditor({
 }) {
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
-      <div className="text-2xs font-semibold uppercase tracking-label text-ink-faint">定型プロンプト</div>
+      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">定型プロンプト</div>
       <div className="grid gap-2">
         {suggestions.map((suggestion, index) => (
           <div key={index} className="grid items-end gap-2 wide:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto]">

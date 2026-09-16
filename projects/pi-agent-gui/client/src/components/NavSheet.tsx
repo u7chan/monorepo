@@ -35,7 +35,7 @@ export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
       }}
       className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-transparent p-0"
     >
-      <div className="animate-drawer flex h-full w-[min(320px,86vw)] flex-col border-r border-line bg-panel shadow-panel">
+      <div className="flex h-full w-[min(320px,86vw)] animate-drawer flex-col border-r border-line bg-panel shadow-panel">
         <Sidebar variant="sheet" onClose={onClose} {...sidebarProps} />
       </div>
     </dialog>

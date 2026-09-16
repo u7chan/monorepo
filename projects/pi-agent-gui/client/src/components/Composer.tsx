@@ -153,7 +153,7 @@ export function Composer({
                   onChangeThinkingLevel={onChangeThinkingLevel}
                 />
               ) : null}
-              {rowNotice ? <span className="min-w-0 break-words text-2xs text-warn">{rowNotice}</span> : null}
+              {rowNotice ? <span className="min-w-0 text-2xs break-words text-warn">{rowNotice}</span> : null}
             </>
           )}
         </div>
