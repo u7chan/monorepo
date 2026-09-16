@@ -75,8 +75,9 @@ export function MenuItem({
         {description ? (
           <span
             className={cn(
+              // 淡い塗りの上では ink-muted が 3 台まで落ちるため、説明文は 1 段濃い ink-soft にする
               "truncate text-2xs leading-4",
-              tone === "nav-active" ? "text-on-accent/75" : "text-ink-muted",
+              tone === "nav-active" ? "text-on-accent/75" : "text-ink-soft",
             )}
           >
             {description}
