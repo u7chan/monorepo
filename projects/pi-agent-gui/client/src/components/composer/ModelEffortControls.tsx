@@ -3,7 +3,7 @@ import { effortLabel, type ComposerSettings } from "../../hooks/useAgentDesk";
 import type { ModelRef, ThinkingLevel } from "../../types";
 import { SelectField } from "../SelectField";
 import { SlidersIcon } from "../icons";
-import { fieldLabelClass, fieldNameClass, selectClass, selectWrapperClass } from "./fieldStyles";
+import { fieldLabelClass, fieldNameClass } from "./fieldStyles";
 
 /** 候補に無いモデルも表示できるよう選択肢へ足す */
 function modelChoicesOf(settings: ComposerSettings): Array<{ value: string; label: string }> {
@@ -81,8 +81,9 @@ export function ModelEffortFields({
         <span className={fieldNameClass(compact)}>Model</span>
         <SelectField
           aria-label="モデルを選択"
-          className={selectClass(compact)}
-          wrapperClassName={selectWrapperClass(compact, "max-w-60")}
+          density="sm"
+          compact={compact}
+          wrapperClassName={compact ? "min-w-0 flex-1" : "min-w-0 max-w-60"}
           value={settings.model ?? ""}
           disabled={modelDisabled}
           onChange={(event) => handleModelChange(event.currentTarget.value)}
@@ -99,8 +100,9 @@ export function ModelEffortFields({
         <span className={fieldNameClass(compact)}>Effort</span>
         <SelectField
           aria-label="Effort を選択"
-          className={selectClass(compact)}
-          wrapperClassName={selectWrapperClass(compact, "max-w-40")}
+          density="sm"
+          compact={compact}
+          wrapperClassName={compact ? "min-w-0 flex-1" : "min-w-0 max-w-40"}
           value={settings.thinkingLevel ?? ""}
           disabled={effortDisabled}
           onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}

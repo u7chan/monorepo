@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { highlightCode } from "../../lib/markdown/highlight";
-import { CopyButton, REVEAL_CODE } from "../chat/CopyButton";
+import { CopyButton } from "../chat/CopyButton";
 
 /**
  * コードフェンスの描画。ハイライトは文字列 props で memo 化され、伸びているブロックだけを再計算する。
@@ -32,7 +32,7 @@ export const CodeBlock = memo(function CodeBlock({
             copied={copiedId === "code"}
             onClick={() => void copyMessage(text, "code")}
             label="コードをコピー"
-            revealClass={REVEAL_CODE}
+            reveal="code"
           />
         ) : (
           <span className="md-code-state">生成中…</span>

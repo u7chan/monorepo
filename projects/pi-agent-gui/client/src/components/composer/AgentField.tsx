@@ -1,6 +1,6 @@
 import type { AgentDef } from "../../types";
 import { SelectField } from "../SelectField";
-import { fieldLabelClass, selectClass, selectWrapperClass } from "./fieldStyles";
+import { fieldLabelClass } from "./fieldStyles";
 
 export function AgentField({
   agents,
@@ -18,8 +18,9 @@ export function AgentField({
       <span className="shrink-0">エージェント</span>
       <SelectField
         aria-label="エージェントを選択"
-        className={selectClass(compact)}
-        wrapperClassName={selectWrapperClass(compact, "max-w-50")}
+        density="sm"
+        compact={compact}
+        wrapperClassName={compact ? "min-w-0 flex-1" : "min-w-0 max-w-50"}
         value={agentId}
         disabled={agents.length === 0}
         onChange={(event) => {

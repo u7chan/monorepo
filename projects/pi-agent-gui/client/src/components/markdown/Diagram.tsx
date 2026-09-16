@@ -3,7 +3,7 @@ import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { parseDiagram } from "../../lib/markdown/diagram";
 import { DIAGRAM_LINE_HEIGHT } from "../../lib/markdown/diagram";
 import type { DiagramBox, DiagramModel } from "../../lib/markdown/diagram";
-import { CopyButton, REVEAL_CODE } from "../chat/CopyButton";
+import { CopyButton } from "../chat/CopyButton";
 import { CodeBlock } from "./CodeBlock";
 
 const FALLBACK_NOTE = "未対応の記法のためソースを表示しています（対応: flowchart / sequenceDiagram）";
@@ -28,7 +28,7 @@ export const Diagram = memo(function Diagram({ text }: { text: string }) {
           copied={copiedId === "diagram"}
           onClick={() => void copyMessage(text, "diagram")}
           label="図のソースをコピー"
-          revealClass={REVEAL_CODE}
+          reveal="code"
         />
       </figcaption>
       <div className="md-diagram-body scrollbar-thin">

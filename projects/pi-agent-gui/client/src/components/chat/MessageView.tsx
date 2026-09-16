@@ -2,7 +2,7 @@ import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import { MarkdownView } from "../markdown/MarkdownView";
-import { CopyButton, REVEAL_MESSAGE } from "./CopyButton";
+import { CopyButton } from "./CopyButton";
 import { ToolHistoryView } from "./ToolHistory";
 
 function UserIcon() {
@@ -121,7 +121,7 @@ export function MessageView({
               </span>
             ) : null}
             {bubble.text ? (
-              <CopyButton copied={copied} onClick={onCopy} label="メッセージをコピー" revealClass={REVEAL_MESSAGE} />
+              <CopyButton copied={copied} onClick={onCopy} label="メッセージをコピー" reveal="message" />
             ) : null}
           </div>
         ) : null}

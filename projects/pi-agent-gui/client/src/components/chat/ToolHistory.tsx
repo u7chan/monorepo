@@ -1,6 +1,6 @@
 import type { ToolCard } from "../../hooks/chatReducer";
 import { DisclosureChevronIcon } from "../icons";
-import { CopyButton, REVEAL_TOOL } from "./CopyButton";
+import { CopyButton } from "./CopyButton";
 
 const TOOL_SUMMARY_MAX_LENGTH = 96;
 
@@ -59,7 +59,7 @@ function ToolCallRow({
           </span>
           <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
           <PhaseLabel phase={card.phase} />
-          <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" revealClass={REVEAL_TOOL} />
+          <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal="tool" />
         </summary>
         <div
           className={["grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6"].join(
@@ -118,7 +118,7 @@ export function ToolHistoryView({
         <span className="shrink-0 font-sans text-3xs text-ink-faint">{cards.length}件</span>
         <span className="min-w-0 flex-1 truncate">{historyPreview(cards)}</span>
         {running ? <PhaseLabel phase="running" /> : null}
-        <CopyButton copied={copiedAll} onClick={onCopyAll} label="ツール履歴をすべてコピー" revealClass="" />
+        <CopyButton copied={copiedAll} onClick={onCopyAll} label="ツール履歴をすべてコピー" />
       </summary>
       <ol className="m-0 grid list-none gap-1.5 border-t border-line px-2 py-2">
         {cards.map((card, index) => (

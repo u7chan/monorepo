@@ -67,7 +67,6 @@ export function AgentModelEffortFields({
         <label className="grid gap-1 text-1xs text-ink-soft">
           Model
           <SelectField
-            className="text-xs"
             wrapperClassName="w-full"
             aria-label="エージェントのモデル"
             value={modelValue}
@@ -84,7 +83,6 @@ export function AgentModelEffortFields({
         <label className="grid gap-1 text-1xs text-ink-soft">
           Effort
           <SelectField
-            className="text-xs disabled:cursor-not-allowed disabled:opacity-55"
             wrapperClassName="w-full"
             aria-label="エージェントの Effort"
             value={thinkingLevel ?? ""}
