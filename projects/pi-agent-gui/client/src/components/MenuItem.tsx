@@ -29,7 +29,7 @@ const ICON_TONE = {
   add: "text-accent-text",
   "nav-active": "text-on-accent",
   "list-active": "text-accent-text",
-  idle: "text-ink-muted",
+  idle: "text-ink-soft",
 } as const;
 
 /**
@@ -53,11 +53,22 @@ export function MenuItem({
       aria-current={active ? current : undefined}
       onClick={onClick}
       className={cn(
-        "flex min-h-7.5 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors",
+        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors",
         TONE[tone],
       )}
     >
-      {icon ? <span className={cn("grid size-4 shrink-0 place-items-center", ICON_TONE[tone])}>{icon}</span> : null}
+      {icon ? (
+        <span
+          className={cn(
+            "grid size-4 shrink-0 place-items-center",
+            // 2 行の行では行の中央ではなく 1 行目に合わせる (ラベルと説明の境目に浮かないようにする)
+            description ? "self-start" : null,
+            ICON_TONE[tone],
+          )}
+        >
+          {icon}
+        </span>
+      ) : null}
       {/* 選択中の色を説明文まで届かせるため、色は行ではなく各段で決める */}
       <span className="grid min-w-0 flex-1 gap-1">
         <span className="truncate text-xs">{label}</span>
