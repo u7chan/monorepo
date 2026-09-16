@@ -1,4 +1,5 @@
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
+import { cn } from "../../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import { MarkdownView } from "../markdown/MarkdownView";
@@ -46,31 +47,27 @@ export function MessageView({
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   return (
-    <article
-      className={["animate-rise group/bubble flex", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : ""].join(" ")}
-    >
+    <article className={cn("group/bubble flex animate-rise", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : "")}>
       <div
-        className={[
+        className={cn(
           "grid shrink-0 place-items-center rounded-lg font-bold",
           compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
           isUser
             ? "order-2 bg-accent-bright text-on-accent"
             : "border border-accent/25 bg-accent-wash text-accent-strong",
-        ].join(" ")}
+        )}
       >
         {isUser ? <UserIcon /> : "✦"}
       </div>
       {/* flex-1 は assistant だけ。user に付けるとバブル背景が列幅まで広がる */}
       <div
-        className={[
+        className={cn(
           "min-w-0",
           isUser ? "" : "flex-1",
           compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]",
-        ]
-          .filter(Boolean)
-          .join(" ")}
+        )}
       >
-        <div className={["text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1"].join(" ")}>
+        <div className={cn("text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1")}>
           {isUser ? "あなた" : "アシスタント"}
         </div>
         {!isUser && bubble.tools.length > 0 ? (
@@ -97,11 +94,11 @@ export function MessageView({
         {/* ツールだけの assistant (本文なし) でも時刻は出す */}
         {bubble.text || bubble.at !== undefined ? (
           <div
-            className={[
+            className={cn(
               // メタ情報が長い / 狭いときは時刻行の下へ折り返す (数字の途中で折らない)
               "mt-1 flex flex-wrap items-center gap-x-2 gap-y-1",
               isUser ? "justify-end" : "",
-            ].join(" ")}
+            )}
           >
             {bubble.at !== undefined ? (
               <time

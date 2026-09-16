@@ -1,4 +1,5 @@
 import type { ToolCard } from "../../hooks/chatReducer";
+import { cn } from "../../lib/cn";
 import { DisclosureChevronIcon } from "../icons";
 import { CopyButton } from "./CopyButton";
 
@@ -6,7 +7,7 @@ const TOOL_SUMMARY_MAX_LENGTH = 96;
 
 // 位相で文字幅が変わると (実測 実行中 27 / エラー 27.42px) 右隣のコピーボタンとサマリーの
 // truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
-const PHASE_LABEL_CLASS = "w-[3.25em] shrink-0 text-right whitespace-nowrap font-sans text-3xs";
+const PHASE_LABEL_CLASS = cn("w-[3.25em] shrink-0 text-right font-sans text-3xs whitespace-nowrap");
 
 function abbreviatedToolSummary(card: ToolCard): string {
   const summary = `${card.name}${card.args ? ` — ${card.args}` : ""}`.replace(/\s+/g, " ").trim();
@@ -18,7 +19,7 @@ function abbreviatedToolSummary(card: ToolCard): string {
 function PhaseLabel({ phase }: { phase: ToolCard["phase"] }) {
   if (phase === "done") return <span className={PHASE_LABEL_CLASS} />;
   return (
-    <span className={`${PHASE_LABEL_CLASS} ${phase === "failed" ? "text-danger-text" : "text-accent-text"}`}>
+    <span className={cn(PHASE_LABEL_CLASS, phase === "failed" ? "text-danger-text" : "text-accent-text")}>
       {phase === "failed" ? "エラー" : "実行中"}
     </span>
   );
@@ -47,10 +48,10 @@ function ToolCallRow({
   return (
     <li className="group/row min-w-0">
       <details
-        className={[
+        className={cn(
           "rounded-lg border bg-soft/20 transition-colors",
           card.phase === "failed" ? "border-danger/50" : "border-line/70",
-        ].join(" ")}
+        )}
       >
         <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
           <DisclosureChevronIcon />
@@ -61,11 +62,7 @@ function ToolCallRow({
           <PhaseLabel phase={card.phase} />
           <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal="tool" />
         </summary>
-        <div
-          className={["grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6"].join(
-            " ",
-          )}
-        >
+        <div className={cn("grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6")}>
           {card.args ? (
             <div className="grid min-w-0 gap-0.5">
               <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">引数</span>
@@ -107,10 +104,10 @@ export function ToolHistoryView({
   const running = cards.some((card) => card.phase === "running");
   return (
     <details
-      className={[
+      className={cn(
         "min-w-0 border-y border-line bg-soft/20 font-mono text-2xs text-ink-muted",
         hasResponse ? "mb-2.5" : "",
-      ].join(" ")}
+      )}
     >
       <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
         <DisclosureChevronIcon />

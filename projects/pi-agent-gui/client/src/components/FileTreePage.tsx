@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getFiles } from "../api";
+import { cn } from "../lib/cn";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -184,10 +185,10 @@ function EntryRow({
           className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
         >
           <span
-            className={[
+            className={cn(
               "grid size-4 shrink-0 place-items-center text-ink-faint transition-transform",
               open ? "rotate-90" : "",
-            ].join(" ")}
+            )}
           >
             <ChevronIcon />
           </span>
@@ -228,10 +229,10 @@ function EntryRow({
       aria-current={isSelected ? "true" : undefined}
       onClick={() => onSelect(path)}
       style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
-      className={[
+      className={cn(
         "flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
-      ].join(" ")}
+      )}
     >
       <FileIcon />
       <span className="min-w-0 truncate">{entry.name}</span>
@@ -255,10 +256,10 @@ function MessageRow({
     <div
       role={alert ? "alert" : undefined}
       style={{ "--tree-indent": `${depth * INDENT + 32}px` } as CSSProperties}
-      className={[
+      className={cn(
         "py-1.5 pr-2 pl-(--tree-indent) text-1xs leading-relaxed break-words",
         danger ? "text-danger-text" : "text-ink-muted",
-      ].join(" ")}
+      )}
     >
       {children}
     </div>

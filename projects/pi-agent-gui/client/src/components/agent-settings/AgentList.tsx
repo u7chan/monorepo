@@ -1,12 +1,13 @@
+import { cn } from "../../lib/cn";
 import type { AgentDef } from "../../types";
 import { PlusIcon } from "../icons";
 
 /** 長い説明文が一覧のグリッド幅を押し広げないようにする。 */
 const itemClass = (active: boolean) =>
-  [
-    "flex min-w-0 w-full cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
+  cn(
+    "flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
     active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
-  ].join(" ");
+  );
 
 export function AgentList({
   agents,

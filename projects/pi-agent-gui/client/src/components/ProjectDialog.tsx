@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { getFiles, type CreateProjectInput } from "../api";
+import { cn } from "../lib/cn";
 import { parentWorkspacePath, projectChildPath, WORKSPACE_ROOT, workspaceBaseName } from "../lib/projectPath";
 import type { FileEntry } from "../types";
 import { CloseIcon, FolderIcon } from "./icons";
@@ -107,13 +108,14 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
   };
 
   const tabClass = (active: boolean) =>
-    [
+    cn(
       "min-h-10 rounded-t-lg border-b-2 px-3.5 text-xs font-semibold transition-colors",
       active ? "border-focus text-accent-text" : "border-transparent text-ink-soft hover:text-ink",
-    ].join(" ");
+    );
 
-  const directoryRowClass =
-    "flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-ink transition-colors hover:bg-hover";
+  const directoryRowClass = cn(
+    "flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-ink transition-colors hover:bg-hover",
+  );
 
   return (
     <dialog
@@ -122,12 +124,12 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
       aria-modal="true"
       aria-label="プロジェクトを追加"
       tabIndex={-1}
-      className={[
+      className={cn(
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
         compact
-          ? "m-0 h-dvh w-screen max-h-none max-w-none rounded-none border-0"
+          ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
           : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
-      ].join(" ")}
+      )}
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
@@ -216,7 +218,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
               onChange={(event) => setName(event.currentTarget.value)}
               disabled={busy}
               placeholder={mode === "create" ? "新しいディレクトリ名" : "ディレクトリ名"}
-              className={["field", compact ? "text-md" : "text-xs"].join(" ")}
+              className={cn("field", compact ? "text-md" : "text-xs")}
             />
             <p className="text-1xs leading-relaxed text-ink-muted">
               {mode === "create"
@@ -229,10 +231,10 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
           <p
             role={footerNote.danger ? "alert" : undefined}
-            className={[
+            className={cn(
               "min-w-0 flex-1 text-1xs leading-relaxed",
               footerNote.danger ? "text-danger-text" : "text-ink-muted",
-            ].join(" ")}
+            )}
           >
             {footerNote.text}
           </p>

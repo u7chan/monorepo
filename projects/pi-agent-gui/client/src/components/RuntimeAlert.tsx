@@ -1,4 +1,5 @@
 import { AUTH_REQUIRED_GUIDE, SANDBOX_REQUIRED_GUIDE, type RuntimeStatus } from "../hooks/runtimeStatus";
+import { cn } from "../lib/cn";
 
 export type RuntimeAlertProps = {
   runtimeStatus: RuntimeStatus;
@@ -34,19 +35,19 @@ export function RuntimeAlert({ runtimeStatus, compact = false }: RuntimeAlertPro
   return (
     <div
       role="alert"
-      className={[
+      className={cn(
         "flex items-start gap-2.5 border border-danger/35 bg-soft",
         compact ? "rounded-lg px-2.5 py-2 text-1xs" : "rounded-xl px-3.5 py-3 text-1xs",
-      ].join(" ")}
+      )}
     >
       <span className="dot dot-danger mt-1" aria-hidden />
       <div className="min-w-0">
         <strong className="font-semibold text-danger-text">{runtimeStatus.text}</strong>
-        <p className={["break-words leading-relaxed text-ink-soft", compact ? "mt-0.5" : "mt-1"].join(" ")}>
+        <p className={cn("leading-relaxed break-words text-ink-soft", compact ? "mt-0.5" : "mt-1")}>
           {runtimeStatus.detail}
         </p>
         {guide ? (
-          <p className={["break-words leading-relaxed text-ink-muted", compact ? "mt-1" : "mt-2"].join(" ")}>
+          <p className={cn("leading-relaxed break-words text-ink-muted", compact ? "mt-1" : "mt-2")}>
             <GuideText text={guide} />
           </p>
         ) : null}

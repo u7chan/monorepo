@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef } from "react";
 import type { Bubble } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
+import { cn } from "../lib/cn";
 import { compactionDividerIndex } from "../lib/compaction";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import type { AgentSuggestion, CompactionInfo } from "../types";
@@ -40,17 +41,15 @@ export function ChatArea({
     <section
       ref={chatAreaRef}
       aria-live="polite"
-      className={["scrollbar-thin min-h-0 flex-1 overflow-y-auto", compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8"].join(
-        " ",
-      )}
+      className={cn("min-h-0 flex-1 scrollbar-thin overflow-y-auto", compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8")}
     >
-      <div className={["mx-auto w-full min-w-0", compact ? null : "max-w-220"].filter(Boolean).join(" ")}>
+      <div className={cn("mx-auto w-full min-w-0", compact ? null : "max-w-220")}>
         {bubbles.length === 0 ? (
-          <div className={["mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]"].join(" ")}>
+          <div className={cn("mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]")}>
             <div className="mx-auto mb-4 grid size-10.5 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-lg text-accent-strong">
               ✦
             </div>
-            <h2 className={["font-semibold text-ink-strong", compact ? "text-lg" : "text-xl"].join(" ")}>
+            <h2 className={cn("font-semibold text-ink-strong", compact ? "text-lg" : "text-xl")}>
               プロジェクトの相棒です
             </h2>
             <p className="mt-2 text-1sm leading-relaxed text-ink-soft">
@@ -72,7 +71,7 @@ export function ChatArea({
             ) : null}
           </div>
         ) : (
-          <div className={["grid pt-2", compact ? "gap-3.5" : "gap-5"].join(" ")}>
+          <div className={cn("grid pt-2", compact ? "gap-3.5" : "gap-5")}>
             {bubbles.map((bubble, index) => (
               <Fragment key={bubble.id}>
                 {dividerIndex === index ? <CompactionDivider compactions={compactions} compact={compact} /> : null}

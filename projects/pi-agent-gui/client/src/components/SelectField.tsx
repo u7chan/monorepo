@@ -1,13 +1,14 @@
 import type { ReactNode, SelectHTMLAttributes } from "react";
+import { cn } from "../lib/cn";
 
 /** select の密度。余白と文字サイズはこの表が持ち、呼び出し側は layout だけを渡す */
 export type SelectFieldDensity = "sm" | "md" | "lg";
 
 /** md は .field の既定の余白 (px-2.5 py-2) をそのまま使う */
 const PADDING_CLASS: Record<SelectFieldDensity, string> = {
-  sm: "py-1 pl-1.5",
+  sm: cn("py-1 pl-1.5"),
   md: "",
-  lg: "py-1.5 pl-2",
+  lg: cn("py-1.5 pl-2"),
 };
 
 const TEXT_CLASS: Record<SelectFieldDensity, string> = {
@@ -39,18 +40,16 @@ export function SelectField({
   ...props
 }: SelectFieldProps) {
   return (
-    <span className={["relative inline-flex min-w-0 items-center", wrapperClassName].filter(Boolean).join(" ")}>
+    <span className={cn("relative inline-flex min-w-0 items-center", wrapperClassName)}>
       {/* peer を付けるのは、無効化したときの薄表示を chevron にも効かせるため */}
       <select
         {...props}
-        className={[
+        className={cn(
           "field peer w-full cursor-pointer appearance-none pr-8 disabled:cursor-not-allowed disabled:opacity-55",
           PADDING_CLASS[density],
           compact ? "text-md" : TEXT_CLASS[density],
           className,
-        ]
-          .filter(Boolean)
-          .join(" ")}
+        )}
       >
         {children}
       </select>

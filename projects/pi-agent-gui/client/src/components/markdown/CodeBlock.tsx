@@ -1,5 +1,6 @@
 import { memo, useMemo } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
+import { cn } from "../../lib/cn";
 import { highlightCode } from "../../lib/markdown/highlight";
 import { CopyButton } from "../chat/CopyButton";
 
@@ -22,7 +23,7 @@ export const CodeBlock = memo(function CodeBlock({
   const { copiedId, copyMessage } = useMessageCopy();
   const lineCount = text.trim() === "" ? 0 : text.replace(/\n$/, "").split("\n").length;
   return (
-    <figure className={["md-code group/code", closed ? "" : "md-code-streaming"].filter(Boolean).join(" ")}>
+    <figure className={cn("md-code group/code", closed ? "" : "md-code-streaming")}>
       <figcaption className="md-code-head">
         <span className="md-code-lang">{lang ?? "text"}</span>
         {lineCount > 0 ? <span className="md-code-lines">{lineCount} 行</span> : null}

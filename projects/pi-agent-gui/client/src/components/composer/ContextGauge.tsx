@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { cn } from "../../lib/cn";
 import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage } from "../../types";
 
@@ -23,7 +24,7 @@ export function ContextGauge({
         {activity}
       </span>
       {gauge ? (
-        <span className={["shrink-0 whitespace-nowrap font-sans text-2xs tabular-nums", gaugeColor].join(" ")}>
+        <span className={cn("shrink-0 font-sans text-2xs whitespace-nowrap tabular-nums", gaugeColor)}>
           Context
           {/* バーは CSS 描画。ブロック要素のグリフは端末のフォント次第で崩れるうえ、
               等幅にならないので tabular-nums も効かない */}

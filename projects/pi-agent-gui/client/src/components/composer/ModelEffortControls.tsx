@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { effortLabel, type ComposerSettings } from "../../hooks/useAgentDesk";
+import { cn } from "../../lib/cn";
 import type { ModelRef, ThinkingLevel } from "../../types";
 import { SelectField } from "../SelectField";
 import { SlidersIcon } from "../icons";
@@ -33,13 +34,13 @@ export function ModelEffortToggle({
       aria-expanded={open}
       aria-label="モデルと Effort の設定"
       title="モデルと Effort"
-      className={[
+      className={cn(
         "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
         compact ? "size-9" : "size-7",
         open
           ? "border-accent/50 bg-accent-wash text-accent-text"
           : "border-line bg-raised text-ink-faint hover:text-ink-soft",
-      ].join(" ")}
+      )}
     >
       <SlidersIcon />
     </button>
@@ -83,7 +84,7 @@ export function ModelEffortFields({
           aria-label="モデルを選択"
           density="sm"
           compact={compact}
-          wrapperClassName={compact ? "min-w-0 flex-1" : "min-w-0 max-w-60"}
+          wrapperClassName={cn(compact ? "min-w-0 flex-1" : "max-w-60 min-w-0")}
           value={settings.model ?? ""}
           disabled={modelDisabled}
           onChange={(event) => handleModelChange(event.currentTarget.value)}
@@ -102,7 +103,7 @@ export function ModelEffortFields({
           aria-label="Effort を選択"
           density="sm"
           compact={compact}
-          wrapperClassName={compact ? "min-w-0 flex-1" : "min-w-0 max-w-40"}
+          wrapperClassName={cn(compact ? "min-w-0 flex-1" : "max-w-40 min-w-0")}
           value={settings.thinkingLevel ?? ""}
           disabled={effortDisabled}
           onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}
