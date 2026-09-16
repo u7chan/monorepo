@@ -3,6 +3,9 @@
   "jsPlugins": ["@shadcn/lint"],
   "ignorePatterns": ["node_modules", "dist"],
   "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
   "env": {
     "builtin": true
   },
