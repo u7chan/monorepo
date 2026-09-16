@@ -12,7 +12,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + Ty
 pnpm check   # lint → format:check → 型チェック → テスト → クライアントビルド
 ```
 
-lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client には Design System ルール (`shadcn/*`)、server には通常の TypeScript ルールが当たる。自動修正は `pnpm lint:fix`（`shadcn/*` の指摘は自動修正されないので手で直す）。`shadcn/no-arbitrary-values` は error で、例外は Tailwind の scale に無い layout 値（grid テンプレート / vh の上限 / em・min()・% の幅 / safe-area の padding）だけを `allow` に列挙している。追加するときは値ごとに理由を PR に書く。scale で書ける値（4px の倍数）は、ルールが検出しない組み立て方（メソッド呼び出しで組み立てた className など）でも scale 値へ寄せる。
+lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client には Design System ルール (`shadcn/*`)、server には通常の TypeScript ルールが当たる。自動修正は `pnpm lint:fix`（`shadcn/*` の指摘は自動修正されないので手で直す）。`shadcn/no-arbitrary-values` は error で、`allow` に列挙する例外は Tailwind の scale に無い layout 値（grid テンプレート / `max-h` の vh・dvh / em 幅 / min() 幅）だけ。追加するときは値ごとに理由を PR に書く。整数 px は scale で書ける（`--spacing` = 0.25rem の倍数で、倍率に小数を使える）ので、ルールが検出しない組み立て方（メソッド呼び出しで組んだ className など）でも scale 値へ寄せる。
 
 format は `pnpm format` で適用、`pnpm format:check` で差分の有無だけを確認する。設定は root の `.oxfmtrc.json` にあり、client / server だけが対象（root の `package.json` / `scripts/` / `docs/` は対象外）。
 
