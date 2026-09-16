@@ -5,6 +5,8 @@ export type ImportPreviewCardProps = {
   entries: ImportPreviewEntry[];
   /** ファイルに含まれない = 変更しない対象 */
   untouched: string[];
+  /** 適用中。取り消せないので操作を止め、進行中であることをラベルで示す */
+  busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
@@ -13,7 +15,7 @@ export type ImportPreviewCardProps = {
  * ファイルを選んだ直後の確認。取り込む範囲はファイルの中身で決まるため、
  * どの対象が置き換わるかを適用前にここで示す (チェックの状態とは無関係であることも読み取れる)。
  */
-export function ImportPreviewCard({ fileName, entries, untouched, onCancel, onConfirm }: ImportPreviewCardProps) {
+export function ImportPreviewCard({ fileName, entries, untouched, busy, onCancel, onConfirm }: ImportPreviewCardProps) {
   return (
     <div className="grid gap-3 rounded-lg border border-line bg-soft px-3 py-3">
       <div className="grid gap-1">
@@ -32,11 +34,11 @@ export function ImportPreviewCard({ fileName, entries, untouched, onCancel, onCo
         <p className="text-2xs leading-relaxed text-ink-ghost">変更しない対象: {untouched.join(" / ")}</p>
       ) : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <button type="button" onClick={onCancel} className="btn-quiet">
+        <button type="button" onClick={onCancel} className="btn-quiet" disabled={busy}>
           やめる
         </button>
-        <button type="button" onClick={onConfirm} className="btn-primary">
-          取り込む
+        <button type="button" onClick={onConfirm} className="btn-primary" disabled={busy}>
+          {busy ? "取り込み中…" : "取り込む"}
         </button>
       </div>
     </div>

@@ -49,7 +49,10 @@ export function BackupPage({
   const [selected, setSelected] = useState<BackupTargetId[]>(() => READY_BACKUP_TARGETS.map((target) => target.id));
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: EXPORT_NOTE, error: false });
   const [pending, setPending] = useState<PendingImport | null>(null);
+  const [busy, setBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 再描画で disabled になる前の連打も止める (state はイベント処理の終了まで反映されない)
+  const busyRef = useRef(false);
   const { choice } = useTheme();
 
   const setNoteText = (text: string, error = false) => setNote({ text, error });
@@ -113,7 +116,10 @@ export function BackupPage({
   };
 
   const applyImport = async (): Promise<void> => {
-    if (!pending) return;
+    // 適用中は入口を閉じる。二重適用と、先の完了が後から選んだファイルの確認カードを消すのを防ぐ
+    if (!pending || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
     const applied: BackupTargetId[] = [];
     try {
       // 形の検証 (prepareImport) を済ませてから適用する。途中まで適用してから失敗させない
@@ -129,6 +135,9 @@ export function BackupPage({
     } catch (error) {
       const head = applied.length > 0 ? `${applied.map(backupTargetLabel).join(" / ")}までは読み込みました。` : "";
       setNoteText(head + (error instanceof Error ? error.message : String(error)), true);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   };
 
@@ -147,7 +156,7 @@ export function BackupPage({
       onBack={onBack}
       actions={
         <>
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-quiet">
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-quiet" disabled={busy}>
             <ImportIcon />
             インポート
           </button>
@@ -155,7 +164,7 @@ export function BackupPage({
             type="button"
             onClick={exportSelected}
             className="btn-primary"
-            disabled={selectedTargets.length === 0}
+            disabled={busy || selectedTargets.length === 0}
           >
             <ExportIcon />
             {selectedTargets.length > 1 ? `選択した ${selectedTargets.length} 件をエクスポート` : "エクスポート"}
@@ -174,49 +183,64 @@ export function BackupPage({
       }
       note={note}
     >
-      <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-        <div className="mx-auto grid max-w-2xl gap-3">
-          {pending ? (
-            <ImportPreviewCard
-              fileName={pending.fileName}
-              entries={pendingIds.map((id) => ({
-                label: backupTargetLabel(id),
-                detail: describeBackupPayload(id, pending.file.data[id]),
-              }))}
-              untouched={untouchedLabels}
-              onCancel={cancelImport}
-              onConfirm={() => void applyImport()}
-            />
-          ) : null}
-
-          <div className="grid gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">エクスポートする対象</div>
-              <div className="flex items-center gap-2 text-2xs">
-                <span className="text-ink-muted">
-                  {selectedTargets.length} / {READY_BACKUP_TARGETS.length} 件を選択中
-                </span>
-                <button type="button" onClick={toggleAll} className="text-accent-text transition-colors hover:text-ink">
-                  {allSelected ? "すべて解除" : "すべて選択"}
-                </button>
-              </div>
-            </div>
-            <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-soft">
-              {BACKUP_TARGETS.map((target) => (
-                <BackupTargetRow
-                  key={target.id}
-                  target={target}
-                  details={targetDetails(target.id)}
-                  checked={selectedTargets.includes(target.id)}
-                  onToggle={(next) => toggleTarget(target.id, next)}
-                />
-              ))}
+      <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+        {/* 確認カードはスクロール領域の外に置く。中で先頭に出すと、一覧を下まで見ているときにカードが
+            画面外に現れ、何を置き換えるのかを見ないまま取り込むことになる */}
+        {pending ? (
+          <div className="px-4 pt-4">
+            <div className="mx-auto max-w-2xl">
+              <ImportPreviewCard
+                fileName={pending.fileName}
+                entries={pendingIds.map((id) => ({
+                  label: backupTargetLabel(id),
+                  detail: describeBackupPayload(id, pending.file.data[id]),
+                }))}
+                untouched={untouchedLabels}
+                busy={busy}
+                onCancel={cancelImport}
+                onConfirm={() => void applyImport()}
+              />
             </div>
           </div>
+        ) : null}
 
-          <p className="text-2xs leading-relaxed text-ink-ghost">
-            作業ディレクトリのファイルは永続マウント側にあり、このバックアップの対象外です。
-          </p>
+        <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
+          <div className="mx-auto grid max-w-2xl gap-3">
+            <div className="grid gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
+                  エクスポートする対象
+                </div>
+                <div className="flex items-center gap-2 text-2xs">
+                  <span className="text-ink-muted">
+                    {selectedTargets.length} / {READY_BACKUP_TARGETS.length} 件を選択中
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleAll}
+                    className="text-accent-text transition-colors hover:text-ink"
+                  >
+                    {allSelected ? "すべて解除" : "すべて選択"}
+                  </button>
+                </div>
+              </div>
+              <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-soft">
+                {BACKUP_TARGETS.map((target) => (
+                  <BackupTargetRow
+                    key={target.id}
+                    target={target}
+                    details={targetDetails(target.id)}
+                    checked={selectedTargets.includes(target.id)}
+                    onToggle={(next) => toggleTarget(target.id, next)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <p className="text-2xs leading-relaxed text-ink-ghost">
+              作業ディレクトリのファイルは永続マウント側にあり、このバックアップの対象外です。
+            </p>
+          </div>
         </div>
       </div>
     </SettingsPageLayout>
