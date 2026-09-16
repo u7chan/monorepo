@@ -3,7 +3,8 @@
   "printWidth": 120,
   "sortPackageJson": false,
   "sortTailwindcss": {
-    "stylesheet": "./client/src/styles/index.css"
+    "stylesheet": "./client/src/styles/index.css",
+    "functions": ["cn"]
   },
   "ignorePatterns": ["**/node_modules/**", "**/dist/**"]
 }
