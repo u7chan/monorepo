@@ -16,7 +16,8 @@ export function FilePreview({ path, onClose }: { path: string; onClose: () => vo
     return () => controller.abort();
   }, [path]);
   return (
-    <section aria-label="ファイルプレビュー" className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-line">
+    // min-h-40 は flex 行の最低高さ。低い viewport ではツリー側が縮んでここへ譲る (プレビュー本文が 0 になるのを防ぐ)
+    <section aria-label="ファイルプレビュー" className="flex min-h-40 min-w-0 flex-1 flex-col border-t border-line">
       <div className="flex items-center gap-3 px-4 py-2">
         <code className="min-w-0 flex-1 truncate text-xs text-ink" title={path}>
           {path}
@@ -34,7 +35,7 @@ export function FilePreview({ path, onClose }: { path: string; onClose: () => vo
           読み込み中…
         </p>
       ) : (
-        <pre tabIndex={0} className="min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-xs text-ink">
+        <pre tabIndex={0} className="min-h-0 flex-1 scrollbar-thin overflow-auto px-4 py-3 font-mono text-xs text-ink">
           {result.text || "（空のファイル）"}
         </pre>
       )}

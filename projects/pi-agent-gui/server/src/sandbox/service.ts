@@ -22,6 +22,7 @@ import { Hono } from "hono";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
+  SANDBOX_MAX_PREVIEW_BYTES,
   encodeSandboxEvent,
   type SandboxCreateDirRequestBody,
   type SandboxExecuteRequestBody,
@@ -456,7 +457,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
       const handle = await open(target, "r");
       try {
-        const limit = 256 * 1024;
+        const limit = SANDBOX_MAX_PREVIEW_BYTES;
         if (!(await handle.stat()).isFile()) throw pathError(400, "Not a regular file");
         // stat 後の増大でも無制限に読み込まない。
         const buffer = Buffer.alloc(limit + 1);

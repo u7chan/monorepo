@@ -100,10 +100,11 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
     >
       {/* 親は 3 行グリッドなので、ツリーとプレビューを 1 要素にまとめる (2 要素渡すとプレビューが note 行へ入り、ツリーが潰れる) */}
       <div className="flex min-h-0 flex-col">
+        {/* selected 時は shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、preview の min-h-40 へ譲る */}
         <div
           className={cn(
             "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
-            selected ? "max-h-64 shrink-0" : "flex-1",
+            selected ? "max-h-64" : "flex-1",
           )}
         >
           {root.error ? (

@@ -7,6 +7,7 @@ import {
   type SandboxCreateDirResult,
   type SandboxEvent,
   type SandboxFileListing,
+  type SandboxFilePreview,
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
@@ -47,7 +48,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
         baseUrl,
       );
       if (!response.ok) throw await jsonError(response, "プレビューを取得できませんでした");
-      return (await response.json()) as { text: string };
+      return (await response.json()) as SandboxFilePreview;
     },
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
   };
@@ -65,7 +66,7 @@ export function createSandboxToolClientFromEnv(
 }
 
 export interface SandboxToolClient {
-  previewFile(path: string): Promise<{ text: string }>;
+  previewFile(path: string): Promise<SandboxFilePreview>;
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
