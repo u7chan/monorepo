@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { createSkill, deleteSkill, updateSkill } from "../api";
+import { cn } from "../lib/cn";
 import type { Catalog } from "../types";
 import { DEFINITIONS_NOTE, DefinitionTransfer } from "./DefinitionTransfer";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -70,11 +71,11 @@ export function SkillSettingsPage({
   };
 
   const itemClass = (active: boolean) =>
-    [
+    cn(
       // 長い説明文が一覧のグリッド幅を押し広げないようにする。
-      "flex min-w-0 w-full cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
+      "flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
       active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
-    ].join(" ");
+    );
 
   return (
     <SettingsPageLayout

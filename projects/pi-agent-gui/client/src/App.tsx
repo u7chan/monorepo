@@ -12,6 +12,7 @@ import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { useAgentDesk } from "./hooks/useAgentDesk";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { cn } from "./lib/cn";
 import { mainViewFor, type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
@@ -143,10 +144,10 @@ export default function App() {
 
   return (
     <div
-      className={[
+      className={cn(
         "grid h-dvh min-h-0 bg-base text-ink",
         compact ? "grid-rows-1" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-1",
-      ].join(" ")}
+      )}
     >
       {compact ? null : <Sidebar {...navProps} />}
       <main className="grid min-h-0 grid-rows-1 overflow-hidden">

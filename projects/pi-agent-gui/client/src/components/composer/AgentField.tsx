@@ -1,3 +1,4 @@
+import { cn } from "../../lib/cn";
 import type { AgentDef } from "../../types";
 import { SelectField } from "../SelectField";
 import { fieldLabelClass } from "./fieldStyles";
@@ -20,7 +21,7 @@ export function AgentField({
         aria-label="エージェントを選択"
         density="sm"
         compact={compact}
-        wrapperClassName={compact ? "min-w-0 flex-1" : "min-w-0 max-w-50"}
+        wrapperClassName={cn(compact ? "min-w-0 flex-1" : "max-w-50 min-w-0")}
         value={agentId}
         disabled={agents.length === 0}
         onChange={(event) => {

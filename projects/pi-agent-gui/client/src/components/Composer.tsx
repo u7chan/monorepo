@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ComposerSettings } from "../hooks/useAgentDesk";
+import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
 import { AgentField } from "./composer/AgentField";
@@ -112,10 +113,10 @@ export function Composer({
     <button
       type="button"
       onClick={onStop}
-      className={[
+      className={cn(
         "shrink-0 cursor-pointer bg-transparent p-0 text-2xs text-warn transition-colors hover:brightness-125",
         compact ? "px-1 py-0.5" : "",
-      ].join(" ")}
+      )}
     >
       {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
     </button>
@@ -127,20 +128,20 @@ export function Composer({
 
   return (
     <footer
-      className={[
+      className={cn(
         "w-full min-w-0",
         compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
-      ].join(" ")}
+      )}
     >
       <ContextGauge activity={activity} context={context} compact={compact} />
       <form
         onSubmit={handleSubmit}
-        className={[
+        className={cn(
           "grid rounded-xl border border-line-strong bg-panel/90 shadow-panel",
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
-        ].join(" ")}
+        )}
       >
-        <div className={["flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5"].join(" ")}>
+        <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
           <AgentField agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
           <ModelEffortToggle open={settingsOpen} compact={compact} onToggle={() => setSettingsOpen((open) => !open)} />
           {compact ? null : (
@@ -159,10 +160,10 @@ export function Composer({
         </div>
         {compact && settingsOpen ? (
           <div
-            className={[
+            className={cn(
               "grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2",
               landscape ? "grid-cols-2" : "",
-            ].join(" ")}
+            )}
           >
             <ModelEffortFields
               settings={settings}
@@ -171,13 +172,13 @@ export function Composer({
               onChangeThinkingLevel={onChangeThinkingLevel}
             />
             {notice ? (
-              <span className={["min-w-0 break-words text-2xs text-warn", landscape ? "col-span-2" : ""].join(" ")}>
+              <span className={cn("min-w-0 text-2xs break-words text-warn", landscape ? "col-span-2" : "")}>
                 {notice}
               </span>
             ) : null}
           </div>
         ) : null}
-        <div className={["flex items-end", compact ? "gap-2" : "gap-2.5"].join(" ")}>
+        <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
           <textarea
             ref={inputRef}
             rows={1}
@@ -189,10 +190,10 @@ export function Composer({
                   : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
                 : "APIキーを設定すると送信できます"
             }
-            className={[
+            className={cn(
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-              compact ? "min-h-9 max-h-30 py-1.5 text-md" : "min-h-6 max-h-45 py-1",
-            ].join(" ")}
+              compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
+            )}
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
           />
@@ -206,10 +207,10 @@ export function Composer({
               Boolean(settings.sendBlockedReason) ||
               value.trim().length === 0
             }
-            className={[
+            className={cn(
               "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
               compact ? "size-9" : "size-8",
-            ].join(" ")}
+            )}
           >
             <ArrowUpIcon />
           </button>

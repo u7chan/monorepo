@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentDesk } from "../hooks/useAgentDesk";
+import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { ChevronIcon, CloseIcon, GearIcon, PlusIcon } from "./icons";
@@ -63,14 +64,12 @@ export function Sidebar({
 
   return (
     <aside
-      className={[
+      className={cn(
         "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
         // 高さが足りない compact でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
         "overflow-y-auto",
         sheet ? null : "border-r border-line",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      )}
     >
       <div className="flex items-center gap-3">
         <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-sm text-accent-strong">
@@ -158,10 +157,10 @@ export function Sidebar({
                 onClick={() => selectProject("")}
                 aria-current={selectedProjectId ? undefined : "true"}
                 title="未所属を「新しい会話」の作成先にする"
-                className={[
+                className={cn(
                   "flex min-h-8.5 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-colors",
                   selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
-                ].join(" ")}
+                )}
               >
                 <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
                 <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>

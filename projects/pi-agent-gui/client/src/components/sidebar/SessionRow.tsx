@@ -1,3 +1,4 @@
+import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
 import type { SessionSummary } from "../../types";
 
@@ -13,16 +14,16 @@ const STATUS_LABELS: Record<string, string> = {
 function statusDotClass(status: string): string {
   switch (status) {
     case "running":
-      return "dot dot-accent dot-pulse";
+      return cn("dot dot-accent dot-pulse");
     case "queued":
     case "stopped":
-      return "dot dot-warn";
+      return cn("dot dot-warn");
     case "error":
-      return "dot dot-danger";
+      return cn("dot dot-danger");
     case "completed":
-      return "dot dot-ok";
+      return cn("dot dot-ok");
     default:
-      return "dot dot-idle";
+      return cn("dot dot-idle");
   }
 }
 
@@ -48,10 +49,10 @@ export function SessionRow({
 
   return (
     <div
-      className={[
+      className={cn(
         "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors",
         active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
-      ].join(" ")}
+      )}
     >
       <button
         type="button"

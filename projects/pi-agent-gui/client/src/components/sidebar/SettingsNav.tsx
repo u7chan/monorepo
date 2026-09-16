@@ -1,3 +1,4 @@
+import { cn } from "../../lib/cn";
 import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../../lib/settingsNav";
 import { ArrowLeftIcon, ChevronIcon } from "../icons";
 
@@ -29,12 +30,12 @@ export function SettingsNav({
             type="button"
             aria-current={active ? "page" : undefined}
             onClick={() => onOpenSettingsSection(item.section)}
-            className={[
+            className={cn(
               "flex min-h-10 w-full items-center gap-2 rounded-lg border px-3 text-xs transition-colors",
               active
                 ? "border-accent/35 bg-accent-wash text-accent-text"
                 : "border-line bg-soft text-ink hover:border-accent/50 hover:bg-hover hover:text-accent-text",
-            ].join(" ")}
+            )}
           >
             <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
             <span className="text-ink-faint">

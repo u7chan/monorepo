@@ -1,4 +1,5 @@
 import { Fragment, memo, useMemo } from "react";
+import { cn } from "../../lib/cn";
 import { parseLatex } from "../../lib/markdown/latex";
 import { toMathLayout } from "../../lib/markdown/latexLayout";
 import type { MathLayout } from "../../lib/markdown/latexLayout";
@@ -135,7 +136,7 @@ function MathLayoutView({ layout }: { layout: MathLayout }) {
       return (
         <span className="matrix">
           {layout.open === null ? null : <MathLayoutView layout={layout.open} />}
-          <span className={`${layout.cls} mgc${layout.columns}`}>
+          <span className={cn(layout.cls, `mgc${layout.columns}`)}>
             {layout.cells.map((cell, index) => (
               <span key={index}>
                 <MathLayoutView layout={cell} />

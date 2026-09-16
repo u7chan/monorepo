@@ -1,4 +1,5 @@
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
+import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
 import { MenuIcon } from "./icons";
 import { RuntimeAlert } from "./RuntimeAlert";
@@ -16,13 +17,13 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
 
   return (
     <header className="grid border-b border-line bg-panel/85">
-      <div className={["flex items-center gap-2.5 px-3", landscape ? "py-0.5" : "py-2"].join(" ")}>
+      <div className={cn("flex items-center gap-2.5 px-3", landscape ? "py-0.5" : "py-2")}>
         <span
           aria-hidden
-          className={[
+          className={cn(
             "grid shrink-0 place-items-center rounded-lg border border-accent/25 bg-accent-wash text-accent-strong",
             landscape ? "size-6 text-1xs" : "size-7 text-xs",
-          ].join(" ")}
+          )}
         >
           ✦
         </span>
@@ -33,9 +34,7 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
           {landscape ? null : (
             <div className="truncate text-2xs text-ink-faint">{agentName || "エージェント未選択"}</div>
           )}
-          <div className={["truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm"].join(" ")}>
-            {title}
-          </div>
+          <div className={cn("truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm")}>{title}</div>
         </div>
         {runtimeStatus.error ? <span className="dot dot-danger shrink-0" aria-hidden /> : null}
         <button

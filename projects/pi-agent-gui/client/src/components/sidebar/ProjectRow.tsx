@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "../../lib/cn";
 import type { Project, SessionSummary } from "../../types";
 import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "../icons";
 import { SessionRow } from "./SessionRow";
@@ -24,13 +25,11 @@ function RowAction({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className={[
+      className={cn(
         "grid size-7 shrink-0 place-items-center rounded-md text-ink-ghost transition-colors hover:bg-hover",
         danger ? "hover:text-danger" : "hover:text-accent-text",
-        hoverOnly ? "can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100" : null,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+        hoverOnly ? "focus-visible:opacity-100 can-hover:opacity-0 can-hover:group-hover:opacity-100" : null,
+      )}
     >
       {children}
     </button>
@@ -66,10 +65,10 @@ export function ProjectRow({
     <div className="grid gap-1">
       {/* 行の選択 (作成先) は弱いハイライトに留め、開いているセッションの行と区別する */}
       <div
-        className={[
+        className={cn(
           "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors",
           selected ? "border-accent/25 bg-accent-wash/60" : "border-transparent hover:bg-hover",
-        ].join(" ")}
+        )}
       >
         <button
           type="button"
@@ -86,7 +85,7 @@ export function ProjectRow({
           </span>
         </button>
         <RowAction label={open ? "折りたたむ" : "展開する"} onClick={onToggle}>
-          <span className={["block transition-transform", open ? "rotate-90" : ""].join(" ")}>
+          <span className={cn("block transition-transform", open ? "rotate-90" : "")}>
             <ChevronIcon />
           </span>
         </RowAction>

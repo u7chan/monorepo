@@ -33,11 +33,20 @@
               "grid-rows-[auto_minmax(0,1fr)]",
               "grid-rows-[auto_minmax(0,1fr)_auto]",
               "grid-cols-[248px_minmax(0,1fr)]",
+              "grid-cols-[252px_minmax(0,1fr)]",
               "grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto]",
               "max-h-[30vh]",
               "max-h-[42dvh]",
+              "max-h-[min(88dvh,760px)]",
+              "max-w-[88%]",
+              "max-w-[min(760px,86%)]",
               "w-[3.25em]",
-              "w-[min(320px,86vw)]"
+              "w-[min(320px,86vw)]",
+              "w-[min(560px,92vw)]",
+              "pt-[8vh]",
+              "pt-[18vh]",
+              "pb-[max(8px,env(safe-area-inset-bottom))]",
+              "transition-[opacity,color]"
             ]
           }
         ],
