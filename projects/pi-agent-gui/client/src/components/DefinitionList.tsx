@@ -9,7 +9,6 @@ export type DefinitionListProps = {
   count: number;
   addLabel: string;
   onAdd: () => void;
-  /** 一覧がページ全高を使う compact では高さの上限を外す (詳細は全画面シートに出るので一覧と分け合わない) */
   compact?: boolean;
   children: ReactNode;
 };

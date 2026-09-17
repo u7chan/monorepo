@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
 import type { AgentDef, AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
@@ -6,7 +6,7 @@ import { AgentModelEffortFields } from "./AgentModelEffortFields";
 import { SkillSelector } from "./SkillSelector";
 import { SuggestionsEditor } from "./SuggestionsEditor";
 
-type AgentForm = {
+export type AgentForm = {
   name: string;
   description: string;
   systemPrompt: string;
@@ -17,7 +17,8 @@ type AgentForm = {
   suggestions: AgentSuggestion[];
 };
 
-function agentFormOf(agent: AgentDef | undefined): AgentForm {
+/** 下書き (AgentForm) はページが持つ。渡した編集対象から初期値を作る */
+export function agentFormOf(agent: AgentDef | undefined): AgentForm {
   return {
     name: agent?.name || "",
     description: agent?.description || "",
@@ -30,19 +31,17 @@ function agentFormOf(agent: AgentDef | undefined): AgentForm {
   };
 }
 
-/**
- * 編集対象の state はこのフォームが持つ。参照が変わった編集対象・カタログを render 中に検出して初期化する
- * (useEffect では古いフォームが 1 フレーム描画される)。
- */
 export function AgentEditorForm({
   catalog,
   editingId,
   agent,
+  form,
+  setForm,
+  variant,
   selectedAgentId,
   modelOptions,
   defaultModel,
   defaultThinkingLevel,
-  showHeading = true,
   refreshCatalog,
   onSelectAgent,
   onNote,
@@ -51,38 +50,33 @@ export function AgentEditorForm({
   catalog: Catalog;
   editingId: string | null;
   agent: AgentDef | undefined;
+  form: AgentForm;
+  setForm: Dispatch<SetStateAction<AgentForm>>;
+  /** page = ページ内の編集列、sheet = compact のシート (docs/ui-layout.md) */
+  variant: "page" | "sheet";
   selectedAgentId: string;
   modelOptions: ModelOption[];
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
-  /** 詳細シートではシートのヘッダが見出しを持つ */
-  showHeading?: boolean;
   refreshCatalog: () => Promise<Catalog>;
   onSelectAgent: (agentId: string | null) => void;
   onNote: (text: string, error?: boolean) => void;
-  /** 保存 / 削除が成功した。compact はシートを閉じて一覧へ戻る */
+  /** 保存 / 削除が成功したときに呼ぶ */
   onDone?: () => void;
 }) {
-  const [agentForm, setAgentForm] = useState<AgentForm>(() => agentFormOf(agent));
-  // 値を初期化済みにしてから mount し、同じ値での再 render を避ける
-  const [formSource, setFormSource] = useState(() => ({ editingId, catalog }));
-
-  if (formSource.editingId !== editingId || formSource.catalog !== catalog) {
-    setFormSource({ editingId, catalog });
-    setAgentForm(agentFormOf(agent));
-  }
+  const showHeading = variant === "page";
 
   const saveAgent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const payload = {
-      name: agentForm.name,
-      description: agentForm.description,
-      systemPrompt: agentForm.systemPrompt,
-      skillIds: agentForm.skillIds,
+      name: form.name,
+      description: form.description,
+      systemPrompt: form.systemPrompt,
+      skillIds: form.skillIds,
       // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
-      model: agentForm.model,
-      thinkingLevel: agentForm.thinkingLevel,
-      suggestions: agentForm.suggestions,
+      model: form.model,
+      thinkingLevel: form.thinkingLevel,
+      suggestions: form.suggestions,
     };
     try {
       const result = editingId ? await updateAgent(editingId, payload) : await createAgent(payload);
@@ -112,25 +106,25 @@ export function AgentEditorForm({
   };
 
   const toggleSkill = (skillId: string, checked: boolean) => {
-    setAgentForm((prev) => ({
+    setForm((prev) => ({
       ...prev,
       skillIds: checked ? [...prev.skillIds, skillId] : prev.skillIds.filter((id) => id !== skillId),
     }));
   };
 
   const addSuggestion = () => {
-    setAgentForm((prev) => ({ ...prev, suggestions: [...prev.suggestions, { label: "", prompt: "" }] }));
+    setForm((prev) => ({ ...prev, suggestions: [...prev.suggestions, { label: "", prompt: "" }] }));
   };
 
   const removeSuggestion = (index: number) => {
-    setAgentForm((prev) => ({
+    setForm((prev) => ({
       ...prev,
       suggestions: prev.suggestions.filter((_, itemIndex) => itemIndex !== index),
     }));
   };
 
   const changeSuggestion = (index: number, patch: Partial<AgentSuggestion>) => {
-    setAgentForm((prev) => ({
+    setForm((prev) => ({
       ...prev,
       suggestions: prev.suggestions.map((suggestion, itemIndex) =>
         itemIndex === index ? { ...suggestion, ...patch } : suggestion,
@@ -161,11 +155,11 @@ export function AgentEditorForm({
                       className="field text-xs"
                       required
                       maxLength={80}
-                      value={agentForm.name}
+                      value={form.name}
                       // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
                       onChange={(e) => {
                         const name = e.currentTarget.value;
-                        setAgentForm((p) => ({ ...p, name }));
+                        setForm((p) => ({ ...p, name }));
                       }}
                     />
                   </label>
@@ -174,10 +168,10 @@ export function AgentEditorForm({
                     <input
                       className="field text-xs"
                       maxLength={300}
-                      value={agentForm.description}
+                      value={form.description}
                       onChange={(e) => {
                         const description = e.currentTarget.value;
-                        setAgentForm((p) => ({ ...p, description }));
+                        setForm((p) => ({ ...p, description }));
                       }}
                     />
                   </label>
@@ -188,27 +182,27 @@ export function AgentEditorForm({
                       rows={6}
                       maxLength={8000}
                       placeholder="空なら役割の指示なし (素の状態) で動きます"
-                      value={agentForm.systemPrompt}
+                      value={form.systemPrompt}
                       onChange={(e) => {
                         const systemPrompt = e.currentTarget.value;
-                        setAgentForm((p) => ({ ...p, systemPrompt }));
+                        setForm((p) => ({ ...p, systemPrompt }));
                       }}
                     />
                   </label>
                   <AgentModelEffortFields
-                    model={agentForm.model}
-                    thinkingLevel={agentForm.thinkingLevel}
+                    model={form.model}
+                    thinkingLevel={form.thinkingLevel}
                     modelOptions={modelOptions}
                     defaultModel={defaultModel}
                     defaultThinkingLevel={defaultThinkingLevel}
-                    onChangeModel={(model) => setAgentForm((prev) => ({ ...prev, model }))}
-                    onChangeThinkingLevel={(thinkingLevel) => setAgentForm((prev) => ({ ...prev, thinkingLevel }))}
+                    onChangeModel={(model) => setForm((prev) => ({ ...prev, model }))}
+                    onChangeThinkingLevel={(thinkingLevel) => setForm((prev) => ({ ...prev, thinkingLevel }))}
                   />
                 </div>
                 <div className="grid min-w-0 content-start gap-2.5">
-                  <SkillSelector skills={catalog.skills} selectedIds={agentForm.skillIds} onToggle={toggleSkill} />
+                  <SkillSelector skills={catalog.skills} selectedIds={form.skillIds} onToggle={toggleSkill} />
                   <SuggestionsEditor
-                    suggestions={agentForm.suggestions}
+                    suggestions={form.suggestions}
                     onChange={changeSuggestion}
                     onRemove={removeSuggestion}
                     onAdd={addSuggestion}

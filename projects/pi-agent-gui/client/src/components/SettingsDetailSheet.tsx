@@ -7,7 +7,7 @@ export type SettingsDetailSheetProps = {
   eyebrow: string;
   /** ヘッダの見出し (例: エージェントを編集) */
   title: string;
-  /** 背面に隠れるページの note。シートを開いたまま出るエラーを読めるようにここへも出す */
+  /** ページの note 行と同じ内容を最下段にも出す */
   note?: { text: string; error: boolean };
   onClose: () => void;
   /** スクロールする本文と固定アクション行。高さを埋めるのは中身 (編集フォーム) の責任 */
@@ -15,9 +15,8 @@ export type SettingsDetailSheetProps = {
 };
 
 /**
- * compact で「一覧 (ページ) + 詳細 (全画面シート)」に分けるときの詳細側。
- * モーダル dialog にして、背面の inert 化と Tab のフォーカス拘束、Escape での終了を showModal() の標準挙動に任せる。
- * ページ (SettingsPageLayout) と違い dialog を被せるのは、背面の一覧が選択のためだけの領域で、閉じれば戻る先になるため。
+ * compact の詳細 (一覧から開く全画面シート)。モーダル dialog の標準挙動 (背面の inert 化 / Tab の拘束 /
+ * Escape での終了) に任せる。
  */
 export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }: SettingsDetailSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -43,8 +42,7 @@ export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }:
       tabIndex={-1}
       aria-modal="true"
       aria-label={title}
-      // Escape は dialog の標準挙動でも閉じるが、keydown は window まで伝播して App が設定ページごと
-      // チャットへ戻す。ここで止めて、1 回の Escape でシートだけを閉じる (2 回目はページが受ける)
+      // Escape を止める理由は docs/ui-layout.md の「compact の詳細シート」を参照
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
@@ -63,7 +61,6 @@ export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }:
 
       {children}
 
-      {/* ページの note 行と同じ位置 (最下段) に置き、シートを閉じたあとの見え方と揃える */}
       {note ? (
         <div
           aria-live="polite"

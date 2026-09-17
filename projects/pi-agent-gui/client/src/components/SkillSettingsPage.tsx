@@ -5,7 +5,7 @@ import { DefinitionList } from "./DefinitionList";
 import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { SkillEditorForm } from "./skill-settings/SkillEditorForm";
+import { SkillEditorForm, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
 import { BoltIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
@@ -22,14 +22,22 @@ export function SkillSettingsPage({
 }: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
-  // compact は編集をシートへ出すため、開いているかを editingId とは別に持つ (editingId の null は「新規」も意味する)
   const [sheetOpen, setSheetOpen] = useState(false);
   const editingSkill = catalog.skills.find((skill) => skill.id === editingId);
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
+  // 下書きはページが持つ。理由は docs/ui-layout.md の「compact の詳細シート」を参照。
+  // 参照が変わった編集対象・カタログを render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)
+  const [skillForm, setSkillForm] = useState<SkillForm>(() => skillFormOf(editingSkill));
+  const [formSource, setFormSource] = useState(() => ({ editingId, catalog }));
+  if (formSource.editingId !== editingId || formSource.catalog !== catalog) {
+    setFormSource({ editingId, catalog });
+    setSkillForm(skillFormOf(editingSkill));
+  }
+
   const selectSkill = (nextId: string | null) => {
     setEditingId(nextId);
-    // desktop は同じ場所にフォームが残るので、シートの状態は触らない (回転で勝手に開かないように)
+    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「compact の詳細シート」)
     if (compact) setSheetOpen(true);
   };
 
@@ -62,10 +70,11 @@ export function SkillSettingsPage({
 
   const editor = (
     <SkillEditorForm
-      catalog={catalog}
       editingId={editingId}
       skill={editingSkill}
-      showHeading={!compact}
+      form={skillForm}
+      setForm={setSkillForm}
+      variant={compact ? "sheet" : "page"}
       refreshCatalog={refreshCatalog}
       onSelectSkill={selectSkill}
       onNote={setNoteText}
@@ -84,7 +93,6 @@ export function SkillSettingsPage({
       note={note}
     >
       {compact ? (
-        // 一覧がページ全高を使い、編集はシート (SettingsDetailSheet) へ出す
         <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
       ) : (
         <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
