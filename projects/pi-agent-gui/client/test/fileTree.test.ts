@@ -6,11 +6,13 @@ import {
   applyFileTreeListing,
   beginFileTreeLoad,
   createFileTreeState,
+  createFileTreeStateFromDirectories,
   fileTreeChildPath,
   fileTreeDirectoryState,
   fileTreeFetchPath,
   invalidateFileTree,
   normalizeFileTreeRoot,
+  openFileTreeDirectories,
   pendingFileTreeDirectories,
   toggleFileTreeDirectory,
   type FileTreeState,
@@ -186,4 +188,56 @@ test("__proto__ という名前のディレクトリは再読み込み後も再�
   // 再読み込みは root から取り直すため、root の一覧が戻った時点で開いたままの子が要求対象になる
   const refetched = applyFileTreeListing(reloaded, ".", { entries: [dir("__proto__")], truncated: false });
   assert.deepEqual(pendingFileTreeDirectories(refetched), ["__proto__"], "開いたまま取り直す");
+});
+
+// 保存値からの復元。保存するのは開いているディレクトリだけで、children は復帰時に取り直す
+test("開いているディレクトリだけを保存対象にし、root は含めない", () => {
+  let state = loaded({ ".": [dir("a"), dir("b")], a: [], b: [] });
+  state = toggleFileTreeDirectory(state, "a");
+  state = toggleFileTreeDirectory(state, "b");
+  state = toggleFileTreeDirectory(state, "a");
+  assert.deepEqual(openFileTreeDirectories(state), ["b"], "閉じた a は含めない");
+  assert.deepEqual(openFileTreeDirectories(createFileTreeState()), [], "root は常に開いているので含めない");
+});
+
+test("保存した展開状態からは root と開いたディレクトリだけを復元する", () => {
+  const state = createFileTreeStateFromDirectories(["src", "src/components"]);
+  assert.deepEqual(state, {
+    ".": { open: true, loading: false },
+    src: { open: true, loading: false },
+    "src/components": { open: true, loading: false },
+  });
+  // children は保存していないので、取得は既存の「可視の親から子へ」の経路で親から順に始まる
+  assert.deepEqual(pendingFileTreeDirectories(state), ["."]);
+});
+
+test("親を閉じた子の open は保存し、復元しても親を勝手に開かない", () => {
+  const restored = createFileTreeStateFromDirectories(["a/b"]);
+  assert.equal(fileTreeDirectoryState(restored, "a"), undefined, "親は閉じたまま (未取得 = 閉)");
+  assert.equal(fileTreeDirectoryState(restored, "a/b")?.open, true, "子の open は保存どおり");
+  // 可視でない子は取りに行かない。親を開いた時点で開いたままの子が要求対象になる
+  const rootLoaded = applyFileTreeListing(restored, ".", { entries: [dir("a")], truncated: false });
+  assert.deepEqual(pendingFileTreeDirectories(rootLoaded), []);
+  const aLoaded = applyFileTreeListing(toggleFileTreeDirectory(rootLoaded, "a"), "a", {
+    entries: [dir("b")],
+    truncated: false,
+  });
+  assert.deepEqual(pendingFileTreeDirectories(aLoaded), ["a/b"]);
+});
+
+test("truncated の一覧では未掲載の枝が落ちる (完全な復元は保証しない)", () => {
+  const restored = createFileTreeStateFromDirectories(["src", "docs"]);
+  const truncated = applyFileTreeListing(restored, ".", { entries: [dir("src")], truncated: true });
+  assert.equal(fileTreeDirectoryState(truncated, "src")?.open, true, "掲載された枝の open は残る");
+  assert.equal(fileTreeDirectoryState(truncated, "docs"), undefined, "一覧に無い枝は落ちる");
+});
+
+test("Object.prototype の名前のディレクトリも保存値から復元する", () => {
+  for (const name of Object.getOwnPropertyNames(Object.prototype)) {
+    const state = createFileTreeStateFromDirectories([name]);
+    assert.equal(Object.hasOwn(state, name), true, name);
+    assert.equal(Object.getPrototypeOf(state), Object.prototype, name);
+    assert.equal(fileTreeDirectoryState(state, name)?.open, true, name);
+    assert.deepEqual(openFileTreeDirectories(state), [name], name);
+  }
 });

@@ -13,8 +13,9 @@ import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { useAgentDesk } from "./hooks/useAgentDesk";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { useRoute } from "./hooks/useRoute";
 import { cn } from "./lib/cn";
-import { mainViewFor, type SettingsSection, type SidebarMode } from "./lib/settingsNav";
+import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
   const desk = useAgentDesk();
@@ -24,15 +25,16 @@ export default function App() {
   const compact = compactMode !== null;
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // drawer を閉じても保つ
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("nav");
-  // Sidebar の項目と一致させる
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("agents");
-  const mainView = mainViewFor(sidebarMode);
+  // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定 5 画面 (lib/route.ts)
+  const { route, navigate, lastSettingsSection } = useRoute();
+  const mainView = route.view;
+  const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
+  // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
+  const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
   const openNav = useCallback(() => setNavOpen(true), []);
   const closeNav = useCallback(() => setNavOpen(false), []);
-  const backToChat = useCallback(() => setSidebarMode("nav"), []);
+  const backToChat = useCallback(() => navigate({ view: "chat" }), [navigate]);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
   useEffect(() => {
@@ -76,14 +78,24 @@ export default function App() {
     return catalog;
   }, [desk]);
 
-  const openSettingsSection = useCallback((section: SettingsSection) => {
-    setSettingsSection(section);
-    setSidebarMode("settings");
-  }, []);
+  // Sidebar の「設定」は onSelectMode("settings") を呼ぶため、モード切替も URL へ集約する
+  const selectMode = useCallback(
+    (mode: SidebarMode) => {
+      navigate(mode === "settings" ? { view: "settings", section: lastSettingsSection } : { view: "chat" });
+    },
+    [navigate, lastSettingsSection],
+  );
+
+  const openSettingsSection = useCallback(
+    (section: SettingsSection) => {
+      navigate({ view: "settings", section });
+    },
+    [navigate],
+  );
 
   const navProps = {
     mode: sidebarMode,
-    onSelectMode: setSidebarMode,
+    onSelectMode: selectMode,
     activeSettingsSection: settingsSection,
     sessions: desk.sessions,
     sessionId: desk.sessionId,
@@ -211,8 +223,9 @@ export default function App() {
           ) : settingsSection === "skills" ? (
             <SkillSettingsPage {...pageProps} catalog={desk.catalog} refreshCatalog={refreshCatalog} />
           ) : settingsSection === "files" ? (
-            // root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない)
-            <FileTreePage key={filesCwd} {...pageProps} cwd={filesCwd} />
+            // root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない)。
+            // 復元は FileTreePage が mount ごとに 1 回だけ行う (起動完了までは復元も保存もしない)
+            <FileTreePage key={filesCwd} {...pageProps} cwd={filesCwd} booted={desk.booted} />
           ) : settingsSection === "backup" ? (
             <BackupPage
               {...pageProps}

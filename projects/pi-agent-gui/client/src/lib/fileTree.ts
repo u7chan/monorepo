@@ -41,6 +41,27 @@ export function createFileTreeState(): FileTreeState {
   return { [FILE_TREE_ROOT]: { open: true, loading: false } };
 }
 
+/** 開いているディレクトリ (root を除く) を state の順に返す。保存用 (children・loading・error は持たない) */
+export function openFileTreeDirectories(state: FileTreeState): string[] {
+  return Object.entries(state)
+    .filter(([path, node]) => path !== FILE_TREE_ROOT && node.open)
+    .map(([path]) => path);
+}
+
+/**
+ * 保存された展開状態から初期状態を作る。root は常に開き、保存された子は open のまま持つ
+ * (親を閉じた子の open を保存どおりに戻すため、親を勝手に開かない)。取得は可視の親から子へ
+ * 辿る既存の経路のままで、未取得の子は開いたときに取りに行く。
+ */
+export function createFileTreeStateFromDirectories(dirs: string[]): FileTreeState {
+  const state = createFileTreeState();
+  for (const path of dirs) {
+    if (fileTreeDirectoryState(state, path)) continue;
+    setFileTreeDirectoryState(state, path, { open: true, loading: false });
+  }
+  return state;
+}
+
 export function fileTreeChildPath(parent: string, name: string): string {
   return parent === FILE_TREE_ROOT ? name : `${parent}/${name}`;
 }

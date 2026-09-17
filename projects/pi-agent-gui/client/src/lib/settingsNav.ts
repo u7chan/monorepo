@@ -1,6 +1,6 @@
 /**
- * サイドバーのモードと メイン領域に出すもの の対応。DOM に依存しない純粋なロジック。
- * 設定ページは dialog を被せずメイン領域に出すため、サイドバーのモードがそのまま表示の切替になる。
+ * サイドバーのモードと設定のセクション定義。DOM に依存しない純粋なロジック。
+ * 画面の切替は URL (lib/route.ts) が決め、ここはその語彙 (モード / セクション) と保存値を検証する。
  */
 
 export type SidebarMode = "nav" | "settings";
@@ -16,8 +16,13 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "appearance", label: "外観" },
 ];
 
-export type MainView = "chat" | "settings";
+/** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
+export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
 
-export function mainViewFor(mode: SidebarMode): MainView {
-  return mode === "settings" ? "settings" : "chat";
+/** 「設定」で最後に開いていたセクションの保存先。画面の正は URL で、これは `/` から戻るための補助 */
+export const SETTINGS_SECTION_KEY = "pi-agent-settings-section";
+
+/** 保存済みの生値を検証する。未知の値 (削除したセクション等) は既定へ畳む */
+export function parseStoredSettingsSection(raw: string | null): SettingsSection {
+  return SETTINGS_SECTIONS.find((item) => item.section === raw)?.section ?? DEFAULT_SETTINGS_SECTION;
 }
