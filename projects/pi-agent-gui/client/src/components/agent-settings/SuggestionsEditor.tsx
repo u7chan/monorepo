@@ -23,7 +23,6 @@ export function SuggestionsEditor({
       </div>
       <div className="grid gap-1.5">
         {suggestions.map((suggestion, index) => (
-          // 右カラム (約 340px) に収めるため、1 件 =「ラベル + 削除」の行 +「プロンプト」の行にする
           <div key={index} className="grid gap-1">
             <div className="flex items-center gap-1.5">
               <input

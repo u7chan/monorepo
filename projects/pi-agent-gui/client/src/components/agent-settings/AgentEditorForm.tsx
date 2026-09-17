@@ -132,10 +132,8 @@ export function AgentEditorForm({
 
   return (
     <section className="grid min-h-0 min-w-0">
-      {/* 確定操作をスクロール位置から切り離すため、本文 (1fr) とアクション行 (auto) の 2 段にする */}
       <form onSubmit={saveAgent} className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
         <div className="min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
-          {/* エディタ列の幅はサイドバー + 一覧を引いた残りで決まるので、viewport ではなくコンテナ幅で 2 カラムにする */}
           <div className="@container">
             <div className="mx-auto grid max-w-5xl gap-2.5">
               <div>
@@ -210,7 +208,6 @@ export function AgentEditorForm({
             </div>
           </div>
         </div>
-        {/* 破壊操作は左、確定は右。ヘッダに置くと compact で保存と隣り合うため常時表示の行に置く */}
         <div className="flex items-center gap-2 border-t border-line px-4 py-3">
           {agent ? (
             <button

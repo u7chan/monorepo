@@ -1,9 +1,5 @@
 import type { SkillDef } from "../../types";
 
-/**
- * エージェントへ割り当てるスキルの一覧。件数が増えてもフォーム全体の高さを押し上げないよう、
- * 一覧だけを内部スクロールにし、選択状態は見出しで分かるようにする (スクロールしても数え直さなくてよい)。
- */
 export function SkillSelector({
   skills,
   selectedIds,
