@@ -11,6 +11,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ヘルス | `GET /api/health` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
+| HTML プレビュー（iframe 用） | `GET /api/files/html` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills` | [api-catalog.md](api-catalog.md) |
@@ -85,13 +86,33 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 | --- | --- | --- |
 | GET | `/api/files/preview?path=<root 相対>` | テキストファイルの内容（UTF-8、256 KiB 以下） |
 
-`{ "text": "内容" }` を返す（`Cache-Control: no-store`）。サンドボックスの `GET /v1/files/preview` に委譲し、root 内の通常ファイルのみ読み取る。HTML や Markdown も実行・レンダリングせずプレーンテキストとして扱う。
+`{ "text": "内容" }` を返す（`Cache-Control: no-store`）。サンドボックスの `GET /v1/files/preview` に委譲し、root 内の通常ファイルのみ読み取る。この経路では HTML や Markdown も実行・レンダリングせずプレーンテキストとして返す（HTML の描画は `GET /api/files/html` を使う）。
 
 - 400 / 404: バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 - 502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）
 
 ファイル画面で選択するとタブとして開き、同じファイルの再選択はタブを増やさず表示だけを切り替える。タブは最大 8 枚で、超えると最も古いタブを閉じる。本文は表示中のタブの分だけ取得し、タブごとに保持する（切替では取り直さない）。「再読み込み」は開いているタブを保ったまま本文を捨てて取り直す。表示位置は本文の幅で決まり、狭いときはツリーの下、広いときはツリーの右に出る。行番号とシンタックスハイライトはクライアントの表示だけで、転送はプレーンテキストのまま（[file-preview.md](file-preview.md)）。
+
+## HTML プレビュー
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/html?path=<root 相対>` | HTML を描画するための本文（iframe の src。UTF-8、256 KiB 以下） |
+
+サンドボックスの `GET /v1/files/preview` の応答を `text/html` としてそのまま返す（`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`）。本文はテキストプレビューと同じ経路で、拡張子はサーバーでは判定しない（HTML として開くかの判断はクライアントの `isHtmlPath` が持つ）。
+
+iframe の中身は応答ヘッダだけで隔離する（親の CSP を継承させないために別ルートにする）。
+
+```
+Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'
+```
+
+- 400 / 404: バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外（400）、実在しない（404）。テキストプレビューと同じ分類
+- 502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+
+エラーも iframe の中で読めるように HTML 文書で返し、サンドボックス由来の文言は HTML エスケープする。方式と残リスクは [file-preview.md](file-preview.md)。
 
 ## プロジェクト
 

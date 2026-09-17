@@ -101,14 +101,19 @@ export async function bodyGuard(c: Context, next: () => Promise<void>) {
   await next();
 }
 
-/** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
-export function sandboxFailure(c: Context, error: unknown) {
-  return c.json(
-    { error: messageFor(error) },
-    (error instanceof SandboxRequestError ? error.status : 502) as ContentfulStatusCode,
-  );
+/** サンドボックスの 4xx はそのまま、接続失敗は 502 に寄せる。応答の本文の形は呼び出し側が決める。 */
+export function sandboxFailureStatus(error: unknown): number {
+  return error instanceof SandboxRequestError ? error.status : 502;
 }
 
+/** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
+export function sandboxFailure(c: Context, error: unknown) {
+  return c.json({ error: messageFor(error) }, sandboxFailureStatus(error) as ContentfulStatusCode);
+}
+
+/** 未設定時の案内。JSON と HTML の両方の応答で同じ文言を使う。 */
+export const SANDBOX_NOT_CONFIGURED_MESSAGE = "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)";
+
 export function sandboxNotConfigured(c: Context) {
-  return c.json({ error: "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" }, 503);
+  return c.json({ error: SANDBOX_NOT_CONFIGURED_MESSAGE }, 503);
 }

@@ -1,13 +1,14 @@
-# ファイルプレビューの表示（行番号とシンタックスハイライト）
+# ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML 描画）
 
-ファイル画面（`FileTreePage` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。整形は `client/src/lib/fileCode.ts` の純関数、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) と `client/src/lib/fileTabs.ts` を参照する。
+ファイル画面（`FileTreePage` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML だけは `GET /api/files/html` を iframe で描画する。整形は `client/src/lib/fileCode.ts` の純関数、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
 
 ## 原則
 
-1. **転送はプレーンテキストのまま**: 行番号も色も表示側の都合で、API / DTO / サンドボックスは変えない。HTML や Markdown を実行・描画しない方針も変わらない（色を付けるだけで描画はしない）。
+1. **ソース表示の転送はプレーンテキストのまま**: 行番号も色も表示側の都合で、API / DTO / サンドボックスは変えない。Markdown を描画しない方針も変わらない（色を付けるだけ）。HTML だけは例外で、別ルートの応答を iframe で描画する（原則 5）。
 2. **外部ライブラリを足さない**: 色付けはチャット本文と同じ `lib/markdown/highlight.ts` のトークナイザを使う（対応言語は [markdown.md](markdown.md)）。ファイル用の別実装を持たない。
 3. **DOM 文字列を作らない**: `innerHTML` / `dangerouslySetInnerHTML` / インライン `style` を使わない（本番の CSP は `style-src 'self'`）。行番号もクラスと CSS だけで出す。`client/test/fileCode.test.ts` がソース走査で固定する。
 4. **行番号と本文を 1 対 1 にする**: 番号の列は本文と同じ行送りで重ね、行数は本文から数える。ブラウザーの末尾改行の扱いに依存させない。
+5. **HTML の描画は応答ヘッダで隔離する**: iframe の src は同一オリジンの `GET /api/files/html` で、その応答だけ CSP と `sandbox` を当ててオペークオリジンにする。クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は、親の CSP を継承してインライン style / script が動かないため使わない。
 
 ## パイプライン
 
@@ -49,14 +50,54 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 上限でハイライトを落としても本文と行番号は出す（無言で消さない）。実測値の目安は、41 行の TS が 66 ms（色付き）、7,058 行 / 226 KiB の TS が 162 ms（トークン上限を超えるため素のテキスト + 行番号）。
 
+## HTML プレビュー
+
+`.html` / `.htm` のタブ（`isHtmlPath`）は、行番号付きのソース表示と iframe で描画したプレビューを切り替えられる（`client/src/components/FilePreview.tsx`）。
+
+### 方式
+
+描画は iframe の src に同一オリジンの `GET /api/files/html?path=<root 相対>` を指定し、応答ヘッダだけで隔離する。サーバーは本文をテキストプレビューと同じ `workspace.previewFile()`（サンドボックスの `GET /v1/files/preview`）から取るが、返すのは `text/html` で、CSP と `sandbox` をこの応答だけに当てる。
+
+クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; style-src 'self'; script-src 'self'`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` が `default-src` にフォールバックして `blob:` のフレーム自体も拒否される）。Chromium に本番相当の CSP を当てて確認済み。
+
+### 隔離（CSP と sandbox）
+
+```
+Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline';
+  script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'
+```
+
+- インラインの style / script と `data:` / `blob:` の画像・フォント・メディアだけを読み込む。相対パスのアセットと外部 URL は読み込めない
+- `sandbox` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）。`/api` への fetch も `default-src 'none'` で止まる
+- iframe 側の `sandbox="allow-scripts"` 属性と両方で隔離する。スクリプトの有効 / 無効は切り替えない（クライアントのトグルは ソース / プレビューの 2 択だけ）
+- 本文は 256 KiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
+- 応答は本文もエラーも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff`。エラーは iframe の中で読めるよう HTML 文書で返し、サンドボックス由来の文言はエスケープする
+
+### クライアントの振る舞い
+
+- 既定はプレビュー。他の拡張子は従来どおりソース表示で、トグルは HTML のタブにだけ出す
+- トグルの選択はタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileTreePage` が持つ。表示モードの選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
+- プレビュー中はソース本文を取得しない（`lang · N 行` もソース表示のときだけ出す）
+- 「再読み込み」は `FilePreview` の remount（`FileTreePage` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
+
+### できないこと（残リスク）
+
+- 相対パスを参照する HTML は見た目が崩れる（自己完結した HTML だけを描画する）
+- `localStorage` / cookie を使う HTML は動かない（オペークオリジン）
+- プレビュー自身は外部 URL へ自己遷移できる（持ち出せるのは自分自身の内容だけ）
+- 同一オリジンの `/api` 面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）
+
 ## テスト
 
 | テスト | 固定すること |
 | --- | --- |
-| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない |
+| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML だけプレビュー）/ 選択の保持と破棄 / タブの開閉と上限 |
+| `server/test/files.test.ts` | `GET /api/files/html` の 200 とヘッダ（CSP / `no-store` / `nosniff`）/ 400 / 404 / 502 / 503 / エラー HTML のエスケープ |
 
 ## 参照
 
 - [ui-layout.md](ui-layout.md) — 本文の中でツリーとプレビューをどう並べるか
 - [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限
 - [api.md](api.md#テキストプレビュー) — プレビューの転送契約
+- [api.md](api.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答

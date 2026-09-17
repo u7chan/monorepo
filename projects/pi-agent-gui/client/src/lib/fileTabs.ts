@@ -3,11 +3,39 @@
  * 取得と描画は FilePreview が担う。キーは fileTree と同じページ root 相対パス。
  */
 
+import { isHtmlPath } from "./fileCode";
+
 /**
  * 同時に開けるタブ数。超えたら最も古いタブを閉じる。
  * プレビュー本文はタブごとに保持するため、この上限が保持量の上限でもある。
  */
 export const FILE_TAB_LIMIT = 8;
+
+/** タブごとの表示の切替。ソース (行番号付きの本文) か、HTML を描画したプレビューか */
+export type PreviewMode = "source" | "preview";
+
+/** タブごとに保持する表示モード。キーはページ root 相対パス */
+export type PreviewModes = Record<string, PreviewMode>;
+
+/**
+ * タブの表示モード。既定は HTML だけプレビューで、他の拡張子はソース。
+ * 本文と同じく own property だけを見る (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
+ */
+export function previewModeFor(modes: PreviewModes, path: string): PreviewMode {
+  const mode = Object.hasOwn(modes, path) ? modes[path] : undefined;
+  return mode ?? (isHtmlPath(path) ? "preview" : "source");
+}
+
+/** 表示モードを選び直す。computed key で書く (own property になり、`__proto__` でもプロトタイプを書き換えない) */
+export function withPreviewMode(modes: PreviewModes, path: string, mode: PreviewMode): PreviewModes {
+  return { ...modes, [path]: mode };
+}
+
+/** 閉じたタブの選択を捨てる (選択はタブを閉じるまで)。中身が変わらないときは同じ object を返す */
+export function dropClosedPreviewModes(modes: PreviewModes, paths: string[]): PreviewModes {
+  const kept = Object.entries(modes).filter(([path]) => paths.includes(path));
+  return kept.length === Object.keys(modes).length ? modes : Object.fromEntries(kept);
+}
 
 export type FileTabsState = {
   /** 開いた順。選択では並びを変えない (IDE のタブと同じ) */
