@@ -8,6 +8,7 @@
 | セッションの状態 / 履歴 / compaction 表示 | `server/src/session-record.ts`、`server/src/session-projection.ts`、`server/src/compaction-view.ts`、`server/src/session-payload.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md) |
 | HTTP の契約 / DTO / ルート追加 | `server/src/schema.ts`、`server/src/app.ts`、`server/src/routes/` | [api.md](api.md)、[api-sessions.md](api-sessions.md)、[api-catalog.md](api-catalog.md) |
 | エージェント / スキル定義 | `server/src/agents.ts`、`client/src/components/AgentSettingsPage.tsx`、`client/src/components/SkillSettingsPage.tsx` | [api-catalog.md](api-catalog.md) |
+| バックアップ（エクスポート / インポート） | `client/src/components/BackupPage.tsx`、`client/src/lib/backupFile.ts`、`client/src/lib/backupTargets.ts` | [persistence.md](persistence.md)、[api-catalog.md](api-catalog.md) |
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |
 | プロジェクト / cwd / ファイルツリー | `server/src/projects.ts`、`client/src/components/FileTreePage.tsx`、`client/src/lib/fileTree.ts` | [projects.md](projects.md)、[api.md](api.md) |
 | サンドボックス（ツール実行） | `server/src/sandbox/` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md) |

@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { createSkill, deleteSkill, updateSkill } from "../api";
+import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { Catalog } from "../types";
 import { DefinitionList } from "./DefinitionList";
-import { DEFINITIONS_NOTE, DefinitionTransfer } from "./DefinitionTransfer";
 import { MenuItem } from "./MenuItem";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { BoltIcon, CheckIcon, TrashIcon } from "./icons";
@@ -22,7 +22,7 @@ export function SkillSettingsPage({
   onOpenNav,
 }: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
-  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: DEFINITIONS_NOTE, error: false });
+  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [skillForm, setSkillForm] = useState<SkillForm>({ name: "", description: "", prompt: "" });
 
   const editingSkill = catalog.skills.find((skill) => skill.id === editingId);
@@ -79,14 +79,6 @@ export function SkillSettingsPage({
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      actions={
-        <DefinitionTransfer
-          catalog={catalog}
-          refreshCatalog={refreshCatalog}
-          onImported={(next) => setEditingId(next.skills[0]?.id ?? null)}
-          onNote={setNoteText}
-        />
-      }
       note={note}
     >
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
@@ -163,10 +155,7 @@ export function SkillSettingsPage({
                   削除
                 </button>
               ) : null}
-              <button
-                type="submit"
-                className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110"
-              >
+              <button type="submit" className="btn-primary flex-1">
                 <CheckIcon />
                 保存
               </button>

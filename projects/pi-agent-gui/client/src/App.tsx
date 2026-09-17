@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
+import { BackupPage } from "./components/BackupPage";
 import { ChatArea } from "./components/ChatArea";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
@@ -212,6 +213,14 @@ export default function App() {
           ) : settingsSection === "files" ? (
             // root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない)
             <FileTreePage key={filesCwd} {...pageProps} cwd={filesCwd} />
+          ) : settingsSection === "backup" ? (
+            <BackupPage
+              {...pageProps}
+              catalog={desk.catalog}
+              projects={desk.projects}
+              sessions={desk.sessions}
+              refreshCatalog={refreshCatalog}
+            />
           ) : (
             <AppearancePage {...pageProps} />
           )

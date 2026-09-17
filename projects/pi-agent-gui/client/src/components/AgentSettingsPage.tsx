@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DEFINITIONS_NOTE, DefinitionTransfer } from "./DefinitionTransfer";
+import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { AgentEditorForm } from "./agent-settings/AgentEditorForm";
 import { AgentList } from "./agent-settings/AgentList";
@@ -28,18 +28,13 @@ export function AgentSettingsPage({
   onOpenNav,
 }: AgentSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
-  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: DEFINITIONS_NOTE, error: false });
+  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const editingAgent = catalog.agents.find((agent) => agent.id === editingId);
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
   const startNewAgent = () => {
     setEditingId(null);
     setNoteText("新しいエージェントを作成します。");
-  };
-
-  /** 新定義に無いエージェントを編集対象のまま残さない */
-  const selectAfterImport = (next: Catalog) => {
-    setEditingId(next.agents.some((agent) => agent.id === agentId) ? agentId : next.agents[0]?.id || null);
   };
 
   return (
@@ -50,14 +45,6 @@ export function AgentSettingsPage({
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      actions={
-        <DefinitionTransfer
-          catalog={catalog}
-          refreshCatalog={refreshCatalog}
-          onImported={selectAfterImport}
-          onNote={setNoteText}
-        />
-      }
       note={note}
     >
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
