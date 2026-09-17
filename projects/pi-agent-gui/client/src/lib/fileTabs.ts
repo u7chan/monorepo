@@ -52,6 +52,16 @@ export function createFileTabsState(): FileTabsState {
 }
 
 /**
+ * 保存値からタブの初期状態を作る。active が paths に無ければ末尾 (最後に開いたタブ) へ倒す。
+ * decode 側で検証済みでも、ここで 1 箇所に閉じておく (呼び出し側の誤りで active が浮くのを防ぐ)。
+ */
+export function restoreFileTabsState(paths: string[], active: string | null): FileTabsState {
+  if (paths.length === 0) return createFileTabsState();
+  const restored = active && paths.includes(active) ? active : null;
+  return { paths, active: restored ?? paths[paths.length - 1] ?? null };
+}
+
+/**
  * タブのラベル。同じ名前のタブが複数あるときだけ親ディレクトリを前置する (同名ファイルを区別する)。
  * 重複が無ければ名前だけ (IDE のタブと同じ)。
  */

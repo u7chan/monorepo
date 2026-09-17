@@ -87,13 +87,28 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - プレビュー自身は外部 URL へ自己遷移できる（持ち出せるのは自分自身の内容だけ）
 - 同一オリジンの `/api` 面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）
 
+## 復帰（F5・画面の往復）
+
+設定 → ファイル の画面は、F5 や チャット ⇄ 設定 の往復でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は「確定した root を持つ `FileTreePage` の mount ごとに 1 回」で、設定を離れて戻る・cwd A→B→A では再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。
+
+- 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html`、ソースは `/api/files/preview`）
+- 親を閉じた子の open は保持し、保存された子のために親を勝手に開かない。root は常に開く。取得は既存の「可視の親から子へ」の経路のままで、親を開いた時点で子の open が効く
+- 消えていたファイルのタブは残し、本文の取得エラーをそのまま出す（勝手に閉じない）。削除済みディレクトリの枝は一覧の取得で落ちる。listing が `truncated` のとき未掲載の枝も落ちるため、完全な復元は保証しない
+- 「再読み込み」はタブ・表示モード・展開を保ったまま本文だけを取り直す。最後のタブを閉じた状態（保存する内容が無い）は cwd ごと消すので、F5 後も空のままになる
+- 保存値が壊れている / 形が合わない cwd は捨てる（他の cwd は残す）。9 枚のタブを持つ保存値も捨てる。これは通常操作の 9 枚目で最古を落とす `FILE_TAB_LIMIT` とは別の契約
+- 保存領域が使えない環境（SecurityError / quota 超過）では、write が失敗した cwd をメモリ snapshot として持ち、同一セッション内の往復は復元できる。F5 を跨ぐ復元は保証しない（古い保存値が戻り得る）。保存キーと上限の全体は [frontend.md](frontend.md#保存キーと保存範囲)
+
 ## テスト
 
 | テスト | 固定すること |
 | --- | --- |
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
-| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML だけプレビュー）/ 選択の保持と破棄 / タブの開閉と上限 |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML だけプレビュー）/ 選択の保持と破棄 / タブの開閉と上限 / 保存値からの復元（表示中の繰り上がりと上限） |
+| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
+| `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
+| `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `server/test/files.test.ts` | `GET /api/files/html` の 200 とヘッダ（CSP / `no-store` / `nosniff`）/ 400 / 404 / 502 / 503 / エラー HTML のエスケープ |
+| `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503） |
 
 ## 参照
 

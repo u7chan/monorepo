@@ -14,7 +14,9 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 
 ## モードごとの構成
 
-メイン領域は チャット / 設定ページ のどちらかを出し、サイドバーのモード（nav / settings）と一致する。対応は `client/src/lib/settingsNav.ts` の `mainViewFor` が持ち、mode と settingsSection の state は `App` が持つ。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。compact の詳細（エージェント / スキルの編集）だけはページの一覧から開く全画面シートにする（[compact の詳細シート](#compact-の詳細シート)）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
+メイン領域は チャット / 設定ページ のどちらかを出し、URL（`/` または `/settings/<section>`）がそれを決める（[frontend.md](frontend.md#url-と画面の対応)）。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。compact の詳細（エージェント / スキルの編集）だけはページの一覧から開く全画面シートにする（[compact の詳細シート](#compact-の詳細シート)）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
+
+画面切替は履歴を追加しない（`replaceState`）。Back / Forward はブラウザーの既存履歴に従うので、アプリ内に戻れることもあれば、直リンクの新規タブのようにアプリの外へ出ることもある。
 
 - desktop: `Topbar`（エラー時の接続状態と見出しだけの帯）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
 - 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ バックアップ（`BackupPage`）/ 外観（`AppearancePage`）の 5 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
@@ -66,7 +68,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## サイドバー
 
-サイドバーは nav / settings の 2 モードを持ち、mode は `App` が持つ（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。
+サイドバーは nav / settings の 2 モードを持ち、モードは URL から導出する（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。compact では**モードの切替（設定 / アプリに戻る）ではドロワーを閉じず、セクションの選択で閉じる**（既存契約）。`Escape` は 詳細シート → nav ドロワー → チャット の順で、開いているもの 1 つだけが受ける。
 
 ### nav モード
 
@@ -85,7 +87,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 5 項目を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル）を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 5 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

@@ -34,6 +34,30 @@
 - SPA フォールバック（`server/src/static.ts`）: 既存の静的ファイルを優先し、見つからない GET / HEAD のうち**拡張子なしのパス**に限って `index.html` を `/` と同じ本文・`no-cache`・CSP で返す。「拡張子なし」は最後の非空セグメントに `.` を含まない意味で、末尾スラッシュは許容し、dotfile と末尾ドットは対象外にする。`/api` と `/assets` は prefix の境界ごと（`/api` と `/api/` 配下、`/assets` と `/assets/` 配下）対象外にし、除外判定は decode 後のパスで行う（`%2F` で迂回させない）。`Accept` に `text/html` が `q>0` で含まれるときだけ返し（`text/html;q=0`・`application/json`・ワイルドカードのみは対象外）、POST 等も対象外にする。不正な percent encoding と `client/dist` 外へのパスはフォールバックに回さず 404 にする。
 - このフォールバックは存在しない拡張子なしパスにも HTTP 200 と `index.html` を返す（soft 404）。**HTTP 200 はパスの存在確認には使えない**。`/foo.txt`・`/assets/missing`・`/api/unknown` は 404 のままで SPA も起動しない。
 
+## URL と画面の対応
+
+画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない（`client/src/lib/route.ts` の `parseRoute` / `routePath` が pathname と画面を相互変換し、`client/src/hooks/useRoute.ts` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
+
+- `/` はチャット、`/settings/<section>` は設定の 5 画面（`agents` / `skills` / `files` / `backup` / `appearance`）。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。`/settings` 単体は画面を特定できないため、未知のセクションや不正な encoding と同じくチャットにする
+- 画面切替は `replaceState` で、履歴は追加しない（Back / Forward はブラウザーの既存履歴に従う）。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
+- クエリとフラグメントは解釈も破棄もしない。`#foo` のような断片リンク（チャット本文の Markdown が通す）を壊さないため、画面切替でもそのまま持ち越す
+- 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` と `drawerProps` の両方をこの経路へ接続する
+- Vite dev は SPA フォールバックを持つが、本番は BFF が返す（[配信](#開発フローと配信) の SPA フォールバック）。存在しない拡張子なしパスも 200 と `index.html` になる **soft 404** なので、HTTP 200 はパスの存在確認には使えない
+
+## 保存キーと保存範囲
+
+| キー | 内容 | 復元するもの |
+| --- | --- | --- |
+| `pi-agent-files` | cwd ごとの snapshot を 1 キーに持つ（version 付き） | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
+| `pi-agent-settings-section` | 最後に開いていた設定セクション | 「設定」で戻る先（正は URL で、これは `/` からの補助） |
+
+- `pi-agent-files` は本文・children・loading・error を保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題。復帰時は既存の取得経路で取り直す）。範囲の詳細は [file-preview.md](file-preview.md#復帰f5画面の往復)
+- cwd は取得 root と同じ単位（`normalizeFileTreeRoot` の結果）で保存するため、`""` と `"."` は同じキーになり、絶対パスも root へ畳む
+- 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）
+- 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす
+- 新規 2 キーの read / write は例外を握り、保存領域が使えない環境でも操作を止めず、無限リトライもしない。write が失敗した cwd はメモリ snapshot が最新になるため、同一セッション内の往復（設定を離れて戻る等）は復元できる。ただし write 失敗後の F5 では古い保存値が戻り得る（復元は保証しない）
+- 既存 3 キー（`pi-agent-session` / `pi-agent-project` / `pi-agent-agent`）の `localStorage` 直接アクセスは例外を握っていない。**保存領域が使えない環境では現状すでに起動が失敗する**（頑健化は別 Issue）
+
 ## クライアントの Effect 契約
 
 - 起動時の復元とセッション一覧のポーリングは別の Effect とする。起動処理は表示期間に一度開始し、エージェント選択の変更では再実行しない。起動処理はセッションを作らない（復元先が無ければ未作成チャットのまま表示し、最初の送信で作成する）。
@@ -42,3 +66,5 @@
 - 管理フォームの下書き（選択中の定義の編集値）はページが持つ。選択対象とカタログの変更を render 中に検出して初期化し、カタログ再読込でも未保存入力をリセットする既存の挙動を維持する（置き場所の理由は [ui-layout.md](ui-layout.md) の「compact の詳細シート」）。
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間だけ止めて、戻ったときに最新位置へ揃える）。コピー完了待ちの要求は cleanup で無効化する。
 - フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` が固定する。
+- ファイル画面の復元は「確定した root を持つ `FileTreePage` の mount ごとに 1 回」。確定判定は `useAgentDesk` の `booted`（起動処理が失敗した場合も true）で行い、`""`（未確定と未所属が同じ値）では判定しない。`booted` が false の間は復元も取得も保存もしない
+- 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`pi-agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない

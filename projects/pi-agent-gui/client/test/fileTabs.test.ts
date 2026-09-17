@@ -11,6 +11,7 @@ import {
   openFileTab,
   previewModeFor,
   readPreview,
+  restoreFileTabsState,
   withPreviewMode,
 } from "../src/lib/fileTabs";
 
@@ -126,4 +127,30 @@ test("閉じたタブの表示モードだけを捨てる", () => {
   assert.deepEqual(dropClosedPreviewModes(modes, ["a.html"]), { "a.html": "source" });
   // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
   assert.equal(dropClosedPreviewModes(modes, ["a.html", "dir/b.html"]), modes);
+});
+
+// 保存値からの復元。復元後は通常のタブ操作 (開閉・上限) にそのまま乗る
+test("保存値の表示中が無いときは末尾 (最後に開いたタブ) を選ぶ", () => {
+  assert.deepEqual(restoreFileTabsState([], null), { paths: [], active: null });
+  assert.deepEqual(restoreFileTabsState([], "a.txt"), { paths: [], active: null }, "タブが無ければ表示中も無い");
+  assert.deepEqual(restoreFileTabsState(["a.txt", "b.txt"], "a.txt"), { paths: ["a.txt", "b.txt"], active: "a.txt" });
+  assert.deepEqual(restoreFileTabsState(["a.txt", "b.txt"], null), { paths: ["a.txt", "b.txt"], active: "b.txt" });
+  assert.deepEqual(
+    restoreFileTabsState(["a.txt", "b.txt"], "nope.txt"),
+    { paths: ["a.txt", "b.txt"], active: "b.txt" },
+    "paths に無い表示中は末尾へ倒す",
+  );
+});
+
+test("復元したタブでも表示中の切替と上限は同じ契約", () => {
+  let state = restoreFileTabsState(["a.txt", "b.txt"], "a.txt");
+  state = openFileTab(state, "a.txt");
+  assert.deepEqual(state, { paths: ["a.txt", "b.txt"], active: "a.txt" }, "選び直しでは並びを変えない");
+  state = restoreFileTabsState(
+    Array.from({ length: FILE_TAB_LIMIT }, (_, i) => `${i}.txt`),
+    `${FILE_TAB_LIMIT - 1}.txt`,
+  );
+  state = openFileTab(state, "new.txt");
+  assert.equal(state.paths.length, FILE_TAB_LIMIT, "上限を超えない");
+  assert.deepEqual(state.paths[0], "1.txt", "最も古いタブから落ちる");
 });

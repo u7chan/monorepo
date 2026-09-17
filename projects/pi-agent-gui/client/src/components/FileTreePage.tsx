@@ -3,30 +3,33 @@ import { getFiles } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import {
-  closeFileTab,
-  createFileTabsState,
-  dropClosedPreviewModes,
-  openFileTab,
-  withPreviewMode,
-  type PreviewMode,
-  type PreviewModes,
-} from "../lib/fileTabs";
-import {
   applyFileTreeError,
   applyFileTreeListing,
   beginFileTreeLoad,
-  createFileTreeState,
+  createFileTreeStateFromDirectories,
   FILE_TREE_ROOT,
   fileTreeChildPath,
   fileTreeDirectoryState,
   fileTreeFetchPath,
   invalidateFileTree,
   normalizeFileTreeRoot,
+  openFileTreeDirectories,
   pendingFileTreeDirectories,
   toggleFileTreeDirectory,
   type FileTreeDirectoryState,
   type FileTreeState,
 } from "../lib/fileTree";
+import { filePreviewStore } from "../lib/filePreviewState";
+import {
+  closeFileTab,
+  dropClosedPreviewModes,
+  openFileTab,
+  restoreFileTabsState,
+  withPreviewMode,
+  type FileTabsState,
+  type PreviewMode,
+  type PreviewModes,
+} from "../lib/fileTabs";
 import type { FileEntry } from "../types";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
@@ -34,6 +37,8 @@ import { ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
   cwd: string;
+  /** 起動処理が終わって cwd が確定したか。false の間は復元も取得も保存もしない */
+  booted: boolean;
 };
 
 const INDENT = 16;
@@ -50,14 +55,44 @@ function errorText(error: unknown): string {
  * (行のインデントは深さで決まるため、長い名前は truncate し横スクロールは出さない)。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
  */
-export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTreePageProps) {
+export function FileTreePage({ cwd, booted, ...props }: FileTreePageProps) {
+  // cwd は起動が終わるまで未確定。"" は「未所属 (ワークスペース root)」と同じ値なので、値では確定を判定できない
+  // (未確定の root へ保存しないため、確定してから復元する)
+  if (!booted) return <FileTreePageFrame {...props} />;
+  // 復元は「確定した root を持つ mount ごとに 1 回」。確定後に本編を mount し、key で cwd ごとに分ける
+  return <FileTreePageContent {...props} cwd={cwd} key={normalizeFileTreeRoot(cwd)} />;
+}
+
+/** cwd が確定するまでの外装。ここでは復元も取得も保存もしない */
+function FileTreePageFrame({ compact = false, onBack, onOpenNav }: SettingsPageProps) {
+  return (
+    <SettingsPageLayout
+      eyebrow="WORKSPACE"
+      title="作業ディレクトリ"
+      compact={compact}
+      onBack={onBack}
+      onOpenNav={onOpenNav}
+    >
+      <div className="min-h-0 overflow-y-auto px-3 py-3">
+        <MessageRow depth={0}>読み込み中…</MessageRow>
+      </div>
+    </SettingsPageLayout>
+  );
+}
+
+function FileTreePageContent({ cwd, compact = false, onBack, onOpenNav }: Omit<FileTreePageProps, "booted">) {
   const rootPath = normalizeFileTreeRoot(cwd);
-  const [tree, setTree] = useState<FileTreeState>(createFileTreeState);
-  const [tabs, setTabs] = useState(createFileTabsState);
+  // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
+  // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
+  const [restored] = useState(() => filePreviewStore.read(rootPath));
+  const [tree, setTree] = useState<FileTreeState>(() => createFileTreeStateFromDirectories(restored?.dirs ?? []));
+  const [tabs, setTabs] = useState<FileTabsState>(() =>
+    restoreFileTabsState(restored?.paths ?? [], restored?.active ?? null),
+  );
   // 一覧の再読み込みでプレビュー本文も捨てる (開いているタブは保つ)
   const [previewVersion, setPreviewVersion] = useState(0);
   // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
-  const [previewModes, setPreviewModes] = useState<PreviewModes>({});
+  const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
 
@@ -93,10 +128,21 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
   const openTab = (path: string) => setTabs((prev) => openFileTab(prev, path));
   const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
 
-  // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる
+  // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる。復元したタブが揃った状態で走る
+  // (復元前の空の paths で消さないため、復元は lazy initializer 側で済ませてある)
   useEffect(() => {
     setPreviewModes((prev) => dropClosedPreviewModes(prev, tabs.paths));
   }, [tabs.paths]);
+
+  // 変更のたびに保存する。他 cwd を消さない read-modify-write と、内容が同じときの書き込み省略は store 側
+  useEffect(() => {
+    filePreviewStore.write(rootPath, {
+      paths: tabs.paths,
+      active: tabs.active,
+      modes: previewModes,
+      dirs: openFileTreeDirectories(tree),
+    });
+  }, [rootPath, tree, tabs, previewModes]);
 
   const root = fileTreeDirectoryState(tree, FILE_TREE_ROOT) ?? { open: true, loading: false };
 
