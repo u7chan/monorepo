@@ -3,12 +3,10 @@ import { fileHtmlPreviewUrl, getFilePreview } from "../api";
 import { cn } from "../lib/cn";
 import { buildPreviewCode, isHtmlPath, previewLineNumbers } from "../lib/fileCode";
 import {
-  dropClosedPreviewModes,
   dropClosedPreviews,
   fileTabLabels,
   previewModeFor,
   readPreview,
-  withPreviewMode,
   type PreviewMode,
   type PreviewModes,
   type PreviewResults,
@@ -32,6 +30,9 @@ export type FilePreviewProps = {
   activePath: string;
   /** ページの root。fileTree と同じ単位で、取得時に GET /api/files の path へ変換する */
   rootPath: string;
+  /** タブごとの表示モード。親が持つ (再読み込みの remount で選択を失わないため) */
+  modes: PreviewModes;
+  onModeChange: (path: string, mode: PreviewMode) => void;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
 };
@@ -40,9 +41,8 @@ export type FilePreviewProps = {
  * タブ付きのプレビュー。本文はタブごとに保持し、切替で取り直さない (タブを開いただけでは取得しない)。
  * 親が `key` を変えたとき (一覧の再読み込み) は全タブの本文を捨てて取り直す。
  */
-export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: FilePreviewProps) {
+export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, onSelect, onClose }: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
-  const [modes, setModes] = useState<PreviewModes>({});
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
@@ -80,7 +80,6 @@ export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: 
 
   useEffect(() => {
     setResults((prev) => dropClosedPreviews(prev, paths));
-    setModes((prev) => dropClosedPreviewModes(prev, paths));
   }, [paths]);
 
   return (
@@ -108,10 +107,7 @@ export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: 
           {fetchPath}
         </code>
         {isHtmlPath(activePath) ? (
-          <PreviewModeToggle
-            mode={mode}
-            onChange={(next) => setModes((prev) => withPreviewMode(prev, activePath, next))}
-          />
+          <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
         ) : null}
         {code !== null && code.lineCount > 0 ? (
           <span className="shrink-0 text-3xs text-ink-ghost">

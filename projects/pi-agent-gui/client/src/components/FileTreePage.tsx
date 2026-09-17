@@ -2,7 +2,15 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { getFiles } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
-import { closeFileTab, createFileTabsState, openFileTab } from "../lib/fileTabs";
+import {
+  closeFileTab,
+  createFileTabsState,
+  dropClosedPreviewModes,
+  openFileTab,
+  withPreviewMode,
+  type PreviewMode,
+  type PreviewModes,
+} from "../lib/fileTabs";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -48,6 +56,8 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
   const [tabs, setTabs] = useState(createFileTabsState);
   // 一覧の再読み込みでプレビュー本文も捨てる (開いているタブは保つ)
   const [previewVersion, setPreviewVersion] = useState(0);
+  // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
+  const [previewModes, setPreviewModes] = useState<PreviewModes>({});
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
 
@@ -82,6 +92,11 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
 
   const openTab = (path: string) => setTabs((prev) => openFileTab(prev, path));
   const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
+
+  // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる
+  useEffect(() => {
+    setPreviewModes((prev) => dropClosedPreviewModes(prev, tabs.paths));
+  }, [tabs.paths]);
 
   const root = fileTreeDirectoryState(tree, FILE_TREE_ROOT) ?? { open: true, loading: false };
 
@@ -142,6 +157,10 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
               paths={tabs.paths}
               activePath={tabs.active}
               rootPath={rootPath}
+              modes={previewModes}
+              onModeChange={(path: string, mode: PreviewMode) =>
+                setPreviewModes((prev) => withPreviewMode(prev, path, mode))
+              }
               onSelect={openTab}
               onClose={closeTab}
             />

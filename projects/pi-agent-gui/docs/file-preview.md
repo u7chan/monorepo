@@ -76,7 +76,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ### クライアントの振る舞い
 
 - 既定はプレビュー。他の拡張子は従来どおりソース表示で、トグルは HTML のタブにだけ出す
-- トグルの選択はタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）
+- トグルの選択はタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileTreePage` が持つ。表示モードの選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
 - プレビュー中はソース本文を取得しない（`lang · N 行` もソース表示のときだけ出す）
 - 「再読み込み」は `FilePreview` の remount（`FileTreePage` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
 
