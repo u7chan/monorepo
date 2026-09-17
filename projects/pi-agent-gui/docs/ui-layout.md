@@ -14,10 +14,10 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 
 ## モードごとの構成
 
-メイン領域は チャット / 設定ページ のどちらかを出し、サイドバーのモード（nav / settings）と一致する。対応は `client/src/lib/settingsNav.ts` の `mainViewFor` が持ち、mode と settingsSection の state は `App` が持つ。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
+メイン領域は チャット / 設定ページ のどちらかを出し、サイドバーのモード（nav / settings）と一致する。対応は `client/src/lib/settingsNav.ts` の `mainViewFor` が持ち、mode と settingsSection の state は `App` が持つ。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。compact の詳細（エージェント / スキルの編集）だけはページの一覧から開く全画面シートにする（[compact の詳細シート](#compact-の詳細シート)）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
 
 - desktop: `Topbar`（エラー時の接続状態と見出しだけの帯）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ バックアップ（`BackupPage`）/ 外観（`AppearancePage`）の 5 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
+- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ バックアップ（`BackupPage`）/ 外観（`AppearancePage`）の 5 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
 - `FileTreePage`（作業ディレクトリのファイルツリー）は設定ナビの「ファイル」から開く。渡すパスは選択中セッションの実効 cwd で、未作成チャットは選択中プロジェクトの cwd、未所属は `""`（ワークスペース root）。**この cwd がツリーの root になり**、`GET /api/files` へは root 自身を `path=<cwd>`、配下を `path=<cwd>/<name>` で問い合わせる（未所属は `path=.`）。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。設定ページの中でもヘッダもツリーも画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
   - `CompactBar` はチャットのときに「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
@@ -26,7 +26,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
-  - 設定ページはヘッダと一覧の高さだけ詰め、ヘッダの折り返しと全幅の本文で狭い viewport に追従させる（エージェントのフォームは [エージェント編集フォーム](#エージェント編集フォーム) の 2 段構成、スキルのフォームは従来のサイズのまま。`FileTreePage` の行のインデントは深さに比例するため、横スクロールは `overflow-x-hidden` で抑える）
+  - 設定ページはヘッダと一覧の高さだけ詰め、ヘッダの折り返しと全幅の本文で狭い viewport に追従させる（エージェント / スキルの編集は [compact の詳細シート](#compact-の詳細シート) に出し、どちらのフォームも スクロールする本文 + 固定アクション行 で組む。`FileTreePage` の行のインデントは深さに比例するため、横スクロールは `overflow-x-hidden` で抑える）
 - compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-md`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えないので、`@theme` で 16px を `--text-md` に当てている）。設定ページのフォームは従来のサイズのまま（compact の「外観」のテーマ選択だけは 16px）
 - 選択欄（select）は `SelectField` で包む。ブラウザ既定のドロップダウン矢印は余白を制御できず右端に寄りすぎるため、自前の chevron（右端から 10px、右余白 32px）に置換している。幅と伸縮は wrapper 側のクラスで決める
 
@@ -38,15 +38,27 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 メッセージ本文の下の時刻ラベルとコピーボタンは本文と同じ列の中の 1 行に並べる（時刻は `at` が無ければ出さない）。assistant 列の幅は本文とツール履歴で決まり、時刻ラベルの有無や長さでは動かない。内容幅で決まる user 列では、本文よりこの行が広い短文（例: 2 文字）で時刻ラベルの分だけ列幅が広がる。
 
-## エージェント編集フォーム
+## 設定の編集フォーム（エージェント / スキル）
 
-設定 → エージェント の編集列（`client/src/components/agent-settings/`）は、可変長の「定型プロンプト」「スキル」を持つため、確定操作の位置が件数に比例して下がる。これを避けるため次のように組む。
+設定 → エージェント の編集列（`client/src/components/agent-settings/`、スキルは `skill-settings/SkillEditorForm.tsx`）は、可変長の「定型プロンプト」「スキル」を持つため、確定操作の位置が件数に比例して下がる。これを避けるため次のように組む。
 
-- エディタ列は `<form>` を `grid-rows-[minmax(0,1fr)_auto]` の 2 段にし、上段 = スクロールする本文、下段 = 常時表示のアクション行（左: 削除 / 右: 保存）にする。削除は編集中だけ出す。ヘッダ（`SettingsPageLayout` の `actions`）に置かないのは、compact のヘッダが ナビ + タイトル + アプリに戻る の 3 要素で、破壊操作が保存の隣に並ぶため
+- エディタ列は `<form>` を縦 flex の 2 段にし、上段 = スクロールする本文（`flex-1`）、下段 = 常時表示のアクション行（左: 削除 / 右: 保存）にする。削除は編集中だけ出す。ヘッダ（`SettingsPageLayout` の `actions`）に置かないのは、compact のヘッダが ナビ + タイトル + アプリに戻る の 3 要素で、破壊操作が保存の隣に並ぶため。`flex-1` は grid item では無視されるので、ページの grid 行でも [シート](#compact-の詳細シート) の flex 列でも同じ形で高さを埋められる
+- スキルのフォームも同じ 2 段にする。項目が固定で本文が伸びないため元はボタン行を本文の最後に置いていたが、シートでは常時表示の操作行が必要になるので揃える（desktop のスキルページもボタン行がカラム下端へ移る）
 - 本文は `@container`（`@3xl` = 768px）で、コンテナ幅が足りるときだけ 2 カラム（左: 名前 / 説明 / 役割・基本指示 / Model・Effort、右: スキル / 定型プロンプト）にする。viewport ではなくコンテナで判定するのは、エディタ列の幅が「サイドバー 252px + 一覧 248px」を引いた残りで決まり、compact では一覧が上に積まれて本文が全幅になるため。1440x900 は本文 約 908px で 2 カラム、1280x800 は 約 748px で 1 カラムになる（どちらも 保存 / 削除 は本文の外にある）
 - 本文の中央寄せ上限は `max-w-5xl`（1024px）。1440x900 では効かず、極端に広いウィンドウでフィールドが横に伸びきるのを防ぐだけに置く
 - 右カラムは最大 360px なので、定型プロンプト（`SuggestionsEditor`）の 1 件は「ラベル + 削除アイコン」の行と「プロンプト」の行の 2 段にする。フィールド見出しは placeholder へ寄せ、読み上げ用の `aria-label` は残す。スキル（`SkillSelector`）は見出しに「割り当て中 N / 全 M」を出し、一覧だけを `max-h-72` の内部スクロールにする（行の説明は 1 行 truncate + `title`）。ここで `wide:`（viewport 900px）を使うと狭いカラムの中で常に真になり横並びが潰れるので、カラム内は縦積みに固定する
 - 2 カラムになると役割 / 基本指示の textarea の幅が狭くなるため、行数と最小の高さを増やして縦を補う（2 カラムでも本文の高さが表示領域を超えない範囲で）
+
+## compact の詳細シート
+
+compact の 設定 → エージェント / スキル は「一覧（ページ）+ 編集（全画面シート）」に分ける。1 列に積むと、選択のためだけの一覧が常時 `30vh` を占め、編集フォームの表示領域が 390x844 で 381px まで落ちる（シートなら約 664px）。
+
+- ページは一覧だけを出して全高を使う（`DefinitionList` は compact で `max-h-[30vh]` を付けない）。行の選択と「新しい〜」で `SettingsDetailSheet`（モーダル dialog）が全画面で開く
+- シートは ヘッダ（eyebrow + 見出し + 閉じる）/ スクロールする本文（[編集フォーム](#設定の編集フォームエージェント--スキル)）/ 固定アクション行 / note の 4 段。本文と操作行はページと同じフォームを渡すので、フォーム側の見出しはシートのヘッダへ出す（`showHeading={false}`）
+- 保存 / 削除が成功したらシートを閉じて一覧へ戻る（結果はページの note 行に出る）。失敗したときは開いたままにし、同じ note をシートの最下段へも出す（背面の note 行は見えないため）。note の位置をページと揃えるのは、閉じたときに同じ場所で続きを読めるようにするため
+- `Escape` は シート → ページ → チャット の順。シートは `<dialog>` の標準挙動で閉じ、`keydown` を `window` へ伝播させない（伝播させると同時に `App` がチャットへ戻す）
+- 境界は compact（幅 < 720px または高さ < 560px）に限る。desktop は幅 900px 未満で 1 列に積まれるが、`ProjectDialog` と同じく「全画面にするか」の判断は compact に揃え、desktop の見え方は変えない
+- 開閉はページが持つ（`sheetOpen`）。`editingId` と分けるのは、`null` が「新規」も意味して閉じた状態と区別できないため。desktop の行選択では開かないので、幅を狭めて compact になっても勝手には開かない
 
 ## サイドバー
 
@@ -69,7 +81,7 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 5 項目を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/settingsNav.test.ts` がサイドバーのモードとメイン領域の対応および設定ナビの 5 項目を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

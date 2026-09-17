@@ -42,9 +42,11 @@ export function AgentEditorForm({
   modelOptions,
   defaultModel,
   defaultThinkingLevel,
+  showHeading = true,
   refreshCatalog,
   onSelectAgent,
   onNote,
+  onDone,
 }: {
   catalog: Catalog;
   editingId: string | null;
@@ -53,9 +55,13 @@ export function AgentEditorForm({
   modelOptions: ModelOption[];
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
+  /** 詳細シートではシートのヘッダが見出しを持つ */
+  showHeading?: boolean;
   refreshCatalog: () => Promise<Catalog>;
   onSelectAgent: (agentId: string | null) => void;
   onNote: (text: string, error?: boolean) => void;
+  /** 保存 / 削除が成功した。compact はシートを閉じて一覧へ戻る */
+  onDone?: () => void;
 }) {
   const [agentForm, setAgentForm] = useState<AgentForm>(() => agentFormOf(agent));
   // 値を初期化済みにしてから mount し、同じ値での再 render を避ける
@@ -83,6 +89,7 @@ export function AgentEditorForm({
       onSelectAgent(result.agent.id);
       await refreshCatalog();
       onNote("エージェントを保存しました。適用するには新しい会話を開始してください。");
+      onDone?.();
     } catch (error) {
       onNote(error instanceof Error ? error.message : String(error), true);
     }
@@ -97,6 +104,7 @@ export function AgentEditorForm({
       const next = await refreshCatalog();
       onSelectAgent(selectedAgentId || next.agents[0]?.id || null);
       onNote("エージェントを削除しました。");
+      onDone?.();
     } catch (error) {
       // 最後のエージェントの削除などサーバー 400 のメッセージをそのまま出す
       onNote(error instanceof Error ? error.message : String(error), true);
@@ -131,17 +139,19 @@ export function AgentEditorForm({
   };
 
   return (
-    <section className="grid min-h-0 min-w-0">
-      <form onSubmit={saveAgent} className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
-        <div className="min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <form onSubmit={saveAgent} className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
           <div className="@container">
             <div className="mx-auto grid max-w-5xl gap-2.5">
-              <div>
-                <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">AGENT</div>
-                <h3 className="text-sm font-semibold text-ink-strong">
-                  {agent ? "エージェントを編集" : "新しいエージェント"}
-                </h3>
-              </div>
+              {showHeading ? (
+                <div>
+                  <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">AGENT</div>
+                  <h3 className="text-sm font-semibold text-ink-strong">
+                    {agent ? "エージェントを編集" : "新しいエージェント"}
+                  </h3>
+                </div>
+              ) : null}
               <div className="grid gap-2.5 @3xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] @3xl:gap-x-6">
                 {/* content-start: 列の高さは隣の列に合わせて伸びるが、中の行まで伸ばすと入力欄の高さが変わってしまう */}
                 <div className="grid min-w-0 content-start gap-3">
@@ -208,7 +218,7 @@ export function AgentEditorForm({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 border-t border-line px-4 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3">
           {agent ? (
             <button
               type="button"

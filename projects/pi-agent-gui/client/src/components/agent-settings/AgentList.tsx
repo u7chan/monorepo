@@ -6,16 +6,24 @@ import type { AgentDef } from "../../types";
 export function AgentList({
   agents,
   editingId,
+  compact = false,
   onSelect,
   onStartNew,
 }: {
   agents: AgentDef[];
   editingId: string | null;
+  compact?: boolean;
   onSelect: (agentId: string) => void;
   onStartNew: () => void;
 }) {
   return (
-    <DefinitionList title="エージェント一覧" count={agents.length} addLabel="新しいエージェント" onAdd={onStartNew}>
+    <DefinitionList
+      title="エージェント一覧"
+      count={agents.length}
+      addLabel="新しいエージェント"
+      onAdd={onStartNew}
+      compact={compact}
+    >
       {agents.map((agent) => (
         <MenuItem
           key={agent.id}
