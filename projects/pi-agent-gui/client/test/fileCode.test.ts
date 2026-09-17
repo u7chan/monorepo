@@ -30,6 +30,9 @@ test("拡張子から言語を決める", () => {
     ["Dockerfile.dev", null],
     ["a.", null],
     [".ts", null],
+    // Object.prototype の名前を拡張子にした場合も言語として拾わない
+    ["a.constructor", null],
+    ["a.__proto__", null],
   ];
   for (const [path, lang] of cases) assert.equal(previewLang(path), lang, path);
 });
@@ -70,6 +73,14 @@ test("判定できない拡張子でも本文と行数は出す (ハイライト
   assert.equal(code.highlight, null);
   assert.equal(code.text, "a\nb");
   assert.equal(code.lineCount, 2);
+});
+
+test("Object.prototype の名前の拡張子でも描画を止めない", () => {
+  for (const path of ["a.constructor", "a.__proto__", "a.toString"]) {
+    const code = buildPreviewCode("hello", path);
+    assert.equal(code.highlight, null, path);
+    assert.equal(code.lineCount, 1, path);
+  }
 });
 
 test("フェンスの上限 (40 KiB) を超える本文もファイル側の上限まではハイライトする", () => {

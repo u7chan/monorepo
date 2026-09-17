@@ -141,6 +141,12 @@ test("未知の言語 (図を含む) と上限超過ではハイライトしな�
   assert.notEqual(highlightCode("x".repeat(HIGHLIGHT_MAX_LENGTH), "ts"), null);
 });
 
+test("Object.prototype の名前は言語名として拾わない (継承プロパティを仕様として引かない)", () => {
+  // `` ```constructor `` のようなフェンスで ALIASES の継承プロパティを拾うと、言語名が関数になり描画で落ちる
+  for (const lang of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"])
+    assert.equal(highlightCode("const a = 1;", lang), null, lang);
+});
+
 test("空のコードでも例外を投げない", () => {
   assert.deepEqual(highlightCode("", "ts"), []);
   assert.deepEqual(highlightCode("", "diff"), []);

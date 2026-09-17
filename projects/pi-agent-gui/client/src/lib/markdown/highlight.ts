@@ -288,7 +288,8 @@ export function normalizeLang(lang: string | null): string | null {
     .toLowerCase()
     .replace(/^\{|\}$/g, "")
     .replace(/^\./, "");
-  return ALIASES[name] ?? null;
+  // info 文字列や拡張子は外部由来なので、own プロパティだけを見る (constructor / __proto__ を言語名として拾わない)
+  return Object.hasOwn(ALIASES, name) ? ALIASES[name] : null;
 }
 
 function tokenize(text: string, spec: LangSpec): MdToken[] {
