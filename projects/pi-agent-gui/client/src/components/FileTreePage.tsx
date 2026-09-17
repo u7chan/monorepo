@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { getFiles } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
+import { closeFileTab, createFileTabsState, openFileTab } from "../lib/fileTabs";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -36,14 +37,16 @@ function errorText(error: unknown): string {
 
 /**
  * 作業ディレクトリのファイルツリー。渡された `cwd` を root として `GET /api/files` を辿る (配下は `<cwd>/<name>`)。
- * メイン領域のページに置く。ヘッダもツリーも画面幅いっぱいに使い、行は深さに比例したインデントだけを持つ
+ * メイン領域のページに置く。ヘッダは画面幅いっぱい、ツリーの行は深さに比例したインデントだけを持つ
  * (行のインデントは深さで決まるため、長い名前は truncate し横スクロールは出さない)。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
  */
 export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTreePageProps) {
   const rootPath = normalizeFileTreeRoot(cwd);
   const [tree, setTree] = useState<FileTreeState>(createFileTreeState);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [tabs, setTabs] = useState(createFileTabsState);
+  // 一覧の再読み込みでプレビュー本文も捨てる (開いているタブは保つ)
+  const [previewVersion, setPreviewVersion] = useState(0);
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
 
@@ -68,13 +71,16 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
   }, [tree, rootPath]);
 
   const reload = () => {
-    setSelected(null);
+    setPreviewVersion((version) => version + 1);
     setTree((prev) => invalidateFileTree(prev));
   };
 
   const toggle = (path: string) => {
     setTree((prev) => toggleFileTreeDirectory(prev, path));
   };
+
+  const openTab = (path: string) => setTabs((prev) => openFileTab(prev, path));
+  const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
 
   const root = tree[FILE_TREE_ROOT] ?? { open: true, loading: false };
 
@@ -98,41 +104,48 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
         </button>
       }
     >
-      {/* 親は 3 行グリッドなので、ツリーとプレビューを 1 要素にまとめる (2 要素渡すとプレビューが note 行へ入り、ツリーが潰れる) */}
-      <div className="flex min-h-0 flex-col">
-        {/* selected 時は shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、preview の min-h-40 へ譲る */}
-        <div
-          className={cn(
-            "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
-            selected ? "max-h-64" : "flex-1",
-          )}
-        >
-          {root.error ? (
-            <MessageRow depth={0} danger alert>
-              {root.error}
-            </MessageRow>
-          ) : null}
-          {root.children ? (
-            <Branch
-              parent={FILE_TREE_ROOT}
-              node={root}
-              depth={0}
-              tree={tree}
-              selected={selected}
-              onToggle={toggle}
-              onSelect={setSelected}
+      {/* 親は 3 行グリッドなので、ツリーとプレビューを 1 要素にまとめる (2 要素渡すとプレビューが note 行へ入り、ツリーが潰れる)。
+          内側の 1 段は @container でないと自分自身の幅を問い合わせられないため、判定はこの段で行う */}
+      <div className="@container min-h-0">
+        <div className="flex h-full min-h-0 flex-col @2xl:flex-row">
+          {/* タブがあるときは shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、
+              プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない) */}
+          <div
+            className={cn(
+              "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
+              tabs.paths.length > 0 ? "max-h-64 @2xl:max-h-none @2xl:w-72 @2xl:flex-none" : "flex-1",
+            )}
+          >
+            {root.error ? (
+              <MessageRow depth={0} danger alert>
+                {root.error}
+              </MessageRow>
+            ) : null}
+            {root.children ? (
+              <Branch
+                parent={FILE_TREE_ROOT}
+                node={root}
+                depth={0}
+                tree={tree}
+                selected={tabs.active}
+                onToggle={toggle}
+                onSelect={openTab}
+              />
+            ) : root.error ? null : (
+              <MessageRow depth={0}>読み込み中…</MessageRow>
+            )}
+          </div>
+          {tabs.paths.length > 0 && tabs.active ? (
+            <FilePreview
+              key={previewVersion}
+              paths={tabs.paths}
+              activePath={tabs.active}
+              rootPath={rootPath}
+              onSelect={openTab}
+              onClose={closeTab}
             />
-          ) : root.error ? null : (
-            <MessageRow depth={0}>読み込み中…</MessageRow>
-          )}
+          ) : null}
         </div>
-        {selected ? (
-          <FilePreview
-            key={fileTreeFetchPath(rootPath, selected)}
-            path={fileTreeFetchPath(rootPath, selected)}
-            onClose={() => setSelected(null)}
-          />
-        ) : null}
       </div>
     </SettingsPageLayout>
   );
