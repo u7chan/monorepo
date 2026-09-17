@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { getFilePreview } from "../api";
 import { cn } from "../lib/cn";
+import { buildPreviewCode, previewLineNumbers } from "../lib/fileCode";
 import { dropClosedPreviews, fileTabLabels, readPreview, type PreviewResults } from "../lib/fileTabs";
 import { fileTreeFetchPath } from "../lib/fileTree";
 import { CloseIcon } from "./icons";
@@ -30,6 +31,9 @@ export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: 
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
   const result = readPreview(results, activePath);
+  const text = result?.text;
+  // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
+  const code = useMemo(() => (text === undefined ? null : buildPreviewCode(text, activePath)), [text, activePath]);
 
   // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする
   useEffect(() => {
@@ -79,19 +83,46 @@ export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: 
         <code className="min-w-0 flex-1 truncate text-1xs text-ink-muted" title={fetchPath}>
           {fetchPath}
         </code>
+        {code !== null && code.lineCount > 0 ? (
+          <span className="shrink-0 text-3xs text-ink-ghost">
+            {code.highlight?.lang ?? "text"} · {code.lineCount} 行
+          </span>
+        ) : null}
       </div>
       {result?.error ? (
         <p role="alert" className="px-4 py-2 text-xs break-words text-danger-text">
           {result.error}
         </p>
-      ) : result?.text === undefined ? (
+      ) : code === null ? (
         <p role="status" className="px-4 py-2 text-xs text-ink-muted">
           読み込み中…
         </p>
+      ) : code.lineCount === 0 ? (
+        <p className="px-4 py-2 text-xs text-ink-muted">（空のファイル）</p>
       ) : (
-        <pre tabIndex={0} className="min-h-0 flex-1 scrollbar-thin overflow-auto px-4 py-3 font-mono text-xs text-ink">
-          {result.text || "（空のファイル）"}
-        </pre>
+        // 行番号は本文と別の列にする。番号は行ごとの要素ではなく 1 つのテキストノードで出す
+        <div tabIndex={0} className="file-code min-h-0 flex-1 scrollbar-thin font-mono">
+          <div className="file-code-row">
+            <div aria-hidden="true" className="file-code-gutter">
+              {previewLineNumbers(code.lineCount)}
+            </div>
+            <pre className="file-code-body">
+              <code>
+                {code.highlight === null
+                  ? code.text
+                  : code.highlight.tokens.map((token, index) =>
+                      token.kind === "plain" ? (
+                        token.text
+                      ) : (
+                        <span key={index} className={`tok-${token.kind}`}>
+                          {token.text}
+                        </span>
+                      ),
+                    )}
+              </code>
+            </pre>
+          </div>
+        </div>
       )}
     </section>
   );
