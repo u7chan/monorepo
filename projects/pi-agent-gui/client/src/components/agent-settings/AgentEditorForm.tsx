@@ -3,6 +3,7 @@ import { createAgent, deleteAgent, updateAgent } from "../../api";
 import type { AgentDef, AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
+import { SkillSelector } from "./SkillSelector";
 import { SuggestionsEditor } from "./SuggestionsEditor";
 
 type AgentForm = {
@@ -130,91 +131,87 @@ export function AgentEditorForm({
   };
 
   return (
-    <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-      <form onSubmit={saveAgent} className="mx-auto grid max-w-2xl gap-3">
-        <div>
-          <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">AGENT</div>
-          <h3 className="text-sm font-semibold text-ink-strong">
-            {agent ? "エージェントを編集" : "新しいエージェント"}
-          </h3>
+    <section className="grid min-h-0 min-w-0">
+      {/* 確定操作をスクロール位置から切り離すため、本文 (1fr) とアクション行 (auto) の 2 段にする */}
+      <form onSubmit={saveAgent} className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+        <div className="min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
+          {/* エディタ列の幅はサイドバー + 一覧を引いた残りで決まるので、viewport ではなくコンテナ幅で 2 カラムにする */}
+          <div className="@container">
+            <div className="mx-auto grid max-w-5xl gap-2.5">
+              <div>
+                <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">AGENT</div>
+                <h3 className="text-sm font-semibold text-ink-strong">
+                  {agent ? "エージェントを編集" : "新しいエージェント"}
+                </h3>
+              </div>
+              <div className="grid gap-2.5 @3xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] @3xl:gap-x-6">
+                {/* content-start: 列の高さは隣の列に合わせて伸びるが、中の行まで伸ばすと入力欄の高さが変わってしまう */}
+                <div className="grid min-w-0 content-start gap-3">
+                  <label className="grid gap-1 text-1xs text-ink-soft">
+                    名前
+                    <input
+                      className="field text-xs"
+                      required
+                      maxLength={80}
+                      value={agentForm.name}
+                      // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
+                      onChange={(e) => {
+                        const name = e.currentTarget.value;
+                        setAgentForm((p) => ({ ...p, name }));
+                      }}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-1xs text-ink-soft">
+                    説明
+                    <input
+                      className="field text-xs"
+                      maxLength={300}
+                      value={agentForm.description}
+                      onChange={(e) => {
+                        const description = e.currentTarget.value;
+                        setAgentForm((p) => ({ ...p, description }));
+                      }}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-1xs text-ink-soft">
+                    役割 / 基本指示
+                    <textarea
+                      className="field min-h-36 text-xs leading-relaxed"
+                      rows={6}
+                      maxLength={8000}
+                      placeholder="空なら役割の指示なし (素の状態) で動きます"
+                      value={agentForm.systemPrompt}
+                      onChange={(e) => {
+                        const systemPrompt = e.currentTarget.value;
+                        setAgentForm((p) => ({ ...p, systemPrompt }));
+                      }}
+                    />
+                  </label>
+                  <AgentModelEffortFields
+                    model={agentForm.model}
+                    thinkingLevel={agentForm.thinkingLevel}
+                    modelOptions={modelOptions}
+                    defaultModel={defaultModel}
+                    defaultThinkingLevel={defaultThinkingLevel}
+                    onChangeModel={(model) => setAgentForm((prev) => ({ ...prev, model }))}
+                    onChangeThinkingLevel={(thinkingLevel) => setAgentForm((prev) => ({ ...prev, thinkingLevel }))}
+                  />
+                </div>
+                <div className="grid min-w-0 content-start gap-2.5">
+                  <SkillSelector skills={catalog.skills} selectedIds={agentForm.skillIds} onToggle={toggleSkill} />
+                  <SuggestionsEditor
+                    suggestions={agentForm.suggestions}
+                    onChange={changeSuggestion}
+                    onRemove={removeSuggestion}
+                    onAdd={addSuggestion}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <label className="grid gap-1 text-1xs text-ink-soft">
-          名前
-          <input
-            className="field text-xs"
-            required
-            maxLength={80}
-            value={agentForm.name}
-            // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
-            onChange={(e) => {
-              const name = e.currentTarget.value;
-              setAgentForm((p) => ({ ...p, name }));
-            }}
-          />
-        </label>
-        <label className="grid gap-1 text-1xs text-ink-soft">
-          説明
-          <input
-            className="field text-xs"
-            maxLength={300}
-            value={agentForm.description}
-            onChange={(e) => {
-              const description = e.currentTarget.value;
-              setAgentForm((p) => ({ ...p, description }));
-            }}
-          />
-        </label>
-        <label className="grid gap-1 text-1xs text-ink-soft">
-          役割 / 基本指示
-          <textarea
-            className="field min-h-28 text-xs leading-relaxed"
-            rows={5}
-            maxLength={8000}
-            placeholder="空なら役割の指示なし (素の状態) で動きます"
-            value={agentForm.systemPrompt}
-            onChange={(e) => {
-              const systemPrompt = e.currentTarget.value;
-              setAgentForm((p) => ({ ...p, systemPrompt }));
-            }}
-          />
-        </label>
-        <AgentModelEffortFields
-          model={agentForm.model}
-          thinkingLevel={agentForm.thinkingLevel}
-          modelOptions={modelOptions}
-          defaultModel={defaultModel}
-          defaultThinkingLevel={defaultThinkingLevel}
-          onChangeModel={(model) => setAgentForm((prev) => ({ ...prev, model }))}
-          onChangeThinkingLevel={(thinkingLevel) => setAgentForm((prev) => ({ ...prev, thinkingLevel }))}
-        />
-        <SuggestionsEditor
-          suggestions={agentForm.suggestions}
-          onChange={changeSuggestion}
-          onRemove={removeSuggestion}
-          onAdd={addSuggestion}
-        />
-        <div className="text-1xs text-ink-soft">割り当てるスキル</div>
-        <div className="grid gap-1.5">
-          {catalog.skills.length === 0 ? (
-            <div className="text-1xs text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
-          ) : (
-            catalog.skills.map((skill) => (
-              <label key={skill.id} className="flex cursor-pointer items-start gap-2 rounded-lg bg-soft px-2.5 py-2">
-                <input
-                  type="checkbox"
-                  checked={agentForm.skillIds.includes(skill.id)}
-                  onChange={(e) => toggleSkill(skill.id, e.currentTarget.checked)}
-                  className="mt-0.5 accent-focus"
-                />
-                <span className="min-w-0">
-                  <span className="block text-xs text-ink">{skill.name}</span>
-                  <small className="block text-2xs break-words text-ink-muted">{skill.description || ""}</small>
-                </span>
-              </label>
-            ))
-          )}
-        </div>
-        <div className="flex gap-2 pt-1">
+        {/* 破壊操作は左、確定は右。ヘッダに置くと compact で保存と隣り合うため常時表示の行に置く */}
+        <div className="flex items-center gap-2 border-t border-line px-4 py-3">
           {agent ? (
             <button
               type="button"
@@ -225,7 +222,7 @@ export function AgentEditorForm({
               削除
             </button>
           ) : null}
-          <button type="submit" className="btn-primary flex-1">
+          <button type="submit" className="btn-primary ml-auto">
             <CheckIcon />
             保存
           </button>
