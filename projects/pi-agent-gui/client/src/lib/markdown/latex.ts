@@ -133,14 +133,19 @@ function isAsciiLetter(char: string): boolean {
   return (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
 }
 
+/** 記号の表を名前で引く。名前は本文由来なので、継承プロパティ (`constructor` など) を記号として拾わない */
+function symbol(table: Record<string, string>, name: string): string | undefined {
+  return Object.hasOwn(table, name) ? table[name] : undefined;
+}
+
 /** 制御綴り 1 つをトークンにする。サブセット外の命令は null (解析全体を失敗させる) */
 function commandToken(name: string): Token | null {
-  const atom = ATOMS[name];
+  const atom = symbol(ATOMS, name);
   if (atom !== undefined) return { t: "text", v: atom };
-  const operator = OPERATORS[name];
+  const operator = symbol(OPERATORS, name);
   if (operator !== undefined) return { t: "op", v: operator };
   if (FUNCTIONS.has(name)) return { t: "fn", v: name };
-  const big = BIGOPS[name];
+  const big = symbol(BIGOPS, name);
   if (big !== undefined) return { t: "big", v: big };
   switch (name) {
     case "frac":

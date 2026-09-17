@@ -7,6 +7,7 @@ import {
   beginFileTreeLoad,
   createFileTreeState,
   fileTreeChildPath,
+  fileTreeDirectoryState,
   fileTreeFetchPath,
   invalidateFileTree,
   normalizeFileTreeRoot,
@@ -153,4 +154,36 @@ test("再読み込みは取得済みの子とエラーを捨て、開閉と取�
     [],
     "取得中の再読み込みでは要求し直さない (進行中の結果を待つ)",
   );
+});
+
+// パスにはファイル名がそのまま入るため、Object.prototype の名前も同じように扱える必要がある
+test("Object.prototype の名前のディレクトリも own プロパティとして取得する", () => {
+  for (const name of Object.getOwnPropertyNames(Object.prototype)) {
+    const state = loaded({ ".": [dir(name)], [name]: [file("child.ts")] });
+    assert.equal(Object.hasOwn(state, name), true, name);
+    assert.equal(Object.getPrototypeOf(state), Object.prototype, name);
+    assert.deepEqual(fileTreeDirectoryState(state, name)?.children, [file("child.ts")], name);
+  }
+});
+
+test("未取得の Object.prototype の名前でも既定の状態から始める", () => {
+  for (const name of Object.getOwnPropertyNames(Object.prototype)) {
+    const state = toggleFileTreeDirectory(createFileTreeState(), name);
+    assert.deepEqual(fileTreeDirectoryState(state, name), { open: true, loading: false }, name);
+    assert.equal(Object.getPrototypeOf(state), Object.prototype, name);
+  }
+});
+
+test("__proto__ という名前のディレクトリは再読み込み後も再取得の対象に残る", () => {
+  // オブジェクトリテラルの `__proto__:` はプロトタイプの設定になるため、computed key で渡す
+  let state = loaded({ ".": [dir("__proto__")], ["__proto__"]: [file("child.ts")] });
+  state = toggleFileTreeDirectory(state, "__proto__");
+  assert.deepEqual(fileTreeDirectoryState(state, "__proto__")?.children, [file("child.ts")]);
+
+  const reloaded = invalidateFileTree(state);
+  assert.equal(Object.hasOwn(reloaded, "__proto__"), true, "再読み込みで状態を落とさない");
+
+  // 再読み込みは root から取り直すため、root の一覧が戻った時点で開いたままの子が要求対象になる
+  const refetched = applyFileTreeListing(reloaded, ".", { entries: [dir("__proto__")], truncated: false });
+  assert.deepEqual(pendingFileTreeDirectories(refetched), ["__proto__"], "開いたまま取り直す");
 });
