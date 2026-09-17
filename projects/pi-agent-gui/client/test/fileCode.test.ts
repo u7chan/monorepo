@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { buildPreviewCode, FILE_PREVIEW_MAX_TOKENS, previewLang, previewLineNumbers } from "../src/lib/fileCode";
+import {
+  buildPreviewCode,
+  FILE_PREVIEW_MAX_TOKENS,
+  isHtmlPath,
+  previewLang,
+  previewLineNumbers,
+} from "../src/lib/fileCode";
 
 test("拡張子から言語を決める", () => {
   const cases: [string, string | null][] = [
@@ -126,4 +132,26 @@ test("描画側は DOM 文字列も HTML パースもインライン style も�
     const code = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), "utf8");
     for (const token of forbidden) assert.ok(!code.includes(token), `${file} に ${token} がある`);
   }
+});
+
+test("HTML を描画するパスを判定する", () => {
+  for (const path of ["a.html", "a.htm", "A.HTML", "dir/b.Htm", "dir.v2/page.html"]) {
+    assert.equal(isHtmlPath(path), true, path);
+  }
+  // 描画は .html / .htm の自己完結した HTML だけ (拡張子の判定は previewLang と同じ規則)
+  for (const path of ["a.xhtml", "a.svg", "a.md", "a.txt", "html", ".html", ".htm", "dir/.html", "a.html.txt", ""]) {
+    assert.equal(isHtmlPath(path), false, path);
+  }
+});
+
+test("HTML プレビューは sandbox 付き iframe と同一オリジンの URL だけを使う", () => {
+  const file = "src/components/FilePreview.tsx";
+  const code = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), "utf8");
+  // iframe の中身は常に sandbox で隔離し、親の CSP を継承する渡し方 (srcdoc / blob: / data:) を使わない
+  assert.ok(code.includes('sandbox="allow-scripts"'), "iframe の sandbox 属性が無い");
+  for (const token of ["srcdoc", "blob:", "data:text/html"]) {
+    assert.ok(!code.includes(token), `${file} に ${token} がある`);
+  }
+  // URL は api.ts の helper 経由で組み立てる (契約は hc の $url で参照する。CSP は server 側の応答ヘッダで固定する)
+  assert.ok(code.includes("fileHtmlPreviewUrl("), "プレビューの URL を helper から取っていない");
 });

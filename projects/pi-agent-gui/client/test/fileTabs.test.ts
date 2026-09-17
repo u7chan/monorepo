@@ -4,11 +4,14 @@ import test from "node:test";
 import {
   closeFileTab,
   createFileTabsState,
+  dropClosedPreviewModes,
   dropClosedPreviews,
   FILE_TAB_LIMIT,
   fileTabLabels,
   openFileTab,
+  previewModeFor,
   readPreview,
+  withPreviewMode,
 } from "../src/lib/fileTabs";
 
 test("開いたタブは末尾に積み、そのタブを表示する", () => {
@@ -93,4 +96,34 @@ test("閉じたタブの本文だけを捨てる", () => {
   assert.deepEqual(dropClosedPreviews(results, ["a.txt"]), { "a.txt": { text: "a" } });
   // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
   assert.equal(dropClosedPreviews(results, ["a.txt", "dir/b.txt"]), results);
+});
+
+test("表示モードの既定は HTML だけプレビュー", () => {
+  const modes = {};
+  assert.equal(previewModeFor(modes, "a.html"), "preview");
+  assert.equal(previewModeFor(modes, "dir/b.htm"), "preview");
+  assert.equal(previewModeFor(modes, "a.ts"), "source");
+  assert.equal(previewModeFor(modes, "a.xhtml"), "source");
+  // 選び直したタブは選択を優先する
+  const chosen = withPreviewMode(withPreviewMode(modes, "a.html", "source"), "a.ts", "preview");
+  assert.equal(previewModeFor(chosen, "a.html"), "source");
+  assert.equal(previewModeFor(chosen, "a.ts"), "preview");
+});
+
+test("表示モードの選択も Object.prototype の名前のパスで壊れない", () => {
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    // 未選択として既定 (拡張子の無いパスはソース) を返す
+    assert.equal(previewModeFor({}, name), "source");
+    const modes = withPreviewMode({}, name, "preview");
+    assert.equal(Object.hasOwn(modes, name), true, name);
+    assert.equal(Object.getPrototypeOf(modes), Object.prototype, name);
+    assert.deepEqual(previewModeFor(modes, name), "preview");
+  }
+});
+
+test("閉じたタブの表示モードだけを捨てる", () => {
+  const modes = { "a.html": "source", "dir/b.html": "source" } as const;
+  assert.deepEqual(dropClosedPreviewModes(modes, ["a.html"]), { "a.html": "source" });
+  // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
+  assert.equal(dropClosedPreviewModes(modes, ["a.html", "dir/b.html"]), modes);
 });

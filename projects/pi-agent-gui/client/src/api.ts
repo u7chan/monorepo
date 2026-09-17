@@ -113,6 +113,12 @@ export const getFilePreview = async (path: string, signal: AbortSignal): Promise
   return (await res.json()) as FilePreview;
 };
 
+/**
+ * HTML プレビュー (iframe の src)。取得は iframe に任せるので、ここでは URL だけを組み立てる。
+ * 応答は text/html で、iframe の中身は CSP と sandbox で隔離される (docs/file-preview.md)。
+ */
+export const fileHtmlPreviewUrl = (path: string): string => client.api.files.html.$url({ query: { path } }).toString();
+
 export const listProjects = async (): Promise<ProjectsResponse> => {
   const res = await client.api.projects.$get();
   if (!res.ok) throw await apiError(res);

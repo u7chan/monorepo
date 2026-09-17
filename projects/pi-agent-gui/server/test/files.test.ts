@@ -38,6 +38,10 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
 
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
+/** iframe へ流す CSP。値まで 1 箇所で固定する (iframe 側の sandbox 属性は client のテストが見る) */
+const HTML_CSP =
+  "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'";
+
 test("GET /api/files/preview validates responses and does not cache content", async () => {
   const { workspace } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
@@ -62,6 +66,102 @@ test("GET /api/files/preview answers 503 when the sandbox is not configured", as
   const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
   try {
     assert.equal((await bff.app.request("/api/files/preview?path=README.md")).status, 503);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/html returns the text as an isolated HTML document", async () => {
+  const { workspace } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  try {
+    workspace.previewFile = async (path) => ({ text: `<h1>${path}</h1>` });
+    const response = await bff.app.request("/api/files/html?path=report%2Fchart.html");
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+    // iframe を隔離するヘッダを固定する (CSP は値をそのまま見る)
+    assert.equal(response.headers.get("Content-Security-Policy"), HTML_CSP);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    // 本文はサンドボックスが返したテキストをそのまま返す (拡張子はサーバーでは見ない)
+    assert.equal(await response.text(), "<h1>report/chart.html</h1>");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/html maps sandbox failures to HTML documents", async () => {
+  const cases: Array<{ error: Error; status: number; message: RegExp }> = [
+    {
+      error: new SandboxRequestError("Path outside the workspace: /etc", 400),
+      status: 400,
+      message: /outside the workspace/,
+    },
+    { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
+    {
+      error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502),
+      status: 502,
+      message: /接続できません/,
+    },
+    { error: new Error("unexpected"), status: 502, message: /unexpected/ },
+  ];
+  for (const item of cases) {
+    const { workspace } = stubFiles();
+    workspace.previewFile = async () => {
+      throw item.error;
+    };
+    const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+    try {
+      const response = await bff.app.request("/api/files/html?path=chart.html");
+      assert.equal(response.status, item.status, item.error.message);
+      // iframe の中でも理由が読めるように、エラーも HTML 文書で返す
+      assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+      const body = await response.text();
+      assert.match(body, item.message);
+      assert.match(body, new RegExp(`HTTP ${item.status}`));
+    } finally {
+      await bff.close();
+    }
+  }
+
+  // 契約外の応答も JSON に戻さない (iframe の中で読めなくなる)
+  const { workspace } = stubFiles();
+  workspace.previewFile = async () => ({ text: 42 }) as unknown as { text: string };
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/html?path=chart.html");
+    assert.equal(response.status, 502);
+    assert.match(await response.text(), /不正/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/html escapes the sandbox message", async () => {
+  const { workspace } = stubFiles();
+  workspace.previewFile = async () => {
+    throw new SandboxRequestError('<b onclick="x()">nope</b>', 404);
+  };
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/html?path=chart.html");
+    const body = await response.text();
+    assert.match(body, /&lt;b onclick=&quot;x\(\)&quot;&gt;nope&lt;\/b&gt;/);
+    assert.ok(!body.includes("<b onclick"), "サンドボックス由来の文言をそのまま HTML に入れている");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/html answers 503 as an HTML document when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  try {
+    const response = await bff.app.request("/api/files/html?path=chart.html");
+    assert.equal(response.status, 503);
+    assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+    const body = await response.text();
+    assert.match(body, /PI_SANDBOX_URL/);
+    assert.match(body, /PI_SANDBOX_TOKEN/);
   } finally {
     await bff.close();
   }
