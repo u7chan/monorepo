@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState, type Ref } from "react";
 import { getFilePreview } from "../api";
 import { cn } from "../lib/cn";
-import { fileTabLabels } from "../lib/fileTabs";
+import { dropClosedPreviews, fileTabLabels, readPreview, type PreviewResults } from "../lib/fileTabs";
 import { fileTreeFetchPath } from "../lib/fileTree";
 import { CloseIcon } from "./icons";
 
-type PreviewResult = { text?: string; error?: string };
-
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** 閉じたタブの本文を捨てる。中身が変わらないときは同じ object を返す (再 render を起こさない) */
-function dropClosedResults(results: Record<string, PreviewResult>, paths: string[]): Record<string, PreviewResult> {
-  const kept = Object.entries(results).filter(([path]) => paths.includes(path));
-  return kept.length === Object.keys(results).length ? results : Object.fromEntries(kept);
 }
 
 export type FilePreviewProps = {
@@ -33,11 +25,11 @@ export type FilePreviewProps = {
  * 親が `key` を変えたとき (一覧の再読み込み) は全タブの本文を捨てて取り直す。
  */
 export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: FilePreviewProps) {
-  const [results, setResults] = useState<Record<string, PreviewResult>>({});
+  const [results, setResults] = useState<PreviewResults>({});
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
-  const result = results[activePath];
+  const result = readPreview(results, activePath);
 
   // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする
   useEffect(() => {
@@ -46,7 +38,7 @@ export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: 
 
   // 表示中のタブだけ取得する。取得中に切り替えたら中断して結果を捨てる (再表示で取り直す)
   useEffect(() => {
-    if (results[activePath]) return;
+    if (readPreview(results, activePath)) return;
     const controller = new AbortController();
     void getFilePreview(fetchPath, controller.signal).then(
       (value) => {
@@ -60,7 +52,7 @@ export function FilePreview({ paths, activePath, rootPath, onSelect, onClose }: 
   }, [activePath, fetchPath, results]);
 
   useEffect(() => {
-    setResults((prev) => dropClosedResults(prev, paths));
+    setResults((prev) => dropClosedPreviews(prev, paths));
   }, [paths]);
 
   return (

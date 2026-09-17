@@ -1,7 +1,15 @@
 // ファイルプレビューのタブ。DOM を使わず、開閉と上限・選択の遷移だけを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { closeFileTab, createFileTabsState, FILE_TAB_LIMIT, fileTabLabels, openFileTab } from "../src/lib/fileTabs";
+import {
+  closeFileTab,
+  createFileTabsState,
+  dropClosedPreviews,
+  FILE_TAB_LIMIT,
+  fileTabLabels,
+  openFileTab,
+  readPreview,
+} from "../src/lib/fileTabs";
 
 test("開いたタブは末尾に積み、そのタブを表示する", () => {
   let state = createFileTabsState();
@@ -68,4 +76,21 @@ test("同名タブが閉じたらラベルは名前だけに戻る", () => {
     "public/index.html",
     "package.json",
   ]);
+});
+
+test("Object.prototype の名前のパスを保持済みと誤認しない", () => {
+  const results = { "a.txt": { text: "a" } };
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    assert.equal(readPreview(results, name), undefined);
+  }
+  assert.deepEqual(readPreview(results, "a.txt"), { text: "a" });
+  // own property として書けば読める (書き込み側の computed key は継承プロパティを上書きしない)
+  assert.deepEqual(readPreview({ ...results, ["constructor"]: { text: "c" } }, "constructor"), { text: "c" });
+});
+
+test("閉じたタブの本文だけを捨てる", () => {
+  const results = { "a.txt": { text: "a" }, "dir/b.txt": { text: "b" } };
+  assert.deepEqual(dropClosedPreviews(results, ["a.txt"]), { "a.txt": { text: "a" } });
+  // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
+  assert.equal(dropClosedPreviews(results, ["a.txt", "dir/b.txt"]), results);
 });

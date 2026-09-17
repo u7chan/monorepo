@@ -16,6 +16,9 @@ export type FileTabsState = {
   active: string | null;
 };
 
+/** タブごとに保持するプレビュー本文。キーはページ root 相対パス */
+export type PreviewResults = Record<string, { text?: string; error?: string }>;
+
 export function createFileTabsState(): FileTabsState {
   return { paths: [], active: null };
 }
@@ -37,6 +40,21 @@ function fileName(path: string): string {
 
 function lastSegments(path: string, count: number): string {
   return path.split("/").slice(-count).join("/");
+}
+
+/**
+ * 保持している本文を読む。通常の object は継承プロパティも返すため、`constructor` / `toString` /
+ * `__proto__` のような名前のパスを「保持済み」と誤認しないよう、own property だけを見る。
+ * (書き込み側の `{ ...prev, [path]: value }` は computed key なので own property になる)
+ */
+export function readPreview(results: PreviewResults, path: string): PreviewResults[string] | undefined {
+  return Object.hasOwn(results, path) ? results[path] : undefined;
+}
+
+/** 閉じたタブの本文を捨てる。中身が変わらないときは同じ object を返す (再 render を起こさない) */
+export function dropClosedPreviews(results: PreviewResults, paths: string[]): PreviewResults {
+  const kept = Object.entries(results).filter(([path]) => paths.includes(path));
+  return kept.length === Object.keys(results).length ? results : Object.fromEntries(kept);
 }
 
 /** タブを開いて表示する。既に開いていれば並びは変えず表示だけを移す。 */
