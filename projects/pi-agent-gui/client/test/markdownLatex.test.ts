@@ -339,6 +339,17 @@ test("壊れた入力でも例外を投げず ok: false を返す", () => {
   }
 });
 
+test("Object.prototype の名前の制御綴りを命令として解釈しない", () => {
+  // 制御綴りは本文由来の名前で記号の表を引くため、継承プロパティを記号として拾わない
+  const names = Object.getOwnPropertyNames(Object.prototype);
+  assert.ok(names.includes("constructor"), "検証対象に constructor が含まれる");
+  for (const name of names) {
+    const source = `\\${name}`;
+    assert.doesNotThrow(() => parseLatex(source), name);
+    assert.deepEqual(parseLatex(source), { ok: false }, name);
+  }
+});
+
 test("深い入れ子と巨大な入力は上限で打ち切る", () => {
   const deepBraces = "{".repeat(64) + "x" + "}".repeat(64);
   const deepFences = "\\left(".repeat(64) + "x" + "\\right)".repeat(64);

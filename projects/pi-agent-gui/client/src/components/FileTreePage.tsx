@@ -10,6 +10,7 @@ import {
   createFileTreeState,
   FILE_TREE_ROOT,
   fileTreeChildPath,
+  fileTreeDirectoryState,
   fileTreeFetchPath,
   invalidateFileTree,
   normalizeFileTreeRoot,
@@ -82,7 +83,7 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
   const openTab = (path: string) => setTabs((prev) => openFileTab(prev, path));
   const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
 
-  const root = tree[FILE_TREE_ROOT] ?? { open: true, loading: false };
+  const root = fileTreeDirectoryState(tree, FILE_TREE_ROOT) ?? { open: true, loading: false };
 
   return (
     <SettingsPageLayout
@@ -204,7 +205,7 @@ function EntryRow({
   const path = fileTreeChildPath(parent, entry.name);
 
   if (entry.type === "dir") {
-    const node = tree[path];
+    const node = fileTreeDirectoryState(tree, path);
     const open = node?.open ?? false;
     return (
       <div>

@@ -45,16 +45,36 @@ export function fileTreeChildPath(parent: string, name: string): string {
   return parent === FILE_TREE_ROOT ? name : `${parent}/${name}`;
 }
 
+/**
+ * ディレクトリの状態を読む。パスには本文 (ファイル名) 由来の文字列が入るため、`__proto__` のような名前で
+ * 継承プロパティを状態として拾わないよう own プロパティだけを見る。
+ */
+export function fileTreeDirectoryState(state: FileTreeState, path: string): FileTreeDirectoryState | undefined {
+  return Object.hasOwn(state, path) ? state[path] : undefined;
+}
+
+/**
+ * ディレクトリの状態を書く。`next[path] = node` はパスが `__proto__` のときプロトタイプの書き換えになり、
+ * 状態に残らないため own プロパティとして定義する。
+ */
+function setFileTreeDirectoryState(state: FileTreeState, path: string, node: FileTreeDirectoryState): void {
+  Object.defineProperty(state, path, { value: node, enumerable: true, writable: true, configurable: true });
+}
+
 /** 開閉を切り替える。取得済みの子は保持するので、開き直しで再取得は起きない。 */
 export function toggleFileTreeDirectory(state: FileTreeState, path: string): FileTreeState {
-  const node = state[path] ?? { open: false, loading: false };
-  return { ...state, [path]: { ...node, open: !node.open } };
+  const node = fileTreeDirectoryState(state, path) ?? { open: false, loading: false };
+  const next = { ...state };
+  setFileTreeDirectoryState(next, path, { ...node, open: !node.open });
+  return next;
 }
 
 /** 前回のエラーを消して、再試行できるようにする */
 export function beginFileTreeLoad(state: FileTreeState, path: string): FileTreeState {
-  const node = state[path] ?? { open: false, loading: false };
-  return { ...state, [path]: { ...node, loading: true, error: undefined } };
+  const node = fileTreeDirectoryState(state, path) ?? { open: false, loading: false };
+  const next = { ...state };
+  setFileTreeDirectoryState(next, path, { ...node, loading: true, error: undefined });
+  return next;
 }
 
 /**
@@ -66,22 +86,22 @@ export function applyFileTreeListing(
   path: string,
   listing: { entries: FileEntry[]; truncated: boolean },
 ): FileTreeState {
-  const node = state[path] ?? { open: false, loading: false };
+  const node = fileTreeDirectoryState(state, path) ?? { open: false, loading: false };
   const prefix = path === FILE_TREE_ROOT ? "" : `${path}/`;
   const alive = new Set(listing.entries.map((entry) => entry.name));
 
   const next: FileTreeState = {};
   for (const [key, value] of Object.entries(state)) {
     if (key.startsWith(prefix) && !alive.has(firstSegment(key.slice(prefix.length)))) continue;
-    next[key] = value;
+    setFileTreeDirectoryState(next, key, value);
   }
-  next[path] = {
+  setFileTreeDirectoryState(next, path, {
     ...node,
     loading: false,
     error: undefined,
     children: listing.entries,
     truncated: listing.truncated,
-  };
+  });
   return next;
 }
 
@@ -91,8 +111,10 @@ function firstSegment(rest: string): string {
 }
 
 export function applyFileTreeError(state: FileTreeState, path: string, message: string): FileTreeState {
-  const node = state[path] ?? { open: false, loading: false };
-  return { ...state, [path]: { ...node, loading: false, error: message } };
+  const node = fileTreeDirectoryState(state, path) ?? { open: false, loading: false };
+  const next = { ...state };
+  setFileTreeDirectoryState(next, path, { ...node, loading: false, error: message });
+  return next;
 }
 
 /**
@@ -102,7 +124,7 @@ export function applyFileTreeError(state: FileTreeState, path: string, message: 
 export function invalidateFileTree(state: FileTreeState): FileTreeState {
   const next: FileTreeState = {};
   for (const [key, node] of Object.entries(state)) {
-    next[key] = { open: node.open, loading: node.loading };
+    setFileTreeDirectoryState(next, key, { open: node.open, loading: node.loading });
   }
   return next;
 }
@@ -114,7 +136,7 @@ export function invalidateFileTree(state: FileTreeState): FileTreeState {
 export function pendingFileTreeDirectories(state: FileTreeState): string[] {
   const pending: string[] = [];
   const walk = (path: string): void => {
-    const node = state[path];
+    const node = fileTreeDirectoryState(state, path);
     if (!node?.open) return;
     if (!node.children) {
       if (!node.loading && !node.error) pending.push(path);
