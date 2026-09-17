@@ -236,6 +236,36 @@ test("保存値が変わらないときは書き込まない", () => {
   assert.equal(storage.writes, writes);
 });
 
+test("読み手が捨てる形は書かず、既存の保存値を維持する", () => {
+  const storage = new FakeStorage();
+  const store = createFilePreviewStore(storage);
+  store.write("projects/a", snapshot());
+  const stored = storage.value;
+  const writes = storage.writes;
+
+  // 展開が上限を超える書き込み。書いてしまうと decode が cwd ごと捨て、次の起動でタブもモードも失う
+  const overDirs = snapshot({ dirs: Array.from({ length: FILE_SNAPSHOT_DIR_LIMIT + 1 }, (_, i) => `d${i}`) });
+  store.write("projects/a", overDirs);
+  assert.equal(storage.writes, writes, "上限を超える展開は書かない");
+  assert.equal(storage.value, stored);
+  assert.deepEqual(store.read("projects/a"), overDirs, "メモリ側は最新のまま (同一セッション内は復元できる)");
+
+  // タブ上限・active の不整合・閉じたタブのモードも同じ (通常操作では作られないが、読み手の検証と食い違う値を書かない)
+  const invalid: FilePreviewSnapshot[] = [
+    snapshot({ paths: Array.from({ length: 9 }, (_, i) => `${i}.txt`), active: null, modes: {} }),
+    snapshot({ paths: ["a.txt"], active: "b.txt", modes: {} }),
+    snapshot({ paths: ["a.txt"], active: null, modes: { "b.txt": "source" } }),
+  ];
+  for (const value of invalid) {
+    store.write("projects/a", value);
+    assert.equal(storage.value, stored);
+  }
+
+  // 上限内に戻ればまた書ける (読み直して merge する経路は維持する)
+  store.write("projects/a", snapshot({ dirs: ["a", "b"] }));
+  assert.deepEqual(decodeFilePreviewSnapshots(storage.value)["projects/a"]?.dirs, ["a", "b"]);
+});
+
 test("__proto__ という cwd も own property として保存・復元する", () => {
   const storage = new FakeStorage();
   const store = createFilePreviewStore(storage);

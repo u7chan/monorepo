@@ -54,7 +54,7 @@
 - `pi-agent-files` は本文・children・loading・error を保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題。復帰時は既存の取得経路で取り直す）。範囲の詳細は [file-preview.md](file-preview.md#復帰f5画面の往復)
 - cwd は取得 root と同じ単位（`normalizeFileTreeRoot` の結果）で保存するため、`""` と `"."` は同じキーになり、絶対パスも root へ畳む
 - 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）
-- 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす
+- 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす。書き込み側も読み手と同じ検証を通し、読み手が捨てる形（上限超えや active の不整合）は書かない（書くと次の起動でその cwd のタブもモードも失われる）
 - 新規 2 キーの read / write は例外を握り、保存領域が使えない環境でも操作を止めず、無限リトライもしない。write が失敗した cwd はメモリ snapshot が最新になるため、同一セッション内の往復（設定を離れて戻る等）は復元できる。ただし write 失敗後の F5 では古い保存値が戻り得る（復元は保証しない）
 - 既存 3 キー（`pi-agent-session` / `pi-agent-project` / `pi-agent-agent`）の `localStorage` 直接アクセスは例外を握っていない。**保存領域が使えない環境では現状すでに起動が失敗する**（頑健化は別 Issue）
 

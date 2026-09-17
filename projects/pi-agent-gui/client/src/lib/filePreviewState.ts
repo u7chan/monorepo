@@ -118,9 +118,12 @@ export function createFilePreviewStore(storage?: SnapshotStorage | null): FilePr
     },
     write(cwd, snapshot) {
       const key = normalizeFileTreeRoot(cwd);
+      // メモリ側は常に最新にする (保存できなくても同一セッション内の往復は復元できる)
       memory.set(key, snapshot);
       const target = resolveStorage();
       if (!target) return;
+      // 読み手 (decode) が捨てる形は書かない。書くと次の起動でその cwd のタブもモードも失われる
+      if (snapshot && !parseFilePreviewSnapshot(snapshot)) return;
       try {
         // 他 cwd を消さない read-modify-write
         const raw = target.getItem(FILE_SNAPSHOT_KEY);
