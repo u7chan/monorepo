@@ -64,6 +64,8 @@ MessageView (assistant の本文)
 | sequenceDiagram の参加者数 / メッセージ数（Note を含む） | 20 / 60 | `DIAGRAM_MAX_PARTICIPANTS` / `DIAGRAM_MAX_MESSAGES` (`diagram.ts`) |
 | 生 HTML の入れ子 / インライン記法の入れ子 | 8 段 | `html.ts` / `inline.ts` |
 
+同じハイライタ (`highlight.ts`) をファイルプレビューも使う。ファイル側は取得した本文全体を 1 回だけ変換し、上限は別に定義する（[file-preview.md](file-preview.md)）。
+
 未終端のフェンスは `closed: false` として「生成中…」表示にし、本文は途中までハイライトする（閉じたフェンスに戻ればコピー操作が出る）。図は閉じたフェンスだけを描画し、閉じるまではコードブロックのままにする。ブロック単位の `memo` により、伸びているブロック以外は再解析しない。
 
 数式は `parseMarkdown` と `parseInline` の段階で解析し終える（`MdBlock` / `MdInline` が `MathNode` を持つ）。`MathView` は AST からレイアウトモデルを作るところだけを `memo` の入力単位で行い、再描画のたびに解析し直さない。

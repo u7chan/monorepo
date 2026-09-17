@@ -3,7 +3,7 @@
  * トークン列に分解するだけにして、HTML 文字列は一切組み立てない。
  */
 
-/** これを超えるコードはハイライトせず素のブロックにする */
+/** これを超えるコードはハイライトせず素のブロックにする。呼び出し側は maxLength で上げられる (ファイルプレビューは本文の上限まで) */
 export const HIGHLIGHT_MAX_LENGTH = 40 * 1024;
 
 export type MdTokenKind = "key" | "str" | "num" | "com" | "fn" | "type" | "op" | "plain";
@@ -268,17 +268,20 @@ const ALIASES: Record<string, string> = {
   markdown: "md",
 };
 
-/** フェンスの info 文字列を正規化する。未知の言語・超大入力では null (ハイライトしない) */
-export function highlightCode(text: string, lang: string | null): MdToken[] | null {
-  if (text.length > HIGHLIGHT_MAX_LENGTH) return null;
+/** 言語名を仕様のキーへ正規化する。未知の言語は null (ハイライトしない) */
+export function highlightCode(text: string, lang: string | null, maxLength = HIGHLIGHT_MAX_LENGTH): MdToken[] | null {
+  if (text.length > maxLength) return null;
   const name = normalizeLang(lang);
   if (name === null) return null;
   if (name === "diff") return highlightDiff(text);
   return tokenize(text, SPECS[name]);
 }
 
-/** ```` ```{ts} ```` や `TS` も受ける */
-function normalizeLang(lang: string | null): string | null {
+/**
+ * ```` ```{ts} ```` や `TS` も受ける。ファイルの拡張子 (`.ts` / `ts`) も同じ規則で引けるので、
+ * ファイルプレビューの言語判定もここに寄せる。
+ */
+export function normalizeLang(lang: string | null): string | null {
   if (lang === null) return null;
   const name = lang
     .trim()

@@ -11,6 +11,7 @@
 | バックアップ（エクスポート / インポート） | `client/src/components/BackupPage.tsx`、`client/src/lib/backupFile.ts`、`client/src/lib/backupTargets.ts` | [persistence.md](persistence.md)、[api-catalog.md](api-catalog.md) |
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |
 | プロジェクト / cwd / ファイルツリーとプレビュー | `server/src/projects.ts`、`client/src/components/FileTreePage.tsx`、`client/src/components/FilePreview.tsx`、`client/src/lib/fileTree.ts`、`client/src/lib/fileTabs.ts` | [projects.md](projects.md)、[api.md](api.md)、[ui-layout.md](ui-layout.md) |
+| ファイルプレビューの行番号とハイライト | `client/src/lib/fileCode.ts`、`client/src/components/FilePreview.tsx` | [file-preview.md](file-preview.md) |
 | サンドボックス（ツール実行） | `server/src/sandbox/` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md) |
 | APIキーのマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | フロントエンドの状態 / テーマ / レイアウト | `client/src/hooks/`、`client/src/theme/`、`client/src/components/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
@@ -29,6 +30,7 @@
 - [secrets.md](secrets.md) — APIキー漏洩の抑制
 - [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
 - [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセットと上限）
+- [file-preview.md](file-preview.md) — ファイルプレビューの行番号とシンタックスハイライト
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API

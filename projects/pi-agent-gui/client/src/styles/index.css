@@ -796,6 +796,40 @@ html[data-theme="sky"] {
     color: var(--c-syn-op);
   }
 
+  /* ===== ファイルプレビューの本文 (client/src/components/FilePreview.tsx) =====
+   * 行番号は本文と別の列にするが、行送りと上余白を揃えて 1 対 1 で重ねる。
+   * 行番号は行ごとの要素ではなく 1 つのテキストノードなので、行数分の DOM を積まない。 */
+  .file-code {
+    overflow: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--c-ink);
+  }
+  .file-code-row {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+  }
+  /* 横スクロールしても行番号を左端に残す。下を本文が通るため、背景は不透明にする */
+  .file-code-gutter {
+    position: sticky;
+    left: 0;
+    flex: none;
+    padding: 10px 12px;
+    border-right: 1px solid var(--c-line);
+    background: var(--c-base);
+    color: var(--c-ink-ghost);
+    text-align: right;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+  .file-code-body {
+    margin: 0;
+    padding: 10px 16px;
+    white-space: pre;
+  }
+
   /* ===== 数式 (LaTeX サブセット) =====
    * 分数・根号・上下限・行列を CSS だけで組む。色は既存トークンだけを使い、
    * 6 テーマの再定義を不要にする (インライン style は本番の CSP で効かない)。 */
