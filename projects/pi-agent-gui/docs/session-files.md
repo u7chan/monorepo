@@ -126,6 +126,7 @@ $PI_SESSION_STORE/<id>/
 - カーソルの優先順位は「`Last-Event-ID` ヘッダ（`<generation>:<seq>`）が有効ならそれ → query の `?generation=&after=`（両方あるとき）→ どちらも無ければ `resync`」。差分リプレイは「generation が現在と一致し、seq がバッファ範囲内」のときだけ行い、generation が無い / 一致しない / 古い形式は `resync` を 1 件送る。
 - これで「seq が再起動前より進んだ状態で旧タブが再接続する」「cursor と新 seq が同値」「cursor が新 seq より大きい」のいずれも全文再同期になる。
 - クライアントは payload の `eventGeneration` と `lastSeq` を保持し、接続 URL に `?generation=<g>&after=<seq>` を載せる（新規ページ読込では差分だけ再送）。通常の自動再接続はブラウザが送る `Last-Event-ID` を使う。`client/src/hooks/useSessionEvents.ts` の接続 URL と、snapshot 適用時の generation / seq の同時更新を変更対象に含める。
+- 生存確認は可視イベントの `ping`（接続直後と 15 秒ごと、`id` 無し = カーソルを動かさない）で行う。dev の Vite プロキシは upstream が落ちても接続を閉じないため、クライアントは heartbeat が 2 回分届かない無音を切断とみなし、`source.close()` → 既存の復帰経路（health / 一覧の再取得 → `epoch` 更新 → 再接続）へ載せる。失敗が続くほど間隔を伸ばす（1 秒 → … → 最大 30 秒）。判定は `client/src/hooks/sessionStream.ts` の純関数、配線は `useSessionEvents.ts` が持つ。
 - テストは「cursor < / = / > seq」「generation 不一致」「ヘッダあり・query のみ・どちらも無し」「世代変更後の再接続」を網羅する。
 
 ## API / UI

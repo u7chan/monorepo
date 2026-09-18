@@ -12,6 +12,28 @@ export type SessionStreamDeps = {
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
+/** サーバーの heartbeat (15 秒) が 2 回分届かない長さを無音とみなす */
+export const SSE_SILENCE_TIMEOUT_MS = 30_000;
+
+/** 無音の確認周期。heartbeat 間隔より短くしないと検知が遅れる */
+export const SSE_SILENCE_CHECK_MS = 5_000;
+
+const SSE_RETRY_BASE_MS = 1_000;
+const SSE_RETRY_MAX_MS = 30_000;
+
+/**
+ * 無音 (heartbeat もイベントも届かない) を切断とみなす。dev の Vite プロキシは upstream が落ちても
+ * FIN を返さないため、EventSource の error だけでは半開の接続を検知できない。
+ */
+export function isSseSilent(lastActivityAt: number, now: number): boolean {
+  return now - lastActivityAt >= SSE_SILENCE_TIMEOUT_MS;
+}
+
+/** 失敗が続くほど再接続の間隔を伸ばす。停止中に health / 一覧 / SSE を叩き続けないための上限つき */
+export function nextRetryDelayMs(retryCount: number): number {
+  return Math.min(SSE_RETRY_MAX_MS, SSE_RETRY_BASE_MS * 2 ** retryCount);
+}
+
 export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): void {
   const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus } = deps;
   if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);

@@ -1,5 +1,6 @@
-import { useEffect, useEffectEvent, type RefObject } from "react";
+import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import type { EventEntry, SSEEventType } from "../types";
+import { isSseSilent, nextRetryDelayMs, SSE_SILENCE_CHECK_MS } from "./sessionStream";
 
 const EVENT_TYPES: SSEEventType[] = [
   "run_start",
@@ -13,6 +14,7 @@ const EVENT_TYPES: SSEEventType[] = [
   "usage",
   "compaction",
   "resync",
+  "ping",
 ];
 
 export type UseSessionEventsParams = {
@@ -36,17 +38,50 @@ export function useSessionEvents({
   // 常に最新の処理を呼ぶが、コールバックの変更では再接続させない。
   const handleEvent = useEffectEvent(onEvent);
   const handleClosed = useEffectEvent(onClosed);
+  // 接続は epoch / sessionId の変更でも作り直すため、無音の判定とバックオフは effect の外に置く
+  const lastActivityRef = useRef(0);
+  const retryCountRef = useRef(0);
+  const retrySessionRef = useRef(sessionId);
 
   useEffect(() => {
     if (!sessionId) return;
+    if (retrySessionRef.current !== sessionId) {
+      retrySessionRef.current = sessionId;
+      retryCountRef.current = 0;
+    }
+    lastActivityRef.current = Date.now();
     const query = new URLSearchParams({
       after: String(lastSeqRef.current),
       ...(generationRef.current ? { generation: generationRef.current } : {}),
     });
     const source = new EventSource(`/api/sessions/${sessionId}/events?${query.toString()}`);
 
+    let retryTimer: number | undefined;
+    let retryScheduled = false;
+    // 502 のような致命的応答ではその場で CLOSED になり、復帰まで HTTP 往復速度で叩き続けてしまう
+    const scheduleReconnect = () => {
+      if (retryScheduled) return;
+      retryScheduled = true;
+      const delay = nextRetryDelayMs(retryCountRef.current);
+      retryCountRef.current += 1;
+      retryTimer = window.setTimeout(() => handleClosed(), delay);
+    };
+
+    const silenceTimer = window.setInterval(() => {
+      if (!isSseSilent(lastActivityRef.current, Date.now())) return;
+      // 半開の接続はブラウザも閉じないため、こちらから切って既存の復帰経路 (onClosed) に乗せる
+      window.clearInterval(silenceTimer);
+      source.close();
+      scheduleReconnect();
+    }, SSE_SILENCE_CHECK_MS);
+
     for (const type of EVENT_TYPES) {
       source.addEventListener(type, (event) => {
+        // 何か届いた時点で生存。バックオフを戻して次の無音判定に備える
+        lastActivityRef.current = Date.now();
+        retryCountRef.current = 0;
+        // ping は生存確認だけ。状態へは流さない
+        if (type === "ping") return;
         const messageEvent = event as MessageEvent<string | undefined>;
         let data: object | null = null;
         try {
@@ -74,10 +109,12 @@ export function useSessionEvents({
     source.onerror = () => {
       // CONNECTING の間はブラウザが Last-Event-ID 付きでリトライする
       if (source.readyState !== EventSource.CLOSED) return;
-      handleClosed();
+      scheduleReconnect();
     };
 
     return () => {
+      window.clearInterval(silenceTimer);
+      window.clearTimeout(retryTimer);
       source.close();
     };
   }, [sessionId, epoch, lastSeqRef, generationRef]);

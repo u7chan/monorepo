@@ -98,6 +98,11 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
           stream.onAbort(() => requestCleanup());
           await stream.write(": connected\n\n");
           if (stream.aborted) return;
+          // dev の Vite プロキシは upstream が落ちても接続を閉じないため、クライアントは無音で切断を
+          // 検知する。コメント行 (`:`) は EventSource のイベントにならず見えないので可視イベントで送る。
+          // id を付けないので Last-Event-ID (差分再開のカーソル) は動かない
+          const ping = () => stream.writeSSE({ event: "ping", data: "{}" });
+          void ping();
           const unsubscribe = store.subscribe(
             record,
             after,
@@ -111,9 +116,7 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
             },
             () => requestCleanup(),
           );
-          const heartbeat = setInterval(() => {
-            void stream.write(": ping\n\n");
-          }, SSE_HEARTBEAT_MS);
+          const heartbeat = setInterval(() => void ping(), SSE_HEARTBEAT_MS);
           heartbeat.unref?.();
           // 切断 (onAbort) と store の close のどちらからでも同じ後始末を通す。
           await new Promise<void>((resolveCleanup) => {

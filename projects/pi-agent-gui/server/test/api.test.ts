@@ -93,8 +93,10 @@ test("server exposes the async session API end to end", async () => {
     assert.equal(postBody.sessionId, created.sessionId);
 
     const events = await collectSse(eventsResponse, (list) => list.some((entry) => entry.type === "run_end"));
-    assert.equal(events[0].type, "run_start");
-    assert.equal(events.at(-1)?.data?.status, "completed");
+    // ping は状態を持たない生存確認なので、状態の並びを見るときは除く
+    const stateEvents = events.filter((entry) => entry.type !== "ping");
+    assert.equal(stateEvents[0].type, "run_start");
+    assert.equal(stateEvents.at(-1)?.data?.status, "completed");
     const textEvents = events.filter((entry) => entry.type === "text");
     assert.equal(textEvents.map((entry) => entry.data.delta).join(""), "スタブの返答です");
 
@@ -122,6 +124,22 @@ test("server exposes the async session API end to end", async () => {
     const gone = await app.request(`/api/sessions/${created.sessionId}`);
     assert.equal(gone.status, 404);
     assert.deepEqual(await jsonBody(gone), { error: "Session not found" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("SSE sends the heartbeat as a visible ping event that does not move the cursor", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    // コメント行 (`:`) は EventSource のイベントにならずクライアントから見えないため、可視イベントで届く
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
+    const events = await collectSse(eventsResponse, (list) => list.some((entry) => entry.type === "ping"));
+    const ping = events.find((entry) => entry.type === "ping");
+    assert.equal(ping?.id, null, "id を付けない = Last-Event-ID (差分再開のカーソル) を動かさない");
+    assert.deepEqual(ping?.data, {});
   } finally {
     await bff.close();
   }

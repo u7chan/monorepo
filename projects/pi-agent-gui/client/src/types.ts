@@ -37,5 +37,5 @@ export type {
   Usage,
 } from "server";
 
-/** SSE イベント型名 (useSessionEvents の EVENT_TYPES 用に server の EventEntry から導出) */
-export type SSEEventType = EventEntry["type"];
+/** SSE で受ける型名。ping はサーバーが送る生存確認で、状態には流さない (server の EventEntry には現れない) */
+export type SSEEventType = EventEntry["type"] | "ping";
