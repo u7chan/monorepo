@@ -44,7 +44,7 @@ startRun():
 - `GET /api/sessions/:id/events` が SSE 購読エンドポイント。イベント種別と data の契約は [api-sessions.md](api-sessions.md) を参照。
   - SSE の `id` は `<generation>:<seq>`。`generation` は record のロードごとに発行する 8 hex で、再起動や sweep 後の復元で変わる。seq は復元で 0 に戻るため、数値カーソルだけでは古いタブの位置を判別できない。
   - カーソルの優先順位は `Last-Event-ID` ヘッダ → query の `generation` + `after` → `resync`。generation が一致し、seq がバッファ範囲内のときだけ差分をリプレイし、それ以外はセッション全体のペイロードを持つ `resync` を 1 件送る。
-- 接続はハートビート（`: ping`、15 秒ごと）で維持する。購読は複数タブから可能で、切断してもランには影響しない。
+- 接続の生存確認は可視イベントの `ping`（接続直後と 15 秒ごと、`id` 無し = カーソルを動かさない）で行う。購読は複数タブから可能で、切断してもランには影響しない。
 - SSE で配るテキストは、マスク済みの値だけを載せる（[secrets.md](secrets.md)）。
 
 ## 会話履歴
