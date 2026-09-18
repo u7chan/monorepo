@@ -42,7 +42,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       applySnapshot(entry.data);
       return;
     case "run_start":
-      dispatch({ type: "runStart", prompt: entry.data.prompt, at: entry.at });
+      dispatch({ type: "runStart", prompt: entry.data.prompt, at: entry.at, startedAt: entry.data.startedAt });
       return;
     case "text":
       dispatch({ type: "text", delta: entry.data.delta, at: entry.at });

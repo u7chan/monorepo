@@ -855,7 +855,7 @@ export class SessionStore {
     record.run = run;
     record.tools = new Map();
     record.lastUsedAt = Date.now();
-    this.emit(record, "run_start", { runId: run.id, prompt: run.prompt });
+    this.emit(record, "run_start", { runId: run.id, prompt: run.prompt, startedAt: run.startedAt });
 
     let finished = false;
 

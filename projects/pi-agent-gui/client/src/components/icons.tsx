@@ -1,3 +1,34 @@
+import type { CSSProperties } from "react";
+
+/** 実行中インジケータの光条 (中心 8,8 / 中心から 1.6〜5.5。回転と明滅は styles/index.css) */
+const SPINNER_RAYS: [number, number, number, number][] = [
+  [9.6, 8, 13.5, 8],
+  [9.13, 9.13, 11.89, 11.89],
+  [8, 9.6, 8, 13.5],
+  [6.87, 9.13, 4.11, 11.89],
+  [6.4, 8, 2.5, 8],
+  [6.87, 6.87, 4.11, 4.11],
+  [8, 6.4, 8, 2.5],
+  [9.13, 6.87, 11.89, 4.11],
+];
+
+export function RunSpinnerIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      className="run-spinner size-3 shrink-0 text-accent-text"
+    >
+      {SPINNER_RAYS.map(([x1, y1, x2, y2], index) => (
+        <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} style={{ "--ray": index } as CSSProperties} />
+      ))}
+    </svg>
+  );
+}
+
 export function MenuIcon() {
   return (
     <svg

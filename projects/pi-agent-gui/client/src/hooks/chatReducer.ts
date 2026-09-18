@@ -36,6 +36,8 @@ export type ChatState = {
   currentAssistantId: number | null;
   toolBubbleIds: Record<string, number>;
   runStatus: RunStatus;
+  /** 実行中ランの開始時刻 (epoch ms)。サーバーが配る値だけを使う (受信時刻は使わない) */
+  runStartedAt?: number;
   /**
    * run が終わった回数。run_end と、running を抜けた resync で進む。値そのものは表示に使わず、
    * チャットの右パネル (セッションのファイル) が取り直しの合図に使う (描画間の runStatus の差では、
@@ -57,7 +59,7 @@ export type ChatState = {
 export type ChatAction =
   | { type: "newChat" }
   | { type: "resync"; payload: SessionPayload }
-  | { type: "runStart"; prompt: string; at: number }
+  | { type: "runStart"; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
   | { type: "text"; delta: string; at: number }
   | { type: "toolStart"; id: string; name: string; args: string; at: number }
@@ -77,6 +79,7 @@ export const initialChatState: ChatState = {
   currentAssistantId: null,
   toolBubbleIds: {},
   runStatus: "idle",
+  runStartedAt: undefined,
   runEndSeq: 0,
   queueDepth: 0,
   activity: "",
@@ -195,6 +198,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantId: null,
         toolBubbleIds: {},
         runStatus: status,
+        runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
         queueDepth: payload.queueDepth || 0,
         activity: "",
         sessionModel: payload.model,
@@ -230,6 +234,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantId: null,
         toolBubbleIds: {},
         runStatus: "running",
+        runStartedAt: action.startedAt,
         activity: "実行を開始しました",
         // 前の run の保留値を引き継がない
         pendingUsage: undefined,
@@ -332,6 +337,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activity,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
         runEndSeq: state.runEndSeq + 1,
+        runStartedAt: undefined,
         runStatus: queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status,
         queueDepth,
         // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)

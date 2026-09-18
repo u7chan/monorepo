@@ -1,27 +1,43 @@
 import type { CSSProperties } from "react";
+import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { cn } from "../../lib/cn";
+import { formatElapsed } from "../../lib/elapsed";
 import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage } from "../../types";
+import { RunSpinnerIcon } from "../icons";
 
 /** activity が空でもゲージだけは常時出す (コンテキスト量はいつでも見たい) */
 export function ContextGauge({
   activity,
+  runningSince,
   context,
   compact,
 }: {
   activity: string;
+  runningSince?: number;
   context?: ContextUsage;
   compact: boolean;
 }) {
   const gauge = contextGauge(context, compact);
+  const elapsedMs = useElapsedMs(runningSince);
+  const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
   if (!activity && !gauge) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
   return (
     <div className="flex min-h-5.25 items-center gap-2 px-1 pb-1.5 text-1xs text-ink-muted">
-      <span aria-live="polite" className="min-w-0 flex-1 break-words">
-        {activity}
+      {elapsed === null ? null : <RunSpinnerIcon />}
+      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <span aria-live="polite" className="min-w-0 break-words">
+          {activity}
+        </span>
+        {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
+        {elapsed === null ? null : (
+          <span aria-hidden="true" className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">
+            ({elapsed})
+          </span>
+        )}
       </span>
       {gauge ? (
         <span className={cn("shrink-0 font-sans text-2xs whitespace-nowrap tabular-nums", gaugeColor)}>

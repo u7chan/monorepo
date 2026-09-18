@@ -211,6 +211,7 @@ export default function App() {
             <Composer
               visible={mainView === "chat"}
               activity={desk.chat.activity}
+              runningSince={desk.chat.runStatus === "running" ? desk.chat.runStartedAt : undefined}
               runtimeReady={desk.health?.ready !== false}
               sending={desk.sending}
               stopVisible={desk.stopVisible}

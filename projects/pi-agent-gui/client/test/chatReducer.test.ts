@@ -111,13 +111,13 @@ test("ローカル生成のバブルは action で受け取った時刻を使う
   assert.equal(user.bubbles[0]?.at, 100);
 
   // runStart はローカルエコー済みの user バブルを重複させない (時刻は最初のバブルのまま)
-  const echoed = chatReducer(user, { type: "runStart", prompt: "送信中", at: 200 });
+  const echoed = chatReducer(user, { type: "runStart", prompt: "送信中", at: 200, startedAt: 200 });
   assert.deepEqual(
     echoed.bubbles.map((bubble) => bubble.at),
     [100],
   );
 
-  const started = chatReducer(initialChatState, { type: "runStart", prompt: "新しい会話", at: 200 });
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "新しい会話", at: 200, startedAt: 200 });
   assert.equal(started.bubbles[0]?.at, 200);
 
   // 応答中のバブルは生成元イベントの時刻で作り、以後の delta では上書きしない
@@ -174,7 +174,7 @@ test("resync は履歴の usage / metrics をバブルへ、context を state �
 });
 
 test("usage アクションは開いている assistant バブルと context を更新する", () => {
-  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100, startedAt: 100 });
   const streaming = chatReducer(started, { type: "text", delta: "答え", at: 200 });
   const applied = chatReducer(streaming, {
     type: "usage",
@@ -199,14 +199,14 @@ test("usage アクションは開いている assistant バブルと context を
 
 test("usage は本文・ツールカードより先に届いても次の assistant バブルへ回す", () => {
   // 1 つ目の run: 本文と usage が揃った assistant バブル
-  const first = chatReducer(initialChatState, { type: "runStart", prompt: "1回目", at: 100 });
+  const first = chatReducer(initialChatState, { type: "runStart", prompt: "1回目", at: 100, startedAt: 100 });
   const firstText = chatReducer(first, { type: "text", delta: "回答1", at: 200 });
   const firstUsage = chatReducer(firstText, { type: "usage", usage: USAGE, metrics: METRICS });
   const firstBubbleId = firstUsage.bubbles.at(-1)?.id;
   assert.deepEqual(firstUsage.bubbles.at(-1)?.usage, USAGE);
 
   // 2 つ目の run はツール呼び出しだけ。SDK は message_end → tool_execution_start の順なので usage が先に届く
-  const second = chatReducer(firstUsage, { type: "runStart", prompt: "2回目", at: 300 });
+  const second = chatReducer(firstUsage, { type: "runStart", prompt: "2回目", at: 300, startedAt: 300 });
   const countBeforeUsage = second.bubbles.length;
   const secondUsage: Usage = { ...USAGE, input: 9000, output: 100 };
   const secondMetrics: MessageMetrics = { durationMs: 400, ttftMs: 200 };
@@ -234,7 +234,7 @@ test("usage は本文・ツールカードより先に届いても次の assista
 
 test("最初の応答でも usage を捨てず、後から届く本文へ付ける", () => {
   // 非ストリーミングの最終本文は BFF の finish で message_end より後に届く
-  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100, startedAt: 100 });
   const countBeforeUsage = started.bubbles.length;
   const pending = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS });
   assert.equal(pending.bubbles.length, countBeforeUsage, "user バブルだけのまま");
@@ -250,7 +250,7 @@ test("最初の応答でも usage を捨てず、後から届く本文へ付け�
 });
 
 test("保留した usage は run をまたがず、resync でも消える", () => {
-  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100, startedAt: 100 });
   const pending = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS });
 
   // バブルができないまま run が終わったら捨てる
@@ -266,7 +266,7 @@ test("保留した usage は run をまたがず、resync でも消える", () =
 });
 
 test("run_end の context は usage の値を上書きする", () => {
-  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100 });
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100, startedAt: 100 });
   const stale: ContextUsage = { tokens: null, contextWindow: 128_000, percent: null };
   const withUsage = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS, context: stale });
   assert.deepEqual(withUsage.context, stale);
@@ -353,7 +353,7 @@ test("run_end と、running を抜けた resync で runEndSeq が進む", () => 
 
   // run_start と run_end が同じバッチで届いても、reducer は 1 回ずつ数える
   // (描画を挟まないため、画面側は running を観測できない。右パネルの取り直しはこの値だけを起点にする)
-  const batched = chatReducer(chatReducer(running, { type: "runStart", prompt: "続けて", at: 1 }), {
+  const batched = chatReducer(chatReducer(running, { type: "runStart", prompt: "続けて", at: 1, startedAt: 1 }), {
     type: "runEnd",
     status: "completed",
     queueDepth: 0,
@@ -376,4 +376,66 @@ test("run_end と、running を抜けた resync で runEndSeq が進む", () => 
 test("新しい会話へ戻しても runEndSeq は戻らない", () => {
   const ended = chatReducer(stateWithSession(), { type: "runEnd", status: "completed", queueDepth: 0 });
   assert.equal(chatReducer(ended, { type: "newChat" }).runEndSeq, ended.runEndSeq);
+});
+
+// --- 実行中インジケータの経過時間 ---
+
+/** 実行中ラン付きの payload (resync は run.startedAt から起点を拾う) */
+function payloadWithRun(): SessionPayload {
+  return {
+    ...runningPayload(),
+    run: { id: "run-1", status: "running", startedAt: 1700000000000, prompt: "聞いて", toolCalls: [] },
+  };
+}
+
+test("runStartedAt は実行中の間だけサーバーの開始時刻を持つ", () => {
+  const payload = payloadWithRun();
+
+  // 実行中に取り直した (reload / 再接続の resync) ときは payload の開始時刻
+  const resynced = chatReducer(initialChatState, { type: "resync", payload });
+  assert.equal(resynced.runStartedAt, 1700000000000);
+
+  // 実行中でも run を配らない payload (テストスタブ等) と、実行中でない resync は起点を落とす
+  const withoutRun = chatReducer(resynced, { type: "resync", payload: runningPayload() });
+  assert.equal(withoutRun.runStartedAt, undefined);
+  const completed = chatReducer(
+    { ...resynced, runStartedAt: 1700000000000 },
+    { type: "resync", payload: { ...payload, status: "completed" } },
+  );
+  assert.equal(completed.runStartedAt, undefined);
+});
+
+test("runStartedAt はキューをまたいで持ち越さず、次のランで入れ替わる", () => {
+  const started = chatReducer(initialChatState, {
+    type: "runStart",
+    prompt: "1回目",
+    at: 100,
+    startedAt: 100,
+  });
+
+  // 次のメッセージが待機中でも、実行中のランは起点を持ち続ける
+  const queued = chatReducer(started, { type: "queued", position: 1, queueDepth: 1 });
+  assert.equal(queued.runStartedAt, 100);
+
+  // ランが終わると待機中 (queueDepth > 0) でも起点を落とし、次の run_start で入れ替える
+  const ended = chatReducer(queued, { type: "runEnd", status: "completed", queueDepth: 1 });
+  assert.equal(ended.runStatus, "queued");
+  assert.equal(ended.runStartedAt, undefined);
+
+  const next = chatReducer(ended, { type: "runStart", prompt: "2回目", at: 300, startedAt: 300 });
+  assert.equal(next.runStartedAt, 300);
+});
+
+test("runStartedAt は受信時刻ではなくサーバーの開始時刻を使う", () => {
+  // 切断中に始まった run の run_start がリプレイされても、クライアント側の受信時刻ではぶれない
+  const started = chatReducer(initialChatState, {
+    type: "runStart",
+    prompt: "聞いて",
+    at: 5000,
+    startedAt: 1700000000123,
+  });
+  assert.equal(started.runStartedAt, 1700000000123);
+
+  assert.equal(chatReducer(started, { type: "runEnd", status: "completed", queueDepth: 0 }).runStartedAt, undefined);
+  assert.equal(chatReducer(started, { type: "newChat" }).runStartedAt, undefined);
 });
