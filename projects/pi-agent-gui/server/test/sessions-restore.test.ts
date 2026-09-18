@@ -1,7 +1,7 @@
 // 会話ストアの永続化と復元。SessionStore とスタブ pi / スタブサンドボックスを組み合わせて検証する。
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,7 +11,7 @@ import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
 import { parseSessionFile, serializeSession, sessionJsonlPath, sessionMetaPath } from "../src/session-store";
 import type { EventEntry, SessionPayload } from "../src/schema";
-import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor } from "./stub-pi";
+import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubSession } from "./stub-pi";
 
 function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[] } {
   const dirs: string[] = [];
@@ -395,6 +395,99 @@ test("保存中に DELETE しても store を復活させない", async () => {
     assert.equal(await removed, true);
     assert.equal(store.list().length, 0);
     await assert.rejects(readFile(sessionMetaPath(record.id, storeDir), "utf8"));
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("sweep 中の同時 resolve は同じ record を共有する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-sweep-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const created = await store1.create({ agentId: "agent-general" });
+    await store1.flush(created);
+    await store1.close();
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const live = await store2.resolve(created.id);
+    assert.ok(live);
+    live.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
+
+    const sweeping = store2.sweep();
+    const first = store2.resolve(created.id);
+    const second = store2.resolve(created.id);
+    await sweeping;
+    const [a, b] = await Promise.all([first, second]);
+    assert.ok(a);
+    assert.equal(a, b, "同じ record を共有する");
+    assert.notEqual(a, live, "eviction 後は再ロードする");
+    assert.equal(store2.status().dirty, 0);
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("プロジェクト解除は待機メッセージを破棄して実行しない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-release-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const projects = new ProjectStore();
+    const store = createStore(storeDir, {
+      pi: createStubPi({ chunkDelayMs: 40 }),
+      workspace,
+      catalog,
+      projects,
+    });
+    await store.init();
+    const project = projects.create({ cwd: "proj-a" });
+    const record = await store.create({ agentId: "agent-general", projectId: project.id });
+    const stub = record.session as StubSession;
+    store.postMessage(record, "実行中");
+    await waitFor(() => record.run?.status === "running", 2000, "running");
+    store.postMessage(record, "待機中");
+    assert.equal(record.queue.length, 1);
+
+    projects.remove(project.id);
+    await store.releaseProject(project.cwd);
+    assert.equal(record.queue.length, 0, "待機メッセージを破棄する");
+    await waitFor(() => record.run?.status !== "running", 3000, "run settled");
+    await new Promise((resolveTick) => setTimeout(resolveTick, 300));
+
+    const userTexts = stub.messages.filter((message) => message.role === "user").map((message) => message.content);
+    assert.deepEqual(userTexts, ["実行中"], "解除後に待機メッセージを実行しない");
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("保存に成功すると persistError が消える", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-persist-"));
+  const { workspace } = stubWorkspace();
+  try {
+    const store = createStore(storeDir, { pi: createStubPi(), workspace });
+    await store.init();
+    const record = await store.create({ agentId: "agent-general" });
+
+    // meta.json をディレクトリへ置き換えて rename を失敗させる
+    const metaPath = sessionMetaPath(record.id, storeDir);
+    await rm(metaPath, { force: true });
+    await mkdir(metaPath, { recursive: true });
+    await store.persist(record);
+    assert.ok(record.persistError, "今回の失敗を記録する");
+    assert.equal(store.status().dirty, 1);
+
+    await rm(metaPath, { recursive: true, force: true });
+    await store.persist(record);
+    assert.equal(record.persistError, undefined, "成功で失敗を消す");
+    assert.equal(store.status().dirty, 0);
     await store.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });

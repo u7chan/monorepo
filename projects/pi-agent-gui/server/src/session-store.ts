@@ -224,10 +224,24 @@ function isStringOrTextParts(value: unknown): boolean {
 /** 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する */
 function entryShapeError(type: string, entry: Record<string, unknown>): string | undefined {
   switch (type) {
-    case "message":
-      if (!isRecord(entry.message) || typeof entry.message.role !== "string")
-        return "message entry に message がありません";
-      return undefined;
+    case "message": {
+      const message = entry.message;
+      if (!isRecord(message) || typeof message.role !== "string") return "message entry に message がありません";
+      if (typeof message.timestamp !== "number") return "message entry に timestamp がありません";
+      switch (message.role) {
+        case "user":
+        case "assistant":
+        case "toolResult":
+        case "custom":
+          return isStringOrTextParts(message.content) ? undefined : `message.content が不正です: ${message.role}`;
+        case "bashExecution":
+          return typeof message.command === "string" && typeof message.output === "string"
+            ? undefined
+            : "bashExecution message が不正です";
+        default:
+          return `未知の message role です: ${message.role}`;
+      }
+    }
     case "thinking_level_change":
       return typeof entry.thinkingLevel === "string" ? undefined : "thinking_level_change entry が不正です";
     case "model_change":

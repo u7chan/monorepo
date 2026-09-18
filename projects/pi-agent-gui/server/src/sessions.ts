@@ -331,20 +331,25 @@ export class SessionStore {
 
   /** 未ロードならストアから復元する。deleting / closing / eviction 中の id は復元の完了を待つ */
   async resolve(id: string): Promise<SessionRecord | undefined> {
-    if (this.deleting.has(id) || this.closing) return undefined;
-    const pending = this.lifecycle.get(id);
-    if (pending) await pending.catch(() => {});
-    if (this.deleting.has(id) || this.closing) return undefined;
-    const live = this.records.get(id);
-    if (live) return live;
-    const meta = this.descriptors.get(id);
-    if (!meta || !this.storeDir || !this.pi) return undefined;
-    const promise = this.load(meta);
-    this.lifecycle.set(id, promise);
-    try {
-      return await promise;
-    } finally {
-      if (this.lifecycle.get(id) === promise) this.lifecycle.delete(id);
+    for (;;) {
+      if (this.deleting.has(id) || this.closing) return undefined;
+      const pending = this.lifecycle.get(id);
+      if (pending) {
+        // eviction / 先行ロードの完了を待ち、状態を取り直してから判断する
+        await pending.catch(() => {});
+        continue;
+      }
+      const live = this.records.get(id);
+      if (live) return live;
+      const meta = this.descriptors.get(id);
+      if (!meta || !this.storeDir || !this.pi) return undefined;
+      const promise = this.load(meta);
+      this.lifecycle.set(id, promise);
+      try {
+        return await promise;
+      } finally {
+        if (this.lifecycle.get(id) === promise) this.lifecycle.delete(id);
+      }
     }
   }
 
@@ -653,8 +658,9 @@ export class SessionStore {
   async releaseProject(projectCwd: string): Promise<void> {
     for (const record of Array.from(this.records.values())) {
       if (record.projectCwd !== projectCwd) continue;
-      if (this.isBusy(record) || record.session.isStreaming) {
-        await record.session.abort().catch(() => {});
+      // 待機メッセージは解除後に実行しない (stop で queue を破棄してから abort する)
+      if (record.queue.length > 0 || this.isBusy(record) || record.session.isStreaming) {
+        await this.stop(record);
       }
       // projectCwd は残す。所属は読み取り時に解決するため、同じ cwd の再登録で戻る
       record.projectId = undefined;
@@ -718,8 +724,8 @@ export class SessionStore {
     if (!record.writer || !this.storeDir) return Promise.resolve();
     const storeDir = this.storeDir;
     const run = async (): Promise<void> => {
-      // 削除済み・削除中の record は書かない (store を復活させない)
-      if (this.deleting.has(record.id) || !this.records.has(record.id)) return;
+      // 削除済み・別世代に差し替わった record は書かない (store を復活させない)
+      if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
       const session = record.session;
       const meta: SessionMeta = {
         ...record.meta,
@@ -741,6 +747,8 @@ export class SessionStore {
       }
       record.meta = meta;
       this.descriptors.set(record.id, meta);
+      // 今回の保存だけを評価する (過去の失敗は成功で消す)
+      let failure: string | undefined;
       try {
         await writeSessionMeta(storeDir, meta);
         await record.writer?.schedule(
@@ -748,9 +756,9 @@ export class SessionStore {
           entriesOf(session),
         );
       } catch (error) {
-        record.persistError = messageFor(error);
+        failure = messageFor(error);
       }
-      const failure = record.persistError ?? record.writer?.error;
+      failure = failure ?? record.writer?.error;
       record.persistError = failure;
       if (failure && record.persistErrorLogged !== failure) {
         record.persistErrorLogged = failure;
@@ -905,7 +913,7 @@ export class SessionStore {
   }
 
   pump(record: SessionRecord): void {
-    if (this.deleting.has(record.id) || !this.records.has(record.id)) return;
+    if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
     if (record.queue.length === 0) return;
     if (record.run?.status === "running" || record.session.isStreaming) return;
     const next = record.queue.shift();

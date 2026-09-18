@@ -27,7 +27,7 @@ function messageEntry(id: string, parentId: string | null): SessionEntryLike {
     id,
     parentId,
     timestamp: "2026-01-01T00:00:01.000Z",
-    message: { role: "user", content: "hello" },
+    message: { role: "user", content: "hello", timestamp: 1 },
   };
 }
 
@@ -117,6 +117,19 @@ test("parseSessionFile treats structural damage as damaged without touching the 
   const middle = lines([HEADER, messageEntry("e1", null)]) + "{broken\n" + lines([messageEntry("e2", "e1")]);
   assert.equal(parseSessionFile(middle, HEADER.id).kind, "damaged", "中間の壊れた行");
   assert.equal(parseSessionFile("", HEADER.id).kind, "empty", "空ファイルは empty");
+});
+
+test("parseSessionFile rejects message entries missing content or timestamp", () => {
+  const base = { type: "message", id: "e1", parentId: null, timestamp: "2026-01-01T00:00:01.000Z" };
+  const cases: Array<[string, unknown]> = [
+    ["timestamp 欠落", { ...base, message: { role: "user" } }],
+    ["content 欠落", { ...base, message: { role: "user", timestamp: 1 } }],
+    ["message.timestamp 欠落", { ...base, message: { role: "assistant", content: "x" } }],
+    ["未知の role", { ...base, message: { role: "ghost", content: "x", timestamp: 1 } }],
+  ];
+  for (const [label, entry] of cases) {
+    assert.equal(parseSessionFile(lines([HEADER, entry]), HEADER.id).kind, "damaged", label);
+  }
 });
 
 test("SessionFileWriter rewrites, appends and repairs a torn tail", async () => {
