@@ -217,8 +217,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/** SDK の content part (TextContent / ThinkingContent / ImageContent / ToolCall) の形を検証する */
+function isValidContentPart(part: unknown): boolean {
+  if (!isRecord(part)) return false;
+  switch (part.type) {
+    case "text":
+      return typeof part.text === "string";
+    case "thinking":
+      return typeof part.thinking === "string";
+    case "image":
+      return typeof part.data === "string" && typeof part.mimeType === "string";
+    case "toolCall":
+      return (
+        typeof part.id === "string" &&
+        typeof part.name === "string" &&
+        (isRecord(part.arguments) || typeof part.arguments === "string")
+      );
+    default:
+      return false;
+  }
+}
+
+/** message / custom_message の content。文字列か、既知の part だけの配列を許す */
 function isStringOrTextParts(value: unknown): boolean {
-  return typeof value === "string" || Array.isArray(value);
+  if (typeof value === "string") return true;
+  return Array.isArray(value) && value.every(isValidContentPart);
 }
 
 /** 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する */

@@ -9,7 +9,13 @@ import { createAgentCatalog } from "../src/agents";
 import { ProjectStore } from "../src/projects";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
-import { parseSessionFile, serializeSession, sessionJsonlPath, sessionMetaPath } from "../src/session-store";
+import {
+  parseSessionFile,
+  serializeSession,
+  sessionHeaderOf,
+  sessionJsonlPath,
+  sessionMetaPath,
+} from "../src/session-store";
 import type { EventEntry, SessionPayload } from "../src/schema";
 import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubSession } from "./stub-pi";
 
@@ -193,6 +199,43 @@ test("壊れた JSONL は原本を書き換えずに開く要求が失敗し、�
     });
     // 原本はそのまま (読み込みで書き換えない)
     assert.equal(await readFile(sessionJsonlPath(record.id, storeDir), "utf8"), broken);
+    assert.equal(await store2.deleteSession(record.id), true);
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("content part が壊れた履歴は 409 で拒否し、原本を書き換えない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-damaged-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const record = await store1.create({ agentId: "agent-general" });
+    await store1.flush(record);
+    await store1.close();
+
+    const broken = serializeSession(sessionHeaderOf({ id: record.id, createdAt: Date.now() }, record.workdir), [
+      {
+        type: "message",
+        id: "entry-1",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        message: { role: "assistant", content: [{ type: "text" }], timestamp: Date.now() },
+      },
+    ]);
+    await writeFile(sessionJsonlPath(record.id, storeDir), broken);
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    await assert.rejects(store2.resolve(record.id), (error: Error & { statusCode?: number }) => {
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /session.jsonl/);
+      return true;
+    });
+    assert.equal(await readFile(sessionJsonlPath(record.id, storeDir), "utf8"), broken, "原本は変わらない");
     assert.equal(await store2.deleteSession(record.id), true);
     await store2.close();
   } finally {

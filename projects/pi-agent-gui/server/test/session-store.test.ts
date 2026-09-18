@@ -119,6 +119,26 @@ test("parseSessionFile treats structural damage as damaged without touching the 
   assert.equal(parseSessionFile("", HEADER.id).kind, "empty", "空ファイルは empty");
 });
 
+test("parseSessionFile accepts content parts with the SDK shapes", () => {
+  const entry = {
+    type: "message",
+    id: "e1",
+    parentId: null,
+    timestamp: "2026-01-01T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      timestamp: 1,
+      content: [
+        { type: "text", text: "こんにちは" },
+        { type: "thinking", thinking: "考える" },
+        { type: "image", data: "aGk=", mimeType: "image/png" },
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "a" } },
+      ],
+    },
+  };
+  assert.equal(parseSessionFile(lines([HEADER, entry]), HEADER.id).kind, "ok");
+});
+
 test("parseSessionFile rejects message entries missing content or timestamp", () => {
   const base = { type: "message", id: "e1", parentId: null, timestamp: "2026-01-01T00:00:01.000Z" };
   const cases: Array<[string, unknown]> = [
@@ -126,6 +146,15 @@ test("parseSessionFile rejects message entries missing content or timestamp", ()
     ["content 欠落", { ...base, message: { role: "user", timestamp: 1 } }],
     ["message.timestamp 欠落", { ...base, message: { role: "assistant", content: "x" } }],
     ["未知の role", { ...base, message: { role: "ghost", content: "x", timestamp: 1 } }],
+    ["content part が null", { ...base, message: { role: "assistant", content: [null], timestamp: 1 } }],
+    ["text part の text 欠落", { ...base, message: { role: "assistant", content: [{ type: "text" }], timestamp: 1 } }],
+    [
+      "toolCall part の name 欠落",
+      {
+        ...base,
+        message: { role: "assistant", content: [{ type: "toolCall", id: "t1", arguments: {} }], timestamp: 1 },
+      },
+    ],
   ];
   for (const [label, entry] of cases) {
     assert.equal(parseSessionFile(lines([HEADER, entry]), HEADER.id).kind, "damaged", label);
