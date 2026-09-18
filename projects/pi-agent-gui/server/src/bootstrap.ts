@@ -68,6 +68,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     console.error(`[pi-agent-gui] session store unavailable: ${sessionStoreError}`);
   }
   if (storeDir) sessionStore = { path: storeDir, ok: true };
+  else if (sessionStoreError) sessionStore = { path: null, ok: false, error: sessionStoreError };
   const store = new SessionStore({
     pi,
     catalog,
@@ -82,7 +83,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     try {
       await store.init();
     } catch (error) {
+      // 準備に失敗したらセッション作成も 503 で止める (メモリだけの黙ったフォールバックをしない)
       sessionStoreError = messageFor(error);
+      store.markStoreUnavailable(sessionStoreError);
       sessionStore = { path: storeDir, ok: false, error: sessionStoreError };
       console.error(`[pi-agent-gui] session store init failed: ${sessionStoreError}`);
     }

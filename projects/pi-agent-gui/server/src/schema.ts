@@ -259,6 +259,8 @@ export const HealthSchema = z.object({
       path: z.string().nullable(),
       ok: z.boolean(),
       error: z.string().optional(),
+      /** 保存に失敗している live セッション数 */
+      dirty: z.number().optional(),
     })
     .optional(),
 });

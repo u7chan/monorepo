@@ -50,6 +50,16 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
   };
 }
 
+/** SSE のカーソルは世代つき (`<generation>:<seq>`) が契約。payload から世代を引いて URL を組む */
+async function eventsUrl(app: Hono, sessionId: string, after?: number): Promise<string> {
+  const payload = await jsonBody(app.request(`/api/sessions/${sessionId}`));
+  const query = new URLSearchParams({
+    generation: String(payload.eventGeneration),
+    after: String(after ?? payload.lastSeq),
+  });
+  return `/api/sessions/${sessionId}/events?${query.toString()}`;
+}
+
 type ParsedSseEvent = { id: number | null; type: string; data: any };
 
 /** Response.json() は unknown を返すためテスト用に any に寄せる */
@@ -68,7 +78,7 @@ test("server exposes the async session API end to end", async () => {
     assert.ok(created.sessionId);
 
     // リプレイではなく、購読中のランがライブ配信されることを見るため先に接続する
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
     assert.equal(eventsResponse.status, 200);
     assert.match(eventsResponse.headers.get("content-type") || "", /text\/event-stream/);
     assert.match(eventsResponse.headers.get("cache-control") || "", /no-transform/);
@@ -284,7 +294,7 @@ test("assistant usage reaches the client through SSE and the session payload", a
   const { app } = bff;
   try {
     const created = await createSession(app);
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
     const posted = await app.request(
       `/api/sessions/${created.sessionId}/messages`,
       jsonPost({ text: "usage を見せて" }),
@@ -323,7 +333,7 @@ test("compaction reaches the client through SSE and stays in the session payload
   const { app } = bff;
   try {
     const created = await createSession(app);
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
     const posted = await app.request(
       `/api/sessions/${created.sessionId}/messages`,
       jsonPost({ text: "圧縮される会話" }),
@@ -517,7 +527,7 @@ test("session creation resolves request → definition → app default per field
     assert.equal(fromDefinition.status, 201);
     const defined = await jsonBody(fromDefinition);
     assert.equal(defined.model, "stub/stub-plain");
-    assert.equal(defined.thinkingLevel, "low");
+    assert.equal(defined.thinkingLevel, "off", "SDK が非推論モデルの非対応値を補正する");
 
     // リクエストは項目ごとに定義を上書きする
     const fromRequest = await app.request(
@@ -581,7 +591,7 @@ test("a session runs on its own model when it differs from the app default", asy
     assert.equal(session.model, "stub/stub-plain", "会話の実効モデルは作成時の指定");
     assert.notEqual(session.model, health.model);
 
-    const eventsResponse = await app.request(`/api/sessions/${session.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, session.sessionId, 0));
     const posted = await app.request(
       `/api/sessions/${session.sessionId}/messages`,
       jsonPost({ text: "この会話のモデルで実行して" }),
@@ -649,7 +659,7 @@ test("chat settings endpoint applies the effective values and resyncs subscriber
   const { app } = bff;
   try {
     const created = await createSession(app);
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
 
     const changed = await app.request(
       `/api/sessions/${created.sessionId}/settings`,

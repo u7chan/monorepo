@@ -49,7 +49,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   ],
   "defaultThinkingLevel": "medium",
   "defaultModelError": "指定された既定モデルは利用できません: openai/ghost",
-  "sessionStore": { "path": "/var/lib/pi-agent-gui/sessions", "ok": true }
+  "sessionStore": { "path": "/var/lib/pi-agent-gui/sessions", "ok": true, "dirty": 0 }
 }
 ```
 

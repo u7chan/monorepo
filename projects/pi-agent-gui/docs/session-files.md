@@ -77,9 +77,9 @@ $PI_SESSION_STORE/<id>/
   - `sweep` / `close` は dispose の前に flush を待つ
 - **書込みプロトコル**:
   - 「確定バイト位置」= 最後に完全に書けた entry の直後の offset を record ごとに持つ。追記はこの位置へ `write` し、成功したら位置を進める。
-  - 部分書込み（ENOSPC など）の後は、同じ書込みキューの中で `ftruncate(確定位置)` してから再試行する。ftruncate にも失敗したらその id の追記を停止してエラーを出す（原本は壊さない）。
+  - 追記の前に `ftruncate(確定位置)` で途絶した末尾（前回の部分書込みを含む）を落としてから書く。部分書込み（ENOSPC など）の後は同じ書込みキューの中で復旧して再試行し、再試行回数を区切って失敗を記録したら次の保存に委ねる。復旧（ftruncate）にも失敗したらその id の追記を停止してエラーを出す（原本は壊さない）。
   - entry は常に `<json>\n` で書く。末尾が parse 可能だが改行が無い場合は、確定位置をその行の終わり（改行を除く）として保持し、次の書込みの先頭で改行を補ってから追記する。
-  - 追記で表現できないとき（初回作成、entries が保存済み分の単純な延長でないとき）だけ temp + rename で全体を書き直す。temp 名は毎回ランダムにし、rename 前に宛先を `lstat` する。追記と全体書直しの判定は 1 つの関数に閉じる。
+  - 追記で表現できないとき（初回作成、entries が保存済み分の単純な延長でないとき）だけ temp + rename で全体を書き直す。rename は同期で完了を待ってから確定位置を更新し、宛先が symlink なら書かない。temp 名は毎回ランダムにする。追記と全体書直しの判定は 1 つの関数に閉じる。
 - **直列化と失敗時**: id ごとの非同期書込みキューで meta / JSONL の書込みを直列化する。書込みは開始時に id の状態を確認し、`deleting` 以降は no-op。書込み失敗では確定位置を進めず再試行し、エラーはログと health に出して API の成功応答を保存成功とみなさない（in-memory のチャットは継続する）。
 - **読み込み時の検証（非破壊）**:
   - 1 行目が header でただ 1 つ、`type: "session"`、`id` がフォルダ名と一致、`version` が現行（`CURRENT_SESSION_VERSION`）と一致することを検証する。
@@ -117,7 +117,7 @@ $PI_SESSION_STORE/<id>/
 - sweep は「購読者（SSE 接続）がいない・実行中でない・書込みが残っていない」ときだけ `evicting` を予約してメモリから外す。flush に失敗したときは破棄を見送って記録を残す（次の sweep で再試行）。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
 - `DELETE` は履歴だけ消し、作業フォルダは残す（サンドボックスに削除 API が無く、アプリはユーザーのファイルを消さない方針）。confirm は「セッションの履歴を削除します。ファイルは残ります」に変える。
-- プロジェクト解除（`DELETE /api/projects/:id`）: 先に `projectCwd` と対象（live / loading）を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダは触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出る。プロジェクトの自動再登録はしない。
+- プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
 - プロジェクト解除の確認文は「登録を解除し、実行中のセッションを停止します。履歴とファイルは残ります」に変える。
 
 ## SSE の世代
@@ -133,7 +133,7 @@ $PI_SESSION_STORE/<id>/
 - `SessionPayload.cwd` は root 相対の `.pi-agent-gui/sessions/<id>`。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッション別フォルダ表示になる。
 - `SessionPayload` に `eventGeneration` を足す。`SessionSummary` の形は変えない（復元したセッションは `status: "idle"`、`messageCount` は meta の値、`projectId` は `projectCwd` から解決した値）。
 - `GET /api/sessions/:id` など、これまで同期だった `store.get()` は「未ロードなら読み込む」非同期処理になる（ルートハンドラを async にする）。
-- `/api/health` に store の準備状態（パスと可否）を足す。store を準備できないときはセッション作成を 503（理由つき）で拒否する。
+- `/api/health` に store の準備状態（パス / 可否 / 保存に失敗している live セッション数 `dirty`）を足す。store を準備できず起動時に拒否した場合も、セッション作成を 503（理由つき）で拒否する。
 - 削除系の confirm 文言（セッション / プロジェクト）を変更する。
 
 ## セキュリティ

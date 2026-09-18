@@ -242,7 +242,11 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
   const session = {
     sessionId: `pi-${Math.random().toString(36).slice(2, 10)}`,
     model: options.model ?? STUB_MODEL,
-    thinkingLevel: options.thinkingLevel ?? "low",
+    // 実 SDK と同じく、作成時にもモデル能力へ補正する
+    thinkingLevel: clampThinkingLevel(
+      options.model ?? STUB_MODEL,
+      (options.thinkingLevel ?? "low") as Parameters<typeof clampThinkingLevel>[1],
+    ) as string,
     messages: [] as PiSessionLike["messages"],
     isStreaming: false,
     get isIdle() {

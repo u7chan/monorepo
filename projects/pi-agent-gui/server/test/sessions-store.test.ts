@@ -31,7 +31,7 @@ test("runs a message in the background and records the conversation history", as
   assert.ok(payload.lastSeq > 0);
 
   const allEvents: EventEntry[] = [];
-  store.subscribe(record, 0, (entry) => allEvents.push(entry));
+  store.subscribe(record, `${record.generation}:0`, (entry) => allEvents.push(entry));
   const types = allEvents.map((entry) => entry.type);
   assert.ok(types.includes("run_start"));
   assert.ok(types.includes("text"));
@@ -41,7 +41,7 @@ test("runs a message in the background and records the conversation history", as
 
   // A client at the latest cursor receives no replay.
   const fresh: typeof allEvents = [];
-  store.subscribe(record, payload.lastSeq, (entry) => fresh.push(entry));
+  store.subscribe(record, `${record.generation}:${payload.lastSeq}`, (entry) => fresh.push(entry));
   assert.equal(fresh.length, 0);
 
   await store.close();
@@ -73,7 +73,7 @@ test("messages posted during a run are queued and executed sequentially", async 
     .map((message) => message.content);
   assert.deepEqual(userTexts, ["1つ目", "2つ目", "3つ目"]);
   const queuedEvents: EventEntry[] = [];
-  store.subscribe(record, 0, (entry) => queuedEvents.push(entry));
+  store.subscribe(record, `${record.generation}:0`, (entry) => queuedEvents.push(entry));
   assert.equal(queuedEvents.filter((entry) => entry.type === "queued").length, 2);
 
   await store.close();
@@ -95,7 +95,7 @@ test("stop aborts the active run and clears the queue", async () => {
   assert.equal(record.queue.length, 0, "queued messages are dropped on stop");
 
   const events: EventEntry[] = [];
-  store.subscribe(record, 0, (entry) => events.push(entry));
+  store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
   const runEnd = events.find((entry) => entry.type === "run_end");
   assert.equal(runEnd?.data.status, "stopped");
 
@@ -483,7 +483,7 @@ test("emits a resync event with the effective values on settings change", async 
   const record = await store.create({ agentId: "agent-general" });
 
   const seen: EventEntry[] = [];
-  store.subscribe(record, record.seq, (entry) => seen.push(entry));
+  store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => seen.push(entry));
 
   const payload = await store.updateSettings(record, { thinkingLevel: "high" });
   const resync = seen.find((entry) => entry.type === "resync");
@@ -570,7 +570,7 @@ test("emits usage per assistant message and keeps it in the payload for resync",
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 5 }), catalog });
   const record = await store.create({ agentId: "agent-general" });
   const events: EventEntry[] = [];
-  store.subscribe(record, 0, (entry) => events.push(entry));
+  store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
   store.postMessage(record, "usage を見せて");
   await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
@@ -604,7 +604,7 @@ test("omits usage and context keys the SDK does not report, keeping the BFF metr
   const store = new SessionStore({ pi: createStubPi({ usage: null, contextUsage: null }), catalog });
   const record = await store.create({ agentId: "agent-general" });
   const events: EventEntry[] = [];
-  store.subscribe(record, 0, (entry) => events.push(entry));
+  store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
   store.postMessage(record, "usage 非対応のプロバイダ");
   await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
@@ -638,7 +638,7 @@ test("delivers the context again after the SDK has added the message to its hist
   });
   const record = await store.create({ agentId: "agent-general" });
   const events: EventEntry[] = [];
-  store.subscribe(record, 0, (entry) => events.push(entry));
+  store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
   store.postMessage(record, "compaction 直後の応答");
   await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");

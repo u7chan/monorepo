@@ -1,7 +1,7 @@
 // session-store の純関数 / ライター。ファイルシステムを使う検証は一時ディレクトリで行う。
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   parseSessionFile,
   prepareSessionStore,
   resolveSessionStoreDir,
+  sessionDirPath,
   sessionJsonlPath,
   serializeSession,
   sessionHeaderOf,
@@ -210,6 +211,92 @@ test("SessionFileWriter rolls back a partial write and retries from the committe
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("SessionFileWriter refuses a symlinked session.jsonl and keeps the target", async () => {
+  const { symlinkSync, writeFileSync } = await import("node:fs");
+  const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
+  try {
+    await prepareSessionStore(dir);
+    const id = "a1b2c3d4e5";
+    await mkdir(sessionDirPath(dir, id), { recursive: true });
+    const path = sessionJsonlPath(id, dir);
+    const target = join(dir, "victim.jsonl");
+    writeFileSync(target, "victim\n");
+    symlinkSync(target, path);
+    const writer = new SessionFileWriter(dir, id);
+    await writer.schedule(sessionHeaderOf({ id, createdAt: 1 }, "/work"), [messageEntry("e1", null)]);
+    assert.match(writer.error ?? "", /symlink/);
+    assert.equal(await readFile(target, "utf8"), "victim\n", "リンク先を書き換えない");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SessionFileWriter bounds retries and preserves the committed prefix on persistent ENOSPC", async () => {
+  const { writeSync } = await import("node:fs");
+  const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
+  try {
+    await prepareSessionStore(dir);
+    const id = "a1b2c3d4e5";
+    const header = sessionHeaderOf({ id, createdAt: 1 }, "/work");
+    const first = messageEntry("e1", null);
+    await new SessionFileWriter(dir, id).schedule(header, [first]);
+    const persisted = parseSessionFile(await readFile(sessionJsonlPath(id, dir), "utf8"), id);
+    assert.equal(persisted.kind, "ok");
+    if (persisted.kind !== "ok") return;
+    const before = await readFile(sessionJsonlPath(id, dir), "utf8");
+
+    // 何度試しても ENOSPC。無限ループせず error を残し、確定位置まで巻き戻す
+    const writer = new SessionFileWriter(
+      dir,
+      id,
+      { completeBytes: persisted.completeBytes, entries: persisted.entries },
+      (fd, buffer, offset, length, position) => {
+        const half = Math.floor(length / 2);
+        if (half > 0) writeSync(fd, buffer, offset, half, position);
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      },
+    );
+    await writer.schedule(header, [first, messageEntry("e2", "e1")]);
+    assert.match(writer.error ?? "", /再試行|復旧/);
+    assert.equal(await readFile(sessionJsonlPath(id, dir), "utf8"), before, "確定位置まで戻る");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SessionFileWriter truncates a torn tail before appending", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
+  try {
+    await prepareSessionStore(dir);
+    const id = "a1b2c3d4e5";
+    await mkdir(sessionDirPath(dir, id), { recursive: true });
+    const header = sessionHeaderOf({ id, createdAt: 1 }, "/work");
+    const first = messageEntry("e1", null);
+    // 次の追記より長い途絶末尾を残す
+    const torn = serializeSession(header, [first]) + "x".repeat(4096);
+    await writeFile(sessionJsonlPath(id, dir), torn);
+    const parsed = parseSessionFile(torn, id);
+    assert.equal(parsed.kind, "ok");
+    if (parsed.kind !== "ok") return;
+    const writer = new SessionFileWriter(dir, id, {
+      completeBytes: parsed.completeBytes,
+      entries: parsed.entries,
+      needsSeparator: parsed.needsSeparator,
+    });
+    const second = messageEntry("e2", "e1");
+    await writer.schedule(header, [first, second]);
+    assert.equal(writer.error, undefined);
+    assert.equal(await readFile(sessionJsonlPath(id, dir), "utf8"), serializeSession(header, [first, second]));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseSessionFile rejects blank lines without changing the file", () => {
+  const text = lines([HEADER, messageEntry("e1", null)]) + "\n";
+  assert.equal(parseSessionFile(text, HEADER.id).kind, "damaged");
 });
 
 test("SessionFileWriter serializes overlapping schedules", async () => {

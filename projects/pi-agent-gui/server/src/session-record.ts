@@ -53,12 +53,14 @@ export interface SessionRecord {
   meta: SessionMeta;
   /** このロード世代の識別子。SSE の id は `<generation>:<seq>` */
   generation: string;
-  /** 1 はこのプロセスで作成した世代。復元するたびに増える (古い cursor を resync へ寄せる) */
-  generationIndex: number;
   /** JSONL の追記ライター。永続化なしは undefined */
   writer?: SessionFileWriter;
   /** meta / JSONL の書込みを直列化する末尾 (失敗しても reject しない) */
   persistTail: Promise<void>;
+  /** 直近の保存失敗 (meta / JSONL 共通)。成功で消える */
+  persistError?: string;
+  /** 同じエラーを毎回ログに出さないための記録 */
+  persistErrorLogged?: string;
   /** 作成時点のスナップショット (定義の編集・削除の影響を受けない) */
   agent: AgentPayloadInfo;
   title: string;

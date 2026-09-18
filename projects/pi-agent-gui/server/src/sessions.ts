@@ -37,6 +37,7 @@ import {
   readSessionMeta,
   removeSessionDir,
   sessionHeaderOf,
+  sessionJsonlPath,
   sessionWorkdirAbs,
   sessionWorkdirRel,
   writeSessionMeta,
@@ -90,6 +91,10 @@ export interface SessionStoreOptions {
   workspace?: SandboxWorkspaceClient | null;
   /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
   rootCwd?: string;
+}
+
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
@@ -247,7 +252,6 @@ export class SessionStore {
       project,
       title: "",
       createdAt: Date.now(),
-      generationIndex: 1,
     });
     this.records.set(record.id, record);
     if (this.storeDir) {
@@ -267,7 +271,6 @@ export class SessionStore {
     project,
     title,
     createdAt,
-    generationIndex,
   }: {
     id: string;
     session: PiSessionLike;
@@ -278,7 +281,6 @@ export class SessionStore {
     project: Project | undefined;
     title: string;
     createdAt: number;
-    generationIndex: number;
   }): SessionRecord {
     const meta: SessionMeta = {
       version: 1,
@@ -304,7 +306,6 @@ export class SessionStore {
       promptSnapshot,
       meta,
       generation: randomBytes(4).toString("hex"),
-      generationIndex,
       persistTail: Promise.resolve(),
       agent,
       title,
@@ -328,18 +329,16 @@ export class SessionStore {
     await this.workspace.createDir(workdirRel);
   }
 
-  /** 未ロードならストアから復元する。deleting / closing の id は undefined を返す */
+  /** 未ロードならストアから復元する。deleting / closing / eviction 中の id は復元の完了を待つ */
   async resolve(id: string): Promise<SessionRecord | undefined> {
+    if (this.deleting.has(id) || this.closing) return undefined;
+    const pending = this.lifecycle.get(id);
+    if (pending) await pending.catch(() => {});
     if (this.deleting.has(id) || this.closing) return undefined;
     const live = this.records.get(id);
     if (live) return live;
     const meta = this.descriptors.get(id);
     if (!meta || !this.storeDir || !this.pi) return undefined;
-    const pending = this.lifecycle.get(id);
-    if (pending) {
-      await pending.catch(() => {});
-      return this.records.get(id);
-    }
     const promise = this.load(meta);
     this.lifecycle.set(id, promise);
     try {
@@ -353,7 +352,12 @@ export class SessionStore {
     const id = meta.id;
     if (this.deleting.has(id)) throw httpError(404, "Session not found");
     const { parsed } = await readSessionFile(this.storeDir as string, id);
-    if (parsed.kind === "damaged") throw httpError(409, new SessionDamagedError(parsed.reason).message);
+    if (parsed.kind === "damaged") {
+      throw httpError(
+        409,
+        `${new SessionDamagedError(parsed.reason).message} (${sessionJsonlPath(id, this.storeDir as string)})`,
+      );
+    }
     const entries = parsed.kind === "ok" ? parsed.entries : [];
     const workdir = sessionWorkdirRel(id);
     await this.ensureWorkdir(workdir);
@@ -382,10 +386,13 @@ export class SessionStore {
       project: undefined,
       title: meta.title,
       createdAt: meta.createdAt,
-      generationIndex: 2,
     });
     record.lastUsedAt = meta.lastUsedAt;
     record.meta = meta;
+    // 所属は保存値から復元し、projectId だけを読み取り時に解決する
+    record.projectCwd = meta.projectCwd;
+    record.projectName = meta.projectName;
+    record.projectId = this.projectIdOfCwd(meta.projectCwd);
     if (this.storeDir) {
       record.writer = new SessionFileWriter(this.storeDir, id, {
         completeBytes: parsed.kind === "ok" ? parsed.completeBytes : 0,
@@ -569,10 +576,9 @@ export class SessionStore {
     record.subscribers.add(subscriber);
     const cursor = parseEventCursor(after === undefined ? undefined : String(after));
     const earliest = record.events.length > 0 ? record.events[0].seq : record.seq + 1;
-    const sameGeneration = cursor?.generation === record.generation;
-    // 世代不明の数値カーソルは、このプロセスで作った世代 (index 1) のときだけ差分として扱う
-    const usable = cursor && (sameGeneration || (cursor.generation === undefined && record.generationIndex === 1));
-    if (!usable || cursor.seq > record.seq || cursor.seq + 1 < earliest) {
+    // 世代が一致しないカーソルは差分に使わない (seq は復元で 0 に戻るため数値だけでは同定できない)
+    const usable = cursor?.generation === record.generation;
+    if (!cursor || !usable || cursor.seq > record.seq || cursor.seq + 1 < earliest) {
       send({ seq: record.seq, type: "resync", data: this.payload(record), at: Date.now() });
     } else {
       for (const entry of record.events) {
@@ -650,12 +656,8 @@ export class SessionStore {
       if (this.isBusy(record) || record.session.isStreaming) {
         await record.session.abort().catch(() => {});
       }
+      // projectCwd は残す。所属は読み取り時に解決するため、同じ cwd の再登録で戻る
       record.projectId = undefined;
-      record.projectCwd = undefined;
-      record.projectName = undefined;
-      delete record.meta.projectCwd;
-      delete record.meta.projectName;
-      await this.persist(record);
       this.emitResync(record);
     }
   }
@@ -674,6 +676,7 @@ export class SessionStore {
       if (pending) await pending.catch(() => {});
       const record = this.records.get(id);
       if (record) {
+        record.queue = [];
         if (this.isBusy(record) || record.session.isStreaming) await record.session.abort().catch(() => {});
         await this.flush(record);
         record.session.dispose?.();
@@ -710,12 +713,13 @@ export class SessionStore {
     }
   }
 
-  /** meta と JSONL の書込みを直列化する。失敗しても reject せず writer の error に残す */
+  /** meta と JSONL の書込みを直列化する。失敗は record.persistError に残す (in-memory の実行は止めない) */
   persist(record: SessionRecord): Promise<void> {
     if (!record.writer || !this.storeDir) return Promise.resolve();
     const storeDir = this.storeDir;
     const run = async (): Promise<void> => {
-      if (this.deleting.has(record.id)) return;
+      // 削除済み・削除中の record は書かない (store を復活させない)
+      if (this.deleting.has(record.id) || !this.records.has(record.id)) return;
       const session = record.session;
       const meta: SessionMeta = {
         ...record.meta,
@@ -737,11 +741,22 @@ export class SessionStore {
       }
       record.meta = meta;
       this.descriptors.set(record.id, meta);
-      await writeSessionMeta(storeDir, meta);
-      await record.writer?.schedule(
-        sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
-        entriesOf(session),
-      );
+      try {
+        await writeSessionMeta(storeDir, meta);
+        await record.writer?.schedule(
+          sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
+          entriesOf(session),
+        );
+      } catch (error) {
+        record.persistError = messageFor(error);
+      }
+      const failure = record.persistError ?? record.writer?.error;
+      record.persistError = failure;
+      if (failure && record.persistErrorLogged !== failure) {
+        record.persistErrorLogged = failure;
+        console.warn(`[pi-agent-gui] セッションの保存に失敗しました (${record.id}): ${failure}`);
+      }
+      if (!failure) record.persistErrorLogged = undefined;
     };
     const next = record.persistTail.then(run, run);
     record.persistTail = next.catch(() => {});
@@ -760,14 +775,14 @@ export class SessionStore {
       const cutoff = Date.now() - SESSION_TTL_MS;
       // 破棄中に records を変更するため、走査対象は先に固める
       for (const [id, record] of Array.from(this.records)) {
-        if (this.isBusy(record) || record.subscribers.size > 0) continue;
+        if (this.isBusy(record) || record.subscribers.size > 0 || record.changingSettings) continue;
         if (this.deleting.has(id) || this.lifecycle.has(id)) continue;
         if (record.lastUsedAt >= cutoff) continue;
-        if (record.writer?.error) continue;
         const promise = (async () => {
+          // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)
+          await this.persist(record);
           await this.flush(record);
-          // 保存に失敗した record は破棄せず残す (次の sweep で再試行する)
-          if (record.writer?.error) return;
+          if (record.persistError || record.writer?.error) return;
           record.session.dispose?.();
           this.records.delete(id);
         })();
@@ -781,6 +796,24 @@ export class SessionStore {
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** health 用のストア状態。dirty は保存に失敗している live セッション数 */
+  status(): { path: string | null; ok: boolean; error?: string; dirty: number } {
+    const dirty = Array.from(this.records.values()).filter(
+      (record) => record.persistError || record.writer?.error,
+    ).length;
+    return {
+      path: this.storeDir,
+      ok: !this.storeError && !this.closing,
+      ...(this.storeError ? { error: this.storeError } : {}),
+      dirty,
+    };
+  }
+
+  /** store の準備失敗を共有する (bootstrap の init 失敗・設定エラー) */
+  markStoreUnavailable(error: string): void {
+    this.storeError = error;
   }
 
   async close(): Promise<void> {
@@ -872,6 +905,7 @@ export class SessionStore {
   }
 
   pump(record: SessionRecord): void {
+    if (this.deleting.has(record.id) || !this.records.has(record.id)) return;
     if (record.queue.length === 0) return;
     if (record.run?.status === "running" || record.session.isStreaming) return;
     const next = record.queue.shift();

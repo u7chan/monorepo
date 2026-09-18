@@ -1,12 +1,21 @@
 /**
- * セッションの会話ストア (BFF 専用)。レイアウト・meta・JSONL の読み書きをここ 1 箇所に閉じる。
- * ストアはサンドボックスへマウントしない (作業フォルダだけをサンドボックスと共有する)。
- * JSONL は pi SDK と同形式で、書込みは「確定バイト位置」を基準にした追記 + 失敗時の復旧で行う。
+ * セッションの会話ストア (BFF 専用)。サンドボックスへマウントしない。
+ * JSONL は pi SDK と同形式で、確定バイト位置を基準に追記し、部分書込みは ftruncate で復旧する。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, ftruncateSync, mkdirSync, openSync, closeSync, writeSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  ftruncateSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmSync,
+  writeSync,
+} from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentPayloadInfo, ThinkingLevel } from "./schema";
 
@@ -14,6 +23,8 @@ import type { AgentPayloadInfo, ThinkingLevel } from "./schema";
 export const SESSION_DIR_REL = ".pi-agent-gui/sessions";
 export const SESSION_STORE_ENV = "PI_SESSION_STORE";
 const SESSION_ID_PATTERN = /^[0-9a-f]{10}$/;
+/** 部分書込みの再試行回数。超えたらエラーを記録して次の保存に委ねる */
+const MAX_WRITE_ATTEMPTS = 3;
 
 export interface PromptSnapshot {
   /** 作成時の agent プロファイル (appendSystemPrompt へ入れたもの) */
@@ -65,12 +76,8 @@ export class SessionStoreConfigError extends Error {}
 /** JSONL が壊れていて開けないことを表す。原本は変更しない */
 export class SessionDamagedError extends Error {
   constructor(readonly reason: string) {
-    super(`セッションの履歴ファイルが壊れています: ${reason}`);
+    super(reason);
   }
-}
-
-function badIdError(id: string): Error {
-  return new Error(`セッション ID が不正です: ${id}`);
 }
 
 /**
@@ -88,8 +95,8 @@ export function resolveSessionStoreDir({
   const dir = configured ? resolve(configured) : join(getAgentDir(), "pi-agent-gui", "sessions");
   const root = resolve(rootCwd);
   const rel = relative(root, dir);
-  const inside = rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-  if (inside) {
+  const escapes = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  if (rel === "" || !escapes) {
     throw new SessionStoreConfigError(
       `${SESSION_STORE_ENV} はワークスペースの外を指定してください (サンドボックスと会話ログを共有しないため): ${dir}`,
     );
@@ -115,7 +122,7 @@ export function sessionJsonlPath(id: string, storeDir: string): string {
 }
 
 export function assertSessionId(id: string): void {
-  if (!SESSION_ID_PATTERN.test(id)) throw badIdError(id);
+  if (!SESSION_ID_PATTERN.test(id)) throw new Error(`セッション ID が不正です: ${id}`);
 }
 
 /** 10 hex 文字。既存フォルダと衝突したら作り直す (外部ライブラリは使わない) */
@@ -206,70 +213,99 @@ export function serializeSession(header: SessionHeader, entries: SessionEntryLik
   return [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
 }
 
-const KNOWN_ENTRY_TYPES = new Set([
-  "message",
-  "thinking_level_change",
-  "model_change",
-  "compaction",
-  "branch_summary",
-  "custom",
-  "custom_message",
-  "label",
-  "session_info",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isStringOrTextParts(value: unknown): boolean {
+  return typeof value === "string" || Array.isArray(value);
+}
+
+/** 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する */
+function entryShapeError(type: string, entry: Record<string, unknown>): string | undefined {
+  switch (type) {
+    case "message":
+      if (!isRecord(entry.message) || typeof entry.message.role !== "string")
+        return "message entry に message がありません";
+      return undefined;
+    case "thinking_level_change":
+      return typeof entry.thinkingLevel === "string" ? undefined : "thinking_level_change entry が不正です";
+    case "model_change":
+      return typeof entry.provider === "string" && typeof entry.modelId === "string"
+        ? undefined
+        : "model_change entry が不正です";
+    case "compaction":
+      return typeof entry.summary === "string" &&
+        typeof entry.firstKeptEntryId === "string" &&
+        typeof entry.tokensBefore === "number"
+        ? undefined
+        : "compaction entry が不正です";
+    case "branch_summary":
+      return typeof entry.fromId === "string" && typeof entry.summary === "string"
+        ? undefined
+        : "branch_summary entry が不正です";
+    case "custom":
+      return typeof entry.customType === "string" ? undefined : "custom entry が不正です";
+    case "custom_message":
+      return typeof entry.customType === "string" && isStringOrTextParts(entry.content)
+        ? undefined
+        : "custom_message entry が不正です";
+    case "label":
+      return typeof entry.targetId === "string" ? undefined : "label entry が不正です";
+    case "session_info":
+      return typeof entry.name === "string" || entry.name === undefined ? undefined : "session_info entry が不正です";
+    default:
+      return `未知の entry type です: ${type}`;
+  }
+}
+
 /**
  * JSONL を検証して読む。SDK の親探索は循環を検出しないため、`parentId` が前方参照でないことと
- * id の一意性をここで必ず確認する。末尾の途絶 (改行が無く parse できない行) だけは書込み途絶として捨てる。
+ * id の一意性をここで確認する。回復するのは「改行が無く JSON として parse できない末尾」だけ。
  */
 export function parseSessionFile(text: string, id: string): ParsedSessionFile {
   if (!text) return { kind: "empty" };
-  const lines = text.split("\n");
-  const lastHasNewline = text.endsWith("\n");
-  // 末尾に改行が無い場合、最後の要素は途中の行の可能性がある
-  const trailing = lastHasNewline ? undefined : lines.pop();
-  const rawLines = lines.filter((line) => line.trim() !== "");
+
+  // バイト位置をずらさないため、空行も 1 行として数える (確定位置は行の終端で数える)
+  const lines: Array<{ text: string; end: number; terminated: boolean }> = [];
+  let offset = 0;
+  while (offset < text.length) {
+    const newline = text.indexOf("\n", offset);
+    if (newline === -1) {
+      lines.push({ text: text.slice(offset), end: text.length, terminated: false });
+      break;
+    }
+    lines.push({ text: text.slice(offset, newline), end: newline + 1, terminated: true });
+    offset = newline + 1;
+  }
 
   const parsed: Record<string, unknown>[] = [];
   let completeBytes = 0;
-  for (const line of rawLines) {
+  let needsSeparator = false;
+  for (const [index, line] of lines.entries()) {
+    const last = index === lines.length - 1;
+    if (line.text.trim() === "") return { kind: "damaged", reason: "空行があります" };
     let entry: unknown;
     try {
-      entry = JSON.parse(line);
+      entry = JSON.parse(line.text);
     } catch {
+      // 改行で終わっていない末尾だけを書込み途絶として捨てる
+      if (last && !line.terminated) break;
       return { kind: "damaged", reason: "entry の JSON を解析できません" };
     }
-    if (!isRecord(entry)) return { kind: "damaged", reason: "entry がオブジェクトではありません" };
-    parsed.push(entry);
-    completeBytes += Buffer.byteLength(`${line}\n`, "utf8");
-  }
-  // 改行で終わっていない末尾は、parse できれば完全な entry、できなければ書込み途絶として捨てる
-  let needsSeparator = false;
-  if (trailing !== undefined && trailing.trim() !== "") {
-    try {
-      const entry = JSON.parse(trailing);
-      if (isRecord(entry)) {
-        parsed.push(entry);
-        completeBytes += Buffer.byteLength(trailing, "utf8");
-        // 次の追記の前に改行を補う (entry 同士を連結させない)
-        needsSeparator = true;
-      }
-    } catch {
-      // 書込み途絶。確定位置は最後の完全行の末尾に置く
+    if (!isRecord(entry)) {
+      if (last && !line.terminated) return { kind: "damaged", reason: "末尾の entry がオブジェクトではありません" };
+      return { kind: "damaged", reason: "entry がオブジェクトではありません" };
     }
+    parsed.push(entry);
+    // 位置はバイトで数える (日本語を含む JSONL では文字数とずれる)
+    completeBytes += Buffer.byteLength(line.text, "utf8") + (line.terminated ? 1 : 0);
+    needsSeparator = !line.terminated;
   }
 
   const header = parsed[0];
-  if (!header || header.type !== "session") {
-    return { kind: "damaged", reason: "header がありません" };
-  }
-  if (header.id !== id) {
-    return { kind: "damaged", reason: "header の id がフォルダ名と一致しません" };
-  }
+  if (!header || header.type !== "session") return { kind: "damaged", reason: "header がありません" };
+  if (header.id !== id) return { kind: "damaged", reason: "header の id がフォルダ名と一致しません" };
   if (header.version !== CURRENT_SESSION_VERSION) {
     return { kind: "damaged", reason: `対応していない session version です: ${String(header.version)}` };
   }
@@ -282,21 +318,13 @@ export function parseSessionFile(text: string, id: string): ParsedSessionFile {
     if (typeof entryId !== "string" || typeof type !== "string" || typeof entry.timestamp !== "string") {
       return { kind: "damaged", reason: "entry の必須フィールドがありません" };
     }
-    if (!KNOWN_ENTRY_TYPES.has(type)) return { kind: "damaged", reason: `未知の entry type です: ${type}` };
     if (ids.has(entryId)) return { kind: "damaged", reason: `entry id が重複しています: ${entryId}` };
     const parentId = entry.parentId;
     if (parentId !== null && (typeof parentId !== "string" || !ids.has(parentId))) {
       return { kind: "damaged", reason: `parentId が前方参照です: ${String(parentId)}` };
     }
-    if (type === "message" && !isRecord(entry.message)) {
-      return { kind: "damaged", reason: "message entry に message がありません" };
-    }
-    if (type === "compaction" && (typeof entry.summary !== "string" || typeof entry.firstKeptEntryId !== "string")) {
-      return { kind: "damaged", reason: "compaction entry の必須フィールドがありません" };
-    }
-    if (type === "model_change" && (typeof entry.provider !== "string" || typeof entry.modelId !== "string")) {
-      return { kind: "damaged", reason: "model_change entry の必須フィールドがありません" };
-    }
+    const shapeError = entryShapeError(type, entry);
+    if (shapeError) return { kind: "damaged", reason: shapeError };
     ids.add(entryId);
     entries.push(entry as SessionEntryLike);
   }
@@ -329,15 +357,15 @@ export async function removeSessionDir(storeDir: string, id: string): Promise<vo
 export type WriteChunk = (fd: number, buffer: Buffer, offset: number, length: number, position: number) => number;
 
 /**
- * JSONL の追記ライター。確定バイト位置を基準に書き、部分書込みでは ftruncate してから再試行する。
- * 追記できない (並びが変わった / ファイルが無い) ときだけ全体を temp + rename で書き直す。
+ * JSONL の追記ライター。追記は確定バイト位置へ行い、部分書込みは ftruncate して復旧してから再試行する。
+ * 追記で表現できないとき (初回・並びの変化) だけ temp + rename で全体を書き直す。
  */
 export class SessionFileWriter {
   private committedBytes: number;
   private persistedCount: number;
   private lastPersistedId: string | null;
   private needsSeparator: boolean;
-  /** 追記を停止した (復旧にも失敗した) ときだけ true */
+  /** 復旧にも失敗して追記を停止したときだけ true */
   private sealed = false;
   private lastError: string | undefined;
   private tail = Promise.resolve();
@@ -354,7 +382,7 @@ export class SessionFileWriter {
     this.committedBytes = state.completeBytes;
     this.persistedCount = state.entries.length;
     this.lastPersistedId =
-      state.entries.length > 0 ? ((state.entries[state.entries.length - 1].id as string) ?? null) : null;
+      state.entries.length > 0 ? (state.entries[state.entries.length - 1].id as string | null) : null;
     this.needsSeparator = state.needsSeparator ?? false;
   }
 
@@ -364,11 +392,9 @@ export class SessionFileWriter {
 
   /** 書込みを直列化する。失敗しても reject せず、writer の error に残す (in-memory の実行は止めない) */
   schedule(header: SessionHeader, entries: SessionEntryLike[]): Promise<void> {
-    const run = this.tail.then(
-      () => this.write(header, entries),
-      () => this.write(header, entries),
-    );
-    this.tail = run.catch(() => {});
+    const run = () => this.write(header, entries);
+    const next = this.tail.then(run, run);
+    this.tail = next.catch(() => {});
     return this.tail;
   }
 
@@ -379,6 +405,18 @@ export class SessionFileWriter {
   private write(header: SessionHeader, entries: SessionEntryLike[]): void {
     if (this.sealed) return;
     const path = sessionJsonlPath(this.id, this.storeDir);
+    // symlink は書かない (別プロセスに差し替えられた場合の防御)
+    try {
+      if (lstatSync(path).isSymbolicLink()) {
+        this.lastError = `session.jsonl が symlink です: ${path}`;
+        return;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        this.lastError = `session.jsonl を確認できません: ${messageFor(error)}`;
+        return;
+      }
+    }
     // 作成直後 (ファイルが無い) は header だけでも先に置く
     if (!existsSync(path)) {
       this.rewrite(path, header, entries);
@@ -407,20 +445,43 @@ export class SessionFileWriter {
       return;
     }
     try {
+      // 途絶した末尾と前回の部分書込みを落としてから確定位置へ書く
+      try {
+        ftruncateSync(fd, start);
+      } catch (error) {
+        this.lastError = `追記位置に復旧できません: ${messageFor(error)}`;
+        return;
+      }
       let written = 0;
+      let attempts = 0;
       for (;;) {
+        let chunk: number;
         try {
-          written += this.writeChunk(fd, buffer, written, buffer.length - written, start + written);
-          if (written === buffer.length) break;
+          chunk = this.writeChunk(fd, buffer, written, buffer.length - written, start + written);
         } catch (error) {
-          // 部分書込みを確定位置まで巻き戻してから 1 回だけ再試行する
+          attempts += 1;
           if (!this.rollback(fd, start)) {
-            // 復旧できないときだけ追記を停止する (確定位置は進めないので原本は壊れない)
             this.sealed = true;
-            this.lastError = `追記に失敗しました: ${messageFor(error)}`;
+            this.lastError = `追記に失敗し、復旧できません: ${messageFor(error)}`;
             return;
           }
+          written = 0;
+          if (attempts > MAX_WRITE_ATTEMPTS) {
+            this.lastError = `追記に失敗しました (再試行 ${MAX_WRITE_ATTEMPTS} 回): ${messageFor(error)}`;
+            return;
+          }
+          continue;
         }
+        if (chunk <= 0) {
+          attempts += 1;
+          if (attempts > MAX_WRITE_ATTEMPTS) {
+            this.lastError = "追記が進みません";
+            return;
+          }
+          continue;
+        }
+        written += chunk;
+        if (written === buffer.length) break;
       }
     } finally {
       closeSync(fd);
@@ -455,21 +516,38 @@ export class SessionFileWriter {
     try {
       const buffer = Buffer.from(text, "utf8");
       let written = 0;
+      let attempts = 0;
       while (written < buffer.length) {
-        written += this.writeChunk(fd, buffer, written, buffer.length - written, written);
+        try {
+          const chunk = this.writeChunk(fd, buffer, written, buffer.length - written, written);
+          if (chunk <= 0) throw new Error("書き直しが進みません");
+          written += chunk;
+        } catch (error) {
+          attempts += 1;
+          if (attempts > MAX_WRITE_ATTEMPTS) throw error;
+        }
       }
     } catch (error) {
       closeSync(fd);
-      rm(temp, { force: true });
-      // 全体書直しの失敗は次回の保存で再試行できる (確定位置は変わっていない)
+      rmSync(temp, { force: true });
       this.lastError = `書き直しに失敗しました: ${messageFor(error)}`;
       return;
     }
     closeSync(fd);
+    // 宛先が symlink なら上書きしない (別プロセスに差し替えられた場合の防御)
     try {
-      rename(temp, path);
+      if (lstatSync(path).isSymbolicLink()) throw new Error("宛先が symlink です");
     } catch (error) {
-      rm(temp, { force: true });
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        rmSync(temp, { force: true });
+        this.lastError = `書き直しに失敗しました: ${messageFor(error)}`;
+        return;
+      }
+    }
+    try {
+      renameSync(temp, path);
+    } catch (error) {
+      rmSync(temp, { force: true });
       this.lastError = `書き直しに失敗しました: ${messageFor(error)}`;
       return;
     }

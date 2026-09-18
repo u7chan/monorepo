@@ -9,7 +9,7 @@ import { createAgentCatalog } from "../src/agents";
 import { ProjectStore } from "../src/projects";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
-import { parseSessionFile, sessionJsonlPath, sessionMetaPath } from "../src/session-store";
+import { parseSessionFile, serializeSession, sessionJsonlPath, sessionMetaPath } from "../src/session-store";
 import type { EventEntry, SessionPayload } from "../src/schema";
 import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor } from "./stub-pi";
 
@@ -280,6 +280,148 @@ test("復元後の SSE は世代が違うカーソルを resync へ寄せる", a
   }
 });
 
+test("compaction を保存し、復元後も区切りが再現される", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-compaction-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, {
+      // 1 通目の後で圧縮する (空の履歴は実 SDK でも圧縮しない)
+      pi: createStubPi({ preflightCompactions: [null, { summary: "これまでの要約", summarizeCount: 1 }] }),
+      workspace,
+      catalog,
+    });
+    await store1.init();
+    const record = await store1.create({ agentId: "agent-general" });
+    store1.postMessage(record, "圧縮される会話");
+    await waitFor(() => record.run?.status === "completed", 3000, "run completed");
+    store1.postMessage(record, "圧縮後の会話");
+    await waitFor(() => store1.statusOf(record) === "completed", 3000, "second run completed");
+    await store1.flush(record);
+    assert.equal(store1.payload(record).compactions.length, 1);
+
+    const parsed = parseSessionFile(await readFile(sessionJsonlPath(record.id, storeDir), "utf8"), record.id);
+    assert.equal(parsed.kind, "ok");
+    if (parsed.kind === "ok") assert.ok(parsed.entries.some((entry) => entry.type === "compaction"));
+    await store1.close();
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    const payload = store2.payload(restored);
+    assert.equal(payload.compactions.length, 1, "compaction entry を復元する");
+    assert.equal(payload.compactions[0].summary, "これまでの要約");
+    assert.equal(payload.compactions[0].tokensBefore, 68_000);
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("復元時のモデル能力に合わせて Effort を clamp する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-effort-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const record = await store1.create({ agentId: "agent-general" });
+    await store1.flush(record);
+    await store1.close();
+
+    // 推論レベル max を要求した履歴を作る
+    const file = sessionJsonlPath(record.id, storeDir);
+    const parsed = parseSessionFile(await readFile(file, "utf8"), record.id);
+    assert.equal(parsed.kind, "ok");
+    if (parsed.kind !== "ok") return;
+    const last = parsed.entries[parsed.entries.length - 1];
+    const thinking = {
+      type: "thinking_level_change",
+      id: "entry-thinking",
+      parentId: (last?.id as string) ?? null,
+      timestamp: new Date().toISOString(),
+      thinkingLevel: "max",
+    };
+    await writeFile(file, serializeSession(parsed.header, [...parsed.entries, thinking]));
+
+    // 非推論モデルで復元すると off へ補正される
+    const pi2 = createStubPi({ availableModels: [STUB_PLAIN_MODEL], selectedModel: STUB_PLAIN_MODEL });
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.equal(store2.payload(restored).thinkingLevel, "off");
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("ロードと DELETE が競合しても store を復活させない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-race-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const record = await store1.create({ agentId: "agent-general" });
+    await store1.flush(record);
+    await store1.close();
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const results = await Promise.allSettled([store2.resolve(record.id), store2.deleteSession(record.id)]);
+    assert.equal(results[1].status, "fulfilled");
+    assert.equal(store2.list().length, 0);
+    await assert.rejects(readFile(sessionMetaPath(record.id, storeDir), "utf8"));
+    assert.equal(store2.status().dirty, 0);
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("保存中に DELETE しても store を復活させない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-race-"));
+  const { workspace } = stubWorkspace();
+  try {
+    const store = createStore(storeDir, { pi: createStubPi(), workspace });
+    await store.init();
+    const record = await store.create({ agentId: "agent-general" });
+    const write = store.persist(record);
+    const removed = store.deleteSession(record.id);
+    await Promise.allSettled([write, removed]);
+    assert.equal(await removed, true);
+    assert.equal(store.list().length, 0);
+    await assert.rejects(readFile(sessionMetaPath(record.id, storeDir), "utf8"));
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("設定変更中のセッションは sweep の対象外にする", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-sweep-"));
+  const { workspace } = stubWorkspace();
+  try {
+    const store = createStore(storeDir, { pi: createStubPi(), workspace });
+    await store.init();
+    const record = await store.create({ agentId: "agent-general" });
+    await store.flush(record);
+    record.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
+    record.changingSettings = true;
+    await store.sweep();
+    assert.equal(store.get(record.id), record, "設定変更中は残す");
+    record.changingSettings = false;
+    await store.sweep();
+    assert.equal(store.get(record.id), undefined);
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("プロジェクトを解除してもセッションと store は残り、未所属として解決される", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "sessions-project-"));
   const { workspace } = stubWorkspace();
@@ -297,9 +439,23 @@ test("プロジェクトを解除してもセッションと store は残り、�
     await store.releaseProject(project.cwd);
     assert.equal(store.get(record.id), record, "セッションは live のまま残る");
     assert.equal(store.payload(record).projectId, undefined, "未所属として解決される");
-    const meta = await readMeta(record.id, storeDir);
-    assert.equal(meta.projectCwd, undefined, "解除を meta にも反映する");
+    assert.equal((await readMeta(record.id, storeDir)).projectCwd, "proj-a", "所属の保存値は残す");
+    // 同じ cwd を再登録すると、再起動をまたぐ場合と同じく所属が戻る
+    const again = projects.create({ cwd: "proj-a" });
+    assert.equal(store.payload(record).projectId, again.id);
+
+    // 再起動後（新しい store）も保存値から所属を復元し、未登録なら未所属として解決する
+    await store.flush(record);
     await store.close();
+    const projects2 = new ProjectStore();
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog, projects: projects2 });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.equal(store2.payload(restored).projectId, undefined, "未登録なら未所属");
+    projects2.create({ cwd: "proj-a" });
+    assert.ok(store2.payload(restored).projectId, "再登録で所属が戻る");
+    await store2.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });
   }
