@@ -144,9 +144,6 @@ export default function App() {
   };
 
   const activeSession = desk.sessions.find((item) => item.sessionId === desk.sessionId);
-  // ファイルページの tree root。作成済みセッションはその実効 cwd、未作成チャットは選択中プロジェクト、
-  // 未所属は root ("")。表示も取得もワークスペース root 相対に揃える (絶対パスは API の path と単位が違う)
-  const filesCwd = desk.sessionId ? desk.cwd : desk.selectedProject?.cwd || "";
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = desk.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || desk.selectedAgent?.name;
@@ -223,9 +220,9 @@ export default function App() {
           ) : settingsSection === "skills" ? (
             <SkillSettingsPage {...pageProps} catalog={desk.catalog} refreshCatalog={refreshCatalog} />
           ) : settingsSection === "files" ? (
-            // root が変わったらツリーを最初から取り直す (開いたままセッションが消えても前の root の一覧を混ぜない)。
-            // 復元は FileTreePage が mount ごとに 1 回だけ行う (起動完了までは復元も保存もしない)
-            <FileTreePage key={filesCwd} {...pageProps} cwd={filesCwd} booted={desk.booted} />
+            // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
+            // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
+            <FileTreePage {...pageProps} cwd="" />
           ) : settingsSection === "backup" ? (
             <BackupPage
               {...pageProps}

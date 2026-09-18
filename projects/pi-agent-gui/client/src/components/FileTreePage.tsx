@@ -37,8 +37,6 @@ import { ChevronIcon, FileIcon, FolderIcon, RefreshIcon } from "./icons";
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
   cwd: string;
-  /** 起動処理が終わって cwd が確定したか。false の間は復元も取得も保存もしない */
-  booted: boolean;
 };
 
 const INDENT = 16;
@@ -50,37 +48,13 @@ function errorText(error: unknown): string {
 }
 
 /**
- * 作業ディレクトリのファイルツリー。渡された `cwd` を root として `GET /api/files` を辿る (配下は `<cwd>/<name>`)。
+ * ファイルツリー。渡された `cwd` を root として `GET /api/files` を辿る (配下は `<cwd>/<name>`)。
+ * 設定 → ファイル は session / project に追随させず `cwd=""`（ワークスペース root）で使う。
  * メイン領域のページに置く。ヘッダは画面幅いっぱい、ツリーの行は深さに比例したインデントだけを持つ
  * (行のインデントは深さで決まるため、長い名前は truncate し横スクロールは出さない)。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」のみ)。
  */
-export function FileTreePage({ cwd, booted, ...props }: FileTreePageProps) {
-  // cwd は起動が終わるまで未確定。"" は「未所属 (ワークスペース root)」と同じ値なので、値では確定を判定できない
-  // (未確定の root へ保存しないため、確定してから復元する)
-  if (!booted) return <FileTreePageFrame {...props} />;
-  // 復元は「確定した root を持つ mount ごとに 1 回」。確定後に本編を mount し、key で cwd ごとに分ける
-  return <FileTreePageContent {...props} cwd={cwd} key={normalizeFileTreeRoot(cwd)} />;
-}
-
-/** cwd が確定するまでの外装。ここでは復元も取得も保存もしない */
-function FileTreePageFrame({ compact = false, onBack, onOpenNav }: SettingsPageProps) {
-  return (
-    <SettingsPageLayout
-      eyebrow="WORKSPACE"
-      title="作業ディレクトリ"
-      compact={compact}
-      onBack={onBack}
-      onOpenNav={onOpenNav}
-    >
-      <div className="min-h-0 overflow-y-auto px-3 py-3">
-        <MessageRow depth={0}>読み込み中…</MessageRow>
-      </div>
-    </SettingsPageLayout>
-  );
-}
-
-function FileTreePageContent({ cwd, compact = false, onBack, onOpenNav }: Omit<FileTreePageProps, "booted">) {
+export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTreePageProps) {
   const rootPath = normalizeFileTreeRoot(cwd);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
@@ -149,7 +123,7 @@ function FileTreePageContent({ cwd, compact = false, onBack, onOpenNav }: Omit<F
   return (
     <SettingsPageLayout
       eyebrow="WORKSPACE"
-      title="作業ディレクトリ"
+      title="ワークスペース"
       // 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる)
       caption={
         <code className="block truncate text-1xs leading-normal text-ink-muted">

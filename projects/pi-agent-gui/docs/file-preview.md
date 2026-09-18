@@ -101,7 +101,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## 復帰（F5・画面の往復）
 
-設定 → ファイル の画面は、F5 や チャット ⇄ 設定 の往復でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は「確定した root を持つ `FileTreePage` の mount ごとに 1 回」で、設定を離れて戻る・cwd A→B→A では再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。
+設定 → ファイル の画面は、F5 や チャット ⇄ 設定 の往復でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileTreePage` の mount ごとに 1 回で、設定を離れて戻るたびに再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。設定 → ファイル が読み書きする cwd は常に `"."`（ワークスペース root 固定）で、保存値に残った他 cwd はそのまま残す（掃除はしない）。
 
 - 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html`、ソースは `/api/files/preview`）
 - 親を閉じた子の open は保持し、保存された子のために親を勝手に開かない。root は常に開く。取得は既存の「可視の親から子へ」の経路のままで、親を開いた時点で子の open が効く

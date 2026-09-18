@@ -21,8 +21,6 @@ export type { SettingsSelection };
 export function useAgentDesk() {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
   const [sending, setSending] = useState(false);
-  /** 起動処理が終わったか (失敗しても true)。root が確定したかを見る側が `""` と区別するために使う */
-  const [booted, setBooted] = useState(false);
 
   const {
     health,
@@ -128,9 +126,6 @@ export function useAgentDesk() {
       const status = runtimeStatusForError(error);
       setRuntimeStatus({ ...status, text: status.authRequired ? status.text : "サーバー未接続" });
       dispatch({ type: "setActivity", text: status.detail || status.text });
-    } finally {
-      // 失敗しても「確定」にする (待ち続けるとファイル画面が読み込み中のままになる)
-      if (isCurrent()) setBooted(true);
     }
   });
 
@@ -165,7 +160,6 @@ export function useAgentDesk() {
   return {
     chat,
     dispatch,
-    booted,
     health,
     catalog,
     sessions,
