@@ -28,7 +28,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - 中身は 設定 → ファイル と同じ `FileBrowser` を root 違いで使うため、タブ / プレビュー / HTML の全画面 / タブ上限は同じ振る舞いになる。パネルの幅では container 幅が `@2xl`（672px）に届かないので、ツリーとプレビューは常に縦積み（タブがあるときツリーは `max-h-64`）
   - 出すのは desktop のチャット画面だけ。設定ページでは出さない（設定 → ファイル と二重になり、トグルがある `Topbar` も描かれないので閉じられなくなる）。compact では出さず、セッションのファイルは従来どおり設定 → ファイル のツリーから辿る
   - トグルは セッションがあり（`sessionId` が非空）作業フォルダが決まっている（`payload.cwd` が非空）ときだけ出す（`client/src/lib/sessionFiles.ts` の `sessionFilesRoot`）。セッションを切り替えると `key` の張り替えでパネルを作り直し、復元と取得をその root でやり直す
-  - 一覧と開いている本文の取り直しは、ヘッダの「再読み込み」と run_end の 1 回だけ（[file-preview.md](file-preview.md#画面と-root)）
+  - 一覧と開いている本文の取り直しは、ヘッダの「再読み込み」と reducer が `run_end` で進める `runEndSeq` の 1 回だけ（[file-preview.md](file-preview.md#画面と-root)）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
   - `CompactBar` はチャットのときに「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
   - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / バックアップ / 外観 の間を移動できない

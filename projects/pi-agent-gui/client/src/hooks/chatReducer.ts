@@ -36,6 +36,12 @@ export type ChatState = {
   currentAssistantId: number | null;
   toolBubbleIds: Record<string, number>;
   runStatus: RunStatus;
+  /**
+   * run が終わった回数。run_end と、running を抜けた resync で進む。値そのものは表示に使わず、
+   * チャットの右パネル (セッションのファイル) が取り直しの合図に使う (描画間の runStatus の差では、
+   * run_start と run_end が同じバッチで届いたときに running を観測できない)。
+   */
+  runEndSeq: number;
   queueDepth: number;
   activity: string;
   sessionModel?: string;
@@ -71,6 +77,7 @@ export const initialChatState: ChatState = {
   currentAssistantId: null,
   toolBubbleIds: {},
   runStatus: "idle",
+  runEndSeq: 0,
   queueDepth: 0,
   activity: "",
   sessionModel: undefined,
@@ -170,18 +177,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "newChat":
       // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。
       // nextId だけは引き継ぐ (セッションを跨いで古いイベントの bubble id と衝突させない)。
-      return { ...initialChatState, nextId: state.nextId };
+      // runEndSeq も引き継ぐ (右パネルの合図をセッションを跨いで単調に保つ)。
+      return { ...initialChatState, nextId: state.nextId, runEndSeq: state.runEndSeq };
 
     case "resync": {
       const payload = action.payload;
       const { bubbles, nextId } = historyToBubbles(state.nextId, payload.messages ?? []);
+      const status = payload.status || "idle";
+      // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
+      // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
+      const runEnded = state.runStatus === "running" && status !== "running";
       let next: ChatState = {
         ...state,
+        runEndSeq: state.runEndSeq + (runEnded ? 1 : 0),
         bubbles,
         nextId,
         currentAssistantId: null,
         toolBubbleIds: {},
-        runStatus: payload.status || "idle",
+        runStatus: status,
         queueDepth: payload.queueDepth || 0,
         activity: "",
         sessionModel: payload.model,
@@ -193,18 +206,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingUsage: undefined,
         pendingMetrics: undefined,
       };
-      if (payload.run?.toolCalls?.length && (payload.status === "running" || payload.status === "completed")) {
+      if (payload.run?.toolCalls?.length && (status === "running" || status === "completed")) {
         const last = [...bubbles].reverse().find((b) => b.role === "assistant");
         if (last) {
           next = attachToolCalls(next, last.id, payload.run.toolCalls);
-          next = { ...next, currentAssistantId: payload.status === "running" ? last.id : null };
+          next = { ...next, currentAssistantId: status === "running" ? last.id : null };
         }
       }
-      if (payload.status === "running") next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
-      else if (payload.status === "queued")
+      if (status === "running") next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
+      else if (status === "queued")
         next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
-      else if (payload.status === "error") next = { ...next, activity: "前回の実行でエラーが発生しました" };
-      else if (payload.status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
+      else if (status === "error") next = { ...next, activity: "前回の実行でエラーが発生しました" };
+      else if (status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
       return next;
     }
 
@@ -317,6 +330,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantId: null,
         toolBubbleIds: {},
         activity,
+        // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
+        runEndSeq: state.runEndSeq + 1,
         runStatus: queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status,
         queueDepth,
         // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)

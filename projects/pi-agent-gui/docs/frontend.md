@@ -68,5 +68,5 @@
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間だけ止めて、戻ったときに最新位置へ揃える）。コピー完了待ちの要求は cleanup で無効化する。
 - フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` が固定する。
 - ファイル画面の復元は `FileBrowser` の mount ごとに 1 回。設定 → ファイル の root は常にワークスペース root（`cwd=""` → `"."`）で確定し、チャットの右パネル（`SessionFilesPanel`）は選択中セッションの作業フォルダ（`payload.cwd`）を root にする。どちらも起動処理（`useAgentDesk` の boot）の完了を待たずに復元・取得・保存する
-- チャットの右パネルの開閉は `App` の state で、保存しない（起動時は閉、URL にも載せない）。run_end での取り直しは `running` を抜けた遷移を検出して 1 回だけ撃つ（`client/src/lib/sessionFiles.ts` の `isRunEnd`。mount 直後は撃たない）
+- チャットの右パネルの開閉は `App` の state で、保存しない（起動時は閉、URL にも載せない）。run_end での取り直しは `ChatState.runEndSeq`（reducer が `run_end` と、`running` を抜けた `resync` で 1 ずつ進める）を起点にし、値が変わったときだけ撃つ。描画間の `runStatus` の差では、同じバッチで届いた `run_start` / `run_end` を React が 1 回の描画にまとめるため取りこぼす
 - 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`pi-agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない

@@ -343,3 +343,37 @@ test("compaction イベントは同じ entry を差し替えながら回数と�
   // メッセージの置き換えは resync が担う (イベントだけでは履歴を消さない)
   assert.equal(second.bubbles.length, state.bubbles.length);
 });
+
+test("run_end と、running を抜けた resync で runEndSeq が進む", () => {
+  const running = stateWithSession();
+
+  // 通常の run_end
+  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(ended.runEndSeq, running.runEndSeq + 1);
+
+  // run_start と run_end が同じバッチで届いても、reducer は 1 回ずつ数える
+  // (描画を挟まないため、画面側は running を観測できない。右パネルの取り直しはこの値だけを起点にする)
+  const batched = chatReducer(chatReducer(running, { type: "runStart", prompt: "続けて", at: 1 }), {
+    type: "runEnd",
+    status: "completed",
+    queueDepth: 0,
+  });
+  assert.equal(batched.runEndSeq, running.runEndSeq + 1);
+  assert.equal(batched.runStatus, "idle");
+
+  // run_end を受け取れない復帰 (切断した SSE の resync) でも、running から抜けていれば進む
+  const resynced = chatReducer(running, {
+    type: "resync",
+    payload: { ...runningPayload(), status: "completed" },
+  });
+  assert.equal(resynced.runEndSeq, running.runEndSeq + 1);
+
+  // running のままの resync では進めない (実行中に取り直さない)
+  const stillRunning = chatReducer(running, { type: "resync", payload: runningPayload() });
+  assert.equal(stillRunning.runEndSeq, running.runEndSeq);
+});
+
+test("新しい会話へ戻しても runEndSeq は戻らない", () => {
+  const ended = chatReducer(stateWithSession(), { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(chatReducer(ended, { type: "newChat" }).runEndSeq, ended.runEndSeq);
+});

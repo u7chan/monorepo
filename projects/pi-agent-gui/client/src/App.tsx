@@ -261,7 +261,7 @@ export default function App() {
           <SessionFilesPanel
             key={filesRoot}
             root={filesRoot}
-            runStatus={desk.chat.runStatus}
+            runEndSeq={desk.chat.runEndSeq}
             onClose={closeSessionFiles}
           />
         ) : null}
