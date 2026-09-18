@@ -18,10 +18,11 @@ function withSseHeaders(response: Response): Response {
 }
 
 export function createSessionRoutes({ store }: { store: SessionStore }) {
-  const findSession = (c: Context) => store.get(c.req.param("id") ?? "");
+  // 未ロードのセッションはストアから復元する (SDK ロードを含むため非同期)
+  const resolveRecord = (c: Context) => store.resolve(c.req.param("id") ?? "");
 
   const stop = async (c: Context) => {
-    const record = findSession(c);
+    const record = await resolveRecord(c);
     if (!record) return c.json({ error: "Session not found" }, 404);
     const result = await store.stop(record);
     return c.json({ sessionId: record.id, ...result });
@@ -40,14 +41,14 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
       return c.json(store.payload(record), 201);
     },
 
-    get: (c: Context) => {
-      const record = findSession(c);
+    get: async (c: Context) => {
+      const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       return c.json(store.payload(record));
     },
 
     updateSettings: async (c: Context, body: UpdateSessionSettingsBody) => {
-      const record = findSession(c);
+      const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       if (body.model === undefined && body.thinkingLevel === undefined) {
         return c.json({ error: "model or thinkingLevel is required" }, 400);
@@ -60,16 +61,16 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
     },
 
     remove: async (c: Context) => {
-      const record = findSession(c);
-      if (!record) return c.json({ error: "Session not found" }, 404);
-      await store.destroy(record);
+      // 未ロードでも消せる (SDK を開かない。履歴だけ削除し、作業フォルダは残す)
+      const deleted = await store.deleteSession(c.req.param("id") ?? "");
+      if (!deleted) return c.json({ error: "Session not found" }, 404);
       return c.json({ ok: true });
     },
 
     stop,
 
     postMessage: async (c: Context, body: PostMessageBody) => {
-      const record = findSession(c);
+      const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       const text = body.text.trim();
       if (!text) return c.json({ error: "text is required" }, 400);
@@ -81,14 +82,15 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
     },
 
-    events: (c: Context) => {
-      const record = findSession(c);
+    events: async (c: Context) => {
+      const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
-      // Last-Event-ID を優先し、なければ ?after= (元の実装と同じ優先順位)
+      // 有効な Last-Event-ID (`<generation>:<seq>`) を優先し、無効なら query の generation + after を使う
       const lastEventId = c.req.header("Last-Event-ID");
-      const rawAfter = lastEventId ?? c.req.query("after");
-      const parsedAfter = Number.parseInt(rawAfter ?? "", 10);
-      const after = Number.isNaN(parsedAfter) ? undefined : parsedAfter;
+      const queryGeneration = c.req.query("generation");
+      const queryAfter = c.req.query("after");
+      const query = queryGeneration ? `${queryGeneration}:${queryAfter ?? "0"}` : queryAfter;
+      const after = lastEventId?.includes(":") ? lastEventId : query;
 
       return withSseHeaders(
         streamSSE(c, async (stream) => {
@@ -101,7 +103,8 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
             after,
             (entry) => {
               void stream.writeSSE({
-                id: String(entry.seq),
+                // 世代を含める。再起動で seq が戻っても、古いタブのカーソルを resync へ寄せられる
+                id: `${record.generation}:${entry.seq}`,
                 event: entry.type,
                 data: JSON.stringify(entry.data),
               });

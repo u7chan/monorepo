@@ -9,14 +9,20 @@ function modelLabel(model: unknown): string | undefined {
   return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
 }
 
+export interface SessionStoreHealth {
+  status(): { path: string | null; ok: boolean; error?: string; dirty: number };
+}
+
 export function createHealthRoutes({
   pi,
   initError,
   cwd,
+  store,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
   cwd: string;
+  store?: SessionStoreHealth;
 }) {
   return {
     health: (c: Context) => {
@@ -35,6 +41,7 @@ export function createHealthRoutes({
             : initError || (pi && !ready)
               ? "runtime_unavailable"
               : undefined;
+      const sessionStore = store?.status();
       return c.json({
         ok: true,
         ready,
@@ -47,6 +54,7 @@ export function createHealthRoutes({
         tools: pi?.tools || [],
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,
+        ...(sessionStore ? { sessionStore } : {}),
         errorCode,
         error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
       });

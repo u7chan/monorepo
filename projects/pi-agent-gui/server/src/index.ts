@@ -17,6 +17,11 @@ async function main() {
   serve({ fetch: bff.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[pi-agent-gui] http://${HOST}:${info.port}`);
     console.log(`[pi-agent-gui] working directory: ${bff.pi?.cwd || process.cwd()}`);
+    console.log(
+      bff.sessionStore.ok
+        ? `[pi-agent-gui] session store: ${bff.sessionStore.path ?? "disabled"}`
+        : `[pi-agent-gui] session store unavailable: ${bff.sessionStore.error ?? "unknown"}`,
+    );
     if (!bff.pi?.selectedModel) {
       console.log("[pi-agent-gui] API key or pi authentication is required before sending a message.");
     }

@@ -47,6 +47,8 @@ export function useSessions({
   const [epoch, setEpoch] = useState(0);
 
   const lastSeqRef = useRef(0);
+  /** SSE の世代。payload (snapshot / resync) から更新する */
+  const generationRef = useRef("");
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
   // sessionIdRef / sessionsRef は選択・一覧の最新値。await を挟む処理と SSE の適用が state を待たずに読む
@@ -76,6 +78,7 @@ export function useSessions({
   const applySnapshot = useCallback(
     (payload: SessionPayload) => {
       lastSeqRef.current = payload.lastSeq || 0;
+      generationRef.current = payload.eventGeneration || "";
       // 表示する cwd は payload.cwd (root 相対) だけを正とする。health.cwd は root の絶対パスで、
       // ファイル画面の tree root (= GET /api/files の path) とは単位が違う
       setCwd(payload.cwd || "");
@@ -230,11 +233,16 @@ export function useSessions({
     });
   }, [refreshHealth, refreshSessions, selectSession]);
 
-  useSessionEvents({ sessionId, epoch, lastSeqRef, onEvent, onClosed });
+  useSessionEvents({ sessionId, epoch, lastSeqRef, generationRef, onEvent, onClosed });
 
   const deleteSession = useCallback(
     async (id: string): Promise<void> => {
-      if (!window.confirm("このセッションを削除しますか？実行中の処理は停止されます。")) return;
+      if (
+        !window.confirm(
+          "このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。",
+        )
+      )
+        return;
       try {
         await apiDeleteSession(id);
       } catch (error) {

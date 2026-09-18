@@ -13,6 +13,7 @@ import type {
   ToolCall,
 } from "./schema";
 import type { PiSessionLike } from "./pi-runtime";
+import type { SessionMeta, SessionFileWriter, PromptSnapshot } from "./session-store";
 
 export interface RunState {
   id: string;
@@ -39,6 +40,27 @@ export interface SessionRecord {
   session: PiSessionLike;
   agentId: string;
   projectId?: string;
+  /** 所属プロジェクトの cwd (root 相対)。projectId は保存せず読み取り時に解決する */
+  projectCwd?: string;
+  projectName?: string;
+  /** セッションの作業フォルダ (root 相対)。永続化なしでは project の cwd か root ("") */
+  workdir: string;
+  /** 会話ストアの絶対パス。空文字は永続化なし */
+  storeDir: string;
+  /** 作成時のエージェント / スキルプロンプト (定義変更を遡及させない) */
+  promptSnapshot: PromptSnapshot;
+  /** 会話ストアのメタデータ。永続化なしでも作成時の値を持つ */
+  meta: SessionMeta;
+  /** このロード世代の識別子。SSE の id は `<generation>:<seq>` */
+  generation: string;
+  /** JSONL の追記ライター。永続化なしは undefined */
+  writer?: SessionFileWriter;
+  /** meta / JSONL の書込みを直列化する末尾 (失敗しても reject しない) */
+  persistTail: Promise<void>;
+  /** 直近の保存失敗 (meta / JSONL 共通)。成功で消える */
+  persistError?: string;
+  /** 同じエラーを毎回ログに出さないための記録 */
+  persistErrorLogged?: string;
   /** 作成時点のスナップショット (定義の編集・削除の影響を受けない) */
   agent: AgentPayloadInfo;
   title: string;
@@ -63,6 +85,11 @@ export interface CreateSessionOptions {
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
   projectId?: string;
+}
+
+/** 一覧用の軽量な記述子。SDK セッションを開かずに meta から作る */
+export interface SessionDescriptor {
+  meta: SessionMeta;
 }
 
 export interface UpdateSessionSettingsInput {

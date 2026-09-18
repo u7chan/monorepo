@@ -40,7 +40,7 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 FROM node:24-bookworm-slim AS final
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /workspace && chown node:node /workspace
+    && mkdir -p /workspace /session-store && chown node:node /workspace /session-store
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH} \
@@ -49,7 +49,8 @@ ENV COMMIT_HASH=${COMMIT_HASH} \
     PORT=4317 \
     SANDBOX_PORT=8080 \
     PI_APP_CWD=/workspace \
-    PI_SANDBOX_CWD=/workspace
+    PI_SANDBOX_CWD=/workspace \
+    PI_SESSION_STORE=/session-store
 WORKDIR /app
 COPY --from=production-dependencies /app/ ./
 COPY --from=builder /app/server/src/ ./server/src/

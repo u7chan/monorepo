@@ -14,6 +14,7 @@ function runningPayload(): SessionPayload {
     sessionId: "session-a",
     piSessionId: "pi-session-a",
     cwd: "",
+    eventGeneration: "gen-1",
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,

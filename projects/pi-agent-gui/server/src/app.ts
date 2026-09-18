@@ -29,9 +29,9 @@ export type { CreateBffAppOptions };
 
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const { clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
-  const { cwd, pi, initError, catalog, projects, store, workspace } = await createBffContext(opts);
+  const { cwd, pi, initError, catalog, projects, store, workspace, sessionStore } = await createBffContext(opts);
 
-  const healthRoutes = createHealthRoutes({ pi, initError, cwd });
+  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store });
   const fileRoutes = createFileRoutes({ workspace });
   const catalogRoutes = createCatalogRoutes({ catalog });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
@@ -150,6 +150,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     projects,
     pi,
     initError,
+    sessionStore,
     close: async () => {
       await store.close();
     },

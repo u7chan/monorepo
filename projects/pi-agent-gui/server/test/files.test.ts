@@ -44,7 +44,7 @@ const HTML_CSP =
 
 test("GET /api/files/preview validates responses and does not cache content", async () => {
   const { workspace } = stubFiles();
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     workspace.previewFile = async (path) => ({ text: path });
     const response = await bff.app.request("/api/files/preview?path=src%2Fhello.txt");
@@ -63,7 +63,7 @@ test("GET /api/files/preview validates responses and does not cache content", as
 });
 
 test("GET /api/files/preview answers 503 when the sandbox is not configured", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
     assert.equal((await bff.app.request("/api/files/preview?path=README.md")).status, 503);
   } finally {
@@ -73,7 +73,7 @@ test("GET /api/files/preview answers 503 when the sandbox is not configured", as
 
 test("GET /api/files/html returns the text as an isolated HTML document", async () => {
   const { workspace } = stubFiles();
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     workspace.previewFile = async (path) => ({ text: `<h1>${path}</h1>` });
     const response = await bff.app.request("/api/files/html?path=report%2Fchart.html");
@@ -110,7 +110,7 @@ test("GET /api/files/html maps sandbox failures to HTML documents", async () => 
     workspace.previewFile = async () => {
       throw item.error;
     };
-    const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
     try {
       const response = await bff.app.request("/api/files/html?path=chart.html");
       assert.equal(response.status, item.status, item.error.message);
@@ -127,7 +127,7 @@ test("GET /api/files/html maps sandbox failures to HTML documents", async () => 
   // 契約外の応答も JSON に戻さない (iframe の中で読めなくなる)
   const { workspace } = stubFiles();
   workspace.previewFile = async () => ({ text: 42 }) as unknown as { text: string };
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     const response = await bff.app.request("/api/files/html?path=chart.html");
     assert.equal(response.status, 502);
@@ -142,7 +142,7 @@ test("GET /api/files/html escapes the sandbox message", async () => {
   workspace.previewFile = async () => {
     throw new SandboxRequestError('<b onclick="x()">nope</b>', 404);
   };
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     const response = await bff.app.request("/api/files/html?path=chart.html");
     const body = await response.text();
@@ -154,7 +154,7 @@ test("GET /api/files/html escapes the sandbox message", async () => {
 });
 
 test("GET /api/files/html answers 503 as an HTML document when the sandbox is not configured", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
     const response = await bff.app.request("/api/files/html?path=chart.html");
     assert.equal(response.status, 503);
@@ -170,7 +170,7 @@ test("GET /api/files/html answers 503 as an HTML document when the sandbox is no
 test("GET /api/files relays the sandbox listing", async () => {
   const { workspace, paths } = stubFiles();
   // pi が無くても (ready: false でも) ツリーは開ける
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     const response = await bff.app.request("/api/files?path=src");
     assert.equal(response.status, 200);
@@ -189,7 +189,7 @@ test("GET /api/files relays the sandbox listing", async () => {
 });
 
 test("GET /api/files answers 503 when the sandbox is not configured", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
     const response = await bff.app.request("/api/files");
     assert.equal(response.status, 503);
@@ -219,7 +219,7 @@ test("GET /api/files maps sandbox failures and rejects malformed listings", asyn
   ];
   for (const item of cases) {
     const { workspace } = stubFiles(item.error);
-    const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
     try {
       const response = await bff.app.request("/api/files?path=../../etc");
       assert.equal(response.status, item.status, item.error.message);
@@ -235,7 +235,12 @@ test("GET /api/files maps sandbox failures and rejects malformed listings", asyn
     entries: [{ name: "sock", type: "socket" } as never],
     truncated: false,
   });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: malformed.workspace });
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: null,
+    pi: null,
+    workspace: malformed.workspace,
+  });
   try {
     const response = await bff.app.request("/api/files");
     assert.equal(response.status, 502);
@@ -251,7 +256,7 @@ test("GET /api/files builds its client from PI_SANDBOX_URL and PI_SANDBOX_TOKEN"
   process.env.PI_SANDBOX_URL = "http://127.0.0.1:9";
   process.env.PI_SANDBOX_TOKEN = "env-sandbox-token-0123456789";
   try {
-    const bff = await createBffApp({ cwd: "/tmp/project", pi: null });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null });
     try {
       const response = await bff.app.request("/api/files");
       assert.equal(response.status, 502);

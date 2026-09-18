@@ -50,6 +50,16 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
   };
 }
 
+/** SSE のカーソルは世代つき (`<generation>:<seq>`) が契約。payload から世代を引いて URL を組む */
+async function eventsUrl(app: Hono, sessionId: string, after?: number): Promise<string> {
+  const payload = await jsonBody(app.request(`/api/sessions/${sessionId}`));
+  const query = new URLSearchParams({
+    generation: String(payload.eventGeneration),
+    after: String(after ?? payload.lastSeq),
+  });
+  return `/api/sessions/${sessionId}/events?${query.toString()}`;
+}
+
 type ParsedSseEvent = { id: number | null; type: string; data: any };
 
 /** Response.json() は unknown を返すためテスト用に any に寄せる */
@@ -57,7 +67,7 @@ const jsonBody = async (response: Response | Promise<Response>): Promise<any> =>
 
 test("server exposes the async session API end to end", async () => {
   const pi = createStubPi({ chunkDelayMs: 10 });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   const { app } = bff;
 
   try {
@@ -68,7 +78,7 @@ test("server exposes the async session API end to end", async () => {
     assert.ok(created.sessionId);
 
     // リプレイではなく、購読中のランがライブ配信されることを見るため先に接続する
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
     assert.equal(eventsResponse.status, 200);
     assert.match(eventsResponse.headers.get("content-type") || "", /text\/event-stream/);
     assert.match(eventsResponse.headers.get("cache-control") || "", /no-transform/);
@@ -120,7 +130,7 @@ test("server exposes the async session API end to end", async () => {
 test("projects are created from a new or an existing directory and listed in creation order", async () => {
   const { workspace, dirs, listings } = stubWorkspace();
   // プロジェクトはモデルランタイムに依存しない (pi: null でも登録できる)
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   const { app } = bff;
   try {
     assert.deepEqual(await jsonBody(app.request("/api/projects")), { projects: [] });
@@ -164,7 +174,7 @@ test("projects are created from a new or an existing directory and listed in cre
 
 test("project creation rejects an absolute path, traversal and the workspace root", async () => {
   const { workspace, dirs, listings } = stubWorkspace();
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   const { app } = bff;
   try {
     for (const cwd of ["/etc", "../outside", "a/../../b", "", "."]) {
@@ -184,7 +194,7 @@ test("project creation rejects an absolute path, traversal and the workspace roo
 });
 
 test("project creation relays sandbox failures and answers 503 without a sandbox", async () => {
-  const unconfigured = await createBffApp({ cwd: "/tmp/project", pi: null, workspace: null });
+  const unconfigured = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
     const response = await unconfigured.app.request("/api/projects", jsonPost({ cwd: "proj" }));
     assert.equal(response.status, 503);
@@ -196,6 +206,7 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
   // 実在しないディレクトリ (サンドボックスの 404) は文言ごとそのまま返す
   const missing = await createBffApp({
     cwd: "/tmp/project",
+    sessionStoreDir: null,
     pi: null,
     workspace: {
       previewFile: async () => ({ text: "" }),
@@ -215,10 +226,10 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
   }
 });
 
-test("sessions bind to a project and are destroyed with it", async () => {
+test("sessions bind to a project and stay when the project is released", async () => {
   const pi = createStubPi({ chunkDelayMs: 40 });
   const { workspace, dirs, listings } = stubWorkspace();
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi), workspace });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi), workspace });
   const { app } = bff;
   try {
     const project = (await jsonBody(await app.request("/api/projects", jsonPost({ cwd: "proj-a", create: true }))))
@@ -247,7 +258,7 @@ test("sessions bind to a project and are destroyed with it", async () => {
     assert.equal(unknown.status, 400);
     assert.match((await jsonBody(unknown)).error, /Project not found/);
 
-    // 実行中のセッションも削除で abort → dispose される
+    // 実行中のセッションは解除で abort されるが、履歴と record は残る
     await app.request(`/api/sessions/${payload.sessionId}/messages`, jsonPost({ text: "実行中" }));
     const running = pi.sessions.at(-1)!;
 
@@ -256,16 +267,18 @@ test("sessions bind to a project and are destroyed with it", async () => {
     assert.deepEqual(await jsonBody(deleted), { ok: true });
 
     assert.equal(running.abortRequested, true);
-    assert.equal(running.disposed, true);
+    assert.equal(running.disposed, false, "解除では dispose しない");
 
-    assert.equal((await app.request(`/api/sessions/${payload.sessionId}`)).status, 404);
+    const released = await jsonBody(app.request(`/api/sessions/${payload.sessionId}`));
+    assert.equal(released.projectId, undefined, "解除後は未所属として解決される");
     const remaining = await jsonBody(app.request("/api/sessions"));
     assert.deepEqual(
-      remaining.sessions.map((session: { sessionId: string }) => session.sessionId),
-      [unaffiliated.sessionId],
+      remaining.sessions.map((session: { sessionId: string }) => session.sessionId).sort(),
+      [payload.sessionId, unaffiliated.sessionId].sort(),
+      "セッションは残る",
     );
     assert.deepEqual((await jsonBody(app.request("/api/projects"))).projects, []);
-    // ディレクトリは触らない (削除でサンドボックスを呼ばない)
+    // ディレクトリは触らない (解除でサンドボックスを呼ばない)
     assert.deepEqual(dirs, ["proj-a"]);
     assert.deepEqual(listings, []);
 
@@ -277,11 +290,11 @@ test("sessions bind to a project and are destroyed with it", async () => {
 
 test("assistant usage reaches the client through SSE and the session payload", async () => {
   const pi = createStubPi({ chunkDelayMs: 5 });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   const { app } = bff;
   try {
     const created = await createSession(app);
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
     const posted = await app.request(
       `/api/sessions/${created.sessionId}/messages`,
       jsonPost({ text: "usage を見せて" }),
@@ -316,11 +329,11 @@ test("assistant usage reaches the client through SSE and the session payload", a
 
 test("compaction reaches the client through SSE and stays in the session payload", async () => {
   const pi = createStubPi({ chunkDelayMs: 40 });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   const { app } = bff;
   try {
     const created = await createSession(app);
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
     const posted = await app.request(
       `/api/sessions/${created.sessionId}/messages`,
       jsonPost({ text: "圧縮される会話" }),
@@ -363,7 +376,7 @@ test("compaction reaches the client through SSE and stays in the session payload
 });
 
 test("server still answers when the pi runtime failed to initialize", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null });
   try {
     const health = await jsonBody(bff.app.request("/api/health"));
     assert.equal(health.ready, false);
@@ -380,6 +393,7 @@ test("server still answers when the pi runtime failed to initialize", async () =
 test("reports missing API-key authentication before creating an unusable session", async () => {
   const bff = await createBffApp({
     cwd: "/tmp/project",
+    sessionStoreDir: null,
     pi: asPiBff(
       createStubPi({
         availableModels: [],
@@ -407,6 +421,7 @@ test("reports missing API-key authentication before creating an unusable session
 test("an empty PI_MODELS whitelist surfaces a whitelist-caused failure", async () => {
   const bff = await createBffApp({
     cwd: "/tmp/project",
+    sessionStoreDir: null,
     pi: asPiBff(
       createStubPi({
         availableModels: [],
@@ -439,6 +454,7 @@ test("an empty PI_MODELS whitelist surfaces a whitelist-caused failure", async (
 test("health exposes the model picker options and the app default thinking level", async () => {
   const bff = await createBffApp({
     cwd: "/tmp/project",
+    sessionStoreDir: null,
     pi: asPiBff(createStubPi({ defaultThinkingLevel: "low" })),
   });
   try {
@@ -471,7 +487,7 @@ test("an unusable PI_MODEL keeps ready true and surfaces a default model error",
     selectedModel: null,
     defaultModelError: "指定された既定モデルは利用できません: stub/ghost",
   });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   const { app } = bff;
   try {
     const health = await jsonBody(app.request("/api/health"));
@@ -498,7 +514,7 @@ test("an unusable PI_MODEL keeps ready true and surfaces a default model error",
 
 test("session creation resolves request → definition → app default per field", async () => {
   const pi = createStubPi({ defaultThinkingLevel: "medium" });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   const { app, catalog } = bff;
   try {
     catalog.updateAgent("agent-reviewer", {
@@ -511,7 +527,7 @@ test("session creation resolves request → definition → app default per field
     assert.equal(fromDefinition.status, 201);
     const defined = await jsonBody(fromDefinition);
     assert.equal(defined.model, "stub/stub-plain");
-    assert.equal(defined.thinkingLevel, "low");
+    assert.equal(defined.thinkingLevel, "off", "SDK が非推論モデルの非対応値を補正する");
 
     // リクエストは項目ごとに定義を上書きする
     const fromRequest = await app.request(
@@ -560,7 +576,7 @@ test("a session runs on its own model when it differs from the app default", asy
   // アプリ既定 (health.model) と会話の実効モデルが違うとき、送信に使うモデルが
   // 会話の選択値から動かないことを検証する。
   const pi = createStubPi({ selectedModel: STUB_MODEL });
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(pi) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   const { app } = bff;
   try {
     const health = await jsonBody(app.request("/api/health"));
@@ -575,7 +591,7 @@ test("a session runs on its own model when it differs from the app default", asy
     assert.equal(session.model, "stub/stub-plain", "会話の実効モデルは作成時の指定");
     assert.notEqual(session.model, health.model);
 
-    const eventsResponse = await app.request(`/api/sessions/${session.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, session.sessionId, 0));
     const posted = await app.request(
       `/api/sessions/${session.sessionId}/messages`,
       jsonPost({ text: "この会話のモデルで実行して" }),
@@ -602,7 +618,7 @@ test("a session runs on its own model when it differs from the app default", asy
 });
 
 test("chat settings endpoint validates the body and reports missing sessions", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const created = await createSession(app);
@@ -639,11 +655,11 @@ test("chat settings endpoint validates the body and reports missing sessions", a
 });
 
 test("chat settings endpoint applies the effective values and resyncs subscribers", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const created = await createSession(app);
-    const eventsResponse = await app.request(`/api/sessions/${created.sessionId}/events?after=0`);
+    const eventsResponse = await app.request(await eventsUrl(app, created.sessionId, 0));
 
     const changed = await app.request(
       `/api/sessions/${created.sessionId}/settings`,
@@ -671,7 +687,11 @@ test("chat settings endpoint applies the effective values and resyncs subscriber
 });
 
 test("chat settings endpoint rejects changes while the session is busy", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi({ chunkDelayMs: 40 })) });
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: null,
+    pi: asPiBff(createStubPi({ chunkDelayMs: 40 })),
+  });
   const { app } = bff;
   try {
     const created = await createSession(app);
@@ -701,7 +721,7 @@ test("chat settings endpoint rejects changes while the session is busy", async (
 });
 
 test("message endpoint validates the request body", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const created = await createSession(app);
@@ -736,7 +756,7 @@ test("message endpoint validates the request body", async () => {
 });
 
 test("unknown api paths answer with a JSON 404", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null });
   try {
     const missing = await bff.app.request("/api/unknown");
     assert.equal(missing.status, 404);
@@ -755,7 +775,7 @@ test("unknown api paths answer with a JSON 404", async () => {
 });
 
 test("catalog endpoints relay the normalization errors of the catalog", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const invalidReplace = await app.request("/api/agents", {
@@ -783,7 +803,7 @@ test("catalog endpoints relay the normalization errors of the catalog", async ()
 });
 
 test("catalog endpoints expose and update agent suggestions", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
@@ -835,7 +855,7 @@ test("catalog endpoints expose and update agent suggestions", async () => {
 });
 
 test("catalog CRUD validates the JSON body shape at the HTTP boundary", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     // 作成は client が送る形 (model / thinkingLevel の null と空 suggestions) をそのまま受ける
@@ -927,7 +947,7 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
 });
 
 test("catalog CRUD reads the JSON body whatever the request Content-Type is", async () => {
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: asPiBff(createStubPi()) });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const agentPath = "/api/agents/agent-general";
@@ -1002,6 +1022,7 @@ test("static files are served with cache and security headers", async () => {
   await writeFile(join(distDir, "assets", "app.js"), "console.log(1);");
   const bff = await createBffApp({
     cwd: "/tmp/project",
+    sessionStoreDir: null,
     pi: asPiBff(createStubPi()),
     clientDistDir: distDir,
   });
@@ -1033,7 +1054,7 @@ test("static files are served with cache and security headers", async () => {
 
 test("missing client build answers with a 503 hint", async () => {
   const emptyDir = await mkdtemp(join(tmpdir(), "bff-empty-"));
-  const bff = await createBffApp({ cwd: "/tmp/project", pi: null, clientDistDir: emptyDir });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, clientDistDir: emptyDir });
   try {
     const response = await bff.app.request("/");
     assert.equal(response.status, 503);
@@ -1085,8 +1106,11 @@ function parseSseBlock(block: string): ParsedSseEvent | null {
   let type: string | undefined;
   let data = "";
   for (const line of block.split("\n")) {
-    if (line.startsWith("id:")) id = Number(line.slice(3).trim());
-    else if (line.startsWith("event:")) type = line.slice(6).trim();
+    if (line.startsWith("id:")) {
+      // id は `<generation>:<seq>` (世代は別途 resync で判定する)
+      const raw = line.slice(3).trim();
+      id = Number(raw.includes(":") ? raw.slice(raw.lastIndexOf(":") + 1) : raw);
+    } else if (line.startsWith("event:")) type = line.slice(6).trim();
     else if (line.startsWith("data:")) data += line.slice(5).trim();
   }
   if (!type) return null;

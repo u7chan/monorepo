@@ -15,6 +15,7 @@ function payload(sessionId: string, lastSeq: number): SessionPayload {
     sessionId,
     piSessionId: `pi-${sessionId}`,
     cwd: "",
+    eventGeneration: "gen-1",
     status: "idle",
     title: "",
     createdAt: 1,

@@ -41,21 +41,21 @@ startRun():
 ## イベントログと SSE
 
 - ログは `{ seq, type, data, at }` の配列。セッションごとに直近 2000 件を保持。
-- `GET /api/sessions/:id/events?after=N` が SSE 購読エンドポイント。イベント種別と data の契約は [api-sessions.md](api-sessions.md) を参照。
-  - `seq > N` のエントリをリプレイしてからライブ配信に合流する。
-  - 各イベントは `id: seq` 付きで送出するため、ブラウザの `EventSource` は自動再接続時に `Last-Event-ID` ヘッダを送り、サーバはこれを `after` のフォールバックとして使う。
-  - クライアントのカーソルがバッファより古い（取りこぼしが埋められない）場合は、ログをリプレイせず `resync` イベント 1 件（セッション全体のペイロードを含む）を送り、クライアントは再描画する。
+- `GET /api/sessions/:id/events` が SSE 購読エンドポイント。イベント種別と data の契約は [api-sessions.md](api-sessions.md) を参照。
+  - SSE の `id` は `<generation>:<seq>`。`generation` は record のロードごとに発行する 8 hex で、再起動や sweep 後の復元で変わる。seq は復元で 0 に戻るため、数値カーソルだけでは古いタブの位置を判別できない。
+  - カーソルの優先順位は `Last-Event-ID` ヘッダ → query の `generation` + `after` → `resync`。generation が一致し、seq がバッファ範囲内のときだけ差分をリプレイし、それ以外はセッション全体のペイロードを持つ `resync` を 1 件送る。
 - 接続はハートビート（`: ping`、15 秒ごと）で維持する。購読は複数タブから可能で、切断してもランには影響しない。
 - SSE で配るテキストは、マスク済みの値だけを載せる（[secrets.md](secrets.md)）。
 
 ## 会話履歴
 
-- 履歴の正は pi セッション（`SessionManager.inMemory`）の `messages`。`GET /api/sessions/:id` が user / assistant のテキストに整形して返す。
-- タイトルは最初のユーザーメッセージ（60 文字）から自動生成。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
+- 履歴の正は pi セッションの `messages` で、その永続化は BFF 専用ストアの `session.jsonl`（pi SDK 形式）が持つ（[persistence.md](persistence.md) / [session-files.md](session-files.md)）。`GET /api/sessions/:id` が user / assistant のテキストに整形して返す。
+- BFF は起動時にストアを走査して一覧（meta ベースの descriptor）を作り、セッションを開いたとき（GET / POST messages / SSE）に SDK セッションを遅延生成する。未ロードのセッションは SDK を必要としない。
+- タイトルは最初のユーザーメッセージ（60 文字）から自動生成し、meta へ保存する。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
 - セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（エージェント切替・「新しい会話」・起動時の復元先無しはローカル状態のリセットだけで完結する）。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
-- エージェント定義の編集・インポートは既存チャットに遡及しない。表示用のエージェント情報（名前・説明・スキル）は作成時に `SessionRecord` へスナップショット化し、定義の変更・削除後も `payload.agent` は作成時のままになる。
-- 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様は [compaction.md](compaction.md) を正とする。
+- エージェント定義の編集・インポートは既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
+- 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
 
 ## 停止と破棄
 
@@ -65,10 +65,12 @@ startRun():
 2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す）
 3. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
 
-`DELETE /api/sessions/:id` は停止 + 破棄 + 購読者への `session_deleted` 通知を行う。
+`DELETE /api/sessions/:id` は停止 + ストアの履歴削除 + 購読者への `session_deleted` 通知を行う（作業フォルダは残す）。未ロードのセッションは SDK を開かずに消せる。
 
 ## ライフサイクル / 制限
 
-- セッションとプロジェクトはプロセスのメモリ内のみ（[persistence.md](persistence.md)）。1 時間未使用のアイドルセッションは SWEEP で破棄（実行中・キューありは対象外）。
-- サーバ終了時は全セッションを abort + dispose する。
+- 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はプロセスのメモリ内のみで、所属は `projectCwd` から読み取り時に解決する。
+- 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
+- id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
+- サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。

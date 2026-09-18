@@ -18,6 +18,7 @@ import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import type { SecretMasker } from "./redact";
 import { createRuntimeSecretMasker, createSecretRedactionExtension } from "./secret-guard";
 import type { AgentDef, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
+import type { PromptSnapshot } from "./session-store";
 
 export interface PiModelRef {
   provider: string;
@@ -56,6 +57,25 @@ export interface CreateSessionInput {
   thinkingLevel?: ThinkingLevel;
   /** rootCwd 相対。省略・空文字は root */
   cwd?: string;
+  /** 復元時: アプリのセッション ID (SDK の inMemory セッションへ渡す) */
+  sessionId?: string;
+  /** 復元時: JSONL から読んだ entries (header は含めない) */
+  entries?: unknown[];
+  /** 復元時: 作成時のプロンプトスナップショット。無ければ agent / skills から組む */
+  promptSnapshot?: PromptSnapshot;
+}
+
+/** 作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えないため meta へ保存する */
+export function composePromptSnapshot(agent?: AgentDef, skills: SkillDef[] = []): PromptSnapshot {
+  const agentPrompt = agent
+    ? [`<agent_profile name="${agent.name}">`, agent.description, agent.systemPrompt, "</agent_profile>"]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+  const skillPrompts = skills
+    .filter((skill) => skill && skill.name && skill.prompt)
+    .map((skill) => `<skill name="${skill.name}">\n${skill.prompt}\n</skill>`);
+  return { agent: agentPrompt, skills: skillPrompts };
 }
 
 export interface PiBff {
@@ -75,7 +95,7 @@ export interface PiBff {
   sandboxConfigured: boolean;
   tools: string[];
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
-  createSession(input?: CreateSessionInput): Promise<{ session: unknown }>;
+  createSession(input?: CreateSessionInput): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
   secretMasker: SecretMasker;
 }
@@ -271,7 +291,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     model,
     thinkingLevel,
     cwd: requestedCwd = "",
-  }: CreateSessionInput = {}): Promise<{ session: unknown }> {
+    sessionId,
+    entries,
+    promptSnapshot,
+  }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
     // 不正な cwd はモデル解決より先に 400 にする (実行できない指定を 503 の裏に隠さない)
     const { relative: relativeCwd, absolute: sessionCwd } = resolveWorkspaceCwd(rootCwd, requestedCwd);
     // 明示されたモデルは利用可能一覧と厳密照合する
@@ -300,15 +323,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       compaction: compactionSettings,
       retry: { enabled: true, maxRetries: 2 },
     });
-    const agentPrompt = agent
-      ? [`<agent_profile name="${agent.name}">`, agent.description, agent.systemPrompt, "</agent_profile>"]
-          .filter(Boolean)
-          .join("\n")
-      : "";
-    const skillPrompts = skills
-      .filter((skill) => skill && skill.name && skill.prompt)
-      .map((skill) => `<skill name="${skill.name}">\n${skill.prompt}\n</skill>`);
-
+    const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
     const resourceLoader = new DefaultResourceLoader({
       cwd: sessionCwd,
       agentDir,
@@ -321,7 +336,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       noThemes: true,
       noContextFiles: true,
       extensionFactories: [createSecretRedactionExtension(secretMasker)],
-      appendSystemPrompt: [APPEND_SYSTEM_PROMPT, agentPrompt, ...skillPrompts].filter(Boolean),
+      appendSystemPrompt: [APPEND_SYSTEM_PROMPT, snapshot.agent, ...snapshot.skills].filter(Boolean),
     });
     await resourceLoader.reload();
 
@@ -333,7 +348,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       thinkingLevel: (thinkingLevel ?? defaultThinkingLevel) as CreateAgentSessionOptions["thinkingLevel"],
       resourceLoader,
       settingsManager,
-      sessionManager: SessionManager.inMemory(sessionCwd),
+      // 会話の永続化は BFF (session-store) が担う。SDK 側はファイルを持たず、entries の入れ物として使う。
+      sessionManager: SessionManager.inMemory(
+        sessionCwd,
+        sessionId ? { id: sessionId } : undefined,
+        entries as Parameters<typeof SessionManager.inMemory>[2],
+      ),
       tools: configuredTools(),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
       customTools: createRemoteToolDefinitions({
@@ -345,7 +365,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       }),
     };
 
-    return createAgentSession(options);
+    return { session: (await createAgentSession(options)).session, promptSnapshot: snapshot };
   }
 
   return {

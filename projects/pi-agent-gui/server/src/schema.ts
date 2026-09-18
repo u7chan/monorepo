@@ -189,6 +189,8 @@ export const SessionPayloadSchema = z.object({
   piSessionId: z.string(),
   /** rootCwd 相対の作業ディレクトリ (未所属は "" = root) */
   cwd: z.string(),
+  /** SSE の世代。seq は再起動で 0 に戻るため、カーソルの整合判定に使う */
+  eventGeneration: z.string(),
   projectId: z.string().optional(),
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
@@ -251,6 +253,16 @@ export const HealthSchema = z.object({
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
   sandboxConfigured: z.boolean().optional(),
+  /** 会話ストアの状態。null は永続化なし (未設定・テスト) */
+  sessionStore: z
+    .object({
+      path: z.string().nullable(),
+      ok: z.boolean(),
+      error: z.string().optional(),
+      /** 保存に失敗している live セッション数 */
+      dirty: z.number().optional(),
+    })
+    .optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
 

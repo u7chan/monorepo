@@ -4,18 +4,20 @@
 
 BFF とツール実行サンドボックスを別コンテナで動かす構成を対象とする。
 サンドボックスの `/workspace` はホストの専用作業領域へ永続マウントし、
-BFF の会話履歴はメモリ内で管理する。作業領域の永続化と会話履歴の永続化は別の機能である。
+GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）へ JSONL で保存する。
+会話とファイルは同じセッション id（`.pi-agent-gui/sessions/<id>`）で対応し、別の場所に置く（後述）。
 
 | データ | 再作成・再デプロイ後 |
 |---|---|
 | `/workspace` 内のファイル・Gitリポジトリ・worktree | 残る |
+| セッションの作業フォルダ（`<workspace>/.pi-agent-gui/sessions/<id>`） | 残る |
+| 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl}`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |
-| GUIの会話履歴 | 消える（メモリ内管理） |
-| プロジェクトの登録 | 消える（メモリ内管理。未所属チャットの cwd は root） |
+| プロジェクトの登録 | 消える（メモリ内管理。所属は `projectCwd` から読み取り時に解決する） |
 
 この表は永続マウントを設定したデプロイ環境での挙動を示す。
-イメージ単体で起動するだけでは `/workspace` の永続化は保証されない。
+イメージ単体で起動するだけでは `/workspace` と会話ストアの永続化は保証されない。
 単なるコンテナ停止・再開では書き込み層が残る場合があるが、再作成後の保持は保証しない。
 
 ## 作業領域
@@ -26,8 +28,10 @@ BFF の会話履歴はメモリ内で管理する。作業領域の永続化と�
 |---|---|
 | サンドボックス内 | `/workspace` |
 | ホスト上 | `/home/u7chan/deploy/pi-agent-gui/workspace` |
+| 会話ストア（BFF 専用） | BFF コンテナの `PI_SESSION_STORE`（例 `/session-store`）。サンドボックスへはマウントしない |
 
-- BFF にはこの作業領域をマウントしない。ファイル操作・シェル実行はサンドボックス側で行う。
+- BFF には作業領域をマウントしない。ファイル操作・シェル実行はサンドボックス側で行う。
+- 会話ストアはサンドボックスと共有しない。共有すると、サンドボックスから symlink を差し替えて BFF のファイルを壊したり読み出したりできてしまう。`PI_SESSION_STORE` が `PI_APP_CWD` の中なら起動時に拒否する。
 - Gitリポジトリ本体と worktree は両方 `/workspace` 配下に配置する。外部パスへの参照先は永続化対象にならない。
 - 後からインストールするツールも、保存先が `/workspace` 内ならそのファイルは残る。ただし外部の依存ファイル・設定まで復元されるとは限らない。
 - 常用するツールはイメージへ組み込み、再作成後も利用できるようにする。
@@ -41,15 +45,20 @@ BFF の会話履歴はメモリ内で管理する。作業領域の永続化と�
 
 ## 会話履歴の扱い
 
-会話履歴は将来DBで永続化する設計を予定しているが、現時点では未実装。
-**現在は揮発で仕様どおり**とし、再デプロイで履歴が消えることを不具合として扱わない。
-DBの種類・スキーマ・復元方式はこの資料では決めない。
-エージェント／スキル定義も現在はメモリ内管理のため、必要な定義は設定の「バックアップ」からエクスポートしておく
-（対象とファイル形式は下の[バックアップ](#バックアップエクスポート--インポート)を参照）。
-プロジェクト（ワークスペース内ディレクトリの登録。`server/src/projects.ts`）もメモリ内のみで、
-再デプロイ後は未所属チャット（作業場所 = ワークスペース root）に戻る。
-登録が消えてもディレクトリと中身は作業領域に残るため、再デプロイ後に登録し直せるよう
-列は `{ id, name, cwd, createdAt }` の 4 つに保ち、cwd は root 相対で持つ（[projects.md](projects.md)）。
+会話は BFF 専用ストアの `PI_SESSION_STORE/<id>/{meta.json,session.jsonl}` に保存する。
+`meta.json` は表示用メタデータ（タイトル / エージェントのスナップショット / 所属プロジェクトの cwd / 使用モデル）を持ち、
+`session.jsonl` は pi SDK 形式（header + entries、compaction entry を含む）で、読み書きは BFF の `session-store` が行う。
+
+- 起動時にストアを走査して一覧（descriptor）を復元し、セッションを開いたときに SDK セッションを遅延生成する。
+- アイドル 1 時間の sweep はメモリから外すだけで、ストアと作業フォルダは残る。SSE 購読中のセッションは対象外。
+- `DELETE /api/sessions/:id` はストアの履歴だけを消し、作業フォルダ（ユーザーのファイル）は残す。
+- エージェント / スキルのプロンプトは作成時に `promptSnapshot` として meta に保存し、復元後の実行内容を定義の変更に依存させない（現行の「定義変更を遡及させない」と同じ）。
+- モデルは JSONL 最後の `model_change` → meta の `model` → アプリ既定 の順に `PI_MODELS` の候補と照合する（[model-effort.md](model-effort.md)）。候補外ならアプリ既定へフォールバックし、その実効値を `model_change` へ追記して保存する。
+- ストアのレイアウト・検証・書込み手順の設計は [session-files.md](session-files.md) を正とする。
+- プロジェクト（ワークスペース内ディレクトリの登録。`server/src/projects.ts`）はメモリ内のみで、
+  再デプロイ後は未所属チャットに戻る。セッションは `projectCwd` を meta に持つため、
+  同じ cwd を再登録すれば一覧の所属が再び解決される（プロジェクトの自動再登録はしない）。
+  列は `{ id, name, cwd, createdAt }` の 4 つに保ち、cwd は root 相対で持つ（[projects.md](projects.md)）。
 
 ブラウザのリロード・再接続は、BFF が保持している会話を再取得する動作であり、
 DBへの永続化を意味しない。アイドルセッションの破棄条件などは
@@ -57,15 +66,13 @@ DBへの永続化を意味しない。アイドルセッションの破棄条件
 
 ### compaction entry の保存
 
-会話履歴を永続化するときは、`messages` だけでなく **compaction entry も保存対象にする**。
-圧縮で context から外れた元メッセージも entry には残るため、entry を保存しないと
-区切り位置（`firstKeptEntryId` 以降）も要約も後から再現できない。DTO の形（[api-sessions.md](api-sessions.md) の
-`compactions`）はそのまま写せる形に保つ。
+`session.jsonl` は pi SDK 形式のまま保存するため、`messages` だけでなく **compaction entry も保存される**。
+圧縮で context から外れた元メッセージも entry には残り、区切り位置（`firstKeptEntryId` 以降）も要約も復元できる。
+DTO（[api-sessions.md](api-sessions.md) の `compactions`）はそのまま写した形で、
+最新の compaction の `beforeMessageIndex` だけは `messages` から導出する。
 
-- `id` / `parentId` / `timestamp` / `summary` / `firstKeptEntryId` / `tokensBefore` / `usage` / `fromHook` は SDK の `CompactionEntry` の値。アプリ独自の連番は振らず、この `id` で一意に参照する
-- `firstKeptEntryId` は context を再構築する起点（「最新の compaction + `firstKeptEntryId` 以降 + 圧縮後の entry」= SDK の `buildContextEntries()` と同じ規則）なので、解決先の entry も同じ単位で保存する
-- `reason` と `estimatedTokensAfter` は `CompactionEntry` には保存されず `compaction_end` にしか無い。永続化するならイベント受信時に entry と同じ行へ控える。控えられない場合は省略可能な値として扱う（表示は `tokensBefore` だけで成立する）
-- `usage` / `fromHook` / `estimatedTokensAfter` は今は表示しないが将来使う値なので DTO から落とさない
+- `reason` と `estimatedTokensAfter` は `CompactionEntry` には保存されず `compaction_end` にしか無いため、復元後は欠ける（表示は `tokensBefore` だけで成立する）
+- `usage` / `fromHook` は entry に含まれるため復元できる
 
 ## バックアップ（エクスポート / インポート）
 

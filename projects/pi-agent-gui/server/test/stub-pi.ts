@@ -98,6 +98,10 @@ export interface StubSessionOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /** 復元: BFF が読んだ entry。SDK の inMemory(cwd, id, entries) と同じく初期履歴として使う */
+  entries?: unknown[];
+  /** 復元: SDK セッションの id (BFF のセッション id) */
+  sessionId?: string;
   /**
    * prompt ごとに 1 件消費する preflight compaction (null は圧縮しない)。
    * 実 SDK は送信メッセージを組み立てる前に compaction を走らせる。
@@ -126,6 +130,11 @@ export interface StubSessionEntry {
   tokensBefore?: number;
   usage?: unknown;
   fromHook?: boolean;
+  /** type === "model_change" (実 SDK と同じく復元の手がかりになる) */
+  provider?: string;
+  modelId?: string;
+  /** type === "thinking_level_change" */
+  thinkingLevel?: string;
 }
 
 export interface StubCompactionOptions {
@@ -233,13 +242,23 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
   const session = {
     sessionId: `pi-${Math.random().toString(36).slice(2, 10)}`,
     model: options.model ?? STUB_MODEL,
-    thinkingLevel: options.thinkingLevel ?? "low",
+    // 実 SDK と同じく、作成時にもモデル能力へ補正する
+    thinkingLevel: clampThinkingLevel(
+      options.model ?? STUB_MODEL,
+      (options.thinkingLevel ?? "low") as Parameters<typeof clampThinkingLevel>[1],
+    ) as string,
     messages: [] as PiSessionLike["messages"],
     isStreaming: false,
     get isIdle() {
       return !session.isStreaming;
     },
-    sessionManager: { getBranch: () => [...entries] },
+    sessionManager: {
+      getBranch: () => [...entries],
+      getEntries: () => [...entries],
+      appendModelChange: (provider: string, modelId: string) => {
+        appendEntry({ type: "model_change", provider, modelId });
+      },
+    },
     get entries(): StubSessionEntry[] {
       return [...entries];
     },
@@ -274,7 +293,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       session.model = model as PiAiModel<Api>;
       // SDK は切替時にセッション既定の thinking を入れる (store 側の再適用を検証できる)
       session.thinkingLevel = session.modelSwitchDefault;
-      appendEntry({ type: "model_change" });
+      appendEntry({ type: "model_change", provider: session.model?.provider, modelId: session.model?.id });
     },
     disposed: false,
     abortRequested: false,
@@ -422,6 +441,13 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       }
     },
   };
+  if (options.sessionId) session.sessionId = options.sessionId;
+  if (options.entries && options.entries.length > 0) {
+    for (const entry of options.entries) entries.push(entry as StubSessionEntry);
+    leafId = entries[entries.length - 1]?.id ?? null;
+    entrySeq = entries.length;
+    session.messages = contextMessages();
+  }
   return session;
 }
 
@@ -432,6 +458,9 @@ export interface StubCreateInput {
   thinkingLevel?: ThinkingLevel;
   /** rootCwd 相対の作業ディレクトリ (実ランタイムは絶対パスで受ける) */
   cwd?: string;
+  sessionId?: string;
+  entries?: unknown[];
+  promptSnapshot?: { agent: string; skills: string[] };
 }
 
 export interface StubPiOptions {
@@ -512,6 +541,8 @@ export function createStubPi(options: StubPiOptions = {}) {
         ...options,
         model,
         thinkingLevel: input.thinkingLevel ?? options.defaultThinkingLevel ?? "medium",
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+        ...(input.entries ? { entries: input.entries } : {}),
       });
       sessions.push(session);
       return { session };

@@ -26,7 +26,7 @@
 }
 ```
 
-`projectId` は所属プロジェクト（未所属はキーを省略する）。セッションの作業ディレクトリは所属プロジェクトの `cwd` で決まり、作成後に変えられない。
+`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴は残る）。復元したセッションも同じ規則で解決する。
 
 ## `POST /api/sessions`
 
@@ -37,8 +37,8 @@
 ```
 
 - `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。
-- `projectId` は optional。省略したセッションは未所属になり、作業ディレクトリはワークスペース root になる。未知の `projectId` は 400（未所属へは落とさない）。
-- セッションの作業ディレクトリは作成時に所属プロジェクトの `cwd`（root 相対）をワークスペース root と結合して決まり、以降のツール実行とファイル一覧の起点になる。所属を後から変える API は無い。詳細は [projects.md](projects.md)。
+- `projectId` は optional。省略したセッションは未所属になる。未知の `projectId` は 400（未所属へは落とさない）。
+- セッションの作業ディレクトリはワークスペース root 配下の `.pi-agent-gui/sessions/<id>` で、作成時にサンドボックスの `POST /v1/dirs` で作る。以降のツール実行とファイル一覧の起点になる。会話の永続化が有効なときは `meta.json` / `session.jsonl` も同じ id で会話ストアへ作る（[session-files.md](session-files.md)）。所属を後から変える API は無い。詳細は [projects.md](projects.md)。
 - 明示されたモデルは利用可能一覧の provider/id と厳密照合し、利用不能なら 400、利用可能モデル自体がゼロなら 503。いずれも pi SDK のセッション作成前に拒否する。
 - 作成時に指定した値はそのチャット内だけに適用され、定義や他のチャットへは波及しない。201 でセッションペイロードを返す。
 
@@ -52,12 +52,13 @@
   "status": "running",
   "queueDepth": 0,
   "lastSeq": 42,
+  "eventGeneration": "a1b2c3d4",
   "title": "…",
   "model": "deepseek/deepseek-v4-flash",
   "thinkingLevel": "high",
   "supportsThinking": true,
   "availableThinkingLevels": ["off", "low", "high", "max"],
-  "cwd": "projects/pi-agent-gui",
+  "cwd": ".pi-agent-gui/sessions/3f2b9a1c7d",
   "projectId": "…",
   "agent": { "id": "…", "name": "…", "skills": ["…"] },
   "run": {
@@ -112,7 +113,9 @@
 
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
 
-`cwd` はワークスペース root 相対の作業ディレクトリ（未所属は `""` = root）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。
+`cwd` はワークスペース root 相対の作業ディレクトリ（`.pi-agent-gui/sessions/<id>`）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。
+
+`eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
 `messages[].at` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
 
@@ -156,9 +159,9 @@
 { "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "runId": "…" }
 ```
 
-## `GET /api/sessions/:id/events?after=N`
+## `GET /api/sessions/:id/events`
 
-SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は `Last-Event-ID` ヘッダ）以降のイベントをリプレイしてからライブ配信する。
+SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Event-ID` ヘッダ（`<generation>:<seq>`）→ query の `generation` + `after` → `resync` の優先順位で解決する。世代（payload の `eventGeneration`）が現在と一致し、seq がバッファ範囲内のときだけ差分をリプレイし、それ以外は `resync`（セッション全体のペイロード）を 1 件送る。再起動や sweep の復元で seq が 0 に戻っても、古いタブは 1 回の resync で整合する。
 
 イベントタイプ:
 
@@ -173,7 +176,7 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 | `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }` |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
-| `resync` | セッションペイロード全体（バッファを逃した場合） |
+| `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 
 テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
@@ -184,4 +187,4 @@ SSE（`text/event-stream`）でイベントを購読。`after`（未指定時は
 
 ## `DELETE /api/sessions/:id`
 
-停止してセッションを破棄。購読中の SSE には `session_deleted` が通知される。
+セッションを削除する。停止 + 会話ストアの履歴削除を行い、購読中の SSE には `session_deleted` が通知される。作業フォルダ（`.pi-agent-gui/sessions/<id>`）は残る。未ロードのセッションは SDK セッションを開かずに消せる（モデル未認証・JSONL 破損でも削除できる）。未知の id は 404。

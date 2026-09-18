@@ -1,6 +1,6 @@
 # pi agent GUI
 
-pi SDK を BFF に埋め込んだ小さなブラウザ GUI（`projects/pi-agent-gui`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript で、client は `hono/client` で型安全に API を呼びます。セッションとエージェント/スキル定義はメモリ内のみで、再起動すると消えます。
+pi SDK を BFF に埋め込んだ小さなブラウザ GUI（`projects/pi-agent-gui`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript で、client は `hono/client` で型安全に API を呼びます。セッションは BFF 専用の会話ストア（`PI_SESSION_STORE`）へ保存され、再起動後も一覧・履歴・続きの送信を復元できます。エージェント/スキル定義はメモリ内のみで、再起動すると消えます。
 
 メッセージ送信は即時に返り、エージェントはバックグラウンドで動き続けます（ブラウザを閉じても継続）。作業用ツール（read / bash / edit / write / grep / find / ls）は BFF から分離したサンドボックスプロセスで実行します。
 
@@ -21,7 +21,8 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 | 変数 | 説明 |
 | --- | --- |
-| `PI_APP_CWD` | ワークスペース root（プロジェクトと未所属チャットの起点。既定: このディレクトリ） |
+| `PI_APP_CWD` | ワークスペース root（プロジェクトとセッション作業フォルダの起点。既定: このディレクトリ） |
+| `PI_SESSION_STORE` | 会話ストアの絶対パス（既定: `<pi agentDir>/pi-agent-gui/sessions`）。ワークスペースの外を指定する。未設定でも起動するが、`null`（永続化なし）にしたいのはテストだけ |
 | `PI_MODEL` / `PI_MODELS` | 既定モデルの固定 / 選択できるモデルの whitelist |
 | `PI_THINKING` | 既定の Effort |
 | `PORT` / `HOST` | BFF の待受（既定 4317 / 127.0.0.1） |

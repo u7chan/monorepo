@@ -84,7 +84,7 @@ test("compaction の要約は messages から外れ、entry を写した形で c
 test("compaction_end は compaction を配ってから resync で同じ状態を配る", async () => {
   const { store, record } = await createFixture();
   const events: EventEntry[] = [];
-  store.subscribe(record, record.seq, (entry) => events.push(entry));
+  store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
 
   await runTurn(store, record, "圧縮される会話", (target) =>
     target.compact({
@@ -139,7 +139,7 @@ test("送信メッセージを積む前の compaction でも resync はそのメ
   await runTurn(store, record, "1つ目");
 
   const events: EventEntry[] = [];
-  store.subscribe(record, record.seq, (entry) => events.push(entry));
+  store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
   await runTurn(store, record, "2つ目");
 
   const types = events.map((entry) => entry.type);
@@ -274,7 +274,7 @@ for (const outcome of ["none", "aborted", "error"] as const) {
   test(`compaction_end が ${outcome} のときは compaction も resync も配らない`, async () => {
     const { store, record, session } = await createFixture();
     const events: EventEntry[] = [];
-    store.subscribe(record, record.seq, (entry) => events.push(entry));
+    store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
 
     await runTurn(store, record, "圧縮されない会話", (target) => target.compact({ outcome, summarizeCount: 1 }));
 
