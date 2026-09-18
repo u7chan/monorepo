@@ -63,10 +63,11 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
     [showHtml, text, activePath],
   );
 
-  // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする
+  // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする。全画面ではバーを隠すため、
+  // 戻ったときにも当て直す (隠れている間のスクロール位置はブラウザーによっては失われる)
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activePath]);
+  }, [activePath, fullscreen]);
 
   // 表示中のタブだけ取得する。取得中に切り替えたら中断して結果を捨てる (再表示で取り直す)
   useEffect(() => {
@@ -118,8 +119,15 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           : "static h-auto min-h-40 w-auto min-w-0 flex-1 border-t border-line bg-transparent text-inherit @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l",
       )}
     >
-      {/* タブは横スクロールにし、増えても行の高さと本文の幅を変えない */}
-      <div className="flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
+      {/* タブは横スクロールにし、増えても行の高さと本文の幅を変えない。全画面では隠す
+          (タブの選択は全画面の解除でもあるため、出しておくと押した結果と見た目が食い違う。
+          unmount せず display だけ切って、横スクロールの位置を保つ) */}
+      <div
+        className={cn(
+          "flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5",
+          fullscreen && "hidden",
+        )}
+      >
         {paths.map((path, index) => (
           <FileTab
             key={path}
@@ -132,13 +140,30 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           />
         ))}
       </div>
-      <div className="flex items-center gap-3 px-4 py-1.5">
-        <code className="min-w-0 flex-1 truncate text-1xs text-ink-muted" title={fetchPath}>
-          {fetchPath}
-        </code>
-        {isHtmlPath(activePath) ? (
-          <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
-        ) : null}
+      {/* パス行。全画面ではタブとパスの表示を落とし、戻るボタンだけの行にする
+          (プレビューの上へ重ねると下の HTML の右上を隠して押せなくするため、全画面でも行として残す。
+          padding は三項で入れ替える。同じ property のクラスを並べると CSS 側の順序で負ける) */}
+      <div
+        className={cn(
+          "flex items-center gap-3",
+          fullscreen ? "justify-end border-b border-line px-2 py-1" : "px-4 py-1.5",
+        )}
+      >
+        {fullscreen ? null : (
+          <>
+            <code className="min-w-0 flex-1 truncate text-1xs text-ink-muted" title={fetchPath}>
+              {fetchPath}
+            </code>
+            {isHtmlPath(activePath) ? (
+              <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
+            ) : null}
+            {code !== null && code.lineCount > 0 ? (
+              <span className="shrink-0 text-3xs text-ink-ghost">
+                {code.highlight?.lang ?? "text"} · {code.lineCount} 行
+              </span>
+            ) : null}
+          </>
+        )}
         {showHtml ? (
           <button
             type="button"
@@ -148,11 +173,6 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           >
             {fullscreen ? "全画面をやめる" : "全画面"}
           </button>
-        ) : null}
-        {code !== null && code.lineCount > 0 ? (
-          <span className="shrink-0 text-3xs text-ink-ghost">
-            {code.highlight?.lang ?? "text"} · {code.lineCount} 行
-          </span>
         ) : null}
       </div>
       {result?.error && !showHtml ? (

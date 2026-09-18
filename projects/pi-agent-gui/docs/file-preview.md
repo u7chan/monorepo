@@ -84,7 +84,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 パス行のボタン（HTML のプレビュー中だけ出す）で、プレビューをアプリの viewport いっぱいに出す。ブラウザの Fullscreen API（`requestFullscreen`）は使わない（iPhone Safari で使えない。ブラウザの全画面は F11 で代替できる）。
 
-- 方式はアプリ内のモーダル dialog（`showModal()` = top layer）で、全画面中もタブバーとパス行は dialog の中に残す（タブ切替と戻り導線を消さない）。`position: fixed` のオーバーレイは使わない。`@container`（`container-type: inline-size`）配下では 2024-10 より前のブラウザが layout containment を当てて fixed を祖先基準にするため viewport を覆えず、背面を inert にもできない
+- 方式はアプリ内のモーダル dialog（`showModal()` = top layer）。`position: fixed` のオーバーレイは使わない。`@container`（`container-type: inline-size`）配下では 2024-10 より前のブラウザが layout containment を当てて fixed を祖先基準にするため viewport を覆えず、背面を inert にもできない
+- 全画面に残すのは戻るボタンだけにする。タブバーは `hidden` で消し（タブの選択は全画面の解除でもあるため、出しておくと押した結果と見た目が食い違う。unmount せず display だけ切るので、横スクロールの位置は保たれ、戻ったときに `scrollIntoView` を当て直す）、パス行は パス / 表示の切替 / 行数を落として `全画面をやめる` だけの行（右寄せ + `border-b`、高さ 44px）にする。ボタンをプレビューの上へ重ねる（絶対配置）と下の HTML の右上を隠して押せなくするため、行として残す
 - **dialog は全画面でなくても常に置く**。通常時は UA の dialog スタイル（`display: none` / `position` / `width`・`height: fit-content` / `margin: auto` / `border` / `padding` / `background: Canvas`）を打ち消して普通の箱として使い、全画面のときだけ `showModal()` する。全画面専用の 2 つ目の箱を作ると、出入りのたびに iframe が再読み込みされてプレビューを取り直すため
 - 全画面は「全画面を出したタブをそのまま HTML のプレビューで表示している間」だけ続く。条件は `lib/fileTabs.ts` の `keepsFullscreenPreview`（出すときのタブ + HTML + プレビュー）で、他タブへ切り替えたとき（HTML 同士でも）/ 全画面のタブを閉じて次が繰り上がったとき / ソース表示へ切り替えたときに解除する。状態は保存しない（切替で解除した後、元のタブへ戻っても復帰しない。F5 と チャット ⇄ 設定 の往復でも復帰しない）
 - `Escape` は全画面のときだけ dialog が受け取り（`stopPropagation`）、1 回で全画面だけを解除する。通常時も止めると設定ページの「Escape でチャットへ戻る」を食う。**プレビューの中（iframe）にフォーカスがあると Escape は親 document へ届かない**ので、そのときは `全画面をやめる` ボタンで戻る
@@ -115,7 +116,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- |
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / 保存値からの復元（表示中の繰り上がりと上限） |
-| `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける） |
+| `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
