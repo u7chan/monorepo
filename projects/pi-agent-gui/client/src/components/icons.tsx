@@ -1,29 +1,21 @@
-import type { CSSProperties } from "react";
-
-/** 実行中インジケータの光条 (中心 8,8 / 中心から 1.6〜5.5。回転と明滅は styles/index.css) */
-const SPINNER_RAYS: [number, number, number, number][] = [
-  [9.6, 8, 13.5, 8],
-  [9.13, 9.13, 11.89, 11.89],
-  [8, 9.6, 8, 13.5],
-  [6.87, 9.13, 4.11, 11.89],
-  [6.4, 8, 2.5, 8],
-  [6.87, 6.87, 4.11, 4.11],
-  [8, 6.4, 8, 2.5],
-  [9.13, 6.87, 11.89, 4.11],
+/** 実行中インジケータのドット (中心 8,8 / 半径 4.9 に 45 度ずつ。回転は styles/index.css) */
+const SPINNER_DOTS: [number, number][] = [
+  [8, 3.1],
+  [11.47, 4.53],
+  [12.9, 8],
+  [11.47, 11.47],
+  [8, 12.9],
+  [4.53, 11.47],
+  [3.1, 8],
+  [4.53, 4.53],
 ];
 
+/** 先頭のドットほど濃くして尾を引かせる (回転方向と揃えるため index の昇順 = 時計回り) */
 export function RunSpinnerIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      className="run-spinner size-3 shrink-0 text-accent-text"
-    >
-      {SPINNER_RAYS.map(([x1, y1, x2, y2], index) => (
-        <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} style={{ "--ray": index } as CSSProperties} />
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="run-spinner size-3 shrink-0 text-ink-soft">
+      {SPINNER_DOTS.map(([cx, cy], index) => (
+        <circle key={index} cx={cx} cy={cy} r="1.25" fill="currentColor" opacity={1 - index * 0.09} />
       ))}
     </svg>
   );
