@@ -64,7 +64,7 @@ $PI_SESSION_STORE/<id>/
 ```
 
 - `promptSnapshot` は作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
-- `title` は最初のメッセージで、`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。
+- `title` は最初のメッセージで、`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 
 ## 会話の保存
@@ -93,6 +93,7 @@ $PI_SESSION_STORE/<id>/
 ## 復元
 
 - 起動時に store を走査して `meta.json` を読み、一覧用 descriptor（id / title / agent 表示情報 / projectCwd / createdAt / lastUsedAt / messageCount）を作る。SDK セッションは開くときに作る。走査は起動時の 1 回だけなので、稼働中に外部から store へフォルダを足しても再起動するまで一覧に出ない。
+- 走査では JSONL を読まないため、`messageCount` の定義を変えても保存済みの値は起動では直らない。開いたときに現在の履歴から数え直し、`meta.json` と食い違えば書き戻す（一覧はそれまで保存値を返す）。
 - 開く処理: JSONL を検証つきで読み、`SessionManager.inMemory(cwd, { id }, entries)` を作り、作業フォルダの存在を保証し、`promptSnapshot` から resource loader を組み、モデルを解決して `createAgentSession` に渡す。
 - 破損・model 不在などで開けない場合も一覧からは消さない（descriptor を保持）。
 

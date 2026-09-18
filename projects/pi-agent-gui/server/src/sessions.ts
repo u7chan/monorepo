@@ -402,8 +402,10 @@ export class SessionStore {
       });
     }
     this.records.set(id, record);
-    // フォールバックで実効モデルが変わったときは、その記録を今のうちに永続化する
-    if (modelRecorded) await this.persist(record);
+    // 復元時に実効モデルが変わったときと、meta の messageCount が表示メッセージ数とずれたときは、
+    // 今のうちに永続化する (走査だけでは直らない古い定義の値をここで収束させる)
+    const backfillCount = meta.messageCount !== displayableMessages(session, this.masker).length;
+    if (modelRecorded || backfillCount) await this.persist(record);
     return record;
   }
 
@@ -865,7 +867,9 @@ export class SessionStore {
         runId: run.id,
         status: run.status,
         error: run.error,
-        messageCount: session.messages.length,
+        // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
+        // 戻すと同名フィールドの定義が 2 つに戻る
+        messageCount: displayableMessages(session, this.masker).length,
         queueDepth: record.queue.length,
         // SDK は message_end をリスナーへ配ってから履歴へ入れるため、usage イベントの context は
         // 直前の応答までの値になる (compaction 直後は不明値のまま)。ここでは履歴反映済みの値を配る。
