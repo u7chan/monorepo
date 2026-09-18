@@ -38,11 +38,13 @@ export function dropClosedPreviewModes(modes: PreviewModes, paths: string[]): Pr
 }
 
 /**
- * 全画面を続ける条件。HTML をプレビューしている間だけ true で、ソース表示・他拡張子へ切り替えたり
- * 別のタブへ移ったりしたら全画面を解除する (表示モードと同様、状態は保存しない)。
+ * 全画面を続ける条件。全画面を出したタブ (`fullscreenPath`) をそのまま HTML のプレビューで表示している間だけ
+ * true になる。表示対象が変わったとき (他タブへの切替・閉じて繰り上がった場合。HTML 同士でも) と、
+ * ソース表示へ切り替えたときは false になり、全画面を解除する。
  */
-export function keepsFullscreenPreview(path: string, mode: PreviewMode): boolean {
-  return isHtmlPath(path) && mode === "preview";
+export function keepsFullscreenPreview(fullscreenPath: string | null, activePath: string, mode: PreviewMode): boolean {
+  if (fullscreenPath === null || fullscreenPath !== activePath) return false;
+  return isHtmlPath(activePath) && mode === "preview";
 }
 
 export type FileTabsState = {

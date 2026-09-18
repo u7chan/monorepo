@@ -44,7 +44,8 @@ export type FilePreviewProps = {
  */
 export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, onSelect, onClose }: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
-  const [fullscreen, setFullscreen] = useState(false);
+  // 全画面を出したタブ (null は全画面でない)。表示対象が変わったら条件が false になり解除される
+  const [fullscreenPath, setFullscreenPath] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
@@ -52,9 +53,10 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
   const result = readPreview(results, activePath);
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
-  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。
-  // これが全画面を続ける条件でもある (ソース表示・他拡張子へ移ったら解除する)
-  const showHtml = keepsFullscreenPreview(activePath, mode);
+  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)
+  const showHtml = mode === "preview" && isHtmlPath(activePath);
+  // 全画面を続ける条件 (HTML のプレビュー + 出すときのタブから動いていない)。判定は lib/fileTabs.ts が正
+  const fullscreen = keepsFullscreenPreview(fullscreenPath, activePath, mode);
   // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
   const code = useMemo(
     () => (showHtml || text === undefined ? null : buildPreviewCode(text, activePath)),
@@ -86,12 +88,10 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
     setResults((prev) => dropClosedPreviews(prev, paths));
   }, [paths]);
 
-  // ソース表示・他タブへ切り替えたら全画面を解除する (dialog を閉じると通常の箱へ戻る)
-  useEffect(() => {
-    if (!showHtml) setFullscreen(false);
-  }, [showHtml]);
-
-  // dialog は常に置き、全画面のときだけ top layer へ出す。作り直すと中の iframe が再読み込みされる
+  // 全画面を続ける条件が false になったら dialog を閉じる (通常の箱へ戻る)。dialog は常に置き、
+  // 全画面のときだけ top layer へ出す。作り直すと中の iframe が再読み込みされる。
+  // 解除の条件 (他タブ・繰り上がり・ソース表示) は lib/fileTabs.ts の keepsFullscreenPreview が持ち、
+  // 全画面の印はここで呼ぶ close() の close イベントを拾った onClose が消す (元のタブへ戻っても復帰しない)
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog === null) return;
@@ -106,7 +106,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
       ref={dialogRef}
       aria-label="ファイルプレビュー"
       aria-modal={fullscreen ? "true" : undefined}
-      onClose={() => setFullscreen(false)}
+      onClose={() => setFullscreenPath(null)}
       // 全画面のときだけ止める (通常時に止めると設定ページの「Escape でチャットへ戻る」を食う)
       onKeyDown={(event) => {
         if (event.key === "Escape" && fullscreen) event.stopPropagation();
@@ -143,7 +143,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           <button
             type="button"
             aria-pressed={fullscreen}
-            onClick={() => setFullscreen((prev) => !prev)}
+            onClick={() => setFullscreenPath(fullscreen ? null : activePath)}
             className="btn-quiet shrink-0"
           >
             {fullscreen ? "全画面をやめる" : "全画面"}
