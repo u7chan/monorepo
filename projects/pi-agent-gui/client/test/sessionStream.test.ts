@@ -120,6 +120,18 @@ test("leaves runtimeStatus alone when a run ends normally", () => {
   assert.deepEqual(record.statuses, []);
 });
 
+test("takes the run start from the event data, not from the receive time", () => {
+  const { record, deps } = createHarness();
+
+  // 受信時刻 (at) は切断中のリプレイでぶれるため、経過時間の起点には data の startedAt を使う
+  applySessionEvent(
+    { seq: 1, type: "run_start", data: { runId: "r-1", prompt: "go", startedAt: 900 }, at: 5000 },
+    deps,
+  );
+
+  assert.deepEqual(record.actions, [{ type: "runStart", prompt: "go", at: 5000, startedAt: 900 }]);
+});
+
 test("treats a stream that stopped sending heartbeat as silent", () => {
   const last = 1_000;
 

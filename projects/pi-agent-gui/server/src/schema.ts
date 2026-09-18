@@ -384,7 +384,9 @@ export type UpdateSkillBody = z.infer<typeof UpdateSkillBodySchema>;
 // ---------------------------------------------------------------------------
 
 export const EventDataSchemas = {
-  run_start: z.object({ runId: z.string(), prompt: z.string() }),
+  // `startedAt` は payload の `run.startedAt` と同じ値。クライアントは受信時刻ではなくこれを使う
+  // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
+  run_start: z.object({ runId: z.string(), prompt: z.string(), startedAt: z.number() }),
   text: z.object({ delta: z.string() }),
   tool_start: z.object({ id: z.string(), name: z.string(), args: z.string() }),
   tool_end: z.object({

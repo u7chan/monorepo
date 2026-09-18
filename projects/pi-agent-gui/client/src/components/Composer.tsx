@@ -9,6 +9,8 @@ import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortCont
 
 export type ComposerProps = {
   activity: string;
+  /** 実行中だけ渡す (活動行の経過時間の起点) */
+  runningSince?: number;
   runtimeReady: boolean;
   sending: boolean;
   stopVisible: boolean;
@@ -51,6 +53,7 @@ function ArrowUpIcon() {
 
 export function Composer({
   activity,
+  runningSince,
   runtimeReady,
   sending,
   stopVisible,
@@ -133,7 +136,7 @@ export function Composer({
         compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       )}
     >
-      <ContextGauge activity={activity} context={context} compact={compact} />
+      <ContextGauge activity={activity} runningSince={runningSince} context={context} compact={compact} />
       <form
         onSubmit={handleSubmit}
         className={cn(

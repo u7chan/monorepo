@@ -171,7 +171,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 | イベント | data |
 | --- | --- |
-| `run_start` | `{ runId, prompt }` |
+| `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
 | `tool_start` / `tool_end` | `{ id, name, args }` / `{ id, name, isError, output }` |
 | `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など） |

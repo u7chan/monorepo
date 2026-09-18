@@ -437,6 +437,37 @@ html[data-theme="sky"] {
     animation: dot-pulse 1.2s ease-in-out infinite;
   }
 
+  /* 実行中スピナー。--ray は光条の位相 (icons.tsx の RunSpinnerIcon) */
+  .run-spinner {
+    transform-origin: center;
+    animation: run-spinner-turn 2.4s linear infinite;
+  }
+  .run-spinner line {
+    animation: run-spinner-ray 1.2s ease-in-out infinite;
+    animation-delay: calc(var(--ray, 0) * 0.15s);
+  }
+  @keyframes run-spinner-turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes run-spinner-ray {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .run-spinner,
+    .run-spinner line {
+      animation: none;
+      opacity: 1;
+    }
+  }
+
   /* ツール履歴の開閉マーカー (summary のブラウザ既定マーカーを置き換える) */
   .tool-summary {
     list-style: none;

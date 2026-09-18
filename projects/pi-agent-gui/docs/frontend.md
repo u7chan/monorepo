@@ -24,6 +24,7 @@
 - SSE イベント（`text` / `tool_start` / `tool_end` / `run_end` など）を React の reducer で受け、イベントログから UI 状態（メッセージ列、ツールカード、実行状態）を導出して仮想 DOM へ反映する。旧 `app.js` のようにイベントハンドラで DOM を直接書き換えるのではなく、「イベントの適用」を純粋な状態遷移として書くことで、再接続時のリプレイ / `resync` も同じ reducer で処理できる。
 - 接続管理（`EventSource` の再接続、`Last-Event-ID`、`resync` の検知）はカスタムフックに集約し、コンポーネントは描画に集中する。
 - セッションの作成は送信経路（`sendMessage` → `ensureSession`）に置く。未作成チャットで送信したときだけ `POST /api/sessions` を呼び、その応答で sessionId / 履歴 / 実効 Model を差し替えてから SSE を張り直して送信する。作成待ちの間に別のチャットへ切り替えられたら選択は奪わず、送信先は `ensureSession` の戻り値を使う（入力も作成済みセッションも捨てず、空のセッション行を残さない）。作成に失敗したときは未作成チャットのままエラーを表示する。
+- 実行中インジケータの経過時間の起点は `ChatState.runStartedAt`。`run_start` はサーバーが配る `startedAt`、reload / 再接続の `resync` は `payload.run.startedAt` を使い、どちらもサーバー時計になる（受信時刻は使わない。時計がずれた環境では差分が負になり 0 秒に丸まる）。`run_end` と `running` を抜けた `resync` で `undefined` に戻る
 - 設定変更の応答適用は `client/src/hooks/settingsChange.ts` に切り出す。応答や回復 GET を待っている間にサイドバーで別のチャットへ切り替えられるため、各 await の後に「要求したセッションがまだ選択中か」を確認し、切替済みの古い応答では履歴 / Model / Effort / `lastSeq` / 活動表示を更新しない。
 - フックの分割は `useAgentDesk` を facade とし、`useRuntimeCatalog`（health / catalog）、`useProjects`、`useSessions`（一覧・lifecycle・SSE）、`sessionActions`（送信 / 停止の手順）が実装を持つ。
 
