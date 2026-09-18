@@ -25,7 +25,7 @@ import type {
   UpdateSessionSettingsInput,
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
-import { truncate } from "./session-projection";
+import { displayableMessages, truncate } from "./session-projection";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import {
   SessionDamagedError,
@@ -124,10 +124,6 @@ function entriesOf(session: PiSessionLike): SessionEntryLike[] {
   const manager = session.sessionManager as { getEntries?(): unknown[]; getBranch?(): unknown[] } | undefined;
   const entries = manager?.getEntries?.() ?? manager?.getBranch?.() ?? [];
   return Array.isArray(entries) ? (entries as SessionEntryLike[]) : [];
-}
-
-function countDisplayableMessages(session: PiSessionLike): number {
-  return session.messages.filter((message) => message.role === "user" || message.role === "assistant").length;
 }
 
 export class SessionStore {
@@ -732,7 +728,7 @@ export class SessionStore {
         id: record.id,
         title: record.title,
         lastUsedAt: record.lastUsedAt,
-        messageCount: countDisplayableMessages(session),
+        messageCount: displayableMessages(session, this.masker).length,
         agentId: record.agentId,
         agent: record.agent,
         promptSnapshot: record.promptSnapshot,

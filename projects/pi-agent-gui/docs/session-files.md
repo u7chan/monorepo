@@ -62,7 +62,7 @@ $PI_SESSION_STORE/<id>/
 ```
 
 - `promptSnapshot` は作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
-- `title` は最初のメッセージで、`lastUsedAt` / `messageCount` はラン終了時に更新する。
+- `title` は最初のメッセージで、`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 
 ## 会話の保存
