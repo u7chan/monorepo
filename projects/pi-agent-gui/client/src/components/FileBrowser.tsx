@@ -1,0 +1,329 @@
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { getFiles } from "../api";
+import { FilePreview } from "./FilePreview";
+import { cn } from "../lib/cn";
+import {
+  applyFileTreeError,
+  applyFileTreeListing,
+  beginFileTreeLoad,
+  createFileTreeStateFromDirectories,
+  FILE_TREE_ROOT,
+  fileTreeChildPath,
+  fileTreeDirectoryState,
+  fileTreeFetchPath,
+  invalidateFileTree,
+  normalizeFileTreeRoot,
+  openFileTreeDirectories,
+  pendingFileTreeDirectories,
+  toggleFileTreeDirectory,
+  type FileTreeDirectoryState,
+  type FileTreeState,
+} from "../lib/fileTree";
+import { filePreviewStore } from "../lib/filePreviewState";
+import {
+  closeFileTab,
+  dropClosedPreviewModes,
+  openFileTab,
+  restoreFileTabsState,
+  withPreviewMode,
+  type FileTabsState,
+  type PreviewMode,
+  type PreviewModes,
+} from "../lib/fileTabs";
+import type { FileEntry } from "../types";
+import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
+
+const INDENT = 16;
+/** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
+const FILE_INDENT = 32;
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export type FileBrowserProps = {
+  /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
+  root: string;
+  /** 値を変えると一覧と開いている本文を取り直す。mount 時の値では撃たない */
+  reloadToken: number;
+};
+
+/**
+ * ファイルツリーとプレビューの本体。渡された `root` を起点に `GET /api/files` を辿る (配下は `<root>/<name>`)。
+ * 外装 (設定ページ / チャットの右パネル) は呼び出し側が持ち、root の違う 2 画面で同じ実装を使う。
+ * **root を変えるときは呼び出し側で `key` を張り替える** (復元・取得・保存は mount ごとの初期化が前提)。
+ * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
+ * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」と run 終了のみ)。
+ */
+export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
+  const rootPath = normalizeFileTreeRoot(root);
+  // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
+  // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
+  const [restored] = useState(() => filePreviewStore.read(rootPath));
+  const [tree, setTree] = useState<FileTreeState>(() => createFileTreeStateFromDirectories(restored?.dirs ?? []));
+  const [tabs, setTabs] = useState<FileTabsState>(() =>
+    restoreFileTabsState(restored?.paths ?? [], restored?.active ?? null),
+  );
+  // 一覧の再読み込みでプレビュー本文も捨てる (開いているタブは保つ)
+  const [previewVersion, setPreviewVersion] = useState(0);
+  // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
+  const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
+  // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
+  const inFlightRef = useRef<Set<string>>(new Set());
+
+  // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
+  useEffect(() => {
+    const pending = pendingFileTreeDirectories(tree).filter((path) => !inFlightRef.current.has(path));
+    if (pending.length === 0) return;
+    for (const path of pending) inFlightRef.current.add(path);
+    setTree((prev) => pending.reduce((acc, path) => beginFileTreeLoad(acc, path), prev));
+    for (const path of pending) {
+      void (async () => {
+        try {
+          const listing = await getFiles(fileTreeFetchPath(rootPath, path));
+          setTree((prev) => applyFileTreeListing(prev, path, listing));
+        } catch (error) {
+          setTree((prev) => applyFileTreeError(prev, path, errorText(error)));
+        } finally {
+          inFlightRef.current.delete(path);
+        }
+      })();
+    }
+  }, [tree, rootPath]);
+
+  // 外装の「再読み込み」とラン終了を 1 つの入口にする。mount 時の token では撃たない
+  // (root の切替は key の張り替えで扱うため、token の初期値が残っていても取り直さない)
+  const lastReloadTokenRef = useRef(reloadToken);
+  useEffect(() => {
+    if (lastReloadTokenRef.current === reloadToken) return;
+    lastReloadTokenRef.current = reloadToken;
+    setPreviewVersion((version) => version + 1);
+    setTree((prev) => invalidateFileTree(prev));
+  }, [reloadToken]);
+
+  const toggle = (path: string) => {
+    setTree((prev) => toggleFileTreeDirectory(prev, path));
+  };
+
+  const openTab = (path: string) => setTabs((prev) => openFileTab(prev, path));
+  const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
+
+  // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる。復元したタブが揃った状態で走る
+  // (復元前の空の paths で消さないため、復元は lazy initializer 側で済ませてある)
+  useEffect(() => {
+    setPreviewModes((prev) => dropClosedPreviewModes(prev, tabs.paths));
+  }, [tabs.paths]);
+
+  // 変更のたびに保存する。他 root を消さない read-modify-write と、内容が同じときの書き込み省略は store 側
+  useEffect(() => {
+    filePreviewStore.write(rootPath, {
+      paths: tabs.paths,
+      active: tabs.active,
+      modes: previewModes,
+      dirs: openFileTreeDirectories(tree),
+    });
+  }, [rootPath, tree, tabs, previewModes]);
+
+  const rootNode = fileTreeDirectoryState(tree, FILE_TREE_ROOT) ?? { open: true, loading: false };
+
+  return (
+    // 外装が渡す枠 (グリッドの 1 行 / flex の 1 要素) をそのまま埋める。内側の 1 段は @container でないと
+    // 自分自身の幅を問い合わせられないため、判定はこの段で行う
+    <div className="@container min-h-0">
+      <div className="flex h-full min-h-0 flex-col @2xl:flex-row">
+        {/* タブがあるときは shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、
+            プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない) */}
+        <div
+          className={cn(
+            "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
+            tabs.paths.length > 0 ? "max-h-64 @2xl:max-h-none @2xl:w-72 @2xl:flex-none" : "flex-1",
+          )}
+        >
+          {rootNode.error ? (
+            <MessageRow depth={0} danger alert>
+              {rootNode.error}
+            </MessageRow>
+          ) : null}
+          {rootNode.children ? (
+            <Branch
+              parent={FILE_TREE_ROOT}
+              node={rootNode}
+              depth={0}
+              tree={tree}
+              selected={tabs.active}
+              onToggle={toggle}
+              onSelect={openTab}
+            />
+          ) : rootNode.error ? null : (
+            <MessageRow depth={0}>読み込み中…</MessageRow>
+          )}
+        </div>
+        {tabs.paths.length > 0 && tabs.active ? (
+          <FilePreview
+            key={previewVersion}
+            paths={tabs.paths}
+            activePath={tabs.active}
+            rootPath={rootPath}
+            modes={previewModes}
+            onModeChange={(path: string, mode: PreviewMode) =>
+              setPreviewModes((prev) => withPreviewMode(prev, path, mode))
+            }
+            onSelect={openTab}
+            onClose={closeTab}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+type BranchProps = {
+  parent: string;
+  node: FileTreeDirectoryState;
+  depth: number;
+  tree: FileTreeState;
+  selected: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+};
+
+function Branch({ parent, node, depth, tree, selected, onToggle, onSelect }: BranchProps) {
+  const entries = node.children ?? [];
+  return (
+    // 明示的な minmax(0,1fr) で行幅を容器に固定する (auto だと長い名前の max-content まで広がり、省略記号ではなく overflow で切れる)
+    <div className="grid min-w-0 grid-cols-1 gap-0.5">
+      {entries.length === 0 ? <MessageRow depth={depth}>（空）</MessageRow> : null}
+      {entries.map((entry) => (
+        <EntryRow
+          key={entry.name}
+          parent={parent}
+          entry={entry}
+          depth={depth}
+          tree={tree}
+          selected={selected}
+          onToggle={onToggle}
+          onSelect={onSelect}
+        />
+      ))}
+      {node.truncated ? <MessageRow depth={depth}>上限のため {entries.length} 件のみ表示しています</MessageRow> : null}
+    </div>
+  );
+}
+
+function EntryRow({
+  parent,
+  entry,
+  depth,
+  tree,
+  selected,
+  onToggle,
+  onSelect,
+}: {
+  parent: string;
+  entry: FileEntry;
+  depth: number;
+  tree: FileTreeState;
+  selected: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+}) {
+  const path = fileTreeChildPath(parent, entry.name);
+
+  if (entry.type === "dir") {
+    const node = fileTreeDirectoryState(tree, path);
+    const open = node?.open ?? false;
+    return (
+      <div>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => onToggle(path)}
+          style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
+          className="flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
+        >
+          <span
+            className={cn(
+              "grid size-4 shrink-0 place-items-center text-ink-faint transition-transform",
+              open ? "rotate-90" : "",
+            )}
+          >
+            <ChevronIcon />
+          </span>
+          <FolderIcon />
+          <span className="min-w-0 truncate">{entry.name}</span>
+          {entry.symlink ? <SymlinkMark /> : null}
+        </button>
+        {open ? (
+          <>
+            {node?.error ? (
+              <MessageRow depth={depth + 1} danger alert>
+                {node.error}
+              </MessageRow>
+            ) : null}
+            {node?.children ? (
+              <Branch
+                parent={path}
+                node={node}
+                depth={depth + 1}
+                tree={tree}
+                selected={selected}
+                onToggle={onToggle}
+                onSelect={onSelect}
+              />
+            ) : node?.error ? null : (
+              <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
+            )}
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
+  const isSelected = selected === path;
+  return (
+    <button
+      type="button"
+      aria-current={isSelected ? "true" : undefined}
+      onClick={() => onSelect(path)}
+      style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
+      className={cn(
+        "flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
+        isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
+      )}
+    >
+      <FileIcon />
+      <span className="min-w-0 truncate">{entry.name}</span>
+      {entry.symlink ? <SymlinkMark /> : null}
+    </button>
+  );
+}
+
+function MessageRow({
+  depth,
+  children,
+  danger = false,
+  alert = false,
+}: {
+  depth: number;
+  children: ReactNode;
+  danger?: boolean;
+  alert?: boolean;
+}) {
+  return (
+    <div
+      role={alert ? "alert" : undefined}
+      style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
+      className={cn(
+        "py-1.5 pr-2 pl-(--tree-indent) text-1xs leading-relaxed break-words",
+        danger ? "text-danger-text" : "text-ink-muted",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** root 外を指す symlink は開くと 400 になるため、一覧の時点で印を付ける */
+function SymlinkMark() {
+  return <span className="shrink-0 rounded border border-line px-1 text-3xs leading-4 text-ink-ghost">リンク</span>;
+}

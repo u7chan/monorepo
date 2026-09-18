@@ -1,6 +1,6 @@
 /**
  * ファイルツリーの状態更新 (開閉・子のマージ・エラー保持)。DOM に依存しない純関数だけを置き、
- * 取得の起動と描画は FileTreePage が担う。キーはページの root 相対パスで、ページの root が "."。
+ * 取得の起動と描画は FileBrowser が担う。キーは root 相対パスで、root が "." のときはワークスペース root。
  * ページの root からワークスペース root 相対 (GET /api/files の path) への変換は fileTreeFetchPath が担う。
  */
 import type { FileEntry } from "../types";

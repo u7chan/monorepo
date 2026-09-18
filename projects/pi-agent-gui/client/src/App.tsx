@@ -9,12 +9,14 @@ import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { Sidebar } from "./components/Sidebar";
+import { SessionFilesPanel } from "./components/SessionFilesPanel";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { useAgentDesk } from "./hooks/useAgentDesk";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
 import { cn } from "./lib/cn";
+import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
@@ -25,6 +27,8 @@ export default function App() {
   const compact = compactMode !== null;
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // 右パネルの開閉は保存しない (起動時は閉。URL や localStorage に載せない)
+  const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
   // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定 5 画面 (lib/route.ts)
   const { route, navigate, lastSettingsSection } = useRoute();
   const mainView = route.view;
@@ -35,6 +39,8 @@ export default function App() {
   const openNav = useCallback(() => setNavOpen(true), []);
   const closeNav = useCallback(() => setNavOpen(false), []);
   const backToChat = useCallback(() => navigate({ view: "chat" }), [navigate]);
+  const toggleSessionFiles = useCallback(() => setSessionFilesOpen((open) => !open), []);
+  const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
   useEffect(() => {
@@ -143,6 +149,11 @@ export default function App() {
     },
   };
 
+  // 右パネルは選択中セッションの作業フォルダ (payload.cwd) を root にする。設定 → ファイル はワークスペース root
+  // 固定なので、同じ FileBrowser を別の root で使い分ける (root が "" のときは出さない)
+  const filesRoot = sessionFilesRoot({ desktop: layout === "desktop", chatView: mainView === "chat", cwd: desk.cwd });
+  const filesPanelOpen = filesRoot !== "" && sessionFilesOpen;
+
   const activeSession = desk.sessions.find((item) => item.sessionId === desk.sessionId);
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = desk.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
@@ -160,80 +171,99 @@ export default function App() {
       )}
     >
       {compact ? null : <Sidebar {...navProps} />}
-      <main className="grid min-h-0 grid-rows-1 overflow-hidden">
-        {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
-            実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
-        <div
-          className={
-            mainView === "settings" ? "hidden" : "grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
-          }
-        >
-          {compactMode ? (
-            <CompactBar
-              mode={compactMode}
-              title={barTitle}
-              agentName={barAgentName}
-              runtimeStatus={desk.runtimeStatus}
-              onOpenNav={openNav}
+      <main
+        className={cn(
+          "grid min-h-0 grid-rows-1 overflow-hidden",
+          // 右パネルはシェルの 3 カラム目 (チャット列の隣)。狭い viewport では 30vw まで縮めてチャット列を残す
+          filesPanelOpen && "grid-cols-[minmax(0,1fr)_min(360px,30vw)]",
+        )}
+      >
+        <div className="grid min-h-0 grid-rows-1 overflow-hidden">
+          {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
+              実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
+          <div
+            className={
+              mainView === "settings" ? "hidden" : "grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
+            }
+          >
+            {compactMode ? (
+              <CompactBar
+                mode={compactMode}
+                title={barTitle}
+                agentName={barAgentName}
+                runtimeStatus={desk.runtimeStatus}
+                onOpenNav={openNav}
+              />
+            ) : (
+              <Topbar
+                runtimeStatus={desk.runtimeStatus}
+                sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
+              />
+            )}
+            <ChatArea
+              visible={mainView === "chat"}
+              bubbles={desk.chat.bubbles}
+              compactions={desk.chat.compactions}
+              compact={compact}
+              suggestions={desk.selectedAgent?.suggestions}
+              onSuggestion={handleSend}
             />
-          ) : (
-            <Topbar runtimeStatus={desk.runtimeStatus} />
-          )}
-          <ChatArea
-            visible={mainView === "chat"}
-            bubbles={desk.chat.bubbles}
-            compactions={desk.chat.compactions}
-            compact={compact}
-            suggestions={desk.selectedAgent?.suggestions}
-            onSuggestion={handleSend}
-          />
-          <Composer
-            visible={mainView === "chat"}
-            activity={desk.chat.activity}
-            runtimeReady={desk.health?.ready !== false}
-            sending={desk.sending}
-            stopVisible={desk.stopVisible}
-            queueDepth={desk.chat.queueDepth}
-            context={desk.chat.context}
-            settings={desk.composerSettings}
-            agents={desk.catalog.agents}
-            agentId={desk.agentId}
-            mode={layout}
-            onSend={handleSend}
-            onStop={handleStop}
-            onChangeModel={desk.changeModel}
-            onChangeThinkingLevel={desk.changeThinkingLevel}
-            onChangeAgent={handleAgentChange}
-          />
-        </div>
-        {mainView === "settings" ? (
-          settingsSection === "agents" ? (
-            <AgentSettingsPage
-              {...pageProps}
-              catalog={desk.catalog}
+            <Composer
+              visible={mainView === "chat"}
+              activity={desk.chat.activity}
+              runtimeReady={desk.health?.ready !== false}
+              sending={desk.sending}
+              stopVisible={desk.stopVisible}
+              queueDepth={desk.chat.queueDepth}
+              context={desk.chat.context}
+              settings={desk.composerSettings}
+              agents={desk.catalog.agents}
               agentId={desk.agentId}
-              refreshCatalog={refreshCatalog}
-              modelOptions={desk.health?.modelOptions ?? []}
-              defaultModel={desk.health?.model}
-              defaultThinkingLevel={desk.health?.defaultThinkingLevel}
+              mode={layout}
+              onSend={handleSend}
+              onStop={handleStop}
+              onChangeModel={desk.changeModel}
+              onChangeThinkingLevel={desk.changeThinkingLevel}
+              onChangeAgent={handleAgentChange}
             />
-          ) : settingsSection === "skills" ? (
-            <SkillSettingsPage {...pageProps} catalog={desk.catalog} refreshCatalog={refreshCatalog} />
-          ) : settingsSection === "files" ? (
-            // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
-            // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
-            <FileTreePage {...pageProps} cwd="" />
-          ) : settingsSection === "backup" ? (
-            <BackupPage
-              {...pageProps}
-              catalog={desk.catalog}
-              projects={desk.projects}
-              sessions={desk.sessions}
-              refreshCatalog={refreshCatalog}
-            />
-          ) : (
-            <AppearancePage {...pageProps} />
-          )
+          </div>
+          {mainView === "settings" ? (
+            settingsSection === "agents" ? (
+              <AgentSettingsPage
+                {...pageProps}
+                catalog={desk.catalog}
+                agentId={desk.agentId}
+                refreshCatalog={refreshCatalog}
+                modelOptions={desk.health?.modelOptions ?? []}
+                defaultModel={desk.health?.model}
+                defaultThinkingLevel={desk.health?.defaultThinkingLevel}
+              />
+            ) : settingsSection === "skills" ? (
+              <SkillSettingsPage {...pageProps} catalog={desk.catalog} refreshCatalog={refreshCatalog} />
+            ) : settingsSection === "files" ? (
+              // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
+              // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
+              <FileTreePage {...pageProps} cwd="" />
+            ) : settingsSection === "backup" ? (
+              <BackupPage
+                {...pageProps}
+                catalog={desk.catalog}
+                projects={desk.projects}
+                sessions={desk.sessions}
+                refreshCatalog={refreshCatalog}
+              />
+            ) : (
+              <AppearancePage {...pageProps} />
+            )
+          ) : null}
+        </div>
+        {filesPanelOpen ? (
+          <SessionFilesPanel
+            key={filesRoot}
+            root={filesRoot}
+            runEndSeq={desk.chat.runEndSeq}
+            onClose={closeSessionFiles}
+          />
         ) : null}
       </main>
       {compact && navOpen ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}

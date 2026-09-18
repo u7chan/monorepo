@@ -48,10 +48,11 @@
 
 | キー | 内容 | 復元するもの |
 | --- | --- | --- |
-| `pi-agent-files` | cwd ごとの snapshot を 1 キーに持つ（version 付き） | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
+| `pi-agent-files` | cwd ごとの snapshot を 1 キーに持つ（version 付き）。cwd は 設定 → ファイル の `"."` と、チャットの右パネルで開いたセッションの作業フォルダ | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
 | `pi-agent-settings-section` | 最後に開いていた設定セクション | 「設定」で戻る先（正は URL で、これは `/` からの補助） |
 
 - `pi-agent-files` は本文・children・loading・error を保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題。復帰時は既存の取得経路で取り直す）。範囲の詳細は [file-preview.md](file-preview.md#復帰f5画面の往復)
+- 右パネルはセッションごとに cwd が増えるため、多数のセッションで開くと先に書かれた cwd から落ちる（cwd 上限）。パネルの開閉自体は保存しないので、閉じた状態では何も書かない（タブと展開が空の snapshot は cwd ごと消す）
 - cwd は取得 root と同じ単位（`normalizeFileTreeRoot` の結果）で保存するため、`""` と `"."` は同じキーになり、絶対パスも root へ畳む
 - 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）
 - 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす。書き込み側も読み手と同じ検証を通し、読み手が捨てる形（上限超えや active の不整合）は書かない（書くと次の起動でその cwd のタブもモードも失われる）
@@ -66,5 +67,6 @@
 - 管理フォームの下書き（選択中の定義の編集値）はページが持つ。選択対象とカタログの変更を render 中に検出して初期化し、カタログ再読込でも未保存入力をリセットする既存の挙動を維持する（置き場所の理由は [ui-layout.md](ui-layout.md) の「compact の詳細シート」）。
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間だけ止めて、戻ったときに最新位置へ揃える）。コピー完了待ちの要求は cleanup で無効化する。
 - フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` が固定する。
-- ファイル画面の復元は `FileTreePage` の mount ごとに 1 回。root は常にワークスペース root（`cwd=""` → `"."`）で確定するため、起動処理（`useAgentDesk` の boot）の完了を待たずに復元・取得・保存する
+- ファイル画面の復元は `FileBrowser` の mount ごとに 1 回。設定 → ファイル の root は常にワークスペース root（`cwd=""` → `"."`）で確定し、チャットの右パネル（`SessionFilesPanel`）は選択中セッションの作業フォルダ（`payload.cwd`）を root にする。どちらも起動処理（`useAgentDesk` の boot）の完了を待たずに復元・取得・保存する
+- チャットの右パネルの開閉は `App` の state で、保存しない（起動時は閉、URL にも載せない）。run_end での取り直しは `ChatState.runEndSeq`（reducer が `run_end` と、`running` を抜けた `resync` で 1 ずつ進める）を起点にし、値が変わったときだけ撃つ。描画間の `runStatus` の差では、同じバッチで届いた `run_start` / `run_end` を React が 1 回の描画にまとめるため取りこぼす
 - 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`pi-agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない
