@@ -1,7 +1,7 @@
 // 会話ストアの永続化と復元。SessionStore とスタブ pi / スタブサンドボックスを組み合わせて検証する。
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -55,6 +55,46 @@ function createStore(
 
 async function readMeta(id: string, storeDir: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(sessionMetaPath(id, storeDir), "utf8")) as Record<string, unknown>;
+}
+
+/**
+ * 本文を持たない (ツール呼び出しだけの) assistant ターンを JSONL へ足す。
+ * 履歴には残るが表示メッセージには数えないため、messageCount が 2 つの定義でずれる入力になる。
+ */
+async function appendToolOnlyTurn(id: string, storeDir: string): Promise<void> {
+  const file = sessionJsonlPath(id, storeDir);
+  const parsed = parseSessionFile(await readFile(file, "utf8"), id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  const at = new Date().toISOString();
+  const turn = [
+    {
+      type: "message",
+      id: "entry-tool-user",
+      parentId: parsed.entries.at(-1)?.id ?? null,
+      timestamp: at,
+      message: { role: "user", content: "ファイルを読んで", timestamp: Date.now() },
+    },
+    {
+      type: "message",
+      id: "entry-tool-call",
+      parentId: "entry-tool-user",
+      timestamp: at,
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.txt" } }],
+        timestamp: Date.now(),
+      },
+    },
+    {
+      type: "message",
+      id: "entry-tool-answer",
+      parentId: "entry-tool-call",
+      timestamp: at,
+      message: { role: "assistant", content: [{ type: "text", text: "読んだ結果です" }], timestamp: Date.now() },
+    },
+  ];
+  await writeFile(file, serializeSession(parsed.header, [...parsed.entries, ...turn]));
 }
 
 test("永続化したセッションを新しい store が復元し、続きから送信できる", async () => {
@@ -140,44 +180,14 @@ test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復
     await store1.close();
 
     // 保存済みの履歴へ、本文を持たない (ツール呼び出しだけの) assistant ターンを足す
-    const file = sessionJsonlPath(created.id, storeDir);
-    const parsed = parseSessionFile(await readFile(file, "utf8"), created.id);
-    assert.equal(parsed.kind, "ok");
-    if (parsed.kind !== "ok") return;
-    const at = new Date().toISOString();
-    const toolTurn = [
-      {
-        type: "message",
-        id: "entry-tool-user",
-        parentId: parsed.entries.at(-1)?.id ?? null,
-        timestamp: at,
-        message: { role: "user", content: "ファイルを読んで", timestamp: Date.now() },
-      },
-      {
-        type: "message",
-        id: "entry-tool-call",
-        parentId: "entry-tool-user",
-        timestamp: at,
-        message: {
-          role: "assistant",
-          content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.txt" } }],
-          timestamp: Date.now(),
-        },
-      },
-      {
-        type: "message",
-        id: "entry-tool-answer",
-        parentId: "entry-tool-call",
-        timestamp: at,
-        message: { role: "assistant", content: [{ type: "text", text: "読んだ結果です" }], timestamp: Date.now() },
-      },
-    ];
-    await writeFile(file, serializeSession(parsed.header, [...parsed.entries, ...toolTurn]));
+    await appendToolOnlyTurn(created.id, storeDir);
 
     const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store2.init();
     const record = await store2.resolve(created.id);
     assert.ok(record);
+    const events: EventEntry[] = [];
+    store2.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
     store2.postMessage(record, "続き");
     await waitFor(() => record.run?.status === "completed", 3000, "run completed");
     await store2.flush(record);
@@ -188,6 +198,9 @@ test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復
     assert.equal(record.session.messages.length, live + 1, "ツール呼び出しのターンは履歴には残る");
     assert.equal((await readMeta(created.id, storeDir)).messageCount, live, "meta も同じ定義");
     assert.equal(store2.payload(record).messages.length, live, "本文と件数が同じ集合");
+    const runEnd = events.find((entry) => entry.type === "run_end");
+    assert.ok(runEnd);
+    assert.equal(runEnd.data.messageCount, live, "run_end も一覧 / meta と同じ定義");
     await store2.close();
 
     const store3 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
@@ -196,6 +209,52 @@ test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復
     const restored = await store3.resolve(created.id);
     assert.ok(restored);
     assert.equal(store3.summary(restored).messageCount, live, "復元後の summary も同じ値");
+    await store3.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("古い定義で保存された meta の messageCount は、セッションを開いたときに書き戻す", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-backfill-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const created = await store1.create({ agentId: "agent-general" });
+    // 実効モデルと一致する model_change を先に保存しておく。これが無いと復元時に
+    // recordEffectiveModel が追記側で true を返し、messageCount の補正条件を検証できない
+    await store1.updateSettings(created, { model: STUB_MODEL });
+    store1.postMessage(created, "最初の質問");
+    await waitFor(() => created.run?.status === "completed", 3000, "run completed");
+    await store1.flush(created);
+    await store1.close();
+
+    await appendToolOnlyTurn(created.id, storeDir);
+    // 表示は 4 件に対して生の履歴は 5 件。古い定義で書かれた meta を再現する
+    const staleCount = 5;
+    await writeFile(
+      sessionMetaPath(created.id, storeDir),
+      `${JSON.stringify({ ...(await readMeta(created.id, storeDir)), messageCount: staleCount }, null, 2)}\n`,
+    );
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    assert.equal(store2.list()[0]?.messageCount, staleCount, "走査は meta の保存値を使う");
+
+    const file = sessionJsonlPath(created.id, storeDir);
+    const before = await stat(file);
+    const record = await store2.resolve(created.id);
+    assert.ok(record);
+    await store2.flush(record);
+    assert.equal((await readMeta(created.id, storeDir)).messageCount, 4, "開いたときに書き戻す");
+    assert.equal((await stat(file)).ino, before.ino, "履歴を書き直さず meta だけを補正する");
+    await store2.close();
+
+    const store3 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store3.init();
+    assert.equal(store3.list()[0]?.messageCount, 4, "再起動後の一覧も書き戻した値");
     await store3.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });

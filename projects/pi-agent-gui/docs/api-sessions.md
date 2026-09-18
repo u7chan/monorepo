@@ -28,6 +28,8 @@
 
 `projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴は残る）。復元したセッションも同じ規則で解決する。
 
+`messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
+
 ## `POST /api/sessions`
 
 セッション作成。body は任意。
@@ -175,7 +177,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |
-| `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }` |
+| `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合） |

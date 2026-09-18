@@ -402,8 +402,11 @@ export class SessionStore {
       });
     }
     this.records.set(id, record);
-    // フォールバックで実効モデルが変わったときは、その記録を今のうちに永続化する
+    // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
+    // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
+    const backfillCount = meta.messageCount !== displayableMessages(session, this.masker).length;
     if (modelRecorded) await this.persist(record);
+    else if (backfillCount) await this.persist(record, { jsonl: false });
     return record;
   }
 
@@ -715,8 +718,11 @@ export class SessionStore {
     }
   }
 
-  /** meta と JSONL の書込みを直列化する。失敗は record.persistError に残す (in-memory の実行は止めない) */
-  persist(record: SessionRecord): Promise<void> {
+  /**
+   * meta と JSONL の書込みを直列化する。失敗は record.persistError に残す (in-memory の実行は止めない)。
+   * `jsonl: false` は履歴が変わっていない呼び出し用 (meta だけを書く)。
+   */
+  persist(record: SessionRecord, { jsonl = true }: { jsonl?: boolean } = {}): Promise<void> {
     if (!record.writer || !this.storeDir) return Promise.resolve();
     const storeDir = this.storeDir;
     const run = async (): Promise<void> => {
@@ -747,10 +753,12 @@ export class SessionStore {
       let failure: string | undefined;
       try {
         await writeSessionMeta(storeDir, meta);
-        await record.writer?.schedule(
-          sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
-          entriesOf(session),
-        );
+        if (jsonl) {
+          await record.writer?.schedule(
+            sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
+            entriesOf(session),
+          );
+        }
       } catch (error) {
         failure = messageFor(error);
       }
@@ -865,7 +873,9 @@ export class SessionStore {
         runId: run.id,
         status: run.status,
         error: run.error,
-        messageCount: session.messages.length,
+        // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
+        // 戻すと同名フィールドの定義が 2 つに戻る
+        messageCount: displayableMessages(session, this.masker).length,
         queueDepth: record.queue.length,
         // SDK は message_end をリスナーへ配ってから履歴へ入れるため、usage イベントの context は
         // 直前の応答までの値になる (compaction 直後は不明値のまま)。ここでは履歴反映済みの値を配る。
