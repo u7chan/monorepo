@@ -66,5 +66,5 @@
 - 管理フォームの下書き（選択中の定義の編集値）はページが持つ。選択対象とカタログの変更を render 中に検出して初期化し、カタログ再読込でも未保存入力をリセットする既存の挙動を維持する（置き場所の理由は [ui-layout.md](ui-layout.md) の「compact の詳細シート」）。
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間だけ止めて、戻ったときに最新位置へ揃える）。コピー完了待ちの要求は cleanup で無効化する。
 - フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` が固定する。
-- ファイル画面の復元は「確定した root を持つ `FileTreePage` の mount ごとに 1 回」。確定判定は `useAgentDesk` の `booted`（起動処理が失敗した場合も true）で行い、`""`（未確定と未所属が同じ値）では判定しない。`booted` が false の間は復元も取得も保存もしない
+- ファイル画面の復元は `FileTreePage` の mount ごとに 1 回。root は常にワークスペース root（`cwd=""` → `"."`）で確定するため、起動処理（`useAgentDesk` の boot）の完了を待たずに復元・取得・保存する
 - 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`pi-agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない
