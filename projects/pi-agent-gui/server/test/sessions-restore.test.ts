@@ -128,6 +128,80 @@ test("永続化したセッションを新しい store が復元し、続きか�
   }
 });
 
+test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復元後の messageCount が一致する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-count-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const created = await store1.create({ agentId: "agent-general" });
+    await store1.flush(created);
+    await store1.close();
+
+    // 保存済みの履歴へ、本文を持たない (ツール呼び出しだけの) assistant ターンを足す
+    const file = sessionJsonlPath(created.id, storeDir);
+    const parsed = parseSessionFile(await readFile(file, "utf8"), created.id);
+    assert.equal(parsed.kind, "ok");
+    if (parsed.kind !== "ok") return;
+    const at = new Date().toISOString();
+    const toolTurn = [
+      {
+        type: "message",
+        id: "entry-tool-user",
+        parentId: parsed.entries.at(-1)?.id ?? null,
+        timestamp: at,
+        message: { role: "user", content: "ファイルを読んで", timestamp: Date.now() },
+      },
+      {
+        type: "message",
+        id: "entry-tool-call",
+        parentId: "entry-tool-user",
+        timestamp: at,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.txt" } }],
+          timestamp: Date.now(),
+        },
+      },
+      {
+        type: "message",
+        id: "entry-tool-answer",
+        parentId: "entry-tool-call",
+        timestamp: at,
+        message: { role: "assistant", content: [{ type: "text", text: "読んだ結果です" }], timestamp: Date.now() },
+      },
+    ];
+    await writeFile(file, serializeSession(parsed.header, [...parsed.entries, ...toolTurn]));
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const record = await store2.resolve(created.id);
+    assert.ok(record);
+    store2.postMessage(record, "続き");
+    await waitFor(() => record.run?.status === "completed", 3000, "run completed");
+    await store2.flush(record);
+
+    // 表示メッセージは「ファイルを読んで」「読んだ結果です」「続き」「スタブの返答です」の 4 件
+    const live = store2.summary(record).messageCount;
+    assert.equal(live, 4, "live summary は表示メッセージ数");
+    assert.equal(record.session.messages.length, live + 1, "ツール呼び出しのターンは履歴には残る");
+    assert.equal((await readMeta(created.id, storeDir)).messageCount, live, "meta も同じ定義");
+    assert.equal(store2.payload(record).messages.length, live, "本文と件数が同じ集合");
+    await store2.close();
+
+    const store3 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store3.init();
+    assert.equal(store3.list()[0]?.messageCount, live, "未ロードの一覧も meta の同じ値");
+    const restored = await store3.resolve(created.id);
+    assert.ok(restored);
+    assert.equal(store3.summary(restored).messageCount, live, "復元後の summary も同じ値");
+    await store3.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("初回応答の完了前にユーザーメッセージが保存される", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "sessions-early-"));
   const { workspace } = stubWorkspace();

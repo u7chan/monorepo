@@ -6,7 +6,7 @@ import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import { compactionsOf } from "./compaction-view";
 import type { SessionRecord } from "./session-record";
-import { projectMessages, truncate } from "./session-projection";
+import { displayableMessages, projectMessages, truncate } from "./session-projection";
 import type { RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
@@ -89,7 +89,7 @@ export function projectSessionSummary({
     agentName: record.agent.name,
     status,
     queueDepth: record.queue.length,
-    messageCount: projectMessages(record.session, record.messageMetrics, masker).length,
+    messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     model: modelLabel(record.session.model),

@@ -56,26 +56,31 @@ export function isDisplayableMessage(message: { role: string; content: unknown }
   return Boolean(masker.mask(contentText(message.content))) || message.role === "user";
 }
 
+/**
+ * 表示対象のメッセージを履歴順に返す。本文 (projectMessages) と件数 (一覧 API / 永続化 meta) で
+ * 集合が食い違わないよう、判定は isDisplayableMessage だけに持たせる。
+ */
+export function displayableMessages(session: PiSessionLike, masker: SecretMasker): PiSessionLike["messages"] {
+  return session.messages.filter((message) => isDisplayableMessage(message, masker));
+}
+
 export function projectMessages(
   session: PiSessionLike,
   messageMetrics: WeakMap<object, MessageMetrics>,
   masker: SecretMasker,
 ): ChatMessage[] {
-  return session.messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .map((message) => {
-      const text = masker.mask(contentText(message.content));
-      const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
-      const metrics = messageMetrics.get(message);
-      return {
-        role: message.role as "user" | "assistant",
-        text,
-        stopReason: message.role === "assistant" ? message.stopReason : undefined,
-        // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
-        ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
-        ...(usage ? { usage } : {}),
-        ...(metrics ? { metrics } : {}),
-      };
-    })
-    .filter((message) => message.text || message.role === "user");
+  return displayableMessages(session, masker).map((message) => {
+    const text = masker.mask(contentText(message.content));
+    const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
+    const metrics = messageMetrics.get(message);
+    return {
+      role: message.role as "user" | "assistant",
+      text,
+      stopReason: message.role === "assistant" ? message.stopReason : undefined,
+      // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
+      ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
+      ...(usage ? { usage } : {}),
+      ...(metrics ? { metrics } : {}),
+    };
+  });
 }
