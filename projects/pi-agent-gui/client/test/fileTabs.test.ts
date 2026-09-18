@@ -8,6 +8,7 @@ import {
   dropClosedPreviews,
   FILE_TAB_LIMIT,
   fileTabLabels,
+  keepsFullscreenPreview,
   openFileTab,
   previewModeFor,
   readPreview,
@@ -127,6 +128,24 @@ test("閉じたタブの表示モードだけを捨てる", () => {
   assert.deepEqual(dropClosedPreviewModes(modes, ["a.html"]), { "a.html": "source" });
   // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
   assert.equal(dropClosedPreviewModes(modes, ["a.html", "dir/b.html"]), modes);
+});
+
+// 全画面を続ける条件。全画面を出したタブ (第 1 引数) をそのまま表示している間だけ true になる
+test("全画面を続けるのは 全画面を出したタブの HTML プレビューだけ", () => {
+  assert.equal(keepsFullscreenPreview("a.html", "a.html", "preview"), true);
+  assert.equal(keepsFullscreenPreview("dir/b.htm", "dir/b.htm", "preview"), true);
+  // 他のタブへ切り替えると解除する (HTML 同士でも続けない)
+  assert.equal(keepsFullscreenPreview("a.html", "b.html", "preview"), false);
+  assert.equal(keepsFullscreenPreview("a.html", "dir/b.html", "preview"), false);
+  // 全画面のタブを閉じて次が繰り上がったときも、表示対象が変わるので解除する
+  assert.equal(keepsFullscreenPreview("a.html", "b.html", "source"), false, "繰り上がった先がソース表示");
+  // ソース表示へ切り替えると続けない
+  assert.equal(keepsFullscreenPreview("a.html", "a.html", "source"), false);
+  // HTML 以外 (他拡張子のタブ・拡張子の無いパス) はプレビューでも続けない
+  assert.equal(keepsFullscreenPreview("a.ts", "a.ts", "preview"), false);
+  assert.equal(keepsFullscreenPreview("a.xhtml", "a.xhtml", "preview"), false);
+  // 全画面でない (null) ときは常に false
+  assert.equal(keepsFullscreenPreview(null, "a.html", "preview"), false);
 });
 
 // 保存値からの復元。復元後は通常のタブ操作 (開閉・上限) にそのまま乗る

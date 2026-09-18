@@ -37,6 +37,16 @@ export function dropClosedPreviewModes(modes: PreviewModes, paths: string[]): Pr
   return kept.length === Object.keys(modes).length ? modes : Object.fromEntries(kept);
 }
 
+/**
+ * 全画面を続ける条件。全画面を出したタブ (`fullscreenPath`) をそのまま HTML のプレビューで表示している間だけ
+ * true になる。表示対象が変わったとき (他タブへの切替・閉じて繰り上がった場合。HTML 同士でも) と、
+ * ソース表示へ切り替えたときは false になり、全画面を解除する。
+ */
+export function keepsFullscreenPreview(fullscreenPath: string | null, activePath: string, mode: PreviewMode): boolean {
+  if (fullscreenPath === null || fullscreenPath !== activePath) return false;
+  return isHtmlPath(activePath) && mode === "preview";
+}
+
 export type FileTabsState = {
   /** 開いた順。選択では並びを変えない (IDE のタブと同じ) */
   paths: string[];
