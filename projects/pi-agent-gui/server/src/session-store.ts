@@ -325,6 +325,9 @@ export async function removeSessionDir(storeDir: string, id: string): Promise<vo
   await rm(sessionDirPath(storeDir, id), { recursive: true, force: true });
 }
 
+/** 追記の低レベル書込み。テストから部分書込み (ENOSPC) を再現できるように差し替え可能にする */
+export type WriteChunk = (fd: number, buffer: Buffer, offset: number, length: number, position: number) => number;
+
 /**
  * JSONL の追記ライター。確定バイト位置を基準に書き、部分書込みでは ftruncate してから再試行する。
  * 追記できない (並びが変わった / ファイルが無い) ときだけ全体を temp + rename で書き直す。
@@ -346,6 +349,7 @@ export class SessionFileWriter {
       completeBytes: 0,
       entries: [],
     },
+    private readonly writeChunk: WriteChunk = writeSync,
   ) {
     this.committedBytes = state.completeBytes;
     this.persistedCount = state.entries.length;
@@ -406,7 +410,7 @@ export class SessionFileWriter {
       let written = 0;
       for (;;) {
         try {
-          written += writeSync(fd, buffer, written, buffer.length - written, start + written);
+          written += this.writeChunk(fd, buffer, written, buffer.length - written, start + written);
           if (written === buffer.length) break;
         } catch (error) {
           // 部分書込みを確定位置まで巻き戻してから 1 回だけ再試行する
@@ -452,7 +456,7 @@ export class SessionFileWriter {
       const buffer = Buffer.from(text, "utf8");
       let written = 0;
       while (written < buffer.length) {
-        written += writeSync(fd, buffer, written, buffer.length - written);
+        written += this.writeChunk(fd, buffer, written, buffer.length - written, written);
       }
     } catch (error) {
       closeSync(fd);

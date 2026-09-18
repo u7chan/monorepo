@@ -85,9 +85,11 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
     events: async (c: Context) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
-      // Last-Event-ID (`<generation>:<seq>`) を優先し、なければ ?after= を使う
+      // Last-Event-ID (`<generation>:<seq>`) を優先し、なければ query の generation + after を使う
       const lastEventId = c.req.header("Last-Event-ID");
-      const after = lastEventId ?? c.req.query("after");
+      const queryGeneration = c.req.query("generation");
+      const queryAfter = c.req.query("after");
+      const after = lastEventId ?? (queryGeneration ? `${queryGeneration}:${queryAfter ?? "0"}` : queryAfter);
 
       return withSseHeaders(
         streamSSE(c, async (stream) => {

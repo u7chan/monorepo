@@ -170,6 +170,48 @@ test("SessionFileWriter keeps the original file when it cannot write", async () 
   }
 });
 
+test("SessionFileWriter rolls back a partial write and retries from the committed position", async () => {
+  const { writeSync } = await import("node:fs");
+  const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
+  try {
+    await prepareSessionStore(dir);
+    const id = "a1b2c3d4e5";
+    const header = sessionHeaderOf({ id, createdAt: 1 }, "/work");
+    const first = messageEntry("e1", null);
+    const second = messageEntry("e2", "e1");
+    // 追記の途中で ENOSPC にするには、先に header + e1 を持つファイルを作る
+    await new SessionFileWriter(dir, id).schedule(header, [first]);
+    const persisted = parseSessionFile(await readFile(sessionJsonlPath(id, dir), "utf8"), id);
+    assert.equal(persisted.kind, "ok");
+    if (persisted.kind !== "ok") return;
+
+    // 1 回目の追記だけ途中まで書いて ENOSPC にし、再試行では成功させる
+    let calls = 0;
+    const writer = new SessionFileWriter(
+      dir,
+      id,
+      { completeBytes: persisted.completeBytes, entries: persisted.entries },
+      (fd, buffer, offset, length, position) => {
+        calls += 1;
+        if (calls === 1) {
+          const half = Math.floor(length / 2);
+          if (half > 0) writeSync(fd, buffer, offset, half, position);
+          throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+        }
+        return writeSync(fd, buffer, offset, length, position);
+      },
+    );
+    await writer.schedule(header, [first, second]);
+    assert.equal(writer.error, undefined);
+    assert.ok(calls > 1, "再試行される");
+    const text = await readFile(sessionJsonlPath(id, dir), "utf8");
+    // 部分書込みが残らず、entry が重複・連結しない
+    assert.equal(text, serializeSession(header, [first, second]));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SessionFileWriter serializes overlapping schedules", async () => {
   const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
   try {
