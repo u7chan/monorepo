@@ -187,7 +187,7 @@ export function Sidebar({
       )}
 
       <div className="mt-auto grid gap-2">
-        <div className="text-2xs leading-relaxed text-ink-ghost">ローカル実行 · インメモリセッション</div>
+        <div className="text-2xs leading-relaxed text-ink-ghost">ローカル実行 · セッションはサーバーに保存</div>
         {mode === "nav" ? (
           <MenuItem variant="nav" icon={<GearIcon />} label="設定" onClick={() => onSelectMode("settings")} />
         ) : null}

@@ -90,7 +90,7 @@ $PI_SESSION_STORE/<id>/
 
 ## 復元
 
-- 起動時に store を走査して `meta.json` を読み、一覧用 descriptor（id / title / agent 表示情報 / projectCwd / createdAt / lastUsedAt / messageCount）を作る。SDK セッションは開くときに作る。
+- 起動時に store を走査して `meta.json` を読み、一覧用 descriptor（id / title / agent 表示情報 / projectCwd / createdAt / lastUsedAt / messageCount）を作る。SDK セッションは開くときに作る。走査は起動時の 1 回だけなので、稼働中に外部から store へフォルダを足しても再起動するまで一覧に出ない。
 - 開く処理: JSONL を検証つきで読み、`SessionManager.inMemory(cwd, { id }, entries)` を作り、作業フォルダの存在を保証し、`promptSnapshot` から resource loader を組み、モデルを解決して `createAgentSession` に渡す。
 - 破損・model 不在などで開けない場合も一覧からは消さない（descriptor を保持）。
 
@@ -116,9 +116,9 @@ $PI_SESSION_STORE/<id>/
 - `loading` は完了時に状態を再確認し、`deleting` なら作った SDK を dispose して公開しない。
 - sweep は「購読者（SSE 接続）がいない・実行中でない・書込みが残っていない」ときだけ `evicting` を予約してメモリから外す。flush に失敗したときは破棄を見送って記録を残す（次の sweep で再試行）。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
-- `DELETE` は履歴だけ消し、作業フォルダは残す（サンドボックスに削除 API が無く、アプリはユーザーのファイルを消さない方針）。confirm は「セッションの履歴を削除します。ファイルは残ります」に変える。
+- `DELETE` は履歴だけ消し、作業フォルダは残す（サンドボックスに削除 API が無く、アプリはユーザーのファイルを消さない方針）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
 - プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
-- プロジェクト解除の確認文は「登録を解除し、実行中のセッションを停止します。履歴とファイルは残ります」に変える。
+- プロジェクト解除の confirm は `「<プロジェクト名>」の登録を解除します。配下の <件数> 件のセッションを停止します（履歴とファイルは残ります）。` のように、対象のプロジェクト名と配下のセッション数を示す。
 
 ## SSE の世代
 

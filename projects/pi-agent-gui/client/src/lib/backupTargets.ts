@@ -34,7 +34,7 @@ export const BACKUP_TARGETS: BackupTarget[] = [
     id: "sessions",
     label: "会話履歴",
     description: "セッションとメッセージ",
-    store: "サーバーのメモリ",
+    store: "サーバーのディスク",
     ready: false,
   },
   { id: "appearance", label: "外観", description: "選んでいるテーマ", store: "このブラウザ", ready: false },
