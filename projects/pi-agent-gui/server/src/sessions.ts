@@ -402,10 +402,11 @@ export class SessionStore {
       });
     }
     this.records.set(id, record);
-    // 復元時に実効モデルが変わったときと、meta の messageCount が表示メッセージ数とずれたときは、
-    // 今のうちに永続化する (走査だけでは直らない古い定義の値をここで収束させる)
+    // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
+    // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
     const backfillCount = meta.messageCount !== displayableMessages(session, this.masker).length;
-    if (modelRecorded || backfillCount) await this.persist(record);
+    if (modelRecorded) await this.persist(record);
+    else if (backfillCount) await this.persist(record, { jsonl: false });
     return record;
   }
 
@@ -717,8 +718,11 @@ export class SessionStore {
     }
   }
 
-  /** meta と JSONL の書込みを直列化する。失敗は record.persistError に残す (in-memory の実行は止めない) */
-  persist(record: SessionRecord): Promise<void> {
+  /**
+   * meta と JSONL の書込みを直列化する。失敗は record.persistError に残す (in-memory の実行は止めない)。
+   * `jsonl: false` は履歴が変わっていない呼び出し用 (meta だけを書く)。
+   */
+  persist(record: SessionRecord, { jsonl = true }: { jsonl?: boolean } = {}): Promise<void> {
     if (!record.writer || !this.storeDir) return Promise.resolve();
     const storeDir = this.storeDir;
     const run = async (): Promise<void> => {
@@ -749,10 +753,12 @@ export class SessionStore {
       let failure: string | undefined;
       try {
         await writeSessionMeta(storeDir, meta);
-        await record.writer?.schedule(
-          sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
-          entriesOf(session),
-        );
+        if (jsonl) {
+          await record.writer?.schedule(
+            sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
+            entriesOf(session),
+          );
+        }
       } catch (error) {
         failure = messageFor(error);
       }

@@ -1,7 +1,7 @@
 // 会話ストアの永続化と復元。SessionStore とスタブ pi / スタブサンドボックスを組み合わせて検証する。
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -223,6 +223,9 @@ test("古い定義で保存された meta の messageCount は、セッション
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
     const created = await store1.create({ agentId: "agent-general" });
+    // 実効モデルと一致する model_change を先に保存しておく。これが無いと復元時に
+    // recordEffectiveModel が追記側で true を返し、messageCount の補正条件を検証できない
+    await store1.updateSettings(created, { model: STUB_MODEL });
     store1.postMessage(created, "最初の質問");
     await waitFor(() => created.run?.status === "completed", 3000, "run completed");
     await store1.flush(created);
@@ -240,10 +243,13 @@ test("古い定義で保存された meta の messageCount は、セッション
     await store2.init();
     assert.equal(store2.list()[0]?.messageCount, staleCount, "走査は meta の保存値を使う");
 
+    const file = sessionJsonlPath(created.id, storeDir);
+    const before = await stat(file);
     const record = await store2.resolve(created.id);
     assert.ok(record);
     await store2.flush(record);
     assert.equal((await readMeta(created.id, storeDir)).messageCount, 4, "開いたときに書き戻す");
+    assert.equal((await stat(file)).ino, before.ino, "履歴を書き直さず meta だけを補正する");
     await store2.close();
 
     const store3 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
