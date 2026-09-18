@@ -1,4 +1,4 @@
-/** pi ランタイムとインメモリセッションのファクトリ。認証はあえて pi の通常の解決 (auth.json / OAuth / プロバイダー環境変数) に委ねる。 */
+/** pi ランタイムと SDK セッションのファクトリ。認証はあえて pi の通常の解決 (auth.json / OAuth / プロバイダー環境変数) に委ねる。 */
 import {
   createAgentSession,
   DefaultResourceLoader,

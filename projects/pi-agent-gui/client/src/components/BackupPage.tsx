@@ -150,7 +150,7 @@ export function BackupPage({
     <SettingsPageLayout
       eyebrow="DATA"
       title="バックアップ"
-      caption="メモリ内のデータをファイルへ書き出し、読み込み直します。"
+      caption="アプリのデータをファイルへ書き出し、読み込み直します。"
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}

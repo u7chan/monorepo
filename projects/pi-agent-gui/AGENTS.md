@@ -2,7 +2,7 @@
 
 モノレポの `projects/pi-agent-gui`。既存の `projects/aiagent` とは別物。Node.js 24 / pnpm 10.34.5。
 
-pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + TypeScript**（`server/`、入力検証は zod）、フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4（`client/`）。client は `hono/client`（hc）で server の `AppType` を参照して型安全に API を呼ぶ。セッションとエージェント/スキル定義はメモリ内のみ（永続化しない）。作業用ツールはサンドボックス（別プロセス / 別コンテナ）へ分離済みで、BFF は子プロセスを起こさない。
+pi SDK を BFF に埋め込んだ小さなブラウザ GUI。BFF は **Hono + TypeScript**（`server/`、入力検証は zod）、フロントエンドは Vite + React 19 + TypeScript + Tailwind CSS v4（`client/`）。client は `hono/client`（hc）で server の `AppType` を参照して型安全に API を呼ぶ。セッションと会話履歴は BFF 専用の会話ストア（`PI_SESSION_STORE`）に保存され再起動後も復元される。エージェント / スキル定義とプロジェクトはメモリ内のみ（永続化しない）。作業用ツールはサンドボックス（別プロセス / 別コンテナ）へ分離済みで、BFF は子プロセスを起こさない。
 
 ## 検証
 
