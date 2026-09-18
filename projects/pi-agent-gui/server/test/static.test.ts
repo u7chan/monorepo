@@ -22,7 +22,7 @@ async function withDist(files: Record<string, string>, run: (request: Request) =
       await mkdir(dirname(filePath), { recursive: true });
       await writeFile(filePath, contents);
     }
-    const bff = await createBffApp({ cwd: "/tmp/project", pi: null, clientDistDir: distDir });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, clientDistDir: distDir });
     try {
       await run((path, init) => bff.app.request(path, init));
     } finally {

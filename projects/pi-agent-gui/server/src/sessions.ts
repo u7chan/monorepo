@@ -1,13 +1,15 @@
 /**
- * インメモリのセッションストア。ラン (prompt() 1 回) は HTTP リクエストから切り離して
+ * セッションのライフサイクル。ラン (prompt() 1 回) は HTTP リクエストから切り離して
  * バックグラウンドで走り、イベントは単調増加の seq 付きでログされるため購読者は途中参加・再接続できる。
  *
- * セッション状態の所有者はこのクラス 1 つに保つ (create と project 削除・settings 変更中の送信抑止・
- * queue / run / subscriber は複数箇所へ分けると競合を追えなくなる)。pi イベント変換と DTO 組み立ては
- * run-events / session-projection / compaction-view / session-payload の純関数・アダプタへ出す。
+ * 会話の永続化は session-store に委譲する。ここでは「このプロセスで live な record」と
+ * 「ストア上の descriptor (meta)」をまとめて扱い、id ごとの load / evict / delete を直列化する。
+ * pi イベント変換と DTO 組み立ては run-events / session-projection / compaction-view / session-payload の
+ * 純関数・アダプタへ出す。
  */
-import { randomUUID } from "node:crypto";
-import type { PiBff } from "./agent";
+import { randomBytes } from "node:crypto";
+import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
+import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
 import { compactionsOf } from "./compaction-view";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
@@ -24,11 +26,30 @@ import type {
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
 import { truncate } from "./session-projection";
+import type { SandboxWorkspaceClient } from "./sandbox/client";
+import {
+  SessionDamagedError,
+  SessionFileWriter,
+  generateSessionId,
+  listSessionIds,
+  prepareSessionStore,
+  readSessionFile,
+  readSessionMeta,
+  removeSessionDir,
+  sessionHeaderOf,
+  sessionWorkdirAbs,
+  sessionWorkdirRel,
+  writeSessionMeta,
+  type PromptSnapshot,
+  type SessionEntryLike,
+  type SessionMeta,
+} from "./session-store";
 import type {
   AgentPayloadInfo,
   AgentSkillInfo,
   CompactionInfo,
   EventEntry,
+  ModelRef,
   Project,
   RunStatus,
   SessionPayload,
@@ -36,6 +57,7 @@ import type {
   SkillDef,
   SSEEventData,
   SSEEventType,
+  ThinkingLevel,
 } from "./schema";
 
 const MAX_EVENT_LOG = 2000;
@@ -55,6 +77,54 @@ function httpError(statusCode: number, message: string): HttpLikeError {
   return error;
 }
 
+export interface SessionStoreOptions {
+  pi?: PiRuntimeLike | null;
+  catalog?: AgentCatalog;
+  masker?: SecretMasker | null;
+  projects?: ProjectStore | null;
+  /** 会話ストアの絶対パス。未指定は永続化なし (テスト・未設定のデプロイ) */
+  storeDir?: string | null;
+  /** ストアの設定エラー (ワークスペース内の指定など)。あるとセッション作成を 503 で拒む */
+  storeError?: string;
+  /** 作業フォルダを mkdir するサンドボックスクライアント (永続化ありのとき必須) */
+  workspace?: SandboxWorkspaceClient | null;
+  /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
+  rootCwd?: string;
+}
+
+function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
+  if (!model) return undefined;
+  return `${model.provider}/${model.id}`;
+}
+
+function parseModelLabel(value: string | undefined): ModelRef | undefined {
+  if (!value) return undefined;
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+}
+
+/** SSE のカーソル。`<generation>:<seq>` を基本とし、旧クライアントの数値のみも受ける */
+export function parseEventCursor(raw: string | undefined): { generation?: string; seq: number } | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const colon = raw.indexOf(":");
+  const generation = colon === -1 ? undefined : raw.slice(0, colon);
+  const seqText = colon === -1 ? raw : raw.slice(colon + 1);
+  const seq = Number.parseInt(seqText, 10);
+  if (!Number.isFinite(seq) || seq < 0) return undefined;
+  return generation ? { generation, seq } : { seq };
+}
+
+function entriesOf(session: PiSessionLike): SessionEntryLike[] {
+  const manager = session.sessionManager as { getEntries?(): unknown[]; getBranch?(): unknown[] } | undefined;
+  const entries = manager?.getEntries?.() ?? manager?.getBranch?.() ?? [];
+  return Array.isArray(entries) ? (entries as SessionEntryLike[]) : [];
+}
+
+function countDisplayableMessages(session: PiSessionLike): number {
+  return session.messages.filter((message) => message.role === "user" || message.role === "assistant").length;
+}
+
 export class SessionStore {
   pi: PiRuntimeLike | null;
   catalog: AgentCatalog;
@@ -64,25 +134,41 @@ export class SessionStore {
   projects: ProjectStore | null;
   records: Map<string, SessionRecord>;
   sweeper: ReturnType<typeof setInterval>;
+  /** 会話ストアの絶対パス。null は永続化なし */
+  storeDir: string | null;
+  /** 作業フォルダの作成に使う。BFF は作業領域のファイルを直接触らない */
+  workspace: SandboxWorkspaceClient | null;
+  rootCwd: string;
+  /** ストア上のメタデータ。live な record の分も持つ */
+  descriptors: Map<string, SessionMeta>;
+  /** id ごとのライフサイクル (load / evict)。完了まで同じ id の再ロードを待たせる */
+  lifecycle: Map<string, Promise<unknown>>;
+  /** 削除予約中の id */
+  deleting: Set<string>;
+  /** close 中は新規の利用を受け付けない */
+  closing: boolean;
+  /** ストアの設定エラー。永続化を有効にできない状態をセッション作成で 503 にする */
+  storeError: string | undefined;
+  /** sweep の二重実行を防ぐ */
+  sweeping: boolean;
 
-  constructor({
-    pi,
-    catalog,
-    masker,
-    projects,
-  }: {
-    pi?: PiRuntimeLike | null;
-    catalog?: AgentCatalog;
-    masker?: SecretMasker | null;
-    projects?: ProjectStore | null;
-  } = {}) {
+  constructor({ pi, catalog, masker, projects, storeDir, storeError, workspace, rootCwd }: SessionStoreOptions = {}) {
     if (!catalog) throw new Error("SessionStore requires an agent catalog");
     this.pi = pi || null;
     this.catalog = catalog;
     this.masker = masker ?? createSecretMasker([]);
     this.projects = projects ?? null;
+    this.storeDir = storeDir ?? null;
+    this.storeError = storeError;
+    this.workspace = workspace ?? null;
+    this.rootCwd = rootCwd ?? process.cwd();
     this.records = new Map();
-    this.sweeper = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
+    this.descriptors = new Map();
+    this.lifecycle = new Map();
+    this.deleting = new Set();
+    this.closing = false;
+    this.sweeping = false;
+    this.sweeper = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
     this.sweeper.unref?.();
   }
 
@@ -90,19 +176,31 @@ export class SessionStore {
     return this.records.size;
   }
 
+  /** store を走査して復元可能なセッションの descriptor を作る (SDK セッションは開かない) */
+  async init(): Promise<void> {
+    if (!this.storeDir) return;
+    await prepareSessionStore(this.storeDir);
+    for (const id of await listSessionIds(this.storeDir)) {
+      const meta = await readSessionMeta(this.storeDir, id);
+      if (meta) {
+        this.descriptors.set(id, meta);
+      } else {
+        console.warn(`[pi-agent-gui] セッションの meta.json を読めません: ${id}`);
+      }
+    }
+  }
+
   async create({ agentId, model, thinkingLevel, projectId }: CreateSessionOptions = {}): Promise<SessionRecord> {
+    if (this.closing) throw httpError(503, "サーバーを終了しています");
+    if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     if (!this.pi) {
-      const error = new Error("ランタイムを利用できません") as HttpLikeError;
-      error.statusCode = 503;
-      throw error;
+      throw httpError(503, "ランタイムを利用できません");
     }
     const project = this.resolveProject(projectId);
     const selectedAgentId = agentId || this.catalog.listAgents()[0]?.id;
     const agent = selectedAgentId ? this.catalog.getAgent(selectedAgentId) : undefined;
     if (!agent) {
-      const error = new Error("Agent not found") as HttpLikeError;
-      error.statusCode = 400;
-      throw error;
+      throw httpError(400, "Agent not found");
     }
     const skills = agent.skillIds
       .map((skillId) => this.catalog.getSkill(skillId))
@@ -119,30 +217,98 @@ export class SessionStore {
         description: skill.description,
       })),
     };
-    // どちらも未指定ならランタイム側のアプリ既定に委ねる。cwd は所属プロジェクトの相対パスで渡す。
-    const { session } = await this.pi.createSession({
+    const id = this.storeDir ? generateSessionId(this.storeDir) : randomBytes(5).toString("hex");
+    const workdir = this.storeDir ? sessionWorkdirRel(id) : (project?.cwd ?? "");
+    if (this.storeDir) await this.ensureWorkdir(workdir);
+    const promptSnapshot = composePromptSnapshot(agent, skills);
+    const created = await this.pi.createSession({
       agent: { ...agent, skillIds: [...agent.skillIds] },
       skills,
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
-      cwd: project?.cwd ?? "",
+      cwd: workdir,
+      ...(this.storeDir ? { sessionId: id } : {}),
+      promptSnapshot,
     });
     // 上記の await 中に DELETE /api/projects/:id が走ると、このセッションは破棄対象の
     // スナップショットに含まれない。登録の直前に存在を再確認し、消えていれば作った SDK セッションを
     // dispose して 400 にする (削除済みプロジェクトを参照する孤児を records に残さない)。
-    // この確認と records.set() の間に await を挟むと再び競合するため、必ず同期で登録する。
     if (projectId !== undefined && !this.projects?.get(projectId)) {
-      (session as PiSessionLike).dispose?.();
+      (created.session as PiSessionLike).dispose?.();
       throw httpError(400, `Project not found: ${projectId}`);
     }
-    const record: SessionRecord = {
-      id: randomUUID(),
-      session: session as PiSessionLike,
+    const record = this.buildRecord({
+      id,
+      session: created.session as PiSessionLike,
       agentId: agent.id,
-      ...(projectId ? { projectId } : {}),
       agent: agentInfo,
+      promptSnapshot: created.promptSnapshot ?? promptSnapshot,
+      workdir,
+      project,
       title: "",
       createdAt: Date.now(),
+      generationIndex: 1,
+    });
+    this.records.set(record.id, record);
+    if (this.storeDir) {
+      record.writer = new SessionFileWriter(this.storeDir, id);
+      await this.persist(record);
+    }
+    return record;
+  }
+
+  private buildRecord({
+    id,
+    session,
+    agentId,
+    agent,
+    promptSnapshot,
+    workdir,
+    project,
+    title,
+    createdAt,
+    generationIndex,
+  }: {
+    id: string;
+    session: PiSessionLike;
+    agentId: string;
+    agent: AgentPayloadInfo;
+    promptSnapshot: PromptSnapshot;
+    workdir: string;
+    project: Project | undefined;
+    title: string;
+    createdAt: number;
+    generationIndex: number;
+  }): SessionRecord {
+    const meta: SessionMeta = {
+      version: 1,
+      id,
+      title,
+      createdAt,
+      lastUsedAt: Date.now(),
+      messageCount: 0,
+      agentId,
+      agent,
+      promptSnapshot,
+      ...(project ? { projectCwd: project.cwd, projectName: project.name } : {}),
+      ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
+      ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+    };
+    return {
+      id,
+      session,
+      agentId,
+      ...(project ? { projectId: project.id, projectCwd: project.cwd, projectName: project.name } : {}),
+      workdir,
+      storeDir: this.storeDir ?? "",
+      promptSnapshot,
+      meta,
+      generation: randomBytes(4).toString("hex"),
+      generationIndex,
+      persistTail: Promise.resolve(),
+      agent,
+      title,
+      createdAt,
       lastUsedAt: Date.now(),
       seq: 0,
       events: [],
@@ -154,14 +320,126 @@ export class SessionStore {
       compactionMeta: new Map(),
       changingSettings: false,
     };
-    this.records.set(record.id, record);
+  }
+
+  private async ensureWorkdir(workdirRel: string): Promise<void> {
+    if (!this.storeDir) return;
+    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    await this.workspace.createDir(workdirRel);
+  }
+
+  /** 未ロードならストアから復元する。deleting / closing の id は undefined を返す */
+  async resolve(id: string): Promise<SessionRecord | undefined> {
+    if (this.deleting.has(id) || this.closing) return undefined;
+    const live = this.records.get(id);
+    if (live) return live;
+    const meta = this.descriptors.get(id);
+    if (!meta || !this.storeDir || !this.pi) return undefined;
+    const pending = this.lifecycle.get(id);
+    if (pending) {
+      await pending.catch(() => {});
+      return this.records.get(id);
+    }
+    const promise = this.load(meta);
+    this.lifecycle.set(id, promise);
+    try {
+      return await promise;
+    } finally {
+      if (this.lifecycle.get(id) === promise) this.lifecycle.delete(id);
+    }
+  }
+
+  private async load(meta: SessionMeta): Promise<SessionRecord> {
+    const id = meta.id;
+    if (this.deleting.has(id)) throw httpError(404, "Session not found");
+    const { parsed } = await readSessionFile(this.storeDir as string, id);
+    if (parsed.kind === "damaged") throw httpError(409, new SessionDamagedError(parsed.reason).message);
+    const entries = parsed.kind === "ok" ? parsed.entries : [];
+    const workdir = sessionWorkdirRel(id);
+    await this.ensureWorkdir(workdir);
+    const restored = this.restoreInputs(meta, entries);
+    const created = await (this.pi as PiRuntimeLike).createSession({
+      sessionId: id,
+      entries,
+      promptSnapshot: meta.promptSnapshot,
+      model: restored.model,
+      thinkingLevel: restored.thinkingLevel,
+      cwd: workdir,
+    });
+    const session = created.session as PiSessionLike;
+    if (this.deleting.has(id)) {
+      session.dispose?.();
+      throw httpError(404, "Session not found");
+    }
+    const modelRecorded = this.recordEffectiveModel(session, restored.recordedModel);
+    const record = this.buildRecord({
+      id,
+      session,
+      agentId: meta.agentId,
+      agent: meta.agent,
+      promptSnapshot: meta.promptSnapshot,
+      workdir,
+      project: undefined,
+      title: meta.title,
+      createdAt: meta.createdAt,
+      generationIndex: 2,
+    });
+    record.lastUsedAt = meta.lastUsedAt;
+    record.meta = meta;
+    if (this.storeDir) {
+      record.writer = new SessionFileWriter(this.storeDir, id, {
+        completeBytes: parsed.kind === "ok" ? parsed.completeBytes : 0,
+        entries,
+        needsSeparator: parsed.kind === "ok" ? parsed.needsSeparator : false,
+      });
+    }
+    this.records.set(id, record);
+    // フォールバックで実効モデルが変わったときは、その記録を今のうちに永続化する
+    if (modelRecorded) await this.persist(record);
     return record;
   }
 
+  /** JSONL の最後の model_change → meta.model → アプリ既定 の順に、whitelist 内の候補を決める */
+  private restoreInputs(
+    meta: SessionMeta,
+    entries: SessionEntryLike[],
+  ): { model?: ModelRef; recordedModel?: ModelRef; thinkingLevel?: ThinkingLevel } {
+    const lastModel = [...entries].reverse().find((entry) => entry.type === "model_change");
+    const recordedModel =
+      lastModel && typeof lastModel.provider === "string" && typeof lastModel.modelId === "string"
+        ? { provider: lastModel.provider, id: lastModel.modelId }
+        : undefined;
+    const candidate = [recordedModel, parseModelLabel(meta.model)].find(
+      (reference) => reference && this.pi?.resolveModel?.(reference),
+    );
+    const lastThinking = [...entries].reverse().find((entry) => entry.type === "thinking_level_change");
+    const thinkingLevel =
+      lastThinking && typeof lastThinking.thinkingLevel === "string"
+        ? (lastThinking.thinkingLevel as ThinkingLevel)
+        : (meta.thinkingLevel as ThinkingLevel | undefined);
+    return {
+      ...(candidate ? { model: candidate } : {}),
+      ...(recordedModel ? { recordedModel } : {}),
+      ...(thinkingLevel ? { thinkingLevel } : {}),
+    };
+  }
+
   /**
-   * チャット単位のモデル・Effort 変更。同じ SDK セッション・履歴・タイトルを保つ。
-   * 実行中・キューあり・SDK 非 idle・別の設定変更中は 409。
+   * 復元で実効モデルが保存値と変わったとき (whitelist 外 → アプリ既定) は、model_change entry を
+   * 追記して次回復元で元モデルへ戻らないようにする。SDK の setModel は thinking を触るため使わない。
    */
+  private recordEffectiveModel(session: PiSessionLike, recorded: ModelRef | undefined): boolean {
+    const effective = session.model;
+    if (!effective) return false;
+    if (recorded && recorded.provider === effective.provider && recorded.id === effective.id) return false;
+    const manager = session.sessionManager as
+      | { appendModelChange?: (provider: string, id: string) => void }
+      | undefined;
+    if (!manager?.appendModelChange) return false;
+    manager.appendModelChange(effective.provider, effective.id);
+    return true;
+  }
+
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
     if (
       this.isBusy(record) ||
@@ -172,9 +450,7 @@ export class SessionStore {
       throw httpError(409, "Session settings cannot be changed while the session is busy");
     }
     if (!this.pi) {
-      const error = new Error("ランタイムを利用できません") as HttpLikeError;
-      error.statusCode = 503;
-      throw error;
+      throw httpError(503, "ランタイムを利用できません");
     }
 
     // available へ厳密照合し、暗黙のフォールバックはしない
@@ -199,6 +475,7 @@ export class SessionStore {
     }
 
     record.lastUsedAt = Date.now();
+    await this.persist(record);
     // 実効値 (SDK 補正後) を正として、購読中の全クライアントへ同期する
     return this.emitResync(record);
   }
@@ -211,21 +488,13 @@ export class SessionStore {
     return payload;
   }
 
-  get(id: string): SessionRecord | undefined {
-    return this.records.get(id);
-  }
-
-  /**
-   * プロジェクト単位の破棄。destroy() が abort → dispose → 購読者への session_deleted まで行うため、
-   * 停止機構は足さず対象を絞るだけにする。
-   */
-  async destroyByProject(projectId: string): Promise<void> {
-    const targets = [...this.records.values()].filter((record) => record.projectId === projectId);
-    for (const record of targets) await this.destroy(record);
-  }
-
   list(): SessionSummary[] {
-    return [...this.records.values()].sort((a, b) => b.lastUsedAt - a.lastUsedAt).map((record) => this.summary(record));
+    const live = [...this.records.values()].map((record) => this.summary(record));
+    const liveIds = new Set(this.records.keys());
+    const persisted = [...this.descriptors.values()]
+      .filter((meta) => !liveIds.has(meta.id))
+      .map((meta) => this.summaryOfMeta(meta));
+    return [...live, ...persisted].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
   }
 
   statusOf(record: SessionRecord): RunStatus {
@@ -246,9 +515,7 @@ export class SessionStore {
     }
     if (this.statusOf(record) === "running" || record.session.isStreaming) {
       if (record.queue.length >= MAX_QUEUE_DEPTH) {
-        const error = new Error(`Message queue is full (max ${MAX_QUEUE_DEPTH})`) as HttpLikeError;
-        error.statusCode = 429;
-        throw error;
+        throw httpError(429, `Message queue is full (max ${MAX_QUEUE_DEPTH})`);
       }
     }
     if (!record.title) {
@@ -284,24 +551,32 @@ export class SessionStore {
   }
 
   /**
-   * `after` より後のバッファ済みエントリをリプレイする。クライアントが
-   * バッファより大きく遅れている場合はセッション全文を持つ resync を 1 件送る。
+   * `after` より後のバッファ済みエントリをリプレイする。復元で seq が 0 に戻っているため、
+   * 世代 (`<generation>:<seq>`) が一致しない場合はリプレイせず resync を送る。
    */
+  /** live な record の同期取得 (未ロードは resolve を使う) */
+  get(id: string): SessionRecord | undefined {
+    return this.records.get(id);
+  }
+
   subscribe(
     record: SessionRecord,
-    after: number | undefined,
+    after: string | number | undefined,
     send: (entry: EventEntry) => void,
     close?: () => void,
   ): () => void {
     const subscriber: SessionSubscriber = { send, close };
     record.subscribers.add(subscriber);
-    const cursor = after !== undefined && Number.isInteger(after) && after >= 0 ? after : record.seq;
+    const cursor = parseEventCursor(after === undefined ? undefined : String(after));
     const earliest = record.events.length > 0 ? record.events[0].seq : record.seq + 1;
-    if (cursor + 1 < earliest) {
+    const sameGeneration = cursor?.generation === record.generation;
+    // 世代不明の数値カーソルは、このプロセスで作った世代 (index 1) のときだけ差分として扱う
+    const usable = cursor && (sameGeneration || (cursor.generation === undefined && record.generationIndex === 1));
+    if (!usable || cursor.seq > record.seq || cursor.seq + 1 < earliest) {
       send({ seq: record.seq, type: "resync", data: this.payload(record), at: Date.now() });
     } else {
       for (const entry of record.events) {
-        if (entry.seq > cursor) send(entry);
+        if (entry.seq > cursor.seq) send(entry);
       }
     }
     return () => record.subscribers.delete(subscriber);
@@ -312,6 +587,7 @@ export class SessionStore {
       record,
       status: this.statusOf(record),
       cwd: this.cwdOf(record),
+      projectId: this.projectIdOf(record),
       masker: this.masker,
     });
   }
@@ -321,16 +597,42 @@ export class SessionStore {
   }
 
   summary(record: SessionRecord): SessionSummary {
-    return projectSessionSummary({ record, status: this.statusOf(record), masker: this.masker });
+    return projectSessionSummary({
+      record,
+      status: this.statusOf(record),
+      projectId: this.projectIdOf(record),
+      masker: this.masker,
+    });
   }
 
-  /**
-   * SessionPayload.cwd は rootCwd 相対 (未所属は "")。プロジェクトは所属を変えられないため、
-   * SDK セッションに固定された作成時の cwd と同じ値を返す。
-   */
+  private summaryOfMeta(meta: SessionMeta): SessionSummary {
+    return {
+      sessionId: meta.id,
+      title: meta.title || "無題のセッション",
+      agentId: meta.agentId,
+      agentName: meta.agent.name,
+      status: "idle",
+      queueDepth: 0,
+      messageCount: meta.messageCount,
+      createdAt: meta.createdAt,
+      lastUsedAt: meta.lastUsedAt,
+      ...(meta.model ? { model: meta.model } : {}),
+      ...(this.projectIdOfCwd(meta.projectCwd) ? { projectId: this.projectIdOfCwd(meta.projectCwd) } : {}),
+    };
+  }
+
+  /** SessionPayload.cwd は rootCwd 相対。永続化ありでは作業フォルダ、なしでは従来どおりプロジェクト cwd */
   cwdOf(record: SessionRecord): string {
-    if (!record.projectId) return "";
-    return this.projects?.get(record.projectId)?.cwd ?? "";
+    return record.workdir;
+  }
+
+  private projectIdOf(record: SessionRecord): string | undefined {
+    return this.projectIdOfCwd(record.projectCwd);
+  }
+
+  private projectIdOfCwd(projectCwd: string | undefined): string | undefined {
+    if (!projectCwd) return undefined;
+    return this.projects?.findByCwd(projectCwd)?.id;
   }
 
   /** 未知の projectId は未所属へ落とさず 400 にする (登録漏れ・誤参照を黙って通さない)。 */
@@ -341,12 +643,52 @@ export class SessionStore {
     return project;
   }
 
-  async destroy(record: SessionRecord): Promise<void> {
-    if (record.run?.status === "running" || record.session.isStreaming) {
-      await record.session.abort().catch(() => {});
+  /** プロジェクト解除: 配下の live セッションを停止し、所属が外れた payload を購読者へ配る */
+  async releaseProject(projectCwd: string): Promise<void> {
+    for (const record of Array.from(this.records.values())) {
+      if (record.projectCwd !== projectCwd) continue;
+      if (this.isBusy(record) || record.session.isStreaming) {
+        await record.session.abort().catch(() => {});
+      }
+      record.projectId = undefined;
+      record.projectCwd = undefined;
+      record.projectName = undefined;
+      delete record.meta.projectCwd;
+      delete record.meta.projectName;
+      await this.persist(record);
+      this.emitResync(record);
     }
-    record.session.dispose?.();
-    this.records.delete(record.id);
+  }
+
+  /** 旧 API 互換: live な session を削除する (deleteSession と同じ) */
+  async destroy(record: SessionRecord): Promise<void> {
+    await this.deleteSession(record.id);
+  }
+
+  /** セッションを削除する。SDK を開かずに消せる (モデル未認証・JSONL 破損でも可)。作業フォルダは残す */
+  async deleteSession(id: string): Promise<boolean> {
+    if (!this.records.has(id) && !this.descriptors.has(id)) return false;
+    this.deleting.add(id);
+    try {
+      const pending = this.lifecycle.get(id);
+      if (pending) await pending.catch(() => {});
+      const record = this.records.get(id);
+      if (record) {
+        if (this.isBusy(record) || record.session.isStreaming) await record.session.abort().catch(() => {});
+        await this.flush(record);
+        record.session.dispose?.();
+        this.records.delete(id);
+        this.notifyDeleted(record);
+      }
+      if (this.storeDir) await removeSessionDir(this.storeDir, id);
+      this.descriptors.delete(id);
+      return true;
+    } finally {
+      this.deleting.delete(id);
+    }
+  }
+
+  private notifyDeleted(record: SessionRecord): void {
     const subscribers = [...record.subscribers];
     record.subscribers.clear();
     for (const subscriber of subscribers) {
@@ -368,20 +710,86 @@ export class SessionStore {
     }
   }
 
-  sweep(): void {
-    const cutoff = Date.now() - SESSION_TTL_MS;
-    for (const [id, record] of this.records) {
-      if (!this.isBusy(record) && record.lastUsedAt < cutoff) {
-        record.session.dispose?.();
-        this.records.delete(id);
+  /** meta と JSONL の書込みを直列化する。失敗しても reject せず writer の error に残す */
+  persist(record: SessionRecord): Promise<void> {
+    if (!record.writer || !this.storeDir) return Promise.resolve();
+    const storeDir = this.storeDir;
+    const run = async (): Promise<void> => {
+      if (this.deleting.has(record.id)) return;
+      const session = record.session;
+      const meta: SessionMeta = {
+        ...record.meta,
+        id: record.id,
+        title: record.title,
+        lastUsedAt: record.lastUsedAt,
+        messageCount: countDisplayableMessages(session),
+        agentId: record.agentId,
+        agent: record.agent,
+        promptSnapshot: record.promptSnapshot,
+        ...(record.projectCwd ? { projectCwd: record.projectCwd } : {}),
+        ...(record.projectName ? { projectName: record.projectName } : {}),
+        ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
+        ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+      };
+      if (!meta.projectCwd) {
+        delete meta.projectCwd;
+        delete meta.projectName;
       }
+      record.meta = meta;
+      this.descriptors.set(record.id, meta);
+      await writeSessionMeta(storeDir, meta);
+      await record.writer?.schedule(
+        sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
+        entriesOf(session),
+      );
+    };
+    const next = record.persistTail.then(run, run);
+    record.persistTail = next.catch(() => {});
+    return record.persistTail;
+  }
+
+  async flush(record: SessionRecord): Promise<void> {
+    await record.persistTail.catch(() => {});
+    await record.writer?.flush();
+  }
+
+  async sweep(): Promise<void> {
+    if (this.sweeping || this.closing) return;
+    this.sweeping = true;
+    try {
+      const cutoff = Date.now() - SESSION_TTL_MS;
+      // 破棄中に records を変更するため、走査対象は先に固める
+      for (const [id, record] of Array.from(this.records)) {
+        if (this.isBusy(record) || record.subscribers.size > 0) continue;
+        if (this.deleting.has(id) || this.lifecycle.has(id)) continue;
+        if (record.lastUsedAt >= cutoff) continue;
+        if (record.writer?.error) continue;
+        const promise = (async () => {
+          await this.flush(record);
+          // 保存に失敗した record は破棄せず残す (次の sweep で再試行する)
+          if (record.writer?.error) return;
+          record.session.dispose?.();
+          this.records.delete(id);
+        })();
+        this.lifecycle.set(id, promise);
+        try {
+          await promise;
+        } finally {
+          if (this.lifecycle.get(id) === promise) this.lifecycle.delete(id);
+        }
+      }
+    } finally {
+      this.sweeping = false;
     }
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     clearInterval(this.sweeper);
-    for (const record of this.records.values()) {
+    await Promise.allSettled(Array.from(this.lifecycle.values()));
+    for (const record of Array.from(this.records.values())) {
       if (this.isBusy(record)) await record.session.abort().catch(() => {});
+      await this.flush(record);
       record.session.dispose?.();
     }
     this.records.clear();
@@ -391,7 +799,7 @@ export class SessionStore {
   startRun(record: SessionRecord, text: string): RunState {
     const { session } = record;
     const run: RunState = {
-      id: randomUUID(),
+      id: randomBytes(8).toString("hex"),
       // ログ・SSE 用に保持するプロンプトはマスクする (モデルへ渡す text はユーザー入力そのまま)。
       prompt: this.masker.mask(text),
       status: "running",
@@ -426,6 +834,8 @@ export class SessionStore {
         // 直前の応答までの値になる (compaction 直後は不明値のまま)。ここでは履歴反映済みの値を配る。
         context: contextUsageOf(session),
       });
+      // 最後の assistant entry を取りこぼさないよう、ラン終了時に必ず保存する
+      void this.persist(record);
 
       if (record.queue.length > 0) {
         setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
@@ -440,6 +850,8 @@ export class SessionStore {
       compactionMeta: record.compactionMeta,
       emit: (type, data) => this.emit(record, type, data),
       emitResync: () => this.emitResync(record),
+      // SDK は listener 通知の後に entry を append する。1 拍置いてから読む (保存点の順序テストあり)
+      onPersist: () => queueMicrotask(() => void this.persist(record)),
       onSettled: (outcome) => finish(outcome),
     });
 
@@ -501,6 +913,7 @@ export type {
   CreateSessionOptions,
   PostMessageResultInternal,
   RunState,
+  SessionDescriptor,
   SessionRecord,
   SessionSubscriber,
   UpdateSessionSettingsInput,

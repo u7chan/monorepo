@@ -3,6 +3,7 @@
  * AgentSession のうち BFF が使う分だけを写し、スタブや旧 SDK でも動くよう欠けたフィールドを許す。
  */
 import type { AgentDef, ContextUsage, ModelRef, SkillDef, ThinkingLevel, Usage } from "./schema";
+import type { PromptSnapshot } from "./session-store";
 import { ContextUsageSchema, UsageSchema } from "./schema";
 
 /** compaction_end の result (SDK の CompactionResult のうち BFF が控える分) */
@@ -87,7 +88,13 @@ export interface PiRuntimeLike {
     thinkingLevel?: ThinkingLevel;
     /** rootCwd 相対の作業ディレクトリ (省略・空文字は root)。BFF が絶対パスへ解決する */
     cwd?: string;
-  }): Promise<{ session: unknown }>;
+    /** 復元時: アプリのセッション ID */
+    sessionId?: string;
+    /** 復元時: JSONL から読んだ entries (header は含めない) */
+    entries?: unknown[];
+    /** 復元時: 作成時のプロンプトスナップショット */
+    promptSnapshot?: PromptSnapshot;
+  }): Promise<{ session: unknown; promptSnapshot?: PromptSnapshot }>;
   /** availableModels との厳密一致。スタブでは未実装でもよい */
   resolveModel?(model: ModelRef): unknown;
 }

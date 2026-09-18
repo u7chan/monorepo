@@ -97,8 +97,8 @@ export function useAgentDesk() {
     async (projectId: string): Promise<void> => {
       const project = projects.find((item) => item.id === projectId);
       const count = sessions.filter((item) => item.projectId === projectId).length;
-      const head = project ? `「${project.name}」を削除します。` : "";
-      if (!window.confirm(`${head}配下の ${count} 件のセッションを停止して削除します。ディレクトリは残ります。`)) {
+      const head = project ? `「${project.name}」の登録を解除します。` : "";
+      if (!window.confirm(`${head}配下の ${count} 件のセッションを停止します（履歴とファイルは残ります）。`)) {
         return;
       }
       if (!(await removeProject(projectId))) return;

@@ -13,10 +13,12 @@ export function createHealthRoutes({
   pi,
   initError,
   cwd,
+  sessionStore,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
   cwd: string;
+  sessionStore?: { path: string | null; ok: boolean; error?: string };
 }) {
   return {
     health: (c: Context) => {
@@ -47,6 +49,7 @@ export function createHealthRoutes({
         tools: pi?.tools || [],
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,
+        ...(sessionStore ? { sessionStore } : {}),
         errorCode,
         error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
       });

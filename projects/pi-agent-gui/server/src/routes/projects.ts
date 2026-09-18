@@ -42,10 +42,12 @@ export function createProjectRoutes({
 
     remove: async (c: Context) => {
       const id = c.req.param("id") ?? "";
-      if (!projects.get(id)) return c.json({ error: "Project not found" }, 404);
-      // 先に登録を外し、破棄中の並行作成で孤児セッションを作らない (ディレクトリは触らない)
+      const project = projects.get(id);
+      if (!project) return c.json({ error: "Project not found" }, 404);
+      // 所属は読み取り時に projectCwd で解決するため、解除後のセッションは自然に未所属になる。
+      // 先に登録を外し、破棄中の並行作成で孤児セッションを作らない (ディレクトリ・履歴・ファイルは触らない)。
       projects.remove(id);
-      await store.destroyByProject(id);
+      await store.releaseProject(project.cwd);
       return c.json({ ok: true });
     },
   };

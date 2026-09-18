@@ -20,11 +20,13 @@ export function projectSessionPayload({
   record,
   status,
   cwd,
+  projectId,
   masker,
 }: {
   record: SessionRecord;
   status: RunStatus;
   cwd: string;
+  projectId?: string;
   masker: SecretMasker;
 }): SessionPayload {
   const { session } = record;
@@ -35,7 +37,8 @@ export function projectSessionPayload({
     sessionId: record.id,
     piSessionId: session.sessionId,
     cwd,
-    ...(record.projectId ? { projectId: record.projectId } : {}),
+    eventGeneration: record.generation,
+    ...(projectId ? { projectId } : {}),
     model: modelLabel(session.model),
     thinkingLevel: session.thinkingLevel,
     supportsThinking: session.supportsThinking(),
@@ -71,10 +74,12 @@ export function projectSessionPayload({
 export function projectSessionSummary({
   record,
   status,
+  projectId,
   masker,
 }: {
   record: SessionRecord;
   status: RunStatus;
+  projectId?: string;
   masker: SecretMasker;
 }): SessionSummary {
   return {
@@ -88,6 +93,6 @@ export function projectSessionSummary({
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     model: modelLabel(record.session.model),
-    ...(record.projectId ? { projectId: record.projectId } : {}),
+    ...(projectId ? { projectId } : {}),
   };
 }

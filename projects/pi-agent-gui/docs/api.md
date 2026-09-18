@@ -48,7 +48,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
     }
   ],
   "defaultThinkingLevel": "medium",
-  "defaultModelError": "指定された既定モデルは利用できません: openai/ghost"
+  "defaultModelError": "指定された既定モデルは利用できません: openai/ghost",
+  "sessionStore": { "path": "/var/lib/pi-agent-gui/sessions", "ok": true }
 }
 ```
 
@@ -149,4 +150,4 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ### `DELETE /api/projects/:id`
 
-`{ "ok": true }` を返す。配下セッションは停止（実行中は abort）してから破棄し、購読中の SSE へは `session_deleted` が届く。ワークスペースのディレクトリ（ファイル・Git リポジトリを含む）には触らない。未知の id は 404。
+`{ "ok": true }` を返す。配下の live セッションは停止（実行中は abort）し、購読中の SSE へは所属が外れた `resync` が届く（`session_deleted` は送らない）。セッションの会話ストアと作業フォルダ、ワークスペースのディレクトリ（ファイル・Git リポジトリを含む）には触らない。未知の id は 404。

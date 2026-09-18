@@ -78,6 +78,8 @@ export interface RunEventBridgeDeps {
   compactionMeta: Map<string, CompactionMeta>;
   emit: <T extends SSEEventType>(type: T, data: SSEEventData[T]) => void;
   emitResync: () => void;
+  /** message_end / compaction_end のたびに呼ぶ。SDK は通知後に entry を append するため、呼び出し側で 1 拍置く */
+  onPersist?: () => void;
   onSettled: (outcome: RunSettlement) => void;
 }
 
@@ -88,7 +90,7 @@ export interface RunEventBridge {
 }
 
 export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
-  const { session, masker, tools, messageMetrics, compactionMeta, emit, emitResync, onSettled } = deps;
+  const { session, masker, tools, messageMetrics, compactionMeta, emit, emitResync, onPersist, onSettled } = deps;
 
   let finished = false;
   let currentAssistantText = "";
@@ -134,6 +136,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   const listener: PiSessionEventListener = (event) => {
     if (finished) return;
     try {
+      // 保存は SDK の append 後に行う必要がある (呼び出し側が microtask で 1 拍置く)
+      if (event.type === "message_end" || event.type === "compaction_end") onPersist?.();
       // SDK は prompt メッセージの message_end を配る前に agent state へ入れる。
       // それを待ってから、送信メッセージを欠いたままの resync を配る。
       if (event.type === "message_end" && event.message?.role === "user") {

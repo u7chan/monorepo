@@ -22,6 +22,14 @@ POST /api/sessions { model?, thinkingLevel? }
        └─ pi.createSession(): available と厳密照合してから SDK 作成 (不在は 400 / 候補ゼロは 503)
 ```
 
+## 復元時の解決
+
+保存済みセッションを開くとき（BFF 再起動後・sweep 後の復元）は、保存値（`session.jsonl` の最後の `model_change` → meta の `model`）を `availableModels` と厳密照合し、候補があればそれを、無ければアプリ既定を使って `createAgentSession()` に渡す。`model` を明示しない SDK の自動復元は `PI_MODELS` の絞り込みを迂回するため使わない。
+
+- フォールバックしたときは実効モデルを `model_change` entry へ追記して保存し、meta の `model` も更新する。元モデルが後で候補に戻っても、続きを別モデルで進めたセッションは元へ戻らない
+- 利用可能なモデルが 1 つも無いときはセッションを開く要求を 503 で拒否し、一覧（meta）からは消さない
+- Effort は JSONL の最後の `thinking_level_change` を使い、現在のモデル能力で clamp する（clamp は決定的なので補正後の値を entry へ必ず追記する必要はない）。payload には SDK が持つ実効値を返す
+
 ## チャット単位の変更
 
 `PATCH /api/sessions/:id/settings` は同じ SDK セッション・履歴・タイトルを保つ。
