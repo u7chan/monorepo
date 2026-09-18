@@ -6,7 +6,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
 import type { ChatAction } from "../src/hooks/chatReducer";
-import { applySessionEvent, type SessionStreamDeps } from "../src/hooks/sessionStream";
+import {
+  applySessionEvent,
+  isSseSilent,
+  nextRetryDelayMs,
+  SSE_SILENCE_TIMEOUT_MS,
+  type SessionStreamDeps,
+} from "../src/hooks/sessionStream";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
 import type { SessionPayload, SessionSummary } from "../src/types";
 
@@ -112,4 +118,17 @@ test("leaves runtimeStatus alone when a run ends normally", () => {
   applySessionEvent({ seq: 1, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 1 }, deps);
 
   assert.deepEqual(record.statuses, []);
+});
+
+test("treats a stream that stopped sending heartbeat as silent", () => {
+  const last = 1_000;
+
+  assert.equal(isSseSilent(last, last + SSE_SILENCE_TIMEOUT_MS - 1), false, "1 回の ping を逃しただけでは切らない");
+  assert.equal(isSseSilent(last, last + SSE_SILENCE_TIMEOUT_MS), true, "無音を検知して接続を張り直す");
+});
+
+test("backs off the reconnect delay for each consecutive failure", () => {
+  assert.deepEqual([0, 1, 2, 3, 4].map(nextRetryDelayMs), [1_000, 2_000, 4_000, 8_000, 16_000]);
+  assert.equal(nextRetryDelayMs(5), 30_000, "上限で頭打ちにして、停止中もリクエストを叩き続けない");
+  assert.equal(nextRetryDelayMs(64), 30_000);
 });
