@@ -1,7 +1,7 @@
 /**
  * インメモリのプロジェクトストア。プロジェクト = ワークスペース内のディレクトリで、
  * cwd は rootCwd 相対で持つ (絶対パスで保存するとマウント先の変更で壊れる)。
- * セッションと同じく再デプロイで消えることを許容する。
+ * 再デプロイで消えることを許容する。
  */
 import { randomUUID } from "node:crypto";
 import { isAbsolute, posix, resolve, sep } from "node:path";
