@@ -8,6 +8,7 @@ import {
   dropClosedPreviews,
   FILE_TAB_LIMIT,
   fileTabLabels,
+  keepsFullscreenPreview,
   openFileTab,
   previewModeFor,
   readPreview,
@@ -127,6 +128,18 @@ test("閉じたタブの表示モードだけを捨てる", () => {
   assert.deepEqual(dropClosedPreviewModes(modes, ["a.html"]), { "a.html": "source" });
   // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
   assert.equal(dropClosedPreviewModes(modes, ["a.html", "dir/b.html"]), modes);
+});
+
+// 全画面を続ける条件。タブ切替はこの条件を新しい activePath / mode で引き直すことで解除になる
+test("全画面を続けるのは HTML をプレビューしている間だけ", () => {
+  assert.equal(keepsFullscreenPreview("a.html", "preview"), true);
+  assert.equal(keepsFullscreenPreview("dir/b.htm", "preview"), true);
+  // ソース表示へ切り替えると続けない
+  assert.equal(keepsFullscreenPreview("a.html", "source"), false);
+  // HTML 以外 (他拡張子のタブ・拡張子の無いパス) はプレビューでも続けない
+  assert.equal(keepsFullscreenPreview("a.ts", "preview"), false);
+  assert.equal(keepsFullscreenPreview("a.xhtml", "preview"), false);
+  assert.equal(keepsFullscreenPreview("a.txt", "source"), false);
 });
 
 // 保存値からの復元。復元後は通常のタブ操作 (開閉・上限) にそのまま乗る

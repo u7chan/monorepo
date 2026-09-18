@@ -5,6 +5,7 @@ import { buildPreviewCode, isHtmlPath, previewLineNumbers } from "../lib/fileCod
 import {
   dropClosedPreviews,
   fileTabLabels,
+  keepsFullscreenPreview,
   previewModeFor,
   readPreview,
   type PreviewMode,
@@ -43,14 +44,17 @@ export type FilePreviewProps = {
  */
 export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, onSelect, onClose }: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
+  const [fullscreen, setFullscreen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
   const result = readPreview(results, activePath);
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
-  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)
-  const showHtml = mode === "preview" && isHtmlPath(activePath);
+  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。
+  // これが全画面を続ける条件でもある (ソース表示・他拡張子へ移ったら解除する)
+  const showHtml = keepsFullscreenPreview(activePath, mode);
   // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
   const code = useMemo(
     () => (showHtml || text === undefined ? null : buildPreviewCode(text, activePath)),
@@ -82,11 +86,37 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
     setResults((prev) => dropClosedPreviews(prev, paths));
   }, [paths]);
 
+  // ソース表示・他タブへ切り替えたら全画面を解除する (dialog を閉じると通常の箱へ戻る)
+  useEffect(() => {
+    if (!showHtml) setFullscreen(false);
+  }, [showHtml]);
+
+  // dialog は常に置き、全画面のときだけ top layer へ出す。作り直すと中の iframe が再読み込みされる
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (fullscreen && !dialog.open) dialog.showModal();
+    if (!fullscreen && dialog.open) dialog.close();
+  }, [fullscreen]);
+
   return (
-    // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く
-    <section
+    // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く。
+    // 通常時は UA の dialog スタイルを打ち消して普通の箱として使う (打ち消しが残る理由は docs/file-preview.md)
+    <dialog
+      ref={dialogRef}
       aria-label="ファイルプレビュー"
-      className="flex min-h-40 min-w-0 flex-1 flex-col border-t border-line @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l"
+      aria-modal={fullscreen ? "true" : undefined}
+      onClose={() => setFullscreen(false)}
+      // 全画面のときだけ止める (通常時に止めると設定ページの「Escape でチャットへ戻る」を食う)
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && fullscreen) event.stopPropagation();
+      }}
+      className={cn(
+        "m-0 flex max-h-none max-w-none flex-col border-0 p-0",
+        fullscreen
+          ? "h-dvh w-screen overflow-hidden bg-base text-ink"
+          : "static h-auto min-h-40 w-auto min-w-0 flex-1 border-t border-line bg-transparent text-inherit @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l",
+      )}
     >
       {/* タブは横スクロールにし、増えても行の高さと本文の幅を変えない */}
       <div className="flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
@@ -108,6 +138,16 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
         </code>
         {isHtmlPath(activePath) ? (
           <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
+        ) : null}
+        {showHtml ? (
+          <button
+            type="button"
+            aria-pressed={fullscreen}
+            onClick={() => setFullscreen((prev) => !prev)}
+            className="btn-quiet shrink-0"
+          >
+            {fullscreen ? "全画面をやめる" : "全画面"}
+          </button>
         ) : null}
         {code !== null && code.lineCount > 0 ? (
           <span className="shrink-0 text-3xs text-ink-ghost">
@@ -158,7 +198,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           </div>
         </div>
       )}
-    </section>
+    </dialog>
   );
 }
 
