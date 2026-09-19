@@ -166,7 +166,7 @@
 { "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "runId": "…" }
 ```
 
-`images` は optional で最大 10 枚。各要素は base64 本体の `data` と `image/*` の `mimeType` を持ち、pi SDK の image prompt へそのまま渡す。画像が 1 枚以上あれば `text` は空文字でも送信できる。画像付きメッセージだけは JSON body の上限を 64 MiB にし、それ以外の API は従来の 64 KiB 上限を維持する。
+`images` は optional で最大 10 枚。各要素は base64 本体の `data` と `mimeType` を持ち、MIME は pi が対応する `image/png` / `image/jpeg` / `image/webp` / `image/gif` のみ受け付ける。画像が 1 枚以上あれば `text` は空文字でも送信できる。画像データは合計 16 MiB 相当まで、画像付きメッセージの JSON body は 24 MiB まで。それ以外の API は従来の 64 KiB 上限を維持する。クライアントも同じ 16 MiB 上限で選択前に止め、画像は逐次 base64 化する。HEIC / HEIF がブラウザからそのまま渡された場合は送信せず、対応形式への変更を案内する。
 
 ## `GET /api/sessions/:id/events`
 
