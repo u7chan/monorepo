@@ -9,7 +9,7 @@ import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { Sidebar } from "./components/Sidebar";
-import { SessionFilesPanel } from "./components/SessionFilesPanel";
+import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { useAgentDesk } from "./hooks/useAgentDesk";
@@ -27,7 +27,7 @@ export default function App() {
   const compact = compactMode !== null;
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // 右パネルの開閉は保存しない (起動時は閉。URL や localStorage に載せない)
+  // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
   // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定 5 画面 (lib/route.ts)
   const { route, navigate, lastSettingsSection } = useRoute();
@@ -149,10 +149,11 @@ export default function App() {
     },
   };
 
-  // 右パネルは選択中セッションの作業フォルダ (payload.cwd) を root にする。設定 → ファイル はワークスペース root
-  // 固定なので、同じ FileBrowser を別の root で使い分ける (root が "" のときは出さない)
-  const filesRoot = sessionFilesRoot({ desktop: layout === "desktop", chatView: mainView === "chat", cwd: desk.cwd });
-  const filesPanelOpen = filesRoot !== "" && sessionFilesOpen;
+  // 選択中セッションの作業フォルダ (payload.cwd) を root にする。表示方法だけ layout で分ける。
+  // 設定 → ファイルはワークスペース root 固定なので、セッションのファイルとは別の入口にする。
+  const filesRoot = sessionFilesRoot({ chatView: mainView === "chat", cwd: desk.cwd });
+  const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
+  const filesSheetOpen = compact && filesRoot !== "" && sessionFilesOpen;
 
   const activeSession = desk.sessions.find((item) => item.sessionId === desk.sessionId);
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
@@ -194,6 +195,7 @@ export default function App() {
                 title={barTitle}
                 agentName={barAgentName}
                 runtimeStatus={desk.runtimeStatus}
+                sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
                 onOpenNav={openNav}
               />
             ) : (
@@ -269,6 +271,14 @@ export default function App() {
           />
         ) : null}
       </main>
+      {filesSheetOpen ? (
+        <SessionFilesSheet
+          key={filesRoot}
+          root={filesRoot}
+          runEndSeq={desk.chat.runEndSeq}
+          onClose={closeSessionFiles}
+        />
+      ) : null}
       {compact && navOpen ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
         <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={desk.createProject} />

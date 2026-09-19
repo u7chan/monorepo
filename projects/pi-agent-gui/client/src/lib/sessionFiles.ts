@@ -1,20 +1,17 @@
 /**
- * チャットの右パネル (セッションのファイル) の出し方の規則。パネルは選択中セッションの作業フォルダ
- * (`SessionPayload.cwd` = `.pi-agent-gui/sessions/<id>`) を root にした `FileBrowser` で、
- * 設定 → ファイル (ワークスペース root 固定) と同じ実装を別の root で使う。DOM に依存しない。
+ * チャットから選択中セッションの作業フォルダを開くための root を決める。
+ * 表示方法は layout ごとに変え、desktop は右パネル、compact は全画面シートを使う。
  */
 
 export type SessionFilesAvailability = {
-  /** desktop shell のときだけ出す (compact は設定 → ファイル の 1 経路に保つ) */
-  desktop: boolean;
-  /** チャット画面のときだけ出す。設定ページでは 設定 → ファイル と二重になり、トグルも押せない */
+  /** チャット画面のときだけ出す。設定ページでは 設定 → ファイル と二重になるため出さない */
   chatView: boolean;
   /** 選択中セッションの作業フォルダ。未作成チャット (sessionId が空) では "" */
   cwd: string;
 };
 
-/** パネルを出す root。"" は「出さない」を意味する (パネルの root が空にならないため) */
-export function sessionFilesRoot({ desktop, chatView, cwd }: SessionFilesAvailability): string {
-  if (!desktop || !chatView) return "";
+/** セッションファイルを出す root。"" は「出さない」を意味する */
+export function sessionFilesRoot({ chatView, cwd }: SessionFilesAvailability): string {
+  if (!chatView) return "";
   return cwd;
 }
