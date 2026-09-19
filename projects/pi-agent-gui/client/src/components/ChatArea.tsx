@@ -41,7 +41,10 @@ export function ChatArea({
     <section
       ref={chatAreaRef}
       aria-live="polite"
-      className={cn("min-h-0 flex-1 scrollbar-thin overflow-y-auto", compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8")}
+      className={cn(
+        "min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto",
+        compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
+      )}
     >
       <div className={cn("mx-auto w-full min-w-0", compact ? null : "max-w-220")}>
         {bubbles.length === 0 ? (
@@ -71,7 +74,7 @@ export function ChatArea({
             ) : null}
           </div>
         ) : (
-          <div className={cn("grid pt-2", compact ? "gap-3.5" : "gap-5")}>
+          <div className={cn("grid min-w-0 grid-cols-1 pt-2", compact ? "gap-3.5" : "gap-5")}>
             {bubbles.map((bubble, index) => (
               <Fragment key={bubble.id}>
                 {dividerIndex === index ? <CompactionDivider compactions={compactions} compact={compact} /> : null}
