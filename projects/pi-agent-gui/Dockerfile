@@ -28,7 +28,15 @@ FROM dependencies AS test
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
-RUN pnpm check
+RUN cp -R client /tmp/client-before \
+    && cp -R server /tmp/server-before \
+    && pnpm format \
+    && (diff -ru /tmp/client-before client || true) \
+    && (diff -ru /tmp/server-before server || true) \
+    && pnpm lint \
+    && pnpm typecheck \
+    && pnpm test \
+    && pnpm build
 
 FROM test AS builder
 
