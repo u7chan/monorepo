@@ -33,28 +33,39 @@ const MAX_TEXTAREA_HEIGHT = 180;
 /** compact では入力欄が画面を占めないよう低く抑える */
 const COMPACT_TEXTAREA_HEIGHT = 120;
 const MAX_IMAGES = 10;
+const MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_MB = MAX_TOTAL_IMAGE_BYTES / (1024 * 1024);
 
 type PendingImage = MessageImage & {
   id: number;
   name: string;
+  bytes: number;
 };
 
-function imageMimeType(file: File): string | undefined {
-  if (file.type.startsWith("image/")) return file.type;
+function imageMimeType(file: File): MessageImage["mimeType"] | undefined {
+  const mimeType = file.type.toLowerCase();
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "image/jpeg";
+  if (mimeType === "image/png") return "image/png";
+  if (mimeType === "image/gif") return "image/gif";
+  if (mimeType === "image/webp") return "image/webp";
+
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
   if (extension === "png") return "image/png";
   if (extension === "gif") return "image/gif";
   if (extension === "webp") return "image/webp";
-  if (extension === "heic") return "image/heic";
-  if (extension === "heif") return "image/heif";
   return undefined;
 }
 
-function readImage(file: File): Promise<MessageImage> {
-  const mimeType = imageMimeType(file);
-  if (!mimeType) return Promise.reject(new Error(`${file.name} は画像として読み込めません`));
+function unsupportedImageMessage(file: File): string {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (file.type === "image/heic" || file.type === "image/heif" || extension === "heic" || extension === "heif") {
+    return `${file.name} はHEIC/HEIF形式です。JPEG・PNG・WEBP・GIFを選択してください`;
+  }
+  return `${file.name} は対応していない画像形式です`;
+}
 
+function readImage(file: File, mimeType: MessageImage["mimeType"]): Promise<MessageImage> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`${file.name} の読み込みに失敗しました`));
@@ -151,7 +162,7 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
   }, [value, maxTextareaHeight, visible]);
 
-  const submit = () => {
+  const submit = async () => {
     const text = value.trim();
     // 設定変更中は送信を待たせる (サーバー側でも 409)
     if (
@@ -165,10 +176,11 @@ export function Composer({
       return;
     }
     const outgoingImages = images.map(({ data, mimeType }) => ({ data, mimeType }));
+    const sent = await onSend(text, outgoingImages);
+    if (!sent) return;
     setValue("");
     setImages([]);
     setImageError("");
-    onSend(text, outgoingImages);
     inputRef.current?.focus();
   };
 
@@ -191,21 +203,36 @@ export function Composer({
 
     setReadingImages(true);
     try {
-      const results = await Promise.allSettled(files.map((file) => readImage(file)));
-      const loaded = results.flatMap((result, index) => {
-        if (result.status !== "fulfilled") return [];
-        const image: PendingImage = {
-          ...result.value,
-          id: nextImageIdRef.current++,
-          name: files[index].name,
-        };
-        return [image];
-      });
-      setImages((current) => [...current, ...loaded].slice(0, MAX_IMAGES));
-      const failed = results.find((result) => result.status === "rejected");
-      if (failed?.status === "rejected") {
-        setImageError(failed.reason instanceof Error ? failed.reason.message : "画像の読み込みに失敗しました");
+      const loaded: PendingImage[] = [];
+      let totalBytes = images.reduce((sum, image) => sum + image.bytes, 0);
+      let errorMessage = selected.length > remaining ? `画像は最大${MAX_IMAGES}枚までです。先頭${remaining}枚を確認します` : "";
+
+      for (const file of files) {
+        const mimeType = imageMimeType(file);
+        if (!mimeType) {
+          errorMessage = unsupportedImageMessage(file);
+          continue;
+        }
+        if (totalBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
+          errorMessage = `画像の合計は${MAX_TOTAL_IMAGE_MB} MiBまでです`;
+          break;
+        }
+        try {
+          const image = await readImage(file, mimeType);
+          loaded.push({
+            ...image,
+            id: nextImageIdRef.current++,
+            name: file.name,
+            bytes: file.size,
+          });
+          totalBytes += file.size;
+        } catch (error) {
+          errorMessage = error instanceof Error ? error.message : "画像の読み込みに失敗しました";
+        }
       }
+
+      setImages((current) => [...current, ...loaded].slice(0, MAX_IMAGES));
+      setImageError(errorMessage);
     } finally {
       setReadingImages(false);
     }
@@ -213,13 +240,13 @@ export function Composer({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    submit();
+    void submit();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -324,7 +351,7 @@ export function Composer({
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/gif"
             multiple
             className="hidden"
             onChange={(event) => void handleImagesSelected(event)}
