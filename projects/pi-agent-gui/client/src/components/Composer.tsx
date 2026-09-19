@@ -22,7 +22,7 @@ export type ComposerProps = {
   mode: LayoutMode;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
-  onSend: (text: string, images?: MessageImage[]) => void;
+  onSend: (text: string, images?: MessageImage[]) => Promise<boolean>;
   onStop: () => void;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
