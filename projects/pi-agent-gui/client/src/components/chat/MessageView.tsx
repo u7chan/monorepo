@@ -47,7 +47,7 @@ export function MessageView({
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   return (
-    <article className={cn("group/bubble flex animate-rise", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : "")}>
+    <article className={cn("group/bubble flex min-w-0 animate-rise", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : "")}>
       <div
         className={cn(
           "grid shrink-0 place-items-center rounded-lg font-bold",
