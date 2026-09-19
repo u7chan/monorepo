@@ -72,8 +72,9 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
 test("sends to the session returned by ensureSession and starts the run locally", async () => {
   const { record, deps } = createHarness();
 
-  await sendChatMessage("hello", deps);
+  const sent = await sendChatMessage("hello", deps);
 
+  assert.equal(sent, true);
   assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "hello" }]);
   assert.deepEqual(record.sending, [true, false], "送信中フラグは必ず戻す");
   const [user] = actionsOfType(record.actions, "localUser");
@@ -148,8 +149,9 @@ test("reports a failed post as a runtime error", async () => {
     },
   });
 
-  await sendChatMessage("hello", deps);
+  const sent = await sendChatMessage("hello", deps);
 
+  assert.equal(sent, false);
   assert.equal(record.statuses.length, 1);
   assert.equal(record.statuses[0].detail, "セッションが見つかりません");
   assert.equal(record.refreshed, 0, "失敗時は一覧を取り直さない");
