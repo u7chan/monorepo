@@ -5,7 +5,7 @@
 ## ランのライフサイクル
 
 ```
-POST /api/sessions/:id/messages { text }
+POST /api/sessions/:id/messages { text, images? }
   ├─ アイドル → SessionStore.startRun() → 202 { queued: false, runId }
   └─ 実行中   → キューに積む           → 202 { queued: true, queueDepth }
                     （キューは最大 10 件。超過は 429）
