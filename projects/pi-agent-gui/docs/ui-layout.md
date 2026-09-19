@@ -36,6 +36,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
+  - compact の単一列 Grid は implicit な `auto` 列にせず `minmax(0, 1fr)`（Tailwind の `grid-cols-1`）で viewport 幅に拘束する。シェル境界とメッセージ行には `min-w-0` を置き、コード / 表 / 図のような横長コンテンツだけを各コンポーネント内で横スクロールさせる
   - 設定ページはヘッダと一覧の高さだけ詰め、ヘッダの折り返しと全幅の本文で狭い viewport に追従させる（エージェント / スキルの編集は [compact の詳細シート](#compact-の詳細シート) に出し、どちらのフォームも スクロールする本文 + 固定アクション行 で組む。`FileTreePage` の行のインデントは深さに比例するため、横スクロールは `overflow-x-hidden` で抑える）
 - compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-md`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えないので、`@theme` で 16px を `--text-md` に当てている）。設定ページのフォームは従来のサイズのまま（compact の「外観」のテーマ選択だけは 16px）
 - 選択欄（select）は `SelectField` で包む。ブラウザ既定のドロップダウン矢印は余白を制御できず右端に寄りすぎるため、自前の chevron（右端から 10px、右余白 32px）に置換している。幅と伸縮は wrapper 側のクラスで決める
