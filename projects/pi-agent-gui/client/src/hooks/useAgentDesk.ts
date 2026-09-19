@@ -74,8 +74,8 @@ export function useAgentDesk() {
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
   const sendMessage = useCallback(
-    async (text: string, images: MessageImage[] = []): Promise<void> => {
-      await sendChatMessage(
+    async (text: string, images: MessageImage[] = []): Promise<boolean> => {
+      return sendChatMessage(
         text,
         {
           health,
