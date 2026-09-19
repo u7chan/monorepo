@@ -4,6 +4,11 @@ import type { z } from "zod";
 import { SandboxRequestError } from "./sandbox/client";
 
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_MESSAGE_BODY_BYTES = 64 * 1024 * 1024;
+
+function bodyLimitFor(path: string): number {
+  return /^\/api\/sessions\/[^/]+\/messages$/.test(path) ? MAX_MESSAGE_BODY_BYTES : MAX_BODY_BYTES;
+}
 
 export function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -90,11 +95,12 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string>
 export async function bodyGuard(c: Context, next: () => Promise<void>) {
   const method = c.req.method;
   if (method === "POST" || method === "PATCH" || method === "PUT") {
+    const maxBytes = bodyLimitFor(c.req.path);
     const contentLength = Number.parseInt(c.req.header("content-length") ?? "", 10);
-    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
       return c.json({ error: "Request body is too large" }, 413);
     }
-    const text = await readBodyText(c.req.raw, MAX_BODY_BYTES);
+    const text = await readBodyText(c.req.raw, maxBytes);
     // bodyCache の型は解決後の値だが、ランタイムは Promise を期待するため型を吐く。
     (c.req.bodyCache as { text?: unknown }).text = Promise.resolve(text.trim() ? text : "{}");
   }
