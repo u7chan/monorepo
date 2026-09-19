@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { ComposerSettings } from "../hooks/useAgentDesk";
 import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
