@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject } from "react";
-import type { Health, PostMessageResult, RunStatus, SessionSummary, StopResult } from "../types";
+import type { Health, MessageImage, PostMessageResult, RunStatus, SessionSummary, StopResult } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
@@ -10,14 +10,18 @@ export type SendChatMessageDeps = {
   sessionIdRef: RefObject<string>;
   ensureSession: () => Promise<string>;
   refreshSessions: () => Promise<SessionSummary[]>;
-  post: (sessionId: string, text: string) => Promise<PostMessageResult>;
+  post: (sessionId: string, text: string, images?: MessageImage[]) => Promise<PostMessageResult>;
   dispatch: Dispatch<ChatAction>;
   setSending: (value: boolean) => void;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
-export async function sendChatMessage(text: string, deps: SendChatMessageDeps): Promise<void> {
-  if (!text || deps.busy) return;
+export async function sendChatMessage(
+  text: string,
+  deps: SendChatMessageDeps,
+  images: MessageImage[] = [],
+): Promise<void> {
+  if ((!text && images.length === 0) || deps.busy) return;
   const { sessionIdRef, ensureSession, refreshSessions, post, dispatch, setSending, setRuntimeStatus } = deps;
   setSending(true);
   try {
@@ -30,9 +34,9 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     // 切替後は表示と別セッションになる。入力もセッションも捨てずに送信だけ続け、
     // 現在の表示のバブル / 実行状態は触らない (一覧は post 後の refreshSessions が更新する)
     const sameChat = sessionIdRef.current === targetId;
-    if (sameChat) dispatch({ type: "localUser", text, at: Date.now() });
+    if (sameChat) dispatch({ type: "localUser", text, imageCount: images.length, at: Date.now() });
 
-    const result = await post(targetId, text);
+    const result = await post(targetId, text, images);
     if (sameChat) {
       if (result.queued) {
         dispatch({
