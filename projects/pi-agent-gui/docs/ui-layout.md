@@ -26,11 +26,11 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - HTML（`.html` / `.htm`）のタブはパス行のトグルで ソース / プレビュー を切り替える。既定はプレビューで、プレビューは `GET /api/files/html` を src にした `sandbox="allow-scripts"` の iframe（背景は白）。このときはソース本文を取得しない（トグルはパス行の中だけに置き、他の拡張子には出さない）。プレビューはパス行のボタンで viewport いっぱいのモーダル dialog（`showModal()`）にでき、compact でも同じ扱いで、全画面に残すのは `全画面をやめる` の 1 行だけにする（[file-preview.md](file-preview.md#全画面)）
 - desktop のチャット画面には、選択中セッションの作業フォルダ（`payload.cwd` = `.pi-agent-gui/sessions/<id>`）を見る右パネル（`SessionFilesPanel`）を出せる。シェルの 3 カラム目に置き、幅は `min(360px, 30vw)`（720px 幅の desktop では 216px まで縮めてチャット列を残す）。`Topbar` の「セッションのファイル」で開閉し、既定は閉、開閉状態は URL にも localStorage にも保存しない
   - 中身は 設定 → ファイル と同じ `FileBrowser` を root 違いで使うため、タブ / プレビュー / HTML の全画面 / タブ上限は同じ振る舞いになる。パネルの幅では container 幅が `@2xl`（672px）に届かないので、ツリーとプレビューは常に縦積み（タブがあるときツリーは `max-h-64`）
-  - 出すのは desktop のチャット画面だけ。設定ページでは出さない（設定 → ファイル と二重になり、トグルがある `Topbar` も描かれないので閉じられなくなる）。compact では出さず、セッションのファイルは従来どおり設定 → ファイル のツリーから辿る
-  - トグルは セッションがあり（`sessionId` が非空）作業フォルダが決まっている（`payload.cwd` が非空）ときだけ出す（`client/src/lib/sessionFiles.ts` の `sessionFilesRoot`）。セッションを切り替えると `key` の張り替えでパネルを作り直し、復元と取得をその root でやり直す
+  - セッションファイルの入口はチャット画面だけに出す。desktop は `Topbar` から右パネル、compact は `CompactBar` のフォルダボタンから全画面 `SessionFilesSheet` を開く。設定ページでは 設定 → ファイル と二重になるため出さない
+  - トグルは セッションがあり（`sessionId` が非空）作業フォルダが決まっている（`payload.cwd` が非空）ときだけ出す（`client/src/lib/sessionFiles.ts` の `sessionFilesRoot`）。root の可用性は layout に依存させず、表示方法だけを `App` で分ける。セッションを切り替えると `key` の張り替えでパネル / シートを作り直し、復元と取得をその root でやり直す
   - 一覧と開いている本文の取り直しは、ヘッダの「再読み込み」と reducer が `run_end` で進める `runEndSeq` の 1 回だけ（[file-preview.md](file-preview.md#画面と-root)）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
-  - `CompactBar` はチャットのときに「どのエージェントのどの会話か」と nav の導線だけを常時表示する（landscape は 1 行に畳む）
+  - `CompactBar` はチャットのときに「どのエージェントのどの会話か」、セッションファイル、nav の導線を常時表示する（landscape は 1 行に畳む）。セッションファイルはチャット幅を奪う右パネルではなく全画面 modal sheet で開き、同じ `FileBrowser` を viewport 幅いっぱいで使う
   - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / バックアップ / 外観 の間を移動できない
   - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）は `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッションの項目を選ぶとドロワーは閉じ（選択後に主画面で続ける操作はプロジェクト行の「＋」）、設定の項目を選ぶと閉じてからそのページをメイン領域に出す。折りたたみ chevron は選択ではないので閉じない
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
