@@ -119,7 +119,9 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`messages[].imageCount` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
+`messages[].imageCount` は user メッセージに含まれる画像数。画像本体の base64 はセッションペイロードへ戻さず、履歴表示に必要な件数だけを返す。
+
+`messages[].at` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
 
 `messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
 
@@ -156,10 +158,15 @@
 
 ```json
 // request
-{ "text": "README を読んで改善案を 3 つ" }
+{
+  "text": "この画面をレビューして",
+  "images": [{ "data": "<base64>", "mimeType": "image/png" }]
+}
 // response (202)
 { "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "runId": "…" }
 ```
+
+`images` は optional で最大 10 枚。各要素は base64 本体の `data` と `image/*` の `mimeType` を持ち、pi SDK の image prompt へそのまま渡す。画像が 1 枚以上あれば `text` は空文字でも送信できる。画像付きメッセージだけは JSON body の上限を 64 MiB にし、それ以外の API は従来の 64 KiB 上限を維持する。
 
 ## `GET /api/sessions/:id/events`
 
