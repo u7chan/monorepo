@@ -129,6 +129,37 @@ test("server exposes the async session API end to end", async () => {
   }
 });
 
+test("message API accepts image-only messages with up to 10 attachments", async () => {
+  const pi = createStubPi();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+    const base = `/api/sessions/${created.sessionId}/messages`;
+    const image = { data: "a".repeat(70 * 1024), mimeType: "image/png" };
+
+    const posted = await app.request(base, jsonPost({ text: "", images: [image] }));
+    assert.equal(posted.status, 202, "画像メッセージだけは 64KB を超えても送信できる");
+
+    const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
+    assert.equal(payload.messages[0].text, "");
+    assert.equal(payload.messages[0].imageCount, 1);
+    assert.equal(pi.sessions[0].messages[0].content[0].type, "image");
+    assert.equal(pi.sessions[0].messages[0].content[0].mimeType, "image/png");
+
+    const listed = await jsonBody(app.request("/api/sessions"));
+    assert.equal(listed.sessions[0].title, "画像 1枚");
+
+    const tooMany = await app.request(
+      base,
+      jsonPost({ text: "多すぎる", images: Array.from({ length: 11 }, () => ({ data: "YQ==", mimeType: "image/png" })) }),
+    );
+    assert.equal(tooMany.status, 400);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("SSE sends the heartbeat as a visible ping event that does not move the cursor", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
