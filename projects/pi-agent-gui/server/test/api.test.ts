@@ -153,7 +153,10 @@ test("message API accepts image-only messages with up to 10 attachments", async 
 
     const tooMany = await app.request(
       base,
-      jsonPost({ text: "多すぎる", images: Array.from({ length: 11 }, () => ({ data: "YQ==", mimeType: "image/png" })) }),
+      jsonPost({
+        text: "多すぎる",
+        images: Array.from({ length: 11 }, () => ({ data: "YQ==", mimeType: "image/png" })),
+      }),
     );
     assert.equal(tooMany.status, 400);
   } finally {
@@ -779,7 +782,7 @@ test("message endpoint validates the request body", async () => {
 
     const empty = await app.request(base, jsonPost({ text: "   " }));
     assert.equal(empty.status, 400);
-    assert.equal((await jsonBody(empty)).error, "text is required");
+    assert.equal((await jsonBody(empty)).error, "text or images is required");
 
     const nonString = await app.request(base, jsonPost({ text: 42 }));
     assert.equal(nonString.status, 400);
@@ -799,7 +802,7 @@ test("message endpoint validates the request body", async () => {
 
     const tooLarge = await app.request(base, jsonPost({ text: "x".repeat(70 * 1024) }));
     assert.equal(tooLarge.status, 413);
-    assert.equal((await jsonBody(tooLarge)).error, "Request body is too large");
+    assert.match((await jsonBody(tooLarge)).error, /Message is too long/);
   } finally {
     await bff.close();
   }
