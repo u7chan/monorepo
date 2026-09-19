@@ -18,6 +18,7 @@ export type {
   FileListing,
   FilePreview,
   Health,
+  MessageImage,
   MessageMetrics,
   ModelOption,
   ModelRef,
