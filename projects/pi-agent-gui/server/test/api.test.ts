@@ -159,6 +159,13 @@ test("message API accepts image-only messages with up to 10 attachments", async 
       }),
     );
     assert.equal(tooMany.status, 400);
+
+    const unsupported = await app.request(
+      base,
+      jsonPost({ text: "", images: [{ data: "YQ==", mimeType: "image/heic" }] }),
+    );
+    assert.equal(unsupported.status, 400);
+    assert.equal((await jsonBody(unsupported)).error, "Invalid message body");
   } finally {
     await bff.close();
   }
@@ -786,7 +793,7 @@ test("message endpoint validates the request body", async () => {
 
     const nonString = await app.request(base, jsonPost({ text: 42 }));
     assert.equal(nonString.status, 400);
-    assert.equal((await jsonBody(nonString)).error, "text is required");
+    assert.equal((await jsonBody(nonString)).error, "Invalid message body");
 
     const invalidJson = await app.request(base, {
       method: "POST",
