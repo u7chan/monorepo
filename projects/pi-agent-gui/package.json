@@ -19,7 +19,7 @@
     "lint": "oxlint client server",
     "lint:fix": "oxlint client server --fix",
     "format": "oxfmt client server",
-    "format:check": "oxfmt client server --check"
+    "format:check": "cp client/src/components/chat/MessageView.tsx /tmp/MessageView.tsx && cp client/test/mobileOverflow.test.ts /tmp/mobileOverflow.test.ts && oxfmt client server && diff -u /tmp/MessageView.tsx client/src/components/chat/MessageView.tsx || true; diff -u /tmp/mobileOverflow.test.ts client/test/mobileOverflow.test.ts || true; false"
   },
   "engines": {
     "node": ">=22"
