@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useState } from "react";
 import { getHealth, postMessage, stopSession } from "../api";
 import { deriveComposerSettings } from "../lib/composerSettings";
+import type { MessageImage } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import { sendChatMessage, stopRun } from "./sessionActions";
@@ -73,7 +74,7 @@ export function useAgentDesk() {
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
+    async (text: string, images: MessageImage[] = []): Promise<void> => {
       await sendChatMessage(text, {
         health,
         busy: sending || settingsChanging,
@@ -84,7 +85,7 @@ export function useAgentDesk() {
         dispatch,
         setSending,
         setRuntimeStatus,
-      });
+      }, images);
     },
     [dispatch, ensureSession, health, refreshSessions, sending, sessionIdRef, settingsChanging, setRuntimeStatus],
   );
