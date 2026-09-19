@@ -382,7 +382,10 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         willRetry: false,
       });
     },
-    async prompt(text: string) {
+    async prompt(
+      text: string,
+      promptOptions?: { images?: Array<{ type: "image"; data: string; mimeType: string }> },
+    ) {
       session.abortRequested = false;
       session.isStreaming = true;
       try {
@@ -392,7 +395,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         session.emit({ type: "agent_start" });
         // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)。
         // 実 SDK は prompt メッセージにも message_start / message_end を出し、message_end の時点で agent state へ入れる。
-        const userMessage = { role: "user", content: text, timestamp: Date.now() };
+        const images = promptOptions?.images ?? [];
+        const content =
+          images.length > 0
+            ? [...(text ? [{ type: "text" as const, text }] : []), ...images]
+            : text;
+        const userMessage = { role: "user", content, timestamp: Date.now() };
         session.appendMessage(userMessage);
         session.emit({ type: "message_start", message: userMessage });
         session.emit({ type: "message_end", message: userMessage });
