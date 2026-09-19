@@ -144,8 +144,9 @@ test("message API accepts image-only messages with up to 10 attachments", async 
     const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
     assert.equal(payload.messages[0].text, "");
     assert.equal(payload.messages[0].imageCount, 1);
-    assert.equal(pi.sessions[0].messages[0].content[0].type, "image");
-    assert.equal(pi.sessions[0].messages[0].content[0].mimeType, "image/png");
+    const userContent = pi.sessions[0].messages[0].content as Array<{ type: string; mimeType?: string }>;
+    assert.equal(userContent[0].type, "image");
+    assert.equal(userContent[0].mimeType, "image/png");
 
     const listed = await jsonBody(app.request("/api/sessions"));
     assert.equal(listed.sessions[0].title, "画像 1枚");
