@@ -61,9 +61,7 @@ export default function App() {
   }, [mainView, navOpen, backToChat]);
 
   const handleSend = useCallback(
-    (text: string, images: MessageImage[] = []) => {
-      void desk.sendMessage(text, images);
-    },
+    (text: string, images: MessageImage[] = []) => desk.sendMessage(text, images),
     [desk],
   );
 
