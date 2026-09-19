@@ -60,10 +60,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mainView, navOpen, backToChat]);
 
-  const handleSend = useCallback(
-    (text: string, images: MessageImage[] = []) => desk.sendMessage(text, images),
-    [desk],
-  );
+  const handleSend = useCallback((text: string, images: MessageImage[] = []) => desk.sendMessage(text, images), [desk]);
 
   const handleStop = useCallback(() => {
     void desk.stopAgent();
