@@ -205,7 +205,8 @@ export function Composer({
     try {
       const loaded: PendingImage[] = [];
       let totalBytes = images.reduce((sum, image) => sum + image.bytes, 0);
-      let errorMessage = selected.length > remaining ? `画像は最大${MAX_IMAGES}枚までです。先頭${remaining}枚を確認します` : "";
+      let errorMessage =
+        selected.length > remaining ? `画像は最大${MAX_IMAGES}枚までです。先頭${remaining}枚を確認します` : "";
 
       for (const file of files) {
         const mimeType = imageMimeType(file);
