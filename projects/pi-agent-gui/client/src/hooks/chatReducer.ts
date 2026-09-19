@@ -94,13 +94,7 @@ export const initialChatState: ChatState = {
   pendingMetrics: undefined,
 };
 
-function appendBubble(
-  state: ChatState,
-  role: Bubble["role"],
-  text = "",
-  at?: number,
-  imageCount?: number,
-): ChatState {
+function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number, imageCount?: number): ChatState {
   const bubble: Bubble = { id: state.nextId, role, text, imageCount, tools: [], at };
   return {
     ...state,
