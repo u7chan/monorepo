@@ -46,6 +46,12 @@ export interface PiSessionEntryLike {
 
 export type PiSessionEventListener = (event: PiSessionEvent) => void;
 
+export interface PiImageContent {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
 /** pi SDK の AgentSession を差し替え可能にするための最小 interface */
 export interface PiSessionLike {
   sessionId: string;
@@ -63,7 +69,7 @@ export interface PiSessionLike {
   /** SDK の isIdle (実行・compaction・retry が無い) */
   isIdle: boolean;
   subscribe(listener: PiSessionEventListener): () => void;
-  prompt(text: string): Promise<unknown>;
+  prompt(text: string, options?: { images?: PiImageContent[] }): Promise<unknown>;
   abort(): Promise<unknown>;
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
   /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
