@@ -83,6 +83,13 @@ export function MessageView({
             onCopyTool={onCopyTool}
           />
         ) : null}
+        {isUser && bubble.imageCount ? (
+          <div className="mb-1.5 flex justify-end">
+            <span className="rounded-xl rounded-tr-md bg-accent-bright px-3 py-2 text-xs text-on-accent">
+              画像 {bubble.imageCount}枚
+            </span>
+          </div>
+        ) : null}
         {bubble.text ? (
           isUser ? (
             // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
