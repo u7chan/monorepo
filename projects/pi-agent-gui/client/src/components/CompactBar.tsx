@@ -16,8 +16,8 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
   const landscape = mode === "landscape";
 
   return (
-    <header className="grid border-b border-line bg-panel/85">
-      <div className={cn("flex items-center gap-2.5 px-3", landscape ? "py-0.5" : "py-2")}>
+    <header className="grid min-w-0 grid-cols-1 border-b border-line bg-panel/85">
+      <div className={cn("flex min-w-0 items-center gap-2.5 px-3", landscape ? "py-0.5" : "py-2")}>
         <span
           aria-hidden
           className={cn(
