@@ -4,7 +4,7 @@ import type { z } from "zod";
 import { SandboxRequestError } from "./sandbox/client";
 
 const MAX_BODY_BYTES = 64 * 1024;
-const MAX_MESSAGE_BODY_BYTES = 64 * 1024 * 1024;
+const MAX_MESSAGE_BODY_BYTES = 24 * 1024 * 1024;
 
 function bodyLimitFor(path: string): number {
   return /^\/api\/sessions\/[^/]+\/messages$/.test(path) ? MAX_MESSAGE_BODY_BYTES : MAX_BODY_BYTES;
