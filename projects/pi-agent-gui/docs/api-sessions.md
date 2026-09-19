@@ -71,7 +71,7 @@
   },
   "context": { "tokens": 68000, "contextWindow": 200000, "percent": 34 },
   "messages": [
-    { "role": "user", "text": "…", "at": 1700000000000 },
+    { "role": "user", "text": "…", "imageCount": 2, "at": 1700000000000 },
     {
       "role": "assistant",
       "text": "…",
@@ -119,7 +119,7 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`messages[].at` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
+`messages[].imageCount` は pi SDK が履歴に持つメッセージの作成時刻（epoch ms）。assistant は生成開始時刻で、完了時刻ではない。SDK が時刻を持たない履歴ではキーを省略する（受け手は時刻無しでも表示を壊さない）。
 
 `messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
 
