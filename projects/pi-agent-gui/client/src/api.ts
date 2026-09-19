@@ -8,6 +8,7 @@ import type {
   FileListing,
   FilePreview,
   Health,
+  MessageImage,
   ModelRef,
   PostMessageResult,
   Project,
@@ -199,8 +200,15 @@ export const stopSession = async (sessionId: string): Promise<StopResult> => {
 };
 
 // 202 を即時返す。実行は裏で続き、進捗は SSE で届く
-export const postMessage = async (sessionId: string, text: string): Promise<PostMessageResult> => {
-  const res = await client.api.sessions[":id"].messages.$post({ json: { text }, param: { id: sessionId } });
+export const postMessage = async (
+  sessionId: string,
+  text: string,
+  images: MessageImage[] = [],
+): Promise<PostMessageResult> => {
+  const res = await client.api.sessions[":id"].messages.$post({
+    json: { text, ...(images.length > 0 ? { images } : {}) },
+    param: { id: sessionId },
+  });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
