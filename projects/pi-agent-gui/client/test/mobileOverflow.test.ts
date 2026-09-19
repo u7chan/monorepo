@@ -16,16 +16,10 @@ const messageView = source("../src/components/chat/MessageView.tsx");
 
 test("compact の単一列 Grid は minmax(0, 1fr) 相当の grid-cols-1 で幅を拘束する", () => {
   assert.ok(app.includes('compact ? "grid-cols-1 grid-rows-1"'));
-  assert.ok(
-    app.includes(
-      'filesPanelOpen ? "grid-cols-[minmax(0,1fr)_min(360px,30vw)]" : "grid-cols-1"',
-    ),
-  );
+  assert.ok(app.includes('filesPanelOpen ? "grid-cols-[minmax(0,1fr)_min(360px,30vw)]" : "grid-cols-1"'));
   assert.ok(app.includes('grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden'));
   assert.ok(
-    app.includes(
-      'grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden',
-    ),
+    app.includes('grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden'),
   );
 });
 
