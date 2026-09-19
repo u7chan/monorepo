@@ -157,6 +157,7 @@ export type CompactionInfo = z.infer<typeof CompactionInfoSchema>;
 export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
+  imageCount: z.number().int().positive().optional(),
   stopReason: z.string().optional(),
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
@@ -314,8 +315,15 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 // ---------------------------------------------------------------------------
 
+export const MessageImageSchema = z.object({
+  data: z.string().min(1),
+  mimeType: z.string().regex(/^image\//),
+});
+export type MessageImage = z.infer<typeof MessageImageSchema>;
+
 export const PostMessageBodySchema = z.object({
   text: z.string(),
+  images: z.array(MessageImageSchema).max(10).optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 
