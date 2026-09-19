@@ -24,6 +24,7 @@ export type Bubble = {
   id: number;
   role: "user" | "assistant";
   text: string;
+  imageCount?: number;
   tools: ToolCard[];
   at?: number;
   usage?: Usage;
@@ -60,7 +61,7 @@ export type ChatAction =
   | { type: "newChat" }
   | { type: "resync"; payload: SessionPayload }
   | { type: "runStart"; prompt: string; at: number; startedAt: number }
-  | { type: "localUser"; text: string; at: number }
+  | { type: "localUser"; text: string; imageCount?: number; at: number }
   | { type: "text"; delta: string; at: number }
   | { type: "toolStart"; id: string; name: string; args: string; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
@@ -93,8 +94,14 @@ export const initialChatState: ChatState = {
   pendingMetrics: undefined,
 };
 
-function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
-  const bubble: Bubble = { id: state.nextId, role, text, tools: [], at };
+function appendBubble(
+  state: ChatState,
+  role: Bubble["role"],
+  text = "",
+  at?: number,
+  imageCount?: number,
+): ChatState {
+  const bubble: Bubble = { id: state.nextId, role, text, imageCount, tools: [], at };
   return {
     ...state,
     bubbles: [...state.bubbles, bubble],
@@ -149,6 +156,7 @@ function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: B
     id: nextId++,
     role: message.role,
     text: message.text,
+    imageCount: message.imageCount,
     tools: [],
     at: message.at,
     usage: message.usage,
@@ -243,7 +251,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "localUser": {
-      const next = appendBubble(state, "user", action.text, action.at);
+      const next = appendBubble(state, "user", action.text, action.at, action.imageCount);
       return { ...next, currentAssistantId: null, activity: "送信中…" };
     }
 
