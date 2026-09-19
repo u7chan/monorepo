@@ -18,6 +18,7 @@ import { useRoute } from "./hooks/useRoute";
 import { cn } from "./lib/cn";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
+import type { MessageImage } from "./types";
 
 export default function App() {
   const desk = useAgentDesk();
@@ -60,8 +61,8 @@ export default function App() {
   }, [mainView, navOpen, backToChat]);
 
   const handleSend = useCallback(
-    (text: string) => {
-      void desk.sendMessage(text);
+    (text: string, images: MessageImage[] = []) => {
+      void desk.sendMessage(text, images);
     },
     [desk],
   );
