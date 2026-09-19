@@ -183,7 +183,9 @@ export default function App() {
               実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
           <div
             className={
-              mainView === "settings" ? "hidden" : "grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
+              mainView === "settings"
+                ? "hidden"
+                : "grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
             }
           >
             {compactMode ? (
