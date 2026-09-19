@@ -30,7 +30,13 @@ function SessionFilesContent({ root, runEndSeq, onClose, compact }: SessionFiles
           {compact ? (
             <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SESSION FILES</div>
           ) : null}
-          <h2 className={compact ? "truncate text-base font-semibold text-ink-strong" : "truncate text-xs font-semibold text-ink-strong"}>
+          <h2
+            className={
+              compact
+                ? "truncate font-semibold text-base text-ink-strong"
+                : "truncate text-xs font-semibold text-ink-strong"
+            }
+          >
             セッションのファイル
           </h2>
           {compact ? (
