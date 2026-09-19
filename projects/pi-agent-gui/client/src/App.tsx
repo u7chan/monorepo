@@ -167,23 +167,23 @@ export default function App() {
     <div
       className={cn(
         "grid h-dvh min-h-0 bg-base text-ink",
-        compact ? "grid-rows-1" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-1",
+        compact ? "grid-cols-1 grid-rows-1" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-1",
       )}
     >
       {compact ? null : <Sidebar {...navProps} />}
       <main
         className={cn(
-          "grid min-h-0 grid-rows-1 overflow-hidden",
+          "grid min-h-0 min-w-0 grid-rows-1 overflow-hidden",
           // 右パネルはシェルの 3 カラム目 (チャット列の隣)。狭い viewport では 30vw まで縮めてチャット列を残す
-          filesPanelOpen && "grid-cols-[minmax(0,1fr)_min(360px,30vw)]",
+          filesPanelOpen ? "grid-cols-[minmax(0,1fr)_min(360px,30vw)]" : "grid-cols-1",
         )}
       >
-        <div className="grid min-h-0 grid-rows-1 overflow-hidden">
+        <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
           {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
               実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
           <div
             className={
-              mainView === "settings" ? "hidden" : "grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
+              mainView === "settings" ? "hidden" : "grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
             }
           >
             {compactMode ? (
