@@ -127,7 +127,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post(
       "/api/sessions/:id/messages",
       zValidator("json", PostMessageBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "text is required" }, 400),
+        result.success ? undefined : c.json({ error: "Invalid message body" }, 400),
       ),
       (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
     )
