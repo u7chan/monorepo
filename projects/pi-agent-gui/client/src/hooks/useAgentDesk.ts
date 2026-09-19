@@ -75,17 +75,21 @@ export function useAgentDesk() {
 
   const sendMessage = useCallback(
     async (text: string, images: MessageImage[] = []): Promise<void> => {
-      await sendChatMessage(text, {
-        health,
-        busy: sending || settingsChanging,
-        sessionIdRef,
-        ensureSession,
-        refreshSessions,
-        post: postMessage,
-        dispatch,
-        setSending,
-        setRuntimeStatus,
-      }, images);
+      await sendChatMessage(
+        text,
+        {
+          health,
+          busy: sending || settingsChanging,
+          sessionIdRef,
+          ensureSession,
+          refreshSessions,
+          post: postMessage,
+          dispatch,
+          setSending,
+          setRuntimeStatus,
+        },
+        images,
+      );
     },
     [dispatch, ensureSession, health, refreshSessions, sending, sessionIdRef, settingsChanging, setRuntimeStatus],
   );
