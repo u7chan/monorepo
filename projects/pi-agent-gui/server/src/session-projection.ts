@@ -27,6 +27,11 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
+function imageCount(content: unknown): number {
+  if (!Array.isArray(content)) return 0;
+  return content.filter((part) => part && (part as { type?: unknown }).type === "image").length;
+}
+
 export function toolArgsSummary(args: unknown, masker: SecretMasker): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
@@ -71,11 +76,13 @@ export function projectMessages(
 ): ChatMessage[] {
   return displayableMessages(session, masker).map((message) => {
     const text = masker.mask(contentText(message.content));
+    const images = message.role === "user" ? imageCount(message.content) : 0;
     const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
     const metrics = messageMetrics.get(message);
     return {
       role: message.role as "user" | "assistant",
       text,
+      ...(images > 0 ? { imageCount: images } : {}),
       stopReason: message.role === "assistant" ? message.stopReason : undefined,
       // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
       ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
