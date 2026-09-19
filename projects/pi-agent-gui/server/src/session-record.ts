@@ -7,6 +7,7 @@ import type {
   CompactionReason,
   EventEntry,
   MessageMetrics,
+  MessageImage,
   ModelRef,
   RunStatus,
   ThinkingLevel,
@@ -33,6 +34,11 @@ export interface CompactionMeta {
 export interface SessionSubscriber {
   send: (entry: EventEntry) => void;
   close?: () => void;
+}
+
+export interface MessageInput {
+  text: string;
+  images: MessageImage[];
 }
 
 export interface SessionRecord {
@@ -69,7 +75,7 @@ export interface SessionRecord {
   seq: number;
   events: EventEntry[];
   subscribers: Set<SessionSubscriber>;
-  queue: string[];
+  queue: MessageInput[];
   run: RunState | null;
   tools: Map<string, ToolCall>;
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
