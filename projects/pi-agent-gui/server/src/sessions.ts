@@ -18,6 +18,7 @@ import { createSecretMasker, type SecretMasker } from "./redact";
 import { createRunEventBridge, userFacingError, type RunSettlement } from "./run-events";
 import type {
   CreateSessionOptions,
+  MessageInput,
   PostMessageResultInternal,
   RunState,
   SessionRecord,
@@ -50,6 +51,7 @@ import type {
   AgentSkillInfo,
   CompactionInfo,
   EventEntry,
+  MessageImage,
   ModelRef,
   Project,
   RunStatus,
@@ -519,7 +521,7 @@ export class SessionStore {
   }
 
   /** 実行中ならキューに入れ、それ以外は即座にランを始める。 */
-  postMessage(record: SessionRecord, text: string): PostMessageResultInternal {
+  postMessage(record: SessionRecord, text: string, images: MessageImage[] = []): PostMessageResultInternal {
     // 設定変更中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
@@ -530,12 +532,14 @@ export class SessionStore {
       }
     }
     if (!record.title) {
-      record.title = truncate(this.masker.mask(text).replace(/\s+/g, " ").trim(), TITLE_MAX);
+      const title = this.masker.mask(text).replace(/\s+/g, " ").trim() || `画像 ${images.length}枚`;
+      record.title = truncate(title, TITLE_MAX);
     }
     record.lastUsedAt = Date.now();
+    const input: MessageInput = { text, images };
 
     if (record.run?.status === "running" || record.session.isStreaming) {
-      record.queue.push(text);
+      record.queue.push(input);
       this.emit(record, "queued", {
         position: record.queue.length,
         queueDepth: record.queue.length,
@@ -544,7 +548,7 @@ export class SessionStore {
       return { queued: true, queueDepth: record.queue.length, runId: record.run?.id };
     }
 
-    const run = this.startRun(record, text);
+    const run = this.startRun(record, input);
     return { queued: false, queueDepth: 0, runId: run.id };
   }
 
@@ -841,8 +845,9 @@ export class SessionStore {
   }
 
   /** バックグラウンドランを開始する (呼び出し側はセッションが idle であることを保証する)。 */
-  startRun(record: SessionRecord, text: string): RunState {
+  startRun(record: SessionRecord, input: MessageInput): RunState {
     const { session } = record;
+    const { text, images } = input;
     const run: RunState = {
       id: randomBytes(8).toString("hex"),
       // ログ・SSE 用に保持するプロンプトはマスクする (モデルへ渡す text はユーザー入力そのまま)。
@@ -904,7 +909,12 @@ export class SessionStore {
 
     const unsubscribe = session.subscribe(bridge.listener);
     session
-      .prompt(text)
+      .prompt(
+        text,
+        images.length > 0
+          ? { images: images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })) }
+          : undefined,
+      )
       .then(() => {
         // agent_settled は prompt() の解決より先に届くはずで、これはその保険。
         if (!finished) finish();
