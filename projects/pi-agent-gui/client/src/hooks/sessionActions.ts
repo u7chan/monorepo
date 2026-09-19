@@ -20,8 +20,8 @@ export async function sendChatMessage(
   text: string,
   deps: SendChatMessageDeps,
   images: MessageImage[] = [],
-): Promise<void> {
-  if ((!text && images.length === 0) || deps.busy) return;
+): Promise<boolean> {
+  if ((!text && images.length === 0) || deps.busy) return false;
   const { sessionIdRef, ensureSession, refreshSessions, post, dispatch, setSending, setRuntimeStatus } = deps;
   setSending(true);
   try {
@@ -50,10 +50,12 @@ export async function sendChatMessage(
       }
     }
     void refreshSessions();
+    return true;
   } catch (error) {
     const status = runtimeStatusForError(error);
     dispatch({ type: "setActivity", text: status.detail || status.text });
     setRuntimeStatus(status);
+    return false;
   } finally {
     setSending(false);
   }
