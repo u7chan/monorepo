@@ -19,7 +19,7 @@
     "lint": "oxlint client server",
     "lint:fix": "oxlint client server --fix",
     "format": "oxfmt client server",
-    "format:check": "cp client/src/components/SessionFilesPanel.tsx /tmp/SessionFilesPanel.tsx && oxfmt client server && diff -u /tmp/SessionFilesPanel.tsx client/src/components/SessionFilesPanel.tsx || true; false"
+    "format:check": "oxfmt client server --check"
   },
   "engines": {
     "node": ">=22"
