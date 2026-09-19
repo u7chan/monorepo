@@ -315,16 +315,30 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 // ---------------------------------------------------------------------------
 
+const MAX_MESSAGE_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_MESSAGE_IMAGE_DATA_CHARS = Math.ceil(MAX_MESSAGE_IMAGE_BYTES / 3) * 4;
+
 export const MessageImageSchema = z.object({
   data: z.string().min(1),
-  mimeType: z.string().regex(/^image\//),
+  mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
 });
 export type MessageImage = z.infer<typeof MessageImageSchema>;
 
-export const PostMessageBodySchema = z.object({
-  text: z.string(),
-  images: z.array(MessageImageSchema).max(10).optional(),
-});
+export const PostMessageBodySchema = z
+  .object({
+    text: z.string(),
+    images: z.array(MessageImageSchema).max(10).optional(),
+  })
+  .superRefine((body, ctx) => {
+    const totalDataChars = body.images?.reduce((sum, image) => sum + image.data.length, 0) ?? 0;
+    if (totalDataChars > MAX_MESSAGE_IMAGE_DATA_CHARS) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["images"],
+        message: "Images are too large",
+      });
+    }
+  });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 
 export const CreateSessionBodySchema = z.object({
