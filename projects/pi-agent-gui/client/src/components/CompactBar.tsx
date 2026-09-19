@@ -1,7 +1,7 @@
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
-import { MenuIcon } from "./icons";
+import { FolderIcon, MenuIcon } from "./icons";
 import { RuntimeAlert } from "./RuntimeAlert";
 
 export type CompactBarProps = {
@@ -9,10 +9,11 @@ export type CompactBarProps = {
   title: string;
   agentName?: string;
   runtimeStatus: RuntimeStatus;
+  sessionFiles?: { open: boolean; onToggle: () => void };
   onOpenNav: () => void;
 };
 
-export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }: CompactBarProps) {
+export function CompactBar({ mode, title, agentName, runtimeStatus, sessionFiles, onOpenNav }: CompactBarProps) {
   const landscape = mode === "landscape";
 
   return (
@@ -37,6 +38,21 @@ export function CompactBar({ mode, title, agentName, runtimeStatus, onOpenNav }:
           <div className={cn("truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm")}>{title}</div>
         </div>
         {runtimeStatus.error ? <span className="dot dot-danger shrink-0" aria-hidden /> : null}
+        {sessionFiles ? (
+          <button
+            type="button"
+            onClick={sessionFiles.onToggle}
+            aria-label="セッションのファイル"
+            title="セッションのファイル"
+            aria-expanded={sessionFiles.open}
+            className={cn(
+              "grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
+              sessionFiles.open && "border-accent/50 text-accent-text",
+            )}
+          >
+            <FolderIcon />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onOpenNav}
