@@ -9,7 +9,7 @@ import type { Dispatch } from "react";
 import type { ChatAction } from "../src/hooks/chatReducer";
 import { sendChatMessage, stopRun, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
-import type { Health, PostMessageResult, StopResult } from "../src/types";
+import type { Health, MessageImage, PostMessageResult, StopResult } from "../src/types";
 
 const health = (overrides: Partial<Health> = {}): Health => ({ ready: true, ...overrides });
 
@@ -37,7 +37,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
   const record = {
     actions: [] as ChatAction[],
     statuses: [] as RuntimeStatus[],
-    posted: [] as Array<{ sessionId: string; text: string }>,
+    posted: [] as Array<{ sessionId: string; text: string; images?: MessageImage[] }>,
     refreshed: 0,
     sending: [] as boolean[],
   };
@@ -53,8 +53,8 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
       record.refreshed += 1;
       return [];
     },
-    post: async (sessionId, text) => {
-      record.posted.push({ sessionId, text });
+    post: async (sessionId, text, images = []) => {
+      record.posted.push({ sessionId, text, ...(images.length > 0 ? { images } : {}) });
       return { queued: false, queueDepth: 0 } satisfies PostMessageResult;
     },
     dispatch,
@@ -82,6 +82,18 @@ test("sends to the session returned by ensureSession and starts the run locally"
     { type: "setRun", runStatus: "running", queueDepth: 0, activity: "実行を開始しました" },
   ]);
   assert.equal(record.refreshed, 1);
+});
+
+test("sends an image-only message and echoes its attachment count", async () => {
+  const { record, deps } = createHarness();
+  const image: MessageImage = { data: "aGVsbG8=", mimeType: "image/png" };
+
+  await sendChatMessage("", deps, [image]);
+
+  assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "", images: [image] }]);
+  const [user] = actionsOfType(record.actions, "localUser");
+  assert.equal(user.text, "");
+  assert.equal(user.imageCount, 1);
 });
 
 test("keeps the send target but not the display when the chat switches while creating the session", async () => {
