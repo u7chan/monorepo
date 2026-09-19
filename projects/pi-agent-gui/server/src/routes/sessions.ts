@@ -73,12 +73,13 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       const text = body.text.trim();
-      if (!text) return c.json({ error: "text is required" }, 400);
+      const images = body.images ?? [];
+      if (!text && images.length === 0) return c.json({ error: "text or images is required" }, 400);
       if (text.length > MAX_MESSAGE_CHARS) {
         return c.json({ error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
       // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
-      const result = store.postMessage(record, text);
+      const result = store.postMessage(record, text, images);
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
     },
 
