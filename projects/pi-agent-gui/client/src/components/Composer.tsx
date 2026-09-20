@@ -121,6 +121,11 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
   }, [value, maxTextareaHeight, visible]);
 
+  // 送信経路は入力欄に限らない (ChatArea の suggestion も同じ送信)。畳む条件の根拠は docs/ui-layout.md
+  useEffect(() => {
+    if (compact && sending) setSettingsOpen(false);
+  }, [compact, sending]);
+
   const submit = () => {
     const text = value.trim();
     // 設定変更中は送信を待たせる (サーバー側でも 409)。添付だけの送信は許可する
