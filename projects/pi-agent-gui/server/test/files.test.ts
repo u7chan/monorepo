@@ -228,7 +228,7 @@ test("GET /api/files/html/<path> rejects extensions that are not servable as ass
   const { workspace, previewed, raw } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
-    // .svg は同一オリジンでスクリプトが動くため配信しない。拡張子なし / dotfile も対象外にする
+    // .svg は同一オリジンでスクリプトが動くため配信しない。拡張子なし / dotfile / Object.prototype の名前も対象外にする
     for (const url of [
       "/api/files/html/dir%2Flogo.svg",
       "/api/files/html/app.js.map",
@@ -236,6 +236,8 @@ test("GET /api/files/html/<path> rejects extensions that are not servable as ass
       "/api/files/html/a.woff2",
       "/api/files/html/dir%2F",
       "/api/files/html/.js",
+      "/api/files/html/x.constructor",
+      "/api/files/html/x.__proto__",
     ]) {
       const response = await bff.app.request(url);
       assert.equal(response.status, 400, url);

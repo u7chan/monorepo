@@ -119,7 +119,10 @@ export function rawImageContentType(path: string): string | undefined {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return undefined;
-  return RAW_IMAGE_CONTENT_TYPES[name.slice(dot + 1).toLowerCase()];
+  const extension = name.slice(dot + 1).toLowerCase();
+  // `Object.prototype` の名前 (`.constructor` など) を拡張子に使われても allowlist を通過させない
+  if (!Object.hasOwn(RAW_IMAGE_CONTENT_TYPES, extension)) return undefined;
+  return RAW_IMAGE_CONTENT_TYPES[extension];
 }
 
 /**
