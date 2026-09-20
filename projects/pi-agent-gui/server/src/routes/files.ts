@@ -97,6 +97,19 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
       return c.json(parsed.data);
     },
     /**
+     * 通常ファイルの削除 (チャット右パネルのファイル一覧から誤アップロードを取り消す導線)。
+     * パス検証 (root 外 400 / 不存在 404 / 通常ファイル以外 400 / symlink 400) と削除はサンドボックスが行う。
+     */
+    remove: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      try {
+        await workspace.deleteFile(c.req.query("path") ?? "");
+        return c.body(null, 204);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+    },
+    /**
      * 画像の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。allowlist を BFF でも見て、
      * 画像以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。
      */

@@ -134,6 +134,18 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `.pi-agent-gui/sessions/<id>` 配下を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 
+## 削除
+
+誤ってアップロードしたファイルを取り消す導線。ファイル行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
+
+- **出す画面はセッションの作業フォルダ（チャット右パネル）だけ**。`FileBrowser` の `canDelete` を `SessionFilesPanel` だけ true にし、設定 → ファイル（ワークスペース root）は読み取り専用のままにする。プロジェクトのソースを GUI から 1 クリックで消せると事故が大きいため（取り消したいのはアップロード）
+- **消せるのは通常ファイルだけ**。ディレクトリと symlink はサンドボックスが 400 で拒否するため、行にも導線を出さない（symlink の行には既存の「リンク」バッジが付く）。`uploads/` はフラットで、誤アップロードの取り消しにディレクトリ削除は要らない
+- 行は選択（本文を開く）と削除の 2 つの `button` に分ける（`button` の入れ子は作れない）。削除は常時見せ、hover で隠さない（タッチ端末で押せなくなるため）
+- 成功したらその行を一覧から落とし（`removeFileTreeEntry`）、開いていたタブを閉じる。**自分で消したものだけ**閉じる（外部で消えたファイルのタブは本文の取得エラーを出して残す現行挙動のまま）
+- 失敗したら親ディレクトリのエラーとして出し、行は残す（`applyFileTreeError`。他のディレクトリの表示は維持し、「再読み込み」で消える）
+- 未送信の添付チップが指すファイルを消しても、送信自体は通る（注記は `uploads/` のパスを載せるだけ）がサムネイルは 404 になる。今回は許容する（チップ側からも消せるようにするなら別途）
+- 同じ行の二重送信は実行中のパスを持つ ref で弾く。エージェント実行中・プレビュー取得中との直列化は持たない（既存の同時操作と同じ）
+
 ## 復帰（F5・画面の往復）
 
 ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `.pi-agent-gui/sessions/<id>` を使うので、同じファイルを 2 画面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
@@ -153,12 +165,12 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
-| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
+| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
-| `server/test/files.test.ts` | `GET /api/files/html` の 200 とヘッダ（CSP / `no-store` / `nosniff`）/ 400 / 404 / 502 / 503 / エラー HTML のエスケープ |
+| `server/test/files.test.ts` | `GET /api/files/html` の 200 とヘッダ（CSP / `no-store` / `nosniff`）/ 400 / 404 / 502 / 503 / エラー HTML のエスケープ / `DELETE /api/files` の委譲と 204・エラー写像 |
 | `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503） |
 
 ## 参照

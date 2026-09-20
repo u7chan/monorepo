@@ -66,6 +66,29 @@ export function fileTreeChildPath(parent: string, name: string): string {
   return parent === FILE_TREE_ROOT ? name : `${parent}/${name}`;
 }
 
+/** 親ディレクトリのパス。root 直下の子は FILE_TREE_ROOT になる */
+export function fileTreeParentPath(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash === -1 ? FILE_TREE_ROOT : path.slice(0, slash);
+}
+
+/**
+ * 削除したファイルの行を一覧から落とす。children を持つ親だけを差し替えるので、
+ * 展開中の子孫や他のディレクトリの状態はそのまま残る (ファイルを消しても親の再取得は不要)。
+ * 該当行を持つ一覧が無いときは同じ object を返す。
+ */
+export function removeFileTreeEntry(state: FileTreeState, path: string): FileTreeState {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const parent = fileTreeParentPath(path);
+  const node = fileTreeDirectoryState(state, parent);
+  if (!node?.children) return state;
+  const children = node.children.filter((entry) => entry.name !== name);
+  if (children.length === node.children.length) return state;
+  const next = { ...state };
+  setFileTreeDirectoryState(next, parent, { ...node, children });
+  return next;
+}
+
 /**
  * ディレクトリの状態を読む。パスには本文 (ファイル名) 由来の文字列が入るため、`__proto__` のような名前で
  * 継承プロパティを状態として拾わないよう own プロパティだけを見る。

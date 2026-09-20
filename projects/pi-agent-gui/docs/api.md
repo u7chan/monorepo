@@ -10,6 +10,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
+| ファイル削除 | `DELETE /api/files` | このファイル |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
 | HTML プレビュー（iframe 用） | `GET /api/files/html` | このファイル |
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
@@ -61,6 +62,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/files?path=<root 相対>` | 作業ディレクトリの一覧。`path` 省略時は root（`"."`） |
+| DELETE | `/api/files?path=<root 相対>` | 通常ファイルの削除。成功は 204（本文なし） |
 
 サンドボックスの `GET /v1/files` の応答を、そのまま DTO（`FileListing`）として返す。セッションに依存させない（`/api/sessions/:id/...` 配下に置かない）ため、セッションが無くても、APIキーが未設定で `/api/health` が `ready: false` でも開ける。
 
@@ -81,6 +83,16 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 - 502: サンドボックスへ到達できない / 認証失敗 / サンドボックス側のエラー / 契約外の応答（BFF が zod で検証して弾く）
 
 client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型として参照し、ディレクトリを展開したときにそのパスだけを取得する（遅延ロード）。並び順はサーバーが決めるため再ソートしない。自動更新は無く、画面の「再読み込み」で取り直す。`path` はワークスペース root 相対のままで、選択中セッションの配下を表示するときはクライアントがそのセッションの `cwd`（root 相対）を前置してパスを組み立てる。
+
+### 削除
+
+`DELETE /api/files?path=<root 相対>` はサンドボックスの `DELETE /v1/files` へ委譲し、BFF はワークスペースに触らない（`client/src/api.ts` の `deleteFile` は成功時に本文を読まない）。
+
+- 204: 削除した（本文なし）
+- 400 / 404: root 外 / 不正 / 通常ファイル以外 / symlink（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
+- 503 / 502: `GET /api/files` と同じ（未設定 / 到達不能・認証失敗・サンドボックス側のエラー）
+
+出す導線はセッションの作業フォルダ（チャット右パネル）だけで、設定 → ファイル は読み取り専用のまま（[file-preview.md](file-preview.md#削除)）。
 
 ## テキストプレビュー
 

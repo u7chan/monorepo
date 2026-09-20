@@ -39,7 +39,8 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
         </button>
       }
     >
-      <FileBrowser root={rootPath} reloadToken={reloadToken} />
+      {/* ワークスペース root は常に読み取り専用 (削除はチャット右パネルのセッション作業フォルダだけ) */}
+      <FileBrowser root={rootPath} reloadToken={reloadToken} canDelete={false} />
     </SettingsPageLayout>
   );
 }

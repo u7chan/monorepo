@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { getFiles } from "../api";
+import { deleteFile, getFiles } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import {
@@ -11,10 +11,12 @@ import {
   fileTreeChildPath,
   fileTreeDirectoryState,
   fileTreeFetchPath,
+  fileTreeParentPath,
   invalidateFileTree,
   normalizeFileTreeRoot,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
+  removeFileTreeEntry,
   toggleFileTreeDirectory,
   type FileTreeDirectoryState,
   type FileTreeState,
@@ -31,7 +33,7 @@ import {
   type PreviewModes,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
-import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
+import { ChevronIcon, FileIcon, FolderIcon, TrashIcon } from "./icons";
 
 const INDENT = 16;
 /** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
@@ -46,6 +48,8 @@ export type FileBrowserProps = {
   root: string;
   /** 値を変えると一覧と開いている本文を取り直す。mount 時の値では撃たない */
   reloadToken: number;
+  /** ファイル行に削除の導線を出すか。セッションの作業フォルダ (チャット右パネル) だけ true にする */
+  canDelete: boolean;
 };
 
 /**
@@ -55,7 +59,7 @@ export type FileBrowserProps = {
  * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」と run 終了のみ)。
  */
-export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
+export function FileBrowser({ root, reloadToken, canDelete }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
@@ -70,6 +74,8 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
   const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
+  // 同じ行の削除を二重に送らない (実体が消えた後の再要求で 404 を出さないため)
+  const deletingRef = useRef<Set<string>>(new Set());
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
@@ -107,6 +113,28 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
 
   const openTab = (path: string) => setTabs((prev) => openFileTab(prev, path));
   const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
+
+  /**
+   * 削除は確認してからサーバーへ委譲する。成功したら自分で消した行を落として開いていたタブを閉じる
+   * (外部から消えた場合の現行挙動とは別)。失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
+   */
+  const removeFile = (path: string) => {
+    if (deletingRef.current.has(path)) return;
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    if (!window.confirm(`「${name}」を削除しますか？この操作は取り消せません。`)) return;
+    deletingRef.current.add(path);
+    void (async () => {
+      try {
+        await deleteFile(fileTreeFetchPath(rootPath, path));
+        closeTab(path);
+        setTree((prev) => removeFileTreeEntry(prev, path));
+      } catch (error) {
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+      } finally {
+        deletingRef.current.delete(path);
+      }
+    })();
+  };
 
   // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる。復元したタブが揃った状態で走る
   // (復元前の空の paths で消さないため、復元は lazy initializer 側で済ませてある)
@@ -153,6 +181,7 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
               selected={tabs.active}
               onToggle={toggle}
               onSelect={openTab}
+              onDelete={canDelete ? removeFile : undefined}
             />
           ) : rootNode.error ? null : (
             <MessageRow depth={0}>読み込み中…</MessageRow>
@@ -185,9 +214,11 @@ type BranchProps = {
   selected: string | null;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
+  /** 未指定ならファイル行に削除の導線を出さない */
+  onDelete?: ((path: string) => void) | undefined;
 };
 
-function Branch({ parent, node, depth, tree, selected, onToggle, onSelect }: BranchProps) {
+function Branch({ parent, node, depth, tree, selected, onToggle, onSelect, onDelete }: BranchProps) {
   const entries = node.children ?? [];
   return (
     // 明示的な minmax(0,1fr) で行幅を容器に固定する (auto だと長い名前の max-content まで広がり、省略記号ではなく overflow で切れる)
@@ -203,6 +234,7 @@ function Branch({ parent, node, depth, tree, selected, onToggle, onSelect }: Bra
           selected={selected}
           onToggle={onToggle}
           onSelect={onSelect}
+          onDelete={onDelete}
         />
       ))}
       {node.truncated ? <MessageRow depth={depth}>上限のため {entries.length} 件のみ表示しています</MessageRow> : null}
@@ -218,6 +250,7 @@ function EntryRow({
   selected,
   onToggle,
   onSelect,
+  onDelete,
 }: {
   parent: string;
   entry: FileEntry;
@@ -226,6 +259,7 @@ function EntryRow({
   selected: string | null;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
+  onDelete?: ((path: string) => void) | undefined;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
 
@@ -269,6 +303,7 @@ function EntryRow({
                 selected={selected}
                 onToggle={onToggle}
                 onSelect={onSelect}
+                onDelete={onDelete}
               />
             ) : node?.error ? null : (
               <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
@@ -280,21 +315,39 @@ function EntryRow({
   }
 
   const isSelected = selected === path;
+  // 削除できるのは通常ファイルだけ。symlink はサンドボックスが 400 で拒否するため導線を出さない
+  const deletable = onDelete !== undefined && !entry.symlink;
   return (
-    <button
-      type="button"
-      aria-current={isSelected ? "true" : undefined}
-      onClick={() => onSelect(path)}
+    // 行全体は選択、右端のゴミ箱は削除。入れ子の button は作れないため、行は div にして 2 つの button を並べる
+    <div
       style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
-        "flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs transition-colors",
+        "flex min-h-7.5 w-full items-center rounded-lg pr-1 pl-(--tree-indent) text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
       )}
     >
-      <FileIcon />
-      <span className="min-w-0 truncate">{entry.name}</span>
-      {entry.symlink ? <SymlinkMark /> : null}
-    </button>
+      <button
+        type="button"
+        aria-current={isSelected ? "true" : undefined}
+        onClick={() => onSelect(path)}
+        className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+      >
+        <FileIcon />
+        <span className="min-w-0 truncate">{entry.name}</span>
+        {entry.symlink ? <SymlinkMark /> : null}
+      </button>
+      {deletable ? (
+        <button
+          type="button"
+          aria-label={`${entry.name} を削除`}
+          title="削除"
+          onClick={() => onDelete(path)}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-danger-text"
+        >
+          <TrashIcon />
+        </button>
+      ) : null}
+    </div>
   );
 }
 

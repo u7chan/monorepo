@@ -1,4 +1,4 @@
-// GET /api/files。サンドボックスはスタブを注入し、listen せず app.request() で検証する。
+// GET / DELETE /api/files。サンドボックスはスタブを注入し、listen せず app.request() で検証する。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -15,14 +15,17 @@ const LISTING: SandboxFileListing = {
   truncated: false,
 };
 
-/** listFiles が受け取った path を記録するスタブ */
+/** listFiles / deleteFile が受け取った path を記録するスタブ */
 function stubFiles(result: SandboxFileListing | Error = LISTING): {
   workspace: SandboxWorkspaceClient;
   paths: string[];
+  deleted: string[];
 } {
   const paths: string[] = [];
+  const deleted: string[] = [];
   return {
     paths,
+    deleted,
     workspace: {
       previewFile: async () => ({ text: "hello" }),
       listFiles: async (path: string) => {
@@ -32,6 +35,9 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
       },
       // ファイル一覧のテストではディレクトリ作成は使わない
       createDir: async (path: string) => ({ path }),
+      deleteFile: async (path: string) => {
+        deleted.push(path);
+      },
       // アップロード / 生配信はこのテストでは扱わない
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
@@ -250,6 +256,72 @@ test("GET /api/files maps sandbox failures and rejects malformed listings", asyn
     assert.match((await jsonBody(response)).error, /不正/);
   } finally {
     await bff.close();
+  }
+});
+
+test("DELETE /api/files deletes through the sandbox and returns 204 without a body", async () => {
+  const { workspace, deleted } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files?path=uploads%2Fphoto.png", { method: "DELETE" });
+    assert.equal(response.status, 204);
+    assert.equal(await response.text(), "");
+    assert.deepEqual(deleted, ["uploads/photo.png"]);
+
+    // path を省略した場合は root 相当を渡し、検証はサンドボックスに任せる
+    assert.equal((await bff.app.request("/api/files", { method: "DELETE" })).status, 204);
+    assert.deepEqual(deleted, ["uploads/photo.png", ""]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("DELETE /api/files answers 503 when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    const response = await bff.app.request("/api/files?path=uploads%2Fphoto.png", { method: "DELETE" });
+    assert.equal(response.status, 503);
+    const body = await jsonBody(response);
+    assert.match(body.error, /PI_SANDBOX_URL/);
+    assert.match(body.error, /PI_SANDBOX_TOKEN/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("DELETE /api/files maps sandbox failures", async () => {
+  const cases: Array<{ error: Error; status: number; message: RegExp }> = [
+    {
+      error: new SandboxRequestError("Path outside the workspace: /etc", 400),
+      status: 400,
+      message: /outside the workspace/,
+    },
+    { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
+    {
+      error: new SandboxRequestError("Symbolic links cannot be deleted: /workspace/link", 400),
+      status: 400,
+      message: /Symbolic links cannot be deleted/,
+    },
+    {
+      error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502),
+      status: 502,
+      message: /接続できません/,
+    },
+    { error: new Error("unexpected"), status: 502, message: /unexpected/ },
+  ];
+  for (const item of cases) {
+    const { workspace } = stubFiles();
+    workspace.deleteFile = async () => {
+      throw item.error;
+    };
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+    try {
+      const response = await bff.app.request("/api/files?path=uploads%2Fphoto.png", { method: "DELETE" });
+      assert.equal(response.status, item.status, item.error.message);
+      assert.match((await jsonBody(response)).error, item.message);
+    } finally {
+      await bff.close();
+    }
   }
 });
 

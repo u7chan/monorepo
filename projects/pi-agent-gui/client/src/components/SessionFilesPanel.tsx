@@ -56,7 +56,8 @@ function SessionFilesContent({ root, runEndSeq, onClose, compact }: SessionFiles
           </button>
         </div>
       </header>
-      <FileBrowser root={root} reloadToken={reloadToken} />
+      {/* 削除を出すのはセッションの作業フォルダだけ (設定 → ファイル からソースを 1 クリックで消せないようにする) */}
+      <FileBrowser root={root} reloadToken={reloadToken} canDelete />
     </>
   );
 }

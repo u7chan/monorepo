@@ -7,7 +7,7 @@ import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { realpath as realpathCallback, type Dirent } from "node:fs";
 import { link, lstat, mkdir, open, readdir, stat, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import {
   createBashToolDefinition,
@@ -193,6 +193,37 @@ async function createWorkspaceDirectory(rootCwd: string, requested: string): Pro
   const targetStat = await stat(target).catch(() => undefined);
   if (!targetStat?.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
   return relativeToRoot(root, target);
+}
+
+/**
+ * root 相対の通常ファイルを消す。symlink は拒否する (realpath で実体に解決してから消すと、root 内のリンクが
+ * 指す root 外のファイルを消せてしまう)。要求パスの最終要素だけを lstat で見て、親は一覧と同じ解決を通す。
+ * 親は要求パスの字句の dirname を native realpath へ渡し、`..` を symlink の後に適用させる (一覧と同じ)。
+ */
+async function removeWorkspaceFile(rootCwd: string, requested: string): Promise<void> {
+  // 最終要素が消す対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りは通常ファイルではない
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
+    throw pathError(400, `Not a regular file: ${requested}`);
+  }
+
+  // 字句解決済みの candidate から親を作ると `..` が symlink より先に適用され、一覧と別のファイルを指す
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
+
+  const targetStat = await lstat(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be deleted: ${target}`);
+  if (!targetStat.isFile()) throw pathError(400, `Not a regular file: ${target}`);
+
+  await unlink(target).catch((error: unknown) => {
+    // lstat の直後に bash などが消した場合は目的を達しているため成功にする
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw pathError(400, `Cannot delete the file: ${messageFor(error)}`);
+  });
 }
 
 /** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */ async function deepestExistingPath(
@@ -578,6 +609,17 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 削除できるのは通常ファイルだけ (ディレクトリと symlink は 400)。成功は本文なしの 204
+  app.delete("/v1/files", async (c) => {
+    try {
+      await removeWorkspaceFile(rootCwd, c.req.query("path") ?? "");
+      return c.body(null, 204);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
   });
