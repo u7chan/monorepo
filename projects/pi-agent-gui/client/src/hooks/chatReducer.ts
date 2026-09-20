@@ -1,3 +1,4 @@
+import { splitAttachedFiles } from "../lib/attachments";
 import type {
   ChatMessage,
   CompactionInfo,
@@ -226,9 +227,17 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "runStart": {
-      // ローカルエコー済みなら user バブルを重複させない
+      // ローカルエコーは素の本文、run_start は注記込みの本文で届く。注記を除いた本文が一致するときは
+      // バブルを増やさず、既存のバブルを注記込みへ差し替える (表示は履歴と同じ形に揃える)
       const lastUser = [...state.bubbles].reverse().find((b) => b.role === "user");
-      const next = lastUser?.text === action.prompt ? state : appendBubble(state, "user", action.prompt, action.at);
+      const promptBody = splitAttachedFiles(action.prompt).text;
+      const echo = lastUser && splitAttachedFiles(lastUser.text).text === promptBody ? lastUser : undefined;
+      const next =
+        echo === undefined
+          ? appendBubble(state, "user", action.prompt, action.at)
+          : echo.text === action.prompt
+            ? state
+            : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
       return {
         ...next,
         currentAssistantId: null,

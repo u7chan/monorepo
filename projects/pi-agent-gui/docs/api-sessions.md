@@ -157,9 +157,49 @@
 ```json
 // request
 { "text": "README を読んで改善案を 3 つ" }
+// request (添付あり)
+{ "text": "これを見て", "attachments": ["uploads/photo-1.png", "uploads/report.pdf"] }
 // response (202)
 { "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "runId": "…" }
 ```
+
+- `attachments` はセッションの作業フォルダ相対のパスで、`uploads/` 配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体は 400）。最大 10 件、文字列以外は 400。
+- `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
+- BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
+
+### 添付の注記
+
+```
+これを見て
+
+<attached_files>
+- ./uploads/photo-1.png
+- ./uploads/report.pdf
+</attached_files>
+```
+
+- 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
+- タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
+- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、`run_start` が届いたら注記込みへ差し替える（`client/src/hooks/chatReducer.ts`）
+
+## `POST /api/sessions/:id/files`
+
+選択時の即時アップロード。`Content-Type` を見ずに本文を raw ストリームとしてサンドボックスの `POST /v1/files/upload` へ転送する（`/api/*` の `bodyGuard` を通さないため、JSON / base64 の上限や text 化の影響を受けない）。
+
+```
+POST /api/sessions/:id/files?name=photo.png
+<body: ファイルのバイト列>
+```
+
+```json
+// response (201)
+{ "sessionId": "…", "path": "uploads/photo.png", "name": "photo.png", "renamed": false, "size": 12345 }
+```
+
+- `path` はセッションの作業フォルダ相対。raw 表示 URL はクライアントが `fileTreeFetchPath(cwd, path)` で root 相対へ直す
+- 保存先は `<作業フォルダ>/uploads/`。同名ファイルは上書きせず `name-1.ext` 形式で連番にする（詳細は [session-files.md](session-files.md#添付ファイルチャットからのアップロード)）
+- 400（`name` が不正）/ 404（セッションなし）/ 413（100 MiB 超。`Content-Length` で分かるときは本文を送らずに返す）/ 503（サンドボックス未設定）/ 502（サンドボックスへ到達できない・応答が契約外）
+- 上限は 1 ファイル 100 MiB、ファイル名 200 文字（いずれも最終判定はサンドボックス側）
 
 ## `GET /api/sessions/:id/events`
 

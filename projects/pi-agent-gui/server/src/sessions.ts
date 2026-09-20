@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
+import { stripAttachedFiles } from "./attachments";
 import { compactionsOf } from "./compaction-view";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
@@ -530,7 +531,8 @@ export class SessionStore {
       }
     }
     if (!record.title) {
-      record.title = truncate(this.masker.mask(text).replace(/\s+/g, " ").trim(), TITLE_MAX);
+      // title はユーザーが打った本文から作る (添付の注記を混ぜない)
+      record.title = truncate(this.masker.mask(stripAttachedFiles(text)).replace(/\s+/g, " ").trim(), TITLE_MAX);
     }
     record.lastUsedAt = Date.now();
 

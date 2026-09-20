@@ -100,10 +100,15 @@ test("閉じたタブの本文だけを捨てる", () => {
   assert.equal(dropClosedPreviews(results, ["a.txt", "dir/b.txt"]), results);
 });
 
-test("表示モードの既定は HTML だけプレビュー", () => {
+test("表示モードの既定は HTML と画像だけプレビュー", () => {
   const modes = {};
   assert.equal(previewModeFor(modes, "a.html"), "preview");
   assert.equal(previewModeFor(modes, "dir/b.htm"), "preview");
+  // 画像は raw の <img> で描くためプレビューが既定 (ソース表示はバイナリで失敗する)
+  assert.equal(previewModeFor(modes, "photo.png"), "preview");
+  assert.equal(previewModeFor(modes, "dir/logo.JPEG"), "preview");
+  assert.equal(previewModeFor(modes, "icon.ico"), "preview");
+  assert.equal(previewModeFor(modes, "a.svg"), "source");
   assert.equal(previewModeFor(modes, "a.ts"), "source");
   assert.equal(previewModeFor(modes, "a.xhtml"), "source");
   // 選び直したタブは選択を優先する

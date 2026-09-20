@@ -36,6 +36,7 @@ $PI_SESSION_STORE/<id>/
 
 # 2) セッションの作業フォルダ（サンドボックスが読み書き。ファイル画面の root）
 <workspace root>/.pi-agent-gui/sessions/<id>/
+  uploads/       # チャットから添付したファイル
 ```
 
 - `<id>` は `crypto.randomBytes(5).toString("hex")` の 10 文字。外部ライブラリは増やさない。store 側のフォルダ存在で衝突を検出し、衝突したら再生成する。SDK の `assertValidSessionId` も満たす。
@@ -89,6 +90,26 @@ $PI_SESSION_STORE/<id>/
   - entry の `type` は既知のものだけを許可し、型ごとの必須フィールド（`timestamp` / `message` など）を検証する。未知 type は破損扱いにする。
   - 末尾の途絶（末尾改行が無く parse できない行）だけは「書込み途絶」として読み飛ばし、原本は書換えず、次の書込み時に確定位置まで truncate してから追記する。それ以外の parse 失敗・中間破損・検証失敗は、原本を一切書換えずに開く要求を 409（store のパスを含む文言）で拒否する。一覧には meta から出し、DELETE は可能にする。
   - 現行 version 限定とし、古い version の migration は行わない（非破壊で拒否）。pi CLI など別実装が書いたファイルの取り込みも対象外。
+
+## 添付ファイル（チャットからのアップロード）
+
+チャットから添付したファイルは、セッションの作業フォルダ配下の `uploads/` に置く（`SessionPayload.cwd` を前置した `<作業フォルダ>/uploads/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
+
+- 選択時（即時）にアップロードする。未作成チャットでは先にセッションを作る（クライアントの `ensureSession`。同時アップロードで二重作成しない）
+- 同名ファイルは上書きせず `name-1.ext` 形式で連番にする（`link(2)` の排他作成。2 回目以降も連番）
+- 添付を外してもファイルは作業フォルダに残す（削除・移動 API は非ゴール）
+- LLM へのマルチモーダル注入はしない。プロンプト末尾の注記（`<attached_files>`）でパスを知らせ、モデルが必要なら `read` する。注記の組み立ては `server/src/attachments.ts` に閉じる
+- 履歴と `run_start.prompt` には注記込みの本文が入る。クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーは注記を除いた本文）
+- 画像の表示は `GET /api/files/raw`（画像のみの allowlist。SVG / HTML は配信しない）
+
+| 上限 | 値 | 場所 |
+| --- | --- | --- |
+| 添付件数 | 10 / メッセージ | Composer、`POST /api/sessions/:id/messages` |
+| 1 ファイルサイズ | 100 MiB | Composer、BFF（`Content-Length`）、サンドボックス（ストリームの実バイト数） |
+| raw 配信サイズ | 100 MiB | サンドボックス |
+| ファイル名長 | 200 文字 | サンドボックス |
+
+ファイルを置くのはサンドボックスだけなので、`uploads/` も通常の作業ファイルと同じく bash / write から見える（セッション間の隔離はない）。
 
 ## 復元
 

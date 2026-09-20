@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useEffectEvent, useReducer, useState } from "react";
-import { getHealth, postMessage, stopSession } from "../api";
+import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
+import { getHealth, postMessage, stopSession, uploadSessionFile } from "../api";
+import { attachmentRejection, type Attachment } from "../lib/attachments";
 import { deriveComposerSettings } from "../lib/composerSettings";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
@@ -11,6 +12,7 @@ import { useSessions } from "./useSessions";
 
 /** 実装は ../lib/composerSettings。既存の import 先を保つ互換 export */
 export { ALL_THINKING_LEVELS, effortLabel, type ComposerSettings } from "../lib/composerSettings";
+export type { Attachment } from "../lib/attachments";
 export type { SettingsSelection };
 
 /**
@@ -18,9 +20,23 @@ export type { SettingsSelection };
  * project 一覧・選択は useProjects、session の一覧・lifecycle・SSE は useSessions、
  * 送信 / 停止の手順は sessionActions、Model / Effort の導出は lib/composerSettings。
  */
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function useAgentDesk() {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
   const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // 追加 / 削除 / 完了を同期的に読む (同時に選んだファイルの件数検査をすり抜けないため)
+  const attachmentsRef = useRef<Attachment[]>(attachments);
+  const attachmentSeqRef = useRef(0);
+
+  const commitAttachments = useCallback((update: (prev: Attachment[]) => Attachment[]) => {
+    const next = update(attachmentsRef.current);
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }, []);
 
   const {
     health,
@@ -72,8 +88,82 @@ export function useAgentDesk() {
 
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
+  /** 1 ファイル = 1 チップ。作成 (セッション確定) 後にアップロードし、失敗もチップで見せる */
+  const uploadOne = useCallback(
+    async (file: File): Promise<void> => {
+      const id = String((attachmentSeqRef.current += 1));
+      let targetId: string;
+      try {
+        targetId = await ensureSession();
+      } catch (error) {
+        commitAttachments((prev) => [
+          ...prev,
+          {
+            id,
+            sessionId: sessionIdRef.current,
+            name: file.name,
+            size: file.size,
+            status: "error",
+            error: messageFor(error),
+          },
+        ]);
+        return;
+      }
+      const rejection = attachmentRejection(file, attachmentsRef.current.length);
+      if (rejection) {
+        commitAttachments((prev) => [
+          ...prev,
+          { id, sessionId: targetId, name: file.name, size: file.size, status: "error", error: rejection },
+        ]);
+        return;
+      }
+      commitAttachments((prev) => [
+        ...prev,
+        { id, sessionId: targetId, name: file.name, size: file.size, status: "uploading" },
+      ]);
+      try {
+        const uploaded = await uploadSessionFile(targetId, file);
+        commitAttachments((update) =>
+          update.map((item) => (item.id === id ? { ...item, status: "done", path: uploaded.path } : item)),
+        );
+      } catch (error) {
+        commitAttachments((update) =>
+          update.map((item) => (item.id === id ? { ...item, status: "error", error: messageFor(error) } : item)),
+        );
+      }
+    },
+    [commitAttachments, ensureSession, sessionIdRef],
+  );
+
+  /** 選択 / D&D で受け取ったファイルを追加する。検査は 1 ファイルずつ行う */
+  const attachFiles = useCallback(
+    (files: File[]): void => {
+      for (const file of files) void uploadOne(file);
+    },
+    [uploadOne],
+  );
+
+  const removeAttachment = useCallback(
+    (id: string): void => {
+      commitAttachments((prev) => prev.filter((item) => item.id !== id));
+    },
+    [commitAttachments],
+  );
+
+  // セッション切替でチップを残さない (アップロード済みのファイルは作業フォルダに残す)
+  useEffect(() => {
+    commitAttachments((prev) => {
+      const kept = prev.filter((item) => item.sessionId === sessionIdRef.current);
+      return kept.length === prev.length ? prev : kept;
+    });
+  }, [sessionId, commitAttachments, sessionIdRef]);
+
   const sendMessage = useCallback(
     async (text: string): Promise<void> => {
+      // アップロード中 / 失敗のチップがある間は送らない (Composer でも止める)
+      if (attachmentsRef.current.some((item) => item.status !== "done")) return;
+      const paths = attachmentsRef.current.map((item) => item.path).filter((path): path is string => Boolean(path));
+      const sentIds = attachmentsRef.current.map((item) => item.id);
       await sendChatMessage(text, {
         health,
         busy: sending || settingsChanging,
@@ -81,12 +171,25 @@ export function useAgentDesk() {
         ensureSession,
         refreshSessions,
         post: postMessage,
+        attachments: paths,
+        // 送れたときだけチップを消す (失敗したファイルは作業フォルダに残るが、送信前に消さない)
+        onSent: () => commitAttachments((prev) => prev.filter((item) => !sentIds.includes(item.id))),
         dispatch,
         setSending,
         setRuntimeStatus,
       });
     },
-    [dispatch, ensureSession, health, refreshSessions, sending, sessionIdRef, settingsChanging, setRuntimeStatus],
+    [
+      commitAttachments,
+      dispatch,
+      ensureSession,
+      health,
+      refreshSessions,
+      sending,
+      sessionIdRef,
+      settingsChanging,
+      setRuntimeStatus,
+    ],
   );
 
   const stopAgent = useCallback(async (): Promise<void> => {
@@ -177,6 +280,7 @@ export function useAgentDesk() {
     composerSettings,
     selectedAgent,
     stopVisible,
+    attachments,
     loadCatalog,
     refreshSessions,
     refreshProjects,
@@ -184,6 +288,8 @@ export function useAgentDesk() {
     selectProject,
     newChat,
     sendMessage,
+    attachFiles,
+    removeAttachment,
     stopAgent,
     deleteSession,
     createProject,

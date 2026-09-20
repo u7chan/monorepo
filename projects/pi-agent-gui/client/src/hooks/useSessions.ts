@@ -51,6 +51,8 @@ export function useSessions({
   const generationRef = useRef("");
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
+  /** 作成中のセッション。同時アップロード / 送信で二重作成しないために共有する */
+  const ensureInFlightRef = useRef<Promise<string> | null>(null);
   // sessionIdRef / sessionsRef は選択・一覧の最新値。await を挟む処理と SSE の適用が state を待たずに読む
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
@@ -146,20 +148,31 @@ export function useSessions({
   const ensureSession = useCallback(async (): Promise<string> => {
     const existing = sessionIdRef.current;
     if (existing) return existing;
-    const selection = selectionSeqRef.current;
-    // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる。未所属 ("") はキーを送らず root に任せる
-    const projectId = selectedProjectIdRef.current;
-    const session = await createSession(agentId || undefined, {
-      ...preselectionRef.current,
-      ...(projectId ? { projectId } : {}),
-    });
-    setPreselection({});
-    // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
-    if (selectionSeqRef.current !== selection) return session.sessionId;
-    applySelectedSession(session);
-    await refreshSessions();
-    void refreshHealth();
-    return session.sessionId;
+    // 同時アップロード / 送信でセッションを二重に作らない (作成中の Promise を共有する)
+    const inflight = ensureInFlightRef.current;
+    if (inflight) return inflight;
+    const promise = (async () => {
+      const selection = selectionSeqRef.current;
+      // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる。未所属 ("") はキーを送らず root に任せる
+      const projectId = selectedProjectIdRef.current;
+      const session = await createSession(agentId || undefined, {
+        ...preselectionRef.current,
+        ...(projectId ? { projectId } : {}),
+      });
+      setPreselection({});
+      // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
+      if (selectionSeqRef.current !== selection) return session.sessionId;
+      applySelectedSession(session);
+      await refreshSessions();
+      void refreshHealth();
+      return session.sessionId;
+    })();
+    ensureInFlightRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      if (ensureInFlightRef.current === promise) ensureInFlightRef.current = null;
+    }
   }, [agentId, applySelectedSession, refreshHealth, refreshSessions, selectedProjectIdRef]);
 
   const changeSessionSettings = useCallback(

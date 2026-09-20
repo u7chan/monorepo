@@ -84,12 +84,64 @@ export interface SandboxFileListing {
 export const SANDBOX_MAX_FILE_ENTRIES = 500;
 
 /** GET /v1/files/preview の応答。UTF-8 へデコード済みのテキスト。 */
+
 export interface SandboxFilePreview {
   text: string;
 }
 
 /** プレビューで読むファイルサイズの上限 (これより大きいと 400)。 */
 export const SANDBOX_MAX_PREVIEW_BYTES = 256 * 1024;
+
+/**
+ * アップロード / 生配信の 1 ファイル上限 (100 MiB)。クライアントの申告サイズは信用せず、ここで数える。
+ */
+export const SANDBOX_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+/** アップロードのファイル名の上限 (文字数)。保存名としてだけ使う。 */
+export const SANDBOX_MAX_UPLOAD_NAME_LENGTH = 200;
+
+/**
+ * GET /v1/files/raw が配信する拡張子と Content-Type。SVG / HTML は同一オリジンでスクリプトが動くため載せない。
+ */
+export const RAW_IMAGE_CONTENT_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+};
+
+/** パスの拡張子から配信用の Content-Type を引く。allowlist 外 (拡張子なし・dotfile 含む) は undefined。 */
+export function rawImageContentType(path: string): string | undefined {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return undefined;
+  return RAW_IMAGE_CONTENT_TYPES[name.slice(dot + 1).toLowerCase()];
+}
+
+/**
+ * アップロードの保存名 (basename)。保存先は dir が担うため、名前からディレクトリを動かせてはならない。
+ */
+export function isValidUploadName(name: string): boolean {
+  if (!name || name.length > SANDBOX_MAX_UPLOAD_NAME_LENGTH) return false;
+  if (name === "." || name === "..") return false;
+  if (name.includes("/") || name.includes("\\")) return false;
+  // oxlint-disable-next-line no-control-regex -- ファイル名の制御文字を弾くための検出。
+  return !/[\u0000-\u001f\u007f]/.test(name);
+}
+
+/** POST /v1/files/upload の応答。path は作成した実ファイルの root 相対の正規化パス。 */
+export interface SandboxFileUpload {
+  path: string;
+  /** 実際に保存された名前。同名があった場合は連番つきになる */
+  name: string;
+  /** 要求名と違う名前で保存されたか */
+  renamed: boolean;
+  size: number;
+}
 
 /** 1 イベント = 1 行。 */
 export function encodeSandboxEvent(event: SandboxEvent): string {

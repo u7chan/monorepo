@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { ComposerSettings } from "../hooks/useAgentDesk";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import type { Attachment, ComposerSettings } from "../hooks/useAgentDesk";
 import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
 import { AgentField } from "./composer/AgentField";
+import { AttachmentChips } from "./composer/AttachmentChips";
 import { ContextGauge } from "./composer/ContextGauge";
 import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortControls";
 
@@ -20,10 +21,16 @@ export type ComposerProps = {
   agents: AgentDef[];
   agentId: string;
   mode: LayoutMode;
+  /** 選択中 / 送信待ちの添付。アップロード中・失敗がある間は送信できない */
+  attachments: Attachment[];
+  /** セッションの作業フォルダ (root 相対)。画像チップの URL を組むのに使う */
+  cwd: string;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
+  onAttachFiles: (files: File[]) => void;
+  onRemoveAttachment: (id: string) => void;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
   onChangeAgent: (agentId: string) => void;
@@ -51,6 +58,23 @@ function ArrowUpIcon() {
   );
 }
 
+function ClipIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4"
+    >
+      <path d="M9.9 4.3 5.2 9a2.1 2.1 0 0 0 3 3l4.4-4.4a3.4 3.4 0 0 0-4.8-4.8L3.4 7.2a4.7 4.7 0 0 0 0 6.7" />
+    </svg>
+  );
+}
+
 export function Composer({
   activity,
   runningSince,
@@ -63,9 +87,13 @@ export function Composer({
   agents,
   agentId,
   mode,
+  attachments,
+  cwd,
   visible = true,
   onSend,
   onStop,
+  onAttachFiles,
+  onRemoveAttachment,
   onChangeModel,
   onChangeThinkingLevel,
   onChangeAgent,
@@ -74,8 +102,13 @@ export function Composer({
   // landscape は横幅が余るので、設定を開いたときの高さを抑える
   const landscape = mode === "landscape";
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const attachmentsBusy = attachments.some((item) => item.status !== "done");
+  const hasAttachment = attachments.some((item) => item.status === "done");
 
   const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
 
@@ -90,11 +123,24 @@ export function Composer({
 
   const submit = () => {
     const text = value.trim();
-    // 設定変更中は送信を待たせる (サーバー側でも 409)
-    if (!text || !runtimeReady || sending || settings.changing || settings.sendBlockedReason) return;
+    // 設定変更中は送信を待たせる (サーバー側でも 409)。添付だけの送信は許可する
+    if (attachmentsBusy) return;
+    if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
+      return;
     setValue("");
     onSend(text);
     inputRef.current?.focus();
+  };
+
+  const pickFiles = (files: File[]) => {
+    if (files.length > 0) onAttachFiles(files);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLFormElement>) => {
+    if (event.dataTransfer.files.length === 0) return;
+    event.preventDefault();
+    setDragging(false);
+    pickFiles([...event.dataTransfer.files]);
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -139,8 +185,17 @@ export function Composer({
       <ContextGauge activity={activity} runningSince={runningSince} context={context} compact={compact} />
       <form
         onSubmit={handleSubmit}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
         className={cn(
-          "grid rounded-xl border border-line-strong bg-panel/90 shadow-panel",
+          "grid rounded-xl border bg-panel/90 shadow-panel",
+          dragging ? "border-accent" : "border-line-strong",
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
         )}
       >
@@ -181,6 +236,7 @@ export function Composer({
             ) : null}
           </div>
         ) : null}
+        <AttachmentChips attachments={attachments} cwd={cwd} compact={compact} onRemove={onRemoveAttachment} />
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
           <textarea
             ref={inputRef}
@@ -200,15 +256,42 @@ export function Composer({
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
           />
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            tabIndex={-1}
+            aria-hidden="true"
+            className="hidden"
+            onChange={(event) => {
+              const files = [...(event.currentTarget.files ?? [])];
+              // 同じファイルを選び直せるよう、選択を毎回リセットする
+              event.currentTarget.value = "";
+              pickFiles(files);
+            }}
+          />
+          <button
+            type="button"
+            aria-label="ファイルを添付"
+            title="ファイルを添付（最大10件・100 MiBまで）"
+            onClick={() => fileRef.current?.click()}
+            className={cn(
+              "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
+              compact ? "size-9" : "size-8",
+            )}
+          >
+            <ClipIcon />
+          </button>
           <button
             type="submit"
             aria-label="送信"
             disabled={
               !runtimeReady ||
               sending ||
+              attachmentsBusy ||
               settings.changing ||
               Boolean(settings.sendBlockedReason) ||
-              value.trim().length === 0
+              (value.trim().length === 0 && !hasAttachment)
             }
             className={cn(
               "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",

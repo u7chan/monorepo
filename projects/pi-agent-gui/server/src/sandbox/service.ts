@@ -4,9 +4,11 @@
  * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { realpath as realpathCallback, type Dirent } from "node:fs";
-import { lstat, mkdir, open, readdir, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { link, lstat, mkdir, open, readdir, stat, unlink } from "node:fs/promises";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -23,12 +25,16 @@ import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
   SANDBOX_MAX_PREVIEW_BYTES,
+  SANDBOX_MAX_UPLOAD_BYTES,
   encodeSandboxEvent,
+  isValidUploadName,
+  rawImageContentType,
   type SandboxCreateDirRequestBody,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
   type SandboxFileEntry,
   type SandboxFileListing,
+  type SandboxFileUpload,
 } from "./protocol";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
@@ -41,6 +47,8 @@ export interface SandboxServiceOptions {
   /** 空や短すぎる値はここで弾く */
   token: string;
   rootCwd?: string;
+  /** テストで小さくできるアップロード / 生配信の上限 (既定 100 MiB) */
+  maxUploadBytes?: number;
 }
 
 export interface SandboxService {
@@ -187,8 +195,9 @@ async function createWorkspaceDirectory(rootCwd: string, requested: string): Pro
   return relativeToRoot(root, target);
 }
 
-/** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */
-async function deepestExistingPath(target: string): Promise<string> {
+/** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */ async function deepestExistingPath(
+  target: string,
+): Promise<string> {
   let current = target;
   for (;;) {
     const exists = await stat(current)
@@ -199,6 +208,84 @@ async function deepestExistingPath(target: string): Promise<string> {
     if (parent === current) return current;
     current = parent;
   }
+}
+
+/** 同名を上書きしない保存名の候補。`name-1.ext` と連番で進め、上限に達したらランダム suffix にする。 */
+const MAX_RENAME_ATTEMPTS = 100;
+
+function* uploadCandidateNames(name: string): Generator<string> {
+  yield name;
+  const parsed = parse(name);
+  for (let index = 1; index <= MAX_RENAME_ATTEMPTS; index += 1) {
+    yield `${parsed.name}-${index}${parsed.ext}`;
+  }
+  for (;;) {
+    yield `${parsed.name}-${randomUUID().slice(0, 8)}${parsed.ext}`;
+  }
+}
+
+/**
+ * dir 配下へ body をストリームで書き、排他作成した最終名を返す。途中で切れた upload は temp を残さない。
+ */
+async function saveUploadedFile(input: {
+  rootCwd: string;
+  dir: string;
+  name: string;
+  body: ReadableStream<Uint8Array> | null;
+  maxBytes: number;
+}): Promise<SandboxFileUpload> {
+  const dirRel = await createWorkspaceDirectory(input.rootCwd, input.dir);
+  const root = await realpathNative(input.rootCwd);
+  const dirAbs = dirRel === "." ? root : join(root, dirRel);
+  const tempPath = join(dirAbs, `.pi-upload-${randomUUID()}.part`);
+  const handle = await open(tempPath, "wx", 0o666);
+  let size = 0;
+  try {
+    if (input.body) {
+      const reader = input.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > input.maxBytes) {
+            await reader.cancel().catch(() => {});
+            throw pathError(413, `File is too large (max ${input.maxBytes} bytes)`);
+          }
+          await handle.write(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    await handle.close();
+    const saved = await linkUniqueName(tempPath, dirAbs, input.name);
+    return {
+      path: relativeToRoot(root, saved.path),
+      name: saved.name,
+      renamed: saved.name !== input.name,
+      size,
+    };
+  } finally {
+    // 成功・失敗のどちらでも temp は残さない (成功時は link 済みの最終名が残る)
+    await handle.close().catch(() => {});
+    await unlink(tempPath).catch(() => {});
+  }
+}
+
+/** link(2) で排他作成する。既存があれば候補を進めるため、並行アップロードでも上書きしない。 */
+async function linkUniqueName(tempPath: string, dirAbs: string, name: string): Promise<{ path: string; name: string }> {
+  for (const candidate of uploadCandidateNames(name)) {
+    const target = join(dirAbs, candidate);
+    try {
+      await link(tempPath, target);
+      return { path: target, name: candidate };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      throw pathError(400, `Cannot save the uploaded file: ${messageFor(error)}`);
+    }
+  }
+  throw pathError(500, "Cannot save the uploaded file");
 }
 
 function pathError(statusCode: number, message: string): Error & { statusCode: number } {
@@ -285,6 +372,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     throw new Error("PI_SANDBOX_TOKEN must be set to a non-trivial value (16+ chars)");
   }
   const rootCwd = options.rootCwd || "/workspace";
+  const maxUploadBytes = options.maxUploadBytes ?? SANDBOX_MAX_UPLOAD_BYTES;
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
@@ -488,6 +576,51 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files", async (c) => {
     try {
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 画像だけをストリームで返す。BFF は Content-Type / 長さ / no-store / nosniff を付け直して配る
+  app.get("/v1/files/raw", async (c) => {
+    const requested = c.req.query("path") ?? "";
+    const contentType = rawImageContentType(requested);
+    if (!contentType) return c.json({ error: `Not a servable image: ${requested}` }, 400);
+    try {
+      const { target } = await resolveWorkspaceDirectory(rootCwd, requested, false);
+      const stats = await stat(target);
+      if (stats.size > maxUploadBytes) {
+        return c.json({ error: `Image is too large (max ${maxUploadBytes} bytes)` }, 413);
+      }
+      return new Response(Readable.toWeb(createReadStream(target)) as ReadableStream<Uint8Array>, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Content-Length": String(stats.size),
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 選択時の即時アップロード。BFF は bodyGuard (64 KiB / text 化) を通さず、ここへ raw で流す
+  app.post("/v1/files/upload", async (c) => {
+    const name = c.req.query("name") ?? "";
+    if (!isValidUploadName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
+    try {
+      const uploaded = await saveUploadedFile({
+        rootCwd,
+        dir: c.req.query("dir") ?? "",
+        name,
+        body: c.req.raw.body,
+        maxBytes: maxUploadBytes,
+      });
+      return c.json(uploaded, 201);
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

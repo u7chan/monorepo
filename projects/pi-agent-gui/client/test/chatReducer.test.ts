@@ -138,6 +138,26 @@ test("ローカル生成のバブルは action で受け取った時刻を使う
   assert.equal(toolOnly.bubbles[0]?.text, "");
 });
 
+test("runStart は添付の注記をローカルエコーと同一視し、注記込みの本文へ差し替える", () => {
+  const prompt = ["これを見て", "", "<attached_files>", "- ./uploads/a.png", "</attached_files>"].join("\n");
+  const echoed = chatReducer(initialChatState, { type: "localUser", text: "これを見て", at: 100 });
+
+  const started = chatReducer(echoed, { type: "runStart", prompt, at: 200, startedAt: 200 });
+  assert.equal(started.bubbles.length, 1, "バブルを重複させない");
+  assert.equal(started.bubbles[0]?.text, prompt, "注記込みの本文へ差し替える");
+  assert.equal(started.bubbles[0]?.at, 100, "ローカルエコーの時刻を保つ");
+
+  // 同じ本文の別メッセージを二重に足さない
+  const repeated = chatReducer(started, { type: "runStart", prompt, at: 300, startedAt: 300 });
+  assert.equal(repeated.bubbles.length, 1);
+
+  // 添付の無い通常送信は従来どおり (本文が同じなら足さない)
+  const plain = chatReducer(initialChatState, { type: "localUser", text: "ふつうの本文", at: 100 });
+  const plainStarted = chatReducer(plain, { type: "runStart", prompt: "ふつうの本文", at: 200, startedAt: 200 });
+  assert.equal(plainStarted.bubbles.length, 1);
+  assert.equal(plainStarted.bubbles[0]?.text, "ふつうの本文");
+});
+
 // --- 応答メタ情報 ---
 
 const USAGE: Usage = {

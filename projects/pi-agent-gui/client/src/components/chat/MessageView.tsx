@@ -1,8 +1,10 @@
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
+import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import { MarkdownView } from "../markdown/MarkdownView";
+import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
 import { ToolHistoryView } from "./ToolHistory";
 
@@ -28,6 +30,7 @@ export function MessageView({
   bubble,
   copied,
   compact,
+  cwd,
   onCopy,
   copiedId,
   onCopyTool,
@@ -37,13 +40,17 @@ export function MessageView({
   bubble: Bubble;
   copied: boolean;
   compact: boolean;
-  onCopy: () => void;
+  /** セッションの作業フォルダ (root 相対)。添付のサムネイル URL を組むのに使う */
+  cwd: string;
+  onCopy: (text: string) => void;
   copiedId: string;
   onCopyTool: (card: ToolCard) => void;
   copiedAll: boolean;
   onCopyAll: () => void;
 }) {
   const isUser = bubble.role === "user";
+  // 履歴の user 本文には添付の注記が入っている。表示とコピーは注記を除いた本文を使う
+  const { text: bodyText, files } = isUser ? splitAttachedFiles(bubble.text) : { text: bubble.text, files: [] };
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   return (
@@ -85,10 +92,15 @@ export function MessageView({
         ) : null}
         {bubble.text ? (
           isUser ? (
-            // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
-            <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed break-words whitespace-pre-wrap text-on-accent">
-              {bubble.text}
-            </div>
+            <>
+              <AttachedFiles files={files} cwd={cwd} compact={compact} />
+              {bodyText ? (
+                // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
+                <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed break-words whitespace-pre-wrap text-on-accent">
+                  {bodyText}
+                </div>
+              ) : null}
+            </>
           ) : (
             <MarkdownView text={bubble.text} />
           )
@@ -118,8 +130,13 @@ export function MessageView({
                 {metaLine}
               </span>
             ) : null}
-            {bubble.text ? (
-              <CopyButton copied={copied} onClick={onCopy} label="メッセージをコピー" reveal="message" />
+            {bodyText ? (
+              <CopyButton
+                copied={copied}
+                onClick={() => onCopy(bodyText)}
+                label="メッセージをコピー"
+                reveal="message"
+              />
             ) : null}
           </div>
         ) : null}

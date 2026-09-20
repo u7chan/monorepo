@@ -210,6 +210,7 @@ export default function App() {
               compactions={desk.chat.compactions}
               compact={compact}
               suggestions={desk.selectedAgent?.suggestions}
+              cwd={desk.cwd}
               onSuggestion={handleSend}
             />
             <Composer
@@ -225,8 +226,12 @@ export default function App() {
               agents={desk.catalog.agents}
               agentId={desk.agentId}
               mode={layout}
+              attachments={desk.attachments}
+              cwd={desk.cwd}
               onSend={handleSend}
               onStop={handleStop}
+              onAttachFiles={desk.attachFiles}
+              onRemoveAttachment={desk.removeAttachment}
               onChangeModel={desk.changeModel}
               onChangeThinkingLevel={desk.changeThinkingLevel}
               onChangeAgent={handleAgentChange}
