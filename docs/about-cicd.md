@@ -77,6 +77,14 @@ CI は `test` ステージを指定してビルドします。ただし、現在
 
 同じ PR で新しい実行が始まると、進行中の古い実行はキャンセルされます。
 
+外部 contributor が fork から作成した PR では、ワークフローは自動実行されず承認を待ちます。承認が必要になる範囲はリポジトリ設定の `approval_policy` で決まり、このリポジトリは `all_external_contributors` です。過去にマージされた変更がある contributor も対象になるため、fork からの PR は常に承認が必要です。自分の PR と Dependabot の PR はリポジトリ内のブランチであり、この設定の対象外です。
+
+現在の設定は次のコマンドで確認できます。
+
+```bash
+gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approval
+```
+
 ### 処理順
 
 1. PR のベースブランチを取得する
@@ -179,6 +187,10 @@ GHCR への送信後、`cleanup-docker-images` アクションが `repository_di
 2. プロジェクトルートにマーカーファイルがあるか確認する
 3. プロジェクトルートに `Dockerfile` があるか確認する
 4. CD の場合は、`Dockerfile` に `AS final` があるか確認する
+
+### 外部 contributor の PR で CI が始まらない
+
+fork からの PR は承認待ちで停止します。PR の **Files changed** で **Awaiting approval** を開き、**Approve workflows to run** を選ぶと実行されます。承認されないまま 30 日経過した実行は削除されます。
 
 ### 手動実行で意図した ref を使えない
 
