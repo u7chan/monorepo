@@ -82,7 +82,11 @@ function isHeicLike(file: File): boolean {
   );
 }
 
-function readImage(blob: Blob, name: string, mimeType: MessageImage["mimeType"]): Promise<MessageImage & { bytes: number }> {
+function readImage(
+  blob: Blob,
+  name: string,
+  mimeType: MessageImage["mimeType"],
+): Promise<MessageImage & { bytes: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`${name} の読み込みに失敗しました`));
