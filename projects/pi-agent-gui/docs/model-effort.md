@@ -47,4 +47,4 @@ POST /api/sessions { model?, thinkingLevel? }
 
 入力欄の Model / Effort ピッカーは `Composer` に置く。セッションがあれば `resync` で受け取った実効値、未作成のチャットでは「作成前の選択 → 選択中エージェントの定義 → health のアプリ既定」をサーバーと同じ優先順位で表示する（導出は `client/src/lib/composerSettings.ts`）。生成中・キュー待ち・設定変更通信中はピッカーを無効化し、設定変更通信中は送信も待たせる。compact で畳んでいるときも、モデルが利用できない警告と送信できない理由は入力欄の下に出る。
 
-compact（portrait / landscape）では、送信が成立した時点でパネルを畳む。狭い画面で入力欄の上を占め、実行中はピッカーを無効化していて操作できないため。desktop は送信しても開いたままにする。畳む条件に portrait を要求しないのは、ソフトキーボードで `window.innerHeight` が縮むと入力中に landscape へ切り替わる端末があるため（[ui-layout.md](ui-layout.md)）。
+compact（portrait / landscape）では、送信が成立した時点でパネルを畳む。狭い画面で入力欄の上を占め、実行中はピッカーを無効化していて操作できないため。畳む合図は送信の成立（`sending` の立ち上がり）で、入力欄からの送信だけでなく `ChatArea` の suggestion からの送信も同じ扱いにする。desktop は送信しても開いたままにする。畳む条件に portrait を要求しないのは、ソフトキーボードで `window.innerHeight` が縮むと入力中に landscape へ切り替わる端末があるため（[ui-layout.md](ui-layout.md)）。

@@ -121,14 +121,17 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
   }, [value, maxTextareaHeight, visible]);
 
+  // 送信経路は入力欄に限らない (ChatArea の suggestion も同じ送信)。畳む条件の根拠は docs/ui-layout.md
+  useEffect(() => {
+    if (compact && sending) setSettingsOpen(false);
+  }, [compact, sending]);
+
   const submit = () => {
     const text = value.trim();
     // 設定変更中は送信を待たせる (サーバー側でも 409)。添付だけの送信は許可する
     if (attachmentsBusy) return;
     if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
       return;
-    // compact では開いたままのパネルが入力欄の上を占め、実行中は操作もできない。desktop は狭くないので現状のまま
-    if (compact) setSettingsOpen(false);
     setValue("");
     onSend(text);
     inputRef.current?.focus();
