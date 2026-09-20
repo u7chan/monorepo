@@ -171,6 +171,28 @@ test("message API accepts image-only messages with up to 10 attachments", async 
   }
 });
 
+test("message API rejects image attachments for a text-only model", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const createdResponse = await app.request(
+      "/api/sessions",
+      jsonPost({ model: { provider: "stub", id: "stub-plain" } }),
+    );
+    assert.equal(createdResponse.status, 201);
+    const created = await jsonBody(createdResponse);
+
+    const posted = await app.request(
+      `/api/sessions/${created.sessionId}/messages`,
+      jsonPost({ text: "画像を見て", images: [{ data: "YQ==", mimeType: "image/jpeg" }] }),
+    );
+    assert.equal(posted.status, 400);
+    assert.equal((await jsonBody(posted)).error, "Selected model does not support image input");
+  } finally {
+    await bff.close();
+  }
+});
+
 test("SSE sends the heartbeat as a visible ping event that does not move the cursor", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
@@ -524,13 +546,16 @@ test("health exposes the model picker options and the app default thinking level
     assert.equal(health.defaultThinkingLevel, "low");
     assert.equal(health.defaultModelError, undefined);
     assert.deepEqual(
-      health.modelOptions.map((option: { supportsThinking: boolean; thinkingLevels: string[] }) => [
-        option.supportsThinking,
-        option.thinkingLevels,
-      ]),
+      health.modelOptions.map(
+        (option: { supportsThinking: boolean; supportsImageInput: boolean; thinkingLevels: string[] }) => [
+          option.supportsThinking,
+          option.supportsImageInput,
+          option.thinkingLevels,
+        ],
+      ),
       [
-        [true, ["off", "minimal", "low", "medium", "high"]],
-        [false, ["off"]],
+        [true, true, ["off", "minimal", "low", "medium", "high"]],
+        [false, false, ["off"]],
       ],
     );
     assert.deepEqual(
