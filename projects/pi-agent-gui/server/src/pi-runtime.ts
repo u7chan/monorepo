@@ -55,7 +55,7 @@ export interface PiImageContent {
 /** pi SDK の AgentSession を差し替え可能にするための最小 interface */
 export interface PiSessionLike {
   sessionId: string;
-  model?: { provider: string; id: string } | null;
+  model?: { provider: string; id: string; input?: string[] } | null;
   thinkingLevel?: string;
   messages: Array<{
     role: string;
