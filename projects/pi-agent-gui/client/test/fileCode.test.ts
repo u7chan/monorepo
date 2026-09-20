@@ -174,6 +174,6 @@ test("HTML プレビューは sandbox 付き iframe と同一オリジンの URL
   for (const token of ["srcdoc", "blob:", "data:text/html"]) {
     assert.ok(!code.includes(token), `${file} に ${token} がある`);
   }
-  // URL は api.ts の helper 経由で組み立てる (契約は hc の $url で参照する。CSP は server 側の応答ヘッダで固定する)
-  assert.ok(code.includes("fileHtmlPreviewUrl("), "プレビューの URL を helper から取っていない");
+  // URL は api.ts の helper 経由で組み立てる (取得したパスをそのまま渡す。契約と encode は server / fileUrl のテストが見る)
+  assert.ok(code.includes("fileHtmlPreviewUrl(fetchPath)"), "プレビューの URL を helper から取っていない");
 });

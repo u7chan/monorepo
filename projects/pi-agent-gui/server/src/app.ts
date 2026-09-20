@@ -46,7 +46,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
     .delete("/api/files", fileRoutes.remove)
     .get("/api/files/preview", fileRoutes.preview)
-    .get("/api/files/html", fileRoutes.html)
+    // `:path{.+}` はルート配下のパスを 1 セグメントで受ける (wildcard `*` は Hono 4 で param として取れない)
+    .get("/api/files/html/:path{.+}", fileRoutes.html)
     .get("/api/files/raw", fileRoutes.raw)
     .get("/api/projects", projectRoutes.list)
     .post(

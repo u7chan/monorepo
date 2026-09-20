@@ -269,8 +269,14 @@ test("GET /api/files/raw streams the sandbox image with no-store headers", async
     assert.equal(await response.text(), "image");
     assert.deepEqual(rawPaths, ["uploads/photo.png"]);
 
-    // allowlist 外はサンドボックスへ行かずに 400
-    for (const path of ["uploads/report.pdf", "uploads/vector.svg", "uploads/page.html"]) {
+    // allowlist 外はサンドボックスへ行かずに 400 (Object.prototype の名前も画像扱いしない)
+    for (const path of [
+      "uploads/report.pdf",
+      "uploads/vector.svg",
+      "uploads/page.html",
+      "uploads/x.constructor",
+      "uploads/x.__proto__",
+    ]) {
       const rejected = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(path)}`);
       assert.equal(rejected.status, 400);
     }

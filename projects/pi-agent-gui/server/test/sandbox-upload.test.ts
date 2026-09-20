@@ -173,6 +173,13 @@ test("raw rejects non-allowlisted extensions, missing files and oversize images"
     assert.equal(notImage.status, 400);
     const svg = await service.app.request("/v1/files/raw?path=uploads%2Fvector.svg", { headers: authHeaders() });
     assert.equal(svg.status, 400);
+    // Object.prototype の名前を拡張子にしたパスも allowlist を通過させない
+    for (const name of ["x.constructor", "x.__proto__"]) {
+      const prototypeKey = await service.app.request(`/v1/files/raw?path=${encodeURIComponent(`uploads/${name}`)}`, {
+        headers: authHeaders(),
+      });
+      assert.equal(prototypeKey.status, 400, name);
+    }
     const missing = await service.app.request("/v1/files/raw?path=uploads%2Fnope.png", { headers: authHeaders() });
     assert.equal(missing.status, 404);
     const tooLarge = await service.app.request("/v1/files/raw?path=uploads%2Fbig.png", { headers: authHeaders() });
