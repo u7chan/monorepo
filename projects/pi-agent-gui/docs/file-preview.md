@@ -1,6 +1,6 @@
 # ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML 描画 / 画像）
 
-ファイル画面（`FileTreePage` / `SessionFilesPanel` → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html` を iframe で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
+ファイル画面（`FileTreePage` / `SessionFilesPanel` → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
 
 ## 原則
 
@@ -8,7 +8,7 @@
 2. **外部ライブラリを足さない**: 色付けはチャット本文と同じ `lib/markdown/highlight.ts` のトークナイザを使う（対応言語は [markdown.md](markdown.md)）。ファイル用の別実装を持たない。
 3. **DOM 文字列を作らない**: `innerHTML` / `dangerouslySetInnerHTML` / インライン `style` を使わない（本番の CSP は `style-src 'self'`）。行番号もクラスと CSS だけで出す。`client/test/fileCode.test.ts` がソース走査で固定する。
 4. **行番号と本文を 1 対 1 にする**: 番号の列は本文と同じ行送りで重ね、行数は本文から数える。ブラウザーの末尾改行の扱いに依存させない。
-5. **HTML の描画は応答ヘッダで隔離する**: iframe の src は同一オリジンの `GET /api/files/html` で、その応答だけ CSP と `sandbox` を当ててオペークオリジンにする。クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は、親の CSP を継承してインライン style / script が動かないため使わない。
+5. **HTML の描画は応答ヘッダで隔離する**: iframe の src は同一オリジンの `GET /api/files/html/<root 相対>` で、その応答だけ CSP と `sandbox` を当ててオペークオリジンにする。同じルートが文書と相対アセット（画像 / テキスト）を配るが、拡張子ごとに CSP / Content-Type を分ける（後述）。クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は、親の CSP を継承してインライン style / script が動かないため使わない。
 
 ## パイプライン
 
@@ -69,26 +69,48 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 ### 方式
 
-描画は iframe の src に同一オリジンの `GET /api/files/html?path=<root 相対>` を指定し、応答ヘッダだけで隔離する。サーバーは本文をテキストプレビューと同じ `workspace.previewFile()`（サンドボックスの `GET /v1/files/preview`）から取るが、返すのは `text/html` で、CSP と `sandbox` をこの応答だけに当てる。
+描画は iframe の src に同一オリジンの `GET /api/files/html/<root 相対>` を指定し、応答ヘッダだけで隔離する。同じルートが要求パスの拡張子で分岐し、文書と同じディレクトリを基準にした相対参照（`./cat.png` / `../app.css`）を解決できるようにする（`<base>` の注入はしない）。
+
+| 要求 | 応答 |
+| --- | --- |
+| `.html` / `.htm` | 従来どおりの HTML 文書（CSP + sandbox 付き。本文は `workspace.previewFile()`） |
+| 画像（`raw` の allowlist） | `workspace.rawFile()` を流用した生配信（`Content-Type` / `Content-Length` / `no-store` / `nosniff`） |
+| `.js` / `.mjs` / `.css` / `.json` / `.txt` | `workspace.previewFile()` を流用し、拡張子から Content-Type を付けて返す |
+| それ以外（`.svg` を含む） | 400 `Not a servable asset: <path>` |
+
+- 文書以外は CSP を付けず、Content-Type と `nosniff` で守る。`.svg` と HTML はアセットとして配らない（同一オリジンでスクリプトを動かさない）。フォント / メディアは対象外
+- アセットの本文も 256 KiB 以下の UTF-8 テキストに限る。超える `.js` / `.css` は 400 になり、プレビューから読めない
+- `.json` は CSP に `connect-src` が無いため、現状のプレビュー内から読む手段が無い（`fetch` も classic script も不可）
+- path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する
 
 クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; style-src 'self'; script-src 'self'`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` が `default-src` にフォールバックして `blob:` のフレーム自体も拒否される）。Chromium に本番相当の CSP を当てて確認済み。
 
 ### 隔離（CSP と sandbox）
 
+CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導出する。既定は Lv2（`cdn`）で、`assets` / `inline` へ切り替えると読み込めるリソースだけが狭くなる（iframe 属性はどの段階でも `sandbox="allow-scripts"` 固定。クライアントへポリシーは配らない）。
+
+| 段階 | 追加で読み込めるもの |
+| --- | --- |
+| Lv0 `inline` | インラインの style / script、`data:` / `blob:` の画像・フォント・メディア |
+| Lv1 `assets` | Lv0 + 同一オリジンの相対アセット（`'self'`） |
+| Lv2 `cdn` | Lv1 + `https:` の外部 URL |
+
 ```
-Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline';
-  script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'
+Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self' https:;
+  script-src 'unsafe-inline' 'self' https:; img-src data: blob: 'self' https:; font-src data: 'self' https:;
+  media-src data: blob: 'self' https:; form-action 'none'
 ```
 
-- インラインの style / script と `data:` / `blob:` の画像・フォント・メディアだけを読み込む。相対パスのアセットと外部 URL は読み込めない
-- `sandbox` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）。`/api` への fetch も `default-src 'none'` で止まる
+- `connect-src` はどの段階にも無い。`fetch` / XHR は `default-src 'none'` にフォールバックして止まる
+- `sandbox` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）
 - iframe 側の `sandbox="allow-scripts"` 属性と両方で隔離する。スクリプトの有効 / 無効は切り替えない（クライアントのトグルは ソース / プレビューの 2 択だけ）
 - 本文は 256 KiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
-- 応答は本文もエラーも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff`。エラーは iframe の中で読めるよう HTML 文書で返し、サンドボックス由来の文言はエスケープする
+- 応答は本文もエラーも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff`。文書のエラーは iframe の中で読めるよう HTML 文書で返し（サンドボックス由来の文言はエスケープ）、アセットのエラーはサブリソースに `text/html` を返さないよう JSON で返す
 
 ### クライアントの振る舞い
 
 - 既定はプレビュー。他の拡張子は従来どおりソース表示で、トグルは HTML のタブにだけ出す
+- iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ポリシー（CSP の段階）はクライアントへ配らない
 - トグルの選択はタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。表示モードの選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
 - プレビュー中はソース本文を取得しない（`lang · N 行` も本文のコピーもソース表示のときだけ出す）
 - 「再読み込み」は `FilePreview` の remount（`FileBrowser` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
@@ -107,8 +129,12 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ### できないこと（残リスク）
 
-- 相対パスを参照する HTML は見た目が崩れる（自己完結した HTML だけを描画する）
-- `localStorage` / cookie を使う HTML は動かない（オペークオリジン）
+- 相対参照で読めるのは同じルートの allowlist に入ったアセット（画像 / `.js` / `.mjs` / `.css` / `.json` / `.txt`）だけ。`.svg`、フォント、メディア、他の拡張子は 400 になる
+- 256 KiB を超える `.js` / `.css` は配信できず、プレビューから読めない（文書と同じ上限）
+- `<script type="module">` と動的 `import()` は読み込めない。オペークオリジンからの module 取得は CORS になり、BFF は CORS ヘッダを付けないため（classic script だけが動く。Vite 等が出力する `type="module"` の HTML は兄弟ファイルを置いても動かない）
+- `localStorage` / `sessionStorage` / cookie を使う HTML は動かない（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる
+- インライン script の途中で例外が出ると、その script の残りは実行されない（storage を使う単一ファイル HTML は「JS が動かない」ように見える）
+- `fetch` / `eval` / `new Worker` は使えない（CSP 違反。`connect-src` は足さない）
 - プレビュー自身は外部 URL へ自己遷移できる（持ち出せるのは自分自身の内容だけ）
 - 同一オリジンの `/api` 面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）
 
@@ -150,7 +176,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `.pi-agent-gui/sessions/<id>` を使うので、同じファイルを 2 画面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
 
-- 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html`、ソースは `/api/files/preview`）
+- 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html/<path>`、ソースは `/api/files/preview`）
 - 親を閉じた子の open は保持し、保存された子のために親を勝手に開かない。root は常に開く。取得は既存の「可視の親から子へ」の経路のままで、親を開いた時点で子の open が効く
 - 消えていたファイルのタブは残し、本文の取得エラーをそのまま出す（勝手に閉じない）。削除済みディレクトリの枝は一覧の取得で落ちる。listing が `truncated` のとき未掲載の枝も落ちるため、完全な復元は保証しない
 - 「再読み込み」はタブ・表示モード・展開を保ったまま本文だけを取り直す。最後のタブを閉じた状態（保存する内容が無い）は cwd ごと消すので、F5 後も空のままになる
@@ -170,7 +196,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
-| `server/test/files.test.ts` | `GET /api/files/html` の 200 とヘッダ（CSP / `no-store` / `nosniff`）/ 400 / 404 / 502 / 503 / エラー HTML のエスケープ / `DELETE /api/files` の委譲と 204・エラー写像 |
+| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること |
+| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし）/ `GET /api/files/html/<path>` の文書・画像・テキストアセット・400 の分岐と percent decoding / ヘッダ（CSP / `no-store` / `nosniff`）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲と 204・エラー写像 |
 | `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503） |
 
 ## 参照

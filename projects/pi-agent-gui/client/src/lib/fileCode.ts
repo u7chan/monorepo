@@ -69,7 +69,7 @@ export function previewLineNumbers(lineCount: number): string {
 
 /**
  * プレビューで描画する対象か。拡張子の判定は previewLang と同じ規則 (ドットファイルは拡張子と見なさない) で、
- * `.xhtml` / `.svg` は対象外にする。自己完結した HTML だけを描画する方針 (docs/file-preview.md)。
+ * `.xhtml` / `.svg` は対象外にする。拡張子の判定はサーバーの文書分岐と同じ規則 (docs/file-preview.md)。
  */
 export function isHtmlPath(path: string): boolean {
   const name = (path.split("/").pop() ?? "").toLowerCase();

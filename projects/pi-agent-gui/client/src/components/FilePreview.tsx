@@ -194,7 +194,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           />
         </div>
       ) : showHtml ? (
-        // 相対パスのアセットは読めない (自己完結した HTML だけを描画する)。sandbox は常に allow-scripts
+        // 相対パスは同じルート配下 (画像 / テキストアセット) へ解決する。sandbox 属性はポリシーに関わらず allow-scripts 固定
         <iframe
           src={fileHtmlPreviewUrl(fetchPath)}
           title={`${fetchPath} のプレビュー`}

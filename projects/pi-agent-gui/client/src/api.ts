@@ -1,5 +1,6 @@
 import { hc } from "hono/client";
 import type { AppType } from "server";
+import { encodeFilePathParam } from "./lib/fileUrl";
 import type {
   AgentDef,
   Catalog,
@@ -124,9 +125,10 @@ export const getFilePreview = async (path: string, signal: AbortSignal): Promise
 
 /**
  * HTML プレビュー (iframe の src)。取得は iframe に任せるので、ここでは URL だけを組み立てる。
- * 応答は text/html で、iframe の中身は CSP と sandbox で隔離される (docs/file-preview.md)。
+ * 同じルートが文書の相対アセット (画像 / `.js` など) も配信するため、path はセグメント単位で encode してパス形式の URL を組み立てる。
  */
-export const fileHtmlPreviewUrl = (path: string): string => client.api.files.html.$url({ query: { path } }).toString();
+export const fileHtmlPreviewUrl = (path: string): string =>
+  client.api.files.html[":path{.+}"].$url({ param: { path: encodeFilePathParam(path) } }).toString();
 
 /**
  * 画像プレビュー用の raw URL。path はワークスペース root 相対で、配信できるのは allowlist の画像だけ。
