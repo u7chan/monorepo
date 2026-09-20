@@ -35,6 +35,14 @@ export function buildPreviewCode(text: string, path: string): PreviewCode {
 }
 
 /**
+ * 「本文をコピー」でクリップボードへ渡す文字列。表示中の本文と同じ正規化を通した text をそのまま返し、
+ * 行番号の列もハイライトの markup も含めない (ファイルの生バイトとは末尾の改行だけ違いうる)。
+ */
+export function previewCopyText(code: PreviewCode): string {
+  return code.text;
+}
+
+/**
  * 拡張子から言語を決める。判定できないファイルは素のテキスト (null)。
  * 拡張子を持たないファイルは Dockerfile だけ bash の規則で色を付ける。
  */

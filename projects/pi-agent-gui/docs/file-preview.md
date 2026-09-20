@@ -41,6 +41,19 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - 本文は折り返さない（`white-space: pre` と横スクロール）。番号は読み上げの対象にしない（`aria-hidden`）し、コピーにも入らない（`user-select: none`）
 - 色を付けられなかったときも行番号は出す。理由はヘッダの `text · N 行` で示す（言語判定の結果ではなく、実際に色を付けた言語を出す）
 
+## コピー
+
+ソース表示のパス行（`lang · N 行` の隣）に `CopyButton`（アイコンのみ、`aria-label` / `title` は `本文をコピー`）を常時出す。`reveal` を渡さないので、hover できる端末でも隠さずタッチ端末と同じ見え方にする。
+
+- コピーするのは表示中の本文（`buildPreviewCode` の `text` を `previewCopyText` で取る）。行番号の列もハイライトの markup も含めない
+- 本文は正規化後（CRLF / CR → LF、末尾の空行を落とす）なので、**クリップボードの内容はファイルの生バイトと末尾の改行だけ違いうる**
+- 空のファイル（空文字）/ 言語判定なし / トークン上限で素のテキストになった場合も同じボタンでコピーできる
+- 成功表示は既存のコピーと同じ `useMessageCopy`（チェックアイコン + `コピーしました` を 2 秒）。失敗時は成功表示にしない
+- 成功表示は表示中のタブ（`FileCopyButton` の key）に紐づけ、タブを切り替えたら捨てる。見えている本文が変わるため、戻っても表示を復帰させない
+- 画像のプレビューには出さない。HTML はプレビュー中にソースを取得しないので出さず、ソース表示へ切り替えてからコピーする
+- 256 KiB 超で本文を取得できないファイルは対象外（本文自体が無い。上限の緩和は別）
+- 行番号付きコピー / 範囲指定コピー / ダウンロードは持たない
+
 ## 上限
 
 | 上限 | 値 | 場所 | 決め方 |
@@ -77,7 +90,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - 既定はプレビュー。他の拡張子は従来どおりソース表示で、トグルは HTML のタブにだけ出す
 - トグルの選択はタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。表示モードの選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
-- プレビュー中はソース本文を取得しない（`lang · N 行` もソース表示のときだけ出す）
+- プレビュー中はソース本文を取得しない（`lang · N 行` も本文のコピーもソース表示のときだけ出す）
 - 「再読み込み」は `FilePreview` の remount（`FileBrowser` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
 
 ### 全画面
@@ -105,7 +118,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - 配信は画像だけに制限し、SVG / HTML は allowlist 外として 400 になる（同一オリジンでスクリプトを実行させない）
 - 表示は `object-contain` で親の幅・高さに合わせる。ピクセル等倍の切替や拡大縮小の UI は持たない
-- 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。`keepsFullscreenPreview` も HTML だけを対象にする（全画面も HTML 専用）
+- 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない。`keepsFullscreenPreview` も HTML だけを対象にする（全画面も HTML 専用）
 - 失敗したときは `GET` の応答エラーをそのまま出す（タブは勝手に閉じない）
 
 ## 画面と root
@@ -136,9 +149,10 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | テスト | 固定すること |
 | --- | --- |
-| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
+| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / コピーする本文（正規化後・行番号なし・空文字）/ 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
+| `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |

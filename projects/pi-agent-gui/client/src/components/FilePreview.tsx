@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, getFilePreview } from "../api";
+import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
-import { buildPreviewCode, isHtmlPath, previewLineNumbers } from "../lib/fileCode";
+import { buildPreviewCode, isHtmlPath, previewCopyText, previewLineNumbers } from "../lib/fileCode";
 import {
   dropClosedPreviews,
   fileTabLabels,
@@ -14,6 +15,7 @@ import {
   type PreviewResults,
 } from "../lib/fileTabs";
 import { fileTreeFetchPath } from "../lib/fileTree";
+import { CopyButton } from "./chat/CopyButton";
 import { CloseIcon } from "./icons";
 
 const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
@@ -165,6 +167,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
                 {code.highlight?.lang ?? "text"} · {code.lineCount} 行
               </span>
             ) : null}
+            {code === null ? null : <FileCopyButton key={activePath} text={previewCopyText(code)} />}
           </>
         )}
         {showHtml ? (
@@ -230,6 +233,17 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
         </div>
       )}
     </dialog>
+  );
+}
+
+/**
+ * 本文をコピーするボタン。成功表示は表示中のタブに紐づけ、呼び出し側の key でタブが変わったら捨てる
+ * (見えている本文が変わるため)。reveal は渡さない (hover できる端末でも常時表示する)。
+ */
+function FileCopyButton({ text }: { text: string }) {
+  const { copiedId, copyMessage } = useMessageCopy();
+  return (
+    <CopyButton copied={copiedId === "file"} onClick={() => void copyMessage(text, "file")} label="本文をコピー" />
   );
 }
 

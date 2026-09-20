@@ -8,6 +8,7 @@ import {
   buildPreviewCode,
   FILE_PREVIEW_MAX_TOKENS,
   isHtmlPath,
+  previewCopyText,
   previewLang,
   previewLineNumbers,
 } from "../src/lib/fileCode";
@@ -61,6 +62,27 @@ test("行数は末尾の空行を数えず、CRLF / CR は LF に揃える", () 
     const code = buildPreviewCode(input, "a.txt");
     assert.deepEqual({ text: code.text, lineCount: code.lineCount }, { text, lineCount }, JSON.stringify(input));
   }
+});
+
+test("コピーする本文は正規化後で、行番号も CR も末尾の空行も含めない", () => {
+  const cases: [string, string][] = [
+    ["", ""],
+    ["a", "a"],
+    ["a\n", "a"],
+    ["a\n\n\n", "a"],
+    ["a\r\nb\r\n\r\n", "a\nb"],
+    ["a\rb", "a\nb"],
+    ["1\n2\n3\n", "1\n2\n3"],
+  ];
+  for (const [input, copied] of cases) {
+    const code = buildPreviewCode(input, "a.ts");
+    assert.equal(previewCopyText(code), copied, JSON.stringify(input));
+    assert.equal(previewCopyText(code), code.text, "表示中の本文をそのまま渡す");
+  }
+  // 行番号の列 (1 から始まる連番) は描画側のもので、コピー本文には含めない
+  const code = buildPreviewCode("a\nb\n", "a.txt");
+  assert.notEqual(previewCopyText(code), `${previewLineNumbers(code.lineCount)}\n${code.text}`);
+  assert.ok(!previewCopyText(code).includes("1\na"), "行番号を行頭に混ぜない");
 });
 
 test("対応言語はトークンに分解し、入力を欠落させない", () => {
