@@ -24,7 +24,15 @@ const option = (
   id: string,
   thinkingLevels: ThinkingLevel[] = ["low", "high"],
   supportsThinking = true,
-): ModelOption => ({ provider, id, name: `${provider}/${id}`, supportsThinking, thinkingLevels });
+  supportsImageInput = false,
+): ModelOption => ({
+  provider,
+  id,
+  name: `${provider}/${id}`,
+  supportsThinking,
+  supportsImageInput,
+  thinkingLevels,
+});
 
 function input(overrides: Partial<ComposerSettingsInput> = {}): ComposerSettingsInput {
   return {
@@ -89,6 +97,23 @@ test("resolves an unsent chat in the server order: preselection, agent, app defa
   );
   assert.equal(fromAppDefault.model, "app/default");
   assert.equal(fromAppDefault.thinkingLevel, "medium");
+});
+
+test("derives image attachment availability from the selected model", () => {
+  const modelOptions = [
+    option("vision", "model", ["low"], true, true),
+    option("text", "model", ["low"], true, false),
+  ];
+
+  const vision = deriveComposerSettings(
+    input({ health: health({ modelOptions }), preselection: { model: { provider: "vision", id: "model" } } }),
+  );
+  assert.equal(vision.supportsImageInput, true);
+
+  const textOnly = deriveComposerSettings(
+    input({ health: health({ modelOptions }), preselection: { model: { provider: "text", id: "model" } } }),
+  );
+  assert.equal(textOnly.supportsImageInput, false);
 });
 
 test("falls back to all effort levels when the model cannot be resolved", () => {
