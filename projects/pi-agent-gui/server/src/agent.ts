@@ -180,6 +180,7 @@ function modelOptionOf(model: PiAiModel<Api>): ModelOption {
     id: model.id,
     name: model.name || `${model.provider}/${model.id}`,
     supportsThinking: levels.some((level) => level !== "off"),
+    supportsImageInput: model.input.includes("image"),
     thinkingLevels: levels,
   };
 }
