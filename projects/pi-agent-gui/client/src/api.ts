@@ -119,6 +119,12 @@ export const getFilePreview = async (path: string, signal: AbortSignal): Promise
  */
 export const fileHtmlPreviewUrl = (path: string): string => client.api.files.html.$url({ query: { path } }).toString();
 
+/**
+ * 画像プレビュー用の raw URL。path はワークスペース root 相対で、配信できるのは allowlist の画像だけ。
+ * 生配信に載せるため bodyGuard の上限を通らず、Content-Type はサーバーが決める。
+ */
+export const fileRawUrl = (path: string): string => client.api.files.raw.$url({ query: { path } }).toString();
+
 export const listProjects = async (): Promise<ProjectsResponse> => {
   const res = await client.api.projects.$get();
   if (!res.ok) throw await apiError(res);
@@ -198,9 +204,35 @@ export const stopSession = async (sessionId: string): Promise<StopResult> => {
   return res.json();
 };
 
-// 202 を即時返す。実行は裏で続き、進捗は SSE で届く
-export const postMessage = async (sessionId: string, text: string): Promise<PostMessageResult> => {
-  const res = await client.api.sessions[":id"].messages.$post({ json: { text }, param: { id: sessionId } });
+// 202 を即時返す。実行は裏で続き、進捗は SSE で届く。attachments は作業フォルダ相対の uploads/ 配下
+// (本文が空でも添付だけで送れる)
+export const postMessage = async (
+  sessionId: string,
+  text: string,
+  attachments: string[] = [],
+): Promise<PostMessageResult> => {
+  const json = attachments.length > 0 ? { text, attachments } : { text };
+  const res = await client.api.sessions[":id"].messages.$post({ json, param: { id: sessionId } });
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+export type SessionFileUpload = {
+  sessionId: string;
+  /** セッションの作業フォルダ相対 (uploads/…)。raw URL は fileTreeFetchPath で root 相対へ直す */
+  path: string;
+  name: string;
+  renamed: boolean;
+  size: number;
+};
+
+/**
+ * 選択時の即時アップロード。本文は File をそのまま raw ストリームで送る (JSON / base64 にしない) ため、
+ * hc の型付き呼び出しではなく $url で組み立てた URL へ fetch する。
+ */
+export const uploadSessionFile = async (sessionId: string, file: File): Promise<SessionFileUpload> => {
+  const url = client.api.sessions[":id"].files.$url({ param: { id: sessionId }, query: { name: file.name } });
+  const res = await fetch(url, { method: "POST", body: file });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SessionFileUpload;
 };

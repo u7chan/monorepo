@@ -37,7 +37,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
   const record = {
     actions: [] as ChatAction[],
     statuses: [] as RuntimeStatus[],
-    posted: [] as Array<{ sessionId: string; text: string }>,
+    posted: [] as Array<{ sessionId: string; text: string; attachments: string[] }>,
     refreshed: 0,
     sending: [] as boolean[],
   };
@@ -53,8 +53,8 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
       record.refreshed += 1;
       return [];
     },
-    post: async (sessionId, text) => {
-      record.posted.push({ sessionId, text });
+    post: async (sessionId, text, attachments) => {
+      record.posted.push({ sessionId, text, attachments });
       return { queued: false, queueDepth: 0 } satisfies PostMessageResult;
     },
     dispatch,
@@ -74,7 +74,7 @@ test("sends to the session returned by ensureSession and starts the run locally"
 
   await sendChatMessage("hello", deps);
 
-  assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "hello" }]);
+  assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "hello", attachments: [] }]);
   assert.deepEqual(record.sending, [true, false], "送信中フラグは必ず戻す");
   const [user] = actionsOfType(record.actions, "localUser");
   assert.equal(user.text, "hello");
@@ -97,7 +97,7 @@ test("keeps the send target but not the display when the chat switches while cre
   created.resolve("s-1");
   await running;
 
-  assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "hello" }], "切替後も入力は捨てない");
+  assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "hello", attachments: [] }], "切替後も入力は捨てない");
   assert.deepEqual(record.actions, [], "切替後の表示 (バブル / 実行状態) は触らない");
   assert.deepEqual(record.sending, [true, false]);
 });
@@ -153,6 +153,99 @@ test("ignores empty text and a busy state", async () => {
   await sendChatMessage("hello", busy.deps);
   assert.deepEqual(busy.record.sending, []);
   assert.deepEqual(busy.record.posted, []);
+});
+
+test("passes attachments to the post and clears the chips only after it succeeds", async () => {
+  const cleared: number[] = [];
+  const { record, deps } = createHarness({
+    attachments: ["uploads/a.png", "uploads/b.pdf"],
+    onSent: () => {
+      cleared.push(1);
+    },
+  });
+
+  await sendChatMessage("これを見て", deps);
+
+  assert.deepEqual(record.posted, [
+    { sessionId: "s-1", text: "これを見て", attachments: ["uploads/a.png", "uploads/b.pdf"] },
+  ]);
+  assert.equal(cleared.length, 1);
+  // ローカルエコーは素の本文のまま (注記込みへ差し替えるのは run_start の責務)
+  const [user] = actionsOfType(record.actions, "localUser");
+  assert.equal(user.text, "これを見て");
+});
+
+test("does not clear the chips when the post fails", async () => {
+  const cleared: number[] = [];
+  const { record, deps } = createHarness({
+    attachments: ["uploads/a.png"],
+    onSent: () => {
+      cleared.push(1);
+    },
+    post: async () => {
+      throw new Error("セッションが見つかりません");
+    },
+  });
+
+  await sendChatMessage("これを見て", deps);
+
+  assert.deepEqual(cleared, []);
+  assert.equal(record.statuses.length, 1);
+  // 失敗したエコーは戻す (次に同じ本文を送っても run_start が取り違えない)
+  assert.deepEqual(
+    actionsOfType(record.actions, "dropLocalUser"),
+    [{ type: "dropLocalUser" }],
+    "localUser の後にだけ戻す",
+  );
+  assert.deepEqual(
+    record.actions.map((action) => action.type),
+    ["localUser", "dropLocalUser", "setActivity"],
+  );
+});
+
+test("keeps the local echo when only the runtime check fails before sending", async () => {
+  const { record, deps } = createHarness({ health: health({ ready: false, error: "APIキーが未設定です" }) });
+
+  await sendChatMessage("hello", deps);
+
+  assert.deepEqual(actionsOfType(record.actions, "localUser"), []);
+  assert.deepEqual(actionsOfType(record.actions, "dropLocalUser"), []);
+});
+
+test("does not drop the local echo when the chat switched while creating the session", async () => {
+  const created = deferred<string>();
+  const { record, deps } = createHarness({
+    sessionIdRef: { current: "" },
+    ensureSession: () => created.promise,
+    post: async () => {
+      throw new Error("送信に失敗しました");
+    },
+  });
+
+  const running = sendChatMessage("hello", deps);
+  deps.sessionIdRef.current = "s-2";
+  created.resolve("s-1");
+  await running;
+
+  // 切替後の表示は触らない (エコーもその戻しも出さない)
+  assert.deepEqual(actionsOfType(record.actions, "localUser"), []);
+  assert.deepEqual(actionsOfType(record.actions, "dropLocalUser"), []);
+  assert.deepEqual(
+    record.actions.map((action) => action.type),
+    ["setActivity"],
+  );
+});
+
+test("sends an attachment-only message but ignores an entirely empty one", async () => {
+  const withFiles = createHarness({ attachments: ["uploads/a.png"] });
+  await sendChatMessage("", withFiles.deps);
+  assert.equal(withFiles.record.posted.length, 1);
+  const [user] = actionsOfType(withFiles.record.actions, "localUser");
+  assert.equal(user.text, "");
+
+  const empty = createHarness();
+  await sendChatMessage("", empty.deps);
+  assert.deepEqual(empty.record.posted, []);
 });
 
 test("stops the displayed session", async () => {

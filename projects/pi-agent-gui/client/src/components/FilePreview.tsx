@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
-import { fileHtmlPreviewUrl, getFilePreview } from "../api";
+import { fileHtmlPreviewUrl, fileRawUrl, getFilePreview } from "../api";
+import { isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { buildPreviewCode, isHtmlPath, previewLineNumbers } from "../lib/fileCode";
 import {
@@ -53,14 +54,16 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
   const result = readPreview(results, activePath);
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
-  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)
+  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像も raw の <img> に任せる
   const showHtml = mode === "preview" && isHtmlPath(activePath);
+  const showImage = mode === "preview" && isImageName(activePath);
+  const skipFetch = showHtml || showImage;
   // 全画面を続ける条件 (HTML のプレビュー + 出すときのタブから動いていない)。判定は lib/fileTabs.ts が正
   const fullscreen = keepsFullscreenPreview(fullscreenPath, activePath, mode);
   // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
   const code = useMemo(
-    () => (showHtml || text === undefined ? null : buildPreviewCode(text, activePath)),
-    [showHtml, text, activePath],
+    () => (skipFetch || text === undefined ? null : buildPreviewCode(text, activePath)),
+    [skipFetch, text, activePath],
   );
 
   // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする。全画面ではバーを隠すため、
@@ -71,7 +74,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
 
   // 表示中のタブだけ取得する。取得中に切り替えたら中断して結果を捨てる (再表示で取り直す)
   useEffect(() => {
-    if (showHtml) return;
+    if (skipFetch) return;
     if (readPreview(results, activePath)) return;
     const controller = new AbortController();
     void getFilePreview(fetchPath, controller.signal).then(
@@ -83,7 +86,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
       },
     );
     return () => controller.abort();
-  }, [activePath, fetchPath, results, showHtml]);
+  }, [activePath, fetchPath, results, skipFetch]);
 
   useEffect(() => {
     setResults((prev) => dropClosedPreviews(prev, paths));
@@ -175,10 +178,18 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
           </button>
         ) : null}
       </div>
-      {result?.error && !showHtml ? (
+      {result?.error && !skipFetch ? (
         <p role="alert" className="px-4 py-2 text-xs break-words text-danger-text">
           {result.error}
         </p>
+      ) : showImage ? (
+        <div className="min-h-0 flex-1 overflow-auto bg-soft p-2">
+          <img
+            src={fileRawUrl(fetchPath)}
+            alt={`${fetchPath} のプレビュー`}
+            className="mx-auto max-h-full max-w-full object-contain"
+          />
+        </div>
       ) : showHtml ? (
         // 相対パスのアセットは読めない (自己完結した HTML だけを描画する)。sandbox は常に allow-scripts
         <iframe

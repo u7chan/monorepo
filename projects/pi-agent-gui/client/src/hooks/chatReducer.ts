@@ -1,3 +1,4 @@
+import { splitAttachedFiles } from "../lib/attachments";
 import type {
   ChatMessage,
   CompactionInfo,
@@ -44,6 +45,11 @@ export type ChatState = {
    * run_start と run_end が同じバッチで届いたときに running を観測できない)。
    */
   runEndSeq: number;
+  /**
+   * run_start 待ちのローカルエコー (user バブル id)。送信した順に並び、run_start が先頭から消費する。
+   * 同じ本文を続けて送っても、届いた注記を正しいバブルに割り当てるために必要 (配列の末尾だけを見ると取り違える)。
+   */
+  pendingEchoIds: number[];
   queueDepth: number;
   activity: string;
   sessionModel?: string;
@@ -61,6 +67,8 @@ export type ChatAction =
   | { type: "resync"; payload: SessionPayload }
   | { type: "runStart"; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
+  /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
+  | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
   | { type: "toolStart"; id: string; name: string; args: string; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
@@ -81,6 +89,7 @@ export const initialChatState: ChatState = {
   runStatus: "idle",
   runStartedAt: undefined,
   runEndSeq: 0,
+  pendingEchoIds: [],
   queueDepth: 0,
   activity: "",
   sessionModel: undefined,
@@ -195,6 +204,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runEndSeq: state.runEndSeq + (runEnded ? 1 : 0),
         bubbles,
         nextId,
+        // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
+        pendingEchoIds: [],
         currentAssistantId: null,
         toolBubbleIds: {},
         runStatus: status,
@@ -226,11 +237,31 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "runStart": {
-      // ローカルエコー済みなら user バブルを重複させない
-      const lastUser = [...state.bubbles].reverse().find((b) => b.role === "user");
-      const next = lastUser?.text === action.prompt ? state : appendBubble(state, "user", action.prompt, action.at);
+      // ローカルエコーは素の本文、run_start は注記込みの本文で届く。送信順の待ち行列を先頭から見て、
+      // 注記を除いた本文が一致するエコーを注記込みへ差し替える (同一本文を続けて送っても取り違えない)
+      const promptBody = splitAttachedFiles(action.prompt).text;
+      const echoIndex = state.pendingEchoIds.findIndex((id) => {
+        const bubble = state.bubbles.find((item) => item.id === id);
+        return bubble !== undefined && splitAttachedFiles(bubble.text).text === promptBody;
+      });
+      const echo = echoIndex === -1 ? undefined : state.bubbles.find((b) => b.id === state.pendingEchoIds[echoIndex]);
+      // 一致した分までを消費する (run_start は送信順に届くため、それ以前の待ちは解決不能)
+      const pendingEchoIds = echoIndex === -1 ? state.pendingEchoIds : state.pendingEchoIds.slice(echoIndex + 1);
+      let next: ChatState;
+      if (echo !== undefined) {
+        next =
+          echo.text === action.prompt
+            ? state
+            : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
+      } else {
+        // 待ち行列が無い (resync 後など) ときは、注記込みの本文が既にある履歴を重複させない。
+        // resync 直後は複数の user バブルが並ぶため、最後の 1 件ではなく全バブルを完全一致で見る
+        const known = state.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt);
+        next = known ? state : appendBubble(state, "user", action.prompt, action.at);
+      }
       return {
         ...next,
+        pendingEchoIds,
         currentAssistantId: null,
         toolBubbleIds: {},
         runStatus: "running",
@@ -244,7 +275,23 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "localUser": {
       const next = appendBubble(state, "user", action.text, action.at);
-      return { ...next, currentAssistantId: null, activity: "送信中…" };
+      return {
+        ...next,
+        currentAssistantId: null,
+        activity: "送信中…",
+        pendingEchoIds: [...state.pendingEchoIds, next.nextId - 1],
+      };
+    }
+
+    case "dropLocalUser": {
+      // post に失敗したエコーを戻す。残すと次の run_start (同じ本文) が失敗分を消費してしまう
+      const last = state.pendingEchoIds.at(-1);
+      if (last === undefined) return state;
+      return {
+        ...state,
+        bubbles: state.bubbles.filter((bubble) => bubble.id !== last),
+        pendingEchoIds: state.pendingEchoIds.slice(0, -1),
+      };
     }
 
     case "text": {

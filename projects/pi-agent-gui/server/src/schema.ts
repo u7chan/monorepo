@@ -296,6 +296,18 @@ export type FileListing = z.infer<typeof FileListingSchema>;
 export const FilePreviewSchema = z.object({ text: z.string().max(256 * 1024) });
 export type FilePreview = z.infer<typeof FilePreviewSchema>;
 
+/**
+ * アップロード応答 (サンドボックス POST /v1/files/upload の応答をそのまま返す)。
+ * path はセッションの作業フォルダ相対で、raw 表示 URL はクライアントが root 相対へ変換する。
+ */
+export const FileUploadSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  renamed: z.boolean(),
+  size: z.number(),
+});
+export type FileUpload = z.infer<typeof FileUploadSchema>;
+
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),
@@ -316,6 +328,8 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 
 export const PostMessageBodySchema = z.object({
   text: z.string(),
+  /** 添付 (作業フォルダ相対の uploads/ 配下)。件数とパスの検証は attachments.ts が正 */
+  attachments: z.array(z.string()).optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 

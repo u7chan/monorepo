@@ -8,6 +8,7 @@ import {
   SANDBOX_NOT_CONFIGURED_MESSAGE,
 } from "../http";
 import { FileListingSchema, FilePreviewSchema } from "../schema";
+import { rawImageContentType } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /**
@@ -94,6 +95,27 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
         return c.json({ error: "サンドボックスのファイル一覧が不正です" }, 502);
       }
       return c.json(parsed.data);
+    },
+    /**
+     * 画像の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。allowlist を BFF でも見て、
+     * 画像以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。
+     */
+    raw: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      const path = c.req.query("path") ?? "";
+      if (!rawImageContentType(path)) return c.json({ error: `Not a servable image: ${path}` }, 400);
+      try {
+        const file = await workspace.rawFile(path);
+        if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
+        return c.body(file.body, 200, {
+          "Content-Type": file.contentType,
+          ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
     },
   };
 }

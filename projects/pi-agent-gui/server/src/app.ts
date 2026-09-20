@@ -35,14 +35,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const fileRoutes = createFileRoutes({ workspace });
   const catalogRoutes = createCatalogRoutes({ catalog });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
-  const sessionRoutes = createSessionRoutes({ store });
+  const sessionRoutes = createSessionRoutes({ store, workspace });
 
   const app = new Hono()
+    // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
+    .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)
     .get("/api/files", fileRoutes.list)
     .get("/api/files/preview", fileRoutes.preview)
     .get("/api/files/html", fileRoutes.html)
+    .get("/api/files/raw", fileRoutes.raw)
     .get("/api/projects", projectRoutes.list)
     .post(
       "/api/projects",

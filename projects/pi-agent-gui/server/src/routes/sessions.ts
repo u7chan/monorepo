@@ -1,6 +1,21 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { CreateSessionBody, PostMessageBody, UpdateSessionSettingsBody } from "../schema";
+import {
+  MAX_ATTACHMENT_BYTES,
+  UPLOADS_DIR,
+  composePrompt,
+  normalizeAttachmentPaths,
+  toAttachmentPath,
+} from "../attachments";
+import { sandboxFailure, sandboxNotConfigured } from "../http";
+import { isValidUploadName } from "../sandbox/protocol";
+import type { SandboxWorkspaceClient } from "../sandbox/client";
+import {
+  FileUploadSchema,
+  type CreateSessionBody,
+  type PostMessageBody,
+  type UpdateSessionSettingsBody,
+} from "../schema";
 import type { SessionStore } from "../sessions";
 
 // sessions 側の上限とは別 (HTTP 層の契約)
@@ -17,7 +32,13 @@ function withSseHeaders(response: Response): Response {
   return new Response(response.body, { status: response.status, headers });
 }
 
-export function createSessionRoutes({ store }: { store: SessionStore }) {
+export function createSessionRoutes({
+  store,
+  workspace,
+}: {
+  store: SessionStore;
+  workspace: SandboxWorkspaceClient | null;
+}) {
   // 未ロードのセッションはストアから復元する (SDK ロードを含むため非同期)
   const resolveRecord = (c: Context) => store.resolve(c.req.param("id") ?? "");
 
@@ -72,14 +93,50 @@ export function createSessionRoutes({ store }: { store: SessionStore }) {
     postMessage: async (c: Context, body: PostMessageBody) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
+      const attachments = normalizeAttachmentPaths(body.attachments);
       const text = body.text.trim();
-      if (!text) return c.json({ error: "text is required" }, 400);
+      // 本文が空でも添付だけで送れる (注記だけのプロンプトになる)
+      if (!text && attachments.length === 0) return c.json({ error: "text is required" }, 400);
       if (text.length > MAX_MESSAGE_CHARS) {
         return c.json({ error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
       // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
-      const result = store.postMessage(record, text);
+      // 注記は履歴とモデルへ渡すためここで合成し、title は注記を除いた本文から作る
+      const result = store.postMessage(record, composePrompt(text, attachments));
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+    },
+
+    /**
+     * 選択時の即時アップロード。bodyGuard (64 KiB 上限 / text 化) を通さないよう、app.ts では
+     * このルートを bodyGuard より先に登録する。保存先はセッションの作業フォルダ配下の uploads/。
+     */
+    uploadFile: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const name = c.req.query("name") ?? "";
+      if (!isValidUploadName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
+      // サンドボックスはストリームを数えて 413 を返すが、事前に分かる分はここで止める (本文を送らずに済む)
+      const declared = Number.parseInt(c.req.header("content-length") ?? "", 10);
+      if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
+        return c.json({ error: `File is too large (max ${MAX_ATTACHMENT_BYTES} bytes)` }, 413);
+      }
+      try {
+        const uploaded = await workspace.uploadFile({
+          dir: record.workdir ? `${record.workdir}/${UPLOADS_DIR}` : UPLOADS_DIR,
+          name,
+          body: c.req.raw.body,
+          signal: c.req.raw.signal,
+        });
+        const parsed = FileUploadSchema.safeParse(uploaded);
+        if (!parsed.success) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
+        // サンドボックスは root 相対を返す。クライアントは作業フォルダ相対 (uploads/…) を期待する
+        const path = toAttachmentPath(record.workdir, parsed.data.path);
+        if (!path) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
+        return c.json({ sessionId: record.id, ...parsed.data, path }, 201);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
     },
 
     events: async (c: Context) => {

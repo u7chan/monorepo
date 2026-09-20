@@ -7,6 +7,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
+| GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
+| POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
 | POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
 | POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
 | POST | `/v1/executions/:id/cancel` | 実行中のツールを中断 |
@@ -38,6 +40,33 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 - `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
 - 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
 - 読み取り専用の `GET /v1/files` と違い、このエンドポイントだけが作業領域へ書き込む
+
+## `POST /v1/files/upload`
+
+選択時のファイル追加。本文は JSON ではなく raw バイト列で受け、`dir` 配下へストリームで書く。作成した実ファイルの root 相対の正規化パスを返す。
+
+```
+POST /v1/files/upload?dir=uploads&name=photo.png
+<body: ファイルのバイト列>
+```
+
+```json
+// response (201)
+{ "path": "uploads/photo-1.png", "name": "photo-1.png", "renamed": true, "size": 12345 }
+```
+
+- `name` は basename のみ。空・`.`・`..`・`/`・`\`・制御文字・200 文字超は 400。`dir` は `POST /v1/dirs` と同じ規則で root 外を拒否し、無ければ `mkdir -p` で作る
+- 書き込みは `<dir>/.pi-upload-<uuid>.part` へ行い、バイト数を数えて上限（100 MiB）を超えたら 413 にして temp を削除する。本文が途切れたときも temp を残さない
+- 完成後は `link(2)` で排他作成し、`EEXIST` なら `name-1.ext` → `name-2.ext` …（最大 100 回、以降は乱数 suffix）へ進める。**既存ファイルは決して上書きしない**（並行アップロードでも衝突しない）
+- 上限は 1 ファイル 100 MiB（`SANDBOX_MAX_UPLOAD_BYTES`）とファイル名 200 文字。`maxUploadBytes` オプションでテスト時に小さくできる
+
+## `GET /v1/files/raw`
+
+root 相対の画像を `createReadStream` でストリーム返却する。配信できる拡張子は `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico` だけで、それ以外（SVG / HTML / 拡張子なし）は 400。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。
+
+- 200: `Content-Type`（拡張子）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
+- 413: サイズが上限（100 MiB）を超える
+- BFF はこの応答をそのまま中継し、本文を JSON に載せない（[api.md](api.md#画像配信raw)）
 
 ## `POST /v1/executions/:id/cancel`
 

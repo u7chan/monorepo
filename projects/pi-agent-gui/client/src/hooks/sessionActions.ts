@@ -10,16 +10,24 @@ export type SendChatMessageDeps = {
   sessionIdRef: RefObject<string>;
   ensureSession: () => Promise<string>;
   refreshSessions: () => Promise<SessionSummary[]>;
-  post: (sessionId: string, text: string) => Promise<PostMessageResult>;
+  post: (sessionId: string, text: string, attachments: string[]) => Promise<PostMessageResult>;
+  /** 送信できた添付 (作業フォルダ相対)。成功したときにチップを消すために使う */
+  attachments?: string[];
+  /** post が成功した直後のフック (チップのクリアなど) */
+  onSent?: () => void;
   dispatch: Dispatch<ChatAction>;
   setSending: (value: boolean) => void;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
 export async function sendChatMessage(text: string, deps: SendChatMessageDeps): Promise<void> {
-  if (!text || deps.busy) return;
+  const attachments = deps.attachments ?? [];
+  // 本文も添付も無い送信は投げない (添付だけの送信は許可されている)
+  if ((!text && attachments.length === 0) || deps.busy) return;
   const { sessionIdRef, ensureSession, refreshSessions, post, dispatch, setSending, setRuntimeStatus } = deps;
   setSending(true);
+  // 失敗時に戻すエコーの判定。ensureSession 自体の失敗ではまだエコーを出していない
+  let echoed = false;
   try {
     if (deps.health && !deps.health.ready) {
       throw new Error(deps.health.error || "APIキーまたは認証設定を確認してください");
@@ -30,9 +38,14 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     // 切替後は表示と別セッションになる。入力もセッションも捨てずに送信だけ続け、
     // 現在の表示のバブル / 実行状態は触らない (一覧は post 後の refreshSessions が更新する)
     const sameChat = sessionIdRef.current === targetId;
-    if (sameChat) dispatch({ type: "localUser", text, at: Date.now() });
+    // ローカルエコーは素の本文で先に出す (注記込みの本文は run_start が届いたときに差し替える)
+    if (sameChat) {
+      dispatch({ type: "localUser", text, at: Date.now() });
+      echoed = true;
+    }
 
-    const result = await post(targetId, text);
+    const result = await post(targetId, text, attachments);
+    deps.onSent?.();
     if (sameChat) {
       if (result.queued) {
         dispatch({
@@ -47,6 +60,8 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     }
     void refreshSessions();
   } catch (error) {
+    // 送れなかったエコーを戻す。残すと次に同じ本文を送ったとき、その run_start が失敗分を消費する
+    if (echoed) dispatch({ type: "dropLocalUser" });
     const status = runtimeStatusForError(error);
     dispatch({ type: "setActivity", text: status.detail || status.text });
     setRuntimeStatus(status);

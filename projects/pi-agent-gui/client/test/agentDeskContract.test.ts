@@ -26,6 +26,7 @@ type ContractKeys = {
   composerSettings: unknown;
   selectedAgent: unknown;
   stopVisible: unknown;
+  attachments: unknown;
   loadCatalog: unknown;
   refreshSessions: unknown;
   refreshProjects: unknown;
@@ -33,6 +34,8 @@ type ContractKeys = {
   selectProject: unknown;
   newChat: unknown;
   sendMessage: unknown;
+  attachFiles: unknown;
+  removeAttachment: unknown;
   stopAgent: unknown;
   deleteSession: unknown;
   createProject: unknown;

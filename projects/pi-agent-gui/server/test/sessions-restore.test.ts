@@ -30,6 +30,9 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[] } 
         dirs.push(path);
         return { path };
       },
+      // アップロード / 生配信はこのテストでは扱わない
+      uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
+      rawFile: async () => ({ contentType: "image/png", body: null }),
     },
   };
 }

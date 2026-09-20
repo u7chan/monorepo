@@ -13,6 +13,8 @@ export type ChatAreaProps = {
   compactions?: CompactionInfo[];
   compact?: boolean;
   suggestions?: AgentSuggestion[];
+  /** セッションの作業フォルダ (root 相対)。添付のサムネイル URL を組むのに使う */
+  cwd?: string;
   onSuggestion: (prompt: string) => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
   visible?: boolean;
@@ -23,6 +25,7 @@ export function ChatArea({
   compactions = [],
   compact = false,
   suggestions = [],
+  cwd = "",
   onSuggestion,
   visible = true,
 }: ChatAreaProps) {
@@ -82,7 +85,9 @@ export function ChatArea({
                   bubble={bubble}
                   copied={copiedId === `bubble_${bubble.id}`}
                   compact={compact}
-                  onCopy={() => void copyMessage(bubble.text, `bubble_${bubble.id}`)}
+                  cwd={cwd}
+                  // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
+                  onCopy={(text) => void copyMessage(text, `bubble_${bubble.id}`)}
                   copiedId={copiedId}
                   onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
                   copiedAll={copiedId === `tools_${bubble.id}`}

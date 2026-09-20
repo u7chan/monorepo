@@ -8,6 +8,7 @@ import {
   type SandboxEvent,
   type SandboxFileListing,
   type SandboxFilePreview,
+  type SandboxFileUpload,
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
@@ -28,6 +29,22 @@ export interface SandboxExecuteInput {
 export interface SandboxExecuteResult {
   content: unknown;
   details?: unknown;
+}
+
+/** raw 配信の応答。BFF はヘッダを付け直してストリームをそのまま流す。 */
+export interface SandboxRawFile {
+  contentType: string;
+  contentLength?: number;
+  body: ReadableStream<Uint8Array> | null;
+}
+
+export interface SandboxUploadInput {
+  /** root 相対の保存先ディレクトリ (アップロードの場合は `uploads` など) */
+  dir: string;
+  /** 保存名 (basename)。同名があればサンドボックスが連番を振る */
+  name: string;
+  body: ReadableStream<Uint8Array> | null;
+  signal?: AbortSignal | undefined;
 }
 
 export function createSandboxToolClient(options: SandboxToolClientOptions): SandboxToolClient {
@@ -51,6 +68,8 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
       return (await response.json()) as SandboxFilePreview;
     },
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
+    uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
+    rawFile: (path) => rawFile(path, baseUrl, token, fetchImpl),
   };
 }
 
@@ -70,10 +89,15 @@ export interface SandboxToolClient {
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
+  uploadFile(input: SandboxUploadInput): Promise<SandboxFileUpload>;
+  rawFile(path: string): Promise<SandboxRawFile>;
 }
 
-/** /api/files とプロジェクト作成が使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
-export type SandboxWorkspaceClient = Pick<SandboxToolClient, "listFiles" | "createDir" | "previewFile">;
+/** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
+export type SandboxWorkspaceClient = Pick<
+  SandboxToolClient,
+  "listFiles" | "createDir" | "previewFile" | "uploadFile" | "rawFile"
+>;
 
 /**
  * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
@@ -154,6 +178,68 @@ async function createDir(
   );
   if (!response.ok) throw await jsonError(response, "ディレクトリを作成できませんでした");
   return (await response.json()) as SandboxCreateDirResult;
+}
+
+/**
+ * raw ストリームでファイルを送る。サンドボックス側が上限と保存名を決めるため、BFF は検証済みの
+ * dir / name を渡すだけでよい。
+ */
+async function uploadFile(
+  input: SandboxUploadInput,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxFileUpload> {
+  const url = `${baseUrl}/v1/files/upload?dir=${encodeURIComponent(input.dir)}&name=${encodeURIComponent(input.name)}`;
+  const response = await fetchJson(
+    fetchImpl,
+    url,
+    {
+      method: "POST",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/octet-stream" },
+      body: input.body,
+      // Node の fetch はストリーム body に duplex: "half" を要求する
+      duplex: "half",
+      signal: input.signal,
+    } as RequestInit,
+    baseUrl,
+  );
+  if (!response.ok) throw await rawError(response, "アップロードに失敗しました");
+  return (await response.json()) as SandboxFileUpload;
+}
+
+/** 画像の生配信。4xx (不正パス・不存在・上限超過) は文言ごと透過する。 */
+async function rawFile(path: string, baseUrl: string, token: string, fetchImpl: typeof fetch): Promise<SandboxRawFile> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/raw?path=${encodeURIComponent(path)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await rawError(response, "ファイルを配信できませんでした");
+  const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+  return {
+    contentType: response.headers.get("content-type") ?? "application/octet-stream",
+    ...(Number.isFinite(contentLength) ? { contentLength } : {}),
+    body: response.body,
+  };
+}
+
+/**
+ * raw 経路のエラー写像。413 (上限超過) は raw 固有なので、JSON 経路 (jsonError) とは分けて透過する。
+ */
+async function rawError(response: Response, label: string): Promise<SandboxRequestError> {
+  const detail = errorDetailOf(await response.text().catch(() => ""));
+  if (response.status === 401 || response.status === 403) {
+    return new SandboxRequestError("サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)", 502);
+  }
+  if (response.status === 400 || response.status === 404 || response.status === 413) {
+    return new SandboxRequestError(detail || `${label} (HTTP ${response.status})`, response.status);
+  }
+  return new SandboxRequestError(
+    `サンドボックスの${label} (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
+    502,
+  );
 }
 
 /** サンドボックスの本文は { error } を返す契約。読めなければ生テキストをそのまま使う。 */

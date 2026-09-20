@@ -12,8 +12,9 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ファイル一覧 | `GET /api/files` | このファイル |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
 | HTML プレビュー（iframe 用） | `GET /api/files/html` | このファイル |
+| 画像配信（raw） | `GET /api/files/raw` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
-| セッション | `/api/sessions`、`/api/sessions/:id`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
+| セッション | `/api/sessions`、`/api/sessions/:id`、`/files`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills` | [api-catalog.md](api-catalog.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -114,6 +115,25 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 エラーも iframe の中で読めるように HTML 文書で返し、サンドボックス由来の文言は HTML エスケープする。方式と残リスクは [file-preview.md](file-preview.md)。
+
+## 画像配信（raw）
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/raw?path=<root 相対>` | 画像の生配信（チャットの添付サムネイル・ファイル画面のプレビュー） |
+
+サンドボックスの `GET /v1/files/raw` に委譲し、応答をそのままストリームで返す。配信するのは画像だけで、allowlist は `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`（SVG / HTML は同一オリジンでスクリプトが動くため配信しない）。判定は BFF とサンドボックスの両方で行う。
+
+- 200: 本文 + `Content-Type`（拡張子から決める）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
+- 400 / 404 / 413: allowlist 外（`Not a servable image: …`）/ 未作成・root 外 / 上限（100 MiB）超過。サンドボックス側の文言をそのまま返す
+- 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+
+クライアントは `client/src/api.ts` の `fileRawUrl(path)` で URL を組み立て、`<img>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない）。`path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。表示は [file-preview.md](file-preview.md)。
+
+## セッションへのファイルアップロード
+
+`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、既定のアップロード先はセッションの作業フォルダ配下の `uploads/`。JSON ではなく raw ストリームで受け、`bodyGuard`（`/api/*` の 64 KiB 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
 
 ## プロジェクト
 
