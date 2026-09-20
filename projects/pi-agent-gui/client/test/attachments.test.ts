@@ -7,9 +7,11 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS,
   attachmentRejection,
+  attachmentsForSession,
   formatBytes,
   isImageName,
   splitAttachedFiles,
+  type Attachment,
 } from "../src/lib/attachments";
 
 /** server/src/attachments.ts の composePrompt が作る形 */
@@ -67,6 +69,31 @@ test("formatBytes shows a compact size for chips", () => {
   assert.equal(formatBytes(MAX_ATTACHMENT_BYTES), "100.0 MB");
   assert.equal(formatBytes(3 * 1024 * 1024 * 1024), "3.0 GB");
   assert.equal(formatBytes(Number.NaN), "");
+});
+
+test("attachmentsForSession keeps only the chips of the current session", () => {
+  const chip = (id: string, sessionId: string): Attachment => ({
+    id,
+    sessionId,
+    name: `${id}.png`,
+    size: 1,
+    status: "done",
+    path: `uploads/${id}.png`,
+  });
+  const chips = [chip("a", "s-1"), chip("b", ""), chip("c", "s-2")];
+
+  // 切替直後 (effect の削除前) に前のセッションのチップを描かない
+  assert.deepEqual(
+    attachmentsForSession(chips, "s-2").map((item) => item.id),
+    ["c"],
+  );
+  assert.deepEqual(
+    attachmentsForSession(chips, "").map((item) => item.id),
+    ["b"],
+    "未作成チャットのチップは残す",
+  );
+  assert.deepEqual(attachmentsForSession(chips, "s-3"), []);
+  assert.deepEqual(attachmentsForSession([], "s-1"), []);
 });
 
 test("attachmentRejection reports the reason to keep as an error chip", () => {

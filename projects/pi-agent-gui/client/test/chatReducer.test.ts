@@ -203,6 +203,43 @@ test("送信に失敗したエコーを戻し、次の同一本文が正しく�
   assert.equal(started.bubbles[0]?.at, 200);
 });
 
+test("resync 後の run_start は履歴のバブルを重複させない", () => {
+  const note = (path: string) => ["同じ本文", "", "<attached_files>", `- ./${path}`, "</attached_files>"].join("\n");
+  const firstPrompt = note("uploads/a.png");
+  const secondPrompt = note("uploads/b.png");
+
+  // 送信中に resync が届き、履歴が 2 通とも注記込みで戻る (待ち行列は捨てられる)
+  let state = chatReducer(initialChatState, { type: "localUser", text: "同じ本文", at: 100 });
+  state = chatReducer(state, { type: "localUser", text: "同じ本文", at: 200 });
+  state = chatReducer(state, {
+    type: "resync",
+    payload: {
+      ...runningPayload(),
+      messages: [
+        { role: "user", text: firstPrompt },
+        { role: "user", text: secondPrompt },
+      ],
+    },
+  });
+  assert.equal(state.bubbles.length, 2);
+  assert.deepEqual(
+    state.bubbles.map((bubble) => bubble.text),
+    [firstPrompt, secondPrompt],
+  );
+  assert.deepEqual(state.pendingEchoIds, []);
+
+  // run_start が順に届いても、全バブルの完全一致で既存分と分かる
+  state = chatReducer(state, { type: "runStart", prompt: firstPrompt, at: 300, startedAt: 300 });
+  assert.equal(state.bubbles.length, 2, "A の run_start で増やさない");
+  state = chatReducer(state, { type: "runStart", prompt: secondPrompt, at: 400, startedAt: 400 });
+  assert.equal(state.bubbles.length, 2, "B の run_start で増やさない");
+  assert.deepEqual(
+    state.bubbles.map((bubble) => bubble.text),
+    [firstPrompt, secondPrompt],
+    "各バブルが自分の注記を保つ",
+  );
+});
+
 // --- 応答メタ情報 ---
 
 const USAGE: Usage = {

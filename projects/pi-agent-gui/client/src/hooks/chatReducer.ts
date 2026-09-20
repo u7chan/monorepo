@@ -254,9 +254,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             ? state
             : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
       } else {
-        // 待ち行列が無い (resync 後など) ときは、注記込みの本文が既にある履歴を重複させない
-        const lastUser = [...state.bubbles].reverse().find((b) => b.role === "user");
-        next = lastUser?.text === action.prompt ? state : appendBubble(state, "user", action.prompt, action.at);
+        // 待ち行列が無い (resync 後など) ときは、注記込みの本文が既にある履歴を重複させない。
+        // resync 直後は複数の user バブルが並ぶため、最後の 1 件ではなく全バブルを完全一致で見る
+        const known = state.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt);
+        next = known ? state : appendBubble(state, "user", action.prompt, action.at);
       }
       return {
         ...next,

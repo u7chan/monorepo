@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 import { getHealth, postMessage, stopSession, uploadSessionFile } from "../api";
-import { attachmentRejection, type Attachment } from "../lib/attachments";
+import { attachmentRejection, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { deriveComposerSettings } from "../lib/composerSettings";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
@@ -160,10 +160,12 @@ export function useAgentDesk() {
 
   const sendMessage = useCallback(
     async (text: string): Promise<void> => {
+      // 切替直後は古いセッションのチップが state に残っているため、描画と同じ規則で絞ってから送る
+      const pending = attachmentsForSession(attachmentsRef.current, sessionIdRef.current);
       // アップロード中 / 失敗のチップがある間は送らない (Composer でも止める)
-      if (attachmentsRef.current.some((item) => item.status !== "done")) return;
-      const paths = attachmentsRef.current.map((item) => item.path).filter((path): path is string => Boolean(path));
-      const sentIds = attachmentsRef.current.map((item) => item.id);
+      if (pending.some((item) => item.status !== "done")) return;
+      const paths = pending.map((item) => item.path).filter((path): path is string => Boolean(path));
+      const sentIds = pending.map((item) => item.id);
       await sendChatMessage(text, {
         health,
         busy: sending || settingsChanging,
@@ -280,7 +282,7 @@ export function useAgentDesk() {
     composerSettings,
     selectedAgent,
     stopVisible,
-    attachments,
+    attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
     refreshSessions,
     refreshProjects,

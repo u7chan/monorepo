@@ -52,6 +52,14 @@ export function formatBytes(size: number): string {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
+/**
+ * 現在のセッションのチップだけを返す。切替直後は effect の削除より先に描画されるため、
+ * 古いセッションのチップをそのまま出すと前の作業フォルダを指す URL になる。
+ */
+export function attachmentsForSession(attachments: Attachment[], sessionId: string): Attachment[] {
+  return attachments.filter((item) => item.sessionId === sessionId);
+}
+
 /** 追加前の検査。理由を返したらチップは error としてだけ残す (アップロードしない)。 */
 export function attachmentRejection(file: { name: string; size: number }, currentCount: number): string | undefined {
   if (currentCount >= MAX_ATTACHMENTS) return `添付できるのは最大 ${MAX_ATTACHMENTS} 件までです`;
