@@ -234,6 +234,7 @@ export const ModelOptionSchema = z.object({
   id: z.string(),
   name: z.string(),
   supportsThinking: z.boolean(),
+  supportsImageInput: z.boolean(),
   thinkingLevels: z.array(ThinkingLevelSchema),
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
