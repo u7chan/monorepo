@@ -41,6 +41,8 @@ function stubWorkspace() {
     previewFile: async () => ({ text: "" }),
     listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
     createDir: async (path: string) => ({ path }),
+    // 削除はこのテストでは扱わない
+    deleteFile: async () => {},
     uploadFile: async (input) => {
       let size = 0;
       if (input.body) {

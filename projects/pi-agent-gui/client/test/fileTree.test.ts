@@ -14,6 +14,7 @@ import {
   normalizeFileTreeRoot,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
+  removeFileTreeEntry,
   toggleFileTreeDirectory,
   type FileTreeState,
 } from "../src/lib/fileTree";
@@ -240,4 +241,48 @@ test("Object.prototype の名前のディレクトリも保存値から復元す
     assert.equal(fileTreeDirectoryState(state, name)?.open, true, name);
     assert.deepEqual(openFileTreeDirectories(state), [name], name);
   }
+});
+
+// 削除後の一覧更新。該当行を落とすだけで、他のディレクトリと子孫の状態は触らない
+test("削除した行だけを落とし、他の行と子孫の状態は保持する", () => {
+  let state = loaded({
+    ".": [file("note.txt"), dir("src")],
+    src: [file("keep.ts"), file("gone.ts")],
+    "src/components": [file("Button.tsx")],
+  });
+  state = toggleFileTreeDirectory(state, "src");
+  state = toggleFileTreeDirectory(state, "src/components");
+
+  const removed = removeFileTreeEntry(state, "note.txt");
+  assert.deepEqual(removed["."].children, [dir("src")]);
+  assert.deepEqual(removed.src.children, [file("keep.ts"), file("gone.ts")], "他のディレクトリは触らない");
+  assert.deepEqual(removed["src/components"].children, [file("Button.tsx")], "子孫の状態は保持する");
+  assert.equal(removed["src/components"].open, true);
+
+  // ネストしたファイルも親の一覧から落ちる
+  const nested = removeFileTreeEntry(removed, "src/gone.ts");
+  assert.deepEqual(nested.src.children, [file("keep.ts")]);
+  assert.deepEqual(nested["src/components"].children, [file("Button.tsx")]);
+});
+
+test("該当行が無い削除では同じ object を返す", () => {
+  const state = loaded({ ".": [file("note.txt")], src: [file("keep.ts")] });
+  assert.equal(removeFileTreeEntry(state, "missing.txt"), state, "一覧に無い行");
+  assert.equal(removeFileTreeEntry(state, "src"), state, "ディレクトリは対象外");
+  assert.equal(removeFileTreeEntry(state, "docs/note.txt"), state, "未取得のディレクトリ");
+});
+
+test("削除した状態は再読み込みをまたいでも、再取得した一覧を正本にする", () => {
+  // 削除は親の一覧を差し替えるだけなので、再読み込み (invalidateFileTree) 後は
+  // 既存の「親から順に取り直す」経路に乗る。再取得した一覧に含まれなければ行は戻らない
+  let state = loaded({ ".": [file("note.txt"), dir("src")], src: [file("keep.ts")] });
+  state = { ...state, src: { ...state.src, open: true } };
+  const removed = removeFileTreeEntry(state, "note.txt");
+  const reloaded = invalidateFileTree(removed);
+  assert.equal(reloaded["src"].open, true, "開閉は保つ");
+  assert.equal(reloaded["."].children, undefined, "再読み込みは親の一覧も捨てる");
+
+  const refetched = applyFileTreeListing(reloaded, ".", { entries: [dir("src")], truncated: false });
+  assert.deepEqual(refetched["."].children, [dir("src")], "削除した行は戻らない");
+  assert.deepEqual(pendingFileTreeDirectories(refetched), ["src"], "開いた子は取り直す");
 });

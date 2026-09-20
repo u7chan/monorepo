@@ -68,6 +68,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
       return (await response.json()) as SandboxFilePreview;
     },
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
+    deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
     uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
     rawFile: (path) => rawFile(path, baseUrl, token, fetchImpl),
   };
@@ -89,6 +90,7 @@ export interface SandboxToolClient {
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
+  deleteFile(path: string): Promise<void>;
   uploadFile(input: SandboxUploadInput): Promise<SandboxFileUpload>;
   rawFile(path: string): Promise<SandboxRawFile>;
 }
@@ -96,7 +98,7 @@ export interface SandboxToolClient {
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
 export type SandboxWorkspaceClient = Pick<
   SandboxToolClient,
-  "listFiles" | "createDir" | "previewFile" | "uploadFile" | "rawFile"
+  "listFiles" | "createDir" | "deleteFile" | "previewFile" | "uploadFile" | "rawFile"
 >;
 
 /**
@@ -206,6 +208,17 @@ async function uploadFile(
   );
   if (!response.ok) throw await rawError(response, "アップロードに失敗しました");
   return (await response.json()) as SandboxFileUpload;
+}
+
+/** 通常ファイルの削除。成功は 204 で本文が無いため、応答の JSON は読まない。 */
+async function deleteFile(path: string, baseUrl: string, token: string, fetchImpl: typeof fetch): Promise<void> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files?path=${encodeURIComponent(path)}`,
+    { method: "DELETE", headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "ファイルを削除できませんでした");
 }
 
 /** 画像の生配信。4xx (不正パス・不存在・上限超過) は文言ごと透過する。 */

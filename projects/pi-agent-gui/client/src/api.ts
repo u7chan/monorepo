@@ -106,6 +106,15 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   return (await res.json()) as FileListing;
 };
 
+/**
+ * ファイルの削除。成功は 204 で本文が無いため JSON は読まない。パスは GET /api/files と同じ root 相対で、
+ * 検証 (root 外 / 不存在 / symlink / ディレクトリ) はサンドボックスに委ねる。
+ */
+export const deleteFile = async (path: string): Promise<void> => {
+  const res = await client.api.files.$delete({ query: { path } });
+  if (!res.ok) throw await apiError(res);
+};
+
 export const getFilePreview = async (path: string, signal: AbortSignal): Promise<FilePreview> => {
   const res = await client.api.files.preview.$get({ query: { path } }, { init: { signal } });
   if (!res.ok) throw await apiError(res);

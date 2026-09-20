@@ -46,7 +46,8 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
         dirs.push(path);
         return { path };
       },
-      // アップロード / 生配信はこのテストでは扱わない
+      // 削除 / アップロード / 生配信はこのテストでは扱わない
+      deleteFile: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
     },
@@ -235,7 +236,8 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
         throw new SandboxRequestError("Path not found: /workspace/nope", 404);
       },
       createDir: async (path: string) => ({ path }),
-      // アップロード / 生配信はこのテストでは扱わない
+      // 削除 / アップロード / 生配信はこのテストでは扱わない
+      deleteFile: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
     },

@@ -43,6 +43,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)
     .get("/api/files", fileRoutes.list)
+    // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
+    .delete("/api/files", fileRoutes.remove)
     .get("/api/files/preview", fileRoutes.preview)
     .get("/api/files/html", fileRoutes.html)
     .get("/api/files/raw", fileRoutes.raw)
