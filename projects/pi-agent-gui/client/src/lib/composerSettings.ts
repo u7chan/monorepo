@@ -25,6 +25,7 @@ export type ComposerSettings = {
   model?: string;
   thinkingLevel?: string;
   supportsThinking: boolean;
+  supportsImageInput: boolean;
   thinkingLevels: ThinkingLevel[];
   modelWarning?: string;
   effortNotice?: string;
@@ -74,6 +75,7 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
     model,
     thinkingLevel: inSession ? chat.sessionThinkingLevel : pendingThinkingLevel,
     supportsThinking: inSession ? chat.supportsThinking : (option?.supportsThinking ?? true),
+    supportsImageInput: option?.supportsImageInput ?? false,
     thinkingLevels: inSession ? chat.availableThinkingLevels : (option?.thinkingLevels ?? ALL_THINKING_LEVELS),
     modelWarning: model && !option ? `${model} は現在利用できません。別のモデルを選択してください。` : undefined,
     effortNotice: option ? undefined : "使用モデルに応じて補正されます",
