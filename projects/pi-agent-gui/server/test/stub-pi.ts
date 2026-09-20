@@ -13,6 +13,7 @@ export interface StubModelInput {
   id: string;
   name: string;
   reasoning: boolean;
+  input?: ("text" | "image")[];
   thinkingLevelMap?: Record<string, string | null>;
 }
 
@@ -34,6 +35,7 @@ export const STUB_MODEL = stubModel({
   id: "stub-model",
   name: "Stub Model",
   reasoning: true,
+  input: ["text", "image"],
 });
 
 /** 非推論モデル (getSupportedThinkingLevels は ["off"] を返す) */
@@ -59,6 +61,7 @@ export function modelOptionOf(model: PiAiModel<Api>): ModelOption {
     id: model.id,
     name: model.name,
     supportsThinking: getSupportedThinkingLevels(model).some((level) => level !== "off"),
+    supportsImageInput: model.input.includes("image"),
     thinkingLevels: getSupportedThinkingLevels(model) as ThinkingLevel[],
   };
 }
