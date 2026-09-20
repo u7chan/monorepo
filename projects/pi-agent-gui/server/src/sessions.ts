@@ -526,6 +526,9 @@ export class SessionStore {
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
     }
+    if (images.length > 0 && !record.session.model?.input?.includes("image")) {
+      throw httpError(400, "Selected model does not support image input");
+    }
     if (this.statusOf(record) === "running" || record.session.isStreaming) {
       if (record.queue.length >= MAX_QUEUE_DEPTH) {
         throw httpError(429, `Message queue is full (max ${MAX_QUEUE_DEPTH})`);
