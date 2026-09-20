@@ -127,6 +127,8 @@ export function Composer({
     if (attachmentsBusy) return;
     if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
       return;
+    // compact では開いたままのパネルが入力欄の上を占め、実行中は操作もできない。desktop は狭くないので現状のまま
+    if (compact) setSettingsOpen(false);
     setValue("");
     onSend(text);
     inputRef.current?.focus();
