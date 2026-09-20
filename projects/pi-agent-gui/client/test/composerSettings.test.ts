@@ -100,10 +100,7 @@ test("resolves an unsent chat in the server order: preselection, agent, app defa
 });
 
 test("derives image attachment availability from the selected model", () => {
-  const modelOptions = [
-    option("vision", "model", ["low"], true, true),
-    option("text", "model", ["low"], true, false),
-  ];
+  const modelOptions = [option("vision", "model", ["low"], true, true), option("text", "model", ["low"], true, false)];
 
   const vision = deriveComposerSettings(
     input({ health: health({ modelOptions }), preselection: { model: { provider: "vision", id: "model" } } }),
