@@ -121,6 +121,11 @@ test("delete rejects directories, special files, missing paths, and the root its
       assert.equal(response.status, 400, `path=${JSON.stringify(path)} は 400`);
       assert.match(response.body.error ?? "", /Not a regular file/);
     }
+    // 末尾の区切りはカーネルでは ENOTDIR になる。通常ファイルとしては扱わない
+    const trailing = await remove(service.app, "dirB/stay.txt/");
+    assert.equal(trailing.status, 400);
+    assert.match(trailing.body.error ?? "", /Not a regular file/);
+    assert.equal(await exists(join(root, "dirB", "stay.txt")), true);
     assert.equal(await exists(join(root, "dirB", "stay.txt")), true);
   } finally {
     service.close();
@@ -134,10 +139,16 @@ test("delete rejects paths outside the workspace", async () => {
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
   try {
     await writeFile(join(base, "outside.txt"), "keep");
-    for (const path of ["..", "../outside.txt", "/", "/etc/hostname", "../missing.txt"]) {
+    for (const path of ["../outside.txt", "../missing.txt", "/etc/hostname"]) {
       const response = await remove(service.app, path);
       assert.equal(response.status, 400, `${path} must be rejected`);
       assert.match(response.body.error ?? "", /outside the workspace/);
+    }
+    // `..` 自体と末尾が区切りのパスは通常ファイルではない
+    for (const path of ["..", "/"]) {
+      const response = await remove(service.app, path);
+      assert.equal(response.status, 400, `${path} must be rejected`);
+      assert.match(response.body.error ?? "", /Not a regular file/);
     }
     assert.equal(await exists(join(base, "outside.txt")), true);
   } finally {
@@ -175,6 +186,42 @@ test(
       assert.equal(throughLink.status, 400);
       assert.match(throughLink.body.error ?? "", /outside the workspace/);
       assert.equal(await exists(join(outside, "nested", "target.txt")), true);
+    } finally {
+      service.close();
+    }
+  },
+);
+
+test(
+  "delete applies .. after following symlinks, like the listing does",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    // `..` は symlink を辿った後に適用される。字句的に畳んでから親を作ると、要求パスが指すファイルとは
+    // 別のファイルを消してしまう (root 内の link が別のディレクトリを指す場合)
+    const root = makeRoot("delete-dotdot");
+    const outside = makeRoot("delete-dotdot-outside");
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+    try {
+      await mkdir(join(root, "sub"), { recursive: true });
+      await mkdir(join(root, "other"), { recursive: true });
+      await mkdir(join(outside, "nested"), { recursive: true });
+      await writeFile(join(root, "photo.png"), "root");
+      await writeFile(join(root, "sub", "photo.png"), "sub");
+      await writeFile(join(outside, "photo.png"), "outside");
+      await symlink(join(root, "other"), join(root, "sub", "link"));
+      await symlink(join(outside, "nested"), join(root, "sub", "linkOutside"));
+
+      // sub/link/.. は (字句の sub ではなく) カーネルと同じく root へ解決する
+      const response = await remove(service.app, "sub/link/../photo.png");
+      assert.equal(response.status, 204, response.body.error ?? "");
+      assert.equal(await exists(join(root, "photo.png")), false, "要求パスが指すファイルを消す");
+      assert.equal(await exists(join(root, "sub", "photo.png")), true, "字句の .. で別のファイルを消さない");
+
+      // root 外へ出る `..` は一覧と同じく 400 (外の実体を消さない)
+      const escape = await remove(service.app, "sub/linkOutside/../photo.png");
+      assert.equal(escape.status, 400);
+      assert.match(escape.body.error ?? "", /outside the workspace/);
+      assert.equal(await exists(join(outside, "photo.png")), true);
     } finally {
       service.close();
     }

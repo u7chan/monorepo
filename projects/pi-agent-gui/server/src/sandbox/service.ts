@@ -198,25 +198,18 @@ async function createWorkspaceDirectory(rootCwd: string, requested: string): Pro
 /**
  * root 相対の通常ファイルを消す。symlink は拒否する (realpath で実体に解決してから消すと、root 内のリンクが
  * 指す root 外のファイルを消せてしまう)。要求パスの最終要素だけを lstat で見て、親は一覧と同じ解決を通す。
+ * 親は要求パスの字句の dirname を native realpath へ渡し、`..` を symlink の後に適用させる (一覧と同じ)。
  */
 async function removeWorkspaceFile(rootCwd: string, requested: string): Promise<void> {
-  const root = await realpathNative(rootCwd).catch((error: unknown) => {
-    throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
-  });
-
-  let candidate: string;
-  try {
-    candidate = resolve(root, requested || ".");
-  } catch {
-    throw pathError(400, `Invalid path: ${requested}`);
+  // 最終要素が消す対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りは通常ファイルではない
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
+    throw pathError(400, `Not a regular file: ${requested}`);
   }
-  if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
-  // root 自身 ("." / 空 / 末尾の "/") は通常ファイルではない
-  if (candidate === root) throw pathError(400, `Not a regular file: ${candidate}`);
 
-  // 親は実在するディレクトリで、realpath が root 内であることを要求する (symlink 経由の root 外を弾く)
-  const parent = await resolveWorkspaceDirectory(rootCwd, relativeToRoot(root, dirname(candidate)));
-  const target = join(parent.target, basename(candidate));
+  // 字句解決済みの candidate から親を作ると `..` が symlink より先に適用され、一覧と別のファイルを指す
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
 
   const targetStat = await lstat(target).catch((error: unknown) => {
     const code = (error as NodeJS.ErrnoException).code;
