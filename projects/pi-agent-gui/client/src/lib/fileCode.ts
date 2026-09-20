@@ -36,7 +36,8 @@ export function buildPreviewCode(text: string, path: string): PreviewCode {
 
 /**
  * 「本文をコピー」でクリップボードへ渡す文字列。表示中の本文と同じ正規化を通した text をそのまま返し、
- * 行番号の列もハイライトの markup も含めない (ファイルの生バイトとは末尾の改行だけ違いうる)。
+ * 行番号の列もハイライトの markup も含めない (ファイルの生バイトとは行末の CRLF / CR の LF 化と
+ * 末尾の空行落としの分だけ違いうる)。
  */
 export function previewCopyText(code: PreviewCode): string {
   return code.text;
