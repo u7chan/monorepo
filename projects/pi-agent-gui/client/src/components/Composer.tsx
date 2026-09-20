@@ -42,47 +42,120 @@ type PendingImage = MessageImage & {
   bytes: number;
 };
 
-function imageMimeType(file: File): MessageImage["mimeType"] | undefined {
-  const mimeType = file.type.toLowerCase();
-  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "image/jpeg";
-  if (mimeType === "image/png") return "image/png";
-  if (mimeType === "image/gif") return "image/gif";
-  if (mimeType === "image/webp") return "image/webp";
+function ascii(bytes: Uint8Array, start: number, length: number): string {
+  return String.fromCharCode(...bytes.slice(start, start + length));
+}
 
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  if (extension === "png") return "image/png";
-  if (extension === "gif") return "image/gif";
-  if (extension === "webp") return "image/webp";
+async function detectImageMimeType(file: File): Promise<MessageImage["mimeType"] | undefined> {
+  const bytes = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  const gif = ascii(bytes, 0, 6);
+  if (gif === "GIF87a" || gif === "GIF89a") return "image/gif";
+  if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WEBP") return "image/webp";
+
   return undefined;
 }
 
-function unsupportedImageMessage(file: File): string {
+function isHeicLike(file: File): boolean {
+  const mimeType = file.type.toLowerCase();
   const extension = file.name.split(".").pop()?.toLowerCase();
-  if (file.type === "image/heic" || file.type === "image/heif" || extension === "heic" || extension === "heif") {
-    return `${file.name} はHEIC/HEIF形式です。JPEG・PNG・WEBP・GIFを選択してください`;
-  }
-  return `${file.name} は対応していない画像形式です`;
+  return (
+    mimeType === "image/heic" ||
+    mimeType === "image/heif" ||
+    extension === "heic" ||
+    extension === "heif" ||
+    extension === "heics" ||
+    extension === "heifs"
+  );
 }
 
-function readImage(file: File, mimeType: MessageImage["mimeType"]): Promise<MessageImage> {
+function readImage(blob: Blob, name: string, mimeType: MessageImage["mimeType"]): Promise<MessageImage & { bytes: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`${file.name} の読み込みに失敗しました`));
+    reader.onerror = () => reject(new Error(`${name} の読み込みに失敗しました`));
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        reject(new Error(`${file.name} の読み込みに失敗しました`));
+        reject(new Error(`${name} の読み込みに失敗しました`));
         return;
       }
       const separator = reader.result.indexOf(",");
       if (separator < 0) {
-        reject(new Error(`${file.name} の読み込みに失敗しました`));
+        reject(new Error(`${name} の読み込みに失敗しました`));
         return;
       }
-      resolve({ data: reader.result.slice(separator + 1), mimeType });
+      resolve({ data: reader.result.slice(separator + 1), mimeType, bytes: blob.size });
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+}
+
+function imageElementFromObjectUrl(url: string, name: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`${name} の画像デコードに失敗しました`));
+    image.src = url;
+  });
+}
+
+function canvasJpeg(canvas: HTMLCanvasElement, name: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error(`${name} のJPEG変換に失敗しました`));
+      },
+      "image/jpeg",
+      0.92,
+    );
+  });
+}
+
+/**
+ * iOS の写真選択では File.type が image/jpeg でも実体が HEIC 系になるケースがある。
+ * MIME を信用せず先頭バイトを検査し、Pi が直接扱えない形式はブラウザでデコードして JPEG へ正規化する。
+ */
+async function prepareImage(file: File): Promise<MessageImage & { bytes: number }> {
+  const detected = await detectImageMimeType(file);
+  if (detected) return readImage(file, file.name, detected);
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await imageElementFromObjectUrl(objectUrl, file.name);
+    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+      throw new Error(`${file.name} の画像サイズを取得できませんでした`);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error(`${file.name} の画像変換に失敗しました`);
+    context.drawImage(image, 0, 0);
+
+    const jpeg = await canvasJpeg(canvas, file.name);
+    return readImage(jpeg, file.name, "image/jpeg");
+  } catch (error) {
+    if (isHeicLike(file)) {
+      throw new Error(`${file.name} のHEIC/HEIF変換に失敗しました。JPEGまたはPNGとして書き出して再度選択してください`);
+    }
+    throw error instanceof Error ? error : new Error(`${file.name} は対応していない画像形式です`);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function PaperclipIcon() {
@@ -171,7 +244,8 @@ export function Composer({
       sending ||
       readingImages ||
       settings.changing ||
-      settings.sendBlockedReason
+      settings.sendBlockedReason ||
+      (images.length > 0 && !settings.supportsImageInput)
     ) {
       return;
     }
@@ -188,6 +262,10 @@ export function Composer({
     const selected = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = "";
     if (selected.length === 0) return;
+    if (!settings.supportsImageInput) {
+      setImageError("選択中のモデルは画像入力に対応していません");
+      return;
+    }
 
     const remaining = MAX_IMAGES - images.length;
     if (remaining <= 0) {
@@ -209,24 +287,22 @@ export function Composer({
         selected.length > remaining ? `画像は最大${MAX_IMAGES}枚までです。先頭${remaining}枚を確認します` : "";
 
       for (const file of files) {
-        const mimeType = imageMimeType(file);
-        if (!mimeType) {
-          errorMessage = unsupportedImageMessage(file);
-          continue;
-        }
         if (totalBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
           errorMessage = `画像の合計は${MAX_TOTAL_IMAGE_MB} MiBまでです`;
           break;
         }
         try {
-          const image = await readImage(file, mimeType);
+          const image = await prepareImage(file);
+          if (totalBytes + image.bytes > MAX_TOTAL_IMAGE_BYTES) {
+            errorMessage = `画像の合計は${MAX_TOTAL_IMAGE_MB} MiBまでです`;
+            break;
+          }
           loaded.push({
             ...image,
             id: nextImageIdRef.current++,
             name: file.name,
-            bytes: file.size,
           });
-          totalBytes += file.size;
+          totalBytes += image.bytes;
         } catch (error) {
           errorMessage = error instanceof Error ? error.message : "画像の読み込みに失敗しました";
         }
@@ -347,12 +423,16 @@ export function Composer({
             </span>
           </div>
         ) : null}
-        {imageError ? <span className="text-2xs text-warn">{imageError}</span> : null}
+        {imageError || !settings.supportsImageInput ? (
+          <span className="text-2xs text-warn">
+            {imageError || "選択中のモデルは画像入力に対応していません"}
+          </span>
+        ) : null}
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/*"
             multiple
             className="hidden"
             onChange={(event) => void handleImagesSelected(event)}
@@ -361,7 +441,7 @@ export function Composer({
             type="button"
             aria-label="画像を追加"
             title="画像を追加"
-            disabled={readingImages || images.length >= MAX_IMAGES}
+            disabled={readingImages || images.length >= MAX_IMAGES || !settings.supportsImageInput}
             onClick={() => imageInputRef.current?.click()}
             className={cn(
               "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line-strong bg-transparent text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-45",
@@ -397,6 +477,7 @@ export function Composer({
               settings.changing ||
               Boolean(settings.sendBlockedReason) ||
               readingImages ||
+              (images.length > 0 && !settings.supportsImageInput) ||
               (value.trim().length === 0 && images.length === 0)
             }
             className={cn(
