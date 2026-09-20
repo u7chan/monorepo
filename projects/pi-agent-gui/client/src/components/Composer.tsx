@@ -428,9 +428,7 @@ export function Composer({
           </div>
         ) : null}
         {imageError || !settings.supportsImageInput ? (
-          <span className="text-2xs text-warn">
-            {imageError || "選択中のモデルは画像入力に対応していません"}
-          </span>
+          <span className="text-2xs text-warn">{imageError || "選択中のモデルは画像入力に対応していません"}</span>
         ) : null}
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
           <input
