@@ -11,6 +11,7 @@ import {
 import type { EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
+import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { useSessionEvents } from "./useSessionEvents";
@@ -51,8 +52,7 @@ export function useSessions({
   const generationRef = useRef("");
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
-  /** 作成中のセッション。同時アップロード / 送信で二重作成しないために共有する */
-  const ensureInFlightRef = useRef<Promise<string> | null>(null);
+  const [sessionCreation] = useState(() => createSessionCreation<string>());
   // sessionIdRef / sessionsRef は選択・一覧の最新値。await を挟む処理と SSE の適用が state を待たずに読む
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
@@ -130,6 +130,8 @@ export function useSessions({
       // 作成先を先に移し、その後の表示と送信先を一致させる
       if (nextProjectId !== undefined) selectProject(nextProjectId);
       selectionSeqRef.current += 1;
+      // 進行中の作成を持ち越さない (新しい会話が前のセッションを掴まないようにする)
+      sessionCreation.clear();
       localStorage.removeItem(SESSION_KEY);
       sessionIdRef.current = "";
       lastSeqRef.current = 0;
@@ -138,7 +140,7 @@ export function useSessions({
       setCwd("");
       dispatch({ type: "newChat" });
     },
-    [dispatch, selectProject, setAgentId],
+    [dispatch, selectProject, setAgentId, sessionCreation],
   );
 
   // selectSession ↔ newChat の相互参照用
@@ -149,9 +151,7 @@ export function useSessions({
     const existing = sessionIdRef.current;
     if (existing) return existing;
     // 同時アップロード / 送信でセッションを二重に作らない (作成中の Promise を共有する)
-    const inflight = ensureInFlightRef.current;
-    if (inflight) return inflight;
-    const promise = (async () => {
+    return sessionCreation.start(async () => {
       const selection = selectionSeqRef.current;
       // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる。未所属 ("") はキーを送らず root に任せる
       const projectId = selectedProjectIdRef.current;
@@ -166,14 +166,8 @@ export function useSessions({
       await refreshSessions();
       void refreshHealth();
       return session.sessionId;
-    })();
-    ensureInFlightRef.current = promise;
-    try {
-      return await promise;
-    } finally {
-      if (ensureInFlightRef.current === promise) ensureInFlightRef.current = null;
-    }
-  }, [agentId, applySelectedSession, refreshHealth, refreshSessions, selectedProjectIdRef]);
+    });
+  }, [agentId, applySelectedSession, refreshHealth, refreshSessions, selectedProjectIdRef, sessionCreation]);
 
   const changeSessionSettings = useCallback(
     async (selection: SettingsSelection): Promise<void> => {

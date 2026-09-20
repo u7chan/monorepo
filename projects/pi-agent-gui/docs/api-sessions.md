@@ -180,7 +180,7 @@
 
 - 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
-- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、`run_start` が届いたら注記込みへ差し替える（`client/src/hooks/chatReducer.ts`）
+- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、`run_start` が届いたら注記込みへ差し替える（`client/src/hooks/chatReducer.ts`。送信順の待ち行列で同じ本文を続けて送っても取り違えない）
 
 ## `POST /api/sessions/:id/files`
 
@@ -196,7 +196,7 @@ POST /api/sessions/:id/files?name=photo.png
 { "sessionId": "…", "path": "uploads/photo.png", "name": "photo.png", "renamed": false, "size": 12345 }
 ```
 
-- `path` はセッションの作業フォルダ相対。raw 表示 URL はクライアントが `fileTreeFetchPath(cwd, path)` で root 相対へ直す
+- `path` はセッションの作業フォルダ相対。サンドボックスは root 相対を返すため、BFF が作業フォルダの前置を剥がして返す（`uploads/` 配下に解決できない応答は契約違反として 502）。raw 表示 URL はクライアントが `fileTreeFetchPath(cwd, path)` で root 相対へ直す
 - 保存先は `<作業フォルダ>/uploads/`。同名ファイルは上書きせず `name-1.ext` 形式で連番にする（詳細は [session-files.md](session-files.md#添付ファイルチャットからのアップロード)）
 - 400（`name` が不正）/ 404（セッションなし）/ 413（100 MiB 超。`Content-Length` で分かるときは本文を送らずに返す）/ 503（サンドボックス未設定）/ 502（サンドボックスへ到達できない・応答が契約外）
 - 上限は 1 ファイル 100 MiB、ファイル名 200 文字（いずれも最終判定はサンドボックス側）

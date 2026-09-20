@@ -43,6 +43,18 @@ export function composePrompt(text: string, attachments: string[]): string {
   return text ? `${text}\n\n${note}` : note;
 }
 
+/**
+ * サンドボックスが返す root 相対パスから作業フォルダの前置を剥がす。サンドボックスの root は BFF の
+ * root と同じなので、セッションの作業フォルダ配下のファイルは `<workdir>/uploads/…` で返る。
+ * 添付として扱えない形なら undefined (契約違反)。
+ */
+export function toAttachmentPath(workdir: string, path: string): string | undefined {
+  const relative = workdir && path.startsWith(`${workdir}/`) ? path.slice(workdir.length + 1) : path;
+  if (!relative.startsWith(`${UPLOADS_DIR}/`)) return undefined;
+  // ファイル名が無い (ディレクトリを指す) 応答は添付にできない
+  return relative.length > UPLOADS_DIR.length + 1 ? relative : undefined;
+}
+
 /** 注記を除いた本文。title のように「ユーザーが打った文」だけを使いたい箇所から呼ぶ。 */
 export function stripAttachedFiles(text: string): string {
   const split = splitAttachedFiles(text);

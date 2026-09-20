@@ -191,6 +191,49 @@ test("does not clear the chips when the post fails", async () => {
 
   assert.deepEqual(cleared, []);
   assert.equal(record.statuses.length, 1);
+  // 失敗したエコーは戻す (次に同じ本文を送っても run_start が取り違えない)
+  assert.deepEqual(
+    actionsOfType(record.actions, "dropLocalUser"),
+    [{ type: "dropLocalUser" }],
+    "localUser の後にだけ戻す",
+  );
+  assert.deepEqual(
+    record.actions.map((action) => action.type),
+    ["localUser", "dropLocalUser", "setActivity"],
+  );
+});
+
+test("keeps the local echo when only the runtime check fails before sending", async () => {
+  const { record, deps } = createHarness({ health: health({ ready: false, error: "APIキーが未設定です" }) });
+
+  await sendChatMessage("hello", deps);
+
+  assert.deepEqual(actionsOfType(record.actions, "localUser"), []);
+  assert.deepEqual(actionsOfType(record.actions, "dropLocalUser"), []);
+});
+
+test("does not drop the local echo when the chat switched while creating the session", async () => {
+  const created = deferred<string>();
+  const { record, deps } = createHarness({
+    sessionIdRef: { current: "" },
+    ensureSession: () => created.promise,
+    post: async () => {
+      throw new Error("送信に失敗しました");
+    },
+  });
+
+  const running = sendChatMessage("hello", deps);
+  deps.sessionIdRef.current = "s-2";
+  created.resolve("s-1");
+  await running;
+
+  // 切替後の表示は触らない (エコーもその戻しも出さない)
+  assert.deepEqual(actionsOfType(record.actions, "localUser"), []);
+  assert.deepEqual(actionsOfType(record.actions, "dropLocalUser"), []);
+  assert.deepEqual(
+    record.actions.map((action) => action.type),
+    ["setActivity"],
+  );
 });
 
 test("sends an attachment-only message but ignores an entirely empty one", async () => {

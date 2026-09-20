@@ -26,6 +26,8 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
   if ((!text && attachments.length === 0) || deps.busy) return;
   const { sessionIdRef, ensureSession, refreshSessions, post, dispatch, setSending, setRuntimeStatus } = deps;
   setSending(true);
+  // 失敗時に戻すエコーの判定。ensureSession 自体の失敗ではまだエコーを出していない
+  let echoed = false;
   try {
     if (deps.health && !deps.health.ready) {
       throw new Error(deps.health.error || "APIキーまたは認証設定を確認してください");
@@ -37,7 +39,10 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     // 現在の表示のバブル / 実行状態は触らない (一覧は post 後の refreshSessions が更新する)
     const sameChat = sessionIdRef.current === targetId;
     // ローカルエコーは素の本文で先に出す (注記込みの本文は run_start が届いたときに差し替える)
-    if (sameChat) dispatch({ type: "localUser", text, at: Date.now() });
+    if (sameChat) {
+      dispatch({ type: "localUser", text, at: Date.now() });
+      echoed = true;
+    }
 
     const result = await post(targetId, text, attachments);
     deps.onSent?.();
@@ -55,6 +60,8 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     }
     void refreshSessions();
   } catch (error) {
+    // 送れなかったエコーを戻す。残すと次に同じ本文を送ったとき、その run_start が失敗分を消費する
+    if (echoed) dispatch({ type: "dropLocalUser" });
     const status = runtimeStatusForError(error);
     dispatch({ type: "setActivity", text: status.detail || status.text });
     setRuntimeStatus(status);

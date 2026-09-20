@@ -158,6 +158,51 @@ test("runStart は添付の注記をローカルエコーと同一視し、注�
   assert.equal(plainStarted.bubbles[0]?.text, "ふつうの本文");
 });
 
+test("同一本文・異なる添付を続けて送っても run_start は送信順のバブルを差し替える", () => {
+  const note = (path: string) => ["同じ本文", "", "<attached_files>", `- ./${path}`, "</attached_files>"].join("\n");
+  const firstPrompt = note("uploads/a.png");
+  const secondPrompt = note("uploads/b.png");
+
+  // 実行中に同じ本文を送ると、2 つ目のエコーがキューに積まれる
+  let state = chatReducer(initialChatState, { type: "localUser", text: "同じ本文", at: 100 });
+  state = chatReducer(state, { type: "localUser", text: "同じ本文", at: 200 });
+  assert.equal(state.bubbles.length, 2, "ローカルエコーは 2 つ出る");
+
+  // 先に届く run_start は先に送ったバブルへ、次は後ろのバブルへ割り当たる
+  const first = chatReducer(state, { type: "runStart", prompt: firstPrompt, at: 300, startedAt: 300 });
+  assert.deepEqual(
+    first.bubbles.map((bubble) => bubble.text),
+    [firstPrompt, "同じ本文"],
+    "先頭のバブルだけを差し替える",
+  );
+  assert.deepEqual(first.pendingEchoIds, [state.bubbles[1]?.id], "2 つ目のエコーは順番待ちのまま");
+  const second = chatReducer(first, { type: "runStart", prompt: secondPrompt, at: 400, startedAt: 400 });
+  assert.deepEqual(
+    second.bubbles.map((bubble) => bubble.text),
+    [firstPrompt, secondPrompt],
+  );
+  assert.deepEqual(second.pendingEchoIds, []);
+  assert.equal(second.bubbles[0]?.at, 100, "時刻はエコーのものを保つ");
+  assert.equal(second.bubbles[1]?.at, 200);
+});
+
+test("送信に失敗したエコーを戻し、次の同一本文が正しく割り当たる", () => {
+  const prompt = ["同じ本文", "", "<attached_files>", "- ./uploads/a.png", "</attached_files>"].join("\n");
+
+  const echoed = chatReducer(initialChatState, { type: "localUser", text: "同じ本文", at: 100 });
+  const dropped = chatReducer(echoed, { type: "dropLocalUser" });
+  assert.deepEqual(dropped.bubbles, [], "失敗したエコーは残さない");
+  assert.deepEqual(dropped.pendingEchoIds, []);
+  // 待ち行列が空のときに戻しても何も起きない
+  assert.equal(chatReducer(dropped, { type: "dropLocalUser" }), dropped);
+
+  const retried = chatReducer(dropped, { type: "localUser", text: "同じ本文", at: 200 });
+  const started = chatReducer(retried, { type: "runStart", prompt, at: 300, startedAt: 300 });
+  assert.equal(started.bubbles.length, 1, "失敗分のバブルが残っていない");
+  assert.equal(started.bubbles[0]?.text, prompt, "再送のバブルが自分の注記を受け取る");
+  assert.equal(started.bubbles[0]?.at, 200);
+});
+
 // --- 応答メタ情報 ---
 
 const USAGE: Usage = {

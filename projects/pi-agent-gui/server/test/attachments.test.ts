@@ -9,6 +9,7 @@ import {
   normalizeAttachmentPaths,
   splitAttachedFiles,
   stripAttachedFiles,
+  toAttachmentPath,
 } from "../src/attachments";
 import { statusCodeOf } from "../src/http";
 
@@ -65,6 +66,24 @@ test("normalizeAttachmentPaths requires uploads/ paths and at most 10 items", ()
     400,
   );
   assert.equal(normalizeAttachmentPaths(Array.from({ length: MAX_ATTACHMENTS }, () => "uploads/a.png")).length, 10);
+});
+
+test("toAttachmentPath strips the work folder prefix and requires uploads/", () => {
+  assert.equal(toAttachmentPath("", "uploads/a.png"), "uploads/a.png");
+  assert.equal(
+    toAttachmentPath("", ".pi-agent-gui/sessions/abc/uploads/a.png"),
+    undefined,
+    "workdir なしで前置がある応答は契約違反",
+  );
+  assert.equal(
+    toAttachmentPath(".pi-agent-gui/sessions/abc", ".pi-agent-gui/sessions/abc/uploads/a-1.png"),
+    "uploads/a-1.png",
+  );
+  // 別セッションの作業フォルダや uploads/ 外は添付にできない
+  assert.equal(toAttachmentPath(".pi-agent-gui/sessions/abc", ".pi-agent-gui/sessions/def/uploads/a.png"), undefined);
+  assert.equal(toAttachmentPath(".pi-agent-gui/sessions/abc", ".pi-agent-gui/sessions/abc/docs/a.png"), undefined);
+  assert.equal(toAttachmentPath("", "uploads"), undefined, "ディレクトリ自体は添付にできない");
+  assert.equal(toAttachmentPath("", "uploads/"), undefined);
 });
 
 function captureError(run: () => unknown): unknown {

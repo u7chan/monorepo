@@ -1,6 +1,12 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { MAX_ATTACHMENT_BYTES, UPLOADS_DIR, composePrompt, normalizeAttachmentPaths } from "../attachments";
+import {
+  MAX_ATTACHMENT_BYTES,
+  UPLOADS_DIR,
+  composePrompt,
+  normalizeAttachmentPaths,
+  toAttachmentPath,
+} from "../attachments";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { isValidUploadName } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
@@ -124,7 +130,10 @@ export function createSessionRoutes({
         });
         const parsed = FileUploadSchema.safeParse(uploaded);
         if (!parsed.success) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
-        return c.json({ sessionId: record.id, ...parsed.data }, 201);
+        // サンドボックスは root 相対を返す。クライアントは作業フォルダ相対 (uploads/…) を期待する
+        const path = toAttachmentPath(record.workdir, parsed.data.path);
+        if (!path) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
+        return c.json({ sessionId: record.id, ...parsed.data, path }, 201);
       } catch (error) {
         return sandboxFailure(c, error);
       }
