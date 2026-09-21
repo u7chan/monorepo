@@ -1,6 +1,6 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、組み込みの既定は `agent-zundamon` と `skill-zundamon-speech` の 1 組だけ。
+規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、組み込みの既定は汎用アシスタント `agent-general` と、どのエージェントにも割り当てていないサンプルスキル `skill-zundamon-speech` だけ。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -49,7 +49,7 @@
 
 ## エージェント定義の定型プロンプト
 
-エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと `prompt` をそのまま送信する（セッションタイトルの元にもなる）。既定の組み込みエージェントは `agent-zundamon` だけが 3 件を持つ。
+エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと `prompt` をそのまま送信する（セッションタイトルの元にもなる）。既定の組み込みエージェントは `agent-general` だけが 3 件を持つ。
 
 - 未指定（空配列を含む）なら GET / export はキーを省略し、画面にもボタンを出さない（アプリ既定のフォールバックはない）。
 - `label` は 60 文字、`prompt` は 500 文字で trim + 切り詰める。どちらかが空の要素は捨てる。

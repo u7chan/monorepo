@@ -838,8 +838,8 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
-    const zundamon = initial.agents.find((agent: { id: string }) => agent.id === "agent-zundamon");
-    assert.deepEqual(zundamon.suggestions, [
+    const builtIn = initial.agents.find((agent: { id: string }) => agent.id === "agent-general");
+    assert.deepEqual(builtIn.suggestions, [
       { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
       { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
       { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
@@ -860,25 +860,25 @@ test("catalog endpoints expose and update agent suggestions", async () => {
     assert.deepEqual(createdAgent.suggestions, [{ label: "押す", prompt: "送る" }]);
 
     const saved = await app.request(
-      "/api/agents/agent-zundamon",
+      "/api/agents/agent-general",
       jsonPatch({ suggestions: [{ label: "足した", prompt: "追加のプロンプト" }] }),
     );
     assert.equal(saved.status, 200);
     assert.deepEqual((await jsonBody(saved)).agent.suggestions, [{ label: "足した", prompt: "追加のプロンプト" }]);
 
     const reloaded = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(reloaded.agents.find((agent: { id: string }) => agent.id === "agent-zundamon").suggestions, [
+    assert.deepEqual(reloaded.agents.find((agent: { id: string }) => agent.id === "agent-general").suggestions, [
       { label: "足した", prompt: "追加のプロンプト" },
     ]);
 
     // 空配列で解除すると応答からもキーが消える
-    const cleared = await app.request("/api/agents/agent-zundamon", jsonPatch({ suggestions: [] }));
+    const cleared = await app.request("/api/agents/agent-general", jsonPatch({ suggestions: [] }));
     assert.equal(cleared.status, 200);
     assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "suggestions"), false);
     const afterClear = await jsonBody(app.request("/api/agents"));
     assert.equal(
       Object.hasOwn(
-        afterClear.agents.find((agent: { id: string }) => agent.id === "agent-zundamon"),
+        afterClear.agents.find((agent: { id: string }) => agent.id === "agent-general"),
         "suggestions",
       ),
       false,
