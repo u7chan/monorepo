@@ -167,10 +167,3 @@ test("percent が無くても tokens から百分率を出す", () => {
   assert.equal(contextGauge(context)?.fill, 0.25);
   assert.equal(contextGauge(context)?.level, "normal");
 });
-
-test("compact では絶対値を落とし、百分率だけ残す", () => {
-  const context: ContextUsage = { tokens: 68_000, contextWindow: 200_000, percent: 34 };
-  assert.equal(contextGauge(context, true)?.detail, "");
-  assert.equal(contextGauge(context, true)?.percent, "34%");
-  assert.equal(contextGauge(context, false)?.detail, "(68k/200k)");
-});

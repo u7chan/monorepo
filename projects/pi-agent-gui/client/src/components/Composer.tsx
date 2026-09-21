@@ -187,7 +187,7 @@ export function Composer({
         compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       )}
     >
-      <ContextGauge activity={activity} runningSince={runningSince} context={context} compact={compact} />
+      <ContextGauge activity={activity} runningSince={runningSince} context={context} />
       <form
         onSubmit={handleSubmit}
         onDragOver={(event) => {
