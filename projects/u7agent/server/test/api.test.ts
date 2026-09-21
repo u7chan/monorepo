@@ -23,8 +23,8 @@ const jsonPatch = (payload: unknown): RequestInit => ({
   body: JSON.stringify(payload),
 });
 
-async function createSession(app: Hono, agentId = "agent-zundamon") {
-  const response = await app.request("/api/sessions", jsonPost({ agentId }));
+async function createSession(app: Hono) {
+  const response = await app.request("/api/sessions", jsonPost({}));
   assert.equal(response.status, 201);
   return (await response.json()) as { sessionId: string };
 }
@@ -275,11 +275,11 @@ test("sessions bind to a project and stay when the project is released", async (
       .project;
 
     // 未所属セッションの cwd は root ("")
-    const unaffiliated = await jsonBody(app.request("/api/sessions", jsonPost({ agentId: "agent-zundamon" })));
+    const unaffiliated = await jsonBody(app.request("/api/sessions", jsonPost({})));
     assert.equal(unaffiliated.cwd, "");
     assert.equal(unaffiliated.projectId, undefined);
 
-    const response = await app.request("/api/sessions", jsonPost({ agentId: "agent-zundamon", projectId: project.id }));
+    const response = await app.request("/api/sessions", jsonPost({ projectId: project.id }));
     assert.equal(response.status, 201);
     const payload = await jsonBody(response);
     assert.equal(payload.projectId, project.id);
@@ -293,7 +293,7 @@ test("sessions bind to a project and stay when the project is released", async (
     assert.equal("projectId" in free, false, "未所属はキー自体を省略する");
 
     // 未知の projectId は未所属へ落とさず 400
-    const unknown = await app.request("/api/sessions", jsonPost({ agentId: "agent-zundamon", projectId: "ghost" }));
+    const unknown = await app.request("/api/sessions", jsonPost({ projectId: "ghost" }));
     assert.equal(unknown.status, 400);
     assert.match((await jsonBody(unknown)).error, /Project not found/);
 
@@ -585,26 +585,20 @@ test("session creation resolves request → definition → app default per field
     assert.equal(requested.supportsThinking, true);
 
     // アプリ既定 (medium) は定義もリクエストも無い項目にだけ使われる
-    const appDefault = await app.request("/api/sessions", jsonPost({ agentId: "agent-zundamon" }));
+    const appDefault = await app.request("/api/sessions", jsonPost({}));
     const payload = await jsonBody(appDefault);
     assert.equal(payload.model, "stub/stub-model");
     assert.equal(payload.thinkingLevel, "medium");
 
     // 不正な値は SDK 作成前に 400
-    const invalidModel = await app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-zundamon", model: { provider: "stub", id: "ghost" } }),
-    );
+    const invalidModel = await app.request("/api/sessions", jsonPost({ model: { provider: "stub", id: "ghost" } }));
     assert.equal(invalidModel.status, 400);
     assert.match((await jsonBody(invalidModel)).error, /not available/);
 
-    const invalidLevel = await app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-zundamon", thinkingLevel: "ultra" }),
-    );
+    const invalidLevel = await app.request("/api/sessions", jsonPost({ thinkingLevel: "ultra" }));
     assert.equal(invalidLevel.status, 400);
 
-    const nullModel = await app.request("/api/sessions", jsonPost({ agentId: "agent-zundamon", model: null }));
+    const nullModel = await app.request("/api/sessions", jsonPost({ model: null }));
     assert.equal(nullModel.status, 400);
     assert.equal(pi.sessions.length, 3, "400 は SDK 作成まで到達しない");
   } finally {
@@ -622,10 +616,7 @@ test("a session runs on its own model when it differs from the app default", asy
     const health = await jsonBody(app.request("/api/health"));
     assert.equal(health.model, "stub/stub-model");
 
-    const created = await app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-zundamon", model: { provider: "stub", id: "stub-plain" } }),
-    );
+    const created = await app.request("/api/sessions", jsonPost({ model: { provider: "stub", id: "stub-plain" } }));
     assert.equal(created.status, 201);
     const session = await jsonBody(created);
     assert.equal(session.model, "stub/stub-plain", "会話の実効モデルは作成時の指定");
@@ -802,7 +793,7 @@ test("unknown api paths answer with a JSON 404", async () => {
     assert.equal(missing.status, 404);
     assert.deepEqual(await jsonBody(missing), { error: "Not found" });
 
-    const wrongMethod = await bff.app.request("/api/agents/agent-zundamon", jsonPost({}));
+    const wrongMethod = await bff.app.request("/api/agents/nope", jsonPost({}));
     assert.equal(wrongMethod.status, 404);
     assert.deepEqual(await jsonBody(wrongMethod), { error: "Not found" });
 
@@ -991,9 +982,10 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
 
 test("catalog CRUD reads the JSON body whatever the request Content-Type is", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
-  const { app } = bff;
+  const { app, catalog } = bff;
   try {
-    const agentPath = "/api/agents/agent-zundamon";
+    const agent = catalog.createAgent({ name: "型テスト用エージェント" });
+    const agentPath = `/api/agents/${agent.id}`;
     // fetch は string body に text/plain を補うため、Content-Type 無しはバイト列で送る
     const noContentType = await app.request(agentPath, {
       method: "PATCH",
@@ -1019,7 +1011,12 @@ test("catalog CRUD reads the JSON body whatever the request Content-Type is", as
     assert.equal(spacedJson.status, 200);
     assert.equal((await jsonBody(spacedJson)).agent.systemPrompt, "役割を変える");
 
-    const skillPath = "/api/skills/skill-zundamon-speech";
+    const createdSkill = await app.request(
+      "/api/skills",
+      jsonPost({ name: "型テスト用スキル", prompt: "元のプロンプト" }),
+    );
+    assert.equal(createdSkill.status, 201);
+    const skillPath = `/api/skills/${(await jsonBody(createdSkill)).skill.id}`;
     const skill = await app.request(skillPath, {
       method: "PATCH",
       body: new TextEncoder().encode(JSON.stringify({ prompt: "プロンプトを変える" })),
@@ -1049,7 +1046,7 @@ test("catalog CRUD reads the JSON body whatever the request Content-Type is", as
 
     const unchanged = await jsonBody(app.request("/api/agents"));
     assert.equal(
-      unchanged.agents.find((agent: { id: string }) => agent.id === "agent-zundamon").name,
+      unchanged.agents.find((item: { id: string }) => item.id === agent.id).name,
       "改名",
       "400 は body を適用しない",
     );

@@ -117,9 +117,11 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
 
 test("only the zundamon agent ships with default suggestions", () => {
   const catalog = createAgentCatalog();
-  const agents = catalog.listAgents();
-  assert.deepEqual(agents.find((agent) => agent.id === "agent-zundamon")?.suggestions, DEFAULT_SUGGESTIONS);
-  for (const agent of agents) {
+  assert.deepEqual(catalog.getAgent("agent-zundamon")?.suggestions, DEFAULT_SUGGESTIONS);
+
+  // 既定が 1 体だけでは排他を確かめられないため、suggestions 無しを 1 体足してから見る
+  catalog.createAgent({ name: "定型なし" });
+  for (const agent of catalog.listAgents()) {
     if (agent.id === "agent-zundamon") continue;
     assert.equal(Object.hasOwn(agent, "suggestions"), false, `${agent.id} must omit suggestions`);
   }
