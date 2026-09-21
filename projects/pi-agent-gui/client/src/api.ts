@@ -117,7 +117,7 @@ export const deleteFile = async (path: string): Promise<void> => {
 };
 
 /**
- * ディレクトリの削除。`recursive=true` で配下ごと消し、省略時は空ディレクトリだけを消す。
+ * ディレクトリの削除。配下ごと消す `recursive=true` を明示して呼ぶ (空ディレクトリも同じ経路)。
  * 成功は 204 で本文が無いため JSON は読まない。検証 (root 外 / 不存在 / ディレクトリ以外 / symlink) はサンドボックスに委ねる。
  */
 export const deleteDirectory = async (path: string): Promise<void> => {
