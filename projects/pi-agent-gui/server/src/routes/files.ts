@@ -8,7 +8,7 @@ import {
   SANDBOX_NOT_CONFIGURED_MESSAGE,
 } from "../http";
 import { FileListingSchema, FilePreviewSchema } from "../schema";
-import { rawImageContentType } from "../sandbox/protocol";
+import { parseRecursiveQuery, rawImageContentType, RECURSIVE_QUERY_ERROR } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /**
@@ -189,13 +189,18 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
       return c.json(parsed.data);
     },
     /**
-     * 通常ファイルの削除 (チャット右パネルのファイル一覧から誤アップロードを取り消す導線)。
-     * パス検証 (root 外 400 / 不存在 404 / 通常ファイル以外 400 / symlink 400) と削除はサンドボックスが行う。
+     * 通常ファイルの削除 (チャット右パネルのファイル一覧から誤アップロードを取り消す導線)。`recursive=true` のときだけ
+     * サンドボックスのディレクトリ削除 (`DELETE /v1/dirs`) へ委譲し、配下ごと消す。
+     * パス検証 (root 外 400 / 不存在 404 / 対象外 400 / symlink 400) と削除はサンドボックスが行う。
      */
     remove: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
+      const recursive = parseRecursiveQuery(c.req.queries("recursive"));
+      if (!recursive.ok) return c.json({ error: RECURSIVE_QUERY_ERROR }, 400);
+      const path = c.req.query("path") ?? "";
       try {
-        await workspace.deleteFile(c.req.query("path") ?? "");
+        if (recursive.recursive) await workspace.deleteDirectory(path);
+        else await workspace.deleteFile(path);
         return c.body(null, 204);
       } catch (error) {
         return sandboxFailure(c, error);

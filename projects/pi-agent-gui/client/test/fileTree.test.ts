@@ -9,12 +9,14 @@ import {
   createFileTreeStateFromDirectories,
   fileTreeChildPath,
   fileTreeDeleteConfirm,
+  fileTreeDeleteDirectoryConfirm,
   fileTreeDirectoryState,
   fileTreeFetchPath,
   invalidateFileTree,
   normalizeFileTreeRoot,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
+  pruneFileTreeSubtree,
   removeFileTreeEntry,
   toggleFileTreeDirectory,
   type FileTreeState,
@@ -50,6 +52,17 @@ test("削除の確認文言はツリーに見えている root 相対パスを�
     "「uploads/shot.png」を削除しますか？この操作は取り消せません。",
   );
   assert.equal(fileTreeDeleteConfirm("note.txt"), "「note.txt」を削除しますか？この操作は取り消せません。");
+});
+
+test("ディレクトリ削除の確認文言は配下ごと消えることを示す", () => {
+  assert.equal(
+    fileTreeDeleteDirectoryConfirm("uploads/3a7bfba36f"),
+    "「uploads/3a7bfba36f」と配下のファイルをすべて削除しますか？この操作は取り消せません。",
+  );
+  assert.equal(
+    fileTreeDeleteDirectoryConfirm("src/components"),
+    "「src/components」と配下のファイルをすべて削除しますか？この操作は取り消せません。",
+  );
 });
 
 test("子のキーは root 直下とネストで変わる", () => {
@@ -255,6 +268,53 @@ test("Object.prototype の名前のディレクトリも保存値から復元す
     assert.equal(fileTreeDirectoryState(state, name)?.open, true, name);
     assert.deepEqual(openFileTreeDirectories(state), [name], name);
   }
+});
+
+// ディレクトリ削除後の状態更新。削除した枝の中だけを落とし、接頭辞が同じ別ディレクトリと親の行は残す
+test("prune は削除したディレクトリ自身と配下だけを落とす", () => {
+  let state = loaded({
+    ".": [dir("a"), dir("ab"), file("a.txt")],
+    a: [dir("deep")],
+    "a/deep": [file("x.txt")],
+    ab: [file("keep.txt")],
+  });
+  state = { ...state, a: { ...state.a, open: true }, "a/deep": { ...state["a/deep"], open: true } };
+
+  const pruned = pruneFileTreeSubtree(state, "a");
+  assert.equal(fileTreeDirectoryState(pruned, "a"), undefined);
+  assert.equal(fileTreeDirectoryState(pruned, "a/deep"), undefined);
+  // 受け入れ条件: `a` の削除で接頭辞が同じ `ab` を巻き込まない (`a.txt` のようなファイル名も同様)
+  assert.deepEqual(fileTreeDirectoryState(pruned, "ab")?.children, [file("keep.txt")]);
+  assert.deepEqual(pruned["."].children, [dir("a"), dir("ab"), file("a.txt")], "親の行は removeFileTreeEntry が落とす");
+  assert.equal(pruned["."].open, true);
+
+  // 行と状態を続けて適用すると、削除した枝が丸ごと消える
+  const applied = removeFileTreeEntry(pruned, "a");
+  assert.deepEqual(applied["."].children, [dir("ab"), file("a.txt")]);
+  assert.equal(fileTreeDirectoryState(applied, "a"), undefined);
+});
+
+test("配下に該当が無い prune は同じ object を返す", () => {
+  const state = loaded({ ".": [dir("a")], b: [file("x.txt")] });
+  assert.equal(pruneFileTreeSubtree(state, "a"), state, "未取得のディレクトリ");
+  assert.equal(pruneFileTreeSubtree(state, "ab"), state, "接頭辞が同じだけの別パス");
+  assert.equal(pruneFileTreeSubtree(state, "b/x.txt"), state, "ファイルのパス");
+});
+
+// パスにはファイル名がそのまま入るため、prune も own プロパティの契約を壊してはならない
+test("__proto__ という名前のディレクトリと子孫を prune してもプロトタイプを壊さない", () => {
+  let state = loaded({ ".": [dir("__proto__")], ["__proto__"]: [dir("child")], "__proto__/child": [file("x.ts")] });
+  state = toggleFileTreeDirectory(state, "__proto__");
+  state = toggleFileTreeDirectory(state, "__proto__/child");
+
+  const pruned = pruneFileTreeSubtree(state, "__proto__");
+  assert.equal(Object.hasOwn(pruned, "__proto__"), false);
+  assert.equal(Object.hasOwn(pruned, "__proto__/child"), false);
+  assert.equal(Object.getPrototypeOf(pruned), Object.prototype);
+  // 削除した枝以外は own プロパティのまま残る
+  const kept = pruneFileTreeSubtree(loaded({ ".": [dir("keep")], keep: [file("y.ts")] }), "__proto__");
+  assert.equal(Object.hasOwn(kept, "keep"), true);
+  assert.deepEqual(fileTreeDirectoryState(kept, "keep")?.children, [file("y.ts")]);
 });
 
 // 削除後の一覧更新。該当行を落とすだけで、他のディレクトリと子孫の状態は触らない

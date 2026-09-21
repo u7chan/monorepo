@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { deleteFile, getFiles } from "../api";
+import { deleteDirectory, deleteFile, getFiles } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import {
@@ -10,6 +10,7 @@ import {
   FILE_TREE_ROOT,
   fileTreeChildPath,
   fileTreeDeleteConfirm,
+  fileTreeDeleteDirectoryConfirm,
   fileTreeDirectoryState,
   fileTreeFetchPath,
   fileTreeParentPath,
@@ -17,6 +18,7 @@ import {
   normalizeFileTreeRoot,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
+  pruneFileTreeSubtree,
   removeFileTreeEntry,
   toggleFileTreeDirectory,
   type FileTreeDirectoryState,
@@ -27,6 +29,7 @@ import { filePreviewStore } from "../lib/filePreviewState";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 import {
   closeFileTab,
+  closeFileTabsUnder,
   dropClosedPreviewModes,
   openFileTab,
   restoreFileTabsState,
@@ -116,19 +119,28 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
   const closeTab = (path: string) => setTabs((prev) => closeFileTab(prev, path));
 
   /**
-   * 削除は確認してからサーバーへ委譲する。成功したら自分で消した行を落として開いていたタブを閉じる
-   * (外部から消えた場合の現行挙動とは別)。失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
+   * 削除は確認してからサーバーへ委譲する。ファイルは 1 件、ディレクトリは配下ごと消える。
+   * 成功したら自分で消した行と、ディレクトリなら配下の state / タブを落とす (外部から消えた場合の現行挙動とは別)。
+   * 失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
    */
-  const removeFile = (path: string) => {
+  const removeEntry = (path: string, type: "file" | "dir") => {
     if (deletingRef.current.has(path)) return;
-    // 確認には画面の root 相対パスを出す (ツリーに見えているパスと合わせる)
-    if (!window.confirm(fileTreeDeleteConfirm(path))) return;
+    // 確認には画面の root 相対パスを出す (ツリーに見えているパスと合わせる)。ディレクトリは配下ごと消えることを示す
+    const message = type === "dir" ? fileTreeDeleteDirectoryConfirm(path) : fileTreeDeleteConfirm(path);
+    if (!window.confirm(message)) return;
     deletingRef.current.add(path);
     void (async () => {
       try {
-        await deleteFile(fileTreeFetchPath(rootPath, path));
-        closeTab(path);
-        setTree((prev) => removeFileTreeEntry(prev, path));
+        const fetchPath = fileTreeFetchPath(rootPath, path);
+        if (type === "dir") {
+          await deleteDirectory(fetchPath);
+          setTabs((prev) => closeFileTabsUnder(prev, path));
+          setTree((prev) => removeFileTreeEntry(pruneFileTreeSubtree(prev, path), path));
+        } else {
+          await deleteFile(fetchPath);
+          closeTab(path);
+          setTree((prev) => removeFileTreeEntry(prev, path));
+        }
       } catch (error) {
         setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
       } finally {
@@ -182,7 +194,7 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
               selected={tabs.active}
               onToggle={toggle}
               onSelect={openTab}
-              onDelete={removeFile}
+              onDelete={removeEntry}
             />
           ) : rootNode.error ? null : (
             <MessageRow depth={0}>読み込み中…</MessageRow>
@@ -215,7 +227,7 @@ type BranchProps = {
   selected: string | null;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  onDelete: (path: string) => void;
+  onDelete: (path: string, type: "file" | "dir") => void;
 };
 
 function Branch({ parent, node, depth, tree, selected, onToggle, onSelect, onDelete }: BranchProps) {
@@ -259,7 +271,7 @@ function EntryRow({
   selected: string | null;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  onDelete: (path: string) => void;
+  onDelete: (path: string, type: "file" | "dir") => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
 
@@ -293,7 +305,11 @@ function EntryRow({
             {entry.symlink ? <SymlinkMark /> : null}
           </button>
           <EntryTime at={entry.mtime} />
-          <EmptySlot />
+          {entry.symlink ? (
+            <EmptySlot />
+          ) : (
+            <DeleteRowButton name={entry.name} onClick={() => onDelete(path, entry.type)} />
+          )}
         </div>
         {open ? (
           <>
@@ -345,24 +361,27 @@ function EntryRow({
         {entry.symlink ? <SymlinkMark /> : null}
       </button>
       <EntryTime at={entry.mtime} />
-      {deletable ? (
-        <button
-          type="button"
-          aria-label={`${entry.name} を削除`}
-          title="削除"
-          onClick={() => onDelete(path)}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-danger-text"
-        >
-          <TrashIcon />
-        </button>
-      ) : (
-        <EmptySlot />
-      )}
+      {deletable ? <DeleteRowButton name={entry.name} onClick={() => onDelete(path, entry.type)} /> : <EmptySlot />}
     </div>
   );
 }
 
-/** 削除を持たない行 (ディレクトリ / symlink) の末尾スロット。時刻の右端をファイル行にそろえる。 */
+/** 行の削除ボタン。ディレクトリ行とファイル行で同じ見た目にし、末尾スロットを size-6 にそろえる。 */
+function DeleteRowButton({ name, onClick }: { name: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={`${name} を削除`}
+      title="削除"
+      onClick={onClick}
+      className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-danger-text"
+    >
+      <TrashIcon />
+    </button>
+  );
+}
+
+/** 削除を持たない行 (symlink) の末尾スロット。時刻の右端を削除ボタンの行にそろえる。 */
 function EmptySlot() {
   return <span aria-hidden className="size-6 shrink-0" />;
 }

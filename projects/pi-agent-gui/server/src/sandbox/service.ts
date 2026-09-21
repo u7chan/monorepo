@@ -6,7 +6,7 @@
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { realpath as realpathCallback, type Dirent, type Stats } from "node:fs";
-import { link, lstat, mkdir, open, readdir, stat, unlink } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, rm, rmdir, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import {
@@ -28,7 +28,9 @@ import {
   SANDBOX_MAX_UPLOAD_BYTES,
   encodeSandboxEvent,
   isValidUploadName,
+  parseRecursiveQuery,
   rawImageContentType,
+  RECURSIVE_QUERY_ERROR,
   type SandboxCreateDirRequestBody,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
@@ -223,6 +225,48 @@ async function removeWorkspaceFile(rootCwd: string, requested: string): Promise<
     // lstat の直後に bash などが消した場合は目的を達しているため成功にする
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw pathError(400, `Cannot delete the file: ${messageFor(error)}`);
+  });
+}
+
+/**
+ * root 相対のディレクトリを消す。recursive のときだけ配下ごとで、省略時は空ディレクトリのみ (rmdir)。
+ * symlink は削除対象そのものとして拒否する (realpath で実体へ解決してから消すと、root 内のリンクが指す
+ * root 外を消せてしまう)。配下の symlink は fs.rm が辿らず、リンクだけを unlink してリンク先は残す (rm -rf と同じ)。
+ */
+async function removeWorkspaceDirectory(rootCwd: string, requested: string, recursive: boolean): Promise<void> {
+  // 最終要素が消す対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りはディレクトリを表さない
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
+    throw pathError(400, `Not a directory: ${requested}`);
+  }
+
+  // 親の解決は一覧 / ファイル削除と同じ (要求パスの字句 dirname を native realpath に渡し、`..` を symlink の後に適用する)
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
+
+  const targetStat = await lstat(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be deleted: ${target}`);
+  if (!targetStat.isDirectory()) throw pathError(400, `Not a directory: ${target}`);
+
+  if (recursive) {
+    await rm(target, { recursive: true }).catch((error: unknown) => {
+      // lstat の直後に bash などが消した場合は目的を達しているため成功にする
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw pathError(400, `Cannot delete the directory: ${messageFor(error)}`);
+    });
+    return;
+  }
+
+  await rmdir(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    // 非空ディレクトリは recursive の明示が無い限り消さない (部分削除も起こさない)
+    if (code === "ENOTEMPTY" || code === "EEXIST") throw pathError(400, `Directory is not empty: ${target}`);
+    throw pathError(400, `Cannot delete the directory: ${messageFor(error)}`);
   });
 }
 
@@ -688,6 +732,20 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return c.json({ path: await createWorkspaceDirectory(rootCwd, path) });
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 削除できるのはディレクトリだけ (通常ファイルと symlink は 400)。recursive=true のときだけ配下ごと消す。
+  // 成功は本文なしの 204
+  app.delete("/v1/dirs", async (c) => {
+    const recursive = parseRecursiveQuery(c.req.queries("recursive"));
+    if (!recursive.ok) return c.json({ error: RECURSIVE_QUERY_ERROR }, 400);
+    try {
+      await removeWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", recursive.recursive);
+      return c.body(null, 204);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
   });

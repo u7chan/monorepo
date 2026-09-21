@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   closeFileTab,
+  closeFileTabsUnder,
   createFileTabsState,
   dropClosedPreviewModes,
   dropClosedPreviews,
@@ -68,6 +69,43 @@ test("最後のタブを閉じるとタブが無くなる", () => {
 test("開いていないタブを閉じても状態は変わらない", () => {
   const state = openFileTab(createFileTabsState(), "a.txt");
   assert.deepEqual(closeFileTab(state, "b.txt"), state);
+});
+
+test("ディレクトリ配下のタブをまとめて閉じ、表示は既存の規則で繰り上がる", () => {
+  const state = openFileTab(
+    openFileTab(openFileTab(openFileTab(createFileTabsState(), "a.txt"), "dir/x.txt"), "dir/y.txt"),
+    "b.txt",
+  );
+
+  // 表示中が配下でなければ表示は動かない
+  assert.deepEqual(closeFileTabsUnder(state, "dir"), { paths: ["a.txt", "b.txt"], active: "b.txt" });
+
+  // 表示中が配下なら右の生存タブへ繰り上がる (closeFileTab と同じ規則)
+  assert.deepEqual(closeFileTabsUnder({ ...state, active: "dir/y.txt" }, "dir"), {
+    paths: ["a.txt", "b.txt"],
+    active: "b.txt",
+  });
+
+  // 右に生存タブが無ければ左へ
+  const leftOnly = { paths: ["a.txt", "dir/x.txt", "dir/y.txt"], active: "dir/y.txt" };
+  assert.deepEqual(closeFileTabsUnder(leftOnly, "dir"), { paths: ["a.txt"], active: "a.txt" });
+
+  // 全部配下ならタブが無くなる
+  const allInside = { paths: ["dir/x.txt", "dir/y.txt"], active: "dir/y.txt" };
+  assert.deepEqual(closeFileTabsUnder(allInside, "dir"), { paths: [], active: null });
+
+  // 接頭辞境界: dir の削除で dir2 を閉じない
+  const sibling = { paths: ["dir2/x.txt", "dir/x.txt"], active: "dir/x.txt" };
+  assert.deepEqual(closeFileTabsUnder(sibling, "dir"), { paths: ["dir2/x.txt"], active: "dir2/x.txt" });
+
+  // 対象が無いときは同じ object を返す (再 render を起こさない)
+  assert.equal(closeFileTabsUnder(state, "other"), state);
+  assert.equal(closeFileTabsUnder(state, "dir/x"), state, "ファイル自身のパスは対象外");
+});
+
+test("__proto__ という名前のディレクトリ配下のタブも閉じる", () => {
+  const state = { paths: ["__proto__/x.txt", "__proto__/y.txt"], active: "__proto__/y.txt" };
+  assert.deepEqual(closeFileTabsUnder(state, "__proto__"), { paths: [], active: null });
 });
 
 test("タブのラベルは名前だけで、同名のタブがあるときだけ親ディレクトリを前置する", () => {

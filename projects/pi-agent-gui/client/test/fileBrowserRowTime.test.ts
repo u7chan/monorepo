@@ -4,6 +4,7 @@
 //   1. ディレクトリ行の button が時刻を包み、読み上げ名に時刻が混ざる / 時刻のクリックで開閉する
 //   2. 右 padding か末尾スロットの幅が変わり、ディレクトリ行とファイル行の時刻の右端がずれる
 //   3. 時刻の表示規則 (messageTimeLabel + title の完全な表記) か、mtime 無しの行の扱いが変わる
+//   4. ディレクトリ行の削除導線が消える / ファイル行と別の見た目になる
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,17 +14,25 @@ function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
 
-/** EntryRow のディレクトリ行 (分岐の先頭) とファイル行 (この行以降) を切り出す */
-function entryRowSections(): { dir: string; file: string } {
+/**
+ * EntryRow のディレクトリ行 (分岐の先頭) / ファイル行 / 共通の削除ボタンを切り出す。
+ * 共通部は両行の外に置くため、行の断片に定義が混ざらないよう行ごとに切る。
+ */
+function entryRowSections(): { dir: string; file: string; button: string } {
   const source = read("src/components/FileBrowser.tsx");
   const dirStart = source.indexOf('if (entry.type === "dir")');
   const fileStart = source.indexOf("const isSelected = selected === path;");
+  const buttonStart = source.indexOf("/** 行の削除ボタン");
   const end = source.indexOf("function MessageRow");
   assert.ok(
-    dirStart >= 0 && fileStart > dirStart && end > fileStart,
-    "FileBrowser.tsx からディレクトリ行 / ファイル行を切り出せない",
+    dirStart >= 0 && fileStart > dirStart && buttonStart > fileStart && end > buttonStart,
+    "FileBrowser.tsx からディレクトリ行 / ファイル行 / 削除ボタンを切り出せない",
   );
-  return { dir: source.slice(dirStart, fileStart), file: source.slice(fileStart, end) };
+  return {
+    dir: source.slice(dirStart, fileStart),
+    file: source.slice(fileStart, buttonStart),
+    button: source.slice(buttonStart, end),
+  };
 }
 
 test("ディレクトリ行とファイル行は同じ形の時刻と末尾スロットを持つ", () => {
@@ -35,7 +44,16 @@ test("ディレクトリ行とファイル行は同じ形の時刻と末尾ス�
     assert.match(row, /<EntryTime\s+at=\{entry\.mtime\}/, `${label}行が行の時刻を出していない`);
     assert.ok(row.includes("pr-1"), `${label}行の右 padding が pr-1 でない`);
     assert.ok(!row.includes("pr-2"), `${label}行に pr-2 が残っている`);
-    assert.ok(row.indexOf("<EntryTime") < row.indexOf("<EmptySlot"), `${label}行の時刻が末尾スロットより後ろにある`);
+    // 行の末尾は時刻 → size-6 のスロット (ゴミ箱 / symlink 用の空スペーサー)
+    const slots = [row.indexOf("<DeleteRowButton"), row.indexOf("<EmptySlot")].filter((index) => index >= 0);
+    assert.equal(slots.length, 2, `${label}行にゴミ箱と空スペーサーの両方が無い`);
+    assert.ok(row.indexOf("<EntryTime") < Math.min(...slots), `${label}行の時刻が末尾スロットより後ろにある`);
+    // 削除の導線は通常ファイルとディレクトリの行に出す (symlink は EmptySlot へ落ちる)
+    assert.match(
+      row,
+      /<DeleteRowButton\s+name=\{entry\.name\}\s+onClick=\{\(\) => onDelete\(path, entry\.type\)\}/,
+      label,
+    );
   }
 });
 
@@ -45,6 +63,7 @@ test("ディレクトリ行の時刻は開閉の button の外に出す", () => 
   assert.ok(buttonEnd >= 0, "ディレクトリ行に開閉の button が無い");
   // button の中に入れると accessible name に時刻が混ざり、時刻のクリックでも開閉してしまう
   assert.ok(dir.indexOf("<EntryTime") > buttonEnd, "時刻が開閉の button の中にある");
+  assert.ok(dir.indexOf("<EntryTime") < dir.indexOf("<DeleteRowButton"), "削除ボタンが時刻より前にある");
   assert.match(dir, /<button[^>]*\saria-expanded=\{open\}/, "開閉の button が aria-expanded を持たない");
   assert.ok(
     dir.includes('className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"'),
@@ -52,9 +71,20 @@ test("ディレクトリ行の時刻は開閉の button の外に出す", () => 
   );
 });
 
+test("ディレクトリ行の削除は symlink には出さず、通常ファイル行と同じ条件で出す", () => {
+  const { dir, file } = entryRowSections();
+  // ディレクトリ行は symlink のときだけ空スペーサーへ落とす
+  assert.ok(dir.includes("{entry.symlink ?"), "ディレクトリ行の symlink 分岐がない");
+  // ファイル行は `deletable` (symlink 以外) で分岐する
+  assert.match(file, /const deletable = !entry\.symlink;/, "ファイル行の symlink 判定が変わった");
+  assert.ok(file.includes("{deletable ?"), "ファイル行の削除ボタンが deletable で分岐していない");
+});
+
 test("末尾スロットはゴミ箱と空スペーサーで同じ 24px 幅", () => {
-  const { file } = entryRowSections();
-  assert.match(file, /className="grid size-6 shrink-0 place-items-center/, "ファイル行のゴミ箱が size-6 でない");
+  const { button } = entryRowSections();
+  assert.match(button, /className="grid size-6 shrink-0 place-items-center/, "削除ボタンが size-6 でない");
+  assert.match(button, /aria-label=\{`\$\{name\} を削除`\}/, "削除ボタンに読み上げ名が無い");
+  assert.match(button, /title="削除"/, "削除ボタンに title が無い");
   const source = read("src/components/FileBrowser.tsx");
   const start = source.indexOf("function EmptySlot");
   const end = source.indexOf("function EntryTime");
@@ -62,6 +92,24 @@ test("末尾スロットはゴミ箱と空スペーサーで同じ 24px 幅", ()
   const emptySlot = source.slice(start, end);
   assert.match(emptySlot, /className="size-6 shrink-0"/, "空スペーサーがゴミ箱と同じ size-6 でない");
   assert.match(emptySlot, /aria-hidden/, "空スペーサーが読み上げの対象になる");
+});
+
+test("削除のハンドラは種類ごとにサンドボックスの入口と confirm を分ける", () => {
+  const source = read("src/components/FileBrowser.tsx");
+  // 確認文言はディレクトリだけ配下ごと消えることを示す
+  assert.ok(
+    source.includes('type === "dir" ? fileTreeDeleteDirectoryConfirm(path) : fileTreeDeleteConfirm(path)'),
+    "確認文言を種類で分けていない",
+  );
+  // API はディレクトリだけ deleteDirectory (recursive=true) へ委譲する
+  assert.ok(source.includes("await deleteDirectory(fetchPath);"), "ディレクトリ削除を呼んでいない");
+  assert.ok(source.includes("await deleteFile(fetchPath);"), "ファイル削除を呼んでいない");
+  assert.ok(
+    source.includes("closeFileTabsUnder(prev, path)") &&
+      source.includes("removeFileTreeEntry(pruneFileTreeSubtree(prev, path), path)"),
+    "削除したディレクトリ配下のタブ / 状態を落としていない",
+  );
+  assert.ok(source.includes("closeTab(path);"), "ファイル行のタブを閉じていない");
 });
 
 test("時刻は messageTimeLabel を表示し、title に完全な表記を出す", () => {

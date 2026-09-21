@@ -48,6 +48,7 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
       },
       // 削除 / アップロード / 生配信はこのテストでは扱わない
       deleteFile: async () => {},
+      deleteDirectory: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
     },
@@ -249,6 +250,7 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
       createDir: async (path: string) => ({ path }),
       // 削除 / アップロード / 生配信はこのテストでは扱わない
       deleteFile: async () => {},
+      deleteDirectory: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
     },

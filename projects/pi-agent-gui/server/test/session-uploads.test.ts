@@ -44,6 +44,7 @@ function stubWorkspace() {
     createDir: async (path: string) => ({ path }),
     // 削除はこのテストでは扱わない
     deleteFile: async () => {},
+    deleteDirectory: async () => {},
     uploadFile: async (input) => {
       let size = 0;
       if (input.body) {

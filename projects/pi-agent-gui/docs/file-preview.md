@@ -163,16 +163,24 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## 削除
 
-誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルの行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
+誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルとディレクトリの行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
 
-- **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルの行には常にゴミ箱を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/pi-agent-gui` 自身）なので、自分のソースも消せる**
-- **confirm にはその画面の root 相対（ツリーに見えているパス）を出す**。文言は `client/src/lib/fileTree.ts` の `fileTreeDeleteConfirm(path)` で、設定 → ファイル は `.pi-agent-gui/uploads/3a7bfba36f/shot.png`、チャット右パネルは作業ディレクトリ相対（`node/main.ts` など）になる。パネルでワークスペース root 相対（見えていない長いパス）を出すと行との対応が取れないため、見えているパスに合わせる（ワークスペース root を見る設定 → ファイル では両者が一致する）
-- **消せるのは通常ファイルだけ**。ディレクトリと symlink はサンドボックスが 400 で拒否するため、行にも導線を出さない（symlink の行には既存の「リンク」バッジが付く）。`.pi-agent-gui/uploads/<id>/` はフラットで、誤アップロードの取り消しにディレクトリ削除は要らない
+- **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルとディレクトリの行には常にゴミ箱を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/pi-agent-gui` 自身）なので、自分のソースも消せる**
+- **confirm にはその画面の root 相対（ツリーに見えているパス）を出す**。ファイルは `client/src/lib/fileTree.ts` の `fileTreeDeleteConfirm(path)`（`「<path>」を削除しますか？この操作は取り消せません。`）で、設定 → ファイル は `.pi-agent-gui/uploads/3a7bfba36f/shot.png`、チャット右パネルは作業ディレクトリ相対（`node/main.ts` など）になる。ディレクトリは `fileTreeDeleteDirectoryConfirm(path)` で、配下ごと消えることを示す `「<path>」と配下のファイルをすべて削除しますか？この操作は取り消せません。` を出す。パネルでワークスペース root 相対（見えていない長いパス）を出すと行との対応が取れないため、見えているパスに合わせる（ワークスペース root を見る設定 → ファイル では両者が一致する）
+- **通常ファイルは 1 件、ディレクトリは配下ごと消える**（`recursive=true`。空ディレクトリも同じ導線）。削除範囲は一覧の上限（500 件 / ディレクトリ）に縛られず、未表示の子も消える。**symlink は行に導線を出さない**（サンドボックスが 400 で拒否する。ファイル / ディレクトリとも。symlink の行には既存の「リンク」バッジが付く）。`.pi-agent-gui/uploads/<id>/` はフラットだが、セッション作業フォルダの `uploads/` などの片付けにディレクトリ削除を使える
+- **削除したディレクトリ配下の symlink はリンクだけが消え、リンク先は残る**（`rm -rf` と同じ）。削除対象そのものが symlink なら 400 で、リンクもリンク先も残る
 - 行は選択（本文を開く）と削除の 2 つの `button` に分ける（`button` の入れ子は作れない）。削除は常時見せ、hover で隠さない（タッチ端末で押せなくなるため）
-- 成功したらその行を一覧から落とし（`removeFileTreeEntry`）、開いていたタブを閉じる。**自分で消したものだけ**閉じる（外部で消えたファイルのタブは本文の取得エラーを出して残す現行挙動のまま）
+- 成功したらその行を一覧から落とし（`removeFileTreeEntry`）、開いていたタブを閉じる。ディレクトリは配下の state も `pruneFileTreeSubtree` で落とし、配下のタブを `closeFileTabsUnder` で閉じる（表示中のタブが消えたときの繰り上がりは `closeFileTab` と同じで、右の生存タブ → 右なしで左 → 全消去）。**自分で消したものだけ**閉じる（外部で消えたファイルのタブは本文の取得エラーを出して残す現行挙動のまま）
 - 失敗したら親ディレクトリのエラーとして出し、行は残す（`applyFileTreeError`。他のディレクトリの表示は維持し、「再読み込み」で消える）
 - 未送信の添付チップが指すファイルを消しても、送信自体は通る（注記は保存先のパスを載せるだけ）がサムネイルは 404 になる。今回は許容する（チップ側からも消せるようにするなら別途）
 - 同じ行の二重送信は実行中のパスを持つ ref で弾く。エージェント実行中・プレビュー取得中との直列化は持たない（既存の同時操作と同じ）
+
+### 既知の制限（削除）
+
+- **pending 一覧の復活**: 削除直前に飛んでいた親一覧の応答が後から適用されると、削除済みの行が復活し得る（`FileBrowser.tsx` の適用は無条件）。クリックすると 404 になり、次の取得（「再読み込み」/ run 終了）で消える。取得世代での無効化は別 Issue。復活した行を利用者が再操作した場合も、保存値からの除去は保証しない（削除成功時の反映は自画面の state が対象）
+- **競合（TOCTOU）**: サンドボックスの入力検証（root 外 / symlink / 形式）は「競合がない場合」の契約で、親 realpath の後に祖先が rename + symlink へ差し替えられると root 外を消し得る（[sandbox-api.md](sandbox-api.md#delete-v1dirs)）。fd 相対の削除が Node に無いため完全な防御は入れない
+- 大きいツリーは応答まで時間がかかる（行は応答まで残る）。`fs.rm` が途中で失敗すると部分削除が残り、親にエラー表示が出る（「再読み込み」で実際の状態に戻る）
+- 並行削除: `lstat` 前の不存在は 404、検証後の `ENOENT` は成功。同一パスの二重送信は `deletingRef` が弾くが、親子の同時削除は直列化しない（後から来た要求は 404 か成功になる）
 
 ## 時刻
 
@@ -201,17 +209,19 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | テスト | 固定すること |
 | --- | --- |
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / コピーする本文（正規化後・行番号なし・空文字）/ 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
-| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / 保存値からの復元（表示中の繰り上がりと上限） |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
-| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（画面の root 相対パス）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
-| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / `size-6`）/ 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
+| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
+| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / `size-6`）/ ディレクトリ行と通常ファイル行に同じ削除ボタンが出ること。symlink の行は空スペーサーに落ちること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること |
-| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし）/ `GET /api/files/html/<path>` の文書・画像・テキストアセット・400 の分岐と percent decoding / ヘッダ（CSP / `no-store` / `nosniff`）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲と 204・エラー写像 |
+| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし）/ `GET /api/files/html/<path>` の文書・画像・テキストアセット・400 の分岐と percent decoding / ヘッダ（CSP / `no-store` / `nosniff`）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 |
+| `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
+| `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと |
 | `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503） |
 
 ## 参照

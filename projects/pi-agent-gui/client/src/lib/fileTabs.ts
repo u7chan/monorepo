@@ -123,3 +123,13 @@ export function closeFileTab(state: FileTabsState, path: string): FileTabsState 
   // 閉じた位置へ繰り上がる右隣、無ければ左隣を表示する
   return { paths, active: paths[index] ?? paths[index - 1] ?? null };
 }
+
+/**
+ * ディレクトリ配下のタブをまとめて閉じる (ディレクトリ自身にはタブが無い)。表示中のタブが配下にあるときの
+ * 繰り上がりは closeFileTab と同じ規則にそろえ、1 枚ずつ閉じて途中結果を次の 1 枚に渡す。
+ * 対象が無いときは同じ object を返す。
+ */
+export function closeFileTabsUnder(state: FileTabsState, path: string): FileTabsState {
+  const prefix = `${path}/`;
+  return state.paths.filter((item) => item.startsWith(prefix)).reduce((tabs, item) => closeFileTab(tabs, item), state);
+}

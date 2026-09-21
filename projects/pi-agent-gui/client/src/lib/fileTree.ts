@@ -77,6 +77,11 @@ export function fileTreeDeleteConfirm(path: string): string {
   return `「${path}」を削除しますか？この操作は取り消せません。`;
 }
 
+/** ディレクトリ削除の確認文言。配下ごと消えて元に戻せないことを示す (path は画面の root 相対)。 */
+export function fileTreeDeleteDirectoryConfirm(path: string): string {
+  return `「${path}」と配下のファイルをすべて削除しますか？この操作は取り消せません。`;
+}
+
 /**
  * 削除したファイルの行を一覧から落とす。children を持つ親だけを差し替えるので、
  * 展開中の子孫や他のディレクトリの状態はそのまま残る (ファイルを消しても親の再取得は不要)。
@@ -92,6 +97,25 @@ export function removeFileTreeEntry(state: FileTreeState, path: string): FileTre
   const next = { ...state };
   setFileTreeDirectoryState(next, parent, { ...node, children });
   return next;
+}
+
+/**
+ * 削除したディレクトリ自身と配下の状態を落とす。親一覧の行は removeFileTreeEntry が落とすので、
+ * ここでは path とその子孫だけを見て、他のディレクトリの開閉・取得結果はそのまま残す。
+ * 接頭辞は区切りまで含めて見るため、`a` の削除で `ab` を巻き込まない。該当が無いときは同じ object を返す。
+ */
+export function pruneFileTreeSubtree(state: FileTreeState, path: string): FileTreeState {
+  const prefix = `${path}/`;
+  const next: FileTreeState = {};
+  let pruned = false;
+  for (const [key, node] of Object.entries(state)) {
+    if (key === path || key.startsWith(prefix)) {
+      pruned = true;
+      continue;
+    }
+    setFileTreeDirectoryState(next, key, node);
+  }
+  return pruned ? next : state;
 }
 
 /**
