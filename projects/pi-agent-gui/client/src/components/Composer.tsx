@@ -23,8 +23,8 @@ export type ComposerProps = {
   mode: LayoutMode;
   /** 選択中 / 送信待ちの添付。アップロード中・失敗がある間は送信できない */
   attachments: Attachment[];
-  /** セッションの作業フォルダ (root 相対)。画像チップの URL を組むのに使う */
-  cwd: string;
+  /** ワークスペース root の絶対パス (health.cwd)。画像チップの URL を組むのに使う */
+  rootCwd: string;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
   onSend: (text: string) => void;
@@ -88,7 +88,7 @@ export function Composer({
   agentId,
   mode,
   attachments,
-  cwd,
+  rootCwd,
   visible = true,
   onSend,
   onStop,
@@ -241,7 +241,7 @@ export function Composer({
             ) : null}
           </div>
         ) : null}
-        <AttachmentChips attachments={attachments} cwd={cwd} compact={compact} onRemove={onRemoveAttachment} />
+        <AttachmentChips attachments={attachments} rootCwd={rootCwd} compact={compact} onRemove={onRemoveAttachment} />
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
           <textarea
             ref={inputRef}

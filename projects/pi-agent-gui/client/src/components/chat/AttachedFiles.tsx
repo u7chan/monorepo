@@ -1,35 +1,34 @@
 import { fileRawUrl } from "../../api";
-import { isImageName } from "../../lib/attachments";
+import { attachmentFetchPath, isImageName } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
-import { fileTreeFetchPath } from "../../lib/fileTree";
 
 export type AttachedFilesProps = {
-  /** 作業フォルダ相対のパス (uploads/…) */
+  /** 注記の添付パス (絶対パス) */
   files: string[];
-  /** セッションの作業フォルダ (root 相対) */
-  cwd: string;
+  /** ワークスペース root の絶対パス (health.cwd)。raw URL を root 相対へ直すのに使う */
+  rootCwd: string;
   compact: boolean;
 };
 
 /** 送信済みメッセージの添付。画像はサムネイル、それ以外はファイル名だけを出す。 */
-export function AttachedFiles({ files, cwd, compact }: AttachedFilesProps) {
+export function AttachedFiles({ files, rootCwd, compact }: AttachedFilesProps) {
   if (files.length === 0) return null;
   return (
     <ul className={cn("flex flex-wrap justify-end", compact ? "mb-1 gap-1.5" : "mb-1.5 gap-2")}>
       {files.map((path) => (
-        <AttachedFile key={path} path={path} cwd={cwd} compact={compact} />
+        <AttachedFile key={path} path={path} rootCwd={rootCwd} compact={compact} />
       ))}
     </ul>
   );
 }
 
-function AttachedFile({ path, cwd, compact }: { path: string; cwd: string; compact: boolean }) {
+function AttachedFile({ path, rootCwd, compact }: { path: string; rootCwd: string; compact: boolean }) {
   const name = path.split("/").pop() ?? path;
   if (isImageName(name)) {
     return (
       <li>
         <img
-          src={fileRawUrl(fileTreeFetchPath(cwd, path))}
+          src={fileRawUrl(attachmentFetchPath(rootCwd, path))}
           alt={name}
           title={path}
           className={cn("rounded-lg border border-line object-contain", compact ? "max-h-32" : "max-h-44")}

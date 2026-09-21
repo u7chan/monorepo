@@ -13,15 +13,21 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 ```
 
 - サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します（ローカルで Docker は不要）
-- 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`（プロジェクトと未所属チャットの起点になります）
+- 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`（プロジェクト登録と未所属チャットの起点になります）
 - APIキーは `cp .env.example .env` で設定できます。`~/.pi/agent/auth.json` があれば不要です（`.env` を読むのは BFF だけ）
 - 停止は Ctrl-C（3 プロセスまとめて止まります）
+
+## プロジェクトとセッションの作業ディレクトリ
+
+登録したプロジェクトに所属するセッションは、その登録ディレクトリを cwd にして動きます（SDK セッション・ツールのパス解決・ファイル画面が同じディレクトリ）。同一プロジェクトの複数セッションはツリーを共有するため、片方で作ったファイルが他方からも見え、`git status` や `git worktree add` のようなリポジトリ前提の作業ができます。未所属チャットは `<workspace root>/.pi-agent-gui/sessions/<id>` のスクラッチで動きます。worktree はアプリが作らないので、並行作業は切った worktree をプロジェクトとして登録して分離します。詳細は [docs/projects.md](docs/projects.md)。
+
+チャットの添付は、所属に関係なく `<workspace root>/.pi-agent-gui/uploads/<sessionId>/` に保存します。エージェントには注記で絶対パスを渡し、ファイル画面には出しません。`<workspace root>/.pi-agent-gui` 配下はプロジェクトとして登録できません（400）。
 
 ## 環境変数
 
 | 変数 | 説明 |
 | --- | --- |
-| `PI_APP_CWD` | ワークスペース root（プロジェクトとセッション作業フォルダの起点。既定: このディレクトリ） |
+| `PI_APP_CWD` | ワークスペース root（登録したプロジェクトと未所属チャットのスクラッチの起点。既定: このディレクトリ） |
 | `PI_SESSION_STORE` | 会話ストアの絶対パス（既定: `<pi agentDir>/pi-agent-gui/sessions`）。ワークスペースの外を指定する。未設定でも起動するが、`null`（永続化なし）にしたいのはテストだけ |
 | `PI_MODEL` / `PI_MODELS` | 既定モデルの固定 / 選択できるモデルの whitelist |
 | `PI_THINKING` | 既定の Effort |

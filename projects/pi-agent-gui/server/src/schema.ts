@@ -329,7 +329,7 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 
 export const PostMessageBodySchema = z.object({
   text: z.string(),
-  /** 添付 (作業フォルダ相対の uploads/ 配下)。件数とパスの検証は attachments.ts が正 */
+  /** 添付 (root 相対の `<appdir>/uploads/<sessionId>/` 配下)。件数とパスの検証は attachments.ts が正 */
   attachments: z.array(z.string()).optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;

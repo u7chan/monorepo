@@ -21,7 +21,7 @@ export type Attachment = {
   name: string;
   size: number;
   status: AttachmentStatus;
-  /** 成功時の作業フォルダ相対パス (uploads/…) */
+  /** 成功時の root 相対パス (`.pi-agent-gui/uploads/<sessionId>/…`) */
   path?: string;
   /** 失敗理由 (上限超過・件数超過・API エラー) */
   error?: string;
@@ -29,6 +29,7 @@ export type Attachment = {
 
 const ATTACHED_FILES_OPEN = "<attached_files>";
 const ATTACHED_FILES_CLOSE = "</attached_files>";
+const ATTACHMENT_LINE_PREFIX = "- ";
 
 /** 拡張子で画像か判定する (内容は見ない。raw 配信の allowlist と同じ規則)。 */
 export function isImageName(name: string): boolean {
@@ -69,7 +70,7 @@ export function attachmentRejection(file: { name: string; size: number }, curren
 
 /**
  * 履歴の本文から末尾の注記を切り離す。サーバーが組み立てた注記だけを対象にし、
- * 本文に同じタグが入っていても最後の 1 組だけを見る。
+ * 本文に同じタグが入っていても最後の 1 組だけを見る。パスは注記どおり (絶対パス) を返す。
  */
 export function splitAttachedFiles(text: string): { text: string; files: string[] } {
   const start = text.lastIndexOf(ATTACHED_FILES_OPEN);
@@ -79,7 +80,18 @@ export function splitAttachedFiles(text: string): { text: string; files: string[
     .slice(start + ATTACHED_FILES_OPEN.length, end)
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("- ./"))
-    .map((line) => line.slice(4));
+    .filter((line) => line.startsWith(ATTACHMENT_LINE_PREFIX))
+    .map((line) => line.slice(ATTACHMENT_LINE_PREFIX.length));
   return { text: text.slice(0, start).replace(/\n+$/, ""), files };
+}
+
+/**
+ * 添付パスを raw 配信が受ける root 相対へ揃える。注記は絶対パス、アップロード直後のチップは
+ * root 相対で届くため、両方を同じ形に寄せる (root の前置きが無ければそのまま root 相対とみなす)。
+ */
+export function attachmentFetchPath(rootCwd: string, path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const root = rootCwd.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (root && normalized.startsWith(`${root}/`)) return normalized.slice(root.length + 1);
+  return normalized;
 }

@@ -1,12 +1,7 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import {
-  MAX_ATTACHMENT_BYTES,
-  UPLOADS_DIR,
-  composePrompt,
-  normalizeAttachmentPaths,
-  toAttachmentPath,
-} from "../attachments";
+import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttachmentPath } from "../attachments";
+import { sessionUploadsRel, workspaceAbs } from "../app-paths";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { isValidUploadName } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
@@ -93,7 +88,7 @@ export function createSessionRoutes({
     postMessage: async (c: Context, body: PostMessageBody) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
-      const attachments = normalizeAttachmentPaths(body.attachments);
+      const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id));
       const text = body.text.trim();
       // 本文が空でも添付だけで送れる (注記だけのプロンプトになる)
       if (!text && attachments.length === 0) return c.json({ error: "text is required" }, 400);
@@ -101,14 +96,22 @@ export function createSessionRoutes({
         return c.json({ error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
       // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
-      // 注記は履歴とモデルへ渡すためここで合成し、title は注記を除いた本文から作る
-      const result = store.postMessage(record, composePrompt(text, attachments));
+      // 注記は履歴とモデルへ渡すためここで合成し、title は注記を除いた本文から作る。
+      // 保存先はプロジェクトの外にあるため、モデルへは絶対パスで知らせる
+      const result = store.postMessage(
+        record,
+        composePrompt(
+          text,
+          attachments.map((path) => workspaceAbs(store.rootCwd, path)),
+        ),
+      );
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
     },
 
     /**
      * 選択時の即時アップロード。bodyGuard (64 KiB 上限 / text 化) を通さないよう、app.ts では
-     * このルートを bodyGuard より先に登録する。保存先はセッションの作業フォルダ配下の uploads/。
+     * このルートを bodyGuard より先に登録する。保存先は所属に関係なく `<appdir>/uploads/<sessionId>/`
+     * (プロジェクトのリポジトリ内にファイルを作らない)。
      */
     uploadFile: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
@@ -121,17 +124,18 @@ export function createSessionRoutes({
       if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
         return c.json({ error: `File is too large (max ${MAX_ATTACHMENT_BYTES} bytes)` }, 413);
       }
+      const uploadsDirRel = sessionUploadsRel(record.id);
       try {
         const uploaded = await workspace.uploadFile({
-          dir: record.workdir ? `${record.workdir}/${UPLOADS_DIR}` : UPLOADS_DIR,
+          dir: uploadsDirRel,
           name,
           body: c.req.raw.body,
           signal: c.req.raw.signal,
         });
         const parsed = FileUploadSchema.safeParse(uploaded);
         if (!parsed.success) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
-        // サンドボックスは root 相対を返す。クライアントは作業フォルダ相対 (uploads/…) を期待する
-        const path = toAttachmentPath(record.workdir, parsed.data.path);
+        // サンドボックスは root 相対を返す。保存先の外や別セッションを指す応答は 502 で止める
+        const path = toAttachmentPath(uploadsDirRel, parsed.data.path);
         if (!path) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
         return c.json({ sessionId: record.id, ...parsed.data, path }, 201);
       } catch (error) {

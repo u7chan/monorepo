@@ -5,12 +5,14 @@
 BFF とツール実行サンドボックスを別コンテナで動かす構成を対象とする。
 サンドボックスの `/workspace` はホストの専用作業領域へ永続マウントし、
 GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）へ JSONL で保存する。
-会話とファイルは同じセッション id（`.pi-agent-gui/sessions/<id>`）で対応し、別の場所に置く（後述）。
+会話と作業ディレクトリは同じセッション id で対応し、別の場所に置く。未所属チャットのスクラッチは `<workspace>/.pi-agent-gui/sessions/<id>`、プロジェクト所属セッションは登録ディレクトリそのもの、添付は共通の `<workspace>/.pi-agent-gui/uploads/<id>` を使う（[projects.md](projects.md#セッション-cwd)）。
 
 | データ | 再作成・再デプロイ後 |
 |---|---|
 | `/workspace` 内のファイル・Gitリポジトリ・worktree | 残る |
-| セッションの作業フォルダ（`<workspace>/.pi-agent-gui/sessions/<id>`） | 残る |
+| セッションの作業ディレクトリ（未所属チャットのスクラッチ `<workspace>/.pi-agent-gui/sessions/<id>`） | 残る |
+| プロジェクト所属セッションの作業ディレクトリ（登録ディレクトリそのもの） | 残る（登録したディレクトリが永続マウント配下なら） |
+| 添付ファイル（`<workspace>/.pi-agent-gui/uploads/<id>`） | 残る |
 | 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl}`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |
@@ -50,13 +52,14 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 `session.jsonl` は pi SDK 形式（header + entries、compaction entry を含む）で、読み書きは BFF の `session-store` が行う。
 
 - 起動時にストアを走査して一覧（descriptor）を復元し、セッションを開いたときに SDK セッションを遅延生成する。表示メッセージ数（`messageCount`）の定義を変えた場合は、古い値のままの meta を開いたときに書き戻すため、開いていないセッションの一覧は古い値を返し続ける（[session-files.md](session-files.md)）。
-- アイドル 1 時間の sweep はメモリから外すだけで、ストアと作業フォルダは残る。SSE 購読中のセッションは対象外。
-- `DELETE /api/sessions/:id` はストアの履歴だけを消し、作業フォルダ（ユーザーのファイル）は残す。
+- アイドル 1 時間の sweep はメモリから外すだけで、ストアと作業ディレクトリ・添付は残る。SSE 購読中のセッションは対象外。
+- `DELETE /api/sessions/:id` はストアの履歴だけを消し、作業ディレクトリ（ユーザーのファイル）と添付は残す。
 - エージェント / スキルのプロンプトは作成時に `promptSnapshot` として meta に保存し、復元後の実行内容を定義の変更に依存させない（現行の「定義変更を遡及させない」と同じ）。
 - モデルは JSONL 最後の `model_change` → meta の `model` → アプリ既定 の順に `PI_MODELS` の候補と照合する（[model-effort.md](model-effort.md)）。候補外ならアプリ既定へフォールバックし、その実効値を `model_change` へ追記して保存する。
 - ストアのレイアウト・検証・書込み手順の設計は [session-files.md](session-files.md) を正とする。
 - プロジェクト（ワークスペース内ディレクトリの登録。`server/src/projects.ts`）はメモリ内のみで、
-  再デプロイ後は未所属チャットに戻る。セッションは `projectCwd` を meta に持つため、
+  再デプロイ後は未所属チャットに戻る。セッションは `projectCwd` を meta に持ち、
+  復元時はそのディレクトリをそのまま cwd に使う（未登録でもスクラッチへは切り替えない）。
   同じ cwd を再登録すれば一覧の所属が再び解決される（プロジェクトの自動再登録はしない）。
   列は `{ id, name, cwd, createdAt }` の 4 つに保ち、cwd は root 相対で持つ（[projects.md](projects.md)）。
 

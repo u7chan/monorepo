@@ -159,19 +159,19 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
-- `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `.pi-agent-gui/sessions/<id>` 配下を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
+- `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.pi-agent-gui/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 
 ## 削除
 
 誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルの行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルの行には常にゴミ箱を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/pi-agent-gui` 自身）なので、自分のソースも消せる**
-- **confirm にはその画面の root 相対（ツリーに見えているパス）を出す**。文言は `client/src/lib/fileTree.ts` の `fileTreeDeleteConfirm(path)` で、設定 → ファイル は `.pi-agent-gui/sessions/3a7bfba36f/uploads/shot.png`、チャット右パネルは `uploads/shot.png` になる。パネルでワークスペース root 相対（見えていない長いパス）を出すと行との対応が取れないため、見えているパスに合わせる（ワークスペース root を見る設定 → ファイル では両者が一致する）
-- **消せるのは通常ファイルだけ**。ディレクトリと symlink はサンドボックスが 400 で拒否するため、行にも導線を出さない（symlink の行には既存の「リンク」バッジが付く）。`uploads/` はフラットで、誤アップロードの取り消しにディレクトリ削除は要らない
+- **confirm にはその画面の root 相対（ツリーに見えているパス）を出す**。文言は `client/src/lib/fileTree.ts` の `fileTreeDeleteConfirm(path)` で、設定 → ファイル は `.pi-agent-gui/uploads/3a7bfba36f/shot.png`、チャット右パネルは作業ディレクトリ相対（`node/main.ts` など）になる。パネルでワークスペース root 相対（見えていない長いパス）を出すと行との対応が取れないため、見えているパスに合わせる（ワークスペース root を見る設定 → ファイル では両者が一致する）
+- **消せるのは通常ファイルだけ**。ディレクトリと symlink はサンドボックスが 400 で拒否するため、行にも導線を出さない（symlink の行には既存の「リンク」バッジが付く）。`.pi-agent-gui/uploads/<id>/` はフラットで、誤アップロードの取り消しにディレクトリ削除は要らない
 - 行は選択（本文を開く）と削除の 2 つの `button` に分ける（`button` の入れ子は作れない）。削除は常時見せ、hover で隠さない（タッチ端末で押せなくなるため）
 - 成功したらその行を一覧から落とし（`removeFileTreeEntry`）、開いていたタブを閉じる。**自分で消したものだけ**閉じる（外部で消えたファイルのタブは本文の取得エラーを出して残す現行挙動のまま）
 - 失敗したら親ディレクトリのエラーとして出し、行は残す（`applyFileTreeError`。他のディレクトリの表示は維持し、「再読み込み」で消える）
-- 未送信の添付チップが指すファイルを消しても、送信自体は通る（注記は `uploads/` のパスを載せるだけ）がサムネイルは 404 になる。今回は許容する（チップ側からも消せるようにするなら別途）
+- 未送信の添付チップが指すファイルを消しても、送信自体は通る（注記は保存先のパスを載せるだけ）がサムネイルは 404 になる。今回は許容する（チップ側からも消せるようにするなら別途）
 - 同じ行の二重送信は実行中のパスを持つ ref で弾く。エージェント実行中・プレビュー取得中との直列化は持たない（既存の同時操作と同じ）
 
 ## 時刻
@@ -187,7 +187,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## 復帰（F5・画面の往復）
 
-ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `.pi-agent-gui/sessions/<id>` を使うので、同じファイルを 2 画面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
+ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `payload.cwd` を使うので、同じファイルを 2 画面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
 
 - 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html/<path>`、ソースは `/api/files/preview`）
 - 親を閉じた子の open は保持し、保存された子のために親を勝手に開かない。root は常に開く。取得は既存の「可視の親から子へ」の経路のままで、親を開いた時点で子の open が効く

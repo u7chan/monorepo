@@ -194,12 +194,23 @@ test("projects are created from a new or an existing directory and listed in cre
   }
 });
 
-test("project creation rejects an absolute path, traversal and the workspace root", async () => {
+test("project creation rejects an absolute path, traversal, the workspace root and the app dir", async () => {
   const { workspace, dirs, listings } = stubWorkspace();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   const { app } = bff;
   try {
-    for (const cwd of ["/etc", "../outside", "a/../../b", "", "."]) {
+    for (const cwd of [
+      "/etc",
+      "../outside",
+      "a/../../b",
+      "",
+      ".",
+      ".pi-agent-gui",
+      ".pi-agent-gui/",
+      ".pi-agent-gui/uploads/x",
+      ".pi-agent-gui/sessions/abc",
+      "./.pi-agent-gui",
+    ]) {
       const response = await app.request("/api/projects", jsonPost({ cwd }));
       assert.equal(response.status, 400, `cwd=${JSON.stringify(cwd)}`);
     }

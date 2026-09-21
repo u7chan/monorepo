@@ -151,7 +151,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## セッションへのファイルアップロード
 
-`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、既定のアップロード先はセッションの作業フォルダ配下の `uploads/`。JSON ではなく raw ストリームで受け、`bodyGuard`（`/api/*` の 64 KiB 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
+`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、既定のアップロード先は `<appdir>/uploads/<sessionId>/`（プロジェクトのリポジトリ内には作らない）。JSON ではなく raw ストリームで受け、`bodyGuard`（`/api/*` の 64 KiB 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
 
 ## プロジェクト
 

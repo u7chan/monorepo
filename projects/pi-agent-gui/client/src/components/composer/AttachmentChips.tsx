@@ -1,25 +1,24 @@
 import { fileRawUrl } from "../../api";
-import { formatBytes, isImageName, type Attachment } from "../../lib/attachments";
+import { attachmentFetchPath, formatBytes, isImageName, type Attachment } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
-import { fileTreeFetchPath } from "../../lib/fileTree";
 import { CloseIcon } from "../icons";
 
 export type AttachmentChipsProps = {
   attachments: Attachment[];
-  /** セッションの作業フォルダ (root 相対)。画像サムネイルの URL を組むのに使う */
-  cwd: string;
+  /** ワークスペース root の絶対パス (health.cwd)。画像サムネイルの URL を組むのに使う */
+  rootCwd: string;
   /** 非表示 (設定ページ) の間は高さを詰める */
   compact: boolean;
   onRemove: (id: string) => void;
 };
 
 /** 選択中 / 送信待ちの添付。画像はサムネイル、それ以外はファイル名とサイズを出す。 */
-export function AttachmentChips({ attachments, cwd, compact, onRemove }: AttachmentChipsProps) {
+export function AttachmentChips({ attachments, rootCwd, compact, onRemove }: AttachmentChipsProps) {
   if (attachments.length === 0) return null;
   return (
     <ul className={cn("flex flex-wrap", compact ? "gap-1.5" : "gap-2")}>
       {attachments.map((attachment) => (
-        <AttachmentChip key={attachment.id} attachment={attachment} cwd={cwd} onRemove={onRemove} />
+        <AttachmentChip key={attachment.id} attachment={attachment} rootCwd={rootCwd} onRemove={onRemove} />
       ))}
     </ul>
   );
@@ -27,15 +26,16 @@ export function AttachmentChips({ attachments, cwd, compact, onRemove }: Attachm
 
 function AttachmentChip({
   attachment,
-  cwd,
+  rootCwd,
   onRemove,
 }: {
   attachment: Attachment;
-  cwd: string;
+  rootCwd: string;
   onRemove: (id: string) => void;
 }) {
   const uploaded = attachment.status === "done" && attachment.path ? attachment.path : undefined;
-  const thumbnail = uploaded && isImageName(attachment.name) ? fileRawUrl(fileTreeFetchPath(cwd, uploaded)) : undefined;
+  const thumbnail =
+    uploaded && isImageName(attachment.name) ? fileRawUrl(attachmentFetchPath(rootCwd, uploaded)) : undefined;
   const statusText =
     attachment.status === "uploading"
       ? "アップロード中…"

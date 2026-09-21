@@ -210,7 +210,7 @@ export default function App() {
               compactions={desk.chat.compactions}
               compact={compact}
               suggestions={desk.selectedAgent?.suggestions}
-              cwd={desk.cwd}
+              rootCwd={desk.health?.cwd ?? ""}
               onSuggestion={handleSend}
             />
             <Composer
@@ -227,7 +227,7 @@ export default function App() {
               agentId={desk.agentId}
               mode={layout}
               attachments={desk.attachments}
-              cwd={desk.cwd}
+              rootCwd={desk.health?.cwd ?? ""}
               onSend={handleSend}
               onStop={handleStop}
               onAttachFiles={desk.attachFiles}
