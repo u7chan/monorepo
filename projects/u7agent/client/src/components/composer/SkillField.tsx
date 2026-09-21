@@ -83,7 +83,7 @@ export function SkillPanel({
       <div className="flex min-w-0 items-center gap-2">
         <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">スキル</span>
         {state.status === "ready" && state.projectSkills ? (
-          <span className="min-w-0 truncate text-3xs text-ink-ghost">プロジェクトのスキルを読み込みます</span>
+          <span className="min-w-0 truncate text-3xs text-ink-ghost">プロジェクトのスキルを含みます</span>
         ) : null}
         <button
           type="button"

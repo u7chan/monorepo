@@ -41,7 +41,7 @@ test("groupSessionSkills は優先順位の順にまとめ、空のスコープ�
       ["project", "プロジェクト", ["proj"]],
       ["user", "共通", ["common"]],
       ["builtin", "組み込み", ["builtin"]],
-      ["catalog", "エージェント", ["catalog"]],
+      ["catalog", "エージェント定義", ["catalog"]],
     ],
   );
   assert.deepEqual(groupSessionSkills([]), []);

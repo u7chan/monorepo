@@ -5,7 +5,7 @@ import { createRequestGate } from "./requestGate";
 
 /**
  * セッションのスキル一覧。セッション未確定 (新規チャット) では取得せず unavailable のままにする。
- * 一覧を開いたときにだけ取得し、セッションが変わったら取り直す (本文は送信時に BFF が読む)。
+ * セッションが変わるたびに取り直す (本文は送信時に BFF が読むため、一覧は優先順位の表示に使う)。
  */
 export type SessionSkillsState =
   | { status: "unavailable" }
@@ -25,11 +25,13 @@ export function useSessionSkills(
   const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
+    // 新規チャットへ移ったときも取得を無効化する。早期 return で抜けると、旧セッションの
+    // 応答が後から届いて一覧を書き換える (存在しないセッションのスキルを見せる)
+    const canApply = beginRequest();
     if (!enabled || !sessionId) {
       setState({ status: "unavailable" });
       return;
     }
-    const canApply = beginRequest();
     setState({ status: "loading" });
     void (async () => {
       try {

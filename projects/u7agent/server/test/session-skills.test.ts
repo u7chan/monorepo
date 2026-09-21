@@ -346,6 +346,46 @@ test("GET /api/sessions/:id/skills はセッションのスキルを優先順位
   }
 });
 
+test("一覧 API は発見の失敗を 502 にし、置き場が無い 404 は空として扱う", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-skills-strict-"));
+  const pi = createStubPi();
+  // 置き場が無い (404) は「そのスコープにスキルが無い」だけなので 200 + 組み込みだけ
+  const missing = stubWorkspace({});
+  missing.workspace.listSkills = async (dir: string) => {
+    throw new SandboxRequestError(`Path not found: ${dir}`, 404);
+  };
+  const empty = await createBffApp({ cwd: root, sessionStoreDir: null, pi: asPiBff(pi), workspace: missing.workspace });
+  try {
+    const sessionId = await createProjectSession(empty.app);
+    const response = await empty.app.request(`/api/sessions/${sessionId}/skills`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      (await jsonBody(response)).skills.map((skill: { name: string }) => skill.name),
+      [BUILTIN.name],
+    );
+  } finally {
+    await empty.close();
+  }
+
+  // 接続できない / サンドボックス側の失敗は「取れなかった」なのでエラーにする (組み込みだけ見せて縮退しない)
+  for (const status of [502, 503]) {
+    const failing = stubWorkspace({});
+    failing.workspace.listSkills = async () => {
+      throw new SandboxRequestError("サンドボックスに接続できません", status);
+    };
+    const bff = await createBffApp({ cwd: root, sessionStoreDir: null, pi: asPiBff(pi), workspace: failing.workspace });
+    try {
+      const sessionId = await createProjectSession(bff.app);
+      const response = await bff.app.request(`/api/sessions/${sessionId}/skills`);
+      // サンドボックスが返した status をそのまま通す (接続失敗は SandboxRequestError の 502)
+      assert.equal(response.status, status, `sandbox status=${status}`);
+      assert.match((await jsonBody(response)).error, /サンドボックスに接続できません/);
+    } finally {
+      await bff.close();
+    }
+  }
+});
+
 test("未所属セッションの一覧は projectSkills=false でプロジェクトスキルを探索しない", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-skills-scratch-"));
   const { workspace } = stubWorkspace({ skills: { "proj/.agents/skills": [skillEntry("/proj/x/SKILL.md", "x")] } });

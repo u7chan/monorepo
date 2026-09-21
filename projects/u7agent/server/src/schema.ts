@@ -386,7 +386,10 @@ export const SessionSkillInfoSchema = z.object({
   /** 表示用の root 相対パス。root の外とカタログは null */
   relativePath: z.string().nullable(),
   disableModelInvocation: z.boolean(),
-  /** 同名の上位スコープがあり `/skill:` では選ばれない (組み込みとカタログで起こり得る) */
+  /**
+   * 同名の上位スコープがあり `/skill:` では選ばれない (組み込みとカタログで起こり得る)。
+   * 設定用の FileSkillInfo.shadowed (隠した側の一覧) とは意味が違うので注意。
+   */
   shadowed: z.boolean(),
   /** shadowed のとき、優先される側の location */
   shadowedBy: z.string().nullable(),

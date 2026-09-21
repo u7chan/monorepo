@@ -40,6 +40,11 @@ export interface SessionSkillsInput {
   promptSnapshot?: PromptSnapshot | undefined;
   /** セッションのエージェントスナップショット。カタログスキルの説明の出所 */
   agentSkills?: AgentSkillInfo[] | undefined;
+  /**
+   * true ならファイルスキルの発見失敗を投げる (一覧 API 用)。既定は落として組み込み / カタログだけで解決する
+   * (セッション作成と `/skill:` の展開は縮退させる)。
+   */
+  strict?: boolean | undefined;
 }
 
 /** 本文の取得方法。一覧では使わず、展開のときにだけ解決する */
@@ -107,7 +112,11 @@ export function catalogSkillsFromSnapshot(snapshot?: PromptSnapshot): Array<{ na
  */
 export async function resolveSessionSkills(input: SessionSkillsInput): Promise<ResolvedSessionSkill[]> {
   const composed: ComposedFileSkills = input.client
-    ? await discoverSessionFileSkills(input.client, { rootCwd: input.rootCwd, relativeCwd: input.relativeCwd })
+    ? await discoverSessionFileSkills(input.client, {
+        rootCwd: input.rootCwd,
+        relativeCwd: input.relativeCwd,
+        ...(input.strict === undefined ? {} : { strict: input.strict }),
+      })
     : // サンドボックスが無くても組み込みはワークスペースに依らず使える (一覧と展開を同じ解決に保つ)
       composeFileSkills([{ scope: "builtin", entries: builtinSkillEntries(input.rootCwd) }], input.rootCwd);
   // 影になった組み合わせは「落ちた側のパス → 採用された側のパス」で引く

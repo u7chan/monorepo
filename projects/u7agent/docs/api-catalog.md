@@ -77,7 +77,7 @@
       "disableModelInvocation": false,
       "shadowed": [],
       "overridden": false,
-      "version": "1",
+      "version": "3",
       "body": "---\nname: skill-creator\n---\n..."
     }
   ]

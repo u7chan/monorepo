@@ -62,6 +62,11 @@ export interface SessionFileSkillInput {
   rootCwd: string;
   /** セッション cwd (root 相対)。プロジェクトスキルの起点で、未所属のスクラッチでは探索しない */
   relativeCwd: string;
+  /**
+   * true なら置き場の不在 (404) 以外の失敗を投げる。一覧 API は「使えるスキル」を見せる場所なので、
+   * 取れないことをエラーで見せる (既定はログに残して落とし、セッション作成を止めない)。
+   */
+  strict?: boolean;
 }
 
 /**
@@ -133,7 +138,7 @@ export async function discoverSessionFileSkills(
   const sources: FileSkillSource[] = await Promise.all(
     targets.map(async (target): Promise<FileSkillSource> => ({
       scope: target.scope,
-      entries: await listSkillsOrEmpty(client, target.dir),
+      entries: await listSkillsOrEmpty(client, target.dir, input.strict ?? false),
     })),
   );
   // 組み込みはワークスペースに実体が無いため、最後 (最低優先) に足す
@@ -148,12 +153,13 @@ export async function discoverSessionFileSkills(
 /** 発見に必要なサンドボックスの操作だけ (workspace client でも tool client でも受けられる) */
 export type SkillScanClient = Pick<SandboxToolClient, "listSkills">;
 
-/** 404 は「そのスコープに置き場が無い」だけ。他の失敗もこの dir を落とすに留める。 */
-async function listSkillsOrEmpty(client: SkillScanClient, dir: string): Promise<SandboxSkillEntry[]> {
+/** 404 は「そのスコープに置き場が無い」だけ。他の失敗も (strict でなければ) この dir を落とすに留める。 */
+async function listSkillsOrEmpty(client: SkillScanClient, dir: string, strict: boolean): Promise<SandboxSkillEntry[]> {
   try {
     return (await client.listSkills(dir)).skills;
   } catch (error) {
     if (!(error instanceof SandboxRequestError && error.status === 404)) {
+      if (strict) throw error;
       console.warn(`[u7agent] スキルを発見できませんでした (${dir}): ${messageFor(error)}`);
     }
     return [];

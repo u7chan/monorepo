@@ -98,18 +98,23 @@ export function createSessionRoutes({
     /**
      * セッションで使えるスキル (プロジェクト / 共通 / 組み込み / Agent 割り当て)。
      * 本文は載せない (送信時に取り直す) ため、応答は一覧と優先順位の表示に使う。
+     * 発見に失敗したら 502 にする (組み込みだけを見せて「使えるスキルはありません」にしない)。
      */
     skills: async (c: Context) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       if (!workspace) return sandboxNotConfigured(c);
-      const skills = await listSessionSkills(skillsInputOf(record));
-      return c.json({
-        sessionId: record.id,
-        cwd: record.workdir,
-        projectSkills: hasProjectSkills(record.workdir),
-        skills,
-      });
+      try {
+        const skills = await listSessionSkills({ ...skillsInputOf(record), strict: true });
+        return c.json({
+          sessionId: record.id,
+          cwd: record.workdir,
+          projectSkills: hasProjectSkills(record.workdir),
+          skills,
+        });
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
     },
 
     postMessage: async (c: Context, body: PostMessageBody) => {

@@ -194,6 +194,7 @@ References are relative to /workspace/.agents/skills/writer.
 - 実行中（キュー / steering）に送った場合も同じ経路で展開する（`postMessage` が展開してから `SessionStore` へ渡す）
 - 一覧のタイトルは展開前の入力（`/skill:writer 3 行で書いて`）から作る。履歴（`messages[].text`）と `run_start.prompt` には展開後の本文が入り、クライアントは user バブルでブロックを畳んで表示する（引数だけを吹き出しに残す）
 - 二重展開はしない。展開結果は `<skill …>` で始まるため、SDK 側の展開（`/skill:` 接頭辞）には当たらない
+- 本文に `</skill>` だけの行を書かない（ブロックの終端と区別できず、クライアントの畳み込み表示が崩れる。SDK の `parseSkillBlock` も同じ位置で切れる）
 
 ### 添付の注記
 
@@ -239,9 +240,9 @@ References are relative to /workspace/.agents/skills/writer.
 - `scope` は `project` / `user`（共通）/ `builtin` / `catalog`（エージェント定義のスキル）。並びは優先順位 `project > user > builtin > catalog`
 - `cwd` はセッションの作業ディレクトリ（root 相対）。`projectSkills` はプロジェクトスキルを探索するセッションか（未所属のスクラッチと root 直下は `false`）
 - `location` は `read` に渡す値（カタログは `catalog:<name>`）。`relativePath` は表示用で、root の外とカタログは `null`
-- 同名は優先順位で一意化する。負けた行（組み込みの上書きとカタログ）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。**ファイルの改名・削除・マージはしない**
+- 同名は優先順位で一意化する。負けた行（組み込みの上書きとカタログ）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。`shadows` に入るのは**ファイルスキル同士の重複**で、カタログは常に敗者側にしか立たない。**ファイルの改名・削除・マージはしない**
 - カタログの `description` はセッションのエージェントスナップショット（`agent.skills`）から、本文は `promptSnapshot` から引く。どちらも作成時点の内容で、定義を編集してもこのセッションの一覧は変わらない
-- 404（セッションなし）/ 503（サンドボックス未設定）/ 502（サンドボックスへ到達できない）
+- 404（セッションなし）/ 503（サンドボックス未設定）/ それ以外のサンドボックスの失敗はそのまま（接続できないときは 502）。**組み込みだけを返して黙って縮退しない**（使えるスキルを見せる場所なので、取れないことはエラーで見せる）。セッション作成と `/skill:` の展開は従来どおり縮退する（作成を止めない）
 
 ## `POST /api/sessions/:id/files`
 

@@ -9,7 +9,7 @@ export const SESSION_SKILL_SCOPE_LABEL: Record<SessionSkillInfo["scope"], string
   project: "プロジェクト",
   user: "共通",
   builtin: "組み込み",
-  catalog: "エージェント",
+  catalog: "エージェント定義",
 };
 
 /** 一覧のグループ順。優先順位 (project > user > builtin > catalog) と同じ順に見せる */
