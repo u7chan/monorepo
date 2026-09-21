@@ -196,6 +196,24 @@ test("listFiles sends the encoded path and auth header, and parses the JSON list
   assert.equal(calls[1].url, "http://sandbox.test:8080/v1/files?path=");
 });
 
+test("listSkills は 200 でも本文が契約外なら 502 にする (切断・プロキシの HTML など)", async () => {
+  const { calls, impl } = stubFetch(
+    () =>
+      new Response("<!doctype html><title>502 Bad Gateway</title>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+  await assert.rejects(client.listSkills(".agents/skills"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError, "サンドボックス側の問題として扱う");
+    assert.equal(error.status, 502);
+    assert.match(error.message, /スキル一覧の応答が不正です/);
+    return true;
+  });
+  assert.equal(calls[0].url, "http://sandbox.test/v1/skills?dir=.agents%2Fskills");
+});
+
 test("listFiles relays sandbox 4xx messages and maps the rest to 502", async () => {
   const sandboxError = (status: number, message: string) =>
     stubFetch(

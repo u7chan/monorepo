@@ -182,7 +182,13 @@ async function listSkills(
     baseUrl,
   );
   if (!response.ok) throw await jsonError(response, "スキル一覧を取得できませんでした");
-  return (await response.json()) as SandboxSkillsResponse;
+  // 200 でも本文が契約外 (切断・プロキシの HTML など) ならサンドボックス側の問題として 502 に寄せる。
+  // ここで投げる SyntaxError は呼び出し側の「内部エラー = 500」と区別が付かない
+  try {
+    return (await response.json()) as SandboxSkillsResponse;
+  } catch (error) {
+    throw new SandboxRequestError(`スキル一覧の応答が不正です: ${messageFor(error)}`, 502);
+  }
 }
 
 async function createDir(
