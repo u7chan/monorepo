@@ -65,6 +65,8 @@ export function AgentEditorForm({
   onDone?: () => void;
 }) {
   const showHeading = variant === "page";
+  // 最後の 1 体はサーバーが削除を拒否するので、押せる見た目のまま 400 を出させない
+  const isLastAgent = catalog.agents.length <= 1;
 
   const saveAgent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -100,7 +102,7 @@ export function AgentEditorForm({
       onNote("エージェントを削除しました。");
       onDone?.();
     } catch (error) {
-      // 最後のエージェントの削除などサーバー 400 のメッセージをそのまま出す
+      // 削除を拒否されたときはサーバーの文言をそのまま出す
       onNote(error instanceof Error ? error.message : String(error), true);
     }
   };
@@ -214,14 +216,18 @@ export function AgentEditorForm({
         </div>
         <div className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3">
           {agent ? (
-            <button
-              type="button"
-              onClick={() => void removeCurrentAgent()}
-              className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
-            >
-              <TrashIcon />
-              削除
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void removeCurrentAgent()}
+                disabled={isLastAgent}
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                <TrashIcon />
+                削除
+              </button>
+              {isLastAgent ? <span className="text-1xs text-ink-faint">最後の 1 体は削除できません</span> : null}
+            </>
           ) : null}
           <button type="submit" className="btn-primary ml-auto">
             <CheckIcon />
