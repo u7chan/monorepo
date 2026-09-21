@@ -188,7 +188,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - 表示はメッセージと同じ規則（`client/src/lib/messageTime.ts`）で、テキストは `messageTimeLabel`（今日 → `08:53` / 今年 → `9/21` / それ以前 → `2026/9/21`）、`title` に `messageFullTimeLabel`（`2026/9/21(日) 08:53`）を出す。`<time dateTime={new Date(mtime).toISOString()} title={…}>` の形の前例はチャットの吹き出し（`MessageView.tsx`）。数字の幅で行ごとにガタつかないよう `tabular-nums` を付ける
 - **ディレクトリ行もファイル行と同じ「div + 操作 button」の形にする**（以前は行全体が 1 つの `button`）。時刻を `button` の中に入れると accessible name に時刻が混ざり、時刻のクリックでも開閉してしまうため。`button` は `flex-1` のままなので、行のクリック領域は実質変わらない
-- 時刻の右端をそろえるため、両行の右 padding を `pr-1` にそろえ、行の末尾に必ず `size-6` のスロットを置く（ファイル行 = ゴミ箱 / ディレクトリ行と symlink 行 = `aria-hidden` の空スペーサー `EmptySlot`）。px の一致は client に DOM テスト基盤が無いため自動では固定せず、**手動確認**とする（`client/test/fileBrowserRowTime.test.ts` は両行が同じ形であることまでを固定する）
+- 時刻の右端をそろえるため、両行の右 padding を `pr-1` にそろえ、行の末尾に必ず `size-6` のスロットを置く（ファイル行とディレクトリ行 = ゴミ箱 / symlink 行 = `aria-hidden` の空スペーサー `EmptySlot`）。px の一致は client に DOM テスト基盤が無いため自動では固定せず、**手動確認**とする（`client/test/fileBrowserRowTime.test.ts` は両行が同じ形であることまでを固定する）
 - 意味は「更新」。サンドボックスが返せるのは mtime で、`birthtime` は overlayfs 等で 0 になり得るため使わない（アップロード / エージェントの書き出しでは実質の作成時刻と一致する）
 - **サンドボックスの一覧はディレクトリにも `mtime` を付ける**（`size` はファイルだけ。ディレクトリの `size` はファイルの内容量を表さない）。規則は symlink は辿った先（`stat`）、それ以外は `lstat` を全エントリに適用し、`classifyEntry` が種別判定に使った `stat` は捨てずに再利用する（増える syscall は素のディレクトリの `lstat` 1 回）。ディレクトリ symlink にはリンク先の mtime が付く（一覧が実体で表す既存契約と一致）
 - 一覧は追加の更新を持たないので、**行の時刻は「再読み込み」と run 終了でしか更新されない**。削除しても親ディレクトリ行の `mtime` は次の取得まで古いまま
