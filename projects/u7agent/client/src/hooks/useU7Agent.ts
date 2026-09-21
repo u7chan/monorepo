@@ -79,6 +79,7 @@ export function useU7Agent() {
   } = useSessions({
     dispatch,
     agentId,
+    agents: catalog.agents,
     setAgentId,
     selectProject,
     selectedProjectIdRef,

@@ -34,7 +34,7 @@ const DEFAULT_AGENTS: AgentRecord[] = [
   {
     id: "agent-general",
     name: "汎用アシスタント",
-    description: "役割や口調を設定していない既定のエージェント。まずはこのまま試す",
+    description: "役割や口調を設定していない既定のエージェント",
     systemPrompt: "",
     skillIds: [],
     suggestions: [

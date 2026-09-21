@@ -8,7 +8,8 @@ import {
   listSessions,
   updateSessionSettings,
 } from "../api";
-import type { EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
+import { adoptKnownAgentId } from "../lib/agentSelection";
+import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
 import { createSessionCreation } from "./sessionCreation";
@@ -23,6 +24,7 @@ const alwaysCurrent = () => true;
 export type UseSessionsParams = {
   dispatch: Dispatch<ChatAction>;
   agentId: string;
+  agents: AgentDef[];
   setAgentId: (id: string) => void;
   selectProject: (id: string) => void;
   /** state の反映を待たず読む (ensureSession が送信時に参照) */
@@ -34,6 +36,7 @@ export type UseSessionsParams = {
 export function useSessions({
   dispatch,
   agentId,
+  agents,
   setAgentId,
   selectProject,
   selectedProjectIdRef,
@@ -94,11 +97,14 @@ export function useSessions({
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       localStorage.setItem(SESSION_KEY, payload.sessionId);
-      setAgentId(payload.agent?.id || agentId);
+      // 復元したセッションの agent はカタログに無いことがある (削除済み / ID 変更)。
+      // 選択に残すと次のセッション作成が 400 になるので、既知のときだけ採用する
+      const snapshotAgentId = adoptKnownAgentId(agents, payload.agent?.id, agentId);
+      if (snapshotAgentId !== agentId) setAgentId(snapshotAgentId);
       applySnapshot(payload);
       setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
     },
-    [agentId, applySnapshot, setAgentId],
+    [agentId, agents, applySnapshot, setAgentId],
   );
 
   const selectSession = useCallback(
