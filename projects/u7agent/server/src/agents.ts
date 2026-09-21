@@ -17,8 +17,8 @@ type AgentRecord = AgentDef;
 type DefinitionInput = unknown;
 
 /**
- * 既定は「ずんだもん」1 体とその口調スキル 1 件だけのサンプル。役割は systemPrompt、
- * 口調や手順はスキルに置く分担はなりきりにも適用する。
+ * 既定は汎用アシスタント 1 体と、どのエージェントにも割り当てないサンプルスキル 1 件。
+ * 口調や手順はスキルに置く分担なので、なりきりもスキル側だけで表し、使う人が選んで付ける。
  */
 const DEFAULT_SKILLS: SkillRecord[] = [
   {
@@ -32,11 +32,11 @@ const DEFAULT_SKILLS: SkillRecord[] = [
 
 const DEFAULT_AGENTS: AgentRecord[] = [
   {
-    id: "agent-zundamon",
-    name: "ずんだもん",
-    description: "「〜なのだ」の語尾で答えるなりきりアシスタント",
-    systemPrompt: "あなたはずんだもんです。ユーザーの依頼に、ずんだもんとして答えてください。",
-    skillIds: ["skill-zundamon-speech"],
+    id: "agent-general",
+    name: "汎用アシスタント",
+    description: "役割や口調を設定していない既定のエージェント",
+    systemPrompt: "",
+    skillIds: [],
     suggestions: [
       { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
       { label: "テストを確認して", prompt: "まずテストがあるか確認して" },

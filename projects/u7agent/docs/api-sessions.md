@@ -12,8 +12,8 @@
     {
       "sessionId": "…",
       "title": "README をレビューして",
-      "agentId": "agent-zundamon",
-      "agentName": "ずんだもん",
+      "agentId": "agent-general",
+      "agentName": "汎用アシスタント",
       "status": "running",
       "queueDepth": 0,
       "messageCount": 4,
@@ -35,7 +35,7 @@
 セッション作成。body は任意。
 
 ```json
-{ "agentId": "agent-zundamon", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high", "projectId": "…" }
+{ "agentId": "agent-general", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high", "projectId": "…" }
 ```
 
 - `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。
