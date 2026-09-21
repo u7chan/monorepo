@@ -6,11 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
+import { loadSkillsFromDir, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead } from "@earendil-works/pi-coding-agent";
 import {
   assertBuiltinSkillBodyFits,
-  BUILTIN_SKILL_MAX_BYTES,
-  BUILTIN_SKILL_MAX_LINES,
   BUILTIN_SKILLS,
   BUILTIN_SKILLS_DIR_REL,
   builtinSkillByName,
@@ -77,20 +75,31 @@ test("同梱物の読み込みは空 dir・壊れた frontmatter・版の不足�
   write("---\nname: sample\ndescription: サンプル\n---\n本文\n");
   assert.throws(() => loadBuiltinSkills({ dir, versions: {} }), /version が未定義です/);
   assert.throws(() => loadBuiltinSkills({ dir, versions: { sample: "2", ghost: "1" } }), /ghost が見つかりません/);
+
+  // 大きすぎる本文は read が切り詰めるため、load 経由でも落とす
+  write(`---\nname: sample\ndescription: サンプル\n---\n${"x\n".repeat(DEFAULT_MAX_LINES + 1)}`);
+  assert.throws(() => loadBuiltinSkills({ dir, versions: { sample: "2" } }), /大きすぎます/);
+
+  // 同じ name を別ディレクトリで宣言すると後勝ちで片方が静かに消えるため落とす
+  write("---\nname: sample\ndescription: サンプル\n---\n本文\n");
+  mkdirSync(join(dir, "sample-copy"), { recursive: true });
+  writeFileSync(join(dir, "sample-copy", "SKILL.md"), "---\nname: sample\ndescription: 複製\n---\n本文\n");
+  assert.throws(() => loadBuiltinSkills({ dir, versions: { sample: "2" } }), /name が重複しています/);
 });
 
 test("同梱 SKILL.md は read の切り詰め上限に収まっている", () => {
   for (const skill of BUILTIN_SKILLS) {
-    const lines = skill.body.split("\n").length;
-    assert.ok(lines <= BUILTIN_SKILL_MAX_LINES, `${skill.name}: ${lines} 行`);
-    assert.ok(Buffer.byteLength(skill.body, "utf8") <= BUILTIN_SKILL_MAX_BYTES, `${skill.name}: バイト数`);
+    assert.equal(truncateHead(skill.body).truncated, false, `${skill.name}: ${skill.body.length} bytes`);
   }
 });
 
-test("assertBuiltinSkillBodyFits は上限を超える本文を弾く", () => {
+test("assertBuiltinSkillBodyFits は read と同じ上限 (truncateHead) で判定する", () => {
   assertBuiltinSkillBodyFits("line\n".repeat(500), "small");
-  assert.throws(() => assertBuiltinSkillBodyFits("x\n".repeat(BUILTIN_SKILL_MAX_LINES + 1), "big"), /大きすぎます/);
-  assert.throws(() => assertBuiltinSkillBodyFits("x".repeat(BUILTIN_SKILL_MAX_BYTES + 1), "big"), /大きすぎます/);
+  // 境界は SDK の truncateHead と同じくちょうど上限まで通る (末尾の改行は 1 行として数えない)
+  assertBuiltinSkillBodyFits("x\n".repeat(DEFAULT_MAX_LINES), "boundary-lines");
+  assertBuiltinSkillBodyFits("x".repeat(DEFAULT_MAX_BYTES), "boundary-bytes");
+  assert.throws(() => assertBuiltinSkillBodyFits("x\n".repeat(DEFAULT_MAX_LINES + 1), "big"), /大きすぎます/);
+  assert.throws(() => assertBuiltinSkillBodyFits("x".repeat(DEFAULT_MAX_BYTES + 1), "big"), /大きすぎます/);
 });
 
 test("skill-creator は置き場所・frontmatter・検証・反映タイミングを書いている", () => {

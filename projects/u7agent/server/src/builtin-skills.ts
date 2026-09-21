@@ -5,7 +5,7 @@
  * ワークスペースへは materialize せず、モデルには仮想パス (`<root>/.u7agent/builtin-skills/...`) を
  * `read` させる。実ファイルが無いため、その要求は BFF が横取りしてこの本文を返す (sandbox/remote-tools.ts)。
  */
-import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, loadSkillsFromDir, truncateHead } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,10 +17,6 @@ export const SKILL_FILE_NAME = "SKILL.md";
 export const BUILTIN_SKILLS_DIR_REL = `${APP_DIR_REL}/builtin-skills`;
 /** SDK の sourceInfo.source。ファイルスキルと同じくアプリ由来であることを示す */
 export const BUILTIN_SKILLS_SOURCE = "u7agent";
-/** read ツールが追加の指示なしに返す本文の上限 (SDK の truncateHead の既定と同じ値) */
-export const BUILTIN_SKILL_MAX_LINES = 2000;
-/** read ツールが追加の指示なしに返す本文の上限 (SDK の truncateHead の既定と同じ値) */
-export const BUILTIN_SKILL_MAX_BYTES = 51200;
 
 /**
  * 同梱物の版。SKILL.md の本文や frontmatter を変えたら上げる。
@@ -66,6 +62,14 @@ export function loadBuiltinSkills(
       `同梱スキル ${missing.join(", ")} が見つかりません (VERSIONS の名前とディレクトリを合わせてください)`,
     );
   }
+  // 同じ name を 2 つのディレクトリで宣言すると、仮想パスも一意化も後勝ちになり片方が静かに消える
+  const names = loaded.skills.map((skill) => skill.name);
+  const duplicated = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
+  if (duplicated.length > 0) {
+    throw new Error(
+      `同梱スキルの name が重複しています: ${duplicated.join(", ")} (ディレクトリごとに別の name にしてください)`,
+    );
+  }
   return loaded.skills.map((skill) => {
     const version = versions[skill.name];
     if (!version) {
@@ -87,15 +91,14 @@ export function loadBuiltinSkills(
 
 /**
  * read ツールは 2000 行 / 51200 bytes で切り詰めるが、仮想パスの本文は formatBuiltinSkillBody が整形するため
- * 同じ切り詰めを実装していない。上限を超える本文を同梱すると切り詰めずに全文が context へ入るので、
- * 同梱時に弾いて分割を促す (skill-creator 自身も SKILL.md は 500 行以内を目安にしている)。
+ * 同じ切り詰めを実装していない。切り詰めが起きる本文を同梱すると全文が context へ入るので、同梱時に弾いて
+ * 分割を促す。判定は SDK の truncateHead (read と同じ実装・同じ既定値) に任せ、行数の数え方まで合わせる。
  */
 export function assertBuiltinSkillBodyFits(body: string, name = "builtin"): void {
-  const lines = body.split("\n").length;
-  const bytes = Buffer.byteLength(body, "utf8");
-  if (lines <= BUILTIN_SKILL_MAX_LINES && bytes <= BUILTIN_SKILL_MAX_BYTES) return;
+  const { truncated, totalLines, totalBytes } = truncateHead(body);
+  if (!truncated) return;
   throw new Error(
-    `同梱スキル ${name} の SKILL.md が大きすぎます (${lines} 行 / ${bytes} bytes。上限は ${BUILTIN_SKILL_MAX_LINES} 行 / ${BUILTIN_SKILL_MAX_BYTES} bytes)。references/ へ分割してください`,
+    `同梱スキル ${name} の SKILL.md が大きすぎます (${totalLines} 行 / ${totalBytes} bytes。上限は ${DEFAULT_MAX_LINES} 行 / ${DEFAULT_MAX_BYTES} bytes)。references/ へ分割してください`,
   );
 }
 
