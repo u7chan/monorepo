@@ -11,6 +11,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
 | POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
+| DELETE | `/v1/dirs` | ディレクトリ削除。`?path=<root 相対>&recursive=true`。成功は本文なしの 204 |
 | POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
 | POST | `/v1/executions/:id/cancel` | 実行中のツールを中断 |
 
@@ -40,7 +41,23 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 
 - `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
 - 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
-- 読み取り専用の `GET /v1/files` と違い、このエンドポイントだけが作業領域へ書き込む
+- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 4 つで、`GET /v1/files` は読み取り専用
+
+## `DELETE /v1/dirs`
+
+root 相対のディレクトリを消す。既定は空ディレクトリだけで、`recursive` が正確に文字列 `true` のときだけ配下ごと消す。成功は本文なしの 204。
+
+```
+DELETE /v1/dirs?path=uploads/3a7bfba36f&recursive=true
+```
+
+- `recursive` は完全一致だけを再帰として扱う。省略は空ディレクトリのみ（`rmdir`）で、非空なら 400（`Directory is not empty: …`）。部分削除は起きない。`false` / `1` / `TRUE` / 空 / 重複（`recursive=true&recursive=true` など）は 400 で、何も消さない
+- パスの検証は [`DELETE /v1/files`](#delete-v1files) と同じ形（親を realpath、最終要素を `lstat`）。`""` / `"."` はワークスペース root、`".."` と末尾 `/` は削除対象の名前を表さない形式として 400。root 外へ解決される指定は 400（200 相当の別名で root 内へ解決する経由は [`GET /v1/files`](#get-v1files) と同じ）
+- 消せるのはディレクトリだけ。通常ファイルと特殊ファイルは 400（`Not a directory: …`）。実在しないパスは 404
+- 削除対象そのものが symlink なら 400（`Symbolic links cannot be deleted: …`。リンク自身も消さない）。削除対象の親が root 内の symlink なら、一覧・ファイル削除と同じく辿った先のディレクトリを消す
+- 再帰削除は `fs.rm(target, { recursive: true })`。**配下の symlink は辿らず、リンクだけを unlink してリンク先は残す**（`rm -rf` と同じ）。件数の上限は設けない
+- `lstat` の直後に他の実行が消した `ENOENT` は成功（204）にする（既存のファイル削除と同じ）
+- 入力検証は**競合がない場合**の契約。親を realpath し最終要素を `lstat` した後に祖先が rename + symlink へ差し替えられると、`fs.rm` が root 外を消し得る（TOCTOU）。Node に fd 相対の削除が無く、完全な防御は入れない。既存のファイル削除と同クラスだが、再帰では被害が subtree に広がる点が違う
 
 ## `POST /v1/files/upload`
 
@@ -75,7 +92,7 @@ root 相対の画像を `createReadStream` でストリーム返却する。配�
 
 ## `GET /v1/files`
 
-作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。一覧は読み取り専用で、作業領域への書き込みは `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` の 3 つだけ。リネーム・移動の API は持たない。
+作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。一覧は読み取り専用で、作業領域への書き込みは `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 4 つだけ。リネーム・移動の API は持たない。
 
 `path` は root 相対。省略時は root。解決と検証はツール実行の `cwd` と同じ関数を使う。
 

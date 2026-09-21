@@ -63,6 +63,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | GET | `/api/files?path=<root 相対>` | 作業ディレクトリの一覧。`path` 省略時は root（`"."`） |
 | DELETE | `/api/files?path=<root 相対>` | 通常ファイルの削除。成功は 204（本文なし） |
+| DELETE | `/api/files?path=<root 相対>&recursive=true` | ディレクトリの削除（配下ごと）。成功は 204（本文なし） |
 
 サンドボックスの `GET /v1/files` の応答を、そのまま DTO（`FileListing`）として返す。セッションに依存させない（`/api/sessions/:id/...` 配下に置かない）ため、セッションが無くても、APIキーが未設定で `/api/health` が `ready: false` でも開ける。
 
@@ -86,10 +87,11 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 
 ### 削除
 
-`DELETE /api/files?path=<root 相対>` はサンドボックスの `DELETE /v1/files` へ委譲し、BFF はワークスペースに触らない（`client/src/api.ts` の `deleteFile` は成功時に本文を読まない）。
+`DELETE /api/files?path=<root 相対>` はサンドボックスへ委譲し、BFF はワークスペースに触らない。`recursive` が正確に文字列 `true` のときだけディレクトリの削除（`DELETE /v1/dirs?recursive=true`。[sandbox-api.md](sandbox-api.md#delete-v1dirs)）へ回し、省略時は従来どおり通常ファイルの削除（`DELETE /v1/files`）へ回す。`client/src/api.ts` の `deleteFile` / `deleteDirectory` は成功時に本文を読まない。
 
 - 204: 削除した（本文なし）
-- 400 / 404: root 外 / 不正 / 通常ファイル以外 / symlink（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
+- 400 / 404: root 外 / 不正 / 対象外（通常ファイル以外 / ディレクトリ以外） / symlink / ディレクトリを `recursive` なしで消そうとした（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
+- `recursive` が `true` 以外（`false` / `1` / `TRUE` / 空）や重複しているときは 400（`recursive must be exactly "true" when present`）で、サンドボックスへ要求を出さない
 - 503 / 502: `GET /api/files` と同じ（未設定 / 到達不能・認証失敗・サンドボックス側のエラー）
 
 出す導線は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方にある（[file-preview.md](file-preview.md#削除)）。

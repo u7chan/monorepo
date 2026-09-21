@@ -337,3 +337,80 @@ test("createDir relays sandbox 4xx messages and maps the rest to 502", async () 
     return true;
   });
 });
+
+// ---------------------------------------------------------------------------
+// deleteDirectory (DELETE /v1/dirs。JSON 経路)
+// ---------------------------------------------------------------------------
+
+test("deleteDirectory sends DELETE with recursive=true and does not read the 204 body", async () => {
+  // 本文が無い応答で response.json() を呼ぶと throw するため、resolve すること自体が本文を読まない証明になる
+  const { calls, impl } = stubFetch(() => new Response(null, { status: 204 }));
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test:8080/", token: TOKEN, fetchImpl: impl });
+  await client.deleteDirectory("dir/sub");
+  assert.equal(calls[0].url, "http://sandbox.test:8080/v1/dirs?path=dir%2Fsub&recursive=true");
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal(init.method, "DELETE");
+  assert.equal(init.body, undefined, "削除のリクエストに本文を載せない");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+});
+
+test("deleteDirectory relays sandbox 4xx messages and maps the rest to 502", async () => {
+  const sandboxError = (status: number, message: string) =>
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: message }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ).impl;
+
+  const notEmpty = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(400, "Directory is not empty: /workspace/dir"),
+  });
+  await assert.rejects(notEmpty.deleteDirectory("dir"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 400);
+    assert.match(error.message, /not empty/);
+    return true;
+  });
+
+  const missing = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(404, "Path not found: /workspace/nope"),
+  });
+  await assert.rejects(missing.deleteDirectory("nope"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 404);
+    return true;
+  });
+
+  const broken = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(500, "boom"),
+  });
+  await assert.rejects(broken.deleteDirectory("dir"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /ディレクトリを削除できませんでした/);
+    return true;
+  });
+
+  const down = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: (() => {
+      throw new Error("ECONNREFUSED");
+    }) as typeof fetch,
+  });
+  await assert.rejects(down.deleteDirectory("dir"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /接続できません/);
+    return true;
+  });
+});

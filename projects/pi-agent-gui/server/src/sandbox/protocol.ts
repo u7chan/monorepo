@@ -55,6 +55,22 @@ export interface SandboxCreateDirResult {
   path: string;
 }
 
+/** DELETE /v1/dirs の `recursive` query の解釈結果。省略は false で、不正値と重複は ok: false になる */
+export type RecursiveQuery = { ok: true; recursive: boolean } | { ok: false };
+
+/**
+ * `recursive` query は正確に文字列 `"true"` のときだけ再帰。省略時は空ディレクトリだけを消す。
+ * それ以外の値と重複値は「再帰しない」ではなく不正 (400) にする必要があるため、BFF とサンドボックスでこの関数を共有する。
+ */
+export function parseRecursiveQuery(values: string[] | undefined): RecursiveQuery {
+  if (!values || values.length === 0) return { ok: true, recursive: false };
+  if (values.length === 1 && values[0] === "true") return { ok: true, recursive: true };
+  return { ok: false };
+}
+
+/** 不正な `recursive` の説明。BFF とサンドボックスで同じ本文を返す */
+export const RECURSIVE_QUERY_ERROR = 'recursive must be exactly "true" when present';
+
 /**
  * 一覧の 1 エントリ。type は symlink を辿った実体の種別で、ディレクトリ以外は file に寄せる。
  * size は実体を stat できたファイルに、mtime は実体を stat できたエントリに付ける (ディレクトリにも付く)。

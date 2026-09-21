@@ -21,16 +21,19 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
   workspace: SandboxWorkspaceClient;
   paths: string[];
   deleted: string[];
+  deletedDirs: string[];
   previewed: string[];
   raw: string[];
 } {
   const paths: string[] = [];
   const deleted: string[] = [];
+  const deletedDirs: string[] = [];
   const previewed: string[] = [];
   const raw: string[] = [];
   return {
     paths,
     deleted,
+    deletedDirs,
     previewed,
     raw,
     workspace: {
@@ -47,6 +50,9 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
       createDir: async (path: string) => ({ path }),
       deleteFile: async (path: string) => {
         deleted.push(path);
+      },
+      deleteDirectory: async (path: string) => {
+        deletedDirs.push(path);
       },
       // アップロードはこのテストでは扱わない
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
@@ -465,13 +471,14 @@ test("GET /api/files maps sandbox failures and rejects malformed listings", asyn
 });
 
 test("DELETE /api/files deletes through the sandbox and returns 204 without a body", async () => {
-  const { workspace, deleted } = stubFiles();
+  const { workspace, deleted, deletedDirs } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     const response = await bff.app.request("/api/files?path=uploads%2Fphoto.png", { method: "DELETE" });
     assert.equal(response.status, 204);
     assert.equal(await response.text(), "");
     assert.deepEqual(deleted, ["uploads/photo.png"]);
+    assert.deepEqual(deletedDirs, [], "recursive なしでディレクトリ削除を呼んでいる");
 
     // path を省略した場合は root 相当を渡し、検証はサンドボックスに任せる
     assert.equal((await bff.app.request("/api/files", { method: "DELETE" })).status, 204);
@@ -481,14 +488,58 @@ test("DELETE /api/files deletes through the sandbox and returns 204 without a bo
   }
 });
 
+test("DELETE /api/files delegates recursive=true to the sandbox directory delete", async () => {
+  const { workspace, deleted, deletedDirs } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files?path=dir%2Fsub&recursive=true", { method: "DELETE" });
+    assert.equal(response.status, 204);
+    assert.equal(await response.text(), "");
+    assert.deepEqual(deletedDirs, ["dir/sub"]);
+    assert.deepEqual(deleted, [], "recursive=true でファイル削除を呼んではいけない");
+
+    // path を省略した場合も recursive の指定はそのままサンドボックスへ渡す
+    assert.equal((await bff.app.request("/api/files?recursive=true", { method: "DELETE" })).status, 204);
+    assert.deepEqual(deletedDirs, ["dir/sub", ""]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("DELETE /api/files rejects recursive values that are not exactly true, without deleting", async () => {
+  const { workspace, deleted, deletedDirs } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const queries = [
+      "/api/files?path=dir&recursive=false",
+      "/api/files?path=dir&recursive=1",
+      "/api/files?path=dir&recursive=TRUE",
+      "/api/files?path=dir&recursive=",
+      "/api/files?path=dir&recursive=true&recursive=true",
+      "/api/files?path=dir&recursive=true&recursive=false",
+    ];
+    for (const url of queries) {
+      const response = await bff.app.request(url, { method: "DELETE" });
+      assert.equal(response.status, 400, url);
+      assert.match((await jsonBody(response)).error, /recursive/, url);
+    }
+    assert.deepEqual(deleted, [], "不正な recursive でファイル削除を呼んでいる");
+    assert.deepEqual(deletedDirs, [], "不正な recursive でディレクトリ削除を呼んでいる");
+  } finally {
+    await bff.close();
+  }
+});
+
 test("DELETE /api/files answers 503 when the sandbox is not configured", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
-    const response = await bff.app.request("/api/files?path=uploads%2Fphoto.png", { method: "DELETE" });
-    assert.equal(response.status, 503);
-    const body = await jsonBody(response);
-    assert.match(body.error, /PI_SANDBOX_URL/);
-    assert.match(body.error, /PI_SANDBOX_TOKEN/);
+    for (const url of ["/api/files?path=uploads%2Fphoto.png", "/api/files?path=dir&recursive=true"]) {
+      const response = await bff.app.request(url, { method: "DELETE" });
+      assert.equal(response.status, 503, url);
+      const body = await jsonBody(response);
+      assert.match(body.error, /PI_SANDBOX_URL/, url);
+      assert.match(body.error, /PI_SANDBOX_TOKEN/, url);
+    }
   } finally {
     await bff.close();
   }
@@ -508,6 +559,11 @@ test("DELETE /api/files maps sandbox failures", async () => {
       message: /Symbolic links cannot be deleted/,
     },
     {
+      error: new SandboxRequestError("Directory is not empty: /workspace/dir", 400),
+      status: 400,
+      message: /not empty/,
+    },
+    {
       error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502),
       status: 502,
       message: /接続できません/,
@@ -519,11 +575,16 @@ test("DELETE /api/files maps sandbox failures", async () => {
     workspace.deleteFile = async () => {
       throw item.error;
     };
+    workspace.deleteDirectory = async () => {
+      throw item.error;
+    };
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
     try {
-      const response = await bff.app.request("/api/files?path=uploads%2Fphoto.png", { method: "DELETE" });
-      assert.equal(response.status, item.status, item.error.message);
-      assert.match((await jsonBody(response)).error, item.message);
+      for (const url of ["/api/files?path=uploads%2Fphoto.png", "/api/files?path=dir&recursive=true"]) {
+        const response = await bff.app.request(url, { method: "DELETE" });
+        assert.equal(response.status, item.status, `${item.error.message} (${url})`);
+        assert.match((await jsonBody(response)).error, item.message, url);
+      }
     } finally {
       await bff.close();
     }
