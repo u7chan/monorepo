@@ -17,8 +17,8 @@ type AgentRecord = AgentDef;
 type DefinitionInput = unknown;
 
 /**
- * 既定は「ずんだもん」1 体とその口調スキル 1 件だけのサンプル。役割は systemPrompt が、
- * 口調や手順はスキルが持つ分担は変えない。
+ * 既定は「ずんだもん」1 体とその口調スキル 1 件だけのサンプル。役割は systemPrompt、
+ * 口調や手順はスキルに置く分担はなりきりにも適用する。
  */
 const DEFAULT_SKILLS: SkillRecord[] = [
   {
