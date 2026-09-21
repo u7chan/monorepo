@@ -1,8 +1,0 @@
-node_modules/
-client/dist/
-.playwright-cli/
-.env
-.env.*
-!.env.example
-*.log
-.pi-agent-gui/

@@ -1,0 +1,36 @@
+{
+  "name": "u7agent",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "type": "module",
+  "description": "A tiny browser GUI backed by the pi SDK.",
+  "scripts": {
+    "start": "pnpm --filter server start",
+    "start:sandbox": "pnpm --filter server start:sandbox",
+    "dev": "node scripts/dev.mjs",
+    "dev:bff": "pnpm --filter server dev",
+    "dev:sandbox": "pnpm --filter server dev:sandbox",
+    "dev:web": "pnpm --filter client dev",
+    "build": "pnpm --filter client build",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
+    "test": "pnpm --filter server test && pnpm --filter client test",
+    "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck",
+    "lint": "oxlint client server",
+    "lint:fix": "oxlint client server --fix",
+    "format": "oxfmt client server",
+    "format:check": "oxfmt client server --check"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.85.1"
+  },
+  "devDependencies": {
+    "@shadcn/lint": "^0.1.0",
+    "oxfmt": "0.68.0",
+    "oxlint": "^1.83.0"
+  }
+}
