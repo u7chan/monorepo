@@ -1,7 +1,7 @@
 // listen せず app.request() で検証する。SDK の loadSkillsFromDir と実ファイルシステムだけを使い、実 LLM API は呼ばない。
 import assert from "node:assert/strict";
 import { mkdtempSync, symlinkSync } from "node:fs";
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { realpath } from "node:fs/promises";
@@ -127,6 +127,42 @@ test("dedupes symlink aliases and cycles inside the root", { skip: !HAS_SYMLINK 
   );
   assert.equal(result.skills[0].path, await realpath(join(skillsDir, "real/SKILL.md")));
 });
+
+test(
+  "cuts off branching symlink cycles instead of blocking the sandbox",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-skills-pathological-"));
+    const skillsDir = join(root, ".agents/skills");
+    await writeSkill(root, ".agents/skills/real", "name: real\ndescription: Real skill");
+    // 自己参照する symlink が 2 本あると SDK の走査は指数的に増える (期限で打ち切る)
+    await symlink(skillsDir, join(skillsDir, "loop-a"));
+    await symlink(skillsDir, join(skillsDir, "loop-b"));
+
+    const service = createSandboxService({ token: TOKEN, rootCwd: root, skillsScanTimeoutMs: 300 });
+    const started = Date.now();
+    const scan = listSkills(service.app, ".agents/skills");
+    // 走査は別スレッドなので、走査中でも他のリクエストは処理される (プロセスを塞がない)
+    const health = await service.app.request("/healthz");
+    assert.equal(health.status, 200);
+
+    const result = await scan;
+    assert.equal(result.status, 504);
+    assert.match(result.error ?? "", /スキルの走査が期限/);
+    // 期限 (300ms) と worker の起動分だけで返る (指数的増殖を main thread で待たない)
+    assert.ok(Date.now() - started < 5000, `scan took ${Date.now() - started}ms`);
+
+    // worker を捨てた後も次の要求は新しい worker で走る (走査が恒久的に壊れない)
+    await rm(join(skillsDir, "loop-a"));
+    await rm(join(skillsDir, "loop-b"));
+    const recovered = await listSkills(service.app, ".agents/skills");
+    assert.equal(recovered.status, 200);
+    assert.deepEqual(
+      recovered.skills.map((skill) => skill.name),
+      ["real"],
+    );
+  },
+);
 
 test("requires the sandbox token", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-skills-auth-"));

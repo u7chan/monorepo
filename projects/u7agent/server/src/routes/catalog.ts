@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import type { AgentCatalog } from "../agents";
 import { COMMON_SKILLS_DIR, composeFileSkills } from "../file-skills";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
-import type { SandboxWorkspaceClient } from "../sandbox/client";
+import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import {
   SandboxSkillsSchema,
   type CreateAgentBody,
@@ -70,6 +70,8 @@ export function createCatalogRoutes({
         if (!parsed.success) return c.json({ error: "サンドボックスのスキル一覧が不正です" }, 502);
         return c.json(composeFileSkills([{ scope: "user", entries: parsed.data.skills }], rootCwd).response);
       } catch (error) {
+        // 置き場が無いだけの 404 は空の一覧にする (セッション側の発見と同じ扱い。新規 workspace をエラーにしない)
+        if (error instanceof SandboxRequestError && error.status === 404) return c.json({ skills: [] });
         return sandboxFailure(c, error);
       }
     },

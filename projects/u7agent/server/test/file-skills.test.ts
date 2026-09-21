@@ -254,4 +254,19 @@ test("GET /api/skills/files は未設定・サンドボックス障害・不正�
   } finally {
     await broken.close();
   }
+
+  // 置き場が無いだけの 404 はエラーにせず空の一覧にする (新規 workspace の設定画面の初期表示)
+  const empty = {
+    listSkills: async () => {
+      throw new SandboxRequestError("Path not found: /workspace/.agents/skills", 404);
+    },
+  } as unknown as SandboxWorkspaceClient;
+  const fresh = await createBffApp({ cwd: root, sessionStoreDir: null, pi: null, workspace: empty });
+  try {
+    const response = await fresh.app.request("/api/skills/files");
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { skills: [] });
+  } finally {
+    await fresh.close();
+  }
 });

@@ -17,11 +17,11 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
-  loadSkillsFromDir,
   type BashSpawnContext,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
+import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
@@ -54,6 +54,8 @@ export interface SandboxServiceOptions {
   rootCwd?: string;
   /** テストで小さくできるアップロード / 生配信の上限 (既定 100 MiB) */
   maxUploadBytes?: number;
+  /** テストで小さくできるスキル走査の期限 (既定 2s) */
+  skillsScanTimeoutMs?: number;
 }
 
 export interface SandboxService {
@@ -417,13 +419,18 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
  * (SDK は直下の非 SKILL.md も読むが、`.agents/skills` の規約とずれるため落とす)。
  * SDK は子ディレクトリと SKILL.md の symlink を辿るため、realpath が root 外になるものは除外する。
  * 応答の path は realpath に揃え、同じ実体へ解決する重複 (symlink 経由・循環リンク) は 1 件に畳む。
+ * 走査は別スレッドで実行し、循環 symlink による指数的増殖では期限で打ち切る (skills-scan.ts)。
  */
-async function listWorkspaceSkills(rootCwd: string, requestedDir: string): Promise<SandboxSkillsResponse> {
+async function listWorkspaceSkills(
+  rootCwd: string,
+  requestedDir: string,
+  scanTimeoutMs: number,
+): Promise<SandboxSkillsResponse> {
   const { root, target } = await resolveWorkspaceDirectory(rootCwd, requestedDir);
 
   const skills: SandboxSkillEntry[] = [];
   const seen = new Set<string>();
-  for (const skill of loadSkillsFromDir({ dir: target, source: "u7agent" }).skills) {
+  for (const skill of (await scanSkillsWithDeadline(target, scanTimeoutMs)).skills) {
     if (basename(skill.filePath) !== "SKILL.md") continue;
     const real = await realpathNative(skill.filePath).catch(() => undefined);
     if (!real || !isInsideRoot(root, real) || seen.has(real)) continue;
@@ -481,6 +488,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   }
   const rootCwd = options.rootCwd || "/workspace";
   const maxUploadBytes = options.maxUploadBytes ?? SANDBOX_MAX_UPLOAD_BYTES;
+  const skillsScanTimeoutMs = options.skillsScanTimeoutMs ?? SKILLS_SCAN_TIMEOUT_MS;
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
@@ -693,7 +701,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   // ファイルスキル (`.agents/skills`) の発見。dir の検証は GET /v1/files と同じ経路を通す
   app.get("/v1/skills", async (c) => {
     try {
-      return c.json(await listWorkspaceSkills(rootCwd, c.req.query("dir") ?? ""));
+      return c.json(await listWorkspaceSkills(rootCwd, c.req.query("dir") ?? "", skillsScanTimeoutMs));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);
