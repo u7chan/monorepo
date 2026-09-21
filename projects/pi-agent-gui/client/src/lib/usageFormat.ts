@@ -90,7 +90,7 @@ const DANGER_PERCENT = 90;
  * 「不明」として出し、百分率を ? にする。
  * バーは文字ではなく CSS で描く (ブロック要素グリフは端末のフォント次第で崩れる)。
  */
-export function contextGauge(context?: ContextUsage, compact = false): ContextGauge | undefined {
+export function contextGauge(context?: ContextUsage): ContextGauge | undefined {
   if (!context || context.contextWindow <= 0) return undefined;
   const { contextWindow, tokens: rawTokens } = context;
   const percent = context.percent ?? (rawTokens != null ? (rawTokens / contextWindow) * 100 : undefined);
@@ -98,9 +98,7 @@ export function contextGauge(context?: ContextUsage, compact = false): ContextGa
   return {
     fill: percent === undefined ? null : Math.min(1, Math.max(0, percent / 100)),
     percent: percent === undefined ? "?" : `${Math.round(percent)}%`,
-    // compact はラベル (Context) とバーの分だけ横幅を食うので、絶対値を落として
-    // 隣の activity が折り返さないようにする
-    detail: compact ? "" : `(${tokens}/${formatTokens(contextWindow)})`,
+    detail: `(${tokens}/${formatTokens(contextWindow)})`,
     level:
       percent !== undefined && percent > DANGER_PERCENT
         ? "danger"

@@ -11,14 +11,12 @@ export function ContextGauge({
   activity,
   runningSince,
   context,
-  compact,
 }: {
   activity: string;
   runningSince?: number;
   context?: ContextUsage;
-  compact: boolean;
 }) {
-  const gauge = contextGauge(context, compact);
+  const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
   if (!activity && !gauge) return null;
@@ -58,7 +56,7 @@ export function ContextGauge({
               />
             )}
           </span>{" "}
-          {gauge.percent} {gauge.detail ? <span className="text-ink-ghost">{gauge.detail}</span> : null}
+          {gauge.percent} <span className="text-ink-ghost">{gauge.detail}</span>
         </span>
       ) : null}
     </div>
