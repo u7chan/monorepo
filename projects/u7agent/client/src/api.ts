@@ -3,7 +3,7 @@ import type { AppType } from "server";
 import { encodeFilePathParam } from "./lib/fileUrl";
 import type {
   AgentDef,
-  Catalog,
+  CatalogResponse,
   CreateAgentBody,
   CreateSkillBody,
   FileListing,
@@ -51,13 +51,13 @@ export const getHealth = async (): Promise<Health> => {
   return res.json();
 };
 
-export const getCatalog = async (): Promise<Catalog> => {
+export const getCatalog = async (): Promise<CatalogResponse> => {
   const res = await client.api.agents.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
 
-export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unknown[] }): Promise<Catalog> => {
+export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unknown[] }): Promise<CatalogResponse> => {
   const res = await client.api.agents.$put({ json: catalog });
   if (!res.ok) throw await apiError(res);
   return res.json();

@@ -200,7 +200,7 @@ export class SessionStore {
       throw httpError(503, "ランタイムを利用できません");
     }
     const project = this.resolveProject(projectId);
-    const selectedAgentId = agentId || this.catalog.listAgents()[0]?.id;
+    const selectedAgentId = agentId || this.catalog.builtinAgent().id;
     const agent = selectedAgentId ? this.catalog.getAgent(selectedAgentId) : undefined;
     if (!agent) {
       throw httpError(400, "Agent not found");

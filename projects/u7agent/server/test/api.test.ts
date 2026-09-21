@@ -584,11 +584,13 @@ test("session creation resolves request → definition → app default per field
     assert.equal(requested.thinkingLevel, "high");
     assert.equal(requested.supportsThinking, true);
 
-    // アプリ既定 (medium) は定義もリクエストも無い項目にだけ使われる
+    // アプリ既定 (medium) は定義もリクエストも無い項目にだけ使われる。既定のエージェントは
+    // ユーザー定義の 1 件目ではなくビルトイン
     const appDefault = await app.request("/api/sessions", jsonPost({}));
     const payload = await jsonBody(appDefault);
     assert.equal(payload.model, "stub/stub-model");
     assert.equal(payload.thinkingLevel, "medium");
+    assert.equal(payload.agent.id, "agent-general");
 
     // 不正な値は SDK 作成前に 400
     const invalidModel = await app.request("/api/sessions", jsonPost({ model: { provider: "stub", id: "ghost" } }));
@@ -838,12 +840,13 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
-    const builtIn = initial.agents.find((agent: { id: string }) => agent.id === "agent-general");
-    assert.deepEqual(builtIn.suggestions, [
+    // ビルトインは別フィールドで返り、置換対象の agents には含まれない
+    assert.deepEqual(initial.builtinAgent.suggestions, [
       { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
       { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
       { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
     ]);
+    assert.deepEqual(initial.agents, []);
 
     // suggestions を省略した作成はキーごと落ちる
     const plain = await app.request("/api/agents", jsonPost({ name: "定型なし" }));
@@ -860,29 +863,69 @@ test("catalog endpoints expose and update agent suggestions", async () => {
     assert.deepEqual(createdAgent.suggestions, [{ label: "押す", prompt: "送る" }]);
 
     const saved = await app.request(
-      "/api/agents/agent-general",
+      `/api/agents/${createdAgent.id}`,
       jsonPatch({ suggestions: [{ label: "足した", prompt: "追加のプロンプト" }] }),
     );
     assert.equal(saved.status, 200);
     assert.deepEqual((await jsonBody(saved)).agent.suggestions, [{ label: "足した", prompt: "追加のプロンプト" }]);
 
     const reloaded = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(reloaded.agents.find((agent: { id: string }) => agent.id === "agent-general").suggestions, [
+    assert.deepEqual(reloaded.agents.find((agent: { id: string }) => agent.id === createdAgent.id).suggestions, [
       { label: "足した", prompt: "追加のプロンプト" },
     ]);
 
     // 空配列で解除すると応答からもキーが消える
-    const cleared = await app.request("/api/agents/agent-general", jsonPatch({ suggestions: [] }));
+    const cleared = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ suggestions: [] }));
     assert.equal(cleared.status, 200);
     assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "suggestions"), false);
     const afterClear = await jsonBody(app.request("/api/agents"));
     assert.equal(
       Object.hasOwn(
-        afterClear.agents.find((agent: { id: string }) => agent.id === "agent-general"),
+        afterClear.agents.find((agent: { id: string }) => agent.id === createdAgent.id),
         "suggestions",
       ),
       false,
     );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("the built-in agent rejects updates, deletes and imports", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const patched = await app.request("/api/agents/agent-general", jsonPatch({ name: "乗っ取り" }));
+    assert.equal(patched.status, 400);
+    assert.deepEqual(await jsonBody(patched), { error: "Built-in agent cannot be updated" });
+
+    const deleted = await app.request("/api/agents/agent-general", { method: "DELETE" });
+    assert.equal(deleted.status, 400);
+    assert.deepEqual(await jsonBody(deleted), { error: "Built-in agent cannot be deleted" });
+
+    // ビルトインを含む import は黙って捨てず 400 で断る
+    const replaced = await app.request("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agents: [{ id: "agent-general", name: "乗っ取り" }], skills: [] }),
+    });
+    assert.equal(replaced.status, 400);
+    assert.equal((await jsonBody(replaced)).error, "Agent id agent-general is reserved for the built-in agent");
+
+    // ユーザー定義 0 件の import は通り、セッション作成の既定もビルトインが担う
+    const empty = await app.request("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agents: [], skills: [] }),
+    });
+    assert.equal(empty.status, 200);
+    const catalog = await jsonBody(app.request("/api/agents"));
+    assert.equal(catalog.builtinAgent.name, "汎用アシスタント");
+    assert.deepEqual(catalog.agents, []);
+
+    const created = await app.request("/api/sessions", jsonPost({}));
+    assert.equal(created.status, 201);
+    assert.equal((await jsonBody(created)).agent.id, "agent-general");
   } finally {
     await bff.close();
   }

@@ -50,6 +50,16 @@ export const CatalogSchema = z.object({
 });
 export type Catalog = z.infer<typeof CatalogSchema>;
 
+/**
+ * GET / PUT `/api/agents` の応答。`builtinAgent` はサーバー所有の汎用エージェントで、
+ * `agents` (置換対象 = export される定義) には含まれない。サーバーは常にオブジェクトを返し、
+ * `null` はクライアントが取得前に持つ初期状態だけを表す。
+ */
+export const CatalogResponseSchema = CatalogSchema.extend({
+  builtinAgent: AgentDefSchema.nullable(),
+});
+export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
+
 export const AgentSkillInfoSchema = z.object({
   id: z.string(),
   name: z.string(),

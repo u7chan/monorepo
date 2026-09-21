@@ -223,7 +223,7 @@ export default function App() {
               queueDepth={app.chat.queueDepth}
               context={app.chat.context}
               settings={app.composerSettings}
-              agents={app.catalog.agents}
+              agents={app.agents}
               agentId={app.agentId}
               mode={layout}
               attachments={app.attachments}

@@ -1,22 +1,47 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、組み込みの既定は汎用アシスタント `agent-general` と、どのエージェントにも割り当てていないサンプルスキル `skill-zundamon-speech` だけ。
+規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`、初期状態のスキルはどのエージェントにも割り当てていないサンプル `skill-zundamon-speech` だけ。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/agents` | エージェントとスキルの一覧 |
-| PUT | `/api/agents` | エージェント定義をJSONで一括置換 |
+| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧 |
+| PUT | `/api/agents` | エージェント（ユーザー定義）の定義をJSONで一括置換（ビルトインは含めない） |
 | POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, model?, thinkingLevel?, suggestions? }` |
-| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除） |
-| DELETE | `/api/agents/:id` | エージェント削除（最後の 1 体は削除不可） |
+| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
+| DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
 | POST | `/api/skills` | スキル作成 `{ name, description, prompt }` |
 | PATCH / PUT | `/api/skills/:id` | スキル更新 |
 | DELETE | `/api/skills/:id` | スキル削除（エージェントの割り当てからも外れる） |
 
+## ビルトインの汎用エージェント
+
+セッション作成の既定エージェントを保証するため、汎用アシスタント `agent-general` はサーバー所有のビルトインとして置換対象の `agents` に入れない。
+
+- GET / PUT の応答は `builtinAgent` を別フィールドで常に返し、`agents` はユーザー定義だけになる（0 件も許す）。
+- `PATCH` / `DELETE /api/agents/agent-general` は 400（`Built-in agent cannot be updated` / `Built-in agent cannot be deleted`）。
+- `PUT /api/agents` の `agents` にビルトイン id が含まれていたら 400（`Agent id agent-general is reserved for the built-in agent`）。送った定義がそのまま入るのが置換の意味なので、黙って捨てない。
+- ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
+- `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
+
+```json
+{
+  "builtinAgent": {
+    "id": "agent-general",
+    "name": "汎用アシスタント",
+    "description": "役割や口調を設定していない既定のエージェント",
+    "systemPrompt": "",
+    "skillIds": [],
+    "suggestions": [{ "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }]
+  },
+  "agents": [],
+  "skills": []
+}
+```
+
 ## エージェント定義の Model / Effort
 
-エージェント定義には任意の `model`（`{ provider, id }`）と `thinkingLevel` を持たせられる。それぞれ独立して任意で、片方だけの指定や、Model 未指定で Effort だけの指定もできる。既定の組み込みエージェントはどちらも未指定。
+エージェント定義には任意の `model`（`{ provider, id }`）と `thinkingLevel` を持たせられる。それぞれ独立して任意で、片方だけの指定や、Model 未指定で Effort だけの指定もできる。ビルトインの汎用アシスタントはどちらも未指定。
 
 - GET / export は未指定項目のキーを省略し、`null` は保存・応答に現れない。
 - 更新要求はキー省略で保持、`model: null` / `thinkingLevel: null` で指定解除する。
@@ -49,7 +74,7 @@
 
 ## エージェント定義の定型プロンプト
 
-エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと `prompt` をそのまま送信する（セッションタイトルの元にもなる）。既定の組み込みエージェントは `agent-general` だけが 3 件を持つ。
+エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと `prompt` をそのまま送信する（セッションタイトルの元にもなる）。ビルトインの `agent-general` だけが 3 件を持つ。
 
 - 未指定（空配列を含む）なら GET / export はキーを省略し、画面にもボタンを出さない（アプリ既定のフォールバックはない）。
 - `label` は 60 文字、`prompt` は 500 文字で trim + 切り詰める。どちらかが空の要素は捨てる。
@@ -70,7 +95,7 @@
 ## エージェント定義のインポート / エクスポート
 
 設定の「バックアップ」ページ（`client/src/components/BackupPage.tsx`）から、チェックした対象を JSON ファイルで扱える。
-エージェントとスキルは `data.definitions` に入り、その値が `PUT /api/agents` のボディになる。
+エージェントとスキルは `data.definitions` に入り、その値が `PUT /api/agents` のボディになる。ビルトインの汎用エージェントは `agents` に含まれないので、書き出しにも乗らず、取り込みでも置き換わらない。
 封筒（`app` / `schema` / `exportedAt` / `data`）と対象の一覧は [persistence.md](persistence.md) を参照する。
 
 ```json
@@ -102,7 +127,7 @@
 }
 ```
 
-`data.definitions` は現在のエージェント / スキル定義を置き換える（`PUT /api/agents`）。既存の会話やセッションは変更しない。
+`data.definitions` は現在のエージェント（ユーザー定義）/ スキル定義を置き換える（`PUT /api/agents`）。ビルトインの汎用エージェントは対象外で、その id を `agents` に含むファイルは 400 になる。既存の会話やセッションは変更しない。
 封筒なしで `agents` / `skills` を直下に持つ旧形式のファイルは受理しない。
 封筒の `schema` が一致しないファイルも読み込まず、エラーを表示する（開発中のため移行は持たない）。
 
