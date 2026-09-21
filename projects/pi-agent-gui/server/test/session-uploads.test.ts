@@ -28,7 +28,7 @@ type UploadCall = { dir: string; name: string; size: number };
 
 /**
  * アップロードの引数と実際に読んだバイト数を記録する workspace stub。
- * 応答の path は実サンドボックスと同じ「root 相対」を返す (BFF の作業フォルダへの変換は BFF の責務)。
+ * 応答の path は実サンドボックスと同じ「root 相対」を返す (BFF は変換せずそのまま返す)。
  */
 function stubWorkspace() {
   const uploads: UploadCall[] = [];
@@ -137,7 +137,7 @@ test("POST /api/sessions/:id/files streams the body to the sandbox uploads direc
   }
 });
 
-test("the upload response path is relative to the session work folder", async () => {
+test("the upload response path stays the root-relative uploads path", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "pi-session-store-"));
   const { workspace, uploads } = stubWorkspace();
   const bff = await createBffApp({

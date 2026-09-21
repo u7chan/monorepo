@@ -180,7 +180,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "project": { "id": "…", "name": "pi-agent-gui", "cwd": "projects/pi-agent-gui", "createdAt": 1700000000000 } }
 ```
 
-- `cwd` は root 相対。`a//b/` や `./a` は正規化する。絶対パス・`..` を含むパス・空文字・root 自身は 400。`cwd` 以外も含め body が契約外なら 400。
+- `cwd` は root 相対。`a//b/` や `./a` は正規化する。絶対パス・`..` を含むパス・空文字・root 自身・アプリの作業ディレクトリ `<appdir>`（現 `.pi-agent-gui`）自身と配下は 400。`cwd` 以外も含め body が契約外なら 400。
 - `name` 省略時は `cwd` の basename。
 - 同じ `cwd` の二重登録は 409（サンドボックスへは触らない）。
 - `create: true` はサンドボックスで `mkdir -p` 相当を行う（親の存在は要求しない）。省略時は既存ディレクトリであることを確認する。新しい stat API は持たず、サンドボックスの `GET /v1/files` がディレクトリ以外で失敗する性質を使う。サンドボックス由来の 4xx（`Path not found` など）はステータス・文言ごとそのまま返る。
