@@ -1,4 +1,5 @@
 import { splitAttachedFiles } from "../lib/attachments";
+import { skillCommandForm } from "../lib/skillBlock";
 import type {
   ChatMessage,
   CompactionInfo,
@@ -101,6 +102,14 @@ export const initialChatState: ChatState = {
   pendingUsage: undefined,
   pendingMetrics: undefined,
 };
+
+/**
+ * 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
+ * ローカルエコー (素の入力) と run_start (展開済みの本文) を同じ形に寄せるために使う。
+ */
+function canonicalUserText(text: string): string {
+  return skillCommandForm(splitAttachedFiles(text).text);
+}
 
 function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
   const bubble: Bubble = { id: state.nextId, role, text, tools: [], at };
@@ -237,12 +246,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "runStart": {
-      // ローカルエコーは素の本文、run_start は注記込みの本文で届く。送信順の待ち行列を先頭から見て、
-      // 注記を除いた本文が一致するエコーを注記込みへ差し替える (同一本文を続けて送っても取り違えない)
-      const promptBody = splitAttachedFiles(action.prompt).text;
+      // ローカルエコーは素の本文、run_start は注記込み・`/skill:` 展開済みの本文で届く。送信順の
+      // 待ち行列を先頭から見て、同じ入力に戻した本文が一致するエコーを差し替える
+      // (同一本文を続けて送っても取り違えない)
+      const promptBody = canonicalUserText(action.prompt);
       const echoIndex = state.pendingEchoIds.findIndex((id) => {
         const bubble = state.bubbles.find((item) => item.id === id);
-        return bubble !== undefined && splitAttachedFiles(bubble.text).text === promptBody;
+        return bubble !== undefined && canonicalUserText(bubble.text) === promptBody;
       });
       const echo = echoIndex === -1 ? undefined : state.bubbles.find((b) => b.id === state.pendingEchoIds[echoIndex]);
       // 一致した分までを消費する (run_start は送信順に届くため、それ以前の待ちは解決不能)

@@ -5,13 +5,14 @@ import { sessionUploadsRel, workspaceAbs } from "../app-paths";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { isValidUploadName } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
+import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
 import {
   FileUploadSchema,
   type CreateSessionBody,
   type PostMessageBody,
   type UpdateSessionSettingsBody,
 } from "../schema";
-import type { SessionStore } from "../sessions";
+import type { SessionRecord, SessionStore } from "../sessions";
 
 // sessions 側の上限とは別 (HTTP 層の契約)
 const MAX_MESSAGE_CHARS = 20_000;
@@ -36,6 +37,15 @@ export function createSessionRoutes({
 }) {
   // 未ロードのセッションはストアから復元する (SDK ロードを含むため非同期)
   const resolveRecord = (c: Context) => store.resolve(c.req.param("id") ?? "");
+
+  /** セッションのスキル解決に渡す入力。ファイルスキルはサンドボックス未設定なら落とす */
+  const skillsInputOf = (record: SessionRecord): SessionSkillsInput => ({
+    rootCwd: store.rootCwd,
+    relativeCwd: record.workdir,
+    client: workspace ?? undefined,
+    promptSnapshot: record.promptSnapshot,
+    agentSkills: record.agent.skills,
+  });
 
   const stop = async (c: Context) => {
     const record = await resolveRecord(c);
@@ -85,6 +95,23 @@ export function createSessionRoutes({
 
     stop,
 
+    /**
+     * セッションで使えるスキル (プロジェクト / 共通 / 組み込み / Agent 割り当て)。
+     * 本文は載せない (送信時に取り直す) ため、応答は一覧と優先順位の表示に使う。
+     */
+    skills: async (c: Context) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      if (!workspace) return sandboxNotConfigured(c);
+      const skills = await listSessionSkills(skillsInputOf(record));
+      return c.json({
+        sessionId: record.id,
+        cwd: record.workdir,
+        projectSkills: hasProjectSkills(record.workdir),
+        skills,
+      });
+    },
+
     postMessage: async (c: Context, body: PostMessageBody) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
@@ -95,15 +122,20 @@ export function createSessionRoutes({
       if (text.length > MAX_MESSAGE_CHARS) {
         return c.json({ error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
+      // SDK の /skill: 展開は BFF プロセスの readFileSync で動くため、Docker ではファイル / 組み込み /
+      // カタログのどれも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-sessions.md)。
+      const prompt = await expandSkillCommand(text, skillsInputOf(record));
       // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
-      // 注記は履歴とモデルへ渡すためここで合成し、title は注記を除いた本文から作る。
+      // 注記は履歴とモデルへ渡すためここで合成し、title は注記と展開結果を除いた本文から作る。
       // 保存先はプロジェクトの外にあるため、モデルへは絶対パスで知らせる
       const result = store.postMessage(
         record,
         composePrompt(
-          text,
+          prompt,
           attachments.map((path) => workspaceAbs(store.rootCwd, path)),
         ),
+        // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う
+        { titleSource: text },
       );
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
     },

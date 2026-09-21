@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
+import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
+import { skillCommandText } from "../lib/sessionSkills";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ContextGauge } from "./composer/ContextGauge";
 import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortControls";
+import { SkillPanel, SkillToggle } from "./composer/SkillField";
 
 export type ComposerProps = {
   activity: string;
@@ -25,6 +28,9 @@ export type ComposerProps = {
   attachments: Attachment[];
   /** ワークスペース root の絶対パス (health.cwd)。画像チップの URL を組むのに使う */
   rootCwd: string;
+  /** セッションのスキル一覧 (`/skill:` の入力補助)。セッション未確定では unavailable */
+  skills: SessionSkillsState;
+  onReloadSkills: () => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
   onSend: (text: string) => void;
@@ -89,6 +95,7 @@ export function Composer({
   mode,
   attachments,
   rootCwd,
+  skills,
   visible = true,
   onSend,
   onStop,
@@ -97,6 +104,7 @@ export function Composer({
   onChangeModel,
   onChangeThinkingLevel,
   onChangeAgent,
+  onReloadSkills,
 }: ComposerProps) {
   const compact = mode !== "desktop";
   // landscape は横幅が余るので、設定を開いたときの高さを抑える
@@ -105,6 +113,7 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
 
   const attachmentsBusy = attachments.some((item) => item.status !== "done");
@@ -139,6 +148,24 @@ export function Composer({
 
   const pickFiles = (files: File[]) => {
     if (files.length > 0) onAttachFiles(files);
+  };
+
+  /** 一覧の選択はコマンドの挿入だけ。本文の展開は送信時に BFF が行う (docs/api-sessions.md) */
+  const insertSkillCommand = (name: string) => {
+    const el = inputRef.current;
+    const text = skillCommandText(name);
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? value.length;
+    setValue(`${value.slice(0, start)}${text}${value.slice(end)}`);
+    setSkillsOpen(false);
+    // 挿入した後ろへカーソルを戻す (引数を続けて書けるようにする)
+    requestAnimationFrame(() => {
+      const target = inputRef.current;
+      if (!target) return;
+      target.focus();
+      const position = start + text.length;
+      target.setSelectionRange(position, position);
+    });
   };
 
   const handleDrop = (event: DragEvent<HTMLFormElement>) => {
@@ -207,6 +234,12 @@ export function Composer({
         <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
           <AgentField agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
           <ModelEffortToggle open={settingsOpen} compact={compact} onToggle={() => setSettingsOpen((open) => !open)} />
+          <SkillToggle
+            open={skillsOpen}
+            compact={compact}
+            enabled={skills.status !== "unavailable"}
+            onToggle={() => setSkillsOpen((open) => !open)}
+          />
           {compact ? null : (
             <>
               {settingsOpen ? (
@@ -240,6 +273,16 @@ export function Composer({
               </span>
             ) : null}
           </div>
+        ) : null}
+        {skillsOpen ? (
+          <SkillPanel
+            state={skills}
+            rootCwd={rootCwd}
+            compact={compact}
+            landscape={landscape}
+            onSelect={insertSkillCommand}
+            onReload={onReloadSkills}
+          />
         ) : null}
         <AttachmentChips attachments={attachments} rootCwd={rootCwd} compact={compact} onRemove={onRemoveAttachment} />
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>

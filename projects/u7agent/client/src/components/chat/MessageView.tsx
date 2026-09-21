@@ -2,10 +2,12 @@ import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
+import { splitSkillBlock } from "../../lib/skillBlock";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
+import { SkillInvocation } from "./SkillInvocation";
 import { ToolHistoryView } from "./ToolHistory";
 
 function UserIcon() {
@@ -49,8 +51,11 @@ export function MessageView({
   onCopyAll: () => void;
 }) {
   const isUser = bubble.role === "user";
-  // 履歴の user 本文には添付の注記が入っている。表示とコピーは注記を除いた本文を使う
-  const { text: bodyText, files } = isUser ? splitAttachedFiles(bubble.text) : { text: bubble.text, files: [] };
+  // 履歴の user 本文には添付の注記と `/skill:` の展開結果が入っている。表示とコピーは
+  // 注記を除き、スキルブロックは畳んで見せる (打った本文 = 引数だけを吹き出しに残す)
+  const { text: userBody, files } = isUser ? splitAttachedFiles(bubble.text) : { text: bubble.text, files: [] };
+  const skill = isUser ? splitSkillBlock(userBody) : null;
+  const bodyText = skill ? (skill.userMessage ?? "") : userBody;
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   return (
@@ -94,6 +99,7 @@ export function MessageView({
           isUser ? (
             <>
               <AttachedFiles files={files} rootCwd={rootCwd} compact={compact} />
+              {skill ? <SkillInvocation block={skill} rootCwd={rootCwd} compact={compact} /> : null}
               {bodyText ? (
                 // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
                 <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed break-words whitespace-pre-wrap text-on-accent">

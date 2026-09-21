@@ -131,6 +131,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
     .post("/api/sessions/:id/abort", sessionRoutes.stop)
+    .get("/api/sessions/:id/skills", sessionRoutes.skills)
     .post(
       "/api/sessions/:id/messages",
       zValidator("json", PostMessageBodySchema, (result, c) =>

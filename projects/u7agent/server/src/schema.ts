@@ -372,6 +372,40 @@ export type FileSkillInfo = z.infer<typeof FileSkillInfoSchema>;
 export const FileSkillsResponseSchema = z.object({ skills: z.array(FileSkillInfoSchema) });
 export type FileSkillsResponse = z.infer<typeof FileSkillsResponseSchema>;
 
+/**
+ * セッションで使えるスキル 1 件 (GET /api/sessions/:id/skills)。設定の FileSkillInfo と違い、
+ * プロジェクトスキルと Agent 割り当て (catalog) を含み、本文は持たない (送信時に取り直す)。
+ * 優先順位は project > user > builtin > catalog で、負けた行は shadowed / shadowedBy で示す。
+ */
+export const SessionSkillInfoSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  scope: z.enum(["project", "user", "builtin", "catalog"]),
+  /** read に渡せる場所。ファイル / 組み込みは絶対パス、カタログは `catalog:<name>` (実ファイルなし) */
+  location: z.string(),
+  /** 表示用の root 相対パス。root の外とカタログは null */
+  relativePath: z.string().nullable(),
+  disableModelInvocation: z.boolean(),
+  /** 同名の上位スコープがあり `/skill:` では選ばれない (組み込みとカタログで起こり得る) */
+  shadowed: z.boolean(),
+  /** shadowed のとき、優先される側の location */
+  shadowedBy: z.string().nullable(),
+  /** この行が隠している側の location (同名の下位スコープ。空なら重複なし) */
+  shadows: z.array(z.string()),
+});
+export type SessionSkillInfo = z.infer<typeof SessionSkillInfoSchema>;
+
+/** GET /api/sessions/:id/skills の応答 */
+export const SessionSkillsResponseSchema = z.object({
+  sessionId: z.string(),
+  /** root 相対の作業ディレクトリ ("" は root) */
+  cwd: z.string(),
+  /** プロジェクトスキルを探索するセッションか (未所属のスクラッチと root 直下は false) */
+  projectSkills: z.boolean(),
+  skills: z.array(SessionSkillInfoSchema),
+});
+export type SessionSkillsResponse = z.infer<typeof SessionSkillsResponseSchema>;
+
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),

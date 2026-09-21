@@ -262,6 +262,29 @@ export function BoltIcon() {
   );
 }
 
+/** チャットのスキル一覧 (入力補助)。行の印は「一覧」で示す (スキルの種類は文字で出る) */
+export function SkillListIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M5.75 4.25h7.5" />
+      <path d="M5.75 8h7.5" />
+      <path d="M5.75 11.75h7.5" />
+      <path d="M3 4.25h.01" />
+      <path d="M3 8h.01" />
+      <path d="M3 11.75h.01" />
+    </svg>
+  );
+}
+
 /** 外観 (設定ナビ)。明暗の半円でテーマ切替を表す (この画面の内容はテーマの選択だけ) */
 export function ThemeIcon() {
   return (

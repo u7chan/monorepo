@@ -228,12 +228,14 @@ export default function App() {
               mode={layout}
               attachments={app.attachments}
               rootCwd={app.health?.cwd ?? ""}
+              skills={app.sessionSkills}
               onSend={handleSend}
               onStop={handleStop}
               onAttachFiles={app.attachFiles}
               onRemoveAttachment={app.removeAttachment}
               onChangeModel={app.changeModel}
               onChangeThinkingLevel={app.changeThinkingLevel}
+              onReloadSkills={app.reloadSessionSkills}
               onChangeAgent={handleAgentChange}
             />
           </div>

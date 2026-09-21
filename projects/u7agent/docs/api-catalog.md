@@ -44,6 +44,8 @@
 
 共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**は、エージェントに紐づかない **ambient** なスキルとしてセッションへ注入される。エージェント定義の `skillIds` とは別で、設定画面に出るのは共通分と組み込み分の読み取り専用一覧だけ（編集・削除・割り当ての操作は持たない）。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は注入時に一意化する（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
 
+チャット側では `GET /api/sessions/:id/skills` がこの 4 種類（プロジェクト / 共通 / 組み込み / エージェント定義のスキル）を優先順位つきで返し、入力補助の一覧と `/skill:` の展開（送信時に本文を取得）が同じ解決を共有する（[api-sessions.md](api-sessions.md#get-apisessionsidskills)、[persistence.md](persistence.md#スキルの扱い)）。
+
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/skills/files` | 共通スキルと組み込みスキルの一覧（読み取り専用）。サンドボックス未設定は 503、サンドボックス側の失敗は 502 |

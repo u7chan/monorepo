@@ -30,6 +30,8 @@ export type {
   RunPayload,
   RunStatus,
   SessionPayload,
+  SessionSkillInfo,
+  SessionSkillsResponse,
   SessionSummary,
   SkillDef,
   StopResult,

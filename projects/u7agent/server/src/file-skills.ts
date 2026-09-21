@@ -17,6 +17,15 @@ import type { FileSkillInfo, FileSkillsResponse } from "./schema";
 /** 共通スキルの置き場 (workspace root 相対)。プロジェクトスキルは `<session cwd>/.agents/skills` */
 export const COMMON_SKILLS_DIR = ".agents/skills";
 
+/**
+ * プロジェクトスキルの置き場 (root 相対)。未所属チャットのスクラッチ (`<appdir>/sessions/<id>`) と
+ * root 直下では探索しないため undefined。一覧 API もこの判定を使う (探索範囲を二重実装しない)。
+ */
+export function projectSkillsDir(relativeCwd: string): string | undefined {
+  if (!relativeCwd || isAppDirPath(relativeCwd)) return undefined;
+  return `${relativeCwd}/${COMMON_SKILLS_DIR}`;
+}
+
 /** ファイルスキルの発見元。優先順位は project > user > builtin */
 export type FileSkillScope = "user" | "project" | "builtin";
 
@@ -113,14 +122,12 @@ export function composeFileSkills(sources: FileSkillSource[], rootCwd: string): 
  * 組み込みはサンドボックスに依らないので、発見に失敗しても常に注入する。影になったスキルはログに残す。
  */
 export async function discoverSessionFileSkills(
-  client: SandboxToolClient,
+  client: SkillScanClient,
   input: SessionFileSkillInput,
 ): Promise<ComposedFileSkills> {
   const targets: Array<{ scope: FileSkillScope; dir: string }> = [];
-  // 未所属チャットのスクラッチ (<appdir>/sessions/<id>) と root 直下ではプロジェクトスキルを探さない
-  if (input.relativeCwd && !isAppDirPath(input.relativeCwd)) {
-    targets.push({ scope: "project", dir: `${input.relativeCwd}/${COMMON_SKILLS_DIR}` });
-  }
+  const projectDir = projectSkillsDir(input.relativeCwd);
+  if (projectDir) targets.push({ scope: "project", dir: projectDir });
   targets.push({ scope: "user", dir: COMMON_SKILLS_DIR });
 
   const sources: FileSkillSource[] = await Promise.all(
@@ -138,8 +145,11 @@ export async function discoverSessionFileSkills(
   return composed;
 }
 
+/** 発見に必要なサンドボックスの操作だけ (workspace client でも tool client でも受けられる) */
+export type SkillScanClient = Pick<SandboxToolClient, "listSkills">;
+
 /** 404 は「そのスコープに置き場が無い」だけ。他の失敗もこの dir を落とすに留める。 */
-async function listSkillsOrEmpty(client: SandboxToolClient, dir: string): Promise<SandboxSkillEntry[]> {
+async function listSkillsOrEmpty(client: SkillScanClient, dir: string): Promise<SandboxSkillEntry[]> {
   try {
     return (await client.listSkills(dir)).skills;
   } catch (error) {
