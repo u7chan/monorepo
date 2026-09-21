@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { AgentCatalog } from "../agents";
+import { builtinSkillEntries } from "../builtin-skills";
 import { COMMON_SKILLS_DIR, composeFileSkills } from "../file-skills";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
@@ -60,18 +61,23 @@ export function createCatalogRoutes({
     listSkills: (c: Context) => c.json({ skills: catalog.listSkills() }),
 
     /**
-     * ファイルスキル (共通 `<root>/.agents/skills`) の読み取り専用一覧。同名は優先順位で一意化済みで、
-     * 影になった側は shadowed に入る。編集・削除・エージェント割り当ての対象ではない。
+     * 共通スキル (`<root>/.agents/skills`) と組み込みスキルの読み取り専用一覧。同名は優先順位
+     * (project > user > builtin) で一意化済みで、影になったファイル側は shadowed、上書きされた組み込みは
+     * overridden に入る。編集・削除・エージェント割り当ての対象ではない。
      */
     listFileSkills: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
+      // 組み込みはサンドボックスに依らないので、共通スキルの走査に失敗してもここは常に返す
+      const builtin = { scope: "builtin", entries: builtinSkillEntries(rootCwd) } as const;
       try {
         const parsed = SandboxSkillsSchema.safeParse(await workspace.listSkills(COMMON_SKILLS_DIR));
         if (!parsed.success) return c.json({ error: "サンドボックスのスキル一覧が不正です" }, 502);
-        return c.json(composeFileSkills([{ scope: "user", entries: parsed.data.skills }], rootCwd).response);
+        return c.json(composeFileSkills([{ scope: "user", entries: parsed.data.skills }, builtin], rootCwd).response);
       } catch (error) {
         // 置き場が無いだけの 404 は空の一覧にする (セッション側の発見と同じ扱い。新規 workspace をエラーにしない)
-        if (error instanceof SandboxRequestError && error.status === 404) return c.json({ skills: [] });
+        if (error instanceof SandboxRequestError && error.status === 404) {
+          return c.json(composeFileSkills([builtin], rootCwd).response);
+        }
         return sandboxFailure(c, error);
       }
     },

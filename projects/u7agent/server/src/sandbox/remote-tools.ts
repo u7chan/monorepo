@@ -13,6 +13,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { SandboxToolClient } from "./client";
+import { builtinSkillForRequestedPath, formatBuiltinSkillBody } from "../builtin-skills";
 import { wrapToolDefinitionWithSecretMasker } from "../secret-guard";
 import type { SecretMasker } from "../redact";
 
@@ -43,8 +44,10 @@ const TOOL_FACTORIES: Record<RemoteToolName, RemoteToolFactory> = {
 };
 
 export interface RemoteToolDefinitionOptions {
-  /** セッションの作業ディレクトリ (絶対パス)。組込み定義のメタデータに使う */
+  /** セッションの作業ディレクトリ (絶対パス)。組込み定義のメタデータと組み込みスキルの相対パス解決に使う */
   cwd: string;
+  /** ワークスペース root (絶対パス)。組み込みスキルの仮想パス (`<root>/.u7agent/builtin-skills/...`) の基準 */
+  rootCwd: string;
   /** サンドボックスへ要求する作業ディレクトリ (rootCwd 相対。"" は root) */
   sandboxCwd: string;
   client: SandboxToolClient;
@@ -55,7 +58,7 @@ export interface RemoteToolDefinitionOptions {
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, sandboxCwd, client, masker, tools } = options;
+  const { cwd, rootCwd, sandboxCwd, client, masker, tools } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -76,6 +79,17 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
           executionMode: local.executionMode,
           prepareArguments: local.prepareArguments,
           execute: async (toolCallId, params, signal, onUpdate, _ctx) => {
+            // 組み込みスキルはワークスペースに実体が無い仮想パスなので、read だけはバンドルから返す。
+            // サンドボックスへ送らない (ls / grep / find / bash からは見えない。docs/api-catalog.md)。
+            if (name === "read") {
+              const requested = (params as { path?: unknown } | undefined)?.path;
+              const builtin = builtinSkillForRequestedPath(requested, { cwd, rootCwd });
+              if (builtin) {
+                const page = params as { offset?: number; limit?: number };
+                const text = formatBuiltinSkillBody(builtin, { offset: page.offset, limit: page.limit });
+                return { content: [{ type: "text", text }] } as Awaited<ReturnType<AnyToolDefinition["execute"]>>;
+              }
+            }
             // BFF 側の実ファイルシステム (ctx の cwd) は渡さず、サンドボックス側だけをパス解決の源にする。
             // セッションの cwd は rootCwd 相対で渡し、サンドボックス側で root 配下の実パスへ解決させる。
             const result = await client.execute(name, {

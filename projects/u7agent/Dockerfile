@@ -37,6 +37,7 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
 # CD: the existing pipeline builds final and pushes monorepo/u7agent.
 # BFF とサンドボックス (src/sandbox/index.ts) は同一イメージを command 差し替えで共用する。
+# server/src/ には組み込みスキルの SKILL.md (src/builtin-skills/) も含めて同梱する。
 FROM node:24-bookworm-slim AS final
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
     && rm -rf /var/lib/apt/lists/* \

@@ -25,12 +25,13 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 ## スキル
 
-スキルは 2 種類あります。
+スキルは 3 種類あります。
 
 - **エージェント定義のスキル**（設定 → スキル）— エージェントへ割り当てる指示。メモリ内のみで、再起動すると消えます
 - **ファイルスキル** — `<PI_APP_CWD>/.agents/skills/<name>/SKILL.md`（共通）と、プロジェクト配下の `<project>/.agents/skills/<name>/SKILL.md`（そのプロジェクトのセッションのみ）。エージェントに紐づかない ambient なスキルとしてセッションへ注入され、モデルは必要になった時点で `SKILL.md` を `read` します（本文の編集は次に読んだ時点から効きます）
+- **組み込みスキル** — アプリに同梱した `skill-creator` など（`server/src/builtin-skills/`）。全セッションで常時有効で、ワークスペースには実体を作らず、`read` だけ BFF が同梱の本文を返します。編集・バックアップの対象外です
 
-共通スキルの置き場はワークスペース root（`PI_APP_CWD`）の直下です。ローカル dev の既定は `projects/u7agent` 自身なので、モノレポ root の `.agents/skills` を使いたい場合は `PI_APP_CWD=/path/to/monorepo pnpm dev` のように指定します（サンドボックスの `PI_SANDBOX_CWD` と同じパスに揃えてください）。共通スキルは設定 → スキルで読み取り専用で確認できます。詳細は [docs/persistence.md](docs/persistence.md#スキルの扱い) と [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills) を参照してください。
+共通スキルの置き場はワークスペース root（`PI_APP_CWD`）の直下です。ローカル dev の既定は `projects/u7agent` 自身なので、モノレポ root の `.agents/skills` を使いたい場合は `PI_APP_CWD=/path/to/monorepo pnpm dev` のように指定します（サンドボックスの `PI_SANDBOX_CWD` と同じパスに揃えてください）。共通スキルと組み込みスキルは設定 → スキルで読み取り専用で確認できます（組み込みは本文ビュー付き）。詳細は [docs/persistence.md](docs/persistence.md#スキルの扱い) と [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills) を参照してください。
 
 ## 環境変数
 

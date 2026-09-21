@@ -44,6 +44,7 @@ You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
 Keep answers practical and concise. The working directory is the user's local project.
 When a task involves the project, inspect it with the available tools instead of guessing.
+When the user asks to create or change a reusable skill, put it in \`.agents/skills\` and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
 `.trim();
 
@@ -392,6 +393,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
       customTools: createRemoteToolDefinitions({
         cwd: sessionCwd,
+        rootCwd,
         sandboxCwd: relativeCwd,
         client: sandboxClient,
         masker: secretMasker,

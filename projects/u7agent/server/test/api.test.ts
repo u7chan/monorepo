@@ -8,6 +8,7 @@ import test from "node:test";
 import type { Hono } from "hono";
 import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
+import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
 
@@ -929,6 +930,36 @@ test("the built-in agent rejects updates, deletes and imports", async () => {
     const created = await app.request("/api/sessions", jsonPost({}));
     assert.equal(created.status, 201);
     assert.equal((await jsonBody(created)).agent.id, "agent-general");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("組み込みスキルはカタログの export / import とスキル一覧の対象外", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const builtinNames = BUILTIN_SKILLS.map((skill) => skill.name);
+    const catalog = (await jsonBody(app.request("/api/agents"))) as { skills: Array<{ name: string }> };
+    assert.ok(catalog.skills.length > 0, "カタログにはサンプルのスキルがある");
+    assert.deepEqual(
+      catalog.skills.map((skill) => skill.name).filter((name) => builtinNames.includes(name)),
+      [],
+    );
+    const skills = (await jsonBody(app.request("/api/skills"))) as { skills: Array<{ name: string }> };
+    assert.deepEqual(
+      skills.skills.map((skill) => skill.name).filter((name) => builtinNames.includes(name)),
+      [],
+    );
+
+    // import はカタログだけを差し替える。組み込みは依然としてカタログに出ない
+    const replaced = await app.request("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agents: [], skills: [] }),
+    });
+    assert.equal(replaced.status, 200);
+    assert.deepEqual((await jsonBody(app.request("/api/agents"))).skills, []);
   } finally {
     await bff.close();
   }

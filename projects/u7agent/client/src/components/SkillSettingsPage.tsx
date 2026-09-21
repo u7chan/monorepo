@@ -6,6 +6,7 @@ import { DefinitionList } from "./DefinitionList";
 import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { BuiltinSkillPanel } from "./skill-settings/BuiltinSkillPanel";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { SkillEditorForm, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
 import { BoltIcon } from "./icons";
@@ -25,8 +26,14 @@ export function SkillSettingsPage({
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [selectedBuiltin, setSelectedBuiltin] = useState<string | null>(null);
   const fileSkills = useFileSkills();
   const editingSkill = catalog.skills.find((skill) => skill.id === editingId);
+  // 組み込みは編集できないので、選んだときは本文ビューだけを出す (一覧の選択状態は名前で持つ)
+  const builtinSkill =
+    selectedBuiltin && fileSkills.state.status === "ready"
+      ? fileSkills.state.skills.find((skill) => skill.scope === "builtin" && skill.name === selectedBuiltin)
+      : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
   // 下書きはページが持つ。理由は docs/ui-layout.md の「compact の詳細シート」を参照。
@@ -39,8 +46,14 @@ export function SkillSettingsPage({
   }
 
   const selectSkill = (nextId: string | null) => {
+    setSelectedBuiltin(null);
     setEditingId(nextId);
     // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「compact の詳細シート」)
+    if (compact) setSheetOpen(true);
+  };
+
+  const selectBuiltin = (name: string) => {
+    setSelectedBuiltin(name);
     if (compact) setSheetOpen(true);
   };
 
@@ -68,11 +81,18 @@ export function SkillSettingsPage({
           onClick={() => selectSkill(skill.id)}
         />
       ))}
-      <FileSkillList state={fileSkills.state} onReload={fileSkills.reload} />
+      <FileSkillList
+        state={fileSkills.state}
+        onReload={fileSkills.reload}
+        selectedBuiltin={selectedBuiltin}
+        onSelectBuiltin={selectBuiltin}
+      />
     </DefinitionList>
   );
 
-  const editor = (
+  const editor = builtinSkill ? (
+    <BuiltinSkillPanel skill={builtinSkill} variant={compact ? "sheet" : "page"} />
+  ) : (
     <SkillEditorForm
       editingId={editingId}
       skill={editingSkill}
@@ -107,7 +127,7 @@ export function SkillSettingsPage({
       {compact && sheetOpen ? (
         <SettingsDetailSheet
           eyebrow="SKILL"
-          title={editingSkill ? "スキルを編集" : "新しいスキル"}
+          title={builtinSkill ? "組み込みスキル" : editingSkill ? "スキルを編集" : "新しいスキル"}
           note={note}
           onClose={() => setSheetOpen(false)}
         >

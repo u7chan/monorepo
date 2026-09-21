@@ -1,7 +1,7 @@
-// 共通スキル一覧の表示用導出 (重複警告の文言) を DOM なしで固定する。
+// スキル一覧の表示用導出 (グループ分け / 重複警告 / 上書き表示) を DOM なしで固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fileSkillDuplicateWarning } from "../src/lib/fileSkills";
+import { FILE_SKILL_SCOPE_LABEL, fileSkillWarning, groupFileSkills } from "../src/lib/fileSkills";
 import type { FileSkillInfo } from "../src/types";
 
 function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
@@ -13,16 +13,29 @@ function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
     scope: "user",
     disableModelInvocation: false,
     shadowed: [],
+    overridden: false,
     ...overrides,
   };
 }
 
+function builtinSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
+  return fileSkill({
+    name: "skill-creator",
+    path: "/workspace/.u7agent/builtin-skills/skill-creator/SKILL.md",
+    relativePath: ".u7agent/builtin-skills/skill-creator/SKILL.md",
+    scope: "builtin",
+    body: "---\nname: skill-creator\n---\n本文\n",
+    version: "1",
+    ...overrides,
+  });
+}
+
 test("重複が無いスキルには警告を出さない", () => {
-  assert.equal(fileSkillDuplicateWarning(fileSkill()), null);
+  assert.equal(fileSkillWarning(fileSkill()), null);
 });
 
 test("同名のスキルがあるときは有効な側と読み込まれない側を示す", () => {
-  const warning = fileSkillDuplicateWarning(
+  const warning = fileSkillWarning(
     fileSkill({
       shadowed: [
         { path: "/workspace/.agents/skills/shared/SKILL.md", relativePath: ".agents/skills/shared/SKILL.md" },
@@ -34,4 +47,33 @@ test("同名のスキルがあるときは有効な側と読み込まれない�
     warning,
     "同名のスキルが 3 件あります。有効: .agents/skills/alpha/SKILL.md / 読み込まれない: .agents/skills/shared/SKILL.md, .agents/skills/b/SKILL.md",
   );
+});
+
+test("組み込みは上書きされているときだけ警告を出す", () => {
+  assert.equal(fileSkillWarning(builtinSkill()), null);
+  assert.equal(
+    fileSkillWarning(builtinSkill({ overridden: true })),
+    "上書きされています（同名の共通スキルが優先されます）",
+  );
+});
+
+test("グループ分けは組み込みを共通スキルから分ける", () => {
+  const common = fileSkill();
+  const builtin = builtinSkill();
+  const groups = groupFileSkills([common, builtin, fileSkill({ scope: "project" })]);
+  assert.deepEqual(
+    groups.common.map((skill) => [skill.scope, skill.name]),
+    [
+      ["user", "alpha"],
+      ["project", "alpha"],
+    ],
+  );
+  assert.deepEqual(
+    groups.builtin.map((skill) => skill.name),
+    ["skill-creator"],
+  );
+});
+
+test("スコープの表示名は 3 種類そろっている", () => {
+  assert.deepEqual(FILE_SKILL_SCOPE_LABEL, { user: "共通", project: "プロジェクト", builtin: "組み込み" });
 });
