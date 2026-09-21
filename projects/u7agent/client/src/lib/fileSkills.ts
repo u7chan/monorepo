@@ -4,8 +4,13 @@
  */
 import type { FileSkillInfo } from "../types";
 
-export const FILE_SKILL_GROUP_LABEL = "共通スキル（読み取り専用）";
-export const BUILTIN_SKILL_GROUP_LABEL = "組み込み（読み取り専用）";
+/** 読み取り専用ブロック (共通 + 組み込み) の見出し。「読み取り専用」はここ 1 箇所にだけ出す */
+export const FILE_SKILL_SECTION_LABEL = "読み取り専用スキル";
+export const FILE_SKILL_GROUP_LABEL = "共通スキル";
+export const BUILTIN_SKILL_GROUP_LABEL = "組み込みスキル";
+/** 再読み込みは共通 + 組み込みを同時に取り直すので、読み上げ名でも両方を挙げる */
+export const FILE_SKILL_RELOAD_LABEL = "再読み込み";
+export const FILE_SKILL_RELOAD_ARIA_LABEL = "共通スキルと組み込みスキルを再読み込み";
 export const FILE_SKILL_SCOPE_LABEL: Record<FileSkillInfo["scope"], string> = {
   user: "共通",
   project: "プロジェクト",

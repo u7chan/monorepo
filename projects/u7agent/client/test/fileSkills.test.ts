@@ -1,7 +1,16 @@
 // スキル一覧の表示用導出 (グループ分け / 重複警告 / 上書き表示) を DOM なしで固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FILE_SKILL_SCOPE_LABEL, fileSkillWarning, groupFileSkills } from "../src/lib/fileSkills";
+import {
+  BUILTIN_SKILL_GROUP_LABEL,
+  FILE_SKILL_GROUP_LABEL,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
+  FILE_SKILL_SCOPE_LABEL,
+  FILE_SKILL_SECTION_LABEL,
+  fileSkillWarning,
+  groupFileSkills,
+} from "../src/lib/fileSkills";
 import type { FileSkillInfo } from "../src/types";
 
 function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
@@ -76,4 +85,18 @@ test("グループ分けは組み込みを共通スキルから分ける", () =>
 
 test("スコープの表示名は 3 種類そろっている", () => {
   assert.deepEqual(FILE_SKILL_SCOPE_LABEL, { user: "共通", project: "プロジェクト", builtin: "組み込み" });
+});
+
+test("読み取り専用の断りはブロックの見出しにだけ出し、グループはスコープ名だけにする", () => {
+  assert.ok(FILE_SKILL_SECTION_LABEL.includes("読み取り専用"));
+  for (const label of [FILE_SKILL_GROUP_LABEL, BUILTIN_SKILL_GROUP_LABEL]) {
+    assert.ok(!label.includes("読み取り専用"), `${label} が読み取り専用を繰り返している`);
+  }
+});
+
+test("再読み込みの読み上げ名は視覚ラベルを含み、更新される 2 つのグループを挙げる", () => {
+  // 視覚ラベルを名前が含まないと、音声入力で「再読み込み」と言っても押せない (WCAG 2.5.3)
+  assert.ok(FILE_SKILL_RELOAD_ARIA_LABEL.includes(FILE_SKILL_RELOAD_LABEL));
+  assert.ok(FILE_SKILL_RELOAD_ARIA_LABEL.includes(FILE_SKILL_GROUP_LABEL));
+  assert.ok(FILE_SKILL_RELOAD_ARIA_LABEL.includes(BUILTIN_SKILL_GROUP_LABEL));
 });

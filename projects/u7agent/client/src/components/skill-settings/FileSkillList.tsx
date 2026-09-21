@@ -9,7 +9,10 @@ import {
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_GROUP_LABEL,
   FILE_SKILL_LOADING_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
+  FILE_SKILL_SECTION_LABEL,
   fileSkillWarning,
   groupFileSkills,
 } from "../../lib/fileSkills";
@@ -32,57 +35,70 @@ export type FileSkillListProps = {
 export function FileSkillList({ state, onReload, selectedBuiltin = null, onSelectBuiltin }: FileSkillListProps) {
   const groups = state.status === "ready" ? groupFileSkills(state.skills) : { common: [], builtin: [] };
   return (
-    <>
-      <FileSkillGroup title={FILE_SKILL_GROUP_LABEL} onReload={onReload}>
-        {state.status === "loading" ? <FileSkillNote>{FILE_SKILL_LOADING_NOTE}</FileSkillNote> : null}
-        {state.status === "error" ? (
-          <FileSkillNote tone="warn">
-            {FILE_SKILL_ERROR_PREFIX}: {state.message}
-          </FileSkillNote>
-        ) : null}
-        {state.status === "ready" && groups.common.length === 0 ? (
-          <FileSkillNote>{FILE_SKILL_EMPTY_NOTE}</FileSkillNote>
-        ) : null}
-        {groups.common.map((skill) => (
-          <FileSkillRow key={skill.path} skill={skill} />
-        ))}
-      </FileSkillGroup>
-      {/* 組み込みは取得できたときだけ出す (失敗時はエラー表示だけで十分で、空のグループ見出しを増やさない) */}
-      {state.status === "ready" ? (
-        <FileSkillGroup title={BUILTIN_SKILL_GROUP_LABEL}>
-          {groups.builtin.length === 0 ? <FileSkillNote>{BUILTIN_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
-          {groups.builtin.map((skill) => (
-            <FileSkillRow
-              key={skill.path}
-              skill={skill}
-              selected={selectedBuiltin === skill.name}
-              onOpen={onSelectBuiltin ? () => onSelectBuiltin(skill.name) : undefined}
-            />
-          ))}
-        </FileSkillGroup>
+    <section className="mt-3 grid min-w-0 content-start gap-1 border-t border-line pt-3">
+      {/* 再読み込みは両グループを包む見出しにだけ置く (グループ側に置くと片方だけ更新するように見える) */}
+      <div className="flex items-center justify-between gap-2 px-2 pb-1">
+        <h3 className="min-w-0 truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+          {FILE_SKILL_SECTION_LABEL}
+        </h3>
+        <button
+          type="button"
+          onClick={onReload}
+          aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}
+          className="btn-quiet shrink-0 gap-1 px-1.5 py-0.5"
+        >
+          <RefreshIcon />
+          {FILE_SKILL_RELOAD_LABEL}
+        </button>
+      </div>
+      {state.status === "loading" ? <FileSkillNote>{FILE_SKILL_LOADING_NOTE}</FileSkillNote> : null}
+      {state.status === "error" ? (
+        <FileSkillNote tone="warn">
+          {FILE_SKILL_ERROR_PREFIX}: {state.message}
+        </FileSkillNote>
       ) : null}
-    </>
+      {state.status === "ready" ? (
+        <>
+          <FileSkillGroup title={FILE_SKILL_GROUP_LABEL}>
+            {groups.common.length === 0 ? <FileSkillNote>{FILE_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
+            {groups.common.map((skill) => (
+              <FileSkillRow key={skill.path} skill={skill} />
+            ))}
+          </FileSkillGroup>
+          {/* 組み込みは取得できたときだけ出す (失敗時はエラー表示だけで十分で、空のグループ見出しを増やさない) */}
+          <FileSkillGroup title={BUILTIN_SKILL_GROUP_LABEL} divided>
+            {groups.builtin.length === 0 ? <FileSkillNote>{BUILTIN_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
+            {groups.builtin.map((skill) => (
+              <FileSkillRow
+                key={skill.path}
+                skill={skill}
+                selected={selectedBuiltin === skill.name}
+                onOpen={onSelectBuiltin ? () => onSelectBuiltin(skill.name) : undefined}
+              />
+            ))}
+          </FileSkillGroup>
+        </>
+      ) : null}
+    </section>
   );
 }
 
-function FileSkillGroup({ title, onReload, children }: { title: string; onReload?: () => void; children: ReactNode }) {
+/** 読み取り専用ブロックの中のグループ (共通 / 組み込み)。段は入れ子と字間で表し、色は親と揃える */
+function FileSkillGroup({
+  title,
+  divided = false,
+  children,
+}: {
+  title: string;
+  divided?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <section className="mt-3 grid min-w-0 content-start gap-1 border-t border-line pt-3">
-      <div className="flex items-center justify-between gap-2 px-2 pb-1">
-        <h3 className="min-w-0 truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">{title}</h3>
-        {onReload ? (
-          <button
-            type="button"
-            onClick={onReload}
-            aria-label="スキル一覧を再読み込み"
-            className="btn-quiet shrink-0 px-1.5 py-0.5"
-          >
-            <RefreshIcon />
-          </button>
-        ) : null}
-      </div>
+    <div className={cn("grid min-w-0 content-start gap-1", divided && "mt-1 border-t border-line/60 pt-2")}>
+      {/* ink-ghost は eyebrow 用で、10px の見出しでは実測でも各テーマの 3:1 を下回る */}
+      <h4 className="px-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">{title}</h4>
       {children}
-    </section>
+    </div>
   );
 }
 
@@ -105,16 +121,18 @@ function FileSkillRow({
   onOpen?: () => void;
 }) {
   const warning = fileSkillWarning(skill);
-  const body = (
+  const identity = (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <span className="min-w-0 truncate text-xs leading-4">{skill.name}</span>
+      <span className="shrink-0 text-2xs leading-4 text-ink-ghost">{FILE_SKILL_SCOPE_LABEL[skill.scope]}</span>
+      {skill.version ? <span className="shrink-0 text-2xs leading-4 text-ink-ghost">v{skill.version}</span> : null}
+      {skill.disableModelInvocation ? (
+        <span className="shrink-0 text-2xs leading-4 text-ink-ghost">自動起動なし</span>
+      ) : null}
+    </span>
+  );
+  const details = (
     <>
-      <span className="flex min-w-0 items-baseline gap-1.5">
-        <span className="min-w-0 truncate text-xs leading-4">{skill.name}</span>
-        <span className="shrink-0 text-2xs leading-4 text-ink-ghost">{FILE_SKILL_SCOPE_LABEL[skill.scope]}</span>
-        {skill.version ? <span className="shrink-0 text-2xs leading-4 text-ink-ghost">v{skill.version}</span> : null}
-        {skill.disableModelInvocation ? (
-          <span className="shrink-0 text-2xs leading-4 text-ink-ghost">自動起動なし</span>
-        ) : null}
-      </span>
       <span className="truncate text-2xs leading-4 text-ink-soft">{skill.description || "説明なし"}</span>
       <code className="truncate text-2xs leading-4 text-ink-ghost">{skill.relativePath}</code>
       {warning ? (
@@ -125,20 +143,31 @@ function FileSkillRow({
     </>
   );
   if (!onOpen) {
-    return <div className="grid min-w-0 gap-1 rounded-lg px-2 py-1 text-ink">{body}</div>;
+    return (
+      <div className="grid min-w-0 gap-1 rounded-lg px-2 py-1 text-ink">
+        {identity}
+        {details}
+      </div>
+    );
   }
-  // 組み込みは本文ビューを開ける (読み取り専用なので編集フォームは出さない)
+  // 組み込みは本文ビューを開ける (読み取り専用なので編集フォームは出さない)。説明・パス・警告は button の
+  // 外へ出して読み上げ名を名前行に閉じ、クリック領域は overlay で行全体のまま保つ (docs/api-catalog.md)
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onOpen}
+    <div
       className={cn(
-        "grid min-w-0 gap-1 rounded-lg px-2 py-1 text-left transition-colors",
+        "relative grid min-w-0 gap-1 rounded-lg px-2 py-1 transition-colors",
         selected ? "bg-accent-wash text-accent-text" : "text-ink hover:bg-hover",
       )}
     >
-      {body}
-    </button>
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={onOpen}
+        className="min-w-0 text-left after:absolute after:inset-0"
+      >
+        {identity}
+      </button>
+      {details}
+    </div>
   );
 }
