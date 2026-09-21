@@ -215,7 +215,7 @@ export const stopSession = async (sessionId: string): Promise<StopResult> => {
   return res.json();
 };
 
-// 202 を即時返す。実行は裏で続き、進捗は SSE で届く。attachments は作業フォルダ相対の uploads/ 配下
+// 202 を即時返す。実行は裏で続き、進捗は SSE で届く。attachments は root 相対の `<appdir>/uploads/<sessionId>/` 配下
 // (本文が空でも添付だけで送れる)
 export const postMessage = async (
   sessionId: string,
@@ -230,7 +230,7 @@ export const postMessage = async (
 
 export type SessionFileUpload = {
   sessionId: string;
-  /** セッションの作業フォルダ相対 (uploads/…)。raw URL は fileTreeFetchPath で root 相対へ直す */
+  /** root 相対の保存パス (`.pi-agent-gui/uploads/<sessionId>/…`)。raw URL にそのまま使える */
   path: string;
   name: string;
   renamed: boolean;

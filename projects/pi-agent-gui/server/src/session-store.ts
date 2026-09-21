@@ -17,12 +17,12 @@ import {
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { SESSION_DIR_REL, assertSessionId, isSessionId, sessionWorkdirRel } from "./app-paths";
 import type { AgentPayloadInfo, ThinkingLevel } from "./schema";
 
-/** 作業フォルダ (サンドボックス側) の root 相対パス。会話ストアとは別の場所に置く */
-export const SESSION_DIR_REL = ".pi-agent-gui/sessions";
+// 配置 (appdir / スクラッチ / 添付) の正は app-paths。既存の import 先を保つため再輸出する
+export { SESSION_DIR_REL, assertSessionId, sessionWorkdirRel };
 export const SESSION_STORE_ENV = "PI_SESSION_STORE";
-const SESSION_ID_PATTERN = /^[0-9a-f]{10}$/;
 /** 部分書込みの再試行回数。超えたらエラーを記録して次の保存に委ねる */
 const MAX_WRITE_ATTEMPTS = 3;
 
@@ -121,10 +121,6 @@ export function sessionJsonlPath(id: string, storeDir: string): string {
   return join(sessionDirPath(storeDir, id), "session.jsonl");
 }
 
-export function assertSessionId(id: string): void {
-  if (!SESSION_ID_PATTERN.test(id)) throw new Error(`セッション ID が不正です: ${id}`);
-}
-
 /** 10 hex 文字。既存フォルダと衝突したら作り直す (外部ライブラリは使わない) */
 export function generateSessionId(storeDir: string): string {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -137,7 +133,7 @@ export function generateSessionId(storeDir: string): string {
 export async function listSessionIds(storeDir: string): Promise<string[]> {
   const entries = await readdir(storeDir, { withFileTypes: true }).catch(() => []);
   return entries
-    .filter((entry) => entry.isDirectory() && SESSION_ID_PATTERN.test(entry.name))
+    .filter((entry) => entry.isDirectory() && isSessionId(entry.name))
     .map((entry) => entry.name)
     .sort();
 }
@@ -186,16 +182,6 @@ export async function writeSessionMeta(storeDir: string, meta: SessionMeta): Pro
   const temp = join(dir, `.meta-${randomBytes(4).toString("hex")}.json`);
   await writeFile(temp, `${JSON.stringify(meta, null, 2)}\n`, { mode: 0o600 });
   await rename(temp, target);
-}
-
-/** セッションの作業フォルダ (root 相対)。BFF は作成せず、サンドボックスの mkdir に任せる */
-export function sessionWorkdirRel(id: string): string {
-  assertSessionId(id);
-  return `${SESSION_DIR_REL}/${id}`;
-}
-
-export function sessionWorkdirAbs(rootCwd: string, id: string): string {
-  return resolve(rootCwd, sessionWorkdirRel(id));
 }
 
 /** 新規作成時の header。timestamp は meta.createdAt を使い、復元しても作成時刻を保つ */

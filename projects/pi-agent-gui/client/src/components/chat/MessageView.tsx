@@ -30,7 +30,7 @@ export function MessageView({
   bubble,
   copied,
   compact,
-  cwd,
+  rootCwd,
   onCopy,
   copiedId,
   onCopyTool,
@@ -40,8 +40,8 @@ export function MessageView({
   bubble: Bubble;
   copied: boolean;
   compact: boolean;
-  /** セッションの作業フォルダ (root 相対)。添付のサムネイル URL を組むのに使う */
-  cwd: string;
+  /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
+  rootCwd: string;
   onCopy: (text: string) => void;
   copiedId: string;
   onCopyTool: (card: ToolCard) => void;
@@ -93,7 +93,7 @@ export function MessageView({
         {bubble.text ? (
           isUser ? (
             <>
-              <AttachedFiles files={files} cwd={cwd} compact={compact} />
+              <AttachedFiles files={files} rootCwd={rootCwd} compact={compact} />
               {bodyText ? (
                 // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
                 <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed break-words whitespace-pre-wrap text-on-accent">

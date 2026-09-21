@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { isAbsolute, posix, resolve, sep } from "node:path";
+import { APP_DIR_REL, isAppDirPath } from "./app-paths";
 import type { Project } from "./schema";
 
 interface HttpLikeError extends Error {
@@ -45,10 +46,14 @@ export function normalizeWorkspacePath(value: string): string {
   return segments.join("/");
 }
 
-/** プロジェクト cwd。root 自身はプロジェクトにできない (未所属セッションの作業場所)。 */
+/**
+ * プロジェクト cwd。root 自身とアプリの作業ディレクトリ (`<appdir>`) はプロジェクトにできない
+ * (前者は未所属セッションの作業場所、後者はセッションのスクラッチと添付の置き場)。
+ */
 export function normalizeProjectCwd(value: string): string {
   const path = normalizeWorkspacePath(value);
   if (!path) throw badRequest("cwd must not be the workspace root");
+  if (isAppDirPath(path)) throw badRequest(`cwd must not be under ${APP_DIR_REL}: ${value}`);
   return path;
 }
 

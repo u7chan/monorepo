@@ -8,7 +8,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
 import { createBffApp } from "../src/app";
-import { MAX_ATTACHMENT_BYTES, UPLOADS_DIR, composePrompt, stripAttachedFiles } from "../src/attachments";
+import { sessionUploadsRel } from "../src/app-paths";
+import { MAX_ATTACHMENT_BYTES, composePrompt, stripAttachedFiles } from "../src/attachments";
 import { SandboxRequestError, createSandboxToolClient, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { createSandboxService } from "../src/sandbox/service";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
@@ -27,7 +28,7 @@ type UploadCall = { dir: string; name: string; size: number };
 
 /**
  * アップロードの引数と実際に読んだバイト数を記録する workspace stub。
- * 応答の path は実サンドボックスと同じ「root 相対」を返す (BFF の作業フォルダへの変換は BFF の責務)。
+ * 応答の path は実サンドボックスと同じ「root 相対」を返す (BFF は変換せずそのまま返す)。
  */
 function stubWorkspace() {
   const uploads: UploadCall[] = [];
@@ -125,18 +126,18 @@ test("POST /api/sessions/:id/files streams the body to the sandbox uploads direc
     assert.equal(response.status, 201);
     assert.deepEqual(await response.json(), {
       sessionId,
-      path: "uploads/photo.png",
+      path: `${sessionUploadsRel(sessionId)}/photo.png`,
       name: "photo.png",
       renamed: false,
       size: 16,
     });
-    assert.deepEqual(uploads, [{ dir: UPLOADS_DIR, name: "photo.png", size: 16 }]);
+    assert.deepEqual(uploads, [{ dir: sessionUploadsRel(sessionId), name: "photo.png", size: 16 }]);
   } finally {
     await bff.close();
   }
 });
 
-test("the upload response path is relative to the session work folder", async () => {
+test("the upload response path stays the root-relative uploads path", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "pi-session-store-"));
   const { workspace, uploads } = stubWorkspace();
   const bff = await createBffApp({
@@ -147,30 +148,32 @@ test("the upload response path is relative to the session work folder", async ()
   });
   try {
     const sessionId = await createSession(bff.app);
-    const workdir = `.pi-agent-gui/sessions/${sessionId}`;
+    const uploadsDir = sessionUploadsRel(sessionId);
     const response = await bff.app.request(`/api/sessions/${sessionId}/files?name=photo.png`, {
       method: "POST",
       body: "bytes",
     });
     assert.equal(response.status, 201);
-    // サンドボックスは root 相対 (`<workdir>/uploads/photo.png`) を返し、BFF が作業フォルダの前置を剥がす
-    assert.equal(uploads[0]?.dir, `${workdir}/uploads`);
+    // 保存先は所属に関係なく `<appdir>/uploads/<id>`。応答も root 相対のままクライアントへ返す
+    assert.equal(uploads[0]?.dir, uploadsDir);
     assert.deepEqual(await response.json(), {
       sessionId,
-      path: "uploads/photo.png",
+      path: `${sessionUploadsRel(sessionId)}/photo.png`,
       name: "photo.png",
       renamed: false,
       size: 5,
     });
 
-    // uploads/ 配下に解決できない応答は契約違反として 502 (誤ったパスをクライアントへ流さない)
+    // 保存先の外や別セッションを指す応答は契約違反として 502 (誤ったパスをクライアントへ流さない)
     const original = workspace.uploadFile;
-    workspace.uploadFile = async (input) => ({ ...(await original(input)), path: `docs/${input.name}` });
-    const invalid = await bff.app.request(`/api/sessions/${sessionId}/files?name=photo.png`, {
-      method: "POST",
-      body: "bytes",
-    });
-    assert.equal(invalid.status, 502);
+    for (const wrong of [`docs/${"photo.png"}`, `.pi-agent-gui/uploads/fffffffff/photo.png`]) {
+      workspace.uploadFile = async (input) => ({ ...(await original(input)), path: wrong });
+      const invalid = await bff.app.request(`/api/sessions/${sessionId}/files?name=photo.png`, {
+        method: "POST",
+        body: "bytes",
+      });
+      assert.equal(invalid.status, 502, wrong);
+    }
   } finally {
     await bff.close();
   }
@@ -192,7 +195,7 @@ test("upload route bypasses the 64 KiB bodyGuard for /api", async () => {
       body,
     });
     assert.equal(response.status, 201, "bodyGuard (64 KiB / text 化) を通さない");
-    assert.deepEqual(uploads, [{ dir: UPLOADS_DIR, name: "big.bin", size: body.byteLength }]);
+    assert.deepEqual(uploads, [{ dir: sessionUploadsRel(sessionId), name: "big.bin", size: body.byteLength }]);
   } finally {
     await bff.close();
   }
@@ -331,10 +334,11 @@ test("upload and raw delivery work against the real sandbox service", async () =
       body,
     });
     assert.equal(uploaded.status, 201);
+    const uploadsDir = sessionUploadsRel(sessionId);
     const result = (await uploaded.json()) as { path: string; name: string; size: number };
-    assert.equal(result.path, "uploads/chart.png");
+    assert.equal(result.path, `${uploadsDir}/chart.png`);
     assert.equal(result.size, body.byteLength);
-    assert.deepEqual(new Uint8Array(await readFile(join(root, "uploads", "chart.png"))), body);
+    assert.deepEqual(new Uint8Array(await readFile(join(root, uploadsDir, "chart.png"))), body);
 
     // 同名は上書きせず連番になる
     const second = await bff.app.request(`/api/sessions/${sessionId}/files?name=chart.png`, {
@@ -344,7 +348,7 @@ test("upload and raw delivery work against the real sandbox service", async () =
     assert.equal(((await second.json()) as { name: string }).name, "chart-1.png");
 
     // BFF の raw はサンドボックスのストリームをヘッダつきで中継する
-    const raw = await bff.app.request("/api/files/raw?path=uploads%2Fchart.png");
+    const raw = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(`${uploadsDir}/chart.png`)}`);
     assert.equal(raw.status, 200);
     assert.equal(raw.headers.get("content-type"), "image/png");
     assert.equal(raw.headers.get("content-length"), String(body.byteLength));
@@ -354,7 +358,7 @@ test("upload and raw delivery work against the real sandbox service", async () =
   }
 });
 
-test("a persistent session receives the work folder prefix stripped by the BFF", async () => {
+test("a persistent session stores attachments outside its work folder", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-sbx-e2e-workdir-"));
   const storeDir = await mkdtemp(join(tmpdir(), "pi-sbx-e2e-store-"));
   const { bff, close } = await appWithRealSandbox({ rootCwd: root, sessionStoreDir: storeDir });
@@ -370,19 +374,21 @@ test("a persistent session receives the work folder prefix stripped by the BFF",
       body,
     });
     assert.equal(uploaded.status, 201);
-    // サンドボックスは root 相対で返すが、クライアントへは作業フォルダ相対で返す (二重前置を防ぐ)
-    assert.equal(((await uploaded.json()) as { path: string }).path, "uploads/dot.png");
-    assert.deepEqual(new Uint8Array(await readFile(join(root, workdir, "uploads", "dot.png"))), body);
+    // 添付は作業フォルダの外 (`<appdir>/uploads/<id>`) に置く (プロジェクト所属でもリポジトリ内に作らない)
+    const uploadsDir = sessionUploadsRel(sessionId);
+    assert.equal(((await uploaded.json()) as { path: string }).path, `${uploadsDir}/dot.png`);
+    assert.deepEqual(new Uint8Array(await readFile(join(root, uploadsDir, "dot.png"))), body);
+    assert.notEqual(uploadsDir, workdir);
 
-    // クライアントと同じ変換 (fileTreeFetchPath) で raw を引ける
-    const raw = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(`${workdir}/uploads/dot.png`)}`);
+    // 返した root 相対パスで raw を引ける
+    const raw = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(`${uploadsDir}/dot.png`)}`);
     assert.equal(raw.status, 200);
     assert.deepEqual(new Uint8Array(await raw.arrayBuffer()), body);
 
     // 返した path はそのまま attachments として送れる
     const posted = await bff.app.request(
       `/api/sessions/${sessionId}/messages`,
-      jsonPost({ text: "これを見て", attachments: ["uploads/dot.png"] }),
+      jsonPost({ text: "これを見て", attachments: [`${uploadsDir}/dot.png`] }),
     );
     assert.equal(posted.status, 202);
   } finally {
@@ -401,7 +407,7 @@ test("an oversize upload is rejected by the sandbox stream limit as 413", async 
     });
     assert.equal(response.status, 413);
     // 中断した temp も最終ファイルも残さない (ディレクトリは作ってよい)
-    assert.deepEqual(await readdir(join(root, "uploads")), []);
+    assert.deepEqual(await readdir(join(root, sessionUploadsRel(sessionId))), []);
   } finally {
     await close();
   }
@@ -411,23 +417,24 @@ test("uploaded images are servable and other extensions are not", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-sbx-e2e-raw-"));
   const { bff, close } = await appWithRealSandbox({ rootCwd: root });
   try {
-    await mkdir(join(root, "uploads"), { recursive: true });
-    await writeFile(join(root, "uploads", "note.txt"), "text");
-    assert.equal((await bff.app.request("/api/files/raw?path=uploads%2Fnote.txt")).status, 400);
-    assert.equal((await bff.app.request("/api/files/raw?path=uploads%2Fmissing.png")).status, 404);
+    await mkdir(join(root, ".pi-agent-gui", "uploads"), { recursive: true });
+    await writeFile(join(root, ".pi-agent-gui", "uploads", "note.txt"), "text");
+    assert.equal((await bff.app.request("/api/files/raw?path=.pi-agent-gui%2Fuploads%2Fnote.txt")).status, 400);
+    assert.equal((await bff.app.request("/api/files/raw?path=.pi-agent-gui%2Fuploads%2Fmissing.png")).status, 404);
   } finally {
     await close();
   }
 });
 
-test("POST /api/sessions/:id/messages accepts attachments under uploads/ and stores the note", async () => {
+test("POST /api/sessions/:id/messages accepts the session uploads paths and stores absolute-path notes", async () => {
   const pi = createStubPi({ chunkDelayMs: 1 });
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
   try {
     const sessionId = await createSession(bff.app);
+    const uploadsDir = sessionUploadsRel(sessionId);
     const response = await bff.app.request(
       `/api/sessions/${sessionId}/messages`,
-      jsonPost({ text: "これを見て", attachments: ["./uploads/photo.png", "uploads/report.pdf"] }),
+      jsonPost({ text: "これを見て", attachments: [`./${uploadsDir}/photo.png`, `${uploadsDir}/report.pdf`] }),
     );
     assert.equal(response.status, 202);
 
@@ -435,8 +442,8 @@ test("POST /api/sessions/:id/messages accepts attachments under uploads/ and sto
     const payload = await jsonBody(bff.app.request(`/api/sessions/${sessionId}`));
     assert.equal(
       payload.messages[0].text,
-      composePrompt("これを見て", ["uploads/photo.png", "uploads/report.pdf"]),
-      "履歴には注記込みの本文が入る",
+      composePrompt("これを見て", [`/tmp/project/${uploadsDir}/photo.png`, `/tmp/project/${uploadsDir}/report.pdf`]),
+      "履歴には絶対パスの注記込みの本文が入る",
     );
     assert.equal(payload.title, "これを見て", "title は注記を除いた本文から作る");
     assert.equal(stripAttachedFiles(payload.messages[0].text), "これを見て");
@@ -451,18 +458,21 @@ test("POST /api/sessions/:id/messages allows attachments without text and reject
   try {
     const sessionId = await createSession(bff.app);
 
+    const uploadsDir = sessionUploadsRel(sessionId);
     const noText = await bff.app.request(
       `/api/sessions/${sessionId}/messages`,
-      jsonPost({ text: "  ", attachments: ["uploads/photo.png"] }),
+      jsonPost({ text: "  ", attachments: [`${uploadsDir}/photo.png`] }),
     );
     assert.equal(noText.status, 202);
 
     const rejected: Array<{ text: string; attachments: unknown[] }> = [
-      { text: "x", attachments: Array.from({ length: 11 }, (_, index) => `uploads/${index}.png`) },
+      { text: "x", attachments: Array.from({ length: 11 }, (_, index) => `${uploadsDir}/${index}.png`) },
       { text: "x", attachments: ["docs/photo.png"] },
-      { text: "x", attachments: ["uploads/../secret.png"] },
+      { text: "x", attachments: ["uploads/photo.png"] },
+      { text: "x", attachments: [`${uploadsDir}/../secret.png`] },
       { text: "x", attachments: ["/uploads/photo.png"] },
-      { text: "x", attachments: ["uploads"] },
+      { text: "x", attachments: [uploadsDir] },
+      { text: "x", attachments: [".pi-agent-gui/uploads/fffffffff/photo.png"] },
       { text: "x", attachments: [42 as unknown as string] },
     ];
     for (const body of rejected) {
@@ -471,6 +481,71 @@ test("POST /api/sessions/:id/messages allows attachments without text and reject
     }
     // 本文も添付も無い送信は従来どおり 400
     assert.equal((await bff.app.request(`/api/sessions/${sessionId}/messages`, jsonPost({ text: " " }))).status, 400);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("プロジェクト所属セッションの添付も appdir に置き、ファイル画面の root は登録ディレクトリになる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "pi-session-store-project-"));
+  const { workspace, uploads } = stubWorkspace();
+  const pi = createStubPi({ chunkDelayMs: 1 });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: storeDir, pi: asPiBff(pi), workspace });
+  try {
+    const project = (await jsonBody(await bff.app.request("/api/projects", jsonPost({ cwd: "repos/app" })))).project;
+    const created = await bff.app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-general", projectId: project.id }),
+    );
+    assert.equal(created.status, 201);
+    const payload = (await created.json()) as { sessionId: string; cwd: string };
+    assert.equal(payload.cwd, "repos/app", "ファイル画面の root は登録ディレクトリ");
+
+    const uploaded = await bff.app.request(`/api/sessions/${payload.sessionId}/files?name=photo.png`, {
+      method: "POST",
+      body: "bytes",
+    });
+    assert.equal(uploaded.status, 201);
+    const uploadsDir = sessionUploadsRel(payload.sessionId);
+    assert.equal(uploads[0]?.dir, uploadsDir, "プロジェクト所属でも保存先は appdir 配下");
+    assert.equal(((await uploaded.json()) as { path: string }).path, `${uploadsDir}/photo.png`);
+    assert.ok(!uploadsDir.startsWith("repos/"), "リポジトリ内には置かない");
+
+    const posted = await bff.app.request(
+      `/api/sessions/${payload.sessionId}/messages`,
+      jsonPost({ text: "これを見て", attachments: [`${uploadsDir}/photo.png`] }),
+    );
+    assert.equal(posted.status, 202);
+    await waitFor(() => pi.sessions[0]?.messages.some((message) => message.role === "user"));
+    const latest = await jsonBody(bff.app.request(`/api/sessions/${payload.sessionId}`));
+    assert.match(
+      latest.messages[0].text,
+      /<attached_files>\n- \/tmp\/project\/\.pi-agent-gui\/uploads\/[0-9a-f]{10}\/photo\.png\n<\/attached_files>/,
+      "モデルへは絶対パスで知らせる",
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("存在しない登録ディレクトリではセッションを作らず 400 にする", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "pi-session-store-missing-"));
+  const { workspace, uploads } = stubWorkspace();
+  const pi = createStubPi();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: storeDir, pi: asPiBff(pi), workspace });
+  try {
+    const project = (await jsonBody(await bff.app.request("/api/projects", jsonPost({ cwd: "repos/app" })))).project;
+    workspace.listFiles = async () => {
+      throw new SandboxRequestError("Path not found: repos/app", 404);
+    };
+    const response = await bff.app.request(
+      "/api/sessions",
+      jsonPost({ agentId: "agent-general", projectId: project.id }),
+    );
+    assert.equal(response.status, 400);
+    assert.match(((await response.json()) as { error: string }).error, /repos\/app/);
+    assert.equal(pi.createInputs.length, 0, "SDK セッションは開かない");
+    assert.deepEqual(uploads, [], "ディレクトリも作らない");
   } finally {
     await bff.close();
   }

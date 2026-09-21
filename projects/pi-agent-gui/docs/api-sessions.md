@@ -40,7 +40,7 @@
 
 - `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。
 - `projectId` は optional。省略したセッションは未所属になる。未知の `projectId` は 400（未所属へは落とさない）。
-- セッションの作業ディレクトリはワークスペース root 配下の `.pi-agent-gui/sessions/<id>` で、作成時にサンドボックスの `POST /v1/dirs` で作る。以降のツール実行とファイル一覧の起点になる。会話の永続化が有効なときは `meta.json` / `session.jsonl` も同じ id で会話ストアへ作る（[session-files.md](session-files.md)）。所属を後から変える API は無い。詳細は [projects.md](projects.md)。
+- セッションの作業ディレクトリは、所属プロジェクトがあれば登録ディレクトリ（`project.cwd`）、未所属ならワークスペース root 配下の `.pi-agent-gui/sessions/<id>`。以降のツール実行とファイル一覧の起点になる。プロジェクトのディレクトリは作らず存在確認だけを行い、無ければ 400。未所属のスクラッチは作成時にサンドボックスの `POST /v1/dirs` で作る。会話の永続化が有効なときは `meta.json` / `session.jsonl` も同じ id で会話ストアへ作る（[session-files.md](session-files.md)）。所属を後から変える API は無い。詳細は [projects.md](projects.md#セッション-cwd)。
 - 明示されたモデルは利用可能一覧の provider/id と厳密照合し、利用不能なら 400、利用可能モデル自体がゼロなら 503。いずれも pi SDK のセッション作成前に拒否する。
 - 作成時に指定した値はそのチャット内だけに適用され、定義や他のチャットへは波及しない。201 でセッションペイロードを返す。
 
@@ -115,7 +115,7 @@
 
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
 
-`cwd` はワークスペース root 相対の作業ディレクトリ（`.pi-agent-gui/sessions/<id>`）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。
+`cwd` はワークスペース root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は `.pi-agent-gui/sessions/<id>`）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。復元時は `meta.projectCwd` から `cwd` を解決し、登録が解除・消失していてもそのディレクトリを使う。
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
@@ -158,12 +158,12 @@
 // request
 { "text": "README を読んで改善案を 3 つ" }
 // request (添付あり)
-{ "text": "これを見て", "attachments": ["uploads/photo-1.png", "uploads/report.pdf"] }
+{ "text": "これを見て", "attachments": [".pi-agent-gui/uploads/a1b2c3d4e5/photo-1.png", ".pi-agent-gui/uploads/a1b2c3d4e5/report.pdf"] }
 // response (202)
 { "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "runId": "…" }
 ```
 
-- `attachments` はセッションの作業フォルダ相対のパスで、`uploads/` 配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体は 400）。最大 10 件、文字列以外は 400。
+- `attachments` は root 相対のパスで、そのセッションの保存先 `<appdir>/uploads/<sessionId>/` 配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体・別セッションの保存先は 400）。最大 10 件、文字列以外は 400。
 - `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
 
@@ -173,11 +173,12 @@
 これを見て
 
 <attached_files>
-- ./uploads/photo-1.png
-- ./uploads/report.pdf
+- /workspace/.pi-agent-gui/uploads/a1b2c3d4e5/photo-1.png
+- /workspace/.pi-agent-gui/uploads/a1b2c3d4e5/report.pdf
 </attached_files>
 ```
 
+- 添付の保存先はセッションの作業ディレクトリの外（プロジェクト所属ではリポジトリの外）にあるため、注記は**絶対パス**で示す。モデルはそのパスで `read` する
 - 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
 - クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、`run_start` が届いたら注記込みへ差し替える（`client/src/hooks/chatReducer.ts`。送信順の待ち行列で同じ本文を続けて送っても取り違えない）
@@ -193,11 +194,11 @@ POST /api/sessions/:id/files?name=photo.png
 
 ```json
 // response (201)
-{ "sessionId": "…", "path": "uploads/photo.png", "name": "photo.png", "renamed": false, "size": 12345 }
+{ "sessionId": "…", "path": ".pi-agent-gui/uploads/a1b2c3d4e5/photo.png", "name": "photo.png", "renamed": false, "size": 12345 }
 ```
 
-- `path` はセッションの作業フォルダ相対。サンドボックスは root 相対を返すため、BFF が作業フォルダの前置を剥がして返す（`uploads/` 配下に解決できない応答は契約違反として 502）。raw 表示 URL はクライアントが `fileTreeFetchPath(cwd, path)` で root 相対へ直す
-- 保存先は `<作業フォルダ>/uploads/`。同名ファイルは上書きせず `name-1.ext` 形式で連番にする（詳細は [session-files.md](session-files.md#添付ファイルチャットからのアップロード)）
+- `path` は root 相対。サンドボックスも root 相対を返すため、BFF はそのセッションの保存先（`<appdir>/uploads/<sessionId>/`）に解決できることを確かめてそのまま返す（外を指す・`..` を含む・別セッションの応答は契約違反として 502）。raw 表示 URL はこの値をそのまま `GET /api/files/raw` の `path` に使う
+- 保存先は所属に関係なく `<appdir>/uploads/<sessionId>/`。同名ファイルは上書きせず `name-1.ext` 形式で連番にする（詳細は [session-files.md](session-files.md#添付ファイルチャットからのアップロード)）
 - 400（`name` が不正）/ 404（セッションなし）/ 413（100 MiB 超。`Content-Length` で分かるときは本文を送らずに返す）/ 503（サンドボックス未設定）/ 502（サンドボックスへ到達できない・応答が契約外）
 - 上限は 1 ファイル 100 MiB、ファイル名 200 文字（いずれも最終判定はサンドボックス側）
 
@@ -232,4 +233,4 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 ## `DELETE /api/sessions/:id`
 
-セッションを削除する。停止 + 会話ストアの履歴削除を行い、購読中の SSE には `session_deleted` が通知される。作業フォルダ（`.pi-agent-gui/sessions/<id>`）は残る。未ロードのセッションは SDK セッションを開かずに消せる（モデル未認証・JSONL 破損でも削除できる）。未知の id は 404。
+セッションを削除する。停止 + 会話ストアの履歴削除を行い、購読中の SSE には `session_deleted` が通知される。作業ディレクトリ（プロジェクト所属は登録ディレクトリ、未所属は `.pi-agent-gui/sessions/<id>`）と添付（`.pi-agent-gui/uploads/<id>`）は残る。未ロードのセッションは SDK セッションを開かずに消せる（モデル未認証・JSONL 破損でも削除できる）。未知の id は 404。

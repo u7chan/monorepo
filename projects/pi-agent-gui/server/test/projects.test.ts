@@ -33,6 +33,14 @@ test("a project cwd cannot be the workspace root", () => {
   assert.throws(() => normalizeProjectCwd("./"), isBadRequest);
 });
 
+test("an app directory path cannot be registered as a project", () => {
+  for (const value of [".pi-agent-gui", ".pi-agent-gui/", "./.pi-agent-gui", ".pi-agent-gui/uploads/a.png"]) {
+    assert.throws(() => normalizeProjectCwd(value), isBadRequest, value);
+  }
+  // 名前が同じでも別ディレクトリは登録できる (.pi-agent-gui-other など)
+  assert.equal(normalizeProjectCwd(".pi-agent-gui-other"), ".pi-agent-gui-other");
+});
+
 test("resolves a session cwd against the workspace root", () => {
   assert.deepEqual(resolveWorkspaceCwd("/workspace", "proj/sub"), {
     relative: "proj/sub",

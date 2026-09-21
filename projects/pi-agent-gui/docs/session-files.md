@@ -2,7 +2,7 @@
 
 ## 目的
 
-- セッション（会話）ごとのファイルを、ワークスペース root 配下のセッションフォルダで管理する。
+- セッション（会話）ごとの作業ディレクトリをワークスペース root 配下に置く。未所属はセッション専用のスクラッチ、プロジェクト所属は登録ディレクトリそのものを共有する（[projects.md](projects.md#セッション-cwd)）。
 - 会話履歴をファイル（JSONL）に保存し、BFF を再起動してもセッション一覧・履歴・続きの送信を復元できるようにする。
 - 現状は履歴がメモリのみで、作業ファイルは残っても会話が戻らない。会話とファイルを同じ id で対応させ、この不一致を解消する。
 
@@ -34,14 +34,18 @@ $PI_SESSION_STORE/<id>/
   meta.json      # 会話以外のアプリメタデータ
   session.jsonl  # pi SDK 形式の会話（header + entries）
 
-# 2) セッションの作業フォルダ（サンドボックスが読み書き。ファイル画面の root）
-<workspace root>/.pi-agent-gui/sessions/<id>/
-  uploads/       # チャットから添付したファイル
+# 2) 未所属セッションのスクラッチ（サンドボックスが読み書き。ファイル画面の root）
+<workspace root>/<appdir>/sessions/<id>/
+
+# 3) 添付ファイルの置き場（全セッション共通。ファイル画面には出ない）
+<workspace root>/<appdir>/uploads/<id>/
 ```
+
+`<appdir>` は現 `.pi-agent-gui`（BFF の `APP_DIR_REL`。名前の変更は別 Issue）。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリ（`project.cwd`）そのもので、スクラッチも添付も `<appdir>` 配下に置く（[projects.md](projects.md#セッション-cwd)）。添付を `<appdir>/uploads/<id>` に固定するのは、プロジェクト所属でもリポジトリ内にファイルを作らないため。
 
 - `<id>` は `crypto.randomBytes(5).toString("hex")` の 10 文字。外部ライブラリは増やさない。store 側のフォルダ存在で衝突を検出し、衝突したら再生成する。SDK の `assertValidSessionId` も満たす。
 - `PI_SESSION_STORE` の既定は `<agentDir>/pi-agent-gui/sessions`。**`PI_APP_CWD` の中は起動時に拒否する**（ワークスペースをサンドボックスと共有する構成で store を共有してしまう事故を防ぐ）。
-- 作業フォルダの作成は既存のサンドボックス `POST /v1/dirs`（`mkdir -p` 相当）で行い、復元時も冪等に呼んで存在を保証する。BFF は作業領域のファイルに触らない。
+- 未所属セッションのスクラッチの作成は既存のサンドボックス `POST /v1/dirs`（`mkdir -p` 相当）で行い、復元時も冪等に呼んで存在を保証する。BFF は作業領域のファイルに触らない。プロジェクト所属セッションでは作成せず、存在確認（一覧取得）だけを行い、無ければセッション作成を 400 で拒む。
 - store のフォルダ権限は 0700 にする。
 
 ## meta.json
@@ -93,12 +97,14 @@ $PI_SESSION_STORE/<id>/
 
 ## 添付ファイル（チャットからのアップロード）
 
-チャットから添付したファイルは、セッションの作業フォルダ配下の `uploads/` に置く（`SessionPayload.cwd` を前置した `<作業フォルダ>/uploads/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
+チャットから添付したファイルは、所属に関係なく `<appdir>/uploads/<sessionId>/` に置く（プロジェクトのリポジトリ内には作らない。ルート相対では `.pi-agent-gui/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
 
 - 選択時（即時）にアップロードする。未作成チャットでは先にセッションを作る（クライアントの `ensureSession`。同時アップロードで二重作成しない）
+- API の `path` は root 相対（`.pi-agent-gui/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
 - 同名ファイルは上書きせず `name-1.ext` 形式で連番にする（`link(2)` の排他作成。2 回目以降も連番）
-- 添付を外してもファイルは作業フォルダに残す（チャット右パネル / 設定 → ファイル の一覧から削除できる。移動 API は非ゴール）
-- LLM へのマルチモーダル注入はしない。プロンプト末尾の注記（`<attached_files>`）でパスを知らせ、モデルが必要なら `read` する。注記の組み立ては `server/src/attachments.ts` に閉じる
+- 添付を外してもファイルは置き場に残す（`DELETE /api/files` の一覧から削除できる。移動 API は非ゴール）
+- LLM へのマルチモーダル注入はしない。プロンプト末尾の注記（`<attached_files>`）で**絶対パス**を知らせ、モデルが必要なら `read` する。プロジェクト所属セッションの cwd からは相対で届かないため、絶対パスで渡す。注記の組み立ては `server/src/attachments.ts` に閉じる
+- ファイル画面の root は作業ディレクトリ（プロジェクト所属なら登録ディレクトリ、未所属ならスクラッチ）なので、`<appdir>/uploads/<id>` はファイル画面には出ない
 - 履歴と `run_start.prompt` には注記込みの本文が入る。クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーは注記を除いた本文）
 - 画像の表示は `GET /api/files/raw`（画像のみの allowlist。SVG / HTML は配信しない）
 
@@ -111,13 +117,13 @@ $PI_SESSION_STORE/<id>/
 
 ファイルを置くのはサンドボックスだけなので、`uploads/` も通常の作業ファイルと同じく bash / write から見える（セッション間の隔離はない）。
 
-誤ってアップロードしたファイルは、チャット右パネル / 設定 → ファイル の一覧から通常ファイル単位で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files`。出す画面・確認・タブの扱いは [file-preview.md](file-preview.md#削除)）。ディレクトリと symlink は消せない。セッションの DELETE は従来どおり履歴だけで、作業フォルダは残る。
+誤ってアップロードしたファイルは、設定 → ファイル の一覧（ワークスペース root）から通常ファイル単位で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files`。出す画面・確認・タブの扱いは [file-preview.md](file-preview.md#削除)）。ディレクトリと symlink は消せない。セッションの DELETE は従来どおり履歴だけで、作業ディレクトリと添付は残る。
 
 ## 復元
 
 - 起動時に store を走査して `meta.json` を読み、一覧用 descriptor（id / title / agent 表示情報 / projectCwd / createdAt / lastUsedAt / messageCount）を作る。SDK セッションは開くときに作る。走査は起動時の 1 回だけなので、稼働中に外部から store へフォルダを足しても再起動するまで一覧に出ない。
 - 走査では JSONL を読まないため、`messageCount` の定義を変えても保存済みの値は起動では直らない。開いたときに現在の履歴から数え直し、`meta.json` と食い違えば書き戻す（一覧はそれまで保存値を返す）。
-- 開く処理: JSONL を検証つきで読み、`SessionManager.inMemory(cwd, { id }, entries)` を作り、作業フォルダの存在を保証し、`promptSnapshot` から resource loader を組み、モデルを解決して `createAgentSession` に渡す。
+- 開く処理: JSONL を検証つきで読み、`SessionManager.inMemory(cwd, { id }, entries)` を作り、作業フォルダの存在を保証し（未所属のみ。プロジェクト所属は `meta.projectCwd` をそのまま使う）、`promptSnapshot` から resource loader を組み、モデルを解決して `createAgentSession` に渡す。
 - 破損・model 不在などで開けない場合も一覧からは消さない（descriptor を保持）。
 
 ## モデル / Effort の復元
@@ -129,9 +135,9 @@ $PI_SESSION_STORE/<id>/
 
 ## ライフサイクルと排他
 
-| 操作 | メモリ | 会話 store | 作業フォルダ |
+| 操作 | メモリ | 会話 store | 作業ディレクトリ |
 | --- | --- | --- | --- |
-| 作成（最初の送信） | record 追加 | header / meta 作成 | `mkdir`（sandbox） |
+| 作成（最初の送信） | record 追加 | header / meta 作成 | 未所属は `mkdir`（sandbox）、プロジェクト所属は存在確認のみ |
 | アイドル 1 時間の sweep | dispose して破棄 | 残す | 残す |
 | `DELETE /api/sessions/:id` | 停止 + dispose | 削除 | 残す |
 | BFF 再起動 | 消える | 残る → 起動時に一覧へ復元 | 残る |
@@ -142,7 +148,7 @@ $PI_SESSION_STORE/<id>/
 - `loading` は完了時に状態を再確認し、`deleting` なら作った SDK を dispose して公開しない。
 - sweep は「購読者（SSE 接続）がいない・実行中でない・書込みが残っていない」ときだけ `evicting` を予約してメモリから外す。flush に失敗したときは破棄を見送って記録を残す（次の sweep で再試行）。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
-- `DELETE` は履歴だけ消し、作業フォルダは残す（通常ファイル単位の削除はチャット右パネル / 設定 → ファイル からできるが、セッション単位ではフォルダを消さない）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
+- `DELETE` は履歴だけ消し、作業ディレクトリと添付は残す（誤アップロードの通常ファイル単位の削除は 設定 → ファイル からできるが、セッション単位ではフォルダを消さない）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
 - プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
 - プロジェクト解除の confirm は `「<プロジェクト名>」の登録を解除します。配下の <件数> 件のセッションを停止します（履歴とファイルは残ります）。` のように、対象のプロジェクト名と配下のセッション数を示す。
 
@@ -157,7 +163,7 @@ $PI_SESSION_STORE/<id>/
 
 ## API / UI
 
-- `SessionPayload.cwd` は root 相対の `.pi-agent-gui/sessions/<id>`。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッション別フォルダ表示になる。
+- `SessionPayload.cwd` は root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は `.pi-agent-gui/sessions/<id>`）。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッションの作業ディレクトリ表示になる。
 - `SessionPayload` に `eventGeneration` を足す。`SessionSummary` の形は変えない（復元したセッションは `status: "idle"`、`messageCount` は meta の値、`projectId` は `projectCwd` から解決した値）。
 - `GET /api/sessions/:id` など、これまで同期だった `store.get()` は「未ロードなら読み込む」非同期処理になる（ルートハンドラを async にする）。
 - `/api/health` に store の準備状態（パス / 可否 / 保存に失敗している live セッション数 `dirty`）を足す。store を準備できず起動時に拒否した場合も、セッション作成を 503（理由つき）で拒否する。
@@ -172,7 +178,7 @@ $PI_SESSION_STORE/<id>/
 ## デプロイ
 
 - BFF コンテナに `PI_SESSION_STORE` の永続ボリュームを追加する（例: `/session-store`）。**ワークスペースはマウントしない**（現行どおり）。
-- 作業フォルダはワークスペースの永続マウント配下（`/workspace/.pi-agent-gui/sessions/<id>`）にでき、サンドボックスから見える。
+- 未所属セッションのスクラッチはワークスペースの永続マウント配下（`/workspace/.pi-agent-gui/sessions/<id>`）にでき、サンドボックスから見える。添付は `/workspace/.pi-agent-gui/uploads/<id>` に残る。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリそのものなので、ワークスペースの永続マウント配下にある限り残る。
 - `pnpm dev` は store の既定が `~/.pi/agent/pi-agent-gui/sessions` なので追加設定なし。`.gitignore` に `.pi-agent-gui/` を追加する。
 - Compose / target の変更は self-hosted-runner 側（[persistence.md](persistence.md) の正本）。
 
@@ -193,14 +199,17 @@ $PI_SESSION_STORE/<id>/
 ## リスク・非ゴール
 
 - 会話ログと作業ファイルは別の場所になる（同じ `<id>` で対応）。バックアップ / 移設は `PI_SESSION_STORE` を単位にする。
-- セッションの DELETE で作業フォルダは消えない（ファイル単位の削除はチャット右パネル / 設定 → ファイル からできる）。
+- セッションの DELETE で作業ディレクトリと添付は消えない（通常ファイル単位の削除は 設定 → ファイル からできる）。
 - セッションの `promptSnapshot` は作成時の定義で固定される。定義の変更を反映したい場合は新しいセッションを作る。
 - 非ゴール: ディレクトリの削除、リネーム / 移動、ゴミ箱 / undo、容量管理、複数 BFF インスタンス、古い SDK セッション version の migration、pi CLI との双方向編集 / 汎用インポート、モデル無しでの履歴閲覧。
 - compaction の `reason` / `estimatedTokensAfter` は `compaction_end` にしか無く復元後は欠ける（表示は `tokensBefore` で成立する。[persistence.md](persistence.md) の方針どおり）。
 
 ## 受け入れ条件
 
-- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl}`）と作業フォルダ（`.pi-agent-gui/sessions/<id>`）が作られ、ファイル画面の root が作業フォルダになる
+- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl}`）が作られ、未所属チャットのスクラッチ（`.pi-agent-gui/sessions/<id>`）が作られ、ファイル画面の root になる
+- [ ] プロジェクト所属セッションの cwd は登録ディレクトリになり、同一プロジェクトの複数セッションがツリーを共有し、作成・復元でプロジェクトのディレクトリを作らない（無ければ 400）
+- [ ] 添付は全セッションで `.pi-agent-gui/uploads/<id>` に保存され、注記の絶対パスで `read` でき、ファイル画面には出ない
+- [ ] `<appdir>/**` のプロジェクト登録は 400 になる
 - [ ] BFF を再起動しても、セッション一覧・タイトル・履歴・ファイルが復元され、続きから送信できる
 - [ ] 初回応答の完了前に再起動しても、保存済みのユーザーメッセージが復元される（保存点の順序テスト）
 - [ ] compaction を含む履歴が JSONL に残り、復元後も区切り表示が再現される

@@ -19,13 +19,18 @@ import {
 import type { EventEntry, SessionPayload } from "../src/schema";
 import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubSession } from "./stub-pi";
 
-function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[] } {
+function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; listings: string[] } {
   const dirs: string[] = [];
+  const listings: string[] = [];
   return {
     dirs,
+    listings,
     workspace: {
       previewFile: async () => ({ text: "" }),
-      listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
+      listFiles: async (path: string) => {
+        listings.push(path);
+        return { path: path || ".", entries: [], truncated: false };
+      },
       createDir: async (path: string) => {
         dirs.push(path);
         return { path };
@@ -726,6 +731,7 @@ test("プロジェクトを解除してもセッションと store は残り、�
     const restored = await store2.resolve(record.id);
     assert.ok(restored);
     assert.equal(store2.payload(restored).projectId, undefined, "未登録なら未所属");
+    assert.equal(restored.workdir, "proj-a", "登録が無くても projectCwd をそのまま cwd に使う");
     projects2.create({ cwd: "proj-a" });
     assert.ok(store2.payload(restored).projectId, "再登録で所属が戻る");
     await store2.close();
@@ -813,6 +819,85 @@ test("persist は file の失敗を error に残し、次の保存で再試行�
     assert.equal(record.writer?.error, undefined);
     assert.equal((await readFile(sessionJsonlPath(record.id, storeDir), "utf8")).length > 0, true);
     assert.ok(STUB_MODEL.id);
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("プロジェクト所属セッションは登録ディレクトリを cwd にし、作成も復元も mkdir しない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-project-cwd-"));
+  const { workspace, dirs, listings } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const projects = new ProjectStore();
+    const project = projects.create({ cwd: "repos/app" });
+    const pi1 = createStubPi();
+    const store1 = createStore(storeDir, { pi: pi1, workspace, catalog, projects });
+    await store1.init();
+    const record = await store1.create({ agentId: "agent-general", projectId: project.id });
+    assert.equal(record.workdir, "repos/app", "cwd は登録ディレクトリそのもの");
+    assert.equal(pi1.createInputs.at(-1)?.cwd, "repos/app", "SDK セッションへも同じ cwd を渡す");
+    assert.deepEqual(listings, ["repos/app"], "存在確認だけを行う");
+    assert.deepEqual(dirs, [], "プロジェクトのディレクトリは作らない");
+    await store1.flush(record);
+
+    // JSONL の header にも実際の cwd (絶対パス) が残る
+    const file = await readFile(sessionJsonlPath(record.id, storeDir), "utf8");
+    const parsed = parseSessionFile(file, record.id);
+    assert.equal(parsed.kind, "ok");
+    if (parsed.kind !== "ok") throw new Error("unreachable");
+    assert.equal(parsed.header.cwd, "/tmp/project/repos/app");
+    await store1.close();
+
+    // 復元は meta.projectCwd から解決し、未登録でも同じディレクトリを使う (mkdir しない)
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.equal(store2.payload(restored).cwd, "repos/app");
+    assert.equal(pi2.createInputs.at(-1)?.cwd, "repos/app");
+    assert.equal(restored.projectCwd, "repos/app");
+    assert.equal(restored.projectId, undefined, "未登録なので所属は未解決");
+    assert.deepEqual(dirs, [], "復元でもプロジェクトのディレクトリは作らない");
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("同一プロジェクトの別セッションは同じ作業ディレクトリを共有する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-project-share-"));
+  const { workspace, dirs } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const projects = new ProjectStore();
+    const project = projects.create({ cwd: "repos/app" });
+    const pi = createStubPi();
+    const store = createStore(storeDir, { pi, workspace, catalog, projects });
+    await store.init();
+    const first = await store.create({ agentId: "agent-general", projectId: project.id });
+    const second = await store.create({ agentId: "agent-general", projectId: project.id });
+    assert.notEqual(first.id, second.id);
+    assert.equal(store.payload(first).cwd, store.payload(second).cwd);
+    assert.equal(store.payload(first).cwd, "repos/app");
+    assert.deepEqual(dirs, [], "どちらのセッションもディレクトリを作らない");
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("未所属セッションは従来どおりスクラッチを作る", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-scratch-"));
+  const { workspace, dirs } = stubWorkspace();
+  try {
+    const store = createStore(storeDir, { pi: createStubPi(), workspace });
+    await store.init();
+    const record = await store.create({ agentId: "agent-general" });
+    assert.equal(record.workdir, `.pi-agent-gui/sessions/${record.id}`);
+    assert.deepEqual(dirs, [record.workdir]);
     await store.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });

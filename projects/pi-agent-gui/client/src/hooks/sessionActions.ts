@@ -11,7 +11,7 @@ export type SendChatMessageDeps = {
   ensureSession: () => Promise<string>;
   refreshSessions: () => Promise<SessionSummary[]>;
   post: (sessionId: string, text: string, attachments: string[]) => Promise<PostMessageResult>;
-  /** 送信できた添付 (作業フォルダ相対)。成功したときにチップを消すために使う */
+  /** 送信できた添付 (root 相対)。成功したときにチップを消すために使う */
   attachments?: string[];
   /** post が成功した直後のフック (チップのクリアなど) */
   onSent?: () => void;

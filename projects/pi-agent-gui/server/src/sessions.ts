@@ -8,6 +8,7 @@
  * 純関数・アダプタへ出す。
  */
 import { randomBytes } from "node:crypto";
+import { workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
@@ -28,6 +29,7 @@ import type {
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
 import { displayableMessages, truncate } from "./session-projection";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
+import { SandboxRequestError } from "./sandbox/client";
 import {
   SessionDamagedError,
   SessionFileWriter,
@@ -39,7 +41,6 @@ import {
   removeSessionDir,
   sessionHeaderOf,
   sessionJsonlPath,
-  sessionWorkdirAbs,
   sessionWorkdirRel,
   writeSessionMeta,
   type PromptSnapshot,
@@ -220,8 +221,13 @@ export class SessionStore {
       })),
     };
     const id = this.storeDir ? generateSessionId(this.storeDir) : randomBytes(5).toString("hex");
-    const workdir = this.storeDir ? sessionWorkdirRel(id) : (project?.cwd ?? "");
-    if (this.storeDir) await this.ensureWorkdir(workdir);
+    // 所属セッションの cwd は登録ディレクトリそのもの。プロジェクトのディレクトリは作らず存在だけ確かめる。
+    // スクラッチを作るのは未所属だけ (永続化なしでは作業フォルダのライフサイクルを持たない)
+    const workdir = this.workdirOf(id, project?.cwd);
+    if (this.storeDir) {
+      if (project) await this.requireProjectDir(project.cwd);
+      else await this.ensureWorkdir(workdir);
+    }
     const promptSnapshot = composePromptSnapshot(agent, skills);
     const created = await this.pi.createSession({
       agent: { ...agent, skillIds: [...agent.skillIds] },
@@ -326,6 +332,31 @@ export class SessionStore {
     await this.workspace.createDir(workdirRel);
   }
 
+  /**
+   * セッションの作業ディレクトリ (root 相対)。所属があれば登録ディレクトリ、無ければ永続化ありのときだけ
+   * セッション専用のスクラッチ。永続化なしの未所属は root ("") のまま (既存のテスト・未設定デプロイ)。
+   */
+  private workdirOf(id: string, projectCwd?: string): string {
+    if (projectCwd) return projectCwd;
+    return this.storeDir ? sessionWorkdirRel(id) : "";
+  }
+
+  /**
+   * 登録ディレクトリの存在確認。セッション作成では mkdir しない (誤った cwd を黙って作らない)。
+   * サンドボックスの 404 は「登録したディレクトリが消えた」なので 400 に寄せる。
+   */
+  private async requireProjectDir(cwd: string): Promise<void> {
+    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    try {
+      await this.workspace.listFiles(cwd);
+    } catch (error) {
+      if (error instanceof SandboxRequestError) {
+        throw httpError(error.status === 404 ? 400 : error.status, error.message);
+      }
+      throw httpError(502, messageFor(error));
+    }
+  }
+
   /** 未ロードならストアから復元する。deleting / closing / eviction 中の id は復元の完了を待つ */
   async resolve(id: string): Promise<SessionRecord | undefined> {
     for (;;) {
@@ -361,8 +392,10 @@ export class SessionStore {
       );
     }
     const entries = parsed.kind === "ok" ? parsed.entries : [];
-    const workdir = sessionWorkdirRel(id);
-    await this.ensureWorkdir(workdir);
+    // cwd は保存値の projectCwd をそのまま使う (登録解除・消失していても復元先を変えない)。
+    // 未所属 (projectCwd なし) のときだけスクラッチを保証する
+    const workdir = this.workdirOf(id, meta.projectCwd);
+    if (!meta.projectCwd) await this.ensureWorkdir(workdir);
     const restored = this.restoreInputs(meta, entries);
     const created = await (this.pi as PiRuntimeLike).createSession({
       sessionId: id,
@@ -633,7 +666,7 @@ export class SessionStore {
     };
   }
 
-  /** SessionPayload.cwd は rootCwd 相対。永続化ありでは作業フォルダ、なしでは従来どおりプロジェクト cwd */
+  /** SessionPayload.cwd は rootCwd 相対。所属があれば登録ディレクトリ、未所属はスクラッチ (永続化なしは root) */
   cwdOf(record: SessionRecord): string {
     return record.workdir;
   }
@@ -757,7 +790,7 @@ export class SessionStore {
         await writeSessionMeta(storeDir, meta);
         if (jsonl) {
           await record.writer?.schedule(
-            sessionHeaderOf(meta, sessionWorkdirAbs(this.rootCwd, record.id)),
+            sessionHeaderOf(meta, workspaceAbs(this.rootCwd, record.workdir)),
             entriesOf(session),
           );
         }

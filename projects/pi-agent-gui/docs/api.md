@@ -151,7 +151,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## セッションへのファイルアップロード
 
-`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、既定のアップロード先はセッションの作業フォルダ配下の `uploads/`。JSON ではなく raw ストリームで受け、`bodyGuard`（`/api/*` の 64 KiB 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
+`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、既定のアップロード先は `<appdir>/uploads/<sessionId>/`（プロジェクトのリポジトリ内には作らない）。JSON ではなく raw ストリームで受け、`bodyGuard`（`/api/*` の 64 KiB 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
 
 ## プロジェクト
 
@@ -180,7 +180,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "project": { "id": "…", "name": "pi-agent-gui", "cwd": "projects/pi-agent-gui", "createdAt": 1700000000000 } }
 ```
 
-- `cwd` は root 相対。`a//b/` や `./a` は正規化する。絶対パス・`..` を含むパス・空文字・root 自身は 400。`cwd` 以外も含め body が契約外なら 400。
+- `cwd` は root 相対。`a//b/` や `./a` は正規化する。絶対パス・`..` を含むパス・空文字・root 自身・アプリの作業ディレクトリ `<appdir>`（現 `.pi-agent-gui`）自身と配下は 400。`cwd` 以外も含め body が契約外なら 400。
 - `name` 省略時は `cwd` の basename。
 - 同じ `cwd` の二重登録は 409（サンドボックスへは触らない）。
 - `create: true` はサンドボックスで `mkdir -p` 相当を行う（親の存在は要求しない）。省略時は既存ディレクトリであることを確認する。新しい stat API は持たず、サンドボックスの `GET /v1/files` がディレクトリ以外で失敗する性質を使う。サンドボックス由来の 4xx（`Path not found` など）はステータス・文言ごとそのまま返る。
