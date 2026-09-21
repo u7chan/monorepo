@@ -22,6 +22,7 @@ import {
   type FileTreeDirectoryState,
   type FileTreeState,
 } from "../lib/fileTree";
+import { fileKind } from "../lib/fileKind";
 import { filePreviewStore } from "../lib/filePreviewState";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 import {
@@ -287,7 +288,7 @@ function EntryRow({
             >
               <ChevronIcon />
             </span>
-            <FolderIcon />
+            <FolderIcon open={open} />
             <span className="min-w-0 truncate">{entry.name}</span>
             {entry.symlink ? <SymlinkMark /> : null}
           </button>
@@ -339,7 +340,7 @@ function EntryRow({
         onClick={() => onSelect(path)}
         className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
       >
-        <FileIcon />
+        <FileIcon kind={fileKind(entry.name)} />
         <span className="min-w-0 truncate">{entry.name}</span>
         {entry.symlink ? <SymlinkMark /> : null}
       </button>

@@ -77,7 +77,7 @@ export function ProjectRow({
           className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left"
         >
           <span className="shrink-0 text-ink-faint">
-            <FolderIcon />
+            <FolderIcon open={open} />
           </span>
           <span className="grid min-w-0 flex-1 gap-0.5">
             <strong className="truncate text-xs text-ink">{project.name}</strong>
