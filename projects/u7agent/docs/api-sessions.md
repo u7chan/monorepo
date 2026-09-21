@@ -166,7 +166,35 @@
 
 - `attachments` は root 相対のパスで、そのセッションの保存先 `<appdir>/uploads/<sessionId>/` 配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体・別セッションの保存先は 400）。最大 10 件、文字列以外は 400。
 - `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
+- `text` が `/skill:` で始まるときは、BFF が本文ブロックへ展開してから送る（[`/skill:` の展開](#skill-の展開)）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
+
+### `/skill:` の展開
+
+`/skill:<name> [args]` は **アプリ側 (BFF) で展開**してから `prompt()` へ渡す。SDK の `_expandSkillCommand` は BFF プロセスの `readFileSync` で本文を読むため、Docker（BFF に作業領域が無い）ではファイルスキルも組み込みスキルも展開できない（実ファイルが無い仮想パスのため）。
+
+```
+/skill:writer 3 行で書いて
+```
+
+```
+<skill name="writer" location="/workspace/.agents/skills/writer/SKILL.md">
+References are relative to /workspace/.agents/skills/writer.
+
+（frontmatter を除いた SKILL.md の本文）
+</skill>
+
+3 行で書いて
+```
+
+- 形式は SDK の `_expandSkillCommand` と同じ（`parseSkillBlock` で読み直せる）。`location` は `read` に渡す値と同じで、ファイル / 組み込みは絶対パス（組み込みは仮想パス）、カタログは実ファイルが無いため `catalog:<name>` になり「References are relative to …」行は入らない。引数はブロックの後に空行を挟んでそのまま渡す
+- 本文の取得元はスコープ別: ファイル（共通 / プロジェクト）→ サンドボックスの `GET /v1/files/preview`、組み込み → BFF の registry、カタログ（Agent 割り当て）→ セッションの `promptSnapshot`（旧 `<skill>` と新 `<agent_skill>` の両方を受け付け、タグではなく `name` 属性で引く）
+- 名前は優先順位 `プロジェクト > 共通 > 組み込み > カタログ` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。未知の名前、`/skill:` で始まらない本文は素通しする（SDK と同じ挙動）
+- **本文は送信時点の内容**。ファイルが削除されていれば 404、256 KiB 超 / UTF-8 でない / バイナリは 400、サンドボックスへ到達できなければ 502 を返し、**メッセージは送らない**（切り詰めて黙って送るとモデルが読む本文が変わるため）
+- 実行中（キュー / steering）に送った場合も同じ経路で展開する（`postMessage` が展開してから `SessionStore` へ渡す）
+- 一覧のタイトルは展開前の入力（`/skill:writer 3 行で書いて`）から作る。履歴（`messages[].text`）と `run_start.prompt` には展開後の本文が入り、クライアントは user バブルでブロックを畳んで表示する（引数だけを吹き出しに残す）
+- 二重展開はしない。展開結果は `<skill …>` で始まるため、SDK 側の展開（`/skill:` 接頭辞）には当たらない
+- 本文に `</skill>` だけの行を書かない（ブロックの終端と区別できず、クライアントの畳み込み表示が崩れる。SDK の `parseSkillBlock` も同じ位置で切れる）
 
 ### 添付の注記
 
@@ -183,6 +211,38 @@
 - 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
 - クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、`run_start` が届いたら注記込みへ差し替える（`client/src/hooks/chatReducer.ts`。送信順の待ち行列で同じ本文を続けて送っても取り違えない）
+
+## `GET /api/sessions/:id/skills`
+
+セッションで使えるスキルの一覧（チャットの入力補助）。**本文は載せない**（送信時に取り直す）ため、一覧と優先順位の表示に使う。
+
+```json
+{
+  "sessionId": "…",
+  "cwd": "proj",
+  "projectSkills": true,
+  "skills": [
+    {
+      "name": "writer",
+      "description": "文章を書くときに使う",
+      "scope": "project",
+      "location": "/workspace/proj/.agents/skills/writer/SKILL.md",
+      "relativePath": "proj/.agents/skills/writer/SKILL.md",
+      "disableModelInvocation": false,
+      "shadowed": false,
+      "shadowedBy": null,
+      "shadows": ["/workspace/.agents/skills/writer/SKILL.md"]
+    }
+  ]
+}
+```
+
+- `scope` は `project` / `user`（共通）/ `builtin` / `catalog`（エージェント定義のスキル）。並びは優先順位 `project > user > builtin > catalog`
+- `cwd` はセッションの作業ディレクトリ（root 相対）。`projectSkills` はプロジェクトスキルを探索するセッションか（未所属のスクラッチと root 直下は `false`）
+- `location` は `read` に渡す値（カタログは `catalog:<name>`）。`relativePath` は表示用で、root の外とカタログは `null`
+- 同名は優先順位で一意化する。負けた行（組み込みの上書きとカタログ）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。`shadows` に入るのは**ファイルスキル同士の重複**で、カタログは常に敗者側にしか立たない。**ファイルの改名・削除・マージはしない**
+- カタログの `description` はセッションのエージェントスナップショット（`agent.skills`）から、本文は `promptSnapshot` から引く。どちらも作成時点の内容で、定義を編集してもこのセッションの一覧は変わらない
+- 404（セッションなし）/ 503（サンドボックス未設定）/ ファイルスキルの発見失敗は 502（接続失敗・認証失敗・サンドボックス側 5xx・本文が契約外はサンドボックスクライアントが 502 に寄せる。不正な dir の 400 だけそのまま）。**組み込みだけを返して黙って縮退しない**（使えるスキルを見せる場所なので、取れないことはエラーで見せる）。セッション作成と `/skill:` の展開は従来どおり縮退する（作成を止めない）
 
 ## `POST /api/sessions/:id/files`
 

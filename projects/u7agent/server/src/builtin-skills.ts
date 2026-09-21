@@ -22,7 +22,7 @@ export const BUILTIN_SKILLS_SOURCE = "u7agent";
  * 同梱物の版。SKILL.md の本文や frontmatter を変えたら上げる。
  * 設定画面に表示し、同梱物が更新されたことをユーザーが確認できるようにする。
  */
-const VERSIONS: Record<string, string> = { "skill-creator": "1" };
+const VERSIONS: Record<string, string> = { "skill-creator": "3" };
 
 /** 同梱 SKILL.md のディレクトリ。tsx 実行なので import.meta.url はこのソースを指す (Docker も src/ を同梱する) */
 const BUNDLED_DIR = fileURLToPath(new URL("./builtin-skills/", import.meta.url));

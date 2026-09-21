@@ -8,6 +8,7 @@ import { sendChatMessage, stopRun } from "./sessionActions";
 import type { SettingsSelection } from "./settingsChange";
 import { useProjects } from "./useProjects";
 import { useRuntimeCatalog } from "./useRuntimeCatalog";
+import { useSessionSkills } from "./useSessionSkills";
 import { useSessions } from "./useSessions";
 
 /** 実装は ../lib/composerSettings。既存の import 先を保つ互換 export */
@@ -89,6 +90,9 @@ export function useU7Agent() {
   });
 
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
+
+  // セッションのスキル一覧 (`/skill:` の入力補助)。セッションが無い間は取得しない
+  const { state: sessionSkills, reload: reloadSessionSkills } = useSessionSkills(sessionId, Boolean(sessionId));
 
   /** 1 ファイル = 1 チップ。作成 (セッション確定) 後にアップロードし、失敗もチップで見せる */
   const uploadOne = useCallback(
@@ -285,6 +289,8 @@ export function useU7Agent() {
     composerSettings,
     selectedAgent,
     stopVisible,
+    sessionSkills,
+    reloadSessionSkills,
     attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
     refreshSessions,

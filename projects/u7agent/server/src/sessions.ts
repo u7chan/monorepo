@@ -552,8 +552,12 @@ export class SessionStore {
     return this.statusOf(record) === "running" || this.statusOf(record) === "queued";
   }
 
-  /** 実行中ならキューに入れ、それ以外は即座にランを始める。 */
-  postMessage(record: SessionRecord, text: string): PostMessageResultInternal {
+  /**
+   * 実行中ならキューに入れ、それ以外は即座にランを始める。
+   * `titleSource` は一覧のタイトルの元本文で、省略時は text。`/skill:` の展開結果は長いため、
+   * 展開前のユーザー入力からタイトルを作るために使う。
+   */
+  postMessage(record: SessionRecord, text: string, options: { titleSource?: string } = {}): PostMessageResultInternal {
     // 設定変更中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
@@ -564,8 +568,14 @@ export class SessionStore {
       }
     }
     if (!record.title) {
-      // title はユーザーが打った本文から作る (添付の注記を混ぜない)
-      record.title = truncate(this.masker.mask(stripAttachedFiles(text)).replace(/\s+/g, " ").trim(), TITLE_MAX);
+      // title はユーザーが打った本文から作る (添付の注記と /skill: の展開結果を混ぜない)
+      record.title = truncate(
+        this.masker
+          .mask(stripAttachedFiles(options.titleSource ?? text))
+          .replace(/\s+/g, " ")
+          .trim(),
+        TITLE_MAX,
+      );
     }
     record.lastUsedAt = Date.now();
 

@@ -15,6 +15,7 @@ import type {
   Project,
   ProjectsResponse,
   SessionPayload,
+  SessionSkillsResponse,
   SessionSummary,
   SkillDef,
   StopResult,
@@ -108,6 +109,16 @@ export const getFileSkills = async (): Promise<FileSkillsResponse> => {
   const res = await client.api.skills.files.$get();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as FileSkillsResponse;
+};
+
+/**
+ * セッションで使えるスキル (プロジェクト / 共通 / 組み込み / エージェント割り当て)。
+ * 本文は載らないため、本文の取得は送信時の BFF が行う。
+ */
+export const getSessionSkills = async (sessionId: string): Promise<SessionSkillsResponse> => {
+  const res = await client.api.sessions[":id"].skills.$get({ param: { id: sessionId } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SessionSkillsResponse;
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない

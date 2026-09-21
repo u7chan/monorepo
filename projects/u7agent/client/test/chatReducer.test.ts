@@ -158,6 +158,35 @@ test("runStart は添付の注記をローカルエコーと同一視し、注�
   assert.equal(plainStarted.bubbles[0]?.text, "ふつうの本文");
 });
 
+test("runStart は展開済みのスキルブロックをローカルエコーと同一視し、展開後の本文へ差し替える", () => {
+  // /skill: は BFF が展開してから届くため、run_start の本文はブロック込みになる
+  const block = [
+    '<skill name="writer" location="/workspace/.agents/skills/writer/SKILL.md">',
+    "References are relative to /workspace/.agents/skills/writer.",
+    "",
+    "本文です。",
+    "</skill>",
+    "",
+    "短く書いて",
+  ].join("\n");
+  const echoed = chatReducer(initialChatState, { type: "localUser", text: "/skill:writer 短く書いて", at: 100 });
+
+  const started = chatReducer(echoed, { type: "runStart", prompt: block, at: 200, startedAt: 200 });
+  assert.equal(started.bubbles.length, 1, "バブルを重複させない");
+  assert.equal(started.bubbles[0]?.text, block, "展開後の本文へ差し替える");
+  assert.equal(started.bubbles[0]?.at, 100, "ローカルエコーの時刻を保つ");
+
+  // 未知の名前は展開されない (本文がそのまま届く) ので、通常の送信と同じ扱い
+  const unknown = chatReducer(chatReducer(initialChatState, { type: "localUser", text: "/skill:ghost", at: 100 }), {
+    type: "runStart",
+    prompt: "/skill:ghost",
+    at: 200,
+    startedAt: 200,
+  });
+  assert.equal(unknown.bubbles.length, 1);
+  assert.equal(unknown.bubbles[0]?.text, "/skill:ghost");
+});
+
 test("同一本文・異なる添付を続けて送っても run_start は送信順のバブルを差し替える", () => {
   const note = (path: string) => ["同じ本文", "", "<attached_files>", `- ./${path}`, "</attached_files>"].join("\n");
   const firstPrompt = note("uploads/a.png");
