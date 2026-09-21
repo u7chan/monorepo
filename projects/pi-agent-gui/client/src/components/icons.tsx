@@ -370,7 +370,7 @@ const FILE_MARKS: Record<FileKind, ReactNode> = {
       <path d="M8.6 6.9c.35 0 .55.25.55.6v1.05c0 .35.25.65.6.65-.35 0-.6.3-.6.65v1.05c0 .35-.2.6-.55.6" />
     </>
   ),
-  style: <path d="M7.1 7.3v3.9M8.9 7.3v3.9M6.15 8.5h3.7M6.15 9.9h3.7" />,
+  style: <path d="M7 7.3v4M9 7.3v4M6.15 8.35h3.7M6.15 10.25h3.7" />,
   image: (
     <>
       <circle cx="7" cy="8.2" r=".55" />
@@ -389,7 +389,7 @@ const FILE_MARKS: Record<FileKind, ReactNode> = {
       <path d="M7.1 8.55v-.85a.9.9 0 0 1 1.8 0v.85" />
     </>
   ),
-  text: <path d="M6.15 7.7h3.7M6.15 9.2h3.7M6.15 10.7h2.4" />,
+  text: <path d="M6.15 7.3h3.7M6.15 9.3h3.7M6.15 11.3h2.4" />,
 };
 
 /** ツリーのファイル行。模様の種類は `fileKind` が拡張子から決める */

@@ -29,6 +29,25 @@ test("拡張子から種類を決める", () => {
   }
 });
 
+test("拡張子を持たないファイルは Dockerfile だけ種類を付ける", () => {
+  // 名前ごとに KINDS を引くと、go / sh のような拡張子と同じ名前のファイルまで種類付きになる
+  const cases: [string, FileKind][] = [
+    ["Dockerfile", "shell"],
+    ["dockerfile", "shell"],
+    ["go", "text"],
+    ["ys", "text"],
+    ["c", "text"],
+    ["sh", "text"],
+    ["json", "text"],
+    ["Makefile", "text"],
+    ["a.", "text"],
+    ["Dockerfile.dev", "text"],
+  ];
+  for (const [name, kind] of cases) {
+    assert.equal(fileKind(name), kind, name);
+  }
+});
+
 test("ロックファイルは拡張子よりロックを優先する", () => {
   const cases = [
     "package-lock.json",

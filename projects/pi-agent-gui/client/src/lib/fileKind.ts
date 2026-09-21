@@ -6,6 +6,7 @@
 export type FileKind = "code" | "markup" | "style" | "data" | "image" | "shell" | "lock" | "text";
 
 const KINDS: Record<string, FileKind> = {
+  // 拡張子だけをキーにする (拡張子を持たないファイルの扱いは fileKind 側)
   // ソースコード (言語ごとに増やさず 1 つの模様へ)
   ts: "code",
   tsx: "code",
@@ -87,7 +88,6 @@ const KINDS: Record<string, FileKind> = {
   psm1: "shell",
   bat: "shell",
   cmd: "shell",
-  dockerfile: "shell",
 };
 
 /** 拡張子を持たないロックファイル。`.lock` だけでは拾えないものを名前で列挙する */
@@ -107,9 +107,12 @@ const LOCK_NAMES = new Set([
 export function fileKind(name: string): FileKind {
   const lower = name.toLowerCase();
   if (LOCK_NAMES.has(lower) || lower.endsWith(".lock")) return "lock";
+  // 拡張子なしは Dockerfile だけ名前で引く (previewLang が bash として扱う 1 件に合わせる)。
+  // 名前ごと KINDS を引くと `go` / `sh` のように拡張子と同じ名前のファイルまで種類付きになる
+  if (lower === "dockerfile") return "shell";
   const dot = lower.lastIndexOf(".");
-  // 拡張子を持たないファイルは名前ごと引く (Dockerfile だけ shell。previewLang が bash として扱うのに合わせる)
-  const key = dot > 0 ? lower.slice(dot + 1) : lower;
-  // 名前は本文由来なので、own プロパティだけを見る (constructor / __proto__ を種類として拾わない)
-  return Object.hasOwn(KINDS, key) ? KINDS[key] : "text";
+  if (dot <= 0) return "text";
+  const extension = lower.slice(dot + 1);
+  // 名前は本文由来なので、own プロパティだけを見る (constructor / __proto__ を拡張子として拾わない)
+  return Object.hasOwn(KINDS, extension) ? KINDS[extension] : "text";
 }
