@@ -41,6 +41,7 @@ export function useU7Agent() {
   const {
     health,
     catalog,
+    agents,
     runtimeStatus,
     setRuntimeStatus,
     agentId,
@@ -79,7 +80,7 @@ export function useU7Agent() {
   } = useSessions({
     dispatch,
     agentId,
-    agents: catalog.agents,
+    agents,
     setAgentId,
     selectProject,
     selectedProjectIdRef,
@@ -268,6 +269,7 @@ export function useU7Agent() {
     dispatch,
     health,
     catalog,
+    agents,
     sessions,
     projects,
     selectedProject,

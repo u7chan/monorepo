@@ -3,8 +3,12 @@ import type { AgentCatalog } from "../agents";
 import type { CreateAgentBody, CreateSkillBody, ReplaceCatalogBody, UpdateAgentBody, UpdateSkillBody } from "../schema";
 
 export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
+  // ビルトインは置換対象のマップに無いので、ルートで明示的に区別して 400 を返す
+  const isBuiltin = (c: Context) => (c.req.param("id") ?? "") === catalog.builtinAgent().id;
+
   // body は route で形・型を検証済み。キー省略の解釈と正規化は catalog が正
   const updateAgent = (c: Context, body: UpdateAgentBody) => {
+    if (isBuiltin(c)) return c.json({ error: "Built-in agent cannot be updated" }, 400);
     const agent = catalog.updateAgent(c.req.param("id") ?? "", body);
     if (!agent) return c.json({ error: "Agent not found" }, 404);
     return c.json({ agent });
@@ -26,8 +30,9 @@ export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
     updateAgent,
 
     removeAgent: (c: Context) => {
+      if (isBuiltin(c)) return c.json({ error: "Built-in agent cannot be deleted" }, 400);
       if (!catalog.removeAgent(c.req.param("id") ?? "")) {
-        return c.json({ error: "Agent cannot be deleted (or it is the last agent)" }, 400);
+        return c.json({ error: "Agent not found" }, 404);
       }
       return c.json({ ok: true });
     },

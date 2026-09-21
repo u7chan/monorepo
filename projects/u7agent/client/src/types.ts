@@ -7,6 +7,7 @@ export type {
   AgentSkillInfo,
   AgentSuggestion,
   Catalog,
+  CatalogResponse,
   ChatMessage,
   CompactionInfo,
   CompactionReason,

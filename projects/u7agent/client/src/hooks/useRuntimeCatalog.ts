@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Dispatch } from "react";
 import { getCatalog, getHealth } from "../api";
-import type { Catalog, Health } from "../types";
+import { selectableAgents } from "../lib/agentSelection";
+import type { CatalogResponse, Health } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
 
@@ -14,7 +15,7 @@ export type UseRuntimeCatalogParams = {
 
 export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   const [health, setHealth] = useState<Health | null>(null);
-  const [catalog, setCatalog] = useState<Catalog>({ agents: [], skills: [] });
+  const [catalog, setCatalog] = useState<CatalogResponse>({ builtinAgent: null, agents: [], skills: [] });
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");
 
@@ -50,9 +51,11 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   );
 
   const normalizeAgentId = useCallback(
-    (next: Catalog): string => {
-      const valid = next.agents.some((agent) => agent.id === agentId);
-      const id = valid ? agentId : next.agents[0]?.id || "";
+    (next: CatalogResponse): string => {
+      // フォールバックはビルトイン (先頭)。ユーザー定義が 0 件でも選択が空にならない
+      const nextAgents = selectableAgents(next);
+      const valid = nextAgents.some((agent) => agent.id === agentId);
+      const id = valid ? agentId : nextAgents[0]?.id || "";
       localStorage.setItem(AGENT_KEY, id);
       setAgentIdState(id);
       return id;
@@ -61,7 +64,7 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   );
 
   const loadCatalog = useCallback(
-    async (isCurrent = alwaysCurrent): Promise<Catalog> => {
+    async (isCurrent = alwaysCurrent): Promise<CatalogResponse> => {
       const next = await getCatalog();
       if (!isCurrent()) return next;
       setCatalog(next);
@@ -71,11 +74,14 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
     [normalizeAgentId],
   );
 
-  const selectedAgent = catalog.agents.find((agent) => agent.id === agentId);
+  // 一覧とピッカーが使う並び。catalog が変わるまで同じ配列を渡す (下流の useCallback を安定させる)
+  const agents = useMemo(() => selectableAgents(catalog), [catalog]);
+  const selectedAgent = agents.find((agent) => agent.id === agentId);
 
   return {
     health,
     catalog,
+    agents,
     runtimeStatus,
     setRuntimeStatus,
     agentId,

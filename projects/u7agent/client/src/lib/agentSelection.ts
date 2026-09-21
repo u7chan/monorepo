@@ -1,4 +1,12 @@
-import type { AgentDef } from "../types";
+import type { AgentDef, CatalogResponse } from "../types";
+
+/**
+ * 選択肢の並び。ビルトインは置換対象の agents に含まれないので、ここで先頭に合成する
+ * (コンポーザーのピッカー・設定ページの一覧・セッションの選択復元はこの並びで見る)。
+ */
+export function selectableAgents(catalog: CatalogResponse): AgentDef[] {
+  return catalog.builtinAgent ? [catalog.builtinAgent, ...catalog.agents] : catalog.agents;
+}
 
 /**
  * セッションのスナップショットは、カタログから消えたエージェントを指していることがある

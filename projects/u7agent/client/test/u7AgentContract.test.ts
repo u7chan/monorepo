@@ -11,6 +11,7 @@ type ContractKeys = {
   dispatch: unknown;
   health: unknown;
   catalog: unknown;
+  agents: unknown;
   sessions: unknown;
   projects: unknown;
   selectedProject: unknown;

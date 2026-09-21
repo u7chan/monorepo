@@ -1,16 +1,18 @@
 import { useState } from "react";
+import { selectableAgents } from "../lib/agentSelection";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { AgentEditorForm, agentFormOf, type AgentForm } from "./agent-settings/AgentEditorForm";
 import { AgentList } from "./agent-settings/AgentList";
+import { BuiltinAgentPanel } from "./agent-settings/BuiltinAgentPanel";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
-import type { Catalog, ModelOption, ThinkingLevel } from "../types";
+import type { CatalogResponse, ModelOption, ThinkingLevel } from "../types";
 
 export type AgentSettingsPageProps = SettingsPageProps & {
-  catalog: Catalog;
+  catalog: CatalogResponse;
   agentId: string;
   /** agentId の正規化も行われる */
-  refreshCatalog: () => Promise<Catalog>;
+  refreshCatalog: () => Promise<CatalogResponse>;
   modelOptions: ModelOption[];
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
@@ -28,10 +30,14 @@ export function AgentSettingsPage({
   onBack,
   onOpenNav,
 }: AgentSettingsPageProps) {
+  const agents = selectableAgents(catalog);
   const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
-  const editingAgent = catalog.agents.find((agent) => agent.id === editingId);
+  const editingAgent = agents.find((agent) => agent.id === editingId);
+  // ビルトインは編集も削除もできないので、フォームの代わりに説明を出す (サーバーも 400 で拒否する)
+  const builtinEditing =
+    catalog.builtinAgent && catalog.builtinAgent.id === editingAgent?.id ? editingAgent : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
   // 下書きはページが持つ。理由は docs/ui-layout.md の「compact の詳細シート」を参照。
@@ -56,7 +62,7 @@ export function AgentSettingsPage({
 
   const list = (
     <AgentList
-      agents={catalog.agents}
+      agents={agents}
       editingId={editingId}
       compact={compact}
       onSelect={selectAgent}
@@ -64,7 +70,9 @@ export function AgentSettingsPage({
     />
   );
 
-  const editor = (
+  const editor = builtinEditing ? (
+    <BuiltinAgentPanel agent={builtinEditing} variant={compact ? "sheet" : "page"} />
+  ) : (
     <AgentEditorForm
       catalog={catalog}
       editingId={editingId}
@@ -104,7 +112,7 @@ export function AgentSettingsPage({
       {compact && sheetOpen ? (
         <SettingsDetailSheet
           eyebrow="AGENT"
-          title={editingAgent ? "エージェントを編集" : "新しいエージェント"}
+          title={builtinEditing ? "ビルトインエージェント" : editingAgent ? "エージェントを編集" : "新しいエージェント"}
           note={note}
           onClose={() => setSheetOpen(false)}
         >

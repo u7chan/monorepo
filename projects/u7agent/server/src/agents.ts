@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ThinkingLevelSchema } from "./schema";
-import type { AgentDef, AgentSuggestion, Catalog, ModelRef, SkillDef, ThinkingLevel } from "./schema";
+import type { AgentDef, AgentSuggestion, CatalogResponse, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 
 export interface HttpError extends Error {
   statusCode?: number;
@@ -16,10 +16,7 @@ type AgentRecord = AgentDef;
 /** catalog CRUD の入力は正規化ロジックが正なので unknown で受ける */
 type DefinitionInput = unknown;
 
-/**
- * 既定は汎用アシスタント 1 体と、どのエージェントにも割り当てないサンプルスキル 1 件。
- * 口調や手順はスキルに置く分担なので、なりきりもスキル側だけで表し、使う人が選んで付ける。
- */
+/** どのエージェントにも割り当てていないサンプルスキル。口調や手順はスキル側に置く分担なので、使う人が選んで付ける。 */
 const DEFAULT_SKILLS: SkillRecord[] = [
   {
     id: "skill-zundamon-speech",
@@ -30,20 +27,23 @@ const DEFAULT_SKILLS: SkillRecord[] = [
   },
 ];
 
-const DEFAULT_AGENTS: AgentRecord[] = [
-  {
-    id: "agent-general",
-    name: "汎用アシスタント",
-    description: "役割や口調を設定していない既定のエージェント",
-    systemPrompt: "",
-    skillIds: [],
-    suggestions: [
-      { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
-      { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
-      { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
-    ],
-  },
-];
+/**
+ * 常に 1 体居る汎用アシスタント。口調や手順はスキルに置く分担なので、なりきりもスキル側だけで
+ * 表し、使う人が選んで付ける (そのためどのスキルも割り当てていない)。置換対象のマップにも入れず、
+ * ユーザー定義が 0 件でもセッションを作れる保証と、インポートで消えないことをこの分離で持つ。
+ */
+const BUILTIN_AGENT: AgentRecord = {
+  id: "agent-general",
+  name: "汎用アシスタント",
+  description: "役割や口調を設定していない既定のエージェント",
+  systemPrompt: "",
+  skillIds: [],
+  suggestions: [
+    { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
+    { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
+    { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
+  ],
+};
 
 function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -173,12 +173,17 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
 }
 
 export interface AgentCatalog {
+  /** ビルトインの汎用エージェント。置換対象のマップには入れない */
+  builtinAgent(): AgentDef;
   listSkills(): SkillDef[];
+  /** ユーザー定義のみ (ビルトインを含まない) */
   listAgents(): AgentDef[];
   getSkill(id: string): SkillRecord | undefined;
+  /** ビルトインも解決する (新規セッションの既定がこの id を指す) */
   getAgent(id: string): AgentRecord | undefined;
-  snapshot(): Catalog;
-  replace(snapshot: DefinitionInput): Catalog;
+  snapshot(): CatalogResponse;
+  /** 送られた定義 (ビルトイン以外) を丸ごと入れ替える。`snapshot` に戻り値をそのまま渡せる */
+  replace(definitions: DefinitionInput): CatalogResponse;
   createSkill(input: DefinitionInput): SkillDef;
   updateSkill(id: string, input: DefinitionInput): SkillDef | undefined;
   removeSkill(id: string): boolean;
@@ -189,12 +194,20 @@ export interface AgentCatalog {
 
 export function createAgentCatalog(): AgentCatalog {
   const skills = new Map<string, SkillRecord>(DEFAULT_SKILLS.map((skill) => [skill.id, copy(skill)]));
-  const agents = new Map<string, AgentRecord>(DEFAULT_AGENTS.map((agent) => [agent.id, copy(agent)]));
+  // ユーザー定義だけを置換対象にする。ビルトインはここに入れない
+  const agents = new Map<string, AgentRecord>();
+  const builtin = copy(BUILTIN_AGENT);
 
+  const builtinAgent = () => publicAgent(builtin);
   const listSkills = () => [...skills.values()].map(publicSkill);
   const listAgents = () => [...agents.values()].map(publicAgent);
   const getSkill = (id: string) => skills.get(id);
-  const getAgent = (id: string) => agents.get(id);
+  const getAgent = (id: string) => agents.get(id) ?? (id === builtin.id ? builtin : undefined);
+  const snapshot = (): CatalogResponse => ({
+    builtinAgent: builtinAgent(),
+    agents: listAgents(),
+    skills: listSkills(),
+  });
 
   function normalizeSkillIds(skillIds: unknown, availableSkills: Map<string, SkillRecord> = skills): string[] {
     if (!Array.isArray(skillIds)) return [];
@@ -202,23 +215,22 @@ export function createAgentCatalog(): AgentCatalog {
   }
 
   return {
+    builtinAgent,
     listSkills,
     listAgents,
     getSkill,
     getAgent,
-    snapshot() {
-      return { agents: listAgents(), skills: listSkills() };
-    },
-    replace(snapshot) {
+    snapshot,
+    replace(definitions) {
       if (
-        !snapshot ||
-        typeof snapshot !== "object" ||
-        !Array.isArray((snapshot as { skills?: unknown }).skills) ||
-        !Array.isArray((snapshot as { agents?: unknown }).agents)
+        !definitions ||
+        typeof definitions !== "object" ||
+        !Array.isArray((definitions as { skills?: unknown }).skills) ||
+        !Array.isArray((definitions as { agents?: unknown }).agents)
       ) {
         throw invalid("Definitions must contain skills and agents arrays");
       }
-      const body = snapshot as { skills: DefinitionInput[]; agents: DefinitionInput[] };
+      const body = definitions as { skills: DefinitionInput[]; agents: DefinitionInput[] };
 
       const importedSkills = new Map<string, SkillRecord>();
       for (const input of body.skills) {
@@ -230,17 +242,19 @@ export function createAgentCatalog(): AgentCatalog {
       const importedAgents = new Map<string, AgentRecord>();
       for (const input of body.agents) {
         const id = definitionId(input);
+        // 送られた定義をそのまま入れるのが置換の意味なので、ビルトインの id は黙って捨てず拒否する
+        if (id === builtin.id) throw invalid(`Agent id ${id} is reserved for the built-in agent`);
         if (importedAgents.has(id)) throw invalid(`Duplicate agent id: ${id}`);
         const raw = input as { skillIds?: unknown } | null;
         importedAgents.set(id, makeAgent(input, normalizeSkillIds(raw?.skillIds, importedSkills), id));
       }
-      if (importedAgents.size === 0) throw invalid("At least one agent is required");
+      // ビルトインが常に 1 体居るので、ユーザー定義 0 件も許す
 
       skills.clear();
       for (const [id, skill] of importedSkills) skills.set(id, skill);
       agents.clear();
       for (const [id, agent] of importedAgents) agents.set(id, agent);
-      return { agents: listAgents(), skills: listSkills() };
+      return snapshot();
     },
     createSkill(input) {
       const skill = makeSkill(input);
@@ -283,7 +297,6 @@ export function createAgentCatalog(): AgentCatalog {
       return publicAgent(agent);
     },
     removeAgent(id) {
-      if (!agents.has(id) || agents.size <= 1) return false;
       return agents.delete(id);
     },
   };
