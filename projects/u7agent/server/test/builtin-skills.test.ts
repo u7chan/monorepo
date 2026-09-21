@@ -112,6 +112,8 @@ test("skill-creator は置き場所・frontmatter・検証・反映タイミン�
   assert.match(body, /新規セッションと復元セッション/);
   assert.match(body, /\.pi\/skills/);
   assert.match(body, /disable-model-invocation/);
+  // チャット側の呼び出し方 (Phase 2) も伝える
+  assert.match(body, /\/skill:<name>/);
 });
 
 test("builtinSkillPath は仮想パスを組み立てる", () => {
