@@ -1,6 +1,6 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。
+規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、組み込みの既定は `agent-zundamon` と `skill-zundamon-speech` の 1 組だけ。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -27,18 +27,18 @@
 {
   "agents": [
     {
-      "id": "agent-reviewer",
+      "id": "agent-example",
       "name": "コードレビュー",
       "description": "バグや保守性の問題を重要度順にレビューする",
       "systemPrompt": "…",
-      "skillIds": ["skill-severity-review"],
+      "skillIds": ["skill-example"],
       "model": { "provider": "openai", "id": "gpt-5.5" },
       "thinkingLevel": "high"
     }
   ],
   "skills": [
     {
-      "id": "skill-severity-review",
+      "id": "skill-example",
       "name": "重要度順レビュー",
       "description": "指摘を重要度順に並べ、根拠と修正案を添える",
       "prompt": "指摘は重要度の高い順に並べてください。…"
@@ -59,7 +59,7 @@
 
 ```json
 {
-  "id": "agent-builder",
+  "id": "agent-example",
   "name": "コード実装",
   "suggestions": [
     { "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }
@@ -82,16 +82,16 @@
     "definitions": {
       "agents": [
         {
-          "id": "agent-builder",
+          "id": "agent-example",
           "name": "コード実装",
           "description": "コードを読んで、安全に変更を実装する",
           "systemPrompt": "…",
-          "skillIds": ["skill-change-report"]
+          "skillIds": ["skill-example"]
         }
       ],
       "skills": [
         {
-          "id": "skill-change-report",
+          "id": "skill-example",
           "name": "変更レポート",
           "description": "最後に変更点と確認方法を箇条書きで報告する",
           "prompt": "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。"
