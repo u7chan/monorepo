@@ -115,7 +115,7 @@ test("永続化したセッションを新しい store が復元し、続きか�
     const pi1 = createStubPi({ chunkDelayMs: 1 });
     const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     assert.match(record.id, /^[0-9a-f]{10}$/);
     assert.equal(record.workdir, `.u7agent/sessions/${record.id}`, "作業フォルダを cwd にする");
     assert.deepEqual(dirs, [record.workdir], "作業フォルダはサンドボックスに作らせる");
@@ -185,7 +185,7 @@ test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const created = await store1.create({ agentId: "agent-general" });
+    const created = await store1.create();
     await store1.flush(created);
     await store1.close();
 
@@ -232,7 +232,7 @@ test("古い定義で保存された meta の messageCount は、セッション
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const created = await store1.create({ agentId: "agent-general" });
+    const created = await store1.create();
     // 実効モデルと一致する model_change を先に保存しておく。これが無いと復元時に
     // recordEffectiveModel が追記側で true を返し、messageCount の補正条件を検証できない
     await store1.updateSettings(created, { model: STUB_MODEL });
@@ -277,7 +277,7 @@ test("初回応答の完了前にユーザーメッセージが保存される",
   try {
     const store = createStore(storeDir, { pi: createStubPi({ chunkDelayMs: 300 }), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
     store.postMessage(record, "先に保存される");
 
     let persisted = false;
@@ -301,7 +301,7 @@ test("未ロードのセッションを SDK なしで削除でき、作業フォ
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -328,7 +328,7 @@ test("壊れた JSONL は原本を書き換えずに開く要求が失敗し、�
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -356,7 +356,7 @@ test("content part が壊れた履歴は 409 で拒否し、原本を書き換�
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -394,7 +394,7 @@ test("PI_MODELS の候補外モデルでは再開せず、フォールバック�
     const pi1 = createStubPi();
     const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general", model: { provider: "stub", id: "stub-model" } });
+    const record = await store1.create({ model: { provider: "stub", id: "stub-model" } });
     store1.postMessage(record, "モデルを記録する");
     await waitFor(() => record.run?.status === "completed", 3000, "run completed");
     await store1.flush(record);
@@ -439,7 +439,7 @@ test("復元後の SSE は世代が違うカーソルを resync へ寄せる", a
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -478,7 +478,7 @@ test("compaction を保存し、復元後も区切りが再現される", async 
       catalog,
     });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     store1.postMessage(record, "圧縮される会話");
     await waitFor(() => record.run?.status === "completed", 3000, "run completed");
     store1.postMessage(record, "圧縮後の会話");
@@ -512,7 +512,7 @@ test("復元時のモデル能力に合わせて Effort を clamp する", async
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -551,7 +551,7 @@ test("ロードと DELETE が競合しても store を復活させない", async
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -574,7 +574,7 @@ test("保存中に DELETE しても store を復活させない", async () => {
   try {
     const store = createStore(storeDir, { pi: createStubPi(), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
     const write = store.persist(record);
     const removed = store.deleteSession(record.id);
     await Promise.allSettled([write, removed]);
@@ -594,7 +594,7 @@ test("sweep 中の同時 resolve は同じ record を共有する", async () => 
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const created = await store1.create({ agentId: "agent-general" });
+    const created = await store1.create();
     await store1.flush(created);
     await store1.close();
 
@@ -633,7 +633,7 @@ test("プロジェクト解除は待機メッセージを破棄して実行し�
     });
     await store.init();
     const project = projects.create({ cwd: "proj-a" });
-    const record = await store.create({ agentId: "agent-general", projectId: project.id });
+    const record = await store.create({ projectId: project.id });
     const stub = record.session as StubSession;
     store.postMessage(record, "実行中");
     await waitFor(() => record.run?.status === "running", 2000, "running");
@@ -660,7 +660,7 @@ test("保存に成功すると persistError が消える", async () => {
   try {
     const store = createStore(storeDir, { pi: createStubPi(), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
 
     // meta.json をディレクトリへ置き換えて rename を失敗させる
     const metaPath = sessionMetaPath(record.id, storeDir);
@@ -686,7 +686,7 @@ test("設定変更中のセッションは sweep の対象外にする", async (
   try {
     const store = createStore(storeDir, { pi: createStubPi(), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
     await store.flush(record);
     record.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
     record.changingSettings = true;
@@ -710,7 +710,7 @@ test("プロジェクトを解除してもセッションと store は残り、�
     const store = createStore(storeDir, { pi: createStubPi(), workspace, catalog, projects });
     await store.init();
     const project = projects.create({ cwd: "proj-a" });
-    const record = await store.create({ agentId: "agent-general", projectId: project.id });
+    const record = await store.create({ projectId: project.id });
     await store.flush(record);
     assert.equal(store.payload(record).projectId, project.id);
 
@@ -751,7 +751,7 @@ test("store がワークスペース内ならセッション作成を拒否す�
     workspace,
     rootCwd: "/tmp/project",
   });
-  await assert.rejects(store.create({ agentId: "agent-general" }), (error: Error & { statusCode?: number }) => {
+  await assert.rejects(store.create(), (error: Error & { statusCode?: number }) => {
     assert.equal(error.statusCode, 503);
     return true;
   });
@@ -765,7 +765,7 @@ test("モデルの候補が無いときの復元は 503 になり、一覧から
   try {
     const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general" });
+    const record = await store1.create();
     await store1.flush(record);
     await store1.close();
 
@@ -790,7 +790,7 @@ test("sweep は購読者がいるセッションを破棄しない", async () =>
   try {
     const store = createStore(storeDir, { pi: createStubPi(), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
     record.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
     const unsubscribe = store.subscribe(record, undefined, () => {});
     await store.sweep();
@@ -815,7 +815,7 @@ test("persist は file の失敗を error に残し、次の保存で再試行�
   try {
     const store = createStore(storeDir, { pi: createStubPi(), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
     await store.flush(record);
     assert.equal(record.writer?.error, undefined);
     assert.equal((await readFile(sessionJsonlPath(record.id, storeDir), "utf8")).length > 0, true);
@@ -836,7 +836,7 @@ test("プロジェクト所属セッションは登録ディレクトリを cwd 
     const pi1 = createStubPi();
     const store1 = createStore(storeDir, { pi: pi1, workspace, catalog, projects });
     await store1.init();
-    const record = await store1.create({ agentId: "agent-general", projectId: project.id });
+    const record = await store1.create({ projectId: project.id });
     assert.equal(record.workdir, "repos/app", "cwd は登録ディレクトリそのもの");
     assert.equal(pi1.createInputs.at(-1)?.cwd, "repos/app", "SDK セッションへも同じ cwd を渡す");
     assert.deepEqual(listings, ["repos/app"], "存在確認だけを行う");
@@ -878,8 +878,8 @@ test("同一プロジェクトの別セッションは同じ作業ディレク�
     const pi = createStubPi();
     const store = createStore(storeDir, { pi, workspace, catalog, projects });
     await store.init();
-    const first = await store.create({ agentId: "agent-general", projectId: project.id });
-    const second = await store.create({ agentId: "agent-general", projectId: project.id });
+    const first = await store.create({ projectId: project.id });
+    const second = await store.create({ projectId: project.id });
     assert.notEqual(first.id, second.id);
     assert.equal(store.payload(first).cwd, store.payload(second).cwd);
     assert.equal(store.payload(first).cwd, "repos/app");
@@ -896,7 +896,7 @@ test("未所属セッションは従来どおりスクラッチを作る", async
   try {
     const store = createStore(storeDir, { pi: createStubPi(), workspace });
     await store.init();
-    const record = await store.create({ agentId: "agent-general" });
+    const record = await store.create();
     assert.equal(record.workdir, `.u7agent/sessions/${record.id}`);
     assert.deepEqual(dirs, [record.workdir]);
     await store.close();

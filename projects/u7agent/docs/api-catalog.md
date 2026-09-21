@@ -1,6 +1,6 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。
+規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、組み込みの既定は `agent-zundamon` と `skill-zundamon-speech` の 1 組だけ。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -27,18 +27,18 @@
 {
   "agents": [
     {
-      "id": "agent-reviewer",
+      "id": "agent-example",
       "name": "コードレビュー",
       "description": "バグや保守性の問題を重要度順にレビューする",
       "systemPrompt": "…",
-      "skillIds": ["skill-severity-review"],
+      "skillIds": ["skill-example"],
       "model": { "provider": "openai", "id": "gpt-5.5" },
       "thinkingLevel": "high"
     }
   ],
   "skills": [
     {
-      "id": "skill-severity-review",
+      "id": "skill-example",
       "name": "重要度順レビュー",
       "description": "指摘を重要度順に並べ、根拠と修正案を添える",
       "prompt": "指摘は重要度の高い順に並べてください。…"
@@ -49,7 +49,7 @@
 
 ## エージェント定義の定型プロンプト
 
-エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと `prompt` をそのまま送信する（セッションタイトルの元にもなる）。既定の組み込みエージェントは `agent-builder` だけが 3 件を持つ。
+エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと `prompt` をそのまま送信する（セッションタイトルの元にもなる）。既定の組み込みエージェントは `agent-zundamon` だけが 3 件を持つ。
 
 - 未指定（空配列を含む）なら GET / export はキーを省略し、画面にもボタンを出さない（アプリ既定のフォールバックはない）。
 - `label` は 60 文字、`prompt` は 500 文字で trim + 切り詰める。どちらかが空の要素は捨てる。
@@ -59,7 +59,7 @@
 
 ```json
 {
-  "id": "agent-builder",
+  "id": "agent-example",
   "name": "コード実装",
   "suggestions": [
     { "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }
@@ -82,16 +82,16 @@
     "definitions": {
       "agents": [
         {
-          "id": "agent-builder",
+          "id": "agent-example",
           "name": "コード実装",
           "description": "コードを読んで、安全に変更を実装する",
           "systemPrompt": "…",
-          "skillIds": ["skill-change-report"]
+          "skillIds": ["skill-example"]
         }
       ],
       "skills": [
         {
-          "id": "skill-change-report",
+          "id": "skill-example",
           "name": "変更レポート",
           "description": "最後に変更点と確認方法を箇条書きで報告する",
           "prompt": "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。"

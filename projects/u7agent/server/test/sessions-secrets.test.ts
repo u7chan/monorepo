@@ -147,7 +147,7 @@ test("assistant text split across chunk boundaries is masked in SSE events", asy
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, "教えて");
@@ -183,7 +183,7 @@ test("tool args and output (shell and non-shell) are masked in events and payloa
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, "実行して");
@@ -213,7 +213,7 @@ test("error messages are masked before run_end and status events", async () => {
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, "エラーを出して");
@@ -235,7 +235,7 @@ test("user prompt is masked in echo surfaces but the model input stays as typed"
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, prompt);
@@ -263,7 +263,7 @@ test("aborting mid-stream does not leak the key through held-back chunks", async
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, "止めて");
@@ -295,7 +295,7 @@ test("args and output truncated at their limits are masked before truncation", a
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, "境界を確認して");
@@ -329,7 +329,7 @@ test("output without secrets passes through unchanged", async () => {
     settle(s);
   });
   const { store, events } = createStore(session);
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create();
   store.subscribe(record, undefined, (entry) => events.push(entry));
 
   store.postMessage(record, "一覧を見せて");

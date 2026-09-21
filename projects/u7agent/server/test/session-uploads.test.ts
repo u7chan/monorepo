@@ -105,7 +105,7 @@ async function appWithRealSandbox(options: { rootCwd: string; maxUploadBytes?: n
 }
 
 async function createSession(app: Hono): Promise<string> {
-  const response = await app.request("/api/sessions", jsonPost({ agentId: "agent-general" }));
+  const response = await app.request("/api/sessions", jsonPost({}));
   assert.equal(response.status, 201);
   return ((await response.json()) as { sessionId: string }).sessionId;
 }
@@ -494,10 +494,7 @@ test("プロジェクト所属セッションの添付も appdir に置き、フ
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: storeDir, pi: asPiBff(pi), workspace });
   try {
     const project = (await jsonBody(await bff.app.request("/api/projects", jsonPost({ cwd: "repos/app" })))).project;
-    const created = await bff.app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-general", projectId: project.id }),
-    );
+    const created = await bff.app.request("/api/sessions", jsonPost({ projectId: project.id }));
     assert.equal(created.status, 201);
     const payload = (await created.json()) as { sessionId: string; cwd: string };
     assert.equal(payload.cwd, "repos/app", "ファイル画面の root は登録ディレクトリ");
@@ -539,10 +536,7 @@ test("存在しない登録ディレクトリではセッションを作らず 4
     workspace.listFiles = async () => {
       throw new SandboxRequestError("Path not found: repos/app", 404);
     };
-    const response = await bff.app.request(
-      "/api/sessions",
-      jsonPost({ agentId: "agent-general", projectId: project.id }),
-    );
+    const response = await bff.app.request("/api/sessions", jsonPost({ projectId: project.id }));
     assert.equal(response.status, 400);
     assert.match(((await response.json()) as { error: string }).error, /repos\/app/);
     assert.equal(pi.createInputs.length, 0, "SDK セッションは開かない");
