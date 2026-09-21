@@ -9,6 +9,7 @@ import {
   type SandboxFileListing,
   type SandboxFilePreview,
   type SandboxFileUpload,
+  type SandboxSkillsResponse,
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
@@ -57,6 +58,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   return {
     execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
     listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+    listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
     previewFile: async (path) => {
       const response = await fetchJson(
         fetchImpl,
@@ -90,6 +92,8 @@ export interface SandboxToolClient {
   previewFile(path: string): Promise<SandboxFilePreview>;
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
+  /** `.agents/skills` 配下の発見 (dir は root 相対)。不存在の dir は 404 */
+  listSkills(dir: string): Promise<SandboxSkillsResponse>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
   deleteFile(path: string): Promise<void>;
   /** 配下ごとのディレクトリ削除 (recursive はサンドボックスが true 固定で受ける) */
@@ -101,7 +105,7 @@ export interface SandboxToolClient {
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
 export type SandboxWorkspaceClient = Pick<
   SandboxToolClient,
-  "listFiles" | "createDir" | "deleteFile" | "deleteDirectory" | "previewFile" | "uploadFile" | "rawFile"
+  "listFiles" | "listSkills" | "createDir" | "deleteFile" | "deleteDirectory" | "previewFile" | "uploadFile" | "rawFile"
 >;
 
 /**
@@ -163,6 +167,22 @@ async function listFiles(
   );
   if (!response.ok) throw await jsonError(response, "ファイル一覧を取得できませんでした");
   return (await response.json()) as SandboxFileListing;
+}
+
+async function listSkills(
+  dir: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxSkillsResponse> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/skills?dir=${encodeURIComponent(dir)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "スキル一覧を取得できませんでした");
+  return (await response.json()) as SandboxSkillsResponse;
 }
 
 async function createDir(

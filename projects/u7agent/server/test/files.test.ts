@@ -46,6 +46,8 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
         if (result instanceof Error) throw result;
         return result;
       },
+      // ファイルスキルの発見はこのテストでは扱わない
+      listSkills: async () => ({ skills: [] }),
       // ファイル一覧のテストではディレクトリ作成は使わない
       createDir: async (path: string) => ({ path }),
       deleteFile: async (path: string) => {

@@ -8,6 +8,7 @@ import { serve } from "@hono/node-server";
 import { SANDBOX_DEFAULT_PORT } from "./protocol";
 import { prepareRootCwd } from "./root-cwd";
 import { createSandboxService } from "./service";
+import { warmSkillsScanner } from "./skills-scan";
 
 const ENTRY_PATH = fileURLToPath(import.meta.url);
 
@@ -32,6 +33,10 @@ async function main() {
   }
 
   const service = createSandboxService({ token: TOKEN, rootCwd: prepared.path });
+  // スキル走査の worker を先に立ち上げる (初回の一覧 / セッション作成で SDK の import を待たせない)
+  void warmSkillsScanner().catch((error: unknown) => {
+    console.warn(`[u7agent-sandbox] スキル走査スレッドを起動できませんでした: ${String(error)}`);
+  });
   const server = serve({ fetch: service.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent-sandbox] http://${HOST}:${info.port}`);
     console.log(`[u7agent-sandbox] working directory: ${prepared.path}`);

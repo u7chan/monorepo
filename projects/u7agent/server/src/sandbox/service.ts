@@ -21,6 +21,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
+import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
@@ -37,6 +38,8 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxSkillEntry,
+  type SandboxSkillsResponse,
 } from "./protocol";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
@@ -51,6 +54,8 @@ export interface SandboxServiceOptions {
   rootCwd?: string;
   /** テストで小さくできるアップロード / 生配信の上限 (既定 100 MiB) */
   maxUploadBytes?: number;
+  /** テストで小さくできるスキル走査の期限 (既定 2s) */
+  skillsScanTimeoutMs?: number;
 }
 
 export interface SandboxService {
@@ -408,6 +413,38 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
   };
 }
 
+/**
+ * root 相対のディレクトリ配下のスキルを発見する。走査規則 (hidden・node_modules のスキップ、ignore ファイル、
+ * 再帰、frontmatter 検証) は SDK の loadSkillsFromDir に委譲し、返すのは SKILL.md だけにする
+ * (SDK は直下の非 SKILL.md も読むが、`.agents/skills` の規約とずれるため落とす)。
+ * SDK は子ディレクトリと SKILL.md の symlink を辿るため、realpath が root 外になるものは除外する。
+ * 応答の path は realpath に揃え、同じ実体へ解決する重複 (symlink 経由・循環リンク) は 1 件に畳む。
+ * 走査は別スレッドで実行し、循環 symlink による指数的増殖では期限で打ち切る (skills-scan.ts)。
+ */
+async function listWorkspaceSkills(
+  rootCwd: string,
+  requestedDir: string,
+  scanTimeoutMs: number,
+): Promise<SandboxSkillsResponse> {
+  const { root, target } = await resolveWorkspaceDirectory(rootCwd, requestedDir);
+
+  const skills: SandboxSkillEntry[] = [];
+  const seen = new Set<string>();
+  for (const skill of (await scanSkillsWithDeadline(target, scanTimeoutMs)).skills) {
+    if (basename(skill.filePath) !== "SKILL.md") continue;
+    const real = await realpathNative(skill.filePath).catch(() => undefined);
+    if (!real || !isInsideRoot(root, real) || seen.has(real)) continue;
+    seen.add(real);
+    skills.push({
+      name: skill.name,
+      description: skill.description,
+      path: real,
+      disableModelInvocation: skill.disableModelInvocation,
+    });
+  }
+  return { skills };
+}
+
 function isInsideRoot(root: string, target: string): boolean {
   return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
@@ -451,6 +488,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   }
   const rootCwd = options.rootCwd || "/workspace";
   const maxUploadBytes = options.maxUploadBytes ?? SANDBOX_MAX_UPLOAD_BYTES;
+  const skillsScanTimeoutMs = options.skillsScanTimeoutMs ?? SKILLS_SCAN_TIMEOUT_MS;
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
@@ -654,6 +692,16 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files", async (c) => {
     try {
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // ファイルスキル (`.agents/skills`) の発見。dir の検証は GET /v1/files と同じ経路を通す
+  app.get("/v1/skills", async (c) => {
+    try {
+      return c.json(await listWorkspaceSkills(rootCwd, c.req.query("dir") ?? "", skillsScanTimeoutMs));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

@@ -1,11 +1,12 @@
 # サンドボックス内部 API と環境変数
 
-BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find` / `ls`）の実行と作業領域の一覧取得を委譲する内部API。ブラウザから直接呼ぶAPIではなく、`AppType` には含まれない。ホストへ公開せず、BFF ⇄ サンドボックスの内部ネットワークのみで到達する。設計の背景は [sandbox.md](sandbox.md) を参照する。
+BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find` / `ls`）の実行、作業領域の一覧取得、ファイルスキルの発見を委譲する内部API。ブラウザから直接呼ぶAPIではなく、`AppType` には含まれない。ホストへ公開せず、BFF ⇄ サンドボックスの内部ネットワークのみで到達する。設計の背景は [sandbox.md](sandbox.md) を参照する。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
+| GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
 | GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
@@ -120,6 +121,35 @@ root 相対の画像を `createReadStream` でストリーム返却する。配�
 - 1 ディレクトリ 500 件（SDK の `ls` ツールの既定上限と同じ）で打ち切り、`truncated: true` を返す
 - 400: `path` が root 外へ解決される / 不正、ディレクトリでない（`Not a directory: …`）、読み取り不能。404: 実在しない（`Path not found: …`）。文言は `ls` ツールに寄せる
 - root 外の拒否は URL 経由の不正参照を防ぐ入力検証で、サンドボックスが読める範囲を絞るものではない（サンドボックスは元々 `bash` / `read` を実行でき、読み取り範囲は変わらない）
+
+## `GET /v1/skills`
+
+root 相対のディレクトリ配下のファイルスキル（`SKILL.md`）を JSON で返す。BFF は発見結果を SDK の `skillsOverride` へ渡し、モデルには本文ではなく `path` を渡す（本文は `read` 時点のファイル内容。ファイルスキルの扱いは [persistence.md](persistence.md)）。
+
+```
+GET /v1/skills?dir=.agents/skills
+```
+
+```json
+// response
+{
+  "skills": [
+    {
+      "name": "example",
+      "description": "例のスキル",
+      "path": "/workspace/.agents/skills/example/SKILL.md",
+      "disableModelInvocation": false
+    }
+  ]
+}
+```
+
+- 走査規則（hidden と `node_modules` のスキップ、`.gitignore` / `.ignore` / `.fdignore`、再帰、frontmatter 検証）は SDK の `loadSkillsFromDir` に委譲する。MVP は `SKILL.md` だけを対象にし、SDK が直下で読む非 `SKILL.md` の `.md` は応答から落とす
+- `dir` の検証は `GET /v1/files` と同じ（root 外・symlink 脱出は 400、実在しないディレクトリは 404、ディレクトリ以外は 400）
+- SDK は子ディレクトリと `SKILL.md` の symlink を辿るため、**realpath が root 内になるスキルだけ**を返す。root 外へ解決するものと壊れた symlink は落とす。path は realpath に揃え、同じ実体へ解決する重複（symlink 経由・循環リンク）は 1 件に畳む
+- **走査は専用スレッド（worker）で実行し、期限（既定 2 秒）で打ち切る**。`loadSkillsFromDir` は同じ実体へ複数の経路で到達する形（自己参照する symlink が 2 本あるなど）で走査回数が指数的に増え、同期実行ではサンドボックス本体を塞ぐため。期限切れは 504（`スキルの走査が期限 …`）で、worker は捨てて次の要求で作り直す。期限の間も他のリクエストは処理される（worker は起動時から使い回し、初回だけ SDK の import 分を待つ）
+- `path` は realpath（root 内の絶対パス）で、本文は返さない。`disableModelInvocation` は frontmatter の `disable-model-invocation` をそのまま写す
+- 読み取り専用で、ファイルは変更しない
 
 ## `DELETE /v1/files`
 

@@ -41,6 +41,8 @@ function stubWorkspace() {
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
     listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
+    // ファイルスキルの発見はこのテストでは扱わない
+    listSkills: async () => ({ skills: [] }),
     createDir: async (path: string) => ({ path }),
     // 削除はこのテストでは扱わない
     deleteFile: async () => {},

@@ -8,6 +8,7 @@ import type {
   CreateSkillBody,
   FileListing,
   FilePreview,
+  FileSkillsResponse,
   Health,
   ModelRef,
   PostMessageResult,
@@ -97,6 +98,16 @@ export const deleteSkill = async (id: string): Promise<unknown> => {
   const res = await client.api.skills[":id"].$delete({ param: { id } });
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/**
+ * 共通スキル (`.agents/skills`) の読み取り専用一覧。catalog のスキル定義とは別で、編集できない。
+ * サンドボックス未設定は 503、サンドボックス側の失敗は 502 で reject する。
+ */
+export const getFileSkills = async (): Promise<FileSkillsResponse> => {
+  const res = await client.api.skills.files.$get();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as FileSkillsResponse;
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない

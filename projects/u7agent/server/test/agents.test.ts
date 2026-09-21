@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { composePromptSnapshot } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
 
 const DEFAULT_SUGGESTIONS = [
@@ -391,4 +392,19 @@ test("imports old definitions without the new keys and exports only specified on
   );
   // 不正な import は従来のカタログを壊さない
   assert.equal(catalog.getAgent("agent-new")?.thinkingLevel, "max");
+});
+
+test("composePromptSnapshot はカタログスキルを agent_skill タグで固定する", () => {
+  const snapshot = composePromptSnapshot(
+    {
+      id: "agent-example",
+      name: "例",
+      description: "説明",
+      systemPrompt: "短く答えてください。",
+      skillIds: ["skill-example"],
+    },
+    [{ id: "skill-example", name: "例スキル", description: "説明", prompt: "指示です。" }],
+  );
+  assert.match(snapshot.agent, /<agent_profile name="例">/);
+  assert.deepEqual(snapshot.skills, ['<agent_skill name="例スキル">\n指示です。\n</agent_skill>']);
 });

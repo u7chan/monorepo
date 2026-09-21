@@ -42,6 +42,8 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
         listings.push(path);
         return { path: path || ".", entries: [], truncated: false };
       },
+      // ファイルスキルの発見はこのテストでは扱わない (専用のテストで検証する)
+      listSkills: async () => ({ skills: [] }),
       createDir: async (path: string) => {
         dirs.push(path);
         return { path };
@@ -247,6 +249,7 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
       listFiles: async () => {
         throw new SandboxRequestError("Path not found: /workspace/nope", 404);
       },
+      listSkills: async () => ({ skills: [] }),
       createDir: async (path: string) => ({ path }),
       // 削除 / アップロード / 生配信はこのテストでは扱わない
       deleteFile: async () => {},

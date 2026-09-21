@@ -60,7 +60,7 @@ $PI_SESSION_STORE/<id>/
   "messageCount": 12,
   "agentId": "default",
   "agent": { "id": "default", "name": "…", "description": "…", "skillIds": [], "skills": [] },
-  "promptSnapshot": { "agent": "<agent プロンプト>", "skills": ["<skill プロンプト>"] },
+  "promptSnapshot": { "agent": "<agent プロンプト>", "skills": ["<agent_skill プロンプト>"] },
   "projectCwd": "projects/u7agent",
   "projectName": "u7agent",
   "model": "openai-codex/gpt-6-astra",
@@ -68,7 +68,8 @@ $PI_SESSION_STORE/<id>/
 }
 ```
 
-- `promptSnapshot` は作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
+- `promptSnapshot` は作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。カタログのスキルはモデルのファイルスキルと混同させないため `<agent_skill name="…">` で固定する（セッションごとの system prompt 形式の正は `server/src/agent.ts` の `composePromptSnapshot`）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
+- ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
 - `title` は最初のメッセージで、`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 

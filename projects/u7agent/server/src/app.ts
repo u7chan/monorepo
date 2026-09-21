@@ -33,7 +33,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 
   const healthRoutes = createHealthRoutes({ pi, initError, cwd, store });
   const fileRoutes = createFileRoutes({ workspace });
-  const catalogRoutes = createCatalogRoutes({ catalog });
+  const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace });
 
@@ -89,6 +89,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .delete("/api/agents/:id", catalogRoutes.removeAgent)
     .get("/api/skills", catalogRoutes.listSkills)
+    .get("/api/skills/files", catalogRoutes.listFileSkills)
     .post(
       "/api/skills",
       jsonBodyValidator(CreateSkillBodySchema, (result, c) =>
