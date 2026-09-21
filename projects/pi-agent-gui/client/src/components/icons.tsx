@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import type { FileKind } from "../lib/fileKind";
+
 /** 実行中インジケータのドット (中心 8,8 / 半径 4.9 に 45 度ずつ。回転は styles/index.css) */
 const SPINNER_DOTS: [number, number][] = [
   [8, 3.1],
@@ -312,7 +315,11 @@ export function DisclosureChevronIcon() {
   );
 }
 
-export function FolderIcon() {
+/**
+ * フォルダ (ツリーの行と各所の見出し)。開いているときは手前のパネルを傾けて薄く塗る。
+ * 輪郭のままだと展開の印が chevron の回転だけになり、行の左端で開閉が読み取れない。
+ */
+export function FolderIcon({ open = false }: { open?: boolean }) {
   return (
     <svg
       aria-hidden="true"
@@ -324,12 +331,69 @@ export function FolderIcon() {
       strokeLinejoin="round"
       className="size-4 shrink-0"
     >
-      <path d="M2.5 5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v4.24c0 .6-.4 1-1 1h-8c-.6 0-1-.4-1-1z" />
+      {open ? (
+        <>
+          <path d="M2.5 11.6V5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v1.14" />
+          <path
+            d="M5.15 8.15Q5.4 7.95 5.75 7.95h6.1q.6 0 .65.65l-.7 2.95q-.1.5-.65.5H3.5q-.55 0-.4-.55L4.6 8.6q.15-.45.55-.45Z"
+            fill="currentColor"
+            fillOpacity="0.2"
+          />
+        </>
+      ) : (
+        <path d="M2.5 5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v4.24c0 .6-.4 1-1 1h-8c-.6 0-1-.4-1-1z" />
+      )}
     </svg>
   );
 }
 
-export function FileIcon() {
+/**
+ * ファイル種別 (FileKind) の模様。書類の輪郭の中に置くため、16px で潰れない太さと大きさに留める。
+ * 括弧類は「角・丸・山」で書き分け、曲線で描くと 16px では塊になるため角を丸めた直線で表す。
+ */
+const FILE_MARKS: Record<FileKind, ReactNode> = {
+  code: (
+    <>
+      <path d="M7.15 7.25 6.1 9.2l1.05 1.95" />
+      <path d="M8.85 7.25 9.9 9.2 8.85 11.15" />
+    </>
+  ),
+  markup: (
+    <>
+      <path d="M6.4 9.3l1.75-1.75c.2-.2.46-.3.74-.3h.86c.28 0 .5.22.5.5v.86c0 .28-.11.54-.3.74L8.2 11.1c-.4.4-1.05.4-1.45 0l-.35-.35c-.4-.4-.4-1.05 0-1.45z" />
+      <circle cx="9.1" cy="8.6" r=".35" />
+    </>
+  ),
+  data: (
+    <>
+      <path d="M7.4 6.9c-.35 0-.55.25-.55.6v1.05c0 .35-.25.65-.6.65.35 0 .6.3.6.65v1.05c0 .35.2.6.55.6" />
+      <path d="M8.6 6.9c.35 0 .55.25.55.6v1.05c0 .35.25.65.6.65-.35 0-.6.3-.6.65v1.05c0 .35-.2.6-.55.6" />
+    </>
+  ),
+  style: <path d="M7.1 7.3v3.9M8.9 7.3v3.9M6.15 8.5h3.7M6.15 9.9h3.7" />,
+  image: (
+    <>
+      <circle cx="7" cy="8.2" r=".55" />
+      <path d="M5.8 11.3l1.9-1.9c.2-.2.52-.2.72 0l1.55 1.55" />
+    </>
+  ),
+  shell: (
+    <>
+      <path d="M6.35 7.4 7.6 9.3 6.35 11.2" />
+      <path d="M8.45 11.2h2.4" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="6.2" y="8.55" width="3.6" height="2.9" rx=".5" />
+      <path d="M7.1 8.55v-.85a.9.9 0 0 1 1.8 0v.85" />
+    </>
+  ),
+  text: <path d="M6.15 7.7h3.7M6.15 9.2h3.7M6.15 10.7h2.4" />,
+};
+
+/** ツリーのファイル行。模様の種類は `fileKind` が拡張子から決める */
+export function FileIcon({ kind = "text" }: { kind?: FileKind }) {
   return (
     <svg
       aria-hidden="true"
@@ -343,6 +407,7 @@ export function FileIcon() {
     >
       <path d="M4.25 2.75h4.9l2.6 2.6v7.9h-7.5z" />
       <path d="M9.15 2.75v2.6h2.6" />
+      <g strokeWidth="1.2">{FILE_MARKS[kind]}</g>
     </svg>
   );
 }
