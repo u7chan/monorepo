@@ -70,7 +70,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 {
   "path": "src",
   "entries": [
-    { "name": "client", "type": "dir" },
+    { "name": "client", "type": "dir", "mtime": 1700000000000 },
     { "name": "README.md", "type": "file", "size": 1234, "mtime": 1700000000000 }
   ],
   "truncated": false
@@ -92,7 +92,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - 400 / 404: root 外 / 不正 / 通常ファイル以外 / symlink（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
 - 503 / 502: `GET /api/files` と同じ（未設定 / 到達不能・認証失敗・サンドボックス側のエラー）
 
-出す導線はセッションの作業フォルダ（チャット右パネル）だけで、設定 → ファイル は読み取り専用のまま（[file-preview.md](file-preview.md#削除)）。
+出す導線は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方にある（[file-preview.md](file-preview.md#削除)）。
 
 ## テキストプレビュー
 

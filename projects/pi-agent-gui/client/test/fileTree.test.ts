@@ -8,6 +8,7 @@ import {
   createFileTreeState,
   createFileTreeStateFromDirectories,
   fileTreeChildPath,
+  fileTreeDeleteConfirm,
   fileTreeDirectoryState,
   fileTreeFetchPath,
   invalidateFileTree,
@@ -36,6 +37,19 @@ test("初期状態は root だけを開いた未取得にする", () => {
   const state = createFileTreeState();
   assert.deepEqual(state, { ".": { open: true, loading: false } });
   assert.deepEqual(pendingFileTreeDirectories(state), ["."]);
+});
+
+test("削除の確認文言はツリーに見えている root 相対パスを出す", () => {
+  // 設定 → ファイル はワークスペース root 相対、チャット右パネルはセッションの作業フォルダ相対を渡す
+  assert.equal(
+    fileTreeDeleteConfirm(".pi-agent-gui/sessions/3a7bfba36f/uploads/shot.png"),
+    "「.pi-agent-gui/sessions/3a7bfba36f/uploads/shot.png」を削除しますか？この操作は取り消せません。",
+  );
+  assert.equal(
+    fileTreeDeleteConfirm("uploads/shot.png"),
+    "「uploads/shot.png」を削除しますか？この操作は取り消せません。",
+  );
+  assert.equal(fileTreeDeleteConfirm("note.txt"), "「note.txt」を削除しますか？この操作は取り消せません。");
 });
 
 test("子のキーは root 直下とネストで変わる", () => {

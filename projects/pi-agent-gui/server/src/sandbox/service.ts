@@ -5,7 +5,7 @@
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { realpath as realpathCallback, type Dirent } from "node:fs";
+import { realpath as realpathCallback, type Dirent, type Stats } from "node:fs";
 import { link, lstat, mkdir, open, readdir, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -335,23 +335,23 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
     throw pathError(400, `Cannot read directory: ${messageFor(error)}`);
   });
   // 並び替え (ディレクトリ先 → ファイル) には実体の種別が要るため、先に symlink だけ辿る。
-  // 件数上限を超える巨大ディレクトリでも stat は上限件数にしか掛けない。
+  // その stat は size / mtime に再利用し、下の走査で取る stat は打ち切り分だけに抑える。
   const candidates = await Promise.all(dirents.map((dirent) => classifyEntry(target, dirent)));
   candidates.sort(compareEntries);
   const truncated = candidates.length > SANDBOX_MAX_FILE_ENTRIES;
 
   const entries: SandboxFileEntry[] = [];
   for (const candidateEntry of candidates.slice(0, SANDBOX_MAX_FILE_ENTRIES)) {
-    const entryPath = join(target, candidateEntry.name);
     const entry: SandboxFileEntry = { name: candidateEntry.name, type: candidateEntry.type };
     if (candidateEntry.symlink) entry.symlink = true;
-    if (candidateEntry.type === "file") {
-      // symlink は辿った先、通常ファイルは lstat。壊れた symlink は size / mtime なしで返す
-      const stats = await (candidateEntry.symlink ? stat : lstat)(entryPath).catch(() => undefined);
-      if (stats) {
-        entry.size = stats.size;
-        entry.mtime = Math.round(stats.mtimeMs);
-      }
+    // symlink は辿った先、それ以外は lstat。壊れた symlink は stat が無いので size / mtime を付けない
+    const stats = candidateEntry.symlink
+      ? candidateEntry.target
+      : await lstat(join(target, candidateEntry.name)).catch(() => undefined);
+    if (stats) {
+      // size はファイルだけ。ディレクトリの size はファイルの内容量を表さない
+      if (candidateEntry.type === "file") entry.size = stats.size;
+      entry.mtime = Math.round(stats.mtimeMs);
     }
     entries.push(entry);
   }
@@ -368,17 +368,20 @@ function isInsideRoot(root: string, target: string): boolean {
   return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
-/** symlink は辿った先の種別に寄せる (壊れた symlink は file として出す)。 */
+/**
+ * symlink は辿った先の種別に寄せる (壊れた symlink は file として出す)。
+ * 辿った stat は一覧の mtime に再利用するため捨てずに返す (壊れた symlink は undefined)。
+ */
 async function classifyEntry(
   dirPath: string,
   dirent: Dirent,
-): Promise<{ name: string; type: "file" | "dir"; symlink: boolean }> {
+): Promise<{ name: string; type: "file" | "dir"; symlink: boolean; target: Stats | undefined }> {
   const name = dirent.name;
   if (!dirent.isSymbolicLink()) {
-    return { name, type: dirent.isDirectory() ? "dir" : "file", symlink: false };
+    return { name, type: dirent.isDirectory() ? "dir" : "file", symlink: false, target: undefined };
   }
   const followed = await stat(join(dirPath, name)).catch(() => undefined);
-  return { name, type: followed?.isDirectory() ? "dir" : "file", symlink: true };
+  return { name, type: followed?.isDirectory() ? "dir" : "file", symlink: true, target: followed };
 }
 
 /** ディレクトリ先 → ファイル、各グループ内は大文字小文字を無視した昇順 (同順はコード順で安定させる)。 */

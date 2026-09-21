@@ -275,8 +275,9 @@ export const FileEntrySchema = z.object({
   type: z.enum(["file", "dir"]),
   /** lstat が symlink のとき true。type は辿った先の実体の種別 */
   symlink: z.boolean().optional(),
+  /** stat できたファイルだけ (ディレクトリには付かない) */
   size: z.number().optional(),
-  /** epoch ms */
+  /** epoch ms。stat できたエントリに付き、壊れた symlink には付かない */
   mtime: z.number().optional(),
 });
 export type FileEntry = z.infer<typeof FileEntrySchema>;
