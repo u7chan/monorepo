@@ -1,7 +1,7 @@
 // 読み取り専用スキル一覧 (共通 + 組み込み) の行と再読み込みの形を固定する。client に DOM テスト基盤が
 // 無いため、実際の accessible name は組み立てず、button が何を包むかで固定する (docs/api-catalog.md)。
 // ここが崩れると次のどれかになる。
-//   1. 組み込み行の button が説明・パス・警告を包み、行を選ぶたびに長文が読み上げられる
+//   1. 名前行か button が説明・パス・警告を包み、行を選ぶたびに長文が読み上げられる
 //   2. button を名前行へ絞った分だけクリック領域が狭まり、説明やパスを押しても本文ビューが開かない
 //   3. 再読み込みが片方のグループの中へ戻り、押したときに何が更新されるのか読めなくなる
 import assert from "node:assert/strict";
@@ -22,6 +22,8 @@ function listSource(): string {
 }
 
 type BuiltinRow = {
+  /** 名前行の定義 (accessible name になる部分) */
+  identity: string;
   /** 組み込み行 (本文ビューを開ける方) の button の中身 */
   button: string;
   /** button の後ろ (行の兄弟として置く説明・パス・警告) */
@@ -32,22 +34,38 @@ type BuiltinRow = {
 
 function builtinRow(source: string): BuiltinRow {
   const rowStart = source.indexOf("function FileSkillRow");
+  const identityStart = source.indexOf("const identity = (", rowStart);
+  const detailsStart = source.indexOf("const details = (", rowStart);
   const openStart = source.indexOf("if (!onOpen) {", rowStart);
-  assert.ok(rowStart >= 0 && openStart > rowStart, "FileSkillRow の 2 つの分岐を切り出せない");
+  assert.ok(
+    rowStart >= 0 && identityStart > rowStart && detailsStart > identityStart && openStart > detailsStart,
+    "FileSkillRow の identity / details / 2 つの分岐を切り出せない",
+  );
   const row = source.slice(openStart);
   const buttonStart = row.indexOf("<button");
   const buttonEnd = row.indexOf("</button>");
   assert.ok(buttonStart >= 0 && buttonEnd > buttonStart, "組み込み行の button を切り出せない");
-  return { button: row.slice(buttonStart, buttonEnd), afterButton: row.slice(buttonEnd), row };
+  return {
+    identity: source.slice(identityStart, detailsStart),
+    button: row.slice(buttonStart, buttonEnd),
+    afterButton: row.slice(buttonEnd),
+    row,
+  };
 }
 
-test("組み込み行の button は名前行だけを包み、説明・パス・警告は外へ出す", () => {
-  const { button, afterButton } = builtinRow(listSource());
-  assert.ok(button.includes("{identity}"), "組み込み行の button が名前行を包んでない");
-  // 詳細まで包むと accessible name が「名前 + スコープ + 版 + 説明 + パス + 警告」の連結になる
-  for (const detail of ["{details}", "skill.description", "skill.relativePath", "warning"]) {
-    assert.ok(!button.includes(detail), `組み込み行の button が ${detail} を包んでいる`);
+test("組み込み行の読み上げ名になるのは名前行だけで、説明・パス・警告は外へ出す", () => {
+  const { identity, button, afterButton } = builtinRow(listSource());
+  // 名前行と button の両方を見る (どちらかへ詳細を足すと accessible name が長文に戻る)
+  for (const [where, part] of [
+    ["名前行", identity],
+    ["button", button],
+  ] as const) {
+    for (const detail of ["skill.description", "skill.relativePath", "warning"]) {
+      assert.ok(!part.includes(detail), `${where}が ${detail} を包んでいる`);
+    }
   }
+  assert.match(identity, /\{skill\.name\}/, "名前行が名前を出してない");
+  assert.ok(button.includes("{identity}"), "組み込み行の button が名前行を包んでない");
   assert.ok(afterButton.includes("{details}"), "説明・パス・警告が button の外に無い");
 });
 

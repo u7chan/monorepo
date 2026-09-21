@@ -83,7 +83,7 @@ export function FileSkillList({ state, onReload, selectedBuiltin = null, onSelec
   );
 }
 
-/** 読み取り専用ブロックの中のグループ (共通 / 組み込み)。見出しはブロックの見出しより一段弱くする */
+/** 読み取り専用ブロックの中のグループ (共通 / 組み込み)。段は入れ子と字間で表し、色は親と揃える */
 function FileSkillGroup({
   title,
   divided = false,
@@ -95,7 +95,8 @@ function FileSkillGroup({
 }) {
   return (
     <div className={cn("grid min-w-0 content-start gap-1", divided && "mt-1 border-t border-line/60 pt-2")}>
-      <h4 className="px-2 text-2xs font-semibold tracking-label text-ink-ghost uppercase">{title}</h4>
+      {/* ink-ghost は eyebrow 用で、10px の見出しでは実測でも各テーマの 3:1 を下回る */}
+      <h4 className="px-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">{title}</h4>
       {children}
     </div>
   );
