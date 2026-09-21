@@ -1,12 +1,14 @@
 /**
- * ファイルスキル (`.agents/skills`) の発見と合成。BFF は作業領域をマウントしないため走査はサンドボックスへ委譲し、
- * ここでは共通 / プロジェクトの 2 スコープを優先順位で一意化して SDK の Skill にする。
+ * ファイルスキル (`.agents/skills`) と組み込みスキルの発見と合成。BFF は作業領域をマウントしないため
+ * ファイルの走査はサンドボックスへ委譲し、ここではスコープを優先順位で一意化して SDK の Skill にする。
  * 本文は持たず、モデルには filePath を read させる (本文は read 時点のファイル内容。docs/persistence.md)。
+ * 組み込みだけは実ファイルが無いため、仮想パスと本文を registry から受け取る (builtin-skills.ts)。
  */
 import { createSyntheticSourceInfo, type Skill } from "@earendil-works/pi-coding-agent";
 import { isAbsolute, dirname, relative, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { isAppDirPath } from "./app-paths";
+import { builtinSkillEntries } from "./builtin-skills";
 import { messageFor } from "./http";
 import { SandboxRequestError, type SandboxToolClient } from "./sandbox/client";
 import type { SandboxSkillEntry } from "./sandbox/protocol";
@@ -15,13 +17,19 @@ import type { FileSkillInfo, FileSkillsResponse } from "./schema";
 /** 共通スキルの置き場 (workspace root 相対)。プロジェクトスキルは `<session cwd>/.agents/skills` */
 export const COMMON_SKILLS_DIR = ".agents/skills";
 
-/** ファイルスキルの発見元。優先順位は project > user */
-export type FileSkillScope = "user" | "project";
+/** ファイルスキルの発見元。優先順位は project > user > builtin */
+export type FileSkillScope = "user" | "project" | "builtin";
 
-/** 1 スコープ分の発見結果。entries はサンドボックスが返した順 (同じスコープ内は先勝ち) */
+/** 発見した 1 件。組み込みだけはワークスペースに実体が無いので body / version を添える */
+export interface FileSkillCandidate extends SandboxSkillEntry {
+  body?: string;
+  version?: string;
+}
+
+/** 1 スコープ分の発見結果。entries はサンドボックス (組み込みは registry) が返した順 (同じスコープ内は先勝ち) */
 export interface FileSkillSource {
   scope: FileSkillScope;
-  entries: SandboxSkillEntry[];
+  entries: FileSkillCandidate[];
 }
 
 export interface ShadowedFileSkill {
@@ -35,7 +43,7 @@ export interface ShadowedFileSkill {
 export interface ComposedFileSkills {
   /** SDK へ skillsOverride で渡す合成 Skill (name はスコープをまたいで一意) */
   skills: Skill[];
-  /** GET /api/skills/files の応答 (skills と同じ並び) */
+  /** GET /api/skills/files の応答 (読み込む側と同じ並び。組み込みは上書きされていても残す) */
   response: FileSkillsResponse;
   /** 影になった組み合わせ (ログ用) */
   shadowed: ShadowedFileSkill[];
@@ -50,6 +58,8 @@ export interface SessionFileSkillInput {
 /**
  * sources を優先順位の順に走査し、同じ実体 (path) と同名 (name) を先勝ちで一意化する。
  * ファイルの改名・削除・マージはせず、落ちた側を応答の shadowed に記録するだけにする。
+ * ただし組み込みは一覧の別グループとして常に見せる必要があるため、上書きされた場合も行を残し
+ * `overridden` を立てる (注入はしない)。ファイルスキル同士の重複は従来どおり警告にまとめる。
  */
 export function composeFileSkills(sources: FileSkillSource[], rootCwd: string): ComposedFileSkills {
   const skills: Skill[] = [];
@@ -58,25 +68,35 @@ export function composeFileSkills(sources: FileSkillSource[], rootCwd: string): 
   const byName = new Map<string, FileSkillInfo>();
   const shadowed: ShadowedFileSkill[] = [];
 
+  const makeRow = (entry: FileSkillCandidate, scope: FileSkillScope, overridden: boolean): FileSkillInfo => ({
+    name: entry.name,
+    description: entry.description,
+    path: entry.path,
+    relativePath: fileSkillDisplayPath(rootCwd, entry.path),
+    scope,
+    disableModelInvocation: entry.disableModelInvocation,
+    shadowed: [],
+    overridden,
+    ...(entry.body === undefined ? {} : { body: entry.body }),
+    ...(entry.version === undefined ? {} : { version: entry.version }),
+  });
+
   for (const source of sources) {
     for (const entry of source.entries) {
       // 同じ実体を別スコープから見つけた場合 (プロジェクト側が共通側の symlink など) は同じ表示になるため警告にしない
       if (byPath.has(entry.path)) continue;
       const duplicateName = byName.get(entry.name);
       if (duplicateName) {
-        duplicateName.shadowed.push({ path: entry.path, relativePath: fileSkillDisplayPath(rootCwd, entry.path) });
         shadowed.push({ name: duplicateName.name, keptPath: duplicateName.path, shadowedPath: entry.path });
+        if (source.scope === "builtin") {
+          // 組み込みは設定一覧にも残す (上書き状態は行が出ている側ではなく組み込み側に立てる)
+          rows.push(makeRow(entry, source.scope, true));
+        } else {
+          duplicateName.shadowed.push({ path: entry.path, relativePath: fileSkillDisplayPath(rootCwd, entry.path) });
+        }
         continue;
       }
-      const row: FileSkillInfo = {
-        name: entry.name,
-        description: entry.description,
-        path: entry.path,
-        relativePath: fileSkillDisplayPath(rootCwd, entry.path),
-        scope: source.scope,
-        disableModelInvocation: entry.disableModelInvocation,
-        shadowed: [],
-      };
+      const row = makeRow(entry, source.scope, false);
       rows.push(row);
       byPath.set(entry.path, row);
       byName.set(entry.name, row);
@@ -88,8 +108,9 @@ export function composeFileSkills(sources: FileSkillSource[], rootCwd: string): 
 
 /**
  * セッション作成 / 復元時の発見。プロジェクト (`<cwd>/.agents/skills`) を共通 (`<root>/.agents/skills`) より
- * 先に並べ、優先順位 project > user で合成する。走査できない dir は落として続行し、セッション作成は止めない
- * (サンドボックス未設定の 503 は呼び出し側の既存判定が担う)。影になったスキルは警告としてログに残す。
+ * 先に並べ、優先順位 project > user > builtin で合成する。走査できない dir は落として続行し、
+ * セッション作成は止めない (サンドボックス未設定の 503 は呼び出し側の既存判定が担う)。
+ * 組み込みはサンドボックスに依らないので、発見に失敗しても常に注入する。影になったスキルはログに残す。
  */
 export async function discoverSessionFileSkills(
   client: SandboxToolClient,
@@ -102,12 +123,14 @@ export async function discoverSessionFileSkills(
   }
   targets.push({ scope: "user", dir: COMMON_SKILLS_DIR });
 
-  const sources = await Promise.all(
+  const sources: FileSkillSource[] = await Promise.all(
     targets.map(async (target): Promise<FileSkillSource> => ({
       scope: target.scope,
       entries: await listSkillsOrEmpty(client, target.dir),
     })),
   );
+  // 組み込みはワークスペースに実体が無いため、最後 (最低優先) に足す
+  sources.push({ scope: "builtin", entries: builtinSkillEntries(input.rootCwd) });
   const composed = composeFileSkills(sources, input.rootCwd);
   for (const item of composed.shadowed) {
     console.warn(`[u7agent] 同名のスキルが複数あるため ${item.shadowedPath} を読み込みません (有効: ${item.keptPath})`);
@@ -128,16 +151,17 @@ async function listSkillsOrEmpty(client: SandboxToolClient, dir: string): Promis
 }
 
 /** SDK の Skill へ写す。baseDir は SKILL.md の親、sourceInfo はスコープに対応させる。 */
-function toSyntheticSkill(entry: SandboxSkillEntry, scope: FileSkillScope): Skill {
+function toSyntheticSkill(entry: FileSkillCandidate, scope: FileSkillScope): Skill {
   const baseDir = dirname(entry.path);
   return {
     name: entry.name,
     description: entry.description,
     filePath: entry.path,
     baseDir,
+    // 組み込みはワークスペースに実体が無い仮想パスなので、SDK の scope では temporary (path) として扱う
     sourceInfo: createSyntheticSourceInfo(entry.path, {
       source: "u7agent",
-      scope,
+      scope: scope === "builtin" ? "temporary" : scope,
       origin: "top-level",
       baseDir,
     }),

@@ -8,6 +8,7 @@ import test from "node:test";
 import { formatSkillsForPrompt, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createSessionResourceLoader } from "../src/agent";
 import { createBffApp } from "../src/app";
+import { BUILTIN_SKILLS, builtinSkillByName, builtinSkillEntries, builtinSkillPath } from "../src/builtin-skills";
 import { COMMON_SKILLS_DIR, composeFileSkills, discoverSessionFileSkills } from "../src/file-skills";
 import { createSecretMasker } from "../src/redact";
 import { SandboxRequestError, type SandboxToolClient, type SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -106,7 +107,7 @@ test("discoverSessionFileSkills はプロジェクト → 共通の順で発見�
   assert.deepEqual(calls, [`proj/${COMMON_SKILLS_DIR}`, COMMON_SKILLS_DIR]);
   assert.deepEqual(
     composed.response.skills.map((skill) => skill.scope),
-    ["project", "user"],
+    ["project", "user", ...BUILTIN_SKILLS.map(() => "builtin")],
   );
 });
 
@@ -122,7 +123,11 @@ test("discoverSessionFileSkills は未所属チャットのスクラッチと ro
     calls.length = 0;
     const composed = await discoverSessionFileSkills(client, { rootCwd: root, relativeCwd });
     assert.deepEqual(calls, [COMMON_SKILLS_DIR]);
-    assert.deepEqual(composed.response.skills, []);
+    // サンドボックスから見つかった分は空で、組み込みだけが残る
+    assert.deepEqual(
+      composed.response.skills.map((skill) => skill.scope),
+      BUILTIN_SKILLS.map(() => "builtin"),
+    );
   }
 });
 
@@ -136,15 +141,154 @@ test("discoverSessionFileSkills は 404 とサンドボックス障害でスキ�
   const missing = await discoverSessionFileSkills(client, { rootCwd: root, relativeCwd: "proj" });
   assert.deepEqual(
     missing.response.skills.map((skill) => skill.name),
-    ["alpha"],
+    ["alpha", ...BUILTIN_SKILLS.map((skill) => skill.name)],
   );
 
-  // 接続失敗 (502) でも例外を投げず、その dir だけ落とす
+  // 接続失敗 (502) でも例外を投げず、その dir だけ落とす。組み込みはサンドボックスに依らないので残る
   const failing = skillsClient(async () => {
     throw new SandboxRequestError("サンドボックスに接続できません", 502);
   });
   const degraded = await discoverSessionFileSkills(failing, { rootCwd: root, relativeCwd: "proj" });
-  assert.deepEqual(degraded.response.skills, []);
+  assert.deepEqual(
+    degraded.response.skills.map((skill) => skill.name),
+    BUILTIN_SKILLS.map((skill) => skill.name),
+  );
+});
+
+test("composeFileSkills は組み込みを最低優先にし、上書きされた組み込みも一覧に残す", () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-builtin-compose-"));
+  const userSkill = join(root, ".agents/skills/skill-creator/SKILL.md");
+  const other = join(root, ".agents/skills/other/SKILL.md");
+  const composed = composeFileSkills(
+    [
+      {
+        scope: "user",
+        entries: [
+          skillEntry(userSkill, { name: "skill-creator", description: "ユーザー側" }),
+          skillEntry(other, { name: "other" }),
+        ],
+      },
+      { scope: "builtin", entries: builtinSkillEntries(root) },
+    ],
+    root,
+  );
+
+  // 注入は同名を畳む (ユーザー側が勝ち、組み込みは入らない)
+  assert.deepEqual(
+    composed.skills.map((skill) => [skill.name, skill.filePath]),
+    [
+      ["skill-creator", userSkill],
+      ["other", other],
+    ],
+  );
+  const userRow = composed.response.skills.find((row) => row.scope === "user" && row.name === "skill-creator");
+  const builtinRow = composed.response.skills.find((row) => row.scope === "builtin" && row.name === "skill-creator");
+  assert.equal(userRow?.overridden, false);
+  // 上書きは組み込み側に立てる (ファイル同士の重複警告と二重に出さない)
+  assert.deepEqual(userRow?.shadowed, []);
+  assert.equal(builtinRow?.overridden, true);
+  assert.equal(builtinRow?.path, builtinSkillPath(root, "skill-creator"));
+  assert.equal(builtinRow?.relativePath, ".u7agent/builtin-skills/skill-creator/SKILL.md");
+  assert.equal(builtinRow?.version, builtinSkillByName("skill-creator")?.version);
+  assert.match(builtinRow?.body ?? "", /^---\nname: skill-creator\n/);
+  // ログ用には影の組み合わせを残す
+  assert.deepEqual(
+    composed.shadowed.map((item) => item.name),
+    ["skill-creator"],
+  );
+});
+
+test("composeFileSkills は上書きが無ければ組み込みを SDK の Skill として渡す", () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-builtin-only-"));
+  const composed = composeFileSkills([{ scope: "builtin", entries: builtinSkillEntries(root) }], root);
+  assert.deepEqual(
+    composed.skills.map((skill) => [skill.name, skill.filePath, skill.sourceInfo.scope, skill.sourceInfo.source]),
+    BUILTIN_SKILLS.map((skill) => [skill.name, builtinSkillPath(root, skill.name), "temporary", "u7agent"]),
+  );
+  assert.deepEqual(
+    fileSkillNamesForPrompt(composed),
+    BUILTIN_SKILLS.map((skill) => skill.name),
+  );
+});
+
+/** SDK の system prompt 一覧に入る名前 (disable-model-invocation は入らない) */
+function fileSkillNamesForPrompt(composed: ReturnType<typeof composeFileSkills>): string[] {
+  const skills = composed.skills.filter((skill) => !skill.disableModelInvocation);
+  return formatSkillsForPrompt(skills)
+    .split("\n")
+    .flatMap((line) => {
+      const match = line.match(/^ {4}<name>(.+)<\/name>$/);
+      return match?.[1] ? [match[1]] : [];
+    });
+}
+
+test("GET /api/skills/files は組み込みスキルを本文つきで返す", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-builtin-api-"));
+  const workspace = {
+    listSkills: async () => ({ skills: [] }),
+  } as unknown as SandboxWorkspaceClient;
+  const bff = await createBffApp({ cwd: root, sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/skills/files");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { skills: Array<Record<string, unknown>> };
+    assert.deepEqual(
+      body.skills.map((skill) => skill.scope),
+      BUILTIN_SKILLS.map(() => "builtin"),
+    );
+    const builtin = body.skills.find((skill) => skill.name === "skill-creator");
+    assert.equal(builtin?.overridden, false);
+    assert.equal(builtin?.relativePath, ".u7agent/builtin-skills/skill-creator/SKILL.md");
+    assert.equal(builtin?.version, builtinSkillByName("skill-creator")?.version);
+    assert.match(String(builtin?.body), /\.agents\/skills/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/skills/files は同名の共通スキルがあると組み込みを上書き表示にする", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-builtin-override-api-"));
+  const userSkill = join(root, ".agents/skills/skill-creator/SKILL.md");
+  const workspace = {
+    listSkills: async () => ({ skills: [skillEntry(userSkill, { name: "skill-creator", description: "ユーザー側" })] }),
+  } as unknown as SandboxWorkspaceClient;
+  const bff = await createBffApp({ cwd: root, sessionStoreDir: null, pi: null, workspace });
+  try {
+    const body = (await (await bff.app.request("/api/skills/files")).json()) as {
+      skills: Array<{ name: string; scope: string; overridden: boolean; relativePath: string }>;
+    };
+    const rows = body.skills.filter((skill) => skill.name === "skill-creator");
+    assert.deepEqual(
+      rows.map((row) => [row.scope, row.overridden]),
+      [
+        ["user", false],
+        ["builtin", true],
+      ],
+    );
+    // ユーザー側は "上書き" ではなく通常の行のままで、パスも実ファイルを指す
+    assert.equal(rows.find((row) => row.scope === "user")?.relativePath, ".agents/skills/skill-creator/SKILL.md");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("discoverSessionFileSkills は組み込みを読み取り専用で SDK の一覧に載せる", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-builtin-loader-"));
+  const client = skillsClient(async () => ({ skills: [] }));
+  const composed = await discoverSessionFileSkills(client, { rootCwd: root, relativeCwd: "" });
+  const loader = createSessionResourceLoader({
+    cwd: root,
+    agentDir: join(root, "agent-dir"),
+    settingsManager: SettingsManager.inMemory({}),
+    secretMasker: createSecretMasker([]),
+    appendSystemPrompt: [],
+    fileSkills: composed.skills,
+  });
+  await loader.reload();
+
+  const prompt = formatSkillsForPrompt(loader.getSkills().skills);
+  assert.match(prompt, /<name>skill-creator<\/name>/);
+  assert.match(prompt, /\.u7agent\/builtin-skills\/skill-creator\/SKILL\.md/);
 });
 
 test("createSessionResourceLoader は skillsOverride 経由でファイルスキルを system prompt へ載せる", async () => {
@@ -210,11 +354,12 @@ test("GET /api/skills/files は共通スキルを読み取り専用の一覧と�
     const response = await bff.app.request("/api/skills/files");
     assert.equal(response.status, 200);
     const body = (await response.json()) as { skills: Array<Record<string, unknown>> };
-    assert.equal(body.skills.length, 1);
+    assert.equal(body.skills.length, 1 + BUILTIN_SKILLS.length);
     assert.equal(body.skills[0].name, "dup");
     assert.equal(body.skills[0].scope, "user");
     assert.equal(body.skills[0].relativePath, ".agents/skills/a/SKILL.md");
     assert.deepEqual(body.skills[0].shadowed, [{ path: second, relativePath: ".agents/skills/shared/SKILL.md" }]);
+    assert.ok(body.skills.some((skill) => skill.scope === "builtin" && skill.name === "skill-creator"));
   } finally {
     await bff.close();
   }
@@ -265,7 +410,12 @@ test("GET /api/skills/files は未設定・サンドボックス障害・不正�
   try {
     const response = await fresh.app.request("/api/skills/files");
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { skills: [] });
+    const body = (await response.json()) as { skills: Array<{ scope: string }> };
+    // 置き場が無くても組み込みは返す (設定画面は空表示 + 組み込みグループになる)
+    assert.deepEqual(
+      body.skills.map((skill) => skill.scope),
+      BUILTIN_SKILLS.map(() => "builtin"),
+    );
   } finally {
     await fresh.close();
   }

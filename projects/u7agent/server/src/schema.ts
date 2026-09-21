@@ -351,14 +351,20 @@ export type FileSkillShadowed = z.infer<typeof FileSkillShadowedSchema>;
 export const FileSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),
-  /** サンドボックス絶対パス (realpath)。モデルはこのパスを read で読む */
+  /** ファイルスキルはサンドボックス絶対パス (realpath)、組み込みは仮想パス。モデルはこのパスを read で読む */
   path: z.string(),
   /** root 相対 (表示用)。root の外へ解決する場合は絶対パスのまま */
   relativePath: z.string(),
-  /** 発見元。優先順位は project > user */
-  scope: z.enum(["user", "project"]),
+  /** 発見元。優先順位は project > user > builtin */
+  scope: z.enum(["user", "project", "builtin"]),
   disableModelInvocation: z.boolean(),
   shadowed: z.array(FileSkillShadowedSchema),
+  /** 同名の上位スコープがあり読み込まれない (組み込みだけが true になり得る) */
+  overridden: z.boolean(),
+  /** 組み込みのみ: ワークスペースに実体が無いため一覧へ載せる SKILL.md の全文 */
+  body: z.string().optional(),
+  /** 組み込みのみ: 同梱物の版 */
+  version: z.string().optional(),
 });
 export type FileSkillInfo = z.infer<typeof FileSkillInfoSchema>;
 

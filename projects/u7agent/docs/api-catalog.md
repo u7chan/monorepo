@@ -42,11 +42,11 @@
 
 ## ファイルスキル（`.agents/skills`）
 
-共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキルは、エージェントに紐づかない **ambient** なスキルとしてセッションへ注入される。エージェント定義の `skillIds` とは別で、設定画面に出るのは共通分の読み取り専用一覧だけ（編集・削除・割り当ての操作は持たない）。優先順位は `プロジェクト > 共通` で、同名は注入時に一意化する（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts` が持つ。
+共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**は、エージェントに紐づかない **ambient** なスキルとしてセッションへ注入される。エージェント定義の `skillIds` とは別で、設定画面に出るのは共通分と組み込み分の読み取り専用一覧だけ（編集・削除・割り当ての操作は持たない）。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は注入時に一意化する（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/skills/files` | 共通スキルの一覧（読み取り専用）。サンドボックス未設定は 503、サンドボックス側の失敗は 502 |
+| GET | `/api/skills/files` | 共通スキルと組み込みスキルの一覧（読み取り専用）。サンドボックス未設定は 503、サンドボックス側の失敗は 502 |
 
 ```json
 {
@@ -63,18 +63,41 @@
           "path": "/workspace/.agents/skills/example-2/SKILL.md",
           "relativePath": ".agents/skills/example-2/SKILL.md"
         }
-      ]
+      ],
+      "overridden": false
+    },
+    {
+      "name": "skill-creator",
+      "description": "スキルの作成を依頼されたときに使う",
+      "path": "/workspace/.u7agent/builtin-skills/skill-creator/SKILL.md",
+      "relativePath": ".u7agent/builtin-skills/skill-creator/SKILL.md",
+      "scope": "builtin",
+      "disableModelInvocation": false,
+      "shadowed": [],
+      "overridden": false,
+      "version": "1",
+      "body": "---\nname: skill-creator\n---\n..."
     }
   ]
 }
 ```
 
-- 同名のスキルは優先順位（プロジェクト > 共通、同じスコープ内は発見順）で一意化し、影になった側を `shadowed` に入れる。一覧では影になった分を警告として表示する
-- `.agents/skills` がまだ無い workspace ではエラーにせず `{ "skills": [] }` を返す（サンドボックスの 404 を空の一覧として扱う）。サンドボックス未設定は 503、接続失敗・走査の期限切れ（[sandbox-api.md](sandbox-api.md#get-v1skills)）は 502
-- 本文は応答に含めない。モデルは `path` を `read` で読み、本文は `read` 時点のファイル内容になる（作成後に編集すればその内容、削除すれば読取り失敗）
+- 同名のスキルは優先順位（プロジェクト > 共通 > 組み込み、同じスコープ内は発見順）で一意化し、影になったファイルを `shadowed` に入れる。一覧では影になった分を警告として表示する
+- 組み込みが同名のユーザースキルに負けた場合は、組み込み側の行を残して `overridden: true` を立てる（一覧では「上書きされています」）。`shadowed` はファイル同士の重複だけに使い、同じ関係を二重に出さない
+- ファイルスキルの本文は応答に含めない。モデルは `path` を `read` で読み、本文は `read` 時点のファイル内容になる（作成後に編集すればその内容、削除すれば読取り失敗）。組み込みはワークスペースに実体が無いため、`body` / `version` を一覧へ載せる（`body` は SKILL.md の frontmatter 込みの全文）
+- `.agents/skills` がまだ無い workspace ではエラーにせず、組み込みだけを返す（サンドボックスの 404 を空の一覧として扱う）。サンドボックス未設定は 503、接続失敗・走査の期限切れ（[sandbox-api.md](sandbox-api.md#get-v1skills)）は 502
 - 発見一覧はセッション作成・復元のたびに取り直す。復元は `meta.projectCwd` を起点にするため、プロジェクト登録が外れていても同じスキルが見える
 - `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす
 - エージェント定義のスキルはファイルスキルと混同させないため、`promptSnapshot` へ `<agent_skill>` タグで全文固定する（[session-files.md](session-files.md)）
+
+### 組み込みスキル
+
+- `server/src/builtin-skills/<name>/SKILL.md` をアプリに同梱し、起動時に SDK の `loadSkillsFromDir` で読み込む（frontmatter の検証も SDK に委譲し、同梱物が壊れていれば起動しない）。版は `server/src/builtin-skills.ts` の `VERSIONS` で宣言し、一覧に表示する。SKILL.md を読まなくても置き場所を外さないよう、system prompt にも `.agents/skills` に置く 1 行を入れてある（`APPEND_SYSTEM_PROMPT`）
+- ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
+- モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる
+- 仮想パスへ `write` / `edit` するとサンドボックス側に実ファイルができるが、`read` は常に同梱の本文を返すため反映されない（`.u7agent` はアプリ用で git 管理外）。同梱物を変えるにはイメージを更新する
+- カタログ（`GET /api/agents` / `PUT /api/agents`）と `skillIds` の対象外。バックアップの `definitions` にも含まれない（[persistence.md](persistence.md#スキルの扱い)）
+- 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 
 ## エージェント定義の Model / Effort
 
