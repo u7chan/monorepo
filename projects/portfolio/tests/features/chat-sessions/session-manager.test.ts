@@ -1,9 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { InMemoryChatSessionStore } from '#/server/features/chat-sessions/cache-store'
+import {
+  ChatSessionManager,
+  foldSessionEvents,
+  isTerminalSessionEvent,
+} from '#/server/features/chat-sessions/session-manager'
 import type { ChatSessionStartRequest } from '#/types/chat-api'
+
+const mocks = vi.hoisted(() => ({
+  completions: vi.fn(),
+  upsert: vi.fn(),
+}))
+
+vi.mock('#/server/features/chat/chat', () => ({
+  chat: {
+    completions: mocks.completions,
+  },
+}))
+
+vi.mock('#/server/features/chat-conversations/repository', () => ({
+  chatConversationRepository: {
+    upsert: mocks.upsert,
+  },
+}))
 
 describe('ChatSessionManager', () => {
   beforeEach(() => {
-    vi.resetModules()
+    mocks.completions.mockReset()
+    mocks.upsert.mockReset()
   })
 
   const request: ChatSessionStartRequest = {
@@ -27,35 +51,15 @@ describe('ChatSessionManager', () => {
     apiMode: 'chat_completions',
   }
 
-  const importSubject = async () => {
-    const completionsMock = vi.fn()
-    const upsertMock = vi.fn()
-
-    vi.doMock('#/server/features/chat/chat', () => ({
-      chat: {
-        completions: completionsMock,
-      },
-    }))
-    vi.doMock('#/server/features/chat-conversations/repository', () => ({
-      chatConversationRepository: {
-        upsert: upsertMock,
-      },
-    }))
-
-    const [{ InMemoryChatSessionStore }, { ChatSessionManager, foldSessionEvents, isTerminalSessionEvent }] =
-      await Promise.all([
-        import('#/server/features/chat-sessions/cache-store'),
-        import('#/server/features/chat-sessions/session-manager'),
-      ])
-
+  const importSubject = () => {
     const store = new InMemoryChatSessionStore()
     const manager = new ChatSessionManager(store)
 
     return {
       store,
       manager,
-      completionsMock,
-      upsertMock,
+      completionsMock: mocks.completions,
+      upsertMock: mocks.upsert,
       foldSessionEvents,
       isTerminalSessionEvent,
     }
@@ -99,7 +103,7 @@ describe('ChatSessionManager', () => {
   }
 
   it('stream 完了時に event log を作り、ログイン済みなら保存する', async () => {
-    const { manager, completionsMock, upsertMock } = await importSubject()
+    const { manager, completionsMock, upsertMock } = importSubject()
     completionsMock.mockResolvedValue({
       controller: { abort: vi.fn() },
       [Symbol.asyncIterator]: createStreamChunk,
@@ -147,7 +151,7 @@ describe('ChatSessionManager', () => {
   })
 
   it('会話保存の完了後に done と completed を公開する', async () => {
-    const { manager, completionsMock, upsertMock } = await importSubject()
+    const { manager, completionsMock, upsertMock } = importSubject()
     let resolveUpsert: (() => void) | undefined
     upsertMock.mockImplementation(
       () =>
@@ -186,7 +190,7 @@ describe('ChatSessionManager', () => {
   })
 
   it('会話保存に失敗した場合は done を配信せず retryable な error session を残す', async () => {
-    const { manager, completionsMock, upsertMock } = await importSubject()
+    const { manager, completionsMock, upsertMock } = importSubject()
     upsertMock.mockRejectedValue(new Error('database unavailable'))
     completionsMock.mockResolvedValue({
       controller: { abort: vi.fn() },
@@ -229,7 +233,7 @@ describe('ChatSessionManager', () => {
   })
 
   it('cancel で cancelled event を追加し、terminal event を判定できる', async () => {
-    const { store, manager, isTerminalSessionEvent } = await importSubject()
+    const { store, manager, isTerminalSessionEvent } = importSubject()
     await store.createSession({
       id: 'session-1',
       status: 'running',
@@ -258,7 +262,7 @@ describe('ChatSessionManager', () => {
 
   it('production では upstream エラーを generation_error として安全に正規化する', async () => {
     vi.stubEnv('NODE_ENV', 'production')
-    const { manager, completionsMock } = await importSubject()
+    const { manager, completionsMock } = importSubject()
     completionsMock.mockRejectedValue(new Error('Connection refused'))
 
     const session = await manager.startSession({
@@ -297,7 +301,7 @@ describe('ChatSessionManager', () => {
   })
 
   it('development でも upstream エラーの詳細を event に残さない', async () => {
-    const { manager, completionsMock } = await importSubject()
+    const { manager, completionsMock } = importSubject()
     completionsMock.mockRejectedValue(new Error('Connection refused'))
 
     const session = await manager.startSession({
@@ -326,7 +330,7 @@ describe('ChatSessionManager', () => {
   })
 
   it('error session を fold しても空の assistant message を追加しない', async () => {
-    const { foldSessionEvents } = await importSubject()
+    const { foldSessionEvents } = importSubject()
     const conversation = foldSessionEvents(
       {
         id: 'session-1',
@@ -352,7 +356,7 @@ describe('ChatSessionManager', () => {
   })
 
   it('event log を assistant message へ fold する', async () => {
-    const { foldSessionEvents } = await importSubject()
+    const { foldSessionEvents } = importSubject()
 
     const conversation = foldSessionEvents(
       {
