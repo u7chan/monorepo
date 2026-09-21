@@ -1,12 +1,16 @@
 // 同梱スキル (server/src/builtin-skills/<name>/SKILL.md) の規約と、仮想パスの解決・read 用の整形を固定する。
 // バンドル本体は SDK の loadSkillsFromDir で読み込むため、ここでも同じ入口で検証する。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import {
+  assertBuiltinSkillBodyFits,
+  BUILTIN_SKILL_MAX_BYTES,
+  BUILTIN_SKILL_MAX_LINES,
   BUILTIN_SKILLS,
   BUILTIN_SKILLS_DIR_REL,
   builtinSkillByName,
@@ -14,6 +18,7 @@ import {
   builtinSkillForRequestedPath,
   builtinSkillPath,
   formatBuiltinSkillBody,
+  loadBuiltinSkills,
 } from "../src/builtin-skills";
 
 const ROOT = "/workspace";
@@ -46,6 +51,46 @@ test("同梱スキルは name / description / version の規約を満たす", ()
     assert.match(skill.body, /^---\n/, `${skill.name}: frontmatter から始まる`);
     assert.match(skill.body, new RegExp(`\\nname: ${skill.name}\\n`), `${skill.name}: name が一致する`);
   }
+});
+
+test("同梱物の読み込みは空 dir・壊れた frontmatter・版の不足で落ちる", () => {
+  const dir = mkdtempSync(join(tmpdir(), "u7agent-builtin-load-"));
+  const write = (content: string) => {
+    mkdirSync(join(dir, "sample"), { recursive: true });
+    writeFileSync(join(dir, "sample", "SKILL.md"), content);
+  };
+
+  // dir ごと欠けたイメージ (SKILL.md が 1 つも無い)
+  assert.throws(() => loadBuiltinSkills({ dir, versions: { sample: "1" } }), /同梱スキルがありません/);
+
+  write("---\nname: sample\ndescription: サンプル\n---\n本文\n");
+  assert.deepEqual(
+    loadBuiltinSkills({ dir, versions: { sample: "2" } }).map((skill) => [skill.name, skill.version]),
+    [["sample", "2"]],
+  );
+
+  // description が無い frontmatter は SDK の diagnostics で落とす
+  write("---\nname: sample\n---\n本文\n");
+  assert.throws(() => loadBuiltinSkills({ dir, versions: { sample: "2" } }), /SKILL\.md が不正です/);
+
+  // version の宣言が無い / VERSIONS に取り残しがある
+  write("---\nname: sample\ndescription: サンプル\n---\n本文\n");
+  assert.throws(() => loadBuiltinSkills({ dir, versions: {} }), /version が未定義です/);
+  assert.throws(() => loadBuiltinSkills({ dir, versions: { sample: "2", ghost: "1" } }), /ghost が見つかりません/);
+});
+
+test("同梱 SKILL.md は read の切り詰め上限に収まっている", () => {
+  for (const skill of BUILTIN_SKILLS) {
+    const lines = skill.body.split("\n").length;
+    assert.ok(lines <= BUILTIN_SKILL_MAX_LINES, `${skill.name}: ${lines} 行`);
+    assert.ok(Buffer.byteLength(skill.body, "utf8") <= BUILTIN_SKILL_MAX_BYTES, `${skill.name}: バイト数`);
+  }
+});
+
+test("assertBuiltinSkillBodyFits は上限を超える本文を弾く", () => {
+  assertBuiltinSkillBodyFits("line\n".repeat(500), "small");
+  assert.throws(() => assertBuiltinSkillBodyFits("x\n".repeat(BUILTIN_SKILL_MAX_LINES + 1), "big"), /大きすぎます/);
+  assert.throws(() => assertBuiltinSkillBodyFits("x".repeat(BUILTIN_SKILL_MAX_BYTES + 1), "big"), /大きすぎます/);
 });
 
 test("skill-creator は置き場所・frontmatter・検証・反映タイミングを書いている", () => {

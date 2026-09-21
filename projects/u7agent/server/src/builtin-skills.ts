@@ -17,6 +17,10 @@ export const SKILL_FILE_NAME = "SKILL.md";
 export const BUILTIN_SKILLS_DIR_REL = `${APP_DIR_REL}/builtin-skills`;
 /** SDK の sourceInfo.source。ファイルスキルと同じくアプリ由来であることを示す */
 export const BUILTIN_SKILLS_SOURCE = "u7agent";
+/** read ツールが追加の指示なしに返す本文の上限 (SDK の truncateHead の既定と同じ値) */
+export const BUILTIN_SKILL_MAX_LINES = 2000;
+/** read ツールが追加の指示なしに返す本文の上限 (SDK の truncateHead の既定と同じ値) */
+export const BUILTIN_SKILL_MAX_BYTES = 51200;
 
 /**
  * 同梱物の版。SKILL.md の本文や frontmatter を変えたら上げる。
@@ -38,31 +42,61 @@ export interface BuiltinSkillDef {
 }
 
 /**
- * 起動時に 1 回だけ読む。壊れた SKILL.md を同梱したまま起動しない (fail fast)。
- * frontmatter の name / description は SKILL.md を正本にし、version だけ VERSIONS で宣言する。
+ * 同梱 SKILL.md を読む。既定は起動時に 1 回だけで、壊れた同梱物や取り残した VERSIONS を抱えたまま
+ * 起動しない (fail fast)。dir / versions はテストから差し替える (実物は Docker イメージに同梱される)。
  */
-function loadBuiltinSkills(): readonly BuiltinSkillDef[] {
-  const loaded = loadSkillsFromDir({ dir: BUNDLED_DIR, source: BUILTIN_SKILLS_SOURCE });
+export function loadBuiltinSkills(
+  options: { dir?: string; versions?: Record<string, string> } = {},
+): readonly BuiltinSkillDef[] {
+  const dir = options.dir ?? BUNDLED_DIR;
+  const versions = options.versions ?? VERSIONS;
+  const loaded = loadSkillsFromDir({ dir, source: BUILTIN_SKILLS_SOURCE });
   const problems = loaded.diagnostics.filter((diagnostic) => diagnostic.type !== "collision");
   if (problems.length > 0) {
     const detail = problems.map((problem) => `${problem.path ?? "(不明)"}: ${problem.message}`).join(" / ");
     throw new Error(`同梱スキルの SKILL.md が不正です: ${detail}`);
   }
+  // dir ごと欠けたイメージでも「組み込み 0 件」で起動しない (VERSIONS の取り残しもここで検知する)
+  if (loaded.skills.length === 0) {
+    throw new Error(`同梱スキルがありません (${dir} に <name>/SKILL.md を置いてください)`);
+  }
+  const missing = Object.keys(versions).filter((name) => !loaded.skills.some((skill) => skill.name === name));
+  if (missing.length > 0) {
+    throw new Error(
+      `同梱スキル ${missing.join(", ")} が見つかりません (VERSIONS の名前とディレクトリを合わせてください)`,
+    );
+  }
   return loaded.skills.map((skill) => {
-    const version = VERSIONS[skill.name];
+    const version = versions[skill.name];
     if (!version) {
       throw new Error(
         `同梱スキル ${skill.name} の version が未定義です (builtin-skills.ts の VERSIONS に追加してください)`,
       );
     }
+    const body = readFileSync(skill.filePath, "utf8");
+    assertBuiltinSkillBodyFits(body, skill.name);
     return {
       name: skill.name,
       description: skill.description,
       version,
-      body: readFileSync(skill.filePath, "utf8"),
+      body,
       disableModelInvocation: skill.disableModelInvocation,
     };
   });
+}
+
+/**
+ * read ツールは 2000 行 / 51200 bytes で切り詰めるが、仮想パスの本文は formatBuiltinSkillBody が整形するため
+ * 同じ切り詰めを実装していない。上限を超える本文を同梱すると切り詰めずに全文が context へ入るので、
+ * 同梱時に弾いて分割を促す (skill-creator 自身も SKILL.md は 500 行以内を目安にしている)。
+ */
+export function assertBuiltinSkillBodyFits(body: string, name = "builtin"): void {
+  const lines = body.split("\n").length;
+  const bytes = Buffer.byteLength(body, "utf8");
+  if (lines <= BUILTIN_SKILL_MAX_LINES && bytes <= BUILTIN_SKILL_MAX_BYTES) return;
+  throw new Error(
+    `同梱スキル ${name} の SKILL.md が大きすぎます (${lines} 行 / ${bytes} bytes。上限は ${BUILTIN_SKILL_MAX_LINES} 行 / ${BUILTIN_SKILL_MAX_BYTES} bytes)。references/ へ分割してください`,
+  );
 }
 
 /** 同梱 SKILL.md の一覧 (ディレクトリ名の昇順)。全セッション・全エージェントで使う */

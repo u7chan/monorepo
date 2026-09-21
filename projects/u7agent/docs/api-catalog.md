@@ -95,6 +95,7 @@
 - `server/src/builtin-skills/<name>/SKILL.md` をアプリに同梱し、起動時に SDK の `loadSkillsFromDir` で読み込む（frontmatter の検証も SDK に委譲し、同梱物が壊れていれば起動しない）。版は `server/src/builtin-skills.ts` の `VERSIONS` で宣言し、一覧に表示する。SKILL.md を読まなくても置き場所を外さないよう、system prompt にも `.agents/skills` に置く 1 行を入れてある（`APPEND_SYSTEM_PROMPT`）
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
 - モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる
+- 仮想パスへ `write` / `edit` するとサンドボックス側に実ファイルができるが、`read` は常に同梱の本文を返すため反映されない（`.u7agent` はアプリ用で git 管理外）。同梱物を変えるにはイメージを更新する
 - カタログ（`GET /api/agents` / `PUT /api/agents`）と `skillIds` の対象外。バックアップの `definitions` にも含まれない（[persistence.md](persistence.md#スキルの扱い)）
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 
