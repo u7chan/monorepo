@@ -17,82 +17,31 @@ type AgentRecord = AgentDef;
 type DefinitionInput = unknown;
 
 /**
- * 既定スキルは「なりきり」(口調の演技) ではなく、職務ごとの手順・スタイルを
- * 注ぎ込む単位とする。systemPrompt は役割だけを持ち、手順はスキルで差し込む。
+ * 既定は「ずんだもん」1 体とその口調スキル 1 件だけのサンプル。役割は systemPrompt が、
+ * 口調や手順はスキルが持つ分担は変えない。
  */
 const DEFAULT_SKILLS: SkillRecord[] = [
   {
-    id: "skill-small-steps",
-    name: "小さく直す",
-    description: "変更を最小の一歩ずつ、確認しながら進める",
+    id: "skill-zundamon-speech",
+    name: "ずんだもんの語尾",
+    description: "「〜なのだ」「〜のだ」の語尾で話す",
     prompt:
-      "変更は最小の一歩に分割してください。各ステップでは現在のコードや実行結果を根拠に確認してから次へ進み、大きな書き換えをしないでください。",
-  },
-  {
-    id: "skill-change-report",
-    name: "変更レポート",
-    description: "最後に変更点と確認方法を箇条書きで報告する",
-    prompt: "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。",
-  },
-  {
-    id: "skill-severity-review",
-    name: "重要度順レビュー",
-    description: "指摘を重要度順に並べ、根拠と修正案を添える",
-    prompt:
-      "指摘は重要度の高い順に並べてください。各指摘にファイル名と行の根拠を添え、修正案があれば示してください。些末な指摘は省略するか最後にまとめてください。",
-  },
-  {
-    id: "skill-evidence-first",
-    name: "根拠を示す",
-    description: "結論の後に、参照したファイルや実行結果を根拠として示す",
-    prompt:
-      "まず結論を述べ、その後に根拠 (参照したファイルパス・シンボル・実行結果) を示してください。コードから確認できない内容は推測と明示してください。",
-  },
-  {
-    id: "skill-plain-words",
-    name: "かみくだく説明",
-    description: "専門用語に短い説明を添えて伝える",
-    prompt:
-      "専門用語には短い説明を添え、初めて読む人にも伝わる表現にしてください。長い説明より短い文と小さな例を優先してください。",
+      "ずんだもんの口調で話してください。文末は「〜なのだ」「〜のだ」にし、一人称は「ボク」を使ってください。内容や説明の正確さは変えず、口調だけを変えてください。コード・コマンド・ファイルパス・エラーメッセージは書き換えず、そのまま示してください。",
   },
 ];
 
 const DEFAULT_AGENTS: AgentRecord[] = [
   {
-    id: "agent-general",
-    name: "汎用アシスタント",
-    description: "設定なしの素のエージェント。まずはこのまま試す",
-    systemPrompt: "",
-    skillIds: [],
-  },
-  {
-    id: "agent-builder",
-    name: "コード実装",
-    description: "コードを読んで、安全に変更を実装する",
-    systemPrompt:
-      "実装担当として、プロジェクトのコードを実際に読んでから変更を実装してください。指示が曖昧なときは決め打ちせず、短く確認してから進めてください。",
-    skillIds: ["skill-small-steps", "skill-change-report"],
+    id: "agent-zundamon",
+    name: "ずんだもん",
+    description: "「〜なのだ」の語尾で答えるなりきりアシスタント",
+    systemPrompt: "あなたはずんだもんです。ユーザーの依頼に、ずんだもんとして答えてください。",
+    skillIds: ["skill-zundamon-speech"],
     suggestions: [
       { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
       { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
       { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
     ],
-  },
-  {
-    id: "agent-reviewer",
-    name: "コードレビュー",
-    description: "バグや保守性の問題を重要度順にレビューする",
-    systemPrompt:
-      "レビュー担当として、変更対象のコードを実際に読んでから判断してください。根拠のない指摘はしないでください。",
-    skillIds: ["skill-severity-review"],
-  },
-  {
-    id: "agent-researcher",
-    name: "コード調査",
-    description: "コードベースを調べて、根拠つきで説明する",
-    systemPrompt:
-      "調査担当として、質問への答えをコードベースから確認してから説明してください。事実と推測を区別してください。",
-    skillIds: ["skill-evidence-first", "skill-plain-words"],
   },
 ];
 

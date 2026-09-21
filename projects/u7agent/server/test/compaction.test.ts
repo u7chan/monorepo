@@ -30,7 +30,7 @@ async function createFixture(options: { masker?: ReturnType<typeof createSecretM
   const catalog = createAgentCatalog();
   const pi = createStubPi({ chunkDelayMs: CHUNK_DELAY_MS });
   const store = new SessionStore({ pi, catalog, ...options });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   return { store, record, session: pi.sessions[0] as StubSession };
 }
 
@@ -134,7 +134,7 @@ test("送信メッセージを積む前の compaction でも resync はそのメ
     ],
   });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   await runTurn(store, record, "1つ目");
 
@@ -174,7 +174,7 @@ test("overflow 回復で agent state から外れたメッセージがあって�
   // 失敗した assistant に本文が入ってから圧縮するため、chunk 間隔を広げる
   const pi = createStubPi({ chunkDelayMs: 200 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   const session = pi.sessions[0] as StubSession;
 
   await runTurn(store, record, "1つ目");

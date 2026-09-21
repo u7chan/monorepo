@@ -10,7 +10,7 @@ import { createStubPi, STUB_CONTEXT_USAGE, STUB_USAGE, type StubSession, waitFor
 test("runs a message in the background and records the conversation history", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 5 }), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   const result = store.postMessage(record, "こんにちは");
   assert.equal(result.queued, false);
@@ -50,7 +50,7 @@ test("runs a message in the background and records the conversation history", as
 test("messages posted during a run are queued and executed sequentially", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 20 }), catalog });
-  const record = await store.create({ agentId: "agent-builder" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   const first = store.postMessage(record, "1つ目");
   assert.equal(first.queued, false);
@@ -82,7 +82,7 @@ test("messages posted during a run are queued and executed sequentially", async 
 test("stop aborts the active run and clears the queue", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 50 }), catalog });
-  const record = await store.create({ agentId: "agent-builder" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   store.postMessage(record, "止まるメッセージ");
   store.postMessage(record, "キャンセルされるメッセージ");
@@ -110,7 +110,7 @@ test("stop aborts the active run and clears the queue", async () => {
 test("destroy aborts, disposes and notifies subscribers", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 30 }), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   store.postMessage(record, "削除される会話");
 
   const seen: EventEntry[] = [];
@@ -141,13 +141,13 @@ test("projects resolve the session cwd and are reported as a root-relative path"
   const project = projects.create({ cwd: "nested/proj" });
   const store = new SessionStore({ pi, catalog, projects });
 
-  const unaffiliated = await store.create({ agentId: "agent-general" });
+  const unaffiliated = await store.create({ agentId: "agent-zundamon" });
   assert.equal(pi.createInputs.at(-1)?.cwd, "", "未所属は root を渡す");
   assert.equal(store.payload(unaffiliated).cwd, "");
   assert.equal("projectId" in store.payload(unaffiliated), false);
   assert.equal("projectId" in store.summary(unaffiliated), false);
 
-  const record = await store.create({ agentId: "agent-general", projectId: project.id });
+  const record = await store.create({ agentId: "agent-zundamon", projectId: project.id });
   assert.equal(pi.createInputs.at(-1)?.cwd, "nested/proj");
   assert.equal(record.projectId, project.id);
   assert.equal(store.payload(record).cwd, "nested/proj");
@@ -156,7 +156,7 @@ test("projects resolve the session cwd and are reported as a root-relative path"
 
   // 未知の projectId は未所属へ落とさず 400
   await assert.rejects(
-    () => store.create({ agentId: "agent-general", projectId: "ghost" }),
+    () => store.create({ agentId: "agent-zundamon", projectId: "ghost" }),
     (error: Error & { statusCode?: number }) => {
       assert.equal(error.statusCode, 400);
       assert.match(error.message, /Project not found/);
@@ -191,7 +191,7 @@ test("create rejects a project that disappears while the runtime is creating the
   };
   const store = new SessionStore({ pi, catalog, projects });
 
-  const pending = store.create({ agentId: "agent-general", projectId: project.id });
+  const pending = store.create({ agentId: "agent-zundamon", projectId: project.id });
   await waitFor(() => started, 3000, "runtime session creation started");
 
   // セッション作成中にプロジェクトを解除する (解除対象の捕捉にはこのセッションが見えていない)
@@ -221,9 +221,9 @@ test("releaseProject aborts running sessions and keeps them as unaffiliated", as
   const project = projects.create({ cwd: "proj-a" });
   const other = projects.create({ cwd: "proj-b" });
 
-  const target = await store.create({ agentId: "agent-general", projectId: project.id });
-  const sibling = await store.create({ agentId: "agent-general", projectId: other.id });
-  const unaffiliated = await store.create({ agentId: "agent-general" });
+  const target = await store.create({ agentId: "agent-zundamon", projectId: project.id });
+  const sibling = await store.create({ agentId: "agent-zundamon", projectId: other.id });
+  const unaffiliated = await store.create({ agentId: "agent-zundamon" });
   store.postMessage(target, "停止される実行");
 
   const seen: EventEntry[] = [];
@@ -255,7 +255,8 @@ test("releaseProject aborts running sessions and keeps them as unaffiliated", as
 
 test("resolves model and thinking level per field: request → definition → app default", async () => {
   const catalog = createAgentCatalog();
-  catalog.updateAgent("agent-builder", {
+  const plainAgent = catalog.createAgent({ name: "定義なしエージェント" });
+  catalog.updateAgent("agent-zundamon", {
     model: { provider: "stub", id: "stub-plain" },
     thinkingLevel: "low",
   });
@@ -263,14 +264,14 @@ test("resolves model and thinking level per field: request → definition → ap
   const store = new SessionStore({ pi, catalog });
 
   // 定義のみ: 定義の model / thinkingLevel が SDK へ渡る
-  const fromDefinition = await store.create({ agentId: "agent-builder" });
+  const fromDefinition = await store.create({ agentId: "agent-zundamon" });
   assert.deepEqual(pi.createInputs.at(-1)?.model, { provider: "stub", id: "stub-plain" });
   assert.equal(pi.createInputs.at(-1)?.thinkingLevel, "low");
   assert.equal(store.payload(fromDefinition).model, "stub/stub-plain");
 
   // リクエストが定義より優先され、項目ごとに独立して解決される
   await store.create({
-    agentId: "agent-builder",
+    agentId: "agent-zundamon",
     model: { provider: "stub", id: "stub-model" },
     // thinkingLevel は指定しない → 定義の low を維持
   });
@@ -278,12 +279,12 @@ test("resolves model and thinking level per field: request → definition → ap
   assert.equal(pi.createInputs.at(-1)?.thinkingLevel, "low");
 
   // Model 未指定 + Effort だけ指定
-  await store.create({ agentId: "agent-builder", thinkingLevel: "high" });
+  await store.create({ agentId: "agent-zundamon", thinkingLevel: "high" });
   assert.deepEqual(pi.createInputs.at(-1)?.model, { provider: "stub", id: "stub-plain" });
   assert.equal(pi.createInputs.at(-1)?.thinkingLevel, "high");
 
   // 定義に model がある場合はアプリ既定へフォールバックしない
-  await store.create({ agentId: "agent-general" });
+  await store.create({ agentId: plainAgent.id });
   assert.equal(pi.createInputs.at(-1)?.model, undefined, "モデル未指定ならランタイムへ委ねる");
   assert.equal(pi.createInputs.at(-1)?.thinkingLevel, undefined);
 
@@ -294,20 +295,21 @@ test("keeps the agent snapshot of each chat after definition edits and deletes",
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const other = catalog.createAgent({ name: "別エージェント" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   const before = store.payload(record).agent;
   const summaryBefore = store.summary(record);
 
-  catalog.updateAgent("agent-general", { name: "別の名前", description: "別の説明" });
-  catalog.removeAgent("agent-general");
+  catalog.updateAgent("agent-zundamon", { name: "別の名前", description: "別の説明" });
+  catalog.removeAgent("agent-zundamon");
 
   assert.deepEqual(store.payload(record).agent, before);
   assert.equal(store.summary(record).agentName, summaryBefore.agentName);
-  assert.equal(store.summary(record).agentId, "agent-general");
+  assert.equal(store.summary(record).agentId, "agent-zundamon");
 
   // 新規チャットは新しい定義を使う
-  const next = await store.create({ agentId: "agent-builder" });
-  assert.equal(store.payload(next).agent?.name, "コード実装");
+  const next = await store.create({ agentId: other.id });
+  assert.equal(store.payload(next).agent?.name, "別エージェント");
 
   await store.close();
 });
@@ -316,7 +318,7 @@ test("model-only change keeps the effective effort, then SDK clamping wins", asy
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general", thinkingLevel: "low" });
+  const record = await store.create({ agentId: "agent-zundamon", thinkingLevel: "low" });
   assert.equal(record.session.thinkingLevel, "low");
 
   // 推論対応モデルへの変更: 変更前の low を再適用する (SDK の切替既定に任せない)
@@ -355,8 +357,8 @@ test("settings change keeps session identity, history and title, and leaves othe
   const catalog = createAgentCatalog();
   const pi = createStubPi({ chunkDelayMs: 0 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
-  const other = await store.create({ agentId: "agent-builder" });
+  const record = await store.create({ agentId: "agent-zundamon" });
+  const other = await store.create({ agentId: "agent-zundamon" });
 
   store.postMessage(record, "タイトルになるメッセージ");
   await waitFor(() => store.statusOf(record) === "completed");
@@ -379,7 +381,7 @@ test("rejects an unavailable model and keeps the effective values unchanged", as
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general", thinkingLevel: "low" });
+  const record = await store.create({ agentId: "agent-zundamon", thinkingLevel: "low" });
 
   await assert.rejects(
     () => store.updateSettings(record, { model: { provider: "stub", id: "ghost" } }),
@@ -400,7 +402,7 @@ test("rejects settings changes while running, queued or not idle", async () => {
   const catalog = createAgentCatalog();
   const pi = createStubPi({ chunkDelayMs: 40 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   store.postMessage(record, "実行中");
   await assert.rejects(
@@ -433,7 +435,7 @@ test("reserves the change synchronously and rejects concurrent sends and changes
   const catalog = createAgentCatalog();
   const pi = createStubPi({ setModelDelayMs: 60 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general", thinkingLevel: "low" });
+  const record = await store.create({ agentId: "agent-zundamon", thinkingLevel: "low" });
 
   const changing = store.updateSettings(record, { model: { provider: "stub", id: "stub-model" } });
   assert.equal(record.changingSettings, true, "the flag is reserved before the async setModel");
@@ -461,7 +463,7 @@ test("releases the guard when the SDK change fails", async () => {
   const catalog = createAgentCatalog();
   const pi = createStubPi({ setModelFailures: 1 });
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   await assert.rejects(
     () => store.updateSettings(record, { model: { provider: "stub", id: "stub-plain" } }),
@@ -480,7 +482,7 @@ test("emits a resync event with the effective values on settings change", async 
   const catalog = createAgentCatalog();
   const pi = createStubPi();
   const store = new SessionStore({ pi, catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   const seen: EventEntry[] = [];
   store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => seen.push(entry));
@@ -498,7 +500,7 @@ test("emits a resync event with the effective values on settings change", async 
 test("maps the SDK message timestamp to the payload at field", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi(), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   record.session.messages.push({ role: "user", content: "時刻のある履歴", timestamp: 1700000000000 });
   const payload = store.payload(record);
@@ -510,7 +512,7 @@ test("maps the SDK message timestamp to the payload at field", async () => {
 test("omits the at key for histories without a timestamp", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi(), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   record.session.messages.push({ role: "user", content: "時刻の無い履歴" });
 
@@ -568,7 +570,7 @@ test("derives the response metrics from the observed event times", () => {
 test("emits usage per assistant message and keeps it in the payload for resync", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 5 }), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   const events: EventEntry[] = [];
   store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
@@ -602,7 +604,7 @@ test("emits usage per assistant message and keeps it in the payload for resync",
 test("omits usage and context keys the SDK does not report, keeping the BFF metrics", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi({ usage: null, contextUsage: null }), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   const events: EventEntry[] = [];
   store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
@@ -636,7 +638,7 @@ test("delivers the context again after the SDK has added the message to its hist
     pi: createStubPi({ chunkDelayMs: 5, contextUsage: afterHistory, contextUsageBeforeHistory: beforeHistory }),
     catalog,
   });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
   const events: EventEntry[] = [];
   store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
@@ -669,7 +671,7 @@ test("keeps a reported zero usage as is and tolerates a post-compaction context"
     pi: createStubPi({ usage: zeroUsage, contextUsage: compacted }),
     catalog,
   });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   store.postMessage(record, "0 の usage");
   await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
@@ -684,7 +686,7 @@ test("keeps a reported zero usage as is and tolerates a post-compaction context"
 test("normalizes the run error at the settlement callers, including falsy thrown values", async () => {
   const catalog = createAgentCatalog();
   const store = new SessionStore({ pi: createStubPi(), catalog });
-  const record = await store.create({ agentId: "agent-general" });
+  const record = await store.create({ agentId: "agent-zundamon" });
 
   // 正規化は例外を受け取った境界で行い、status の判定も正規化後の文字列で決める。
   // 空メッセージの Error / throw "" はエラー無し、throw された falsy な値は文言化してエラーになる。

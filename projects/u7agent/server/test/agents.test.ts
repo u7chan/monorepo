@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
 
-const DEFAULT_BUILDER_SUGGESTIONS = [
+const DEFAULT_SUGGESTIONS = [
   { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
   { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
   { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
@@ -51,7 +51,7 @@ test("replaces the in-memory catalog from a JSON definition snapshot", () => {
       },
     ],
   });
-  assert.equal(catalog.getAgent("agent-builder"), undefined);
+  assert.equal(catalog.getAgent("agent-zundamon"), undefined);
 });
 
 test("built-in agents keep model and thinkingLevel unspecified", () => {
@@ -62,7 +62,7 @@ test("built-in agents keep model and thinkingLevel unspecified", () => {
   }
   assert.deepEqual(
     catalog.snapshot().agents.map((agent) => agent.id),
-    ["agent-general", "agent-builder", "agent-reviewer", "agent-researcher"],
+    ["agent-zundamon"],
   );
 });
 
@@ -115,12 +115,12 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
   assert.equal(Object.hasOwn(nullCreated, "thinkingLevel"), false);
 });
 
-test("only the code builder ships with default suggestions", () => {
+test("only the zundamon agent ships with default suggestions", () => {
   const catalog = createAgentCatalog();
   const agents = catalog.listAgents();
-  assert.deepEqual(agents.find((agent) => agent.id === "agent-builder")?.suggestions, DEFAULT_BUILDER_SUGGESTIONS);
+  assert.deepEqual(agents.find((agent) => agent.id === "agent-zundamon")?.suggestions, DEFAULT_SUGGESTIONS);
   for (const agent of agents) {
-    if (agent.id === "agent-builder") continue;
+    if (agent.id === "agent-zundamon") continue;
     assert.equal(Object.hasOwn(agent, "suggestions"), false, `${agent.id} must omit suggestions`);
   }
 });
@@ -214,25 +214,25 @@ test("updates and clears agent suggestions", () => {
   const catalog = createAgentCatalog();
 
   // キー省略の更新は保持する
-  const kept = catalog.updateAgent("agent-builder", { description: "説明だけ更新" });
-  assert.deepEqual(kept?.suggestions, DEFAULT_BUILDER_SUGGESTIONS);
+  const kept = catalog.updateAgent("agent-zundamon", { description: "説明だけ更新" });
+  assert.deepEqual(kept?.suggestions, DEFAULT_SUGGESTIONS);
 
-  const replaced = catalog.updateAgent("agent-builder", {
+  const replaced = catalog.updateAgent("agent-zundamon", {
     suggestions: [{ label: " 足す ", prompt: " 追加のプロンプト " }],
   });
   assert.deepEqual(replaced?.suggestions, [{ label: "足す", prompt: "追加のプロンプト" }]);
 
   // 空配列 / null は解除 (キー省略)
-  const cleared = catalog.updateAgent("agent-builder", { suggestions: [] });
+  const cleared = catalog.updateAgent("agent-zundamon", { suggestions: [] });
   assert.equal(Object.hasOwn(cleared ?? {}, "suggestions"), false);
-  const afterClear = catalog.updateAgent("agent-builder", { description: "解除後" });
+  const afterClear = catalog.updateAgent("agent-zundamon", { description: "解除後" });
   assert.equal(Object.hasOwn(afterClear ?? {}, "suggestions"), false);
 
-  const nullCleared = catalog.updateAgent("agent-general", {
+  const nullCleared = catalog.updateAgent("agent-zundamon", {
     suggestions: [{ label: "一時", prompt: "一時的なプロンプト" }],
   });
   assert.equal(nullCleared?.suggestions?.length, 1);
-  const nulled = catalog.updateAgent("agent-general", { suggestions: null });
+  const nulled = catalog.updateAgent("agent-zundamon", { suggestions: null });
   assert.equal(Object.hasOwn(nulled ?? {}, "suggestions"), false);
 });
 
@@ -241,14 +241,11 @@ test("round-trips suggestions through the definition snapshot", () => {
 
   // エクスポート → インポート
   const replaced = catalog.replace(catalog.snapshot());
-  assert.deepEqual(
-    replaced.agents.find((agent) => agent.id === "agent-builder")?.suggestions,
-    DEFAULT_BUILDER_SUGGESTIONS,
-  );
+  assert.deepEqual(replaced.agents.find((agent) => agent.id === "agent-zundamon")?.suggestions, DEFAULT_SUGGESTIONS);
   // snapshot に乗るので、別カタログの import も通る
   assert.deepEqual(
-    catalog.snapshot().agents.find((agent) => agent.id === "agent-builder")?.suggestions,
-    DEFAULT_BUILDER_SUGGESTIONS,
+    catalog.snapshot().agents.find((agent) => agent.id === "agent-zundamon")?.suggestions,
+    DEFAULT_SUGGESTIONS,
   );
 
   // 旧形式 (suggestions なし) の import はそのまま通る
@@ -264,18 +261,18 @@ test("round-trips suggestions through the definition snapshot", () => {
 
 test("public agents copy the suggestions of the internal catalog", () => {
   const catalog = createAgentCatalog();
-  const internal = catalog.getAgent("agent-builder")?.suggestions;
-  const exported = catalog.listAgents().find((agent) => agent.id === "agent-builder")?.suggestions;
+  const internal = catalog.getAgent("agent-zundamon")?.suggestions;
+  const exported = catalog.listAgents().find((agent) => agent.id === "agent-zundamon")?.suggestions;
   assert.ok(exported && internal);
   assert.notEqual(exported, internal);
   assert.notEqual(exported[0], internal[0]);
 
   exported[0].label = "書き換え";
   exported.push({ label: "追加", prompt: "追加のプロンプト" });
-  assert.deepEqual(catalog.getAgent("agent-builder")?.suggestions, DEFAULT_BUILDER_SUGGESTIONS);
+  assert.deepEqual(catalog.getAgent("agent-zundamon")?.suggestions, DEFAULT_SUGGESTIONS);
   assert.deepEqual(
-    catalog.snapshot().agents.find((agent) => agent.id === "agent-builder")?.suggestions,
-    DEFAULT_BUILDER_SUGGESTIONS,
+    catalog.snapshot().agents.find((agent) => agent.id === "agent-zundamon")?.suggestions,
+    DEFAULT_SUGGESTIONS,
   );
 });
 
@@ -298,12 +295,12 @@ test("rejects malformed model references and unknown thinking levels with 400", 
   }
 
   // 不正な更新も 400 (既存値は保持)
-  const agent = catalog.getAgent("agent-general");
+  const agent = catalog.getAgent("agent-zundamon");
   assert.throws(
-    () => catalog.updateAgent("agent-general", { thinkingLevel: "ultra" }),
+    () => catalog.updateAgent("agent-zundamon", { thinkingLevel: "ultra" }),
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
-  assert.deepEqual(catalog.getAgent("agent-general"), agent);
+  assert.deepEqual(catalog.getAgent("agent-zundamon"), agent);
 });
 
 test("imports old definitions without the new keys and exports only specified ones", () => {

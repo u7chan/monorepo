@@ -105,7 +105,7 @@ async function appWithRealSandbox(options: { rootCwd: string; maxUploadBytes?: n
 }
 
 async function createSession(app: Hono): Promise<string> {
-  const response = await app.request("/api/sessions", jsonPost({ agentId: "agent-general" }));
+  const response = await app.request("/api/sessions", jsonPost({ agentId: "agent-zundamon" }));
   assert.equal(response.status, 201);
   return ((await response.json()) as { sessionId: string }).sessionId;
 }
@@ -496,7 +496,7 @@ test("プロジェクト所属セッションの添付も appdir に置き、フ
     const project = (await jsonBody(await bff.app.request("/api/projects", jsonPost({ cwd: "repos/app" })))).project;
     const created = await bff.app.request(
       "/api/sessions",
-      jsonPost({ agentId: "agent-general", projectId: project.id }),
+      jsonPost({ agentId: "agent-zundamon", projectId: project.id }),
     );
     assert.equal(created.status, 201);
     const payload = (await created.json()) as { sessionId: string; cwd: string };
@@ -541,7 +541,7 @@ test("存在しない登録ディレクトリではセッションを作らず 4
     };
     const response = await bff.app.request(
       "/api/sessions",
-      jsonPost({ agentId: "agent-general", projectId: project.id }),
+      jsonPost({ agentId: "agent-zundamon", projectId: project.id }),
     );
     assert.equal(response.status, 400);
     assert.match(((await response.json()) as { error: string }).error, /repos\/app/);
