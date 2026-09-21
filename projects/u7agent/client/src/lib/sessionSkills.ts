@@ -61,7 +61,7 @@ export function sessionSkillWarning(skill: SessionSkillInfo, rootCwd: string): s
   return `同名のスキルは読み込まれません: ${hidden}`;
 }
 
-/** 行の補足 (場所)。カタログは実ファイルが無いので「エージェント定義」と示す */
+/** 行の補足 (場所)。カタログは実ファイルが無いので `catalog:<name>` をそのまま示す */
 export function sessionSkillLocation(skill: SessionSkillInfo, rootCwd: string): string {
   if (skill.relativePath) return skill.relativePath;
   return skillLocationLabel(rootCwd, skill.location);

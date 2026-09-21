@@ -4,7 +4,7 @@ import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttach
 import { sessionUploadsRel, workspaceAbs } from "../app-paths";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { isValidUploadName } from "../sandbox/protocol";
-import type { SandboxWorkspaceClient } from "../sandbox/client";
+import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
 import {
   FileUploadSchema,
@@ -113,6 +113,8 @@ export function createSessionRoutes({
           skills,
         });
       } catch (error) {
+        // 想定外の内部エラーは 500 のままにする (サンドボックス由来だけ 502 へ寄せる)
+        if (!(error instanceof SandboxRequestError)) throw error;
         return sandboxFailure(c, error);
       }
     },

@@ -380,6 +380,24 @@ test("一覧 API は発見の失敗を 502 にし、置き場が無い 404 は�
       // サンドボックスが返した status をそのまま通す (接続失敗は SandboxRequestError の 502)
       assert.equal(response.status, status, `sandbox status=${status}`);
       assert.match((await jsonBody(response)).error, /サンドボックスに接続できません/);
+
+      // strict は一覧だけ。セッション作成と /skill: の展開は従来どおり縮退して続く
+      const builtin = await bff.app.request(
+        `/api/sessions/${sessionId}/messages`,
+        jsonPost({ text: `/skill:${BUILTIN.name}` }),
+      );
+      assert.equal(builtin.status, 202, "組み込みはサンドボックスに依らないので展開できる");
+      const passthrough = await bff.app.request(
+        `/api/sessions/${sessionId}/messages`,
+        jsonPost({ text: "/skill:writer" }),
+      );
+      assert.equal(passthrough.status, 202, "発見できない名前は素通し (SDK と同じ)");
+      const payload = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}`));
+      assert.ok(
+        (payload.messages[0].text as string).startsWith(`<skill name="${BUILTIN.name}"`),
+        payload.messages[0].text,
+      );
+      assert.equal(payload.messages.at(-2).text, "/skill:writer");
     } finally {
       await bff.close();
     }
