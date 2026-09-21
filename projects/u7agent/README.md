@@ -23,11 +23,20 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 チャットの添付は、所属に関係なく `<workspace root>/.u7agent/uploads/<sessionId>/` に保存します。エージェントには注記で絶対パスを渡し、ファイル画面には出しません。`<workspace root>/.u7agent` 配下はプロジェクトとして登録できません（400）。
 
+## スキル
+
+スキルは 2 種類あります。
+
+- **エージェント定義のスキル**（設定 → スキル）— エージェントへ割り当てる指示。メモリ内のみで、再起動すると消えます
+- **ファイルスキル** — `<PI_APP_CWD>/.agents/skills/<name>/SKILL.md`（共通）と、プロジェクト配下の `<project>/.agents/skills/<name>/SKILL.md`（そのプロジェクトのセッションのみ）。エージェントに紐づかない ambient なスキルとしてセッションへ注入され、モデルは必要になった時点で `SKILL.md` を `read` します（本文の編集は次に読んだ時点から効きます）
+
+共通スキルの置き場はワークスペース root（`PI_APP_CWD`）の直下です。ローカル dev の既定は `projects/u7agent` 自身なので、モノレポ root の `.agents/skills` を使いたい場合は `PI_APP_CWD=/path/to/monorepo pnpm dev` のように指定します（サンドボックスの `PI_SANDBOX_CWD` と同じパスに揃えてください）。共通スキルは設定 → スキルで読み取り専用で確認できます。詳細は [docs/persistence.md](docs/persistence.md#スキルの扱い) と [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills) を参照してください。
+
 ## 環境変数
 
 | 変数 | 説明 |
 | --- | --- |
-| `PI_APP_CWD` | ワークスペース root（登録したプロジェクトと未所属チャットのスクラッチの起点。既定: このディレクトリ） |
+| `PI_APP_CWD` | ワークスペース root（登録したプロジェクトと未所属チャットのスクラッチの起点、および共通スキル `<PI_APP_CWD>/.agents/skills` の場所。既定: このディレクトリ） |
 | `PI_SESSION_STORE` | 会話ストアの絶対パス（既定: `<pi agentDir>/u7agent/sessions`）。ワークスペースの外を指定する。未設定でも起動するが、`null`（永続化なし）にしたいのはテストだけ |
 | `PI_MODEL` / `PI_MODELS` | 既定モデルの固定 / 選択できるモデルの whitelist |
 | `PI_THINKING` | 既定の Effort |

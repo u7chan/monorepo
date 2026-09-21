@@ -10,6 +10,7 @@
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
+| GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
 | POST | `/api/skills` | スキル作成 `{ name, description, prompt }` |
 | PATCH / PUT | `/api/skills/:id` | スキル更新 |
 | DELETE | `/api/skills/:id` | スキル削除（エージェントの割り当てからも外れる） |
@@ -38,6 +39,41 @@
   "skills": []
 }
 ```
+
+## ファイルスキル（`.agents/skills`）
+
+共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキルは、エージェントに紐づかない **ambient** なスキルとしてセッションへ注入される。エージェント定義の `skillIds` とは別で、設定画面に出るのは共通分の読み取り専用一覧だけ（編集・削除・割り当ての操作は持たない）。優先順位は `プロジェクト > 共通` で、同名は注入時に一意化する（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts` が持つ。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/skills/files` | 共通スキルの一覧（読み取り専用）。サンドボックス未設定は 503、サンドボックス側の失敗は 502 |
+
+```json
+{
+  "skills": [
+    {
+      "name": "example",
+      "description": "例のスキル",
+      "path": "/workspace/.agents/skills/example/SKILL.md",
+      "relativePath": ".agents/skills/example/SKILL.md",
+      "scope": "user",
+      "disableModelInvocation": false,
+      "shadowed": [
+        {
+          "path": "/workspace/.agents/skills/example-2/SKILL.md",
+          "relativePath": ".agents/skills/example-2/SKILL.md"
+        }
+      ]
+    }
+  ]
+}
+```
+
+- 同名のスキルは優先順位（プロジェクト > 共通、同じスコープ内は発見順）で一意化し、影になった側を `shadowed` に入れる。一覧では影になった分を警告として表示する
+- 本文は応答に含めない。モデルは `path` を `read` で読み、本文は `read` 時点のファイル内容になる（作成後に編集すればその内容、削除すれば読取り失敗）
+- 発見一覧はセッション作成・復元のたびに取り直す。復元は `meta.projectCwd` を起点にするため、プロジェクト登録が外れていても同じスキルが見える
+- `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす
+- エージェント定義のスキルはファイルスキルと混同させないため、`promptSnapshot` へ `<agent_skill>` タグで全文固定する（[session-files.md](session-files.md)）
 
 ## エージェント定義の Model / Effort
 

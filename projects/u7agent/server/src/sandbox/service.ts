@@ -17,6 +17,7 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  loadSkillsFromDir,
   type BashSpawnContext,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -37,6 +38,8 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxSkillEntry,
+  type SandboxSkillsResponse,
 } from "./protocol";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
@@ -408,6 +411,33 @@ async function listWorkspaceDirectory(rootCwd: string, requested: string): Promi
   };
 }
 
+/**
+ * root 相対のディレクトリ配下のスキルを発見する。走査規則 (hidden・node_modules のスキップ、ignore ファイル、
+ * 再帰、frontmatter 検証) は SDK の loadSkillsFromDir に委譲し、返すのは SKILL.md だけにする
+ * (SDK は直下の非 SKILL.md も読むが、`.agents/skills` の規約とずれるため落とす)。
+ * SDK は子ディレクトリと SKILL.md の symlink を辿るため、realpath が root 外になるものは除外する。
+ * 応答の path は realpath に揃え、同じ実体へ解決する重複 (symlink 経由・循環リンク) は 1 件に畳む。
+ */
+async function listWorkspaceSkills(rootCwd: string, requestedDir: string): Promise<SandboxSkillsResponse> {
+  const { root, target } = await resolveWorkspaceDirectory(rootCwd, requestedDir);
+
+  const skills: SandboxSkillEntry[] = [];
+  const seen = new Set<string>();
+  for (const skill of loadSkillsFromDir({ dir: target, source: "u7agent" }).skills) {
+    if (basename(skill.filePath) !== "SKILL.md") continue;
+    const real = await realpathNative(skill.filePath).catch(() => undefined);
+    if (!real || !isInsideRoot(root, real) || seen.has(real)) continue;
+    seen.add(real);
+    skills.push({
+      name: skill.name,
+      description: skill.description,
+      path: real,
+      disableModelInvocation: skill.disableModelInvocation,
+    });
+  }
+  return { skills };
+}
+
 function isInsideRoot(root: string, target: string): boolean {
   return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
@@ -654,6 +684,16 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files", async (c) => {
     try {
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // ファイルスキル (`.agents/skills`) の発見。dir の検証は GET /v1/files と同じ経路を通す
+  app.get("/v1/skills", async (c) => {
+    try {
+      return c.json(await listWorkspaceSkills(rootCwd, c.req.query("dir") ?? ""));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

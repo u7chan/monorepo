@@ -319,6 +319,53 @@ export const FileUploadSchema = z.object({
 });
 export type FileUpload = z.infer<typeof FileUploadSchema>;
 
+/**
+ * サンドボックス GET /v1/skills の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
+ * ここは BFF が受けた応答の検証用。
+ */
+export const SandboxSkillsSchema = z.object({
+  skills: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      /** root 内の絶対パス (realpath) */
+      path: z.string(),
+      disableModelInvocation: z.boolean(),
+    }),
+  ),
+});
+
+/**
+ * ファイルスキル (`.agents/skills`) 1 件。catalog のスキル定義と違って読み取り専用で、編集・削除・
+ * エージェント割り当ての対象外 (docs/api-catalog.md)。同名は優先順位で一意化され、
+ * shadowed に影になった側が入る。
+ */
+export const FileSkillShadowedSchema = z.object({
+  /** サンドボックス絶対パス (realpath) */
+  path: z.string(),
+  /** root 相対 (表示用)。root の外へ解決する場合は絶対パスのまま */
+  relativePath: z.string(),
+});
+export type FileSkillShadowed = z.infer<typeof FileSkillShadowedSchema>;
+
+export const FileSkillInfoSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  /** サンドボックス絶対パス (realpath)。モデルはこのパスを read で読む */
+  path: z.string(),
+  /** root 相対 (表示用)。root の外へ解決する場合は絶対パスのまま */
+  relativePath: z.string(),
+  /** 発見元。優先順位は project > user */
+  scope: z.enum(["user", "project"]),
+  disableModelInvocation: z.boolean(),
+  shadowed: z.array(FileSkillShadowedSchema),
+});
+export type FileSkillInfo = z.infer<typeof FileSkillInfoSchema>;
+
+/** GET /api/skills/files の応答 */
+export const FileSkillsResponseSchema = z.object({ skills: z.array(FileSkillInfoSchema) });
+export type FileSkillsResponse = z.infer<typeof FileSkillsResponseSchema>;
+
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),

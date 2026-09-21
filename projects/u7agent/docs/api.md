@@ -16,7 +16,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/files`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
-| エージェント / スキル | `/api/agents`、`/api/skills` | [api-catalog.md](api-catalog.md) |
+| エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files` | [api-catalog.md](api-catalog.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
 ## 型の共有

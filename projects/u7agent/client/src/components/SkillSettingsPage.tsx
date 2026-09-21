@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useFileSkills } from "../hooks/useFileSkills";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { Catalog } from "../types";
 import { DefinitionList } from "./DefinitionList";
 import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { FileSkillList } from "./skill-settings/FileSkillList";
 import { SkillEditorForm, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
 import { BoltIcon } from "./icons";
 
@@ -23,6 +25,7 @@ export function SkillSettingsPage({
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
+  const fileSkills = useFileSkills();
   const editingSkill = catalog.skills.find((skill) => skill.id === editingId);
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
@@ -65,6 +68,7 @@ export function SkillSettingsPage({
           onClick={() => selectSkill(skill.id)}
         />
       ))}
+      <FileSkillList state={fileSkills.state} onReload={fileSkills.reload} />
     </DefinitionList>
   );
 

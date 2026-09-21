@@ -1,8 +1,28 @@
 import type { Context } from "hono";
 import type { AgentCatalog } from "../agents";
-import type { CreateAgentBody, CreateSkillBody, ReplaceCatalogBody, UpdateAgentBody, UpdateSkillBody } from "../schema";
+import { COMMON_SKILLS_DIR, composeFileSkills } from "../file-skills";
+import { sandboxFailure, sandboxNotConfigured } from "../http";
+import type { SandboxWorkspaceClient } from "../sandbox/client";
+import {
+  SandboxSkillsSchema,
+  type CreateAgentBody,
+  type CreateSkillBody,
+  type ReplaceCatalogBody,
+  type UpdateAgentBody,
+  type UpdateSkillBody,
+} from "../schema";
 
-export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
+export function createCatalogRoutes({
+  catalog,
+  workspace,
+  rootCwd,
+}: {
+  catalog: AgentCatalog;
+  /** ファイルスキル (GET /api/skills/files) の取得元。未設定なら 503 */
+  workspace: SandboxWorkspaceClient | null;
+  /** 表示用の root 相対パスを組むためのワークスペース root */
+  rootCwd: string;
+}) {
   // ビルトインは置換対象のマップに無いので、ルートで明示的に区別して 400 を返す
   const isBuiltin = (c: Context) => (c.req.param("id") ?? "") === catalog.builtinAgent().id;
 
@@ -38,6 +58,21 @@ export function createCatalogRoutes({ catalog }: { catalog: AgentCatalog }) {
     },
 
     listSkills: (c: Context) => c.json({ skills: catalog.listSkills() }),
+
+    /**
+     * ファイルスキル (共通 `<root>/.agents/skills`) の読み取り専用一覧。同名は優先順位で一意化済みで、
+     * 影になった側は shadowed に入る。編集・削除・エージェント割り当ての対象ではない。
+     */
+    listFileSkills: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      try {
+        const parsed = SandboxSkillsSchema.safeParse(await workspace.listSkills(COMMON_SKILLS_DIR));
+        if (!parsed.success) return c.json({ error: "サンドボックスのスキル一覧が不正です" }, 502);
+        return c.json(composeFileSkills([{ scope: "user", entries: parsed.data.skills }], rootCwd).response);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+    },
 
     createSkill: (c: Context, body: CreateSkillBody) => c.json({ skill: catalog.createSkill(body) }, 201),
 

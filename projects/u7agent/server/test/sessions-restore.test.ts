@@ -31,6 +31,8 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
         listings.push(path);
         return { path: path || ".", entries: [], truncated: false };
       },
+      // ファイルスキルの発見はこのテストでは扱わない
+      listSkills: async () => ({ skills: [] }),
       createDir: async (path: string) => {
         dirs.push(path);
         return { path };

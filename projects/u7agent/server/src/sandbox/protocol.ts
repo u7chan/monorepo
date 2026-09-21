@@ -100,6 +100,23 @@ export interface SandboxFileListing {
 /** 1 ディレクトリあたりの上限 (SDK の ls ツールの既定上限に揃える) */
 export const SANDBOX_MAX_FILE_ENTRIES = 500;
 
+/**
+ * GET /v1/skills の 1 件。走査規則 (hidden / node_modules / ignore ファイル / frontmatter 検証) は
+ * SDK の loadSkillsFromDir に委譲し、ここでは SKILL.md だけを返す。
+ * path は realpath (= root 内の絶対パス) で、symlink を解決した実体を指す (read 時の内容と一致させる)。
+ */
+export interface SandboxSkillEntry {
+  name: string;
+  description: string;
+  path: string;
+  disableModelInvocation: boolean;
+}
+
+/** GET /v1/skills の応答。同じ実体へ解決する重複 (symlink / 循環リンク) は path ごとに 1 件へ畳む */
+export interface SandboxSkillsResponse {
+  skills: SandboxSkillEntry[];
+}
+
 /** GET /v1/files/preview の応答。UTF-8 へデコード済みのテキスト。 */
 
 export interface SandboxFilePreview {

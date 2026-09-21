@@ -7,10 +7,12 @@ import {
   SessionManager,
   SettingsManager,
   type CreateAgentSessionOptions,
+  type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
+import { discoverSessionFileSkills } from "./file-skills";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -74,7 +76,7 @@ export function composePromptSnapshot(agent?: AgentDef, skills: SkillDef[] = [])
     : "";
   const skillPrompts = skills
     .filter((skill) => skill && skill.name && skill.prompt)
-    .map((skill) => `<skill name="${skill.name}">\n${skill.prompt}\n</skill>`);
+    .map((skill) => `<agent_skill name="${skill.name}">\n${skill.prompt}\n</agent_skill>`);
   return { agent: agentPrompt, skills: skillPrompts };
 }
 
@@ -224,6 +226,41 @@ function modelLabel(model?: PiModelRef | null): string | undefined {
   return model ? `${model.provider}/${model.id}` : undefined;
 }
 
+export interface SessionResourceLoaderInput {
+  cwd: string;
+  agentDir: string;
+  settingsManager: SettingsManager;
+  secretMasker: SecretMasker;
+  appendSystemPrompt: string[];
+  /** サンドボックスで発見済みのファイルスキル。skillsOverride で SDK の一覧へ足す */
+  fileSkills?: Skill[];
+}
+
+/**
+ * セッションの resource loader。`.pi` / `~/.pi/agent` を読ませないため noSkills は維持したまま、
+ * 発見済みのファイルスキルを skillsOverride で注入する (ネイティブ発見・祖先さかのぼりは使わない)。
+ */
+export function createSessionResourceLoader(input: SessionResourceLoaderInput): DefaultResourceLoader {
+  return new DefaultResourceLoader({
+    cwd: input.cwd,
+    agentDir: input.agentDir,
+    settingsManager: input.settingsManager,
+    // Web には拡張ダイアログに答える TUI が無いため決定論を優先し、noExtensions でも
+    // 読み込まれる extensionFactories だけをインターフェイスにする。
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    extensionFactories: [createSecretRedactionExtension(input.secretMasker)],
+    appendSystemPrompt: input.appendSystemPrompt,
+    skillsOverride: (base) => ({
+      skills: [...base.skills, ...(input.fileSkills ?? [])],
+      diagnostics: base.diagnostics,
+    }),
+  });
+}
+
 export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}): Promise<PiBff> {
   // rootCwd は「ワークスペース root」で、セッションごとの cwd はここからの相対パスで解決する。
   const rootCwd = resolve(cwd);
@@ -324,19 +361,16 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       retry: { enabled: true, maxRetries: 2 },
     });
     const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
-    const resourceLoader = new DefaultResourceLoader({
+    // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
+    // (発見に失敗してもスキル無しでセッション作成を続行する)
+    const fileSkills = await discoverSessionFileSkills(sandboxClient, { rootCwd, relativeCwd });
+    const resourceLoader = createSessionResourceLoader({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
-      // Web には拡張ダイアログに答える TUI が無いため決定論を優先し、noExtensions でも
-      // 読み込まれる extensionFactories だけをインターフェイスにする。
-      noExtensions: true,
-      noSkills: true,
-      noPromptTemplates: true,
-      noThemes: true,
-      noContextFiles: true,
-      extensionFactories: [createSecretRedactionExtension(secretMasker)],
+      secretMasker,
       appendSystemPrompt: [APPEND_SYSTEM_PROMPT, snapshot.agent, ...snapshot.skills].filter(Boolean),
+      fileSkills: fileSkills.skills,
     });
     await resourceLoader.reload();
 

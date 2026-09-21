@@ -18,6 +18,8 @@ export type {
   FileEntry,
   FileListing,
   FilePreview,
+  FileSkillInfo,
+  FileSkillsResponse,
   Health,
   MessageMetrics,
   ModelOption,
