@@ -66,6 +66,15 @@ test("built-in agents keep model and thinkingLevel unspecified", () => {
   );
 });
 
+test("keeps the last agent undeletable", () => {
+  const catalog = createAgentCatalog();
+  assert.equal(catalog.removeAgent("agent-zundamon"), false);
+  assert.deepEqual(
+    catalog.snapshot().agents.map((agent) => agent.id),
+    ["agent-zundamon"],
+  );
+});
+
 test("creates and updates agents with an independent model / thinkingLevel", () => {
   const catalog = createAgentCatalog();
 
