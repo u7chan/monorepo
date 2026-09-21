@@ -41,7 +41,7 @@ $PI_SESSION_STORE/<id>/
 <workspace root>/<appdir>/uploads/<id>/
 ```
 
-`<appdir>` は現 `.u7agent`（BFF の `APP_DIR_REL`。名前の変更は別 Issue）。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリ（`project.cwd`）そのもので、スクラッチも添付も `<appdir>` 配下に置く（[projects.md](projects.md#セッション-cwd)）。添付を `<appdir>/uploads/<id>` に固定するのは、プロジェクト所属でもリポジトリ内にファイルを作らないため。
+`<appdir>` は現 `.u7agent`（BFF の `APP_DIR_REL`）。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリ（`project.cwd`）そのもので、スクラッチも添付も `<appdir>` 配下に置く（[projects.md](projects.md#セッション-cwd)）。添付を `<appdir>/uploads/<id>` に固定するのは、プロジェクト所属でもリポジトリ内にファイルを作らないため。
 
 - `<id>` は `crypto.randomBytes(5).toString("hex")` の 10 文字。外部ライブラリは増やさない。store 側のフォルダ存在で衝突を検出し、衝突したら再生成する。SDK の `assertValidSessionId` も満たす。
 - `PI_SESSION_STORE` の既定は `<agentDir>/u7agent/sessions`。**`PI_APP_CWD` の中は起動時に拒否する**（ワークスペースをサンドボックスと共有する構成で store を共有してしまう事故を防ぐ）。
