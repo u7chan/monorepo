@@ -83,7 +83,7 @@ root 相対の画像を `createReadStream` でストリーム返却する。配�
 {
   "path": "src",
   "entries": [
-    { "name": "client", "type": "dir" },
+    { "name": "client", "type": "dir", "mtime": 1700000000000 },
     { "name": "README.md", "type": "file", "size": 1234, "mtime": 1700000000000 }
   ],
   "truncated": false
@@ -96,7 +96,7 @@ root 相対の画像を `createReadStream` でストリーム返却する。配�
   - root の外にある symlink が root 内を指す場合（例: root の親に置いた `link-in -> root` への `../link-in`）も 200。要求自体は root の外を指していてもよい
   - 実在する要求で解決後の実パスが root 外なら 400（`outside the workspace`）
   - 実在しない要求（realpath が `ENOENT` / `ENOTDIR`）だけは lexical な位置で判定し、root 外を指すなら 400（404 にしない）、root 内を指すなら 404
-- `type` は `file` / `dir`。symlink は辿った先（stat 相当）の実体種別で、ディレクトリ以外（ソケット等）は `file` に寄せる。`size` / `mtime`（epoch ms）は実体を stat できたファイルにだけ付ける（壊れた symlink には付かない）
+- `type` は `file` / `dir`。symlink は辿った先（stat 相当）の実体種別で、ディレクトリ以外（ソケット等）は `file` に寄せる。`size` は実体を stat できたファイルにだけ、`mtime`（epoch ms）は実体を stat できた**エントリ**（ディレクトリを含む）に付ける。壊れた symlink にはどちらも付かない。`size` をディレクトリに付けないのは、その値（ノードのサイズ）がファイルの内容量を表さないため。規則は symlink は辿った先（`stat`）、それ以外は `lstat` で、種別判定に使った `stat` を `mtime` に再利用する
 - `symlink: true` は `lstat` が symlink だったエントリ。root 内を指す symlink は普通に開ける。root 外を指す symlink も一覧には出る（`symlink: true`）が、その位置を `path` に指定すると 400 になる。一覧は symlink の指す先を列挙しない（root 配下だけを返す）
 - 並び順はディレクトリ先 → ファイル、各グループ内は大文字小文字を無視した昇順。client は再ソートしない
 - hidden file（dotfile）も返す。フィルタは持たない

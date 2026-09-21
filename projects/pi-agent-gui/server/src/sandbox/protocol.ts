@@ -57,15 +57,16 @@ export interface SandboxCreateDirResult {
 
 /**
  * 一覧の 1 エントリ。type は symlink を辿った実体の種別で、ディレクトリ以外は file に寄せる。
- * size / mtime は実体を stat できたファイルにだけ付ける。
+ * size は実体を stat できたファイルに、mtime は実体を stat できたエントリに付ける (ディレクトリにも付く)。
  */
 export interface SandboxFileEntry {
   name: string;
   type: "file" | "dir";
   /** lstat が symlink のとき true (type は辿った先の種別) */
   symlink?: boolean;
+  /** stat できたファイルだけ。ディレクトリの size はファイルの内容量を表さないため付けない */
   size?: number;
-  /** epoch ms */
+  /** epoch ms。壊れた symlink には付けない */
   mtime?: number;
 }
 

@@ -72,6 +72,11 @@ export function fileTreeParentPath(path: string): string {
   return slash === -1 ? FILE_TREE_ROOT : path.slice(0, slash);
 }
 
+/** 削除の確認文言。path は画面の root 相対で、ツリーに見えているパスと一致させる。 */
+export function fileTreeDeleteConfirm(path: string): string {
+  return `「${path}」を削除しますか？この操作は取り消せません。`;
+}
+
 /**
  * 削除したファイルの行を一覧から落とす。children を持つ親だけを差し替えるので、
  * 展開中の子孫や他のディレクトリの状態はそのまま残る (ファイルを消しても親の再取得は不要)。

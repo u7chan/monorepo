@@ -1,0 +1,78 @@
+// ディレクトリ行 / ファイル行の時刻と右端のスロットを突き合わせる。client に DOM テスト基盤が無いため、
+// 右 padding と末尾スロットによる px の一致は自動固定できず、手動確認に残す (docs/file-preview.md#時刻)。
+// ここでは両行が同じ形であること（配線）だけを固定する。どれかが崩れると次のどれかになる。
+//   1. ディレクトリ行の button が時刻を包み、読み上げ名に時刻が混ざる / 時刻のクリックで開閉する
+//   2. 右 padding か末尾スロットの幅が変わり、ディレクトリ行とファイル行の時刻の右端がずれる
+//   3. 時刻の表示規則 (messageTimeLabel + title の完全な表記) か、mtime 無しの行の扱いが変わる
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+
+function read(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
+}
+
+/** EntryRow のディレクトリ行 (分岐の先頭) とファイル行 (この行以降) を切り出す */
+function entryRowSections(): { dir: string; file: string } {
+  const source = read("src/components/FileBrowser.tsx");
+  const dirStart = source.indexOf('if (entry.type === "dir")');
+  const fileStart = source.indexOf("const isSelected = selected === path;");
+  const end = source.indexOf("function MessageRow");
+  assert.ok(
+    dirStart >= 0 && fileStart > dirStart && end > fileStart,
+    "FileBrowser.tsx からディレクトリ行 / ファイル行を切り出せない",
+  );
+  return { dir: source.slice(dirStart, fileStart), file: source.slice(fileStart, end) };
+}
+
+test("ディレクトリ行とファイル行は同じ形の時刻と末尾スロットを持つ", () => {
+  const { dir, file } = entryRowSections();
+  for (const [label, row] of [
+    ["ディレクトリ", dir],
+    ["ファイル", file],
+  ] as const) {
+    assert.match(row, /<EntryTime\s+at=\{entry\.mtime\}/, `${label}行が行の時刻を出していない`);
+    assert.ok(row.includes("pr-1"), `${label}行の右 padding が pr-1 でない`);
+    assert.ok(!row.includes("pr-2"), `${label}行に pr-2 が残っている`);
+    assert.ok(row.indexOf("<EntryTime") < row.indexOf("<EmptySlot"), `${label}行の時刻が末尾スロットより後ろにある`);
+  }
+});
+
+test("ディレクトリ行の時刻は開閉の button の外に出す", () => {
+  const { dir } = entryRowSections();
+  const buttonEnd = dir.indexOf("</button>");
+  assert.ok(buttonEnd >= 0, "ディレクトリ行に開閉の button が無い");
+  // button の中に入れると accessible name に時刻が混ざり、時刻のクリックでも開閉してしまう
+  assert.ok(dir.indexOf("<EntryTime") > buttonEnd, "時刻が開閉の button の中にある");
+  assert.match(dir, /<button[^>]*\saria-expanded=\{open\}/, "開閉の button が aria-expanded を持たない");
+  assert.ok(
+    dir.includes('className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"'),
+    "開閉の button が flex-1 でなく、クリック領域が行から狭まる",
+  );
+});
+
+test("末尾スロットはゴミ箱と空スペーサーで同じ 24px 幅", () => {
+  const { file } = entryRowSections();
+  assert.match(file, /className="grid size-6 shrink-0 place-items-center/, "ファイル行のゴミ箱が size-6 でない");
+  const source = read("src/components/FileBrowser.tsx");
+  const start = source.indexOf("function EmptySlot");
+  const end = source.indexOf("function EntryTime");
+  assert.ok(start >= 0 && end > start, "EmptySlot を切り出せない");
+  const emptySlot = source.slice(start, end);
+  assert.match(emptySlot, /className="size-6 shrink-0"/, "空スペーサーがゴミ箱と同じ size-6 でない");
+  assert.match(emptySlot, /aria-hidden/, "空スペーサーが読み上げの対象になる");
+});
+
+test("時刻は messageTimeLabel を表示し、title に完全な表記を出す", () => {
+  const source = read("src/components/FileBrowser.tsx");
+  const start = source.indexOf("function EntryTime");
+  const end = source.indexOf("function MessageRow");
+  assert.ok(start >= 0 && end > start, "EntryTime を切り出せない");
+  const label = source.slice(start, end);
+  assert.match(label, /dateTime=\{new Date\(at\)\.toISOString\(\)\}/, "dateTime を持たない");
+  assert.match(label, /title=\{messageFullTimeLabel\(at\)\}/, "title に完全な表記を出していない");
+  assert.match(label, /\{messageTimeLabel\(at\)\}/, "表示が messageTimeLabel でない");
+  assert.match(label, /tabular-nums/, "tabular-nums が無く、数字の幅で行がガタつく");
+  assert.ok(label.includes("if (at === undefined) return null;"), "mtime を持たない行にも時刻を出そうとしている");
+});

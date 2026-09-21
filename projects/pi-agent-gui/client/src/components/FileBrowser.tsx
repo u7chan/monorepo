@@ -9,6 +9,7 @@ import {
   createFileTreeStateFromDirectories,
   FILE_TREE_ROOT,
   fileTreeChildPath,
+  fileTreeDeleteConfirm,
   fileTreeDirectoryState,
   fileTreeFetchPath,
   fileTreeParentPath,
@@ -22,6 +23,7 @@ import {
   type FileTreeState,
 } from "../lib/fileTree";
 import { filePreviewStore } from "../lib/filePreviewState";
+import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 import {
   closeFileTab,
   dropClosedPreviewModes,
@@ -48,8 +50,6 @@ export type FileBrowserProps = {
   root: string;
   /** 値を変えると一覧と開いている本文を取り直す。mount 時の値では撃たない */
   reloadToken: number;
-  /** ファイル行に削除の導線を出すか。セッションの作業フォルダ (チャット右パネル) だけ true にする */
-  canDelete: boolean;
 };
 
 /**
@@ -57,9 +57,9 @@ export type FileBrowserProps = {
  * 外装 (設定ページ / チャットの右パネル) は呼び出し側が持ち、root の違う 2 画面で同じ実装を使う。
  * **root を変えるときは呼び出し側で `key` を張り替える** (復元・取得・保存は mount ごとの初期化が前提)。
  * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
- * ディレクトリは展開時に初めて取得し、ファイル監視はしない (更新は「再読み込み」と run 終了のみ)。
+ * ディレクトリは展開時に初めて取得し、ファイル監視はしない (一覧も行の時刻も「再読み込み」と run 終了でしか更新されない)。
  */
-export function FileBrowser({ root, reloadToken, canDelete }: FileBrowserProps) {
+export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
@@ -120,8 +120,8 @@ export function FileBrowser({ root, reloadToken, canDelete }: FileBrowserProps) 
    */
   const removeFile = (path: string) => {
     if (deletingRef.current.has(path)) return;
-    const name = path.slice(path.lastIndexOf("/") + 1);
-    if (!window.confirm(`「${name}」を削除しますか？この操作は取り消せません。`)) return;
+    // 確認には画面の root 相対パスを出す (ツリーに見えているパスと合わせる)
+    if (!window.confirm(fileTreeDeleteConfirm(path))) return;
     deletingRef.current.add(path);
     void (async () => {
       try {
@@ -181,7 +181,7 @@ export function FileBrowser({ root, reloadToken, canDelete }: FileBrowserProps) 
               selected={tabs.active}
               onToggle={toggle}
               onSelect={openTab}
-              onDelete={canDelete ? removeFile : undefined}
+              onDelete={removeFile}
             />
           ) : rootNode.error ? null : (
             <MessageRow depth={0}>読み込み中…</MessageRow>
@@ -214,8 +214,7 @@ type BranchProps = {
   selected: string | null;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  /** 未指定ならファイル行に削除の導線を出さない */
-  onDelete?: ((path: string) => void) | undefined;
+  onDelete: (path: string) => void;
 };
 
 function Branch({ parent, node, depth, tree, selected, onToggle, onSelect, onDelete }: BranchProps) {
@@ -259,7 +258,7 @@ function EntryRow({
   selected: string | null;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  onDelete?: ((path: string) => void) | undefined;
+  onDelete: (path: string) => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
 
@@ -268,25 +267,33 @@ function EntryRow({
     const open = node?.open ?? false;
     return (
       <div>
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => onToggle(path)}
+        {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
+            ファイル行と同じ「div + flex-1 の操作 button」に分ける */}
+        <div
           style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
-          className="flex min-h-7.5 w-full items-center gap-2 rounded-lg pr-2 pl-(--tree-indent) text-left text-xs text-ink transition-colors hover:bg-hover"
+          className="flex min-h-7.5 w-full items-center rounded-lg pr-1 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover"
         >
-          <span
-            className={cn(
-              "grid size-4 shrink-0 place-items-center text-ink-faint transition-transform",
-              open ? "rotate-90" : "",
-            )}
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => onToggle(path)}
+            className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
           >
-            <ChevronIcon />
-          </span>
-          <FolderIcon />
-          <span className="min-w-0 truncate">{entry.name}</span>
-          {entry.symlink ? <SymlinkMark /> : null}
-        </button>
+            <span
+              className={cn(
+                "grid size-4 shrink-0 place-items-center text-ink-faint transition-transform",
+                open ? "rotate-90" : "",
+              )}
+            >
+              <ChevronIcon />
+            </span>
+            <FolderIcon />
+            <span className="min-w-0 truncate">{entry.name}</span>
+            {entry.symlink ? <SymlinkMark /> : null}
+          </button>
+          <EntryTime at={entry.mtime} />
+          <EmptySlot />
+        </div>
         {open ? (
           <>
             {node?.error ? (
@@ -316,7 +323,7 @@ function EntryRow({
 
   const isSelected = selected === path;
   // 削除できるのは通常ファイルだけ。symlink はサンドボックスが 400 で拒否するため導線を出さない
-  const deletable = onDelete !== undefined && !entry.symlink;
+  const deletable = !entry.symlink;
   return (
     // 行全体は選択、右端のゴミ箱は削除。入れ子の button は作れないため、行は div にして 2 つの button を並べる
     <div
@@ -336,6 +343,7 @@ function EntryRow({
         <span className="min-w-0 truncate">{entry.name}</span>
         {entry.symlink ? <SymlinkMark /> : null}
       </button>
+      <EntryTime at={entry.mtime} />
       {deletable ? (
         <button
           type="button"
@@ -346,8 +354,29 @@ function EntryRow({
         >
           <TrashIcon />
         </button>
-      ) : null}
+      ) : (
+        <EmptySlot />
+      )}
     </div>
+  );
+}
+
+/** 削除を持たない行 (ディレクトリ / symlink) の末尾スロット。時刻の右端をファイル行にそろえる。 */
+function EmptySlot() {
+  return <span aria-hidden className="size-6 shrink-0" />;
+}
+
+/** 行の更新時刻。stat できなかった行 (壊れた symlink) には出さない。 */
+function EntryTime({ at }: { at: number | undefined }) {
+  if (at === undefined) return null;
+  return (
+    <time
+      dateTime={new Date(at).toISOString()}
+      title={messageFullTimeLabel(at)}
+      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+    >
+      {messageTimeLabel(at)}
+    </time>
   );
 }
 

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, symlinkSync } from "node:fs";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -454,12 +454,14 @@ test("files endpoint lists directories first, then files, case-insensitively", a
     rootListing.body.entries.map((entry) => `${entry.type}:${entry.name}`),
     ["dir:DirA", "dir:dirB", "file:.hidden", "file:A.txt", "file:b.txt"],
   );
-  // ファイルには size / mtime が付き、ディレクトリには付かない
+  // ファイルには size も mtime も付き、ディレクトリには mtime だけが付く (size は内容量を表さない)
   const file = rootListing.body.entries.find((entry) => entry.name === "A.txt");
   assert.equal(file?.size, 1);
   assert.equal(typeof file?.mtime, "number");
   assert.ok((file?.mtime ?? 0) > 0);
-  assert.equal(rootListing.body.entries.find((entry) => entry.type === "dir")?.size, undefined);
+  const directory = rootListing.body.entries.find((entry) => entry.name === "dirB");
+  assert.equal(directory?.size, undefined);
+  assert.equal(directory?.mtime, Math.round(lstatSync(join(root, "dirB")).mtimeMs));
   // symlink でないエントリには symlink を付けない
   assert.ok(rootListing.body.entries.every((entry) => entry.symlink === undefined));
 
@@ -544,9 +546,12 @@ test(
       listing.body.entries.map((entry) => entry.name).filter((name) => name.startsWith("outside-")),
       [],
     );
-    // symlink にも size / mtime を付ける (壊れたリンクは付けない)
+    // symlink にも size / mtime を付ける (dir symlink の mtime はリンク先の値で、壊れたリンクには付けない)
     assert.equal(typeof byName.get("linkFile")?.size, "number");
     assert.equal(byName.get("linkBroken")?.size, undefined);
+    assert.equal(byName.get("linkBroken")?.mtime, undefined);
+    assert.equal(byName.get("linkInside")?.size, undefined);
+    assert.equal(byName.get("linkInside")?.mtime, Math.round(lstatSync(join(root, "dirB")).mtimeMs));
 
     // root 内を指す symlink は普通に開ける (path は解決後の実ディレクトリを root 相対で返す)
     const inside = await listFiles(service.app, "linkInside");
