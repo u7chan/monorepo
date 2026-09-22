@@ -39,7 +39,12 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 # BFF とサンドボックス (src/sandbox/index.ts) は同一イメージを command 差し替えで共用する。
 # server/src/ には組み込みスキルの SKILL.md (src/builtin-skills/) も含めて同梱する。
 FROM node:24-bookworm-slim AS final
+# curl / jq / file / unzip / xz / zip はサンドボックス内のエージェントが HTTP 取得とアセット検証に使う。
+# HTTP の正規手段を curl にして `node -e` のワンライナー fetch へ迂回させないのが目的で、同じ一覧を
+# server/src/agent.ts の APPEND_SYSTEM_PROMPT が名指しする。apt 行から落ちたら command -v 検査でビルドを失敗させる。
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
+    curl jq file unzip xz-utils zip \
+    && for tool in bash git rg curl jq file unzip xz zip; do command -v "$tool" >/dev/null || exit 1; done \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /workspace /session-store && chown node:node /workspace /session-store
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
