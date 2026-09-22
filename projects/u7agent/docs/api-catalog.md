@@ -1,17 +1,17 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`、初期状態のスキルはどのエージェントにも割り当てていないサンプル `skill-zundamon-speech` だけ。
+規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態はカタログスキル 0 件と、ユーザー定義のサンプル `agent-zundamon`（ずんだもん）1 体。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧 |
+| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧（同梱の組み込みスキルを `builtinSkills` で含む） |
 | PUT | `/api/agents` | エージェント（ユーザー定義）の定義をJSONで一括置換（ビルトインは含めない） |
 | POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, icon?, model?, thinkingLevel?, suggestions? }` |
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
-| POST | `/api/skills` | スキル作成 `{ name, description, prompt }` |
+| POST | `/api/skills` | スキル作成 `{ name, description, body }` |
 | PATCH / PUT | `/api/skills/:id` | スキル更新 |
 | DELETE | `/api/skills/:id` | スキル削除（エージェントの割り当てからも外れる） |
 
@@ -24,6 +24,8 @@
 - `PUT /api/agents` の `agents` にビルトイン id が含まれていたら 400（`Agent id agent-general is reserved for the built-in agent`）。送った定義がそのまま入るのが置換の意味なので、黙って捨てない。
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
+- GET / PUT の応答は同梱の組み込みスキルを `builtinSkills`（`{ name, description }`）でも返す。これは全エージェントで常時有効な **ambient** なスキルで、`skillIds` では外せない（[組み込みスキル](#組み込みスキル)）。エージェント編集のスキル欄はこれをチェック済み・無効の行として出し、外せないことを示す。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
+- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。ビルトインと同じく置換の対象で、`DELETE /api/agents/:id` で削除でき、`PUT /api/agents` で置き換わり、再起動で戻る。
 
 ```json
 {
@@ -35,8 +37,38 @@
     "skillIds": [],
     "suggestions": [{ "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }]
   },
-  "agents": [],
+  "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う" }],
+  "agents": [
+    {
+      "id": "agent-zundamon",
+      "name": "ずんだもん",
+      "description": "「〜なのだ」「〜のだ」の語尾で話す",
+      "systemPrompt": "ずんだもんの口調で話してください。…",
+      "skillIds": []
+    }
+  ],
   "skills": []
+}
+```
+
+## カタログスキル（設定 → スキル）
+
+エージェントへ割り当てるスキルは `{ name, description, body }` で、`body` が割り当て時に system prompt へ常時入る本文。エージェントの「役割 / 基本指示」（`systemPrompt`）と同じく会話中ずっと効くが、エージェントを選ぶ前に作れて複数のエージェントで使い回せる点が違う。初期状態は 0 件で、口調のような常時効かせたい指示はエージェントの `systemPrompt` に置く（サンプルは `agent-zundamon`）。
+
+- 本文のフィールド名は `body` で、UI のラベルも「本文」。エージェント側の `systemPrompt`（UI ラベル「役割 / 基本指示」）とは語を分ける。旧フィールド名 `prompt` は作成 / 更新とも 400 で、バックアップの `definitions.skills[].body` も同じ（旧形式の互換は持たない）。
+- 割り当ては `AgentDef.skillIds`。作成時に `promptSnapshot` へ `<agent_skill name="…">` で全文固定する（[session-files.md](session-files.md)）。
+- 設定 → スキルの一覧は、この編集できるスキルと共通 / 組み込みの読み取り専用スキルを同じリストに並べる。カタログのスキルが 0 件のときは追加行の下にその旨を出す（[ui-layout.md](ui-layout.md#設定の編集フォームエージェント--スキル)）。
+
+```json
+{
+  "skills": [
+    {
+      "id": "skill-example",
+      "name": "重要度順レビュー",
+      "description": "指摘を重要度順に並べ、根拠と修正案を添える",
+      "body": "指摘は重要度の高い順に並べてください。…"
+    }
+  ]
 }
 ```
 
@@ -149,7 +181,7 @@
       "id": "skill-example",
       "name": "重要度順レビュー",
       "description": "指摘を重要度順に並べ、根拠と修正案を添える",
-      "prompt": "指摘は重要度の高い順に並べてください。…"
+      "body": "指摘は重要度の高い順に並べてください。…"
     }
   ]
 }
@@ -202,7 +234,7 @@
           "id": "skill-example",
           "name": "変更レポート",
           "description": "最後に変更点と確認方法を箇条書きで報告する",
-          "prompt": "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。"
+          "body": "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。"
         }
       ]
     }

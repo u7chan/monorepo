@@ -67,6 +67,7 @@ export function SkillSettingsPage({
       title="スキル一覧"
       count={catalog.skills.length}
       addLabel="新しいスキル"
+      emptyLabel="カタログのスキルはまだありません。「新しいスキル」から作成できます。"
       onAdd={startNewSkill}
       compact={compact}
     >
@@ -110,7 +111,7 @@ export function SkillSettingsPage({
     <SettingsPageLayout
       eyebrow="CONFIGURATION"
       title="スキル"
-      caption="エージェントへ割り当てる指示を定義します。"
+      caption="エージェントへ割り当てるスキルの本文を定義します。共通・組み込みは読み取り専用で表示します。"
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}

@@ -8,7 +8,8 @@ export const SkillDefSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
-  prompt: z.string(),
+  /** system prompt へ常時入る本文。エージェントの「役割 / 基本指示」(systemPrompt) とは別の語にする */
+  body: z.string(),
 });
 export type SkillDef = z.infer<typeof SkillDefSchema>;
 
@@ -53,12 +54,23 @@ export const CatalogSchema = z.object({
 export type Catalog = z.infer<typeof CatalogSchema>;
 
 /**
+ * 全エージェントで常時有効な同梱スキル 1 件。`skillIds` では外せないため、カタログの `skills` とは
+ * 別フィールドで返し、エージェント編集のスキル欄がチェック済み・無効の行として出せるようにする。
+ */
+export const BuiltinSkillInfoSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
+
+/**
  * GET / PUT `/api/agents` の応答。`builtinAgent` はサーバー所有の汎用エージェントで、
  * `agents` (置換対象 = export される定義) には含まれない。サーバーは常にオブジェクトを返し、
  * `null` はクライアントが取得前に持つ初期状態だけを表す。
  */
 export const CatalogResponseSchema = CatalogSchema.extend({
   builtinAgent: AgentDefSchema.nullable(),
+  builtinSkills: z.array(BuiltinSkillInfoSchema),
 });
 export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
 
@@ -509,13 +521,17 @@ export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
 const skillBodyShape = {
   name: z.string().optional(),
   description: z.string().optional(),
-  prompt: z.string().optional(),
+  body: z.string().optional(),
 };
 
 export const CreateSkillBodySchema = z.object(skillBodyShape);
 export type CreateSkillBody = z.infer<typeof CreateSkillBodySchema>;
 
-export const UpdateSkillBodySchema = z.object(skillBodyShape);
+/**
+ * 更新は旧フィールド名 `prompt` を明示的に拒否する。未知キーとして strip すると「`body` のキー省略」
+ * に化け、本文が変わらないまま 200 を返して成功と誤認させる (作成は `body` 必須なので同じ入力でも 400)。
+ */
+export const UpdateSkillBodySchema = z.object({ ...skillBodyShape, prompt: z.never().optional() });
 export type UpdateSkillBody = z.infer<typeof UpdateSkillBodySchema>;
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,12 @@ export type UseRuntimeCatalogParams = {
 
 export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   const [health, setHealth] = useState<Health | null>(null);
-  const [catalog, setCatalog] = useState<CatalogResponse>({ builtinAgent: null, agents: [], skills: [] });
+  const [catalog, setCatalog] = useState<CatalogResponse>({
+    builtinAgent: null,
+    builtinSkills: [],
+    agents: [],
+    skills: [],
+  });
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");
 

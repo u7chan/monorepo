@@ -1,7 +1,7 @@
 import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
-import type { AgentDef, AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../../types";
+import type { AgentDef, AgentSuggestion, CatalogResponse, ModelOption, ModelRef, ThinkingLevel } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { CheckIcon, TrashIcon } from "../icons";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
@@ -52,7 +52,7 @@ export function AgentEditorForm({
   onNote,
   onDone,
 }: {
-  catalog: Catalog;
+  catalog: CatalogResponse;
   editingId: string | null;
   agent: AgentDef | undefined;
   form: AgentForm;
@@ -63,7 +63,7 @@ export function AgentEditorForm({
   modelOptions: ModelOption[];
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
-  refreshCatalog: () => Promise<Catalog>;
+  refreshCatalog: () => Promise<CatalogResponse>;
   onSelectAgent: (agentId: string | null) => void;
   onNote: (text: string, error?: boolean) => void;
   /** 保存 / 削除が成功したときに呼ぶ */
@@ -270,7 +270,12 @@ export function AgentEditorForm({
                   />
                 </div>
                 <div className="grid min-w-0 content-start gap-2.5">
-                  <SkillSelector skills={catalog.skills} selectedIds={form.skillIds} onToggle={toggleSkill} />
+                  <SkillSelector
+                    skills={catalog.skills}
+                    builtinSkills={catalog.builtinSkills}
+                    selectedIds={form.skillIds}
+                    onToggle={toggleSkill}
+                  />
                   <SuggestionsEditor
                     suggestions={form.suggestions}
                     onChange={changeSuggestion}

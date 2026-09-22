@@ -19,7 +19,7 @@ export const BACKUP_TARGETS: BackupTarget[] = [
   {
     id: "definitions",
     label: "エージェントとスキル",
-    description: "会話の役割と、割り当てる指示の定義",
+    description: "エージェントの役割と、スキル本文の定義",
     store: "サーバーのメモリ",
     ready: true,
   },

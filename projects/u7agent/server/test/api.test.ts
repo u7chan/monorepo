@@ -844,13 +844,17 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
-    // ビルトインは別フィールドで返り、置換対象の agents には含まれない
+    // ビルトインは別フィールドで返り、置換対象の agents には含まれない。初期状態のユーザー定義はずんだもんだけ
     assert.deepEqual(initial.builtinAgent.suggestions, [
       { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
       { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
       { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
     ]);
-    assert.deepEqual(initial.agents, []);
+    assert.deepEqual(
+      initial.agents.map((agent: { id: string }) => agent.id),
+      ["agent-zundamon"],
+    );
+    assert.equal(Object.hasOwn(initial.agents[0], "suggestions"), false);
 
     // suggestions を省略した作成はキーごと落ちる
     const plain = await app.request("/api/agents", jsonPost({ name: "定型なし" }));
@@ -925,7 +929,10 @@ test("catalog endpoints round-trip agent icons", async () => {
       body: JSON.stringify({ agents: reloaded.agents, skills: reloaded.skills }),
     });
     assert.equal(replaced.status, 200);
-    assert.equal((await jsonBody(replaced)).agents[0].icon, icon);
+    assert.equal(
+      (await jsonBody(replaced)).agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon,
+      icon,
+    );
 
     // 形式違いは catalog が 400 で断り、16 KiB 超も 400 で既存値を変えない
     const wrongMime = await app.request(
@@ -1039,11 +1046,15 @@ test("組み込みスキルはカタログの export / import とスキル一覧
   const { app } = bff;
   try {
     const builtinNames = BUILTIN_SKILLS.map((skill) => skill.name);
-    const catalog = (await jsonBody(app.request("/api/agents"))) as { skills: Array<{ name: string }> };
-    assert.ok(catalog.skills.length > 0, "カタログにはサンプルのスキルがある");
+    const catalog = (await jsonBody(app.request("/api/agents"))) as {
+      skills: Array<{ name: string }>;
+      builtinSkills: Array<{ name: string; description: string }>;
+    };
+    // カタログのスキルは 0 件から始まり、組み込みは別フィールドで全件が返る
+    assert.deepEqual(catalog.skills, []);
     assert.deepEqual(
-      catalog.skills.map((skill) => skill.name).filter((name) => builtinNames.includes(name)),
-      [],
+      catalog.builtinSkills,
+      BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
     );
     const skills = (await jsonBody(app.request("/api/skills"))) as { skills: Array<{ name: string }> };
     assert.deepEqual(
@@ -1059,6 +1070,34 @@ test("組み込みスキルはカタログの export / import とスキル一覧
     });
     assert.equal(replaced.status, 200);
     assert.deepEqual((await jsonBody(app.request("/api/agents"))).skills, []);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("初期状態はスキル 0 件で、ずんだもんは通常のユーザー定義として削除できる", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const initial = await jsonBody(app.request("/api/agents"));
+    assert.deepEqual(initial.skills, []);
+    assert.deepEqual(
+      initial.agents.map((agent: { id: string }) => agent.id),
+      ["agent-zundamon"],
+    );
+    assert.match(initial.agents[0].systemPrompt, /なのだ/);
+    assert.deepEqual(initial.agents[0].skillIds, []);
+
+    // ビルトインと同じ応答形で返り、DELETE も通常の定義と同じく通る
+    const deleted = await app.request("/api/agents/agent-zundamon", { method: "DELETE" });
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await jsonBody(deleted), { ok: true });
+    assert.deepEqual((await jsonBody(app.request("/api/agents"))).agents, []);
+
+    // セッションの既定はビルトインが担うので、削除後も作成できる
+    const created = await app.request("/api/sessions", jsonPost({}));
+    assert.equal(created.status, 201);
+    assert.equal((await jsonBody(created)).agent.id, "agent-general");
   } finally {
     await bff.close();
   }
@@ -1135,22 +1174,40 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
 
     const createdSkill = await app.request(
       "/api/skills",
-      jsonPost({ name: "スキル", description: "説明", prompt: "プロンプト" }),
+      jsonPost({ name: "スキル", description: "説明", body: "本文" }),
     );
     assert.equal(createdSkill.status, 201);
-    const skillPath = `/api/skills/${(await jsonBody(createdSkill)).skill.id}`;
+    const createdSkillId = (await jsonBody(createdSkill)).skill.id;
+    const skillPath = `/api/skills/${createdSkillId}`;
 
-    const updatedSkill = await app.request(skillPath, jsonPatch({ prompt: "変更後" }));
+    const updatedSkill = await app.request(skillPath, jsonPatch({ body: "変更後" }));
     assert.equal(updatedSkill.status, 200);
-    assert.equal((await jsonBody(updatedSkill)).skill.name, "スキル");
+    const updatedSkillBody = await jsonBody(updatedSkill);
+    assert.equal(updatedSkillBody.skill.name, "スキル");
+    assert.equal(updatedSkillBody.skill.body, "変更後");
 
-    const invalidSkill = await app.request(skillPath, jsonPatch({ prompt: 1 }));
+    const invalidSkill = await app.request(skillPath, jsonPatch({ body: 1 }));
     assert.equal(invalidSkill.status, 400);
     assert.equal((await jsonBody(invalidSkill)).error, "Invalid request body");
 
-    const promptless = await app.request("/api/skills", jsonPost({ name: "プロンプトなし" }));
-    assert.equal(promptless.status, 400);
-    assert.equal((await jsonBody(promptless)).error, "Skill name and prompt are required");
+    // 旧フィールド名 prompt は未知キーとして捨てず 400 にする (本文が変わらないまま 200 で成功と誤認させない)
+    for (const method of ["PATCH", "PUT"] as const) {
+      const legacyPrompt = await app.request(skillPath, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "旧本文" }),
+      });
+      assert.equal(legacyPrompt.status, 400, method);
+      assert.equal((await jsonBody(legacyPrompt)).error, "Invalid request body");
+    }
+    const skillsAfterLegacy = (await jsonBody(app.request("/api/skills"))) as {
+      skills: Array<{ id: string; body: string }>;
+    };
+    assert.equal(skillsAfterLegacy.skills.find((skill) => skill.id === createdSkillId)?.body, "変更後");
+
+    const bodyless = await app.request("/api/skills", jsonPost({ name: "本文なし" }));
+    assert.equal(bodyless.status, 400);
+    assert.equal((await jsonBody(bodyless)).error, "Skill name and body are required");
   } finally {
     await bff.close();
   }
@@ -1187,18 +1244,15 @@ test("catalog CRUD reads the JSON body whatever the request Content-Type is", as
     assert.equal(spacedJson.status, 200);
     assert.equal((await jsonBody(spacedJson)).agent.systemPrompt, "役割を変える");
 
-    const createdSkill = await app.request(
-      "/api/skills",
-      jsonPost({ name: "型テスト用スキル", prompt: "元のプロンプト" }),
-    );
+    const createdSkill = await app.request("/api/skills", jsonPost({ name: "型テスト用スキル", body: "元の本文" }));
     assert.equal(createdSkill.status, 201);
     const skillPath = `/api/skills/${(await jsonBody(createdSkill)).skill.id}`;
     const skill = await app.request(skillPath, {
       method: "PATCH",
-      body: new TextEncoder().encode(JSON.stringify({ prompt: "プロンプトを変える" })),
+      body: new TextEncoder().encode(JSON.stringify({ body: "本文を変える" })),
     });
     assert.equal(skill.status, 200);
-    assert.equal((await jsonBody(skill)).skill.prompt, "プロンプトを変える");
+    assert.equal((await jsonBody(skill)).skill.body, "本文を変える");
 
     // 形・型の検証も Content-Type に依らない
     const invalid = await app.request(agentPath, {
