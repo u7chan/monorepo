@@ -123,6 +123,9 @@ export interface StubSessionEntry {
     errorMessage?: string;
     timestamp?: number;
     usage?: unknown;
+    /** role "toolResult" のとき: 対応する toolCall の id と成否 */
+    toolCallId?: string;
+    isError?: boolean;
   };
   /** type === "compaction" */
   summary?: string;
@@ -154,6 +157,8 @@ export interface StubCompactionOptions {
 
 export interface StubSession extends PiSessionLike {
   emit(event: PiSessionEvent): void;
+  /** entry へ積むのと同時に agent state (messages) へも入れる (SDK の append と同じ参照を保つ) */
+  appendMessage(message: NonNullable<StubSessionEntry["message"]>): StubSessionEntry;
   abortRequested: boolean;
   disposed: boolean;
   /** SDK のモデル切替時の既定 thinking (setModel が上書きする値) */

@@ -7,6 +7,7 @@ import type {
   MessageMetrics,
   RunStatus,
   SessionPayload,
+  SkillLoad,
   ThinkingLevel,
   ToolCall,
   Usage,
@@ -20,6 +21,8 @@ export type ToolCard = {
   args: string;
   phase: ToolPhase;
   output: string;
+  /** スキル読み込みのときだけ載る (履歴 / ライブのどちらから来ても同じ DTO) */
+  skill?: SkillLoad;
 };
 
 export type Bubble = {
@@ -27,6 +30,8 @@ export type Bubble = {
   role: "user" | "assistant";
   text: string;
   tools: ToolCard[];
+  /** このバブルに出す導出行 (繰り上げ分を含む。カードと重複する分は表示側で落とす) */
+  skillLoads: SkillLoad[];
   at?: number;
   usage?: Usage;
   metrics?: MessageMetrics;
@@ -71,7 +76,7 @@ export type ChatAction =
   /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
-  | { type: "toolStart"; id: string; name: string; args: string; at: number }
+  | { type: "toolStart"; id: string; name: string; args: string; skill?: SkillLoad; at: number }
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
@@ -112,7 +117,7 @@ function canonicalUserText(text: string): string {
 }
 
 function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
-  const bubble: Bubble = { id: state.nextId, role, text, tools: [], at };
+  const bubble: Bubble = { id: state.nextId, role, text, tools: [], skillLoads: [], at };
   return {
     ...state,
     bubbles: [...state.bubbles, bubble],
@@ -162,12 +167,14 @@ function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
   };
 }
 
-function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: Bubble[]; nextId: number } {
+/** 履歴の 1 メッセージを 1 バブルへ。skillLoads を写し忘れると導出行が黙って消える */
+export function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: Bubble[]; nextId: number } {
   const bubbles: Bubble[] = messages.map((message) => ({
     id: nextId++,
     role: message.role,
     text: message.text,
     tools: [],
+    skillLoads: message.skillLoads ?? [],
     at: message.at,
     usage: message.usage,
     metrics: message.metrics,
@@ -184,6 +191,7 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
       args: call.args,
       phase: call.done ? (call.isError ? "failed" : "done") : "running",
       output: call.output,
+      ...(call.skill ? { skill: call.skill } : {}),
     };
     next = {
       ...updateBubble(next, bubbleId, (b) => ({ ...b, tools: [...b.tools, card] })),
@@ -318,6 +326,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           args: action.args || "",
           phase: "running",
           output: "",
+          ...(action.skill ? { skill: action.skill } : {}),
         },
         action.at,
       );

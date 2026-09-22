@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import type { ChatAction } from "../src/hooks/chatReducer";
+import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
 import {
   applySessionEvent,
   isSseSilent,
@@ -78,6 +78,21 @@ test("routes text events to the chat reducer", () => {
   applySessionEvent({ seq: 1, type: "text", data: { delta: "hi" }, at: 7 }, deps);
 
   assert.deepEqual(record.actions, [{ type: "text", delta: "hi", at: 7 }]);
+});
+
+test("routes the skill load from tool_start events to the chat reducer", () => {
+  const { record, deps } = createHarness();
+  const skill = { id: "call-1", name: "gh", path: "/work/.agents/skills/gh/SKILL.md", offset: 5, limit: 3 };
+
+  applySessionEvent(
+    { seq: 1, type: "tool_start", data: { id: "call-1", name: "read", args: skill.path, skill }, at: 7 },
+    deps,
+  );
+
+  // 型が optional のため、経路の写し忘れはコンパイルでは検出できない (ここで固定する)
+  assert.deepEqual(record.actions, [{ type: "toolStart", id: "call-1", name: "read", args: skill.path, skill, at: 7 }]);
+  const state = record.actions.reduce(chatReducer, initialChatState);
+  assert.deepEqual(state.bubbles[0].tools[0].skill, skill, "reducer まで通って ToolCard に載る");
 });
 
 test("applies resync snapshots without dispatching chat actions", () => {

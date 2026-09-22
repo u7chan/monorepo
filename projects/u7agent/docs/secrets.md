@@ -9,6 +9,7 @@
 - ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta）はマスクする
 - 会話は BFF 専用ストアの `session.jsonl` / `meta.json` に保存される。生のユーザー入力・モデル出力を含むが、ツール出力は LLM・履歴へ渡す前にマスクされるため保存後も `[REDACTED]` のままになる。ストアはサンドボックスへマウントしない（[persistence.md](persistence.md)）
 - ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
+- スキル読み込みの導出値（`ChatMessage.skillLoads[].name` / `path`、`ToolCall.skill.name` / `path`）もマスクしてから配る。ただし basename の判定は raw path で行う必要があるため、**解決 → 分類 → mask** の順を守る（先にマスクすると、`/` を含む秘密値で `SKILL.md` 判定が壊れ、行ごと消える）
 
 ## レイヤー
 
@@ -40,7 +41,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/sandbox-client.test.ts` — NDJSON 解釈（start/update/result/error）、abort 時の cancel エンドポイント発火と `Operation aborted`、HTTP エラーの文言変換
 - `server/test/secret-guard.test.ts` — リモート定義を包むマスカーの出力マスク、途中出力とエラーのマスク、SDKの切り詰めで先頭が欠けたケース、実SDKのgrepで行切り詰め境界に跨った断片のマスク、`tool_result` 拡張
 - `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
-- `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと
+- `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと。スキル読み込みの `ToolCall.skill` / `ChatMessage.skillLoads` も対象
 
 ## 残存リスク
 

@@ -70,6 +70,68 @@ async function readMeta(id: string, storeDir: string): Promise<Record<string, un
 }
 
 /**
+ * スキル読み込み (read + SKILL.md) を、本文を持たない assistant ターンとして JSONL へ足す。
+ * 復元後に導出行が繰り上げ先 (同ターン内の次の表示メッセージ) へ出ることを固定するための入力。
+ */
+async function appendSkillReadTurn(id: string, storeDir: string): Promise<void> {
+  const file = sessionJsonlPath(id, storeDir);
+  const parsed = parseSessionFile(await readFile(file, "utf8"), id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  const at = new Date().toISOString();
+  const turn = [
+    {
+      type: "message",
+      id: "entry-skill-user",
+      parentId: parsed.entries.at(-1)?.id ?? null,
+      timestamp: at,
+      message: { role: "user", content: "スキルを読んで", timestamp: Date.now() },
+    },
+    {
+      type: "message",
+      id: "entry-skill-call",
+      parentId: "entry-skill-user",
+      timestamp: at,
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "call-skill",
+            name: "read",
+            arguments: { path: ".agents/skills/gh/SKILL.md", offset: 3, limit: 4 },
+          },
+        ],
+        stopReason: "stop",
+        timestamp: Date.now(),
+      },
+    },
+    {
+      type: "message",
+      id: "entry-skill-result",
+      parentId: "entry-skill-call",
+      timestamp: at,
+      message: {
+        role: "toolResult",
+        toolCallId: "call-skill",
+        toolName: "read",
+        content: [{ type: "text", text: "スキル本文" }],
+        isError: false,
+        timestamp: Date.now(),
+      },
+    },
+    {
+      type: "message",
+      id: "entry-skill-answer",
+      parentId: "entry-skill-result",
+      timestamp: at,
+      message: { role: "assistant", content: [{ type: "text", text: "読みました" }], timestamp: Date.now() },
+    },
+  ];
+  await writeFile(file, serializeSession(parsed.header, [...parsed.entries, ...turn]));
+}
+
+/**
  * 本文を持たない (ツール呼び出しだけの) assistant ターンを JSONL へ足す。
  * 履歴には残るが表示メッセージには数えないため、messageCount が 2 つの定義でずれる入力になる。
  */
@@ -222,6 +284,49 @@ test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復
     assert.ok(restored);
     assert.equal(store3.summary(restored).messageCount, live, "復元後の summary も同じ値");
     await store3.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("store 経由で復元してもスキル読み込みが同じ位置に出る", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-skill-load-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const created = await store1.create();
+    await store1.flush(created);
+    await store1.close();
+
+    await appendSkillReadTurn(created.id, storeDir);
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const record = await store2.resolve(created.id);
+    assert.ok(record);
+    const payload = store2.payload(record);
+
+    assert.deepEqual(
+      payload.messages.map((message) => [message.role, message.text]),
+      [
+        ["user", "スキルを読んで"],
+        ["assistant", "読みました"],
+      ],
+      "本文を持たない read ターンはバブルにしない",
+    );
+    assert.deepEqual(payload.messages[1].skillLoads, [
+      {
+        id: "call-skill",
+        name: "gh",
+        path: `/tmp/project/${record.workdir}/.agents/skills/gh/SKILL.md`,
+        offset: 3,
+        limit: 4,
+      },
+    ]);
+    assert.equal(store2.summary(record).messageCount, payload.messages.length, "復元後も表示メッセージ数は同じ");
+    await store2.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });
   }

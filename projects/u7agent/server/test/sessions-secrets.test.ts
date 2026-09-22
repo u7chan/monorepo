@@ -27,7 +27,15 @@ function createScriptedSession(run: RunScript): ScriptedSession {
     sessionId: "pi-scripted",
     model: { provider: "stub", id: "stub-model" },
     thinkingLevel: "low",
-    messages: [] as Array<{ role: string; content: unknown; stopReason?: string; errorMessage?: string }>,
+    messages: [] as Array<{
+      role: string;
+      content: unknown;
+      stopReason?: string;
+      errorMessage?: string;
+      /** role "toolResult" のとき */
+      toolCallId?: string;
+      isError?: boolean;
+    }>,
     isStreaming: false,
     abortRequested: false,
     disposed: false,
@@ -180,6 +188,13 @@ test("tool args and output (shell and non-shell) are masked in events and payloa
       args: { path: `/tmp/${KEY}.txt` },
       output: `file body ${KEY}`,
     });
+    // スキル読み込み (basename が SKILL.md) も同じ経路でマスクされる
+    emitToolEnd(s, {
+      id: "call-3",
+      name: "read",
+      args: { path: `/tmp/${KEY}/SKILL.md` },
+      output: `skill body ${KEY}`,
+    });
     settle(s);
   });
   const { store, events } = createStore(session);
@@ -191,8 +206,8 @@ test("tool args and output (shell and non-shell) are masked in events and payloa
 
   const toolStarts = events.filter((entry) => entry.type === "tool_start");
   const toolEnds = events.filter((entry) => entry.type === "tool_end");
-  assert.equal(toolStarts.length, 2);
-  assert.equal(toolEnds.length, 2);
+  assert.equal(toolStarts.length, 3);
+  assert.equal(toolEnds.length, 3);
   const payload = store.payload(record);
   assertNoRawKey(events, payload, "tool surfaces");
   // マスク後の形も確認する
@@ -201,6 +216,56 @@ test("tool args and output (shell and non-shell) are masked in events and payloa
     true,
   );
   assert.ok(payload.run?.toolCalls.every((call) => !call.output.includes(KEY)));
+  assert.deepEqual(
+    payload.run?.toolCalls.find((call) => call.id === "call-3")?.skill,
+    { id: "call-3", name: REDACTED, path: `/tmp/${REDACTED}/SKILL.md` },
+    "スキル読み込みの DTO も素通ししない",
+  );
+});
+
+test("スキル読み込みの導出行 (履歴) もマスクされる", async () => {
+  const skillPath = `/tmp/${KEY}/SKILL.md`;
+  const session = createScriptedSession(async (s) => {
+    s.emit({ type: "agent_start" });
+    const assistant = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "読みます" },
+        { type: "toolCall", id: "call-skill", name: "read", arguments: { path: skillPath } },
+      ],
+      stopReason: "stop",
+    };
+    s.messages.push(assistant);
+    s.emit({ type: "message_end", message: assistant });
+    s.emit({ type: "tool_execution_start", toolCallId: "call-skill", toolName: "read", args: { path: skillPath } });
+    s.messages.push({
+      role: "toolResult",
+      content: [{ type: "text", text: "body" }],
+      toolCallId: "call-skill",
+      isError: false,
+    });
+    s.emit({
+      type: "tool_execution_end",
+      toolCallId: "call-skill",
+      toolName: "read",
+      isError: false,
+      result: { content: [{ type: "text", text: "body" }] },
+    });
+    settle(s);
+  });
+  const { store, events } = createStore(session);
+  const record = await store.create();
+  store.subscribe(record, undefined, (entry) => events.push(entry));
+
+  store.postMessage(record, "スキルを読んで");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const payload = store.payload(record);
+  assertNoRawKey(events, payload, "skill loads");
+  assert.deepEqual(payload.messages.at(-1)?.skillLoads, [
+    { id: "call-skill", name: REDACTED, path: `/tmp/${REDACTED}/SKILL.md` },
+  ]);
+  await store.close();
 });
 
 test("error messages are masked before run_end and status events", async () => {

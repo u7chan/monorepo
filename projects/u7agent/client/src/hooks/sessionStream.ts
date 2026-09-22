@@ -48,7 +48,14 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
       return;
     case "tool_start":
-      dispatch({ type: "toolStart", id: entry.data.id, name: entry.data.name, args: entry.data.args, at: entry.at });
+      dispatch({
+        type: "toolStart",
+        id: entry.data.id,
+        name: entry.data.name,
+        args: entry.data.args,
+        skill: entry.data.skill,
+        at: entry.at,
+      });
       return;
     case "tool_end":
       dispatch({ type: "toolEnd", id: entry.data.id, isError: entry.data.isError, output: entry.data.output });

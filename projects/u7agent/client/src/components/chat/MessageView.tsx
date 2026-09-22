@@ -4,10 +4,12 @@ import { cn } from "../../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
+import type { SkillLoad } from "../../types";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
 import { SkillInvocation } from "./SkillInvocation";
+import { SkillLoadList } from "./SkillLoadList";
 import { ToolHistoryView } from "./ToolHistory";
 
 function UserIcon() {
@@ -30,6 +32,7 @@ function UserIcon() {
 
 export function MessageView({
   bubble,
+  skillLoads,
   copied,
   compact,
   rootCwd,
@@ -40,6 +43,8 @@ export function MessageView({
   onCopyAll,
 }: {
   bubble: Bubble;
+  /** 全バブル横断の dedup 済み (カードと同じ呼び出しの導出行は ChatArea が落とす) */
+  skillLoads: SkillLoad[];
   copied: boolean;
   compact: boolean;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
@@ -84,6 +89,7 @@ export function MessageView({
         <div className={cn("text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1")}>
           {isUser ? "あなた" : "アシスタント"}
         </div>
+        {!isUser ? <SkillLoadList loads={skillLoads} compact={compact} /> : null}
         {!isUser && bubble.tools.length > 0 ? (
           <ToolHistoryView
             cards={bubble.tools}
