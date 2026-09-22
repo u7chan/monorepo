@@ -23,6 +23,8 @@ export function effortLabel(level: string): string {
 export type ComposerSettings = {
   modelOptions: ModelOption[];
   model?: string;
+  /** 状態行に出す表示名 (候補を引ければ ModelOption.name、引けなければ provider/id) */
+  modelLabel?: string;
   thinkingLevel?: string;
   supportsThinking: boolean;
   thinkingLevels: ThinkingLevel[];
@@ -72,6 +74,8 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   return {
     modelOptions,
     model,
+    // 状態行の表示名も同じ 1 回の解決から出す (ピッカーを閉じていても実効モデルが分かるように)
+    modelLabel: model ? (option?.name ?? model) : undefined,
     thinkingLevel: inSession ? chat.sessionThinkingLevel : pendingThinkingLevel,
     supportsThinking: inSession ? chat.supportsThinking : (option?.supportsThinking ?? true),
     thinkingLevels: inSession ? chat.availableThinkingLevels : (option?.thinkingLevels ?? ALL_THINKING_LEVELS),

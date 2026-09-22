@@ -41,9 +41,13 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 - compact の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`text-md`。このテーマは色トークンに `base` があるため Tailwind の `text-base` は使えないので、`@theme` で 16px を `--text-md` に当てている）。設定ページのフォームは従来のサイズのまま（compact の「外観」のテーマ選択だけは 16px）
 - 選択欄（select）は `SelectField` で包む。ブラウザ既定のドロップダウン矢印は余白を制御できず右端に寄りすぎるため、自前の chevron（右端から 10px、右余白 32px）に置換している。幅と伸縮は wrapper 側のクラスで決める
 
-Composer の活動行は、実行中だけスピナーと経過時間を出す（起点は reducer の `runStartedAt`、表記は `client/src/lib/elapsed.ts` の `formatElapsed`。詳細は [frontend.md](frontend.md#チャット状態とレンダリング)）。行の高さは `min-h-5.25` のままで変わらないが、スピナーの出入りで活動テキストの左端は動く。
+Composer の状態行（`client/src/components/composer/ComposerStatus.tsx`）は、活動テキスト / 使用中モデル / Context ゲージ を右端寄せの 1 行に置く。実行中はスピナーと経過時間を足す（起点は reducer の `runStartedAt`、表記は `client/src/lib/elapsed.ts` の `formatElapsed`。詳細は [frontend.md](frontend.md#チャット状態とレンダリング)）。スピナーの出入りで活動テキストの左端は動く。
 
-Context ゲージは compact でも絶対値 `(2.9k/272k)` まで出す（百分率だけではモデルの窓の大きさが読めないため）。ゲージは `shrink-0` で折り返さないので、狭い画面ではその分だけ活動テキストの幅が減り、長い活動テキスト（例: `実行中…（タブを閉じても処理は続きます）`）は 2 行に折り返す。`min-h-5.25` は下限なので、このとき活動行は 2 行ぶんの高さになる。
+モデル名はピッカーを畳んでいても実効モデルが分かるように常時出す。表記は `ModelOption.name`（候補を引けなければ `provider/id`。切り詰めたときの確認用に `provider/id` を `title` に持つ）。候補に無いモデルのときは warn 色にし、入力欄の下の警告文と役割を分ける（色は気付き、文は理由）。未作成チャットでは「これから使うモデル」をピッカーと同じ優先順位で出す（導出は `client/src/lib/composerSettings.ts` の `deriveComposerSettings`。セッション作成後に `resync` が返す実効値へ切り替わる。[model-effort.md](model-effort.md#クライアント側の表示)）。
+
+Context ゲージは compact でも絶対値 `(2.9k/272k)` まで出す（百分率だけではモデルの窓の大きさが読めないため）。行は `flex-wrap` で、モデル名を出すときだけ活動テキストに下限幅 `min-w-40`（160px）を置き、モデル名 + ゲージは 1 つの組にして右端へ寄せる。幅が足りなければ組が右寄せの 2 行目へ落ちる。ゲージだけを `shrink-0` で残してモデル名を活動テキストの隣に固定すると、390px では活動テキストが 8px 幅（1 文字ごとの縦長の柱）まで潰れるため、幅を譲る側を組の折り返しに寄せる。モデル名が無いとき（セッションもモデルも未解決）は下限幅も置かず、行の寸法は従来のまま。
+
+`min-h-5.25`（21px）は下限なので、折り返すと行は伸びる。実測（`text-2xs` = 10px、モデル名 `Claude Sonnet 4.5` = 92.2px、ゲージ = 176.7px。compact footer は `px-3`、行は `px-1`）では、実行中の活動テキスト `実行中…（タブを閉じても処理は続きます）` で 320px = 39.5px（モデル名なしは 138px）・390px = 39.5px（同 55.5px）・430px = 39.5px（同 39px）・500px = 39px（同 39px）・560〜600px = 39px（同 22.5px。ここだけ +16.5px）・700px 以上 = 22.5px（同 22.5px。landscape の 844px と desktop を含む）。560〜600px の増分は、組を同じ行に残したまま活動テキストが 2 行へ折り返す分。組を折り返すかは活動テキストの長さで決まる下限幅（160px）が決め、モデル名が長いときは 2 行目に収まらなければ名前だけを切り詰める（実測: `Claude Sonnet 4.5 Extended Thinking` = 188.9px は 320px で 143.3px に切り詰め）。
 
 assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は `max-w-[min(760px,86%)]`、compact は `max-w-full`）に広げる。ツール履歴の `border-y` と、その行右端のコピーボタンの x 位置が、ツール出力の伸長やメッセージの内容量で動かないようにするため。user のメッセージ列は内容幅のまま右寄せを保つ（`flex-1` を付けるとバブル背景が列幅まで広がる）。
 

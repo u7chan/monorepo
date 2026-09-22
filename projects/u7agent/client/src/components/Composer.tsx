@@ -7,7 +7,7 @@ import { skillCommandText } from "../lib/sessionSkills";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
-import { ContextGauge } from "./composer/ContextGauge";
+import { ComposerStatus } from "./composer/ComposerStatus";
 import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortControls";
 import { SkillPanel, SkillToggle } from "./composer/SkillField";
 
@@ -214,7 +214,14 @@ export function Composer({
         compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       )}
     >
-      <ContextGauge activity={activity} runningSince={runningSince} context={context} />
+      <ComposerStatus
+        activity={activity}
+        runningSince={runningSince}
+        context={context}
+        model={settings.model}
+        modelLabel={settings.modelLabel}
+        modelUnavailable={Boolean(settings.modelWarning)}
+      />
       <form
         onSubmit={handleSubmit}
         onDragOver={(event) => {
