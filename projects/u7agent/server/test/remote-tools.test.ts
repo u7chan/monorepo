@@ -191,20 +191,23 @@ test("read は仮想パスでない要求をサンドボックスへ委譲する
 });
 
 test("read はカタログスキルの仮想パスをセッションのスナップショットから返す", async () => {
-  const { calls, client } = stubClient();
   const body = "カタログの本文\n2 行目";
-  const read = readDefinition(client, join(ROOT, "proj"), [{ name: "writer", body }]);
+  // `..foo` は索引の仮想パスとしても正当 (`..` の脱出と混同しない)、日本語名は encoded セグメントで往復する
+  for (const name of ["writer", "..foo", "重要度順レビュー"]) {
+    const { calls, client } = stubClient();
+    const read = readDefinition(client, join(ROOT, "proj"), [{ name, body }]);
 
-  const result = (await read.execute(
-    "call-1",
-    { path: catalogSkillPath(ROOT, "writer") },
-    undefined,
-    undefined,
-    {} as never,
-  )) as { content: Array<{ text?: string }> };
+    const result = (await read.execute(
+      "call-1",
+      { path: catalogSkillPath(ROOT, name) },
+      undefined,
+      undefined,
+      {} as never,
+    )) as { content: Array<{ text?: string }> };
 
-  assert.equal(result.content[0]?.text, body);
-  assert.equal(calls.length, 0, "仮想パスはサンドボックスへ送らない");
+    assert.equal(result.content[0]?.text, body, name);
+    assert.equal(calls.length, 0, `${name}: 仮想パスはサンドボックスへ送らない`);
+  }
 });
 
 test("read はカタログの仮想パスでも offset / limit を守る", async () => {

@@ -157,6 +157,23 @@ test("resolveSessionSkills はサンドボックス無しでも組み込みと�
   );
 });
 
+test("resolveSessionSkills はカタログの location を encoded のまま、relativePath を表示用の名前にする", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-display-"));
+  const name = "重要度順レビュー";
+  const resolved = await resolveSessionSkills({
+    rootCwd: root,
+    relativeCwd: "proj",
+    promptSnapshot: { agent: "", skills: [`<agent_skill name="${name}">\n本文\n</agent_skill>`] },
+    agentSkills: [{ id: "skill-1", name, description: "指摘を重要度順に並べる" }],
+  });
+  const catalog = resolved.find((item) => item.info.scope === "catalog")?.info;
+
+  // read に渡す location は encoded の仮想パス、一覧の relativePath は人が読める元の名前
+  assert.equal(catalog?.location, catalogSkillPath(root, name));
+  assert.notEqual(catalog?.location, catalog?.relativePath);
+  assert.equal(catalog?.relativePath, `.u7agent/agent-skills/${name}/SKILL.md`);
+});
+
 /** 展開の共通入力。root 配下に project / common のスキルを持つサンドボックスを組む */
 function expansionFixture(options: { builtinOverridden?: boolean; previewError?: Error } = {}) {
   const root = mkdtempSync(join(tmpdir(), "u7agent-expand-"));

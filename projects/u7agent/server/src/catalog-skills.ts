@@ -35,9 +35,12 @@ export function catalogSkillPath(rootCwd: string, name: string): string {
   return resolve(rootCwd, CATALOG_SKILLS_DIR_REL, catalogSkillSegment(name), SKILL_FILE_NAME);
 }
 
-/** 表示用の root 相対パス。仮想パスは root 配下にしか作らないので常に相対で返る */
+/**
+ * 表示用の root 相対パス。セグメントは percent encoding せず元の名前で見せる (一覧は人が読むため)。
+ * `read` に渡す `location` は encoded のままにする (`catalogSkillPath`)。
+ */
 export function catalogSkillRelativePath(name: string): string {
-  return `${CATALOG_SKILLS_DIR_REL}/${catalogSkillSegment(name)}/${SKILL_FILE_NAME}`;
+  return `${CATALOG_SKILLS_DIR_REL}/${name}/${SKILL_FILE_NAME}`;
 }
 
 export interface CatalogSkillIndexEntry {
@@ -101,6 +104,18 @@ export function catalogSkillIndexForSession(
 }
 
 /**
+ * 解決済みの絶対パスがカタログスキルの仮想パスなら、表示用の名前 (デコード済み) を返す。対象外は
+ * undefined。一覧の `location` は read に渡す encoded のままでよいが、チャットの `[skill]` 行はパスから
+ * 名前を導出するため、ここで元の名前に戻す。
+ */
+export function catalogSkillNameFromPath(path: string): string | undefined {
+  const [parent, dir, segment, fileName] = path.split(/[\\/]/).slice(-4);
+  const [appDir, skillsDir] = CATALOG_SKILLS_DIR_REL.split("/");
+  if (parent !== appDir || dir !== skillsDir || fileName !== SKILL_FILE_NAME || !segment) return undefined;
+  return catalogSkillNameFromSegment(segment);
+}
+
+/**
  * read が要求したパスをカタログスキル名へ解決する。対象外は undefined (呼び出し側はサンドボックスへ委譲)。
  * 仮想パスはワークスペース root 配下にしか無いので、絶対パスは root からの相対で照合し、相対パスは
  * セッション cwd と root の両方を起点に試す (`..` で root へ上がる形も、`.u7agent/...` の root 相対も受ける)。
@@ -118,7 +133,8 @@ export function catalogSkillNameForRequestedPath(
     : [resolve(input.cwd, requested), resolve(input.rootCwd, requested)];
   for (const candidate of candidates) {
     const rel = relative(base, candidate);
-    if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
+    // `..` セグメントだけを脱出として弾く (`..foo` のような名前は仮想パスの正当なセグメント)
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
     const [segment, fileName, ...rest] = rel.split(sep);
     if (!segment || fileName !== SKILL_FILE_NAME || rest.length > 0) continue;
     return catalogSkillNameFromSegment(segment);

@@ -12,6 +12,7 @@ import {
   catalogSkillIndex,
   catalogSkillIndexForSession,
   catalogSkillNameForRequestedPath,
+  catalogSkillNameFromPath,
   catalogSkillPath,
   catalogSkillRelativePath,
 } from "../src/catalog-skills";
@@ -123,6 +124,9 @@ test("catalogSkillNameForRequestedPath は対象外のパスを解決しない",
     ".u7agent/agent-skills/writer/SKILL.md.bak",
     ".u7agent/agent-skills/writer/SKILL.md/extra",
     "/other/.u7agent/agent-skills/writer/SKILL.md",
+    // 置き場から `..` で抜ける要求は弾く (`..foo` のような名前とは区別する)
+    ".u7agent/agent-skills/../secret/SKILL.md",
+    `${ROOT}/.u7agent/agent-skills/../../SKILL.md`,
     ".u7agent/builtin-skills/skill-creator/SKILL.md",
     ".agents/skills/writer/SKILL.md",
     42,
@@ -134,11 +138,31 @@ test("catalogSkillNameForRequestedPath は対象外のパスを解決しない",
 
 test("catalogSkillPath はパス区切りを含む名前でも 1 セグメントに畳む", () => {
   // 名前をそのまま使うと置き場の外へ出るため、セグメントは percent encoding で逃がす
-  for (const name of ["a/b", "..", ".", "a\\b", "%2F"]) {
+  for (const name of ["a/b", "..", ".", "..foo", "...", "..foo/bar", "a\\b", "%2F", "重要度順レビュー"]) {
     const path = catalogSkillPath(ROOT, name);
     const segments = path.slice(`${ROOT}/.u7agent/agent-skills/`.length).split(sep);
     assert.deepEqual([segments.length, segments.at(-1)], [2, "SKILL.md"], `${name}: ${path}`);
     // 往復で元の名前に戻る (read の横取りが本文を引ける)
     assert.equal(catalogSkillNameForRequestedPath(path, { cwd: `${ROOT}/proj`, rootCwd: ROOT }), name);
+  }
+});
+
+test("catalogSkillNameFromPath は仮想パスのセグメントを表示用の名前に戻す", () => {
+  // `..foo` は脱出ではなく正当な名前なので、read の解決 (round-trip) と表示の両方で名前として扱う
+  for (const name of ["..foo", "...", "a/b", "重要度順レビュー"]) {
+    assert.equal(catalogSkillNameFromPath(catalogSkillPath(ROOT, name)), name);
+    // 一覧の relativePath は人が読む表示なので、encoded ではなく元の名前で見せる
+    assert.equal(catalogSkillRelativePath(name), `.u7agent/agent-skills/${name}/SKILL.md`);
+  }
+
+  // 仮想パスでないものは undefined (通常の親ディレクトリ名の導出に戻す)
+  for (const path of [
+    `${ROOT}/.agents/skills/writer/SKILL.md`,
+    `${ROOT}/.u7agent/agent-skills/writer/scripts/run.sh`,
+    `${ROOT}/.u7agent/agent-skills/SKILL.md`,
+    `${ROOT}/.u7agent/builtin-skills/skill-creator/SKILL.md`,
+    "SKILL.md",
+  ]) {
+    assert.equal(catalogSkillNameFromPath(path), undefined, path);
   }
 });

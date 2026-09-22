@@ -3,6 +3,7 @@
  * 秘密値のマスクは切り詰めより先に行う (逆順だと上限の境界でキーの末尾が欠け、大部分が生のまま残る)。
  */
 import { basename, dirname, resolve } from "node:path";
+import { catalogSkillNameFromPath } from "./catalog-skills";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { parseUsage } from "./pi-runtime";
@@ -148,8 +149,9 @@ export function classifySkillRead(
   if (fileName !== SKILL_FILE_NAME) return undefined;
   const ref: SkillReadRef = {
     path,
-    // ルート直下の SKILL.md は親ディレクトリ名が空になるため、pi と同じくファイル名へ落とす
-    name: basename(dirname(path)) || fileName,
+    // ルート直下の SKILL.md は親ディレクトリ名が空になるため、pi と同じくファイル名へ落とす。
+    // カタログの仮想パスはセグメントが percent encoding 済みなので、表示用の名前に戻す
+    name: catalogSkillNameFromPath(path) ?? (basename(dirname(path)) || fileName),
   };
   if (typeof record.offset === "number") ref.offset = record.offset;
   if (typeof record.limit === "number") ref.limit = record.limit;
