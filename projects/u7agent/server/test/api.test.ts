@@ -895,6 +895,63 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   }
 });
 
+test("catalog endpoints round-trip agent icons", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    /** PNG / webp の署名だけを持つ data URL (server は署名まで見る) */
+    const bodyWithSignature = (mime: "png" | "webp", bytes: number): string => {
+      const body = Buffer.alloc(bytes, 0);
+      if (mime === "png") Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(body);
+      else {
+        body.write("RIFF", 0, "latin1");
+        body.write("WEBP", 8, "latin1");
+      }
+      return `data:image/${mime};base64,${body.toString("base64")}`;
+    };
+
+    const icon = bodyWithSignature("webp", 32);
+    const created = await app.request("/api/agents", jsonPost({ name: "アイコンあり", icon }));
+    assert.equal(created.status, 201);
+    const createdAgent = (await jsonBody(created)).agent;
+    assert.equal(createdAgent.icon, icon);
+
+    // GET と PUT (バックアップの import) の往復でも残る
+    const reloaded = await jsonBody(app.request("/api/agents"));
+    assert.equal(reloaded.agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon, icon);
+    const replaced = await app.request("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agents: reloaded.agents, skills: reloaded.skills }),
+    });
+    assert.equal(replaced.status, 200);
+    assert.equal((await jsonBody(replaced)).agents[0].icon, icon);
+
+    // 形式違いは catalog が 400 で断り、16 KiB 超も 400 で既存値を変えない
+    const wrongMime = await app.request(
+      `/api/agents/${createdAgent.id}`,
+      jsonPatch({ icon: "data:image/svg+xml;base64,PHN2Zy8+" }),
+    );
+    assert.equal(wrongMime.status, 400);
+    assert.equal((await jsonBody(wrongMime)).error, "Icon must be a webp or png data URL");
+    const tooLarge = await app.request(
+      `/api/agents/${createdAgent.id}`,
+      jsonPatch({ icon: bodyWithSignature("png", 16 * 1024 + 1) }),
+    );
+    assert.equal(tooLarge.status, 400);
+    assert.equal((await jsonBody(tooLarge)).error, "Icon must be at most 16 KiB");
+    const afterReject = await jsonBody(app.request("/api/agents"));
+    assert.equal(afterReject.agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon, icon);
+
+    // null で解除すると応答からもキーが消える
+    const cleared = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ icon: null }));
+    assert.equal(cleared.status, 200);
+    assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "icon"), false);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("the built-in agent rejects updates, deletes and imports", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;

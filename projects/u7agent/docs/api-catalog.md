@@ -6,8 +6,8 @@
 | --- | --- | --- |
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧 |
 | PUT | `/api/agents` | エージェント（ユーザー定義）の定義をJSONで一括置換（ビルトインは含めない） |
-| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, model?, thinkingLevel?, suggestions? }` |
-| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
+| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, icon?, model?, thinkingLevel?, suggestions? }` |
+| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
@@ -101,6 +101,26 @@
 - 仮想パスへ `write` / `edit` するとサンドボックス側に実ファイルができるが、`read` は常に同梱の本文を返すため反映されない（`.u7agent` はアプリ用で git 管理外）。同梱物を変えるにはイメージを更新する
 - カタログ（`GET /api/agents` / `PUT /api/agents`）と `skillIds` の対象外。バックアップの `definitions` にも含まれない（[persistence.md](persistence.md#スキルの扱い)）
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
+
+## エージェント定義のアイコン
+
+エージェント定義には任意の `icon`（webp / png の data URL）を持たせられる。設定 → エージェント で画像を選ぶと、クライアントが 256×256 へ contain で縮小し、webp（返せない環境は png）へ再エンコードしてから `icon` として送る。元画像の形式・大きさは問わず、保存されるのは常にこの 1 経路の結果になる。
+
+- 受理するのは `data:image/webp;base64,` と `data:image/png;base64,` だけ。svg はスクリプトを持ち込めるため受理しない（jpeg / gif も常に再エンコードされるため受理しない）。
+- デコード後の生バイトは 16 KiB 以下。超過は 400（`Icon must be at most 16 KiB`）。body 上限が 64 KiB なので `systemPrompt` と同居できる。
+- 形式違いと非正規の base64（`AAA` のような端数、再エンコードと一致しない値）は 400。先頭の署名（PNG / `RIFF....WEBP`）までは見るが、最後までデコードできるかは見ない（クライアントが常に再エンコードするため実運用では一致し、表示側は読み込み失敗で `SparkleIcon` に落ちる）。`text()` の trim + slice は通さない（base64 を切ると壊れた画像が保存される）。
+- 未指定はキーを省略し、`null` は保存・応答に現れない。更新はキー省略で保持、`icon: null` で解除する（`model` / `thinkingLevel` と同じ規則）。
+- 取り込み（バックアップの `data.definitions`）も同じ正規化を通るため、export → import でそのまま往復する。
+- セッションはアイコンのスナップショットを持たない（`AgentPayloadInfo` は変更しない）。assistant の表示名は作成時のスナップショット（`SessionPayload.agent.name`）、アイコンは `agentId` からカタログを live 解決する。そのため定義を編集すると、既存セッションの名前は古いままアイコンだけが変わる。
+- 表示する場所は 設定一覧 / 設定エディタ / コンポーザー / セッション行 / assistant の吹き出し / firstview。未設定と画像の読み込み失敗は `✦`（`SparkleIcon`）へフォールバックする。
+
+```json
+{
+  "id": "agent-example",
+  "name": "コードレビュー",
+  "icon": "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoQABAABUB8JQBOgCHwAP7+4AAAAA=="
+}
+```
 
 ## エージェント定義の Model / Effort
 

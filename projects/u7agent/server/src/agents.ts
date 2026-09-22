@@ -82,6 +82,7 @@ function publicAgent(agent: AgentRecord): AgentDef {
     skillIds: [...agent.skillIds],
   };
   // 未指定の項目はキーを省略する (保存・応答に null は現れない)
+  if (agent.icon) result.icon = agent.icon;
   if (agent.model) result.model = { ...agent.model };
   if (agent.thinkingLevel) result.thinkingLevel = agent.thinkingLevel;
   if (agent.suggestions?.length) result.suggestions = agent.suggestions.map((suggestion) => ({ ...suggestion }));
@@ -106,6 +107,38 @@ function thinkingLevelOf(value: unknown): ThinkingLevel | undefined {
   const parsed = ThinkingLevelSchema.safeParse(typeof value === "string" ? value.trim() : value);
   if (!parsed.success) throw invalid(`Unknown thinking level: ${String(value)}`);
   return parsed.data;
+}
+
+/** svg はスクリプトを持ち込めるため受理せず、クライアントが再エンコードする webp と png だけにする */
+const ICON_DATA_URL = /^data:image\/(webp|png);base64,([A-Za-z0-9+/]+={0,2})$/;
+/** body 上限 (64 KiB) で systemPrompt と同居できる大きさ。client は 256×256 へ縮小してから送る */
+const ICON_MAX_BYTES = 16 * 1024;
+
+/**
+ * prefix が正しくても中身が別形式なら壊れた画像になるため、先頭の署名まで見る。
+ * 最後までデコードできるかは見ない (client が常に再エンコードするため実運用では一致する)。
+ */
+const ICON_SIGNATURES: Record<string, (bytes: Buffer) => boolean> = {
+  png: (bytes) => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  // RIFF....WEBP (4..8 はファイルサイズ)
+  webp: (bytes) =>
+    bytes.subarray(0, 4).toString("latin1") === "RIFF" && bytes.subarray(8, 12).toString("latin1") === "WEBP",
+};
+
+/**
+ * text() は使わない (trim + slice で base64 を切ると壊れた画像が保存される)。形式とデコード後の
+ * 大きさだけを検証する。undefined / null は未指定、形式違い・16 KiB 超は 400。
+ */
+function iconOf(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const match = typeof value === "string" ? ICON_DATA_URL.exec(value) : null;
+  if (typeof value !== "string" || !match) throw invalid("Icon must be a webp or png data URL");
+  const bytes = Buffer.from(match[2], "base64");
+  // 再エンコードと一致しない base64 は壊れた画像になる (余分な文字・誤った padding) ので弾く
+  if (bytes.length === 0 || bytes.toString("base64") !== match[2]) throw invalid("Icon must be valid base64");
+  if (bytes.length > ICON_MAX_BYTES) throw invalid(`Icon must be at most ${ICON_MAX_BYTES / 1024} KiB`);
+  if (!ICON_SIGNATURES[match[1]](bytes)) throw invalid(`Icon must contain a ${match[1]} image`);
+  return value;
 }
 
 /** 上限は 6 件。UI もこの値に合わせて「＋ 追加」を止める。 */
@@ -149,6 +182,7 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     name?: unknown;
     description?: unknown;
     systemPrompt?: unknown;
+    icon?: unknown;
     model?: unknown;
     thinkingLevel?: unknown;
     suggestions?: unknown;
@@ -162,9 +196,11 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     systemPrompt: text(record?.systemPrompt, ""),
     skillIds,
   };
+  const icon = iconOf(record?.icon);
   const model = modelRef(record?.model);
   const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
   const suggestions = normalizeSuggestions(record?.suggestions);
+  if (icon) agent.icon = icon;
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel;
   // 正規化して 0 件ならキーを省略する (解除もこの経路で成立する)

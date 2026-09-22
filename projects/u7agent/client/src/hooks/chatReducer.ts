@@ -55,6 +55,9 @@ export type ChatState = {
   activity: string;
   sessionModel?: string;
   sessionThinkingLevel?: string;
+  /** セッション作成時のエージェントのスナップショット (定義を編集しても既存セッションの表示は変わらない) */
+  sessionAgentId?: string;
+  sessionAgentName?: string;
   supportsThinking: boolean;
   availableThinkingLevels: ThinkingLevel[];
   context?: ContextUsage;
@@ -95,6 +98,8 @@ export const initialChatState: ChatState = {
   activity: "",
   sessionModel: undefined,
   sessionThinkingLevel: undefined,
+  sessionAgentId: undefined,
+  sessionAgentName: undefined,
   supportsThinking: false,
   availableThinkingLevels: [],
   context: undefined,
@@ -223,6 +228,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activity: "",
         sessionModel: payload.model,
         sessionThinkingLevel: payload.thinkingLevel,
+        sessionAgentId: payload.agent?.id,
+        sessionAgentName: payload.agent?.name,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
         context: payload.context,

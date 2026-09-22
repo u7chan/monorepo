@@ -4,6 +4,7 @@ import { cn } from "../../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
+import { AgentIcon } from "../AgentIcon";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
@@ -32,6 +33,8 @@ export function MessageView({
   bubble,
   copied,
   compact,
+  agentName,
+  agentIcon,
   rootCwd,
   onCopy,
   copiedId,
@@ -42,6 +45,10 @@ export function MessageView({
   bubble: Bubble;
   copied: boolean;
   compact: boolean;
+  /** assistant の表示名 (セッションのスナップショット)。未指定は従来の「アシスタント」 */
+  agentName?: string;
+  /** 未設定なら SparkleIcon へフォールバックする */
+  agentIcon?: string;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
   rootCwd: string;
   onCopy: (text: string) => void;
@@ -62,17 +69,18 @@ export function MessageView({
     <article
       className={cn("group/bubble flex min-w-0 animate-rise", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : "")}
     >
-      <div
-        className={cn(
-          "grid shrink-0 place-items-center rounded-lg font-bold",
-          compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
-          isUser
-            ? "order-2 bg-accent-bright text-on-accent"
-            : "border border-accent/25 bg-accent-wash text-accent-strong",
-        )}
-      >
-        {isUser ? <UserIcon /> : "✦"}
-      </div>
+      {isUser ? (
+        <div
+          className={cn(
+            "order-2 grid shrink-0 place-items-center rounded-lg bg-accent-bright font-bold text-on-accent",
+            compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
+          )}
+        >
+          <UserIcon />
+        </div>
+      ) : (
+        <AgentIcon icon={agentIcon} variant="bubble" compact={compact} />
+      )}
       {/* flex-1 は assistant だけ。user に付けるとバブル背景が列幅まで広がる */}
       <div
         className={cn(
@@ -82,7 +90,7 @@ export function MessageView({
         )}
       >
         <div className={cn("text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1")}>
-          {isUser ? "あなた" : "アシスタント"}
+          {isUser ? "あなた" : agentName || "アシスタント"}
         </div>
         {!isUser && bubble.tools.length > 0 ? (
           <ToolHistoryView

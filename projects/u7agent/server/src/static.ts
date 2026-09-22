@@ -19,7 +19,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
-const STATIC_CSP = "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'";
+// エージェントのアイコンは data URL を <img> で描くため、img-src だけ data: を許す (script-src は 'self' のまま)
+const STATIC_CSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'";
 
 /** SPA フォールバックの対象外にする prefix。`/api` と `/assets` そのものも含める (`/apix` とは区別する) */
 const FALLBACK_EXCLUDED_PREFIXES = ["/api", "/assets"];

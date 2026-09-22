@@ -15,6 +15,7 @@ import { Topbar } from "./components/Topbar";
 import { useU7Agent } from "./hooks/useU7Agent";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
+import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
@@ -105,6 +106,7 @@ export default function App() {
     activeSettingsSection: settingsSection,
     sessions: app.sessions,
     sessionId: app.sessionId,
+    agents: app.agents,
     projects: app.projects,
     selectedProjectId: app.selectedProjectId,
     newChat: app.newChat,
@@ -159,6 +161,10 @@ export default function App() {
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = app.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || app.selectedAgent?.name;
+  // 吹き出しの名前はセッションのスナップショット (resync が持つ)、アイコンはカタログから live 解決する。
+  // 未作成チャットでは選択中のエージェントを出し、作成後に payload の値へ切り替わる
+  const chatAgentName = app.chat.sessionAgentName || app.selectedAgent?.name;
+  const chatAgentIcon = agentIconOf(app.agents, app.chat.sessionAgentId ?? app.agentId);
 
   // 設定ページは main を丸ごと使う (チャットとは排他)。compact ではヘッダが CompactBar の代わりになるため、
   // 設定ページ間を移るための nav の導線をページへ渡す
@@ -210,6 +216,8 @@ export default function App() {
               compactions={app.chat.compactions}
               compact={compact}
               suggestions={app.selectedAgent?.suggestions}
+              agentName={chatAgentName}
+              agentIcon={chatAgentIcon}
               rootCwd={app.health?.cwd ?? ""}
               onSuggestion={handleSend}
             />

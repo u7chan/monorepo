@@ -36,6 +36,8 @@ export const AgentDefSchema = z.object({
   description: z.string(),
   systemPrompt: z.string(),
   skillIds: z.array(z.string()),
+  /** webp / png の data URL。未指定のときはキー自体を省略する (null は保存・応答に現れない) */
+  icon: z.string().optional(),
   // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
@@ -471,6 +473,7 @@ const agentBodyShape = {
   description: z.string().optional(),
   systemPrompt: z.string().optional(),
   skillIds: z.array(z.string()).nullish(),
+  icon: z.string().nullish(),
   model: ModelRefSchema.nullish(),
   thinkingLevel: ThinkingLevelSchema.nullish(),
   suggestions: z.array(AgentSuggestionSchema).nullish(),

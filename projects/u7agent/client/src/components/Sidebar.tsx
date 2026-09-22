@@ -14,6 +14,7 @@ export type SidebarProps = Omit<
     U7Agent,
     | "sessions"
     | "sessionId"
+    | "agents"
     | "projects"
     | "selectedProjectId"
     | "selectProject"
@@ -52,6 +53,7 @@ export function Sidebar({
   const {
     sessions,
     sessionId,
+    agents,
     projects,
     selectedProjectId,
     selectProject,
@@ -134,6 +136,7 @@ export function Sidebar({
                       key={group.project.id}
                       project={group.project}
                       sessions={group.sessions}
+                      agents={agents}
                       sessionId={sessionId}
                       selected={group.project.id === selectedProjectId}
                       open={!collapsed[group.project.id]}
@@ -174,6 +177,7 @@ export function Sidebar({
                     <SessionRow
                       key={item.sessionId}
                       item={item}
+                      agents={agents}
                       active={item.sessionId === sessionId}
                       onSelect={() => selectSession(item.sessionId)}
                       onDelete={() => deleteSession(item.sessionId)}
