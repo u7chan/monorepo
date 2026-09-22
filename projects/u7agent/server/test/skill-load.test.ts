@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
+import { catalogSkillPath } from "../src/catalog-skills";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import { classifySkillRead, displayableMessages, projectMessages } from "../src/session-projection";
 import type { EventEntry, MessageMetrics, SkillLoad } from "../src/schema";
@@ -87,6 +88,11 @@ test("classifySkillRead は解決後の basename だけで判定する", () => {
     path: `${CWD}/gh/SKILL.md`,
     name: "gh",
   });
+  // カタログの仮想パスはセグメントが percent encoding 済みなので、表示用の名前に戻す
+  assert.deepEqual(
+    classifySkillRead({ path: catalogSkillPath(CWD, "重要度順レビュー") }, { cwd: CWD, toolName: "read" }),
+    { path: catalogSkillPath(CWD, "重要度順レビュー"), name: "重要度順レビュー" },
+  );
   // offset / limit は数値のときだけ行範囲として持つ
   assert.deepEqual(classifySkillRead({ path: "gh/SKILL.md", offset: 5, limit: 3 }, { cwd: CWD, toolName: "read" }), {
     path: `${CWD}/gh/SKILL.md`,
@@ -353,6 +359,67 @@ test("ライブの ToolCall.skill は履歴の skillLoads と同じ値になる"
     offset: 5,
     limit: 3,
   };
+  const payload = store.payload(record);
+  assert.deepEqual(
+    payload.run?.toolCalls.map((call) => call.skill),
+    [expected],
+    "ライブの ToolCall.skill",
+  );
+  assert.deepEqual(payload.messages.at(-1)?.skillLoads, [expected], "履歴の skillLoads");
+  const toolStart = events.find((entry) => entry.type === "tool_start");
+  assert.deepEqual(toolStart?.data.skill, expected, "SSE の tool_start も同じ値");
+  await store.close();
+});
+
+test("カタログスキルの仮想パスを read するとライブ / 履歴の [skill] 行に出る", async () => {
+  // カタログは索引だけを system prompt へ渡し、本文は read で読む (仮想パスは BFF が横取りする)。
+  // パスは encoded のままだが、[skill] 行の名前は元の名前で見える (一覧と同じ)
+  const name = "重要度順レビュー";
+  const path = catalogSkillPath(CWD, name);
+  const args = { path };
+  const session = createScriptedSession((s) => {
+    s.emit({ type: "agent_start" });
+    const toolOnly = {
+      role: "assistant",
+      content: [readCall("call-1", path)],
+      stopReason: "stop",
+      timestamp: Date.now(),
+    };
+    s.messages.push(toolOnly);
+    s.emit({ type: "message_end", message: toolOnly });
+    s.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "read", args });
+    s.emit({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "read",
+      isError: false,
+      result: { content: [{ type: "text", text: "body" }] },
+    });
+    s.messages.push(toolResult("call-1"));
+    const answer = {
+      role: "assistant",
+      content: [text("読みました")],
+      stopReason: "stop",
+      timestamp: Date.now(),
+    };
+    s.messages.push(answer);
+    s.emit({ type: "message_end", message: answer });
+    s.emit({ type: "agent_settled" });
+  });
+  const store = new SessionStore({
+    pi: { createSession: async () => ({ session }) } as unknown as PiRuntimeLike,
+    catalog: createAgentCatalog(),
+    masker,
+    rootCwd: CWD,
+  });
+  const record = await store.create();
+  const events: EventEntry[] = [];
+  store.subscribe(record, undefined, (entry) => events.push(entry));
+
+  store.postMessage(record, "スキルを読んで");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const expected: SkillLoad = { id: "call-1", name, path };
   const payload = store.payload(record);
   assert.deepEqual(
     payload.run?.toolCalls.map((call) => call.skill),

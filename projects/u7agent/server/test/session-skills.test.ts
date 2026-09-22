@@ -8,6 +8,7 @@ import test from "node:test";
 import { parseSkillBlock, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { Hono } from "hono";
 import { createBffApp } from "../src/app";
+import { catalogSkillPath } from "../src/catalog-skills";
 import { BUILTIN_SKILLS, builtinSkillPath } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxSkillEntry } from "../src/sandbox/protocol";
@@ -134,8 +135,8 @@ test("resolveSessionSkills は project > user > builtin > catalog の順で一�
   assert.deepEqual(resolved[0]?.info.shadows, [commonPath]);
   assert.equal(resolved[0]?.info.relativePath, "proj/.agents/skills/shared/SKILL.md");
   assert.equal(resolved[2]?.info.relativePath, ".u7agent/builtin-skills/skill-creator/SKILL.md");
-  assert.equal(resolved[3]?.info.location, "catalog:shared");
-  assert.equal(resolved[3]?.info.relativePath, null);
+  assert.equal(resolved[3]?.info.location, catalogSkillPath(root, "shared"));
+  assert.equal(resolved[3]?.info.relativePath, ".u7agent/agent-skills/shared/SKILL.md");
   // 説明はセッションのエージェントスナップショットから引く (本文には説明が無い)
   assert.equal(resolved[4]?.info.description, "旧スナップショットの説明");
 });
@@ -154,6 +155,23 @@ test("resolveSessionSkills はサンドボックス無しでも組み込みと�
       ["only-catalog", "catalog"],
     ],
   );
+});
+
+test("resolveSessionSkills はカタログの location を encoded のまま、relativePath を表示用の名前にする", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-display-"));
+  const name = "重要度順レビュー";
+  const resolved = await resolveSessionSkills({
+    rootCwd: root,
+    relativeCwd: "proj",
+    promptSnapshot: { agent: "", skills: [`<agent_skill name="${name}">\n本文\n</agent_skill>`] },
+    agentSkills: [{ id: "skill-1", name, description: "指摘を重要度順に並べる" }],
+  });
+  const catalog = resolved.find((item) => item.info.scope === "catalog")?.info;
+
+  // read に渡す location は encoded の仮想パス、一覧の relativePath は人が読める元の名前
+  assert.equal(catalog?.location, catalogSkillPath(root, name));
+  assert.notEqual(catalog?.location, catalog?.relativePath);
+  assert.equal(catalog?.relativePath, `.u7agent/agent-skills/${name}/SKILL.md`);
 });
 
 /** 展開の共通入力。root 配下に project / common のスキルを持つサンドボックスを組む */
@@ -232,18 +250,18 @@ test("expandSkillCommand は引数なし・組み込み・カタログをそれ�
     `References are relative to ${dirname(builtinSkillPath(root, BUILTIN.name))}.\n\n${stripFrontmatter(BUILTIN.body).trim()}`,
   );
 
-  // カタログ: 実ファイルが無いので location は catalog:<name>、References 行は入れない
+  // カタログ: 実体の無い仮想パスを location にし、References 行は入れない (read は BFF が横取りする)
   const catalog = await expandSkillCommand("/skill:catalog-writer 続き", input);
   assert.deepEqual(parseSkillBlock(catalog), {
     name: "catalog-writer",
-    location: "catalog:catalog-writer",
+    location: catalogSkillPath(root, "catalog-writer"),
     content: "カタログの本文",
     userMessage: "続き",
   });
 
   // 旧スナップショット (<skill> タグ) も name 属性で引ける
   const legacy = await expandSkillCommand("/skill:legacy", input);
-  assert.equal(parseSkillBlock(legacy)?.location, "catalog:legacy");
+  assert.equal(parseSkillBlock(legacy)?.location, catalogSkillPath(root, "legacy"));
   assert.equal(parseSkillBlock(legacy)?.content, "旧タグの本文");
 });
 

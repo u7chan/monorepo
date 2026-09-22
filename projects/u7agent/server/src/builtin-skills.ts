@@ -164,11 +164,11 @@ export function builtinSkillForRequestedPath(
 }
 
 /**
- * read ツールと同じ整形 (offset / limit と「続きがある」注記)。同梱 SKILL.md は 51KB 未満なので、
- * バイト上限による切り詰めは扱わない (超えたら同梱物を分割する)。
+ * read ツールと同じ整形 (offset / limit と「続きがある」注記)。仮想パスの本文 (組み込み / カタログ) で
+ * 共有する。read のバイト上限による切り詰めは扱わない (組み込みは 51KB 未満、カタログは定義側の上限)。
  */
-export function formatBuiltinSkillBody(skill: BuiltinSkillDef, page: { offset?: number; limit?: number } = {}): string {
-  const lines = skill.body.split("\n");
+export function formatSkillBody(body: string, page: { offset?: number; limit?: number } = {}): string {
+  const lines = body.split("\n");
   const start = page.offset !== undefined && page.offset > 0 ? Math.max(0, page.offset - 1) : 0;
   if (start >= lines.length) {
     throw new Error(`Offset ${page.offset} is beyond end of file (${lines.length} lines total)`);
@@ -178,4 +178,9 @@ export function formatBuiltinSkillBody(skill: BuiltinSkillDef, page: { offset?: 
   const text = lines.slice(start, end).join("\n");
   const remaining = lines.length - end;
   return remaining > 0 ? `${text}\n\n[${remaining} more lines in file. Use offset=${end + 1} to continue.]` : text;
+}
+
+/** 同梱 SKILL.md の本文を read と同じ形で返す */
+export function formatBuiltinSkillBody(skill: BuiltinSkillDef, page: { offset?: number; limit?: number } = {}): string {
+  return formatSkillBody(skill.body, page);
 }

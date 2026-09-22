@@ -31,7 +31,12 @@ function sessionSkill(overrides: Partial<SessionSkillInfo> = {}): SessionSkillIn
 test("groupSessionSkills は優先順位の順にまとめ、空のスコープを出さない", () => {
   const groups = groupSessionSkills([
     sessionSkill({ name: "common", scope: "user" }),
-    sessionSkill({ name: "catalog", scope: "catalog", location: "catalog:catalog", relativePath: null }),
+    sessionSkill({
+      name: "catalog",
+      scope: "catalog",
+      location: `${ROOT}/.u7agent/agent-skills/catalog/SKILL.md`,
+      relativePath: ".u7agent/agent-skills/catalog/SKILL.md",
+    }),
     sessionSkill({ name: "proj", scope: "project" }),
     sessionSkill({ name: "builtin", scope: "builtin" }),
   ]);
@@ -56,12 +61,16 @@ test("skillCommandText は引数を続けて書けるよう末尾に空白を入
   assert.equal(skillCommandText("writer").trim(), "/skill:writer");
 });
 
-test("skillLocationLabel は root 配下を root 相対へ落とし、仮想の値はそのまま返す", () => {
+test("skillLocationLabel は root 配下を root 相対へ落とし、root の外の値はそのまま返す", () => {
   assert.equal(skillLocationLabel(ROOT, `${ROOT}/.agents/skills/a/SKILL.md`), ".agents/skills/a/SKILL.md");
   assert.equal(skillLocationLabel(`${ROOT}/`, `${ROOT}/x/SKILL.md`), "x/SKILL.md", "root の末尾スラッシュは無視する");
   assert.equal(skillLocationLabel(ROOT, "/elsewhere/x/SKILL.md"), "/elsewhere/x/SKILL.md", "root の外は絶対パスのまま");
-  assert.equal(skillLocationLabel(ROOT, "catalog:alpha"), "catalog:alpha");
-  assert.equal(skillLocationLabel("", "catalog:alpha"), "catalog:alpha", "root 未取得でも壊れない");
+  // 仮想パス (組み込み / カタログ) も root 配下なので root 相対になる
+  assert.equal(
+    skillLocationLabel(ROOT, `${ROOT}/.u7agent/agent-skills/alpha/SKILL.md`),
+    ".u7agent/agent-skills/alpha/SKILL.md",
+  );
+  assert.equal(skillLocationLabel("", `${ROOT}/x/SKILL.md`), `${ROOT}/x/SKILL.md`, "root 未取得でも壊れない");
 });
 
 test("sessionSkillWarning は使われない行と、隠している行をそれぞれ説明する", () => {
@@ -83,10 +92,17 @@ test("sessionSkillWarning は使われない行と、隠している行をそれ
   assert.equal(sessionSkillWarning(sessionSkill({ shadowed: true }), ROOT), SESSION_SKILL_SHADOWED_NOTE);
 });
 
-test("sessionSkillLocation はカタログを仮想の場所で示す", () => {
+test("sessionSkillLocation はカタログを仮想パスで示す", () => {
   assert.equal(sessionSkillLocation(sessionSkill(), ROOT), ".agents/skills/alpha/SKILL.md");
   assert.equal(
-    sessionSkillLocation(sessionSkill({ scope: "catalog", location: "catalog:alpha", relativePath: null }), ROOT),
-    "catalog:alpha",
+    sessionSkillLocation(
+      sessionSkill({
+        scope: "catalog",
+        location: `${ROOT}/.u7agent/agent-skills/alpha/SKILL.md`,
+        relativePath: ".u7agent/agent-skills/alpha/SKILL.md",
+      }),
+      ROOT,
+    ),
+    ".u7agent/agent-skills/alpha/SKILL.md",
   );
 });

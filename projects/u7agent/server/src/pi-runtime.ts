@@ -2,7 +2,7 @@
  * pi SDK の型が BFF の用途に合わない箇所を埋める互換層。SDK のイベント・SessionEntry・
  * AgentSession のうち BFF が使う分だけを写し、スタブや旧 SDK でも動くよう欠けたフィールドを許す。
  */
-import type { AgentDef, ContextUsage, ModelRef, SkillDef, ThinkingLevel, Usage } from "./schema";
+import type { AgentDef, AgentSkillInfo, ContextUsage, ModelRef, SkillDef, ThinkingLevel, Usage } from "./schema";
 import type { PromptSnapshot } from "./session-store";
 import { ContextUsageSchema, UsageSchema } from "./schema";
 
@@ -97,6 +97,8 @@ export interface PiRuntimeLike {
     entries?: unknown[];
     /** 復元時: 作成時のプロンプトスナップショット */
     promptSnapshot?: PromptSnapshot;
+    /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
+    agentSkills?: AgentSkillInfo[];
   }): Promise<{ session: unknown; promptSnapshot?: PromptSnapshot }>;
   /** availableModels との厳密一致。スタブでは未実装でもよい */
   resolveModel?(model: ModelRef): unknown;

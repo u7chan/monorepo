@@ -5,7 +5,16 @@
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff } from "../src/agent";
-import type { AgentDef, ContextUsage, ModelOption, ModelRef, SkillDef, ThinkingLevel, Usage } from "../src/schema";
+import type {
+  AgentDef,
+  AgentSkillInfo,
+  ContextUsage,
+  ModelOption,
+  ModelRef,
+  SkillDef,
+  ThinkingLevel,
+  Usage,
+} from "../src/schema";
 import type { PiSessionEvent, PiSessionLike, PiSessionEventListener } from "../src/sessions";
 
 export interface StubModelInput {
@@ -466,6 +475,8 @@ export interface StubCreateInput {
   sessionId?: string;
   entries?: unknown[];
   promptSnapshot?: { agent: string; skills: string[] };
+  /** セッションのエージェントスナップショット (スタブでは使わない) */
+  agentSkills?: AgentSkillInfo[];
 }
 
 export interface StubPiOptions {
