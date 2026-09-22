@@ -3,14 +3,27 @@
 
 # dall-e-2 と dall-e-3 は 2026-05-12 に停止。後継は gpt-image-2。
 # gpt-image-1 は 2026-10-23 に停止予定。後継は gpt-image-2。
+# LiteLLM の登録名は openai/ プレフィックス付き。bare な gpt-image-2 はキーの許可モデルに一致せず 403 key_model_access_denied になる。
 
-### 画像生成：gpt-image-2
+### 画像生成：gpt-image-2.5-flare（速度優先。日常的な生成向け）
 POST {{ litellm_url }}/v1/images/generations
 Content-Type: application/json
 Authorization: Bearer {{ litellm_api_key }}
 
 {
-  "model": "gpt-image-2",
+  "model": "openai/gpt-image-2.5-flare",
+  "prompt": "A cute baby sea otter",
+  "n": 1,
+  "size": "1024x1024"
+}
+
+### 画像生成：gpt-image-2.5-sunburst（高精度。編集やレイアウト重視の用途向け）
+POST {{ litellm_url }}/v1/images/generations
+Content-Type: application/json
+Authorization: Bearer {{ litellm_api_key }}
+
+{
+  "model": "openai/gpt-image-2.5-sunburst",
   "prompt": "A cute baby sea otter",
   "n": 1,
   "size": "1024x1024"

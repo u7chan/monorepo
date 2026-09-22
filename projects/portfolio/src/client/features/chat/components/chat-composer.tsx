@@ -1,4 +1,4 @@
-import { type ChangeEvent, type KeyboardEvent, useMemo } from 'react'
+import { type ChangeEvent, type KeyboardEvent, useId, useMemo } from 'react'
 import { ChatInput } from '#/client/features/chat/components/chat-input'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { FileImageInput, FileImagePreview } from '#/client/shared/components/input/file-image-input'
@@ -17,6 +17,8 @@ interface ChatComposerProps {
   includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   imageGenerationMode?: boolean
+  imageGenerationReady?: boolean
+  imageGenerationDisabledReason?: string | null
   uploadImages: string[]
   onCancelStream: () => void
   onImageChange: (src: string, index?: number) => void
@@ -38,6 +40,8 @@ export function ChatComposer({
   includeChatHistory,
   sendImagesOnlyOnce,
   imageGenerationMode = false,
+  imageGenerationReady = true,
+  imageGenerationDisabledReason,
   uploadImages,
   onCancelStream,
   onImageChange,
@@ -66,6 +70,8 @@ export function ChatComposer({
         <div className='flex items-center gap-1'>
           <ImageGenerationModeAction
             enabled={imageGenerationMode}
+            ready={imageGenerationReady}
+            disabledReason={imageGenerationDisabledReason ?? null}
             includeHistory={includeChatHistory}
             disabled={loading || streamActive}
             onToggleMode={onToggleImageGenerationMode}
@@ -90,25 +96,36 @@ export function ChatComposer({
 
 function ImageGenerationModeAction({
   enabled,
+  ready,
+  disabledReason,
   includeHistory,
   disabled,
   onToggleMode,
   onToggleHistory,
 }: {
   enabled: boolean
+  ready: boolean
+  disabledReason: string | null
   includeHistory: boolean
   disabled: boolean
   onToggleMode?: () => void
   onToggleHistory?: () => void
 }) {
+  const reasonId = useId()
+  // ON にできないときだけボタンを無効化し、ON 中は OFF に戻せるようにする
+  const isModeDisabled = disabled || (!enabled && !ready)
+  const reason = ready ? null : disabledReason
+
   return (
-    <div className='flex items-center gap-1'>
+    <div className='flex min-w-0 items-center gap-1'>
       <button
         type='button'
         onClick={onToggleMode}
-        disabled={disabled}
+        disabled={isModeDisabled}
         aria-label='画像生成モード On/Off'
-        className={`rounded-3xl border px-2 py-1 text-xs transition-colors disabled:opacity-50 ${
+        aria-describedby={reason ? reasonId : undefined}
+        title={reason ?? undefined}
+        className={`shrink-0 rounded-3xl border px-2 py-1 text-xs transition-colors disabled:opacity-50 ${
           enabled
             ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 dark:hover:bg-emerald-900/60'
             : 'border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
@@ -116,6 +133,19 @@ function ImageGenerationModeAction({
       >
         画像生成 {enabled ? 'On' : 'Off'}
       </button>
+      {reason && (
+        <>
+          <span id={reasonId} className='sr-only'>
+            {reason}
+          </span>
+          <span
+            aria-hidden='true'
+            className='hidden min-w-0 max-w-64 truncate text-xs text-gray-500 sm:inline dark:text-gray-400'
+          >
+            {reason}
+          </span>
+        </>
+      )}
       <button
         type='button'
         onClick={onToggleHistory}

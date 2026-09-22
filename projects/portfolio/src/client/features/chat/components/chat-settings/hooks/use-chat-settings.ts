@@ -1,4 +1,5 @@
 import type { ChatSettingsContextValue } from '#/client/features/chat/components/chat-settings/chat-settings-context'
+import { useImageGenerationModel } from '#/client/features/chat/hooks/use-image-generation-model'
 import { useLockBodyScroll } from '#/client/shared/hooks/use-lock-body-scroll'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import { useLocalStorageSettings } from './use-local-storage-settings'
@@ -16,6 +17,7 @@ export function useChatSettings({ settings, showPopup, onChange }: UseChatSettin
 
   const storage = useLocalStorageSettings({ onChange })
   const models = useModelFetching({ autoModel: settings.autoModel })
+  const imageGeneration = useImageGenerationModel(settings)
   const handlers = useSettingsHandlers({
     setModel: storage.setModel,
     setTemperature: storage.setTemperature,
@@ -54,6 +56,14 @@ export function useChatSettings({ settings, showPopup, onChange }: UseChatSettin
     sendImagesOnlyOnce: settings.sendImagesOnlyOnce,
     reasoningEffort: settings.reasoningEffort,
     reasoningEffortEnabled: settings.reasoningEffortEnabled,
+    imageGenerationModel: settings.imageGenerationModel,
+    imageGenerationBaseURL: settings.imageGenerationBaseURL,
+    imageGenerationApiKey: settings.imageGenerationApiKey,
+    imageModels: imageGeneration.imageModels,
+    isLoadingImageModels: imageGeneration.isLoadingImageModels,
+    imageModelsError: imageGeneration.imageModelsError,
+    refetchImageModels: imageGeneration.refetchImageModels,
+    resolvedImageGenerationModel: imageGeneration.resolvedImageGenerationModel,
     ...models,
     ...handlers,
   }

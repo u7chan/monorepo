@@ -5,8 +5,10 @@ import { PromptTemplate, type TemplateInput } from '#/client/features/chat/compo
 import { useChatActions } from '#/client/features/chat/hooks/use-chat-actions'
 import { useChatConversation } from '#/client/features/chat/hooks/use-chat-conversation'
 import { useChatForm } from '#/client/features/chat/hooks/use-chat-form'
+import { useImageGenerationModel } from '#/client/features/chat/hooks/use-image-generation-model'
 import { useMessageCopy } from '#/client/features/chat/hooks/use-message-copy'
 import { useMessageScroll } from '#/client/features/chat/hooks/use-message-scroll'
+import { isImageGenerationConnectionConfigured } from '#/client/features/chat/lib/image-generation-model'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
 import { ArrowDownIcon } from '#/client/shared/icons/arrow-down-icon'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
@@ -62,6 +64,16 @@ export function ChatMain({
     handleChangeComposition,
   } = formState
   const { copiedId, copyMessage } = useMessageCopy()
+  const { imageGenerationConnection, isLoadingImageModels, resolvedImageGenerationModel } =
+    useImageGenerationModel(settings)
+  const imageGenerationReady = Boolean(resolvedImageGenerationModel)
+  const imageGenerationDisabledReason = imageGenerationReady
+    ? null
+    : !isImageGenerationConnectionConfigured(imageGenerationConnection)
+      ? '画像生成には Base URL と API Key の設定が必要です'
+      : isLoadingImageModels
+        ? '画像生成モデルを取得しています…'
+        : '画像生成モデルを取得できませんでした。設定の「画像生成」タブを確認してください'
   const {
     scrollContainerRef,
     bottomChatInputContainerRef,
@@ -77,6 +89,7 @@ export function ChatMain({
   })
   const { handleSubmit, handleSaveGeneratedFile, handleEditMessage, handleClickDeleteMessage } = useChatActions({
     settings,
+    imageGenerationModel: resolvedImageGenerationModel,
     formState,
     conversationState,
     streamProcessor,
@@ -93,10 +106,13 @@ export function ChatMain({
   const toggleImageGenerationMode = useCallback(() => {
     const nextImageGenerationMode = !settings.imageGenerationMode
     if (nextImageGenerationMode) {
+      if (!imageGenerationReady) {
+        return
+      }
       onUpdateSetting?.('fakeMode', false)
     }
     onUpdateSetting?.('imageGenerationMode', nextImageGenerationMode)
-  }, [onUpdateSetting, settings.imageGenerationMode])
+  }, [imageGenerationReady, onUpdateSetting, settings.imageGenerationMode])
 
   const toggleChatHistory = useCallback(() => {
     onUpdateSetting?.('includeChatHistory', !settings.includeChatHistory)
@@ -155,6 +171,8 @@ export function ChatMain({
                 includeChatHistory={settings.includeChatHistory}
                 sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
                 imageGenerationMode={settings.imageGenerationMode}
+                imageGenerationReady={imageGenerationReady}
+                imageGenerationDisabledReason={imageGenerationDisabledReason}
                 uploadImages={uploadImages}
                 onCancelStream={cancelStream}
                 onImageChange={handleUploadImageChange}
@@ -227,6 +245,8 @@ export function ChatMain({
               includeChatHistory={settings.includeChatHistory}
               sendImagesOnlyOnce={settings.sendImagesOnlyOnce}
               imageGenerationMode={settings.imageGenerationMode}
+              imageGenerationReady={imageGenerationReady}
+              imageGenerationDisabledReason={imageGenerationDisabledReason}
               uploadImages={uploadImages}
               onCancelStream={cancelStream}
               onImageChange={handleUploadImageChange}

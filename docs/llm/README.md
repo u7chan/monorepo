@@ -50,7 +50,7 @@ cp docs/llm/.env.example docs/llm/.env
 | [`gemini-chat.http`](./gemini-chat.http) | `gemini-3.6-flash` の OpenAI 互換 Chat Completions |
 | [`xai-chat.http`](./xai-chat.http) | xAI Chat Completions |
 | [`deepseek-chat.http`](./deepseek-chat.http) | `deepseek-v4-flash` の Chat Completions |
-| [`litellm-image-generation.http`](./litellm-image-generation.http) | LiteLLM 経由で行う `gpt-image-2` の画像生成 |
+| [`litellm-image-generation.http`](./litellm-image-generation.http) | LiteLLM 経由で行う `gpt-image-2.5-flare` / `gpt-image-2.5-sunburst` の画像生成 |
 | [`litellm-image-generation-response-2026-01.md`](./litellm-image-generation-response-2026-01.md) | 2026年1月に取得した画像生成レスポンスの履歴 |
 
 ## ファイルの整理方針

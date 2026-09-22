@@ -1,20 +1,15 @@
+import { useEffect, useState } from 'react'
 import { ToggleInput } from '#/client/shared/components/input/toggle-input'
 import type { ChatError } from '#/types/chat-api'
 import { useChatSettingsContext } from './chat-settings-context'
 import { ModelSelector } from './model-selector'
 import { AutoModelToggle } from './settings/auto-model-toggle'
+import { ImageGenerationSettings } from './settings/image-generation-settings'
 import { ReasoningEffort } from './settings/reasoning-effort'
+import { SectionHeading } from './settings/section-heading'
+import { SettingsTabs, type SettingsTab } from './settings/settings-tabs'
 import { TemperatureSlider } from './settings/temperature-slider'
 import { TextInput } from './settings/text-input'
-
-function SectionHeading({ children }: { children: string }) {
-  return (
-    <h3 className='flex items-center gap-3 text-sm font-medium text-gray-500 uppercase dark:text-gray-400'>
-      <span>{children}</span>
-      <span aria-hidden='true' className='min-w-0 flex-1 border-gray-300 border-t dark:border-gray-600' />
-    </h3>
-  )
-}
 
 export function ChatSettingsForm({
   imageGenerationMode = false,
@@ -42,6 +37,15 @@ export function ChatSettingsForm({
     handleToggleSendImagesOnlyOnce,
   } = useChatSettingsContext()
 
+  const [activeTab, setActiveTab] = useState<SettingsTab>(imageGenerationMode ? 'image' : 'chat')
+
+  // 画像生成モードのときは画像生成タブを既定にする。タブ操作自体はモードを変更しない
+  useEffect(() => {
+    setActiveTab(imageGenerationMode ? 'image' : 'chat')
+  }, [imageGenerationMode])
+
+  const isChatTab = activeTab === 'chat'
+
   return (
     <div className='flex flex-col gap-5'>
       {settingsError && (
@@ -54,32 +58,85 @@ export function ChatSettingsForm({
         </div>
       )}
 
-      {!imageGenerationMode && (
-        /* Model Section */
-        <section className='space-y-3'>
-          <SectionHeading>Model</SectionHeading>
-          <div className='space-y-3'>
-            {/* Model Selection */}
-            <div className='space-y-2'>
-              <label
-                className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
-              >
-                Model
-              </label>
-              <ModelSelector />
-            </div>
+      <SettingsTabs activeTab={activeTab} onChange={setActiveTab} />
 
-            {/* Auto Model Toggle */}
-            <AutoModelToggle />
-          </div>
-        </section>
-      )}
+      <div
+        role='tabpanel'
+        id={`settings-tabpanel-${activeTab}`}
+        aria-labelledby={`settings-tab-${activeTab}`}
+        className='flex flex-col gap-5'
+      >
+        {isChatTab ? (
+          <>
+            {/* Model Section */}
+            <section className='space-y-3'>
+              <SectionHeading>Model</SectionHeading>
+              <div className='space-y-3'>
+                {/* Model Selection */}
+                <div className='space-y-2'>
+                  <label
+                    className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
+                    Model
+                  </label>
+                  <ModelSelector />
+                </div>
+
+                {/* Auto Model Toggle */}
+                <AutoModelToggle />
+              </div>
+            </section>
+
+            {/* Parameters */}
+            <section className='space-y-3'>
+              <SectionHeading>Parameters</SectionHeading>
+              <div className='space-y-4'>
+                <TemperatureSlider />
+
+                <TextInput
+                  name='maxTokens'
+                  label='Max Tokens'
+                  type='number'
+                  min={1}
+                  max={4096}
+                  defaultValue={settings.maxTokens?.toString()}
+                  placeholder='Max tokens'
+                  onChange={handleChangeMaxTokens}
+                />
+
+                <ReasoningEffort />
+              </div>
+            </section>
+
+            {/* Display Options */}
+            <section className='space-y-3'>
+              <SectionHeading>Display Options</SectionHeading>
+              <div className='space-y-3'>
+                <ToggleInput
+                  label='Markdown Preview'
+                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                  value={markdownPreview}
+                  onClick={handleToggleMarkdownPreview}
+                />
+                <ToggleInput
+                  label='Stream Mode'
+                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+                  value={streamMode}
+                  onClick={handleToggleStreamMode}
+                />
+              </div>
+            </section>
+          </>
+        ) : (
+          <ImageGenerationSettings />
+        )}
+      </div>
 
       {/* API Configuration */}
       <section className='space-y-3'>
         <SectionHeading>API Configuration</SectionHeading>
         <div className='space-y-3'>
-          {!imageGenerationMode && (
+          {isChatTab && (
             <div className='space-y-2'>
               <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>API Mode</label>
               <div className='relative'>
@@ -134,50 +191,6 @@ export function ChatSettingsForm({
         </div>
       </section>
 
-      {!imageGenerationMode && (
-        /* Parameters */
-        <section className='space-y-3'>
-          <SectionHeading>Parameters</SectionHeading>
-          <div className='space-y-4'>
-            <TemperatureSlider />
-
-            <TextInput
-              name='maxTokens'
-              label='Max Tokens'
-              type='number'
-              min={1}
-              max={4096}
-              defaultValue={settings.maxTokens?.toString()}
-              placeholder='Max tokens'
-              onChange={handleChangeMaxTokens}
-            />
-
-            <ReasoningEffort />
-          </div>
-        </section>
-      )}
-
-      {!imageGenerationMode && (
-        /* Display Options */
-        <section className='space-y-3'>
-          <SectionHeading>Display Options</SectionHeading>
-          <div className='space-y-3'>
-            <ToggleInput
-              label='Markdown Preview'
-              labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-              value={markdownPreview}
-              onClick={handleToggleMarkdownPreview}
-            />
-            <ToggleInput
-              label='Stream Mode'
-              labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-              value={streamMode}
-              onClick={handleToggleStreamMode}
-            />
-          </div>
-        </section>
-      )}
-
       {/* Context Options */}
       <section className='space-y-3'>
         <SectionHeading>Context Options</SectionHeading>
@@ -193,7 +206,7 @@ export function ChatSettingsForm({
             <br />
             OFF の場合、今回の入力のみを送信します。
           </p>
-          {!imageGenerationMode && (
+          {isChatTab && (
             <>
               <ToggleInput
                 label='Send attached images only once'
@@ -209,7 +222,7 @@ export function ChatSettingsForm({
         </div>
       </section>
 
-      {!imageGenerationMode && (
+      {isChatTab && (
         /* Debug Options */
         <section className='space-y-3'>
           <SectionHeading>Debug Options</SectionHeading>

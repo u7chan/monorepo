@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('#/server/features/image-generation/image-generation', () => ({
   generateImage: mocks.generate,
   IMAGE_GENERATION_CONTENT_TYPE: 'image/png',
-  IMAGE_GENERATION_MODEL: 'gpt-image-2',
   IMAGE_GENERATION_OUTPUT_FORMAT: 'png',
   IMAGE_GENERATION_SIZE: '1024x1024',
 }))
@@ -36,7 +35,9 @@ const env = {
   FILE_SERVER_ADMIN_PASSWORD: 'password',
 } as never
 
-const request = () =>
+const IMAGE_MODEL = 'openai/gpt-image-2.5-flare'
+
+const request = (body: Record<string, unknown> = {}) =>
   new Request('http://localhost/api/image/generations', {
     method: 'POST',
     headers: {
@@ -46,8 +47,10 @@ const request = () =>
     },
     body: JSON.stringify({
       prompt: 'a blue house',
+      model: IMAGE_MODEL,
       conversationId: 'conversation-1',
       assistantMessageId: 'assistant-1',
+      ...body,
     }),
   })
 
@@ -69,7 +72,7 @@ describe('画像生成専用 API', () => {
       mocks.generate.mockResolvedValueOnce({
         id: 'image-1',
         created: 1_700_000_000,
-        model: 'gpt-image-2',
+        model: IMAGE_MODEL,
         content: new ArrayBuffer(1),
         usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
       })
@@ -89,9 +92,10 @@ describe('画像生成専用 API', () => {
       expect(response.status).toBe(200)
       expect(await response.json()).toMatchObject({
         id: 'image-1',
-        model: 'gpt-image-2',
+        model: IMAGE_MODEL,
         image: { publicPath: '/public/portfolio/conversation-1/assistant-1-image-0.png' },
       })
+      expect(mocks.generate).toHaveBeenCalledWith(expect.objectContaining({ model: IMAGE_MODEL }))
       expect(mocks.save).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: 'conversation-1',
@@ -100,6 +104,39 @@ describe('画像生成専用 API', () => {
         }),
         expect.any(Object)
       )
+    })
+  })
+
+  describe('request validation', () => {
+    it('model がない場合は provider を呼ばず 400 を返す', async () => {
+      mocks.resolveConfig.mockReturnValue({
+        baseUrl: 'https://files.example.test',
+        publicBaseUrl: 'https://files.example.test',
+        credentials: { username: 'admin', password: 'password' },
+      })
+
+      const response = await chatRoutes.request(request({ model: undefined }), undefined, env)
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({
+        code: 'VALIDATION_ERROR',
+        message: "Invalid request body 'model'",
+        retryable: false,
+      })
+      expect(mocks.generate).not.toHaveBeenCalled()
+    })
+
+    it('model が形式に合わない場合は provider を呼ばず 400 を返す', async () => {
+      mocks.resolveConfig.mockReturnValue({
+        baseUrl: 'https://files.example.test',
+        publicBaseUrl: 'https://files.example.test',
+        credentials: { username: 'admin', password: 'password' },
+      })
+
+      const response = await chatRoutes.request(request({ model: 'gpt image 2.5 flare' }), undefined, env)
+
+      expect(response.status).toBe(400)
+      expect(mocks.generate).not.toHaveBeenCalled()
     })
   })
 
@@ -128,7 +165,7 @@ describe('画像生成専用 API', () => {
       mocks.generate.mockResolvedValueOnce({
         id: 'image-1',
         created: 1_700_000_000,
-        model: 'gpt-image-2',
+        model: IMAGE_MODEL,
         content: new ArrayBuffer(1),
         usage: {},
       })
@@ -202,7 +239,7 @@ describe('画像生成専用 API', () => {
         expect(body).toEqual({
           code: 'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE',
           message:
-            '画像生成プロバイダーがモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と gpt-image-2 の利用可否を確認してください。',
+            '画像生成プロバイダーがこのモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と、API キーで利用できる画像モデルを確認してください。',
           retryable: false,
         })
         expect(JSON.stringify(body)).not.toContain(rawProviderMessage)
@@ -218,7 +255,7 @@ describe('画像生成専用 API', () => {
             },
             request: {
               endpoint: '/images/generations',
-              model: 'gpt-image-2',
+              model: IMAGE_MODEL,
               size: '1024x1024',
               outputFormat: 'png',
               count: 1,
@@ -227,6 +264,39 @@ describe('画像生成専用 API', () => {
           'Image generation failed'
         )
         expect(JSON.stringify(mocks.error.mock.calls)).not.toContain(rawProviderMessage)
+        expect(mocks.save).not.toHaveBeenCalled()
+      })
+
+      it('キーがモデルを許可していない 403 も専用エラーに分類する', async () => {
+        mocks.resolveConfig.mockReturnValue({
+          baseUrl: 'https://files.example.test',
+          publicBaseUrl: 'https://files.example.test',
+          credentials: { username: 'admin', password: 'password' },
+        })
+        const rawProviderMessage = 'raw key scope details'
+        mocks.generate.mockRejectedValueOnce(
+          createApiError(
+            403,
+            {
+              message: rawProviderMessage,
+              code: 'key_model_access_denied',
+              type: 'auth_error',
+            },
+            'req_image_model_access'
+          )
+        )
+
+        const response = await chatRoutes.request(request(), undefined, env)
+        const body = await response.json()
+
+        expect(response.status).toBe(502)
+        expect(body).toEqual({
+          code: 'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE',
+          message:
+            '画像生成プロバイダーがこのモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と、API キーで利用できる画像モデルを確認してください。',
+          retryable: false,
+        })
+        expect(JSON.stringify(body)).not.toContain(rawProviderMessage)
         expect(mocks.save).not.toHaveBeenCalled()
       })
 

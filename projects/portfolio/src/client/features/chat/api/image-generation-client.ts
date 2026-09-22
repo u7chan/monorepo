@@ -8,6 +8,7 @@ export interface SendImageGenerationParams {
     apiKey: string
     baseURL: string
   }
+  model: string
   prompt: string
   conversationId: string
   assistantMessageId: string
@@ -26,6 +27,7 @@ export async function sendImageGeneration(
       },
       body: JSON.stringify({
         prompt: req.prompt,
+        model: req.model,
         conversationId: req.conversationId,
         assistantMessageId: req.assistantMessageId,
       }),
