@@ -232,6 +232,8 @@ export class SessionStore {
     const created = await this.pi.createSession({
       agent: { ...agent, skillIds: [...agent.skillIds] },
       skills,
+      // カタログスキルの索引は name / description を使うので、説明の出所も渡す (復元と同じ形にする)
+      agentSkills: agentInfo.skills,
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: workdir,
@@ -401,6 +403,8 @@ export class SessionStore {
       sessionId: id,
       entries,
       promptSnapshot: meta.promptSnapshot,
+      // 復元では定義を引き直さず、セッションのスナップショットだけで索引を組む (遡及させない)
+      agentSkills: meta.agent.skills,
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,

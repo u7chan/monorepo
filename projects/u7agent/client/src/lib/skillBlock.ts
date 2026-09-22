@@ -6,7 +6,7 @@
 
 export interface SkillBlock {
   name: string;
-  /** read と同じ場所。ファイルは絶対パス、組み込みは仮想パス、カタログは `catalog:<name>` */
+  /** read と同じ場所。ファイル / 組み込み / カタログとも絶対パス (仮想パスを含む) */
   location: string;
   /** スキル本文 (frontmatter 抜き)。「References are relative to …」の 1 行は含めない */
   content: string;

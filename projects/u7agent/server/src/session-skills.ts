@@ -1,7 +1,7 @@
 /**
  * セッションで使えるスキルの一覧と `/skill:` の展開。SDK の `_expandSkillCommand` は BFF プロセスの
- * `readFileSync` で本文を読むため、Docker (BFF に作業領域が無い) ではファイル / 組み込みのどちらも
- * 展開できない。そこで**アプリ側**で本文を取り直してから `prompt()` へ渡す。
+ * `readFileSync` で本文を読むため、Docker (BFF に作業領域が無い) ではファイル / 組み込み / カタログの
+ * どれも展開できない。そこで**アプリ側**で本文を取り直してから `prompt()` へ渡す。
  *
  * 一覧と展開は同じ解決 (project > user > builtin > catalog) を共有する。名前だけで選ぶため、
  * 同名の下位スコープは展開対象にならず、一覧では shadowed / shadowedBy として見せる。
@@ -11,6 +11,7 @@
 import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { dirname } from "node:path";
 import { builtinSkillByName, builtinSkillEntries } from "./builtin-skills";
+import { catalogSkillPath, catalogSkillRelativePath } from "./catalog-skills";
 import { composeFileSkills, discoverSessionFileSkills, projectSkillsDir, type ComposedFileSkills } from "./file-skills";
 import { httpError, messageFor } from "./http";
 import { SandboxRequestError, type SandboxToolClient } from "./sandbox/client";
@@ -19,13 +20,6 @@ import type { PromptSnapshot } from "./session-store";
 
 /** `/skill:` の接頭辞。SDK の `_expandSkillCommand` と同じく**先頭のみ**を見る */
 export const SKILL_COMMAND_PREFIX = "/skill:";
-/** カタログ (Agent 割り当て) スキルの location。実ファイルが無いため名前空間を指す仮想の値にする */
-export const CATALOG_SKILL_LOCATION_PREFIX = "catalog:";
-
-/** カタログスキルの location (実ファイルが無いので read できない) */
-export function catalogSkillLocation(name: string): string {
-  return `${CATALOG_SKILL_LOCATION_PREFIX}${name}`;
-}
 
 /** スキルの解決に必要なサンドボックスの操作だけ。workspace client でも tool client でも受けられる */
 export type SessionSkillsSandbox = Pick<SandboxToolClient, "listSkills" | "previewFile">;
@@ -161,9 +155,10 @@ export async function resolveSessionSkills(input: SessionSkillsInput): Promise<R
       // 説明はセッションのエージェントスナップショットから引く (snapshot の本文には説明が無い)
       description: descriptions.get(skill.name) ?? "",
       scope: "catalog",
-      location: catalogSkillLocation(skill.name),
-      relativePath: null,
-      // カタログのスキルは system prompt に載るだけで、モデルからの起動可否は持たない
+      // 実ファイルは無いが、モデルが read できる仮想パスを場所として示す (read は BFF が横取りする)
+      location: catalogSkillPath(input.rootCwd, skill.name),
+      relativePath: catalogSkillRelativePath(skill.name),
+      // カタログは索引へ常時載る (disable-model-invocation 相当は持たない)
       disableModelInvocation: false,
       shadowed: winner !== undefined,
       shadowedBy: winner?.location ?? null,

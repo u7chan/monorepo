@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { builtinSkillByName, builtinSkillPath } from "../src/builtin-skills";
+import { catalogSkillPath } from "../src/catalog-skills";
 import { createSecretMasker } from "../src/redact";
 import type { SandboxToolClient } from "../src/sandbox/client";
 import { createRemoteToolDefinitions, UnknownRemoteToolError } from "../src/sandbox/remote-tools";
@@ -30,7 +31,7 @@ function stubClient(): { calls: StubCall[]; client: SandboxToolClient } {
   return { calls, client };
 }
 
-function readDefinition(client: SandboxToolClient, cwd: string) {
+function readDefinition(client: SandboxToolClient, cwd: string, catalogSkills?: Array<{ name: string; body: string }>) {
   const definitions = createRemoteToolDefinitions({
     cwd,
     rootCwd: ROOT,
@@ -38,6 +39,7 @@ function readDefinition(client: SandboxToolClient, cwd: string) {
     client,
     masker: createSecretMasker([]),
     tools: ["read"],
+    ...(catalogSkills ? { catalogSkills } : {}),
   });
   const read = definitions.find((definition) => definition.name === "read");
   assert.ok(read, "read のリモート定義が作られる");
@@ -186,4 +188,51 @@ test("read は仮想パスでない要求をサンドボックスへ委譲する
     assert.equal(result.content[0]?.text, "ok", requested);
     assert.equal(calls.length, 1, requested);
   }
+});
+
+test("read はカタログスキルの仮想パスをセッションのスナップショットから返す", async () => {
+  const { calls, client } = stubClient();
+  const body = "カタログの本文\n2 行目";
+  const read = readDefinition(client, join(ROOT, "proj"), [{ name: "writer", body }]);
+
+  const result = (await read.execute(
+    "call-1",
+    { path: catalogSkillPath(ROOT, "writer") },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: Array<{ text?: string }> };
+
+  assert.equal(result.content[0]?.text, body);
+  assert.equal(calls.length, 0, "仮想パスはサンドボックスへ送らない");
+});
+
+test("read はカタログの仮想パスでも offset / limit を守る", async () => {
+  const { client } = stubClient();
+  const read = readDefinition(client, ROOT, [{ name: "writer", body: "1行目\n2行目\n3行目" }]);
+
+  const result = (await read.execute(
+    "call-1",
+    { path: catalogSkillPath(ROOT, "writer"), offset: 2, limit: 1 },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: Array<{ text?: string }> };
+  assert.equal(result.content[0]?.text, "2行目\n\n[1 more lines in file. Use offset=3 to continue.]");
+});
+
+test("read はスナップショットに無いカタログ名をサンドボックスへ委譲する", async () => {
+  const { calls, client } = stubClient();
+  const read = readDefinition(client, ROOT, [{ name: "writer", body: "本文" }]);
+
+  const result = (await read.execute(
+    "call-1",
+    { path: catalogSkillPath(ROOT, "deleted-skill") },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: Array<{ text?: string }> };
+
+  assert.equal(result.content[0]?.text, "ok");
+  assert.equal(calls.length, 1, "本文が無い名前はサンドボックスへ委譲する");
 });

@@ -29,7 +29,10 @@ const MAX_WRITE_ATTEMPTS = 3;
 export interface PromptSnapshot {
   /** 作成時の agent プロファイル (appendSystemPrompt へ入れたもの) */
   agent: string;
-  /** 作成時のスキルプロンプト (順序を保つ) */
+  /**
+   * 作成時のスキル本文 (順序を保つ)。system prompt へは入れず、`read` と `/skill:` の展開だけが使う
+   * (索引は skillsOverride が別に組む)
+   */
   skills: string[];
 }
 

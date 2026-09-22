@@ -27,7 +27,7 @@ export function skillCommandText(name: string): string {
   return `/skill:${name} `;
 }
 
-/** location を表示用にする。root 配下は root 相対へ落とし、仮想の値 (catalog:…) はそのまま返す */
+/** location を表示用にする。root 配下は root 相対へ落とし、root の外の値はそのまま返す */
 export function skillLocationLabel(rootCwd: string, location: string): string {
   const normalized = location.replace(/\\/g, "/");
   const root = rootCwd.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -61,7 +61,7 @@ export function sessionSkillWarning(skill: SessionSkillInfo, rootCwd: string): s
   return `同名のスキルは読み込まれません: ${hidden}`;
 }
 
-/** 行の補足 (場所)。カタログは実ファイルが無いので `catalog:<name>` をそのまま示す */
+/** 行の補足 (場所)。カタログは実体の無い仮想パスなので、そのまま (root 相対で) 示す */
 export function sessionSkillLocation(skill: SessionSkillInfo, rootCwd: string): string {
   if (skill.relativePath) return skill.relativePath;
   return skillLocationLabel(rootCwd, skill.location);

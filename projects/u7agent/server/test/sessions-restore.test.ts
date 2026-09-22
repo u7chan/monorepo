@@ -242,6 +242,46 @@ test("永続化したセッションを新しい store が復元し、続きか�
   }
 });
 
+test("カタログスキルの本文と説明は作成時に固定され、定義を消しても復元後に残る", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-catalog-"));
+  const { workspace } = stubWorkspace();
+  try {
+    const catalog = createAgentCatalog();
+    const skill = catalog.createSkill({ name: "writer", description: "文章を書く", body: "作成時の本文" });
+    const agent = catalog.createAgent({ name: "書き手", skillIds: [skill.id] });
+
+    const pi1 = createStubPi();
+    const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
+    const record = await store1.create({ agentId: agent.id });
+    const created = pi1.createInputs.at(-1);
+    // 本文はスナップショットへ固定し、索引 (read / 一覧) の説明はエージェントスナップショットから渡す
+    assert.deepEqual(created?.promptSnapshot?.skills, ['<agent_skill name="writer">\n作成時の本文\n</agent_skill>']);
+    assert.deepEqual(
+      created?.agentSkills?.map((item) => [item.name, item.description]),
+      [["writer", "文章を書く"]],
+    );
+    await store1.flush(record);
+    await store1.close();
+
+    // 定義を削除しても、復元は meta のスナップショットから同じ本文 / 説明を渡す (遡及させない)
+    catalog.removeSkill(skill.id);
+    catalog.removeAgent(agent.id);
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    await store2.resolve(record.id);
+    const restored = pi2.createInputs.at(-1);
+    assert.deepEqual(restored?.promptSnapshot?.skills, ['<agent_skill name="writer">\n作成時の本文\n</agent_skill>']);
+    assert.deepEqual(
+      restored?.agentSkills?.map((item) => [item.name, item.description]),
+      [["writer", "文章を書く"]],
+    );
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復元後の messageCount が一致する", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "sessions-count-"));
   const { workspace } = stubWorkspace();

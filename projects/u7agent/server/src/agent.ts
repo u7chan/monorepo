@@ -13,6 +13,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
+import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
@@ -20,7 +21,8 @@ import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import type { SecretMasker } from "./redact";
 import { createRuntimeSecretMasker, createSecretRedactionExtension } from "./secret-guard";
-import type { AgentDef, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
+import { catalogSkillsFromSnapshot } from "./session-skills";
+import type { AgentDef, AgentSkillInfo, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
 import type { PromptSnapshot } from "./session-store";
 
 export interface PiModelRef {
@@ -85,9 +87,15 @@ export interface CreateSessionInput {
   entries?: unknown[];
   /** 復元時: 作成時のプロンプトスナップショット。無ければ agent / skills から組む */
   promptSnapshot?: PromptSnapshot;
+  /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
+  agentSkills?: AgentSkillInfo[];
 }
 
-/** 作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えないため meta へ保存する */
+/**
+ * 作成時の agent / skill スナップショット。agent は appendSystemPrompt へ入れる。skills は本文の出所
+ * (`read` と `/skill:` の展開) で、system prompt へは入れない — 索引だけを skillsOverride で渡し、
+ * 本文は必要時に読ませる。定義を編集・削除しても復元後の本文を変えないため meta へ保存する。
+ */
 export function composePromptSnapshot(agent?: AgentDef, skills: SkillDef[] = []): PromptSnapshot {
   const agentPrompt = agent
     ? [`<agent_profile name="${agent.name}">`, agent.description, agent.systemPrompt, "</agent_profile>"]
@@ -254,6 +262,8 @@ export interface SessionResourceLoaderInput {
   appendSystemPrompt: string[];
   /** サンドボックスで発見済みのファイルスキル。skillsOverride で SDK の一覧へ足す */
   fileSkills?: Skill[];
+  /** カタログ (Agent 割り当て) スキルの索引。本文は持たず、仮想パスを read させる */
+  catalogSkills?: Skill[];
 }
 
 /**
@@ -275,7 +285,7 @@ export function createSessionResourceLoader(input: SessionResourceLoaderInput): 
     extensionFactories: [createSecretRedactionExtension(input.secretMasker)],
     appendSystemPrompt: input.appendSystemPrompt,
     skillsOverride: (base) => ({
-      skills: [...base.skills, ...(input.fileSkills ?? [])],
+      skills: [...base.skills, ...(input.fileSkills ?? []), ...(input.catalogSkills ?? [])],
       diagnostics: base.diagnostics,
     }),
   });
@@ -351,6 +361,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     sessionId,
     entries,
     promptSnapshot,
+    agentSkills = [],
   }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
     // 不正な cwd はモデル解決より先に 400 にする (実行できない指定を 503 の裏に隠さない)
     const { relative: relativeCwd, absolute: sessionCwd } = resolveWorkspaceCwd(rootCwd, requestedCwd);
@@ -384,13 +395,23 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
     // (発見に失敗してもスキル無しでセッション作成を続行する)
     const fileSkills = await discoverSessionFileSkills(sandboxClient, { rootCwd, relativeCwd });
+    // カタログスキルは索引 (name / description / location) だけを渡し、本文は promptSnapshot から
+    // read / `/skill:` の展開が取り出す。ファイル / 組み込みと同名の行は索引からも落とす (一覧と一致)
+    const catalogSkillBodies = catalogSkillsFromSnapshot(snapshot);
+    const catalogIndex = catalogSkillIndexForSession(
+      rootCwd,
+      catalogSkillBodies,
+      agentSkills,
+      fileSkills.skills.map((skill) => skill.name),
+    );
     const resourceLoader = createSessionResourceLoader({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       secretMasker,
-      appendSystemPrompt: [appendSystemPrompt(rootCwd), snapshot.agent, ...snapshot.skills].filter(Boolean),
+      appendSystemPrompt: [appendSystemPrompt(rootCwd), snapshot.agent].filter(Boolean),
       fileSkills: fileSkills.skills,
+      catalogSkills: catalogIndex,
     });
     await resourceLoader.reload();
 
@@ -417,6 +438,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         client: sandboxClient,
         masker: secretMasker,
         tools: configuredTools(),
+        catalogSkills: catalogSkillBodies,
       }),
     };
 

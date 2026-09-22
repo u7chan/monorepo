@@ -13,7 +13,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { SandboxToolClient } from "./client";
-import { builtinSkillForRequestedPath, formatBuiltinSkillBody } from "../builtin-skills";
+import { catalogSkillNameForRequestedPath } from "../catalog-skills";
+import { builtinSkillForRequestedPath, formatBuiltinSkillBody, formatSkillBody } from "../builtin-skills";
 import { wrapToolDefinitionWithSecretMasker } from "../secret-guard";
 import type { SecretMasker } from "../redact";
 
@@ -54,11 +55,16 @@ export interface RemoteToolDefinitionOptions {
   masker: SecretMasker;
   /** PI_AGENT_TOOLS 由来の登録ツール名 */
   tools: readonly string[];
+  /**
+   * カタログ (Agent 割り当て) スキルの本文。セッションの promptSnapshot から渡し、仮想パスの read を
+   * サンドボックスへ送らず BFF で返す (定義を編集・削除してもこのセッションの本文は変わらない)
+   */
+  catalogSkills?: readonly { name: string; body: string }[];
 }
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, rootCwd, sandboxCwd, client, masker, tools } = options;
+  const { cwd, rootCwd, sandboxCwd, client, masker, tools, catalogSkills = [] } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -79,14 +85,21 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
           executionMode: local.executionMode,
           prepareArguments: local.prepareArguments,
           execute: async (toolCallId, params, signal, onUpdate, _ctx) => {
-            // 組み込みスキルはワークスペースに実体が無い仮想パスなので、read だけはバンドルから返す。
-            // サンドボックスへ送らない (ls / grep / find / bash からは見えない。docs/api-catalog.md)。
+            // 組み込み / カタログスキルはワークスペースに実体が無い仮想パスなので、read だけは BFF が
+            // 本文を返す。サンドボックスへ送らない (ls / grep / find / bash からは見えない)
             if (name === "read") {
               const requested = (params as { path?: unknown } | undefined)?.path;
+              const page = params as { offset?: number; limit?: number };
               const builtin = builtinSkillForRequestedPath(requested, { cwd, rootCwd });
               if (builtin) {
-                const page = params as { offset?: number; limit?: number };
                 const text = formatBuiltinSkillBody(builtin, { offset: page.offset, limit: page.limit });
+                return { content: [{ type: "text", text }] } as Awaited<ReturnType<AnyToolDefinition["execute"]>>;
+              }
+              // 名前が仮想パスに合っても、このセッションのスナップショットに無ければサンドボックスへ委譲する
+              const catalogName = catalogSkillNameForRequestedPath(requested, { cwd, rootCwd });
+              const catalog = catalogName ? catalogSkills.find((skill) => skill.name === catalogName) : undefined;
+              if (catalog) {
+                const text = formatSkillBody(catalog.body, { offset: page.offset, limit: page.limit });
                 return { content: [{ type: "text", text }] } as Awaited<ReturnType<AnyToolDefinition["execute"]>>;
               }
             }

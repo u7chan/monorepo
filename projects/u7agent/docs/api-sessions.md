@@ -209,7 +209,7 @@ References are relative to /workspace/.agents/skills/writer.
 3 行で書いて
 ```
 
-- 形式は SDK の `_expandSkillCommand` と同じ（`parseSkillBlock` で読み直せる）。`location` は `read` に渡す値と同じで、ファイル / 組み込みは絶対パス（組み込みは仮想パス）、カタログは実ファイルが無いため `catalog:<name>` になり「References are relative to …」行は入らない。引数はブロックの後に空行を挟んでそのまま渡す
+- 形式は SDK の `_expandSkillCommand` と同じ（`parseSkillBlock` で読み直せる）。`location` は `read` に渡す値と同じで、ファイル / 組み込み / カタログとも絶対パス（組み込みは `<root>/.u7agent/builtin-skills/...`、カタログは `<root>/.u7agent/agent-skills/...` の仮想パス）。カタログは実体が無いので「References are relative to …」行は入らない。引数はブロックの後に空行を挟んでそのまま渡す
 - 本文の取得元はスコープ別: ファイル（共通 / プロジェクト）→ サンドボックスの `GET /v1/files/preview`、組み込み → BFF の registry、カタログ（Agent 割り当て）→ セッションの `promptSnapshot`（旧 `<skill>` と新 `<agent_skill>` の両方を受け付け、タグではなく `name` 属性で引く）
 - 名前は優先順位 `プロジェクト > 共通 > 組み込み > カタログ` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。未知の名前、`/skill:` で始まらない本文は素通しする（SDK と同じ挙動）
 - **本文は送信時点の内容**。ファイルが削除されていれば 404、256 KiB 超 / UTF-8 でない / バイナリは 400、サンドボックスへ到達できなければ 502 を返し、**メッセージは送らない**（切り詰めて黙って送るとモデルが読む本文が変わるため）
@@ -261,9 +261,9 @@ References are relative to /workspace/.agents/skills/writer.
 
 - `scope` は `project` / `user`（共通）/ `builtin` / `catalog`（エージェント定義のスキル）。並びは優先順位 `project > user > builtin > catalog`
 - `cwd` はセッションの作業ディレクトリ（root 相対）。`projectSkills` はプロジェクトスキルを探索するセッションか（未所属のスクラッチと root 直下は `false`）
-- `location` は `read` に渡す値（カタログは `catalog:<name>`）。`relativePath` は表示用で、root の外とカタログは `null`
+- `location` は `read` に渡す値（カタログは実体の無い仮想パス `.u7agent/agent-skills/<name>/SKILL.md`）。`relativePath` は表示用で、root の外は `null`
 - 同名は優先順位で一意化する。負けた行（組み込みの上書きとカタログ）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。`shadows` に入るのは**ファイルスキル同士の重複**で、カタログは常に敗者側にしか立たない。**ファイルの改名・削除・マージはしない**
-- カタログの `description` はセッションのエージェントスナップショット（`agent.skills`）から、本文は `promptSnapshot` から引く。どちらも作成時点の内容で、定義を編集してもこのセッションの一覧は変わらない
+- カタログの `description` はセッションのエージェントスナップショット（`agent.skills`）から、本文は `promptSnapshot` から引く。どちらも作成時点の内容で、定義を編集してもこのセッションの一覧は変わらない。同じスナップショットを `skillsOverride` の索引と `read` の横取りにも使い、system prompt には本文を載せない（[api-catalog.md](api-catalog.md#セッションへの渡し方)）
 - 404（セッションなし）/ 503（サンドボックス未設定）/ ファイルスキルの発見失敗は 502（接続失敗・認証失敗・サンドボックス側 5xx・本文が契約外はサンドボックスクライアントが 502 に寄せる。不正な dir の 400 だけそのまま）。**組み込みだけを返して黙って縮退しない**（使えるスキルを見せる場所なので、取れないことはエラーで見せる）。セッション作成と `/skill:` の展開は従来どおり縮退する（作成を止めない）
 
 ## `POST /api/sessions/:id/files`

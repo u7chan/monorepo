@@ -416,9 +416,9 @@ export const SessionSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),
   scope: z.enum(["project", "user", "builtin", "catalog"]),
-  /** read に渡せる場所。ファイル / 組み込みは絶対パス、カタログは `catalog:<name>` (実ファイルなし) */
+  /** read に渡せる場所。ファイル / 組み込み / カタログとも絶対パス (カタログは実体の無い仮想パス) */
   location: z.string(),
-  /** 表示用の root 相対パス。root の外とカタログは null */
+  /** 表示用の root 相対パス。root の外は null */
   relativePath: z.string().nullable(),
   disableModelInvocation: z.boolean(),
   /**

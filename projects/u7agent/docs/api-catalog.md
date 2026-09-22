@@ -53,10 +53,10 @@
 
 ## カタログスキル（設定 → スキル）
 
-エージェントへ割り当てるスキルは `{ name, description, body }` で、`body` が割り当て時に system prompt へ常時入る本文。エージェントの「役割 / 基本指示」（`systemPrompt`）と同じく会話中ずっと効くが、エージェントを選ぶ前に作れて複数のエージェントで使い回せる点が違う。初期状態は 0 件で、口調のような常時効かせたい指示はエージェントの `systemPrompt` に置く（サンプルは `agent-zundamon`）。
+エージェントへ割り当てるスキルは `{ name, description, body }`。`body` は会話の system prompt へは常時載せず、モデルが必要時に `read` で読む本文（[セッションへの渡し方](#セッションへの渡し方)）。エージェントを選ぶ前に作れて複数のエージェントで使い回せる点が「役割 / 基本指示」（`systemPrompt`）と違う。初期状態は 0 件で、口調のような常時効かせたい指示はエージェントの `systemPrompt` に置く（サンプルは `agent-zundamon`）。
 
 - 本文のフィールド名は `body` で、UI のラベルも「本文」。エージェント側の `systemPrompt`（UI ラベル「役割 / 基本指示」）とは語を分ける。旧フィールド名 `prompt` は作成 / 更新とも 400 で、バックアップの `definitions.skills[].body` も同じ（旧形式の互換は持たない）。
-- 割り当ては `AgentDef.skillIds`。作成時に `promptSnapshot` へ `<agent_skill name="…">` で全文固定する（[session-files.md](session-files.md)）。
+- 割り当ては `AgentDef.skillIds`。本文は作成時に `promptSnapshot` へ `<agent_skill name="…">` で固定するが、system prompt へは入れない — 索引（name / description / 仮想パス）だけを `skillsOverride` で渡し、モデルは必要時に `read` で読む（[session-files.md](session-files.md)）。本文の出所は作成時のスナップショットなので、定義を編集・削除してもこのセッションの本文は変わらない。
 - 設定 → スキルの一覧は、この編集できるスキルと共通 / 組み込みの読み取り専用スキルを同じリストに並べる。カタログのスキルが 0 件のときは追加行の下にその旨を出す（[ui-layout.md](ui-layout.md#設定の編集フォームエージェント--スキル)）。
 
 ```json
@@ -71,6 +71,15 @@
   ]
 }
 ```
+
+### セッションへの渡し方
+
+エージェントに割り当てたスキルは、SDK ネイティブのスキルと同じ「索引は常時、本文は必要時 `read`」の形で渡す。件数・本文長の上限が無いため、本文を system prompt へ常時載せない。
+
+- `skillsOverride` へ渡す索引は name / description / location だけ。`location` は実体の無い仮想パス `<root>/.u7agent/agent-skills/<name>/SKILL.md`（`server/src/catalog-skills.ts`）。名前は 1 セグメントに percent encoding してから使うので、`a/b` のような名前でも置き場の外へは出ない
+- モデルの `read` は BFF が横取りし、セッションの `promptSnapshot` にある本文を返す（サンドボックスへ送らない）。`ls` / `find` / `grep` / `bash` からは見えない（組み込みと同じ割り切り）
+- 同名のファイル / 組み込みスキルがある行は索引からも落とす（優先順位 `project > user > builtin > catalog` を一覧と一致させる）。カタログ同士の重複は先勝ち
+- `read` は `classifySkillRead()` に拾われるため、チャット履歴に `[skill] <name>` 行が出る
 
 ## ファイルスキル（`.agents/skills`）
 
@@ -123,7 +132,7 @@
 - `.agents/skills` がまだ無い workspace ではエラーにせず、組み込みだけを返す（サンドボックスの 404 を空の一覧として扱う）。サンドボックス未設定は 503、接続失敗・走査の期限切れ（[sandbox-api.md](sandbox-api.md#get-v1skills)）は 502
 - 発見一覧はセッション作成・復元のたびに取り直す。復元は `meta.projectCwd` を起点にするため、プロジェクト登録が外れていても同じスキルが見える
 - `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす
-- エージェント定義のスキルはファイルスキルと混同させないため、`promptSnapshot` へ `<agent_skill>` タグで全文固定する（[session-files.md](session-files.md)）
+- エージェント定義のスキルはファイルスキルと混同させないため、`promptSnapshot` へ `<agent_skill>` タグで本文を固定し、モデルには仮想パス `<root>/.u7agent/agent-skills/<name>/SKILL.md` を索引で渡す。`read` は BFF が横取りしてスナップショットの本文を返す（[session-files.md](session-files.md)）
 
 ### 組み込みスキル
 

@@ -25,12 +25,14 @@ test("splitSkillBlock はファイル / 組み込みのブロックを分解す�
 });
 
 test("splitSkillBlock は References 行の無いカタログのブロックも受ける", () => {
-  const catalog = ['<skill name="catalog-writer" location="catalog:catalog-writer">', "本文だけ", "</skill>"].join(
-    "\n",
-  );
+  const catalog = [
+    '<skill name="catalog-writer" location="/workspace/.u7agent/agent-skills/catalog-writer/SKILL.md">',
+    "本文だけ",
+    "</skill>",
+  ].join("\n");
   assert.deepEqual(splitSkillBlock(catalog), {
     name: "catalog-writer",
-    location: "catalog:catalog-writer",
+    location: "/workspace/.u7agent/agent-skills/catalog-writer/SKILL.md",
     content: "本文だけ",
   });
 });

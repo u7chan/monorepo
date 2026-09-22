@@ -60,7 +60,7 @@ $PI_SESSION_STORE/<id>/
   "messageCount": 12,
   "agentId": "default",
   "agent": { "id": "default", "name": "…", "description": "…", "skillIds": [], "skills": [] },
-  "promptSnapshot": { "agent": "<agent プロンプト>", "skills": ["<agent_skill プロンプト>"] },
+  "promptSnapshot": { "agent": "<agent プロンプト>", "skills": ["<agent_skill 本文>"] },
   "projectCwd": "projects/u7agent",
   "projectName": "u7agent",
   "model": "openai-codex/gpt-6-astra",
@@ -68,7 +68,7 @@ $PI_SESSION_STORE/<id>/
 }
 ```
 
-- `promptSnapshot` は作成時の agent / skill プロンプト。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。カタログのスキルはモデルのファイルスキルと混同させないため `<agent_skill name="…">` で固定する（セッションごとの system prompt 形式の正は `server/src/agent.ts` の `composePromptSnapshot`）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
+- `promptSnapshot` は作成時の agent / skill 本文。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。`agent` は system prompt へ入れる。カタログのスキルはモデルのファイルスキルと混同させないため `<agent_skill name="…">` で本文を固定し、system prompt へは索引（name / description / 仮想パス）だけを `skillsOverride` で渡す。本文は必要時に `read` で読み、BFF がこのスナップショットから返す（形式の正は `server/src/agent.ts` の `composePromptSnapshot`、索引は `server/src/catalog-skills.ts`）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
 - `title` は最初のメッセージで、`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
@@ -125,7 +125,7 @@ $PI_SESSION_STORE/<id>/
 
 - 起動時に store を走査して `meta.json` を読み、一覧用 descriptor（id / title / agent 表示情報 / projectCwd / createdAt / lastUsedAt / messageCount）を作る。SDK セッションは開くときに作る。走査は起動時の 1 回だけなので、稼働中に外部から store へフォルダを足しても再起動するまで一覧に出ない。
 - 走査では JSONL を読まないため、`messageCount` の定義を変えても保存済みの値は起動では直らない。開いたときに現在の履歴から数え直し、`meta.json` と食い違えば書き戻す（一覧はそれまで保存値を返す）。
-- 開く処理: JSONL を検証つきで読み、`SessionManager.inMemory(cwd, { id }, entries)` を作り、作業フォルダの存在を保証し（未所属のみ。プロジェクト所属は `meta.projectCwd` をそのまま使う）、`promptSnapshot` から resource loader を組み、モデルを解決して `createAgentSession` に渡す。
+- 開く処理: JSONL を検証つきで読み、`SessionManager.inMemory(cwd, { id }, entries)` を作り、作業フォルダの存在を保証し（未所属のみ。プロジェクト所属は `meta.projectCwd` をそのまま使う）、`promptSnapshot` とエージェントスナップショットから resource loader（system prompt + スキル索引）を組み、モデルを解決して `createAgentSession` に渡す。
 - 破損・model 不在などで開けない場合も一覧からは消さない（descriptor を保持）。
 
 ## モデル / Effort の復元
