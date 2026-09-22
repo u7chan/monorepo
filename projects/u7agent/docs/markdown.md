@@ -142,7 +142,7 @@ MessageView (assistant の本文)
 
 - 許可タグ: `b strong i em u s del ins code kbd mark small sub sup span a br hr img`
 - 内容に意味を持つ属性は `a[href,title]` / `img[src,alt,title]` だけを通す。リンクには `target="_blank" rel="noreferrer noopener"` を強制する
-- URL は http / https / mailto / 同一オリジンの相対パスのみ。`img` は相対パス（＝同一オリジン）だけを描画する（外部 URL は CSP `default-src 'self'` で読み込めず、無言で壊れるため原文表示にする）
+- URL は http / https / mailto / 同一オリジンの相対パスのみ。`img` は相対パス（＝同一オリジン）だけを描画する（外部 URL は CSP `img-src 'self' data:` で読み込めず、無言で壊れるため原文表示にする）
 - 色やサイズはテーマ側の CSS が決める。`style` 属性は CSP でも動かないため、そもそも通さない
 
 Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を通す。不正な URL のリンクは記法ごと原文表示（等幅）に落とす。

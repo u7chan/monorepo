@@ -895,22 +895,22 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   }
 });
 
+/** PNG / webp の署名だけを持つ data URL (server は署名まで見る)。上限の検証に使う */
+function iconDataUrl(mime: "png" | "webp", bytes: number): string {
+  const body = Buffer.alloc(bytes, 0);
+  if (mime === "png") Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(body);
+  else {
+    body.write("RIFF", 0, "latin1");
+    body.write("WEBP", 8, "latin1");
+  }
+  return `data:image/${mime};base64,${body.toString("base64")}`;
+}
+
 test("catalog endpoints round-trip agent icons", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    /** PNG / webp の署名だけを持つ data URL (server は署名まで見る) */
-    const bodyWithSignature = (mime: "png" | "webp", bytes: number): string => {
-      const body = Buffer.alloc(bytes, 0);
-      if (mime === "png") Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(body);
-      else {
-        body.write("RIFF", 0, "latin1");
-        body.write("WEBP", 8, "latin1");
-      }
-      return `data:image/${mime};base64,${body.toString("base64")}`;
-    };
-
-    const icon = bodyWithSignature("webp", 32);
+    const icon = iconDataUrl("webp", 32);
     const created = await app.request("/api/agents", jsonPost({ name: "アイコンあり", icon }));
     assert.equal(created.status, 201);
     const createdAgent = (await jsonBody(created)).agent;
@@ -936,7 +936,7 @@ test("catalog endpoints round-trip agent icons", async () => {
     assert.equal((await jsonBody(wrongMime)).error, "Icon must be a webp or png data URL");
     const tooLarge = await app.request(
       `/api/agents/${createdAgent.id}`,
-      jsonPatch({ icon: bodyWithSignature("png", 16 * 1024 + 1) }),
+      jsonPatch({ icon: iconDataUrl("png", 16 * 1024 + 1) }),
     );
     assert.equal(tooLarge.status, 400);
     assert.equal((await jsonBody(tooLarge)).error, "Icon must be at most 16 KiB");
@@ -947,6 +947,48 @@ test("catalog endpoints round-trip agent icons", async () => {
     const cleared = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ icon: null }));
     assert.equal(cleared.status, 200);
     assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "icon"), false);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("the catalog import accepts a body larger than the single-definition limit", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    // 16 KiB のアイコンを持つ定義が 3 件あると 64 KiB を超える。取り込みはカタログ全体を受けるので通る
+    const icon = iconDataUrl("png", 16 * 1024);
+    const agents = [1, 2, 3].map((index) => ({
+      id: `agent-icon-${index}`,
+      name: `アイコン ${index}`,
+      skillIds: [],
+      icon,
+    }));
+    const body = JSON.stringify({ agents, skills: [] });
+    assert.ok(Buffer.byteLength(body) > 64 * 1024, "前提: 64 KiB を超える取り込み");
+    const replaced = await app.request("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    assert.equal(replaced.status, 200);
+    assert.deepEqual(
+      (await jsonBody(replaced)).agents.map((agent: { icon: string }) => agent.icon),
+      [icon, icon, icon],
+    );
+
+    // 単体の作成は従来どおり 64 KiB のまま (アイコン 1 件は systemPrompt と同居できる)
+    const created = await app.request("/api/agents", jsonPost({ name: "1 件", icon }));
+    assert.equal(created.status, 201);
+
+    // 取り込みの上限も有限 (bodyGuard は検証より先に本文の大きさだけを見る)
+    const oversized = await app.request("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agents: [], skills: [], padding: "x".repeat(4 * 1024 * 1024) }),
+    });
+    assert.equal(oversized.status, 413);
+    assert.equal((await jsonBody(oversized)).error, "Request body is too large");
   } finally {
     await bff.close();
   }
