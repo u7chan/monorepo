@@ -45,6 +45,7 @@ export function ChatSettingsForm({
   }, [imageGenerationMode])
 
   const isChatTab = activeTab === 'chat'
+  const isFakeModeDisabled = apiMode === 'responses' || imageGenerationMode
 
   return (
     <div className='flex flex-col gap-5'>
@@ -62,74 +63,79 @@ export function ChatSettingsForm({
 
       <div
         role='tabpanel'
-        id={`settings-tabpanel-${activeTab}`}
-        aria-labelledby={`settings-tab-${activeTab}`}
+        id='settings-tabpanel-chat'
+        aria-labelledby='settings-tab-chat'
+        hidden={!isChatTab}
         className='flex flex-col gap-5'
       >
-        {isChatTab ? (
-          <>
-            {/* Model Section */}
-            <section className='space-y-3'>
-              <SectionHeading>Model</SectionHeading>
-              <div className='space-y-3'>
-                {/* Model Selection */}
-                <div className='space-y-2'>
-                  <label
-                    className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
-                  >
-                    Model
-                  </label>
-                  <ModelSelector />
-                </div>
+        {/* Model Section */}
+        <section className='space-y-3'>
+          <SectionHeading>Model</SectionHeading>
+          <div className='space-y-3'>
+            {/* Model Selection */}
+            <div className='space-y-2'>
+              <label
+                className={`block text-sm font-medium ${fakeMode ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}
+              >
+                Model
+              </label>
+              <ModelSelector />
+            </div>
 
-                {/* Auto Model Toggle */}
-                <AutoModelToggle />
-              </div>
-            </section>
+            {/* Auto Model Toggle */}
+            <AutoModelToggle />
+          </div>
+        </section>
 
-            {/* Parameters */}
-            <section className='space-y-3'>
-              <SectionHeading>Parameters</SectionHeading>
-              <div className='space-y-4'>
-                <TemperatureSlider />
+        {/* Parameters */}
+        <section className='space-y-3'>
+          <SectionHeading>Parameters</SectionHeading>
+          <div className='space-y-4'>
+            <TemperatureSlider />
 
-                <TextInput
-                  name='maxTokens'
-                  label='Max Tokens'
-                  type='number'
-                  min={1}
-                  max={4096}
-                  defaultValue={settings.maxTokens?.toString()}
-                  placeholder='Max tokens'
-                  onChange={handleChangeMaxTokens}
-                />
+            <TextInput
+              name='maxTokens'
+              label='Max Tokens'
+              type='number'
+              min={1}
+              max={4096}
+              defaultValue={settings.maxTokens?.toString()}
+              placeholder='Max tokens'
+              onChange={handleChangeMaxTokens}
+            />
 
-                <ReasoningEffort />
-              </div>
-            </section>
+            <ReasoningEffort />
+          </div>
+        </section>
 
-            {/* Display Options */}
-            <section className='space-y-3'>
-              <SectionHeading>Display Options</SectionHeading>
-              <div className='space-y-3'>
-                <ToggleInput
-                  label='Markdown Preview'
-                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-                  value={markdownPreview}
-                  onClick={handleToggleMarkdownPreview}
-                />
-                <ToggleInput
-                  label='Stream Mode'
-                  labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
-                  value={streamMode}
-                  onClick={handleToggleStreamMode}
-                />
-              </div>
-            </section>
-          </>
-        ) : (
-          <ImageGenerationSettings />
-        )}
+        {/* Display Options */}
+        <section className='space-y-3'>
+          <SectionHeading>Display Options</SectionHeading>
+          <div className='space-y-3'>
+            <ToggleInput
+              label='Markdown Preview'
+              labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+              value={markdownPreview}
+              onClick={handleToggleMarkdownPreview}
+            />
+            <ToggleInput
+              label='Stream Mode'
+              labelClassName='text-sm font-medium text-gray-700 dark:text-gray-300'
+              value={streamMode}
+              onClick={handleToggleStreamMode}
+            />
+          </div>
+        </section>
+      </div>
+
+      <div
+        role='tabpanel'
+        id='settings-tabpanel-image'
+        aria-labelledby='settings-tab-image'
+        hidden={isChatTab}
+        className='flex flex-col gap-5'
+      >
+        <ImageGenerationSettings />
       </div>
 
       {/* API Configuration */}
@@ -229,13 +235,17 @@ export function ChatSettingsForm({
           <div className='space-y-2'>
             <ToggleInput
               label='Fake Mode'
-              labelClassName={`text-sm font-medium ${apiMode === 'responses' ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}
+              labelClassName={`text-sm font-medium ${
+                isFakeModeDisabled ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'
+              }`}
               value={fakeMode}
-              disabled={apiMode === 'responses'}
+              disabled={isFakeModeDisabled}
               onClick={handleToggleFakeMode}
             />
-            {apiMode === 'responses' && (
-              <p className='text-xs text-gray-500 dark:text-gray-400'>Responses では Fake Mode を利用できません。</p>
+            {isFakeModeDisabled && (
+              <p className='text-xs text-gray-500 dark:text-gray-400'>
+                {imageGenerationMode ? '画像生成モードでは' : 'Responses では'} Fake Mode を利用できません。
+              </p>
             )}
           </div>
         </section>

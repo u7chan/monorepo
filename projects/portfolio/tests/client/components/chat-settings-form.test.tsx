@@ -139,6 +139,39 @@ describe('ChatSettingsForm', () => {
       expect(screen.getByRole('heading', { name: 'Debug Options' })).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Image Generation' })).toBeNull()
     })
+
+    it('aria-controls が指すタブパネルが DOM に存在し、非アクティブ側は隠れる', async () => {
+      const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
+      render(<ChatSettingsForm imageGenerationMode />)
+
+      const chatPanel = document.getElementById(
+        screen.getByRole('tab', { name: 'チャット' }).getAttribute('aria-controls') ?? ''
+      )
+      const imagePanel = document.getElementById(
+        screen.getByRole('tab', { name: '画像生成' }).getAttribute('aria-controls') ?? ''
+      )
+
+      expect(chatPanel?.hidden).toBe(true)
+      expect(imagePanel?.hidden).toBe(false)
+
+      fireEvent.click(screen.getByRole('tab', { name: 'チャット' }))
+
+      expect(chatPanel?.hidden).toBe(false)
+      expect(imagePanel?.hidden).toBe(true)
+    })
+  })
+
+  describe('Fake Mode', () => {
+    it('画像生成モード中はチャットタブの Fake Mode を無効にする', async () => {
+      const { ChatSettingsForm } = await import('#/client/features/chat/components/chat-settings/chat-settings-form')
+      render(<ChatSettingsForm imageGenerationMode />)
+
+      fireEvent.click(screen.getByRole('tab', { name: 'チャット' }))
+
+      const fakeModeToggle = screen.getByText('Fake Mode').closest('div')?.querySelector('button') as HTMLButtonElement
+      expect(fakeModeToggle.disabled).toBe(true)
+      expect(screen.getByText('画像生成モードでは Fake Mode を利用できません。')).toBeTruthy()
+    })
   })
 
   describe('通常対話の設定', () => {
