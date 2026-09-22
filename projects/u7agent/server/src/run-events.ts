@@ -193,7 +193,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         case "tool_execution_start": {
           const id = event.toolCallId ?? "";
           // 履歴 (projectMessages) と同じ関数で判定する。結果はまだ無いので isError は載せない
-          const ref = classifySkillRead(event.args, { cwd });
+          const ref = classifySkillRead(event.args, { cwd, toolName: event.toolName ?? "" });
           const skill = ref ? skillLoadOf({ id, ref, masker }) : undefined;
           const tool: ToolCall = {
             id,

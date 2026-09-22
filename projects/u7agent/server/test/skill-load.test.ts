@@ -61,37 +61,40 @@ function skillLoadsOf(messages: ReturnType<typeof projectMessages>): SkillLoad[]
 }
 
 test("classifySkillRead は解決後の basename だけで判定する", () => {
-  assert.deepEqual(classifySkillRead({ path: "/work/.agents/skills/gh/SKILL.md" }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ path: "/work/.agents/skills/gh/SKILL.md" }, { cwd: CWD, toolName: "read" }), {
     path: "/work/.agents/skills/gh/SKILL.md",
     name: "gh",
   });
-  assert.deepEqual(classifySkillRead({ path: ".agents/skills/gh/SKILL.md" }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ path: ".agents/skills/gh/SKILL.md" }, { cwd: CWD, toolName: "read" }), {
     path: `${CWD}/.agents/skills/gh/SKILL.md`,
     name: "gh",
   });
-  assert.deepEqual(classifySkillRead({ path: "./SKILL.md" }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ path: "./SKILL.md" }, { cwd: CWD, toolName: "read" }), {
     path: `${CWD}/SKILL.md`,
     name: "project",
   });
-  assert.deepEqual(classifySkillRead({ path: "../gh/SKILL.md" }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ path: "../gh/SKILL.md" }, { cwd: CWD, toolName: "read" }), {
     path: "/tmp/gh/SKILL.md",
     name: "gh",
   });
   // ルート直下は親ディレクトリ名が空になるため、pi と同じくファイル名へ落とす
-  assert.deepEqual(classifySkillRead({ path: "/SKILL.md" }, { cwd: CWD }), { path: "/SKILL.md", name: "SKILL.md" });
+  assert.deepEqual(classifySkillRead({ path: "/SKILL.md" }, { cwd: CWD, toolName: "read" }), {
+    path: "/SKILL.md",
+    name: "SKILL.md",
+  });
   // pi の renderer と同じ file_path エイリアスを受ける
-  assert.deepEqual(classifySkillRead({ file_path: "gh/SKILL.md" }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ file_path: "gh/SKILL.md" }, { cwd: CWD, toolName: "read" }), {
     path: `${CWD}/gh/SKILL.md`,
     name: "gh",
   });
   // offset / limit は数値のときだけ行範囲として持つ
-  assert.deepEqual(classifySkillRead({ path: "gh/SKILL.md", offset: 5, limit: 3 }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ path: "gh/SKILL.md", offset: 5, limit: 3 }, { cwd: CWD, toolName: "read" }), {
     path: `${CWD}/gh/SKILL.md`,
     name: "gh",
     offset: 5,
     limit: 3,
   });
-  assert.deepEqual(classifySkillRead({ path: "gh/SKILL.md", offset: "5" }, { cwd: CWD }), {
+  assert.deepEqual(classifySkillRead({ path: "gh/SKILL.md", offset: "5" }, { cwd: CWD, toolName: "read" }), {
     path: `${CWD}/gh/SKILL.md`,
     name: "gh",
   });
@@ -108,11 +111,22 @@ test("classifySkillRead は SKILL.md 以外と非対応のパス形を分類し�
     "@/gh/SKILL.md",
     "file:///work/gh/SKILL.md",
   ]) {
-    assert.equal(classifySkillRead({ path }, { cwd: CWD }), undefined, path);
+    assert.equal(classifySkillRead({ path }, { cwd: CWD, toolName: "read" }), undefined, path);
   }
-  assert.equal(classifySkillRead({ path: "" }, { cwd: CWD }), undefined);
-  assert.equal(classifySkillRead({}, { cwd: CWD }), undefined);
-  assert.equal(classifySkillRead(undefined, { cwd: CWD }), undefined);
+  assert.equal(classifySkillRead({ path: "" }, { cwd: CWD, toolName: "read" }), undefined);
+  assert.equal(classifySkillRead({}, { cwd: CWD, toolName: "read" }), undefined);
+  assert.equal(classifySkillRead(undefined, { cwd: CWD, toolName: "read" }), undefined);
+});
+
+test("classifySkillRead は read 以外のツール名を分類しない", () => {
+  // skill-creator の手順は write で <置き場所>/<name>/SKILL.md を作るため、read 以外の除外は必須
+  for (const toolName of ["write", "edit", "grep", "bash", ""]) {
+    assert.equal(
+      classifySkillRead({ path: ".agents/skills/new-skill/SKILL.md" }, { cwd: CWD, toolName }),
+      undefined,
+      toolName || "(empty)",
+    );
+  }
 });
 
 test("projectMessages は本文を持たない read だけのターンを次の表示メッセージへ繰り上げる", () => {
@@ -348,6 +362,50 @@ test("ライブの ToolCall.skill は履歴の skillLoads と同じ値になる"
   assert.deepEqual(payload.messages.at(-1)?.skillLoads, [expected], "履歴の skillLoads");
   const toolStart = events.find((entry) => entry.type === "tool_start");
   assert.deepEqual(toolStart?.data.skill, expected, "SSE の tool_start も同じ値");
+  await store.close();
+});
+
+test("read 以外が SKILL.md を指してもライブ / 履歴のどちらにもスキル読み込みを出さない", async () => {
+  // skill-creator の手順 (write で SKILL.md を作る) が通常操作なので、ライブだけに出ると復元後の表示と食い違う
+  const args = { path: ".agents/skills/new-skill/SKILL.md", content: "新しいスキル" };
+  const session = createScriptedSession((s) => {
+    s.emit({ type: "agent_start" });
+    const assistant = {
+      role: "assistant",
+      content: [text("作りました"), { type: "toolCall", id: "call-write", name: "write", arguments: args }],
+      stopReason: "stop",
+      timestamp: Date.now(),
+    };
+    s.messages.push(assistant);
+    s.emit({ type: "message_end", message: assistant });
+    s.emit({ type: "tool_execution_start", toolCallId: "call-write", toolName: "write", args });
+    s.emit({
+      type: "tool_execution_end",
+      toolCallId: "call-write",
+      toolName: "write",
+      isError: false,
+      result: { content: [{ type: "text", text: "書き込みました" }] },
+    });
+    s.emit({ type: "agent_settled" });
+  });
+  const store = new SessionStore({
+    pi: { createSession: async () => ({ session }) } as unknown as PiRuntimeLike,
+    catalog: createAgentCatalog(),
+    masker,
+    rootCwd: CWD,
+  });
+  const record = await store.create();
+  const events: EventEntry[] = [];
+  store.subscribe(record, undefined, (entry) => events.push(entry));
+
+  store.postMessage(record, "スキルを作って");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const payload = store.payload(record);
+  assert.equal(payload.run?.toolCalls[0]?.skill, undefined, "ライブの ToolCall.skill");
+  assert.equal(payload.messages.at(-1)?.skillLoads, undefined, "履歴の skillLoads");
+  const toolStart = events.find((entry) => entry.type === "tool_start");
+  assert.equal(toolStart?.data.skill, undefined, "SSE の tool_start");
   await store.close();
 });
 

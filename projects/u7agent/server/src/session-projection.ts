@@ -125,12 +125,18 @@ interface SkillReadRef {
 }
 
 /**
- * read の引数がスキル読み込みかどうかを、パスの解決と basename だけで判定する。pi の
+ * read の引数がスキル読み込みかどうかを、ツール名・パスの解決・basename だけで判定する。pi の
  * `getCompactReadClassification()` のうち skill の分だけを持ち、対応するのは絶対 / 相対 / `.` / `..`
  * のみ (`~` 展開・`@` 接頭辞・`file://`・Unicode スペース正規化は非対応)。
+ * ツール名の条件をここに置くのは、ライブと履歴のどちらか片方だけが read 以外を通す事故を防ぐため。
  * マスクは呼び出し側の後段で行う: 秘密値に `/` が混ざると basename 判定が壊れ得るため。
  */
-export function classifySkillRead(args: unknown, { cwd }: { cwd: string }): SkillReadRef | undefined {
+export function classifySkillRead(
+  args: unknown,
+  { cwd, toolName }: { cwd: string; toolName: string },
+): SkillReadRef | undefined {
+  // write / edit / grep などが path に SKILL.md を持ってもスキル読み込みではない
+  if (toolName !== "read") return undefined;
   if (!args || typeof args !== "object") return undefined;
   const record = args as Record<string, unknown>;
   const rawPath = record.file_path ?? record.path;
@@ -184,8 +190,8 @@ function skillLoadsOf(
   for (const part of message.content) {
     if (!part || typeof part !== "object") continue;
     const call = part as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
-    if (call.type !== "toolCall" || call.name !== "read" || typeof call.id !== "string") continue;
-    const ref = classifySkillRead(call.arguments, { cwd });
+    if (call.type !== "toolCall" || typeof call.id !== "string" || typeof call.name !== "string") continue;
+    const ref = classifySkillRead(call.arguments, { cwd, toolName: call.name });
     if (!ref) continue;
     const hasResult = toolErrors.has(call.id);
     // 結果が無い read は、abort で一度も実行されていないときだけ発火扱いにしない。それ以外の欠落
