@@ -3,8 +3,8 @@ import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
+import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
-import type { SkillLoad } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { AttachedFiles } from "./AttachedFiles";
@@ -33,7 +33,7 @@ function UserIcon() {
 
 export function MessageView({
   bubble,
-  skillLoads,
+  skillBadges,
   copied,
   compact,
   agentName,
@@ -46,8 +46,8 @@ export function MessageView({
   onCopyAll,
 }: {
   bubble: Bubble;
-  /** 全バブル横断の dedup 済み (カードと同じ呼び出しの導出行は ChatArea が落とす) */
-  skillLoads: SkillLoad[];
+  /** 全バブル横断の dedup 済みバッジ (履歴優先。ChatArea が skillBadgesOf で組み立てる) */
+  skillBadges: SkillBadge[];
   copied: boolean;
   compact: boolean;
   /** assistant の表示名 (セッションのスナップショット)。未指定は従来の「アシスタント」 */
@@ -70,6 +70,8 @@ export function MessageView({
   const bodyText = skill ? (skill.userMessage ?? "") : userBody;
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
+  // スキル読み込みはバッジへ出すため、ツール履歴の件数・サマリー・コピーからは外す
+  const toolCards = nonSkillToolCards(bubble.tools);
   return (
     <article
       className={cn("group/bubble flex min-w-0 animate-rise", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : "")}
@@ -97,10 +99,10 @@ export function MessageView({
         <div className={cn("text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1")}>
           {isUser ? "あなた" : agentName || "アシスタント"}
         </div>
-        {!isUser ? <SkillLoadList loads={skillLoads} compact={compact} /> : null}
-        {!isUser && bubble.tools.length > 0 ? (
+        {!isUser ? <SkillLoadList badges={skillBadges} compact={compact} /> : null}
+        {!isUser && toolCards.length > 0 ? (
           <ToolHistoryView
-            cards={bubble.tools}
+            cards={toolCards}
             hasResponse={Boolean(bubble.text)}
             copiedId={copiedId}
             copiedAll={copiedAll}

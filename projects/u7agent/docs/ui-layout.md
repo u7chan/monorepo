@@ -49,9 +49,11 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 ツール履歴は代表ステータスを持たない（1 件の失敗で全体がエラーに見え、成功したコールの情報が消えるため）。畳んだ状態でも実行中だけは分かるようにサマリーへ `実行中` を出し、それ以外の位相は各コールの行が持つ。コールの行は入れ子の `<details>` で、開くまで引数と出力は出さない（件数が多い履歴でも一覧できる）。各コールは丸枠の面を持ち、失敗したコールは `border-danger/50` の枠と右端の `エラー` ラベルで示す。
 
-スキル読み込み（`read` で basename が `SKILL.md`）は、吹き出しの中に `[skill] <name>[:start-end]` の行を出す（`client/src/components/chat/SkillLoadList.tsx`）。既定は閉じで、展開すると解決後の絶対パスと行範囲を確認できる（本文の展開は非ゴール）。行範囲は `client/src/lib/skillLoad.ts` の `formatReadLineRange()` が pi ネイティブと同じ規則（`offset` 省略は 1 行目、`limit` 省略は最終行まで）で整形し、**ライブのツールカード行・ツール履歴のサマリーも同じ formatter を使う**。`abbreviatedToolSummary` はスキル読み込みのカードなら `[skill] <name>:start-end` を返し、複数件の `historyPreview` はスキル行を先頭に列挙する（呼び出し順とは変わるが、既定で閉じた履歴でも発火が見えることを優先する意図的な並び）。read の引数要約は path しか返さないため、これをやらないと最新ランでは行範囲がどこにも出ない。コピー本文（`client/src/lib/copy-content.ts`）は機械可読性を優先して従来の `name — args` のままにする。
+スキル読み込み（`read` で basename が `SKILL.md`）はツールではなく、assistant バブル上部の専用バッジ（チップ行）で見せる（`client/src/components/chat/SkillLoadList.tsx`）。表記は `[skill] <name>[:start-end]`、既定は閉じで、展開すると解決後の絶対パス・行範囲・失敗理由（1行。ライブのカード出力が無ければ「読み込み失敗」）を確認できる（本文の展開は非ゴール）。成功 / 失敗 / 実行中（未確定）は色だけで区別し、名前は常に出す（実行中は展開に「読み込み中…」を出す）。4 件以上は 3 件 + `+N` に畳み、`+N` の展開で残りを出す。行範囲は `client/src/lib/skillLoad.ts` の `formatReadLineRange()` が pi ネイティブと同じ規則（`offset` 省略は 1 行目、`limit` 省略は最終行まで）で整形する。
 
-同じ呼び出しがカード行と導出行の両方に出ないよう、表示時に**全バブル横断**で `bubbles[].tools` の `toolCallId` と突き合わせる（`toolCallIdsOf` / `visibleSkillLoads`）。resync は run の全 toolCall を最後の assistant バブルへまとめて付ける（`status === "completed"` でも）ため、1 つのバブルだけを見ると同じ read が二重になる。`toolBubbleIds` は `runStart` / `runEnd` で空になるので使わない。
+スキル読み込みは `ツール履歴 N件` の件数・サマリー（`abbreviatedToolSummary` / `historyPreview`）・コピー本文（`client/src/lib/copy-content.ts`）にも含めない。表示側が `nonSkillToolCards()` で外してからツール履歴へ渡すため、スキルしかないバブルはツール履歴ブロックごと出ない（コピー本文の `#N` は UI の行番号と一致し続ける）。
+
+同じ呼び出しがバッジとツールカードで二重に出ないよう、表示時に**全バブル横断**で `toolCallId` を突き合わせる（`skillBadgesOf()`）。表示位置は履歴（`ChatMessage.skillLoads`）を優先し、履歴に無いライブ分（`ToolCard.skill`）だけをカードのあるバブルへ出す。resync は run の全 toolCall を最後の assistant バブルへまとめて付ける（`status === "completed"` でも）ため、1 つのバブルだけを見ると同じ read がバッジとカードで二重になる。`toolBubbleIds` は `runStart` / `runEnd` で空になるので使わない。
 
 ツール履歴の各コールの行の右端にある位相ラベル（実行中 / エラー）は `w-[3.25em]`（`text-3xs` で 29.25px）の固定スロットに右寄せ + `whitespace-nowrap` で置く。位相で文字幅が変わると（実測 実行中 27 / エラー 27.42px）、右隣のコピーボタンと左のコール名の truncate 境界が動くため。完了は空スロットにして、位相が違っても右端のコピーボタンの x を揃える。履歴のサマリーはスロットを持たず、実行中のときだけ `実行中` を置く（それ以外はラベルが無いので、右端のコピーボタンは常に同じ位置に着く）。幅を rem 基準にするとブラウザーの既定フォントサイズが 14px のときスロットが 24.5px まで縮んで最長ラベルが 2 行に折り返し、行高まで位相で変わる。そこでラベルの文字サイズに連動する em を使う。
 
@@ -103,7 +105,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 5 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` が `[skill]` 行の行範囲整形と、カード行 / 履歴サマリーのスキル表示、全バブル横断の二重表示排除を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 5 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

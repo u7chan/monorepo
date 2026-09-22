@@ -95,7 +95,7 @@ DTO（[api-sessions.md](api-sessions.md) の `compactions`）はそのまま写�
 - エージェント定義のスキルは作成時に `promptSnapshot` へ `<agent_skill>` で本文を固定し、索引（name / description / 仮想パス `<workspace>/.u7agent/agent-skills/<name>/SKILL.md`）だけを `skillsOverride` で渡す。`read` は BFF が横取りしてこの本文を返す（[session-files.md](session-files.md)、[api-catalog.md](api-catalog.md#セッションへの渡し方)）。
 - 初期状態はカタログスキル 0 件で、ユーザー定義エージェントはずんだもん `agent-zundamon` 1 体（`systemPrompt` に語尾の指示）。どちらも通常の定義と同じ扱いで削除・置換ができ、再起動で戻る。
 - ファイルスキルはエージェントに紐づかない **ambient** なスキルで、セッション作成・復元のたびにサンドボックス（`GET /v1/skills`）で発見し、SDK の `skillsOverride` へ渡す。`promptSnapshot` には保存しない。セッションが持つのは発見一覧・説明・優先順位だけで、復元時は `meta.projectCwd` を起点に取り直す（プロジェクト登録が外れていても同じ）。
-- 発見できるのは `SKILL.md` だけ。**本文は保存も固定もしない**ため、モデルが `read` した時点のファイル内容になる（作成後に編集すればその内容、削除すれば読取り失敗）。設定画面とチャットの一覧も同じで、ファイルを変えれば再読み込み後の表示に反映される。どのターンで `read` されたかは JSONL の `toolCall` から導出し、チャットに `[skill]` 行として出す（上記の再導出）。
+- 発見できるのは `SKILL.md` だけ。**本文は保存も固定もしない**ため、モデルが `read` した時点のファイル内容になる（作成後に編集すればその内容、削除すれば読取り失敗）。設定画面とチャットの一覧も同じで、ファイルを変えれば再読み込み後の表示に反映される。どのターンで `read` されたかは JSONL の `toolCall` から導出し、チャットの assistant バブルに `[skill]` バッジとして出す（上記の再導出）。
 - 優先順位は `プロジェクト > 共通 > 組み込み`。同名は注入時に一意化し、影になったファイルはログと設定一覧の警告で、上書きされた組み込みは一覧の「上書きされています」で確認する（ファイルの改名・削除・マージはしない）。
 - 組み込みスキルはワークスペースに実体を作らず（`read` だけ BFF が同梱の本文を返す）、アプリの更新に追従して常に最新・改変不可。カタログの export / import と `skillIds`、バックアップの `definitions` の対象外（[api-catalog.md](api-catalog.md#組み込みスキル)）。
 - チャット側の一覧（`GET /api/sessions/:id/skills`）と `/skill:` の展開は同じ解決（`プロジェクト > 共通 > 組み込み > カタログ`）を共有する。一覧が固定するのは発見一覧・説明・優先順位だけで、**本文は送信時にスコープ別に取り直す**（ファイル → サンドボックスの preview、組み込み → registry、カタログ → `promptSnapshot`）。カタログの本文は `promptSnapshot` から引くため、定義を編集・削除してもこのセッションの `read` / `/skill:` は作成時の内容で動く（[api-sessions.md](api-sessions.md#skill-の展開)）。
