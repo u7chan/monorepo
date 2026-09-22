@@ -3,11 +3,11 @@ import { createSkill, deleteSkill, updateSkill } from "../../api";
 import type { Catalog, SkillDef } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
 
-export type SkillForm = { name: string; description: string; prompt: string };
+export type SkillForm = { name: string; description: string; body: string };
 
 /** 下書き (SkillForm) はページが持つ。渡した編集対象から初期値を作る */
 export function skillFormOf(skill: SkillDef | undefined): SkillForm {
-  return { name: skill?.name ?? "", description: skill?.description ?? "", prompt: skill?.prompt ?? "" };
+  return { name: skill?.name ?? "", description: skill?.description ?? "", body: skill?.body ?? "" };
 }
 
 export function SkillEditorForm({
@@ -35,7 +35,7 @@ export function SkillEditorForm({
 }) {
   const saveSkill = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const payload = { name: form.name, description: form.description, prompt: form.prompt };
+    const payload = { name: form.name, description: form.description, body: form.body };
     try {
       const result = editingId ? await updateSkill(editingId, payload) : await createSkill(payload);
       onSelectSkill(result.skill.id);
@@ -100,16 +100,16 @@ export function SkillEditorForm({
         />
       </label>
       <label className="grid gap-1 text-1xs text-ink-soft">
-        指示
+        本文
         <textarea
           className="field min-h-36 text-xs leading-relaxed"
           rows={8}
           maxLength={8000}
           placeholder="例: 結論を先に述べ、根拠をファイル名付きで示す"
-          value={form.prompt}
+          value={form.body}
           onChange={(e) => {
-            const prompt = e.currentTarget.value;
-            setForm((p) => ({ ...p, prompt }));
+            const body = e.currentTarget.value;
+            setForm((p) => ({ ...p, body }));
           }}
         />
       </label>

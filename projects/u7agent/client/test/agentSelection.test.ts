@@ -8,6 +8,7 @@ const agent = (id: string): AgentDef => ({ id, name: id, description: "", system
 test("selectableAgents puts the built-in agent before the user-defined ones", () => {
   const catalog: CatalogResponse = {
     builtinAgent: agent("agent-general"),
+    builtinSkills: [],
     agents: [agent("agent-code")],
     skills: [],
   };
@@ -19,7 +20,7 @@ test("selectableAgents puts the built-in agent before the user-defined ones", ()
 
 test("selectableAgents tolerates a catalog that is not loaded yet", () => {
   // 取得前の初期状態はビルトインが null
-  assert.deepEqual(selectableAgents({ builtinAgent: null, agents: [], skills: [] }), []);
+  assert.deepEqual(selectableAgents({ builtinAgent: null, builtinSkills: [], agents: [], skills: [] }), []);
 });
 
 test("adopts the snapshot agent when the catalog still has it", () => {

@@ -2,6 +2,7 @@ import { createPiBff } from "./agent";
 import type { PiBff } from "./agent";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
+import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -51,7 +52,10 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     }
   }
 
-  const catalog = createAgentCatalog();
+  // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
+  const catalog = createAgentCatalog({
+    builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
+  });
   const projects = new ProjectStore();
   // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
   const workspace =

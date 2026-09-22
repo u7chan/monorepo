@@ -6,6 +6,7 @@ export type {
   AgentPayloadInfo,
   AgentSkillInfo,
   AgentSuggestion,
+  BuiltinSkillInfo,
   Catalog,
   CatalogResponse,
   ChatMessage,

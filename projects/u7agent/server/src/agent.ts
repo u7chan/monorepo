@@ -76,8 +76,8 @@ export function composePromptSnapshot(agent?: AgentDef, skills: SkillDef[] = [])
         .join("\n")
     : "";
   const skillPrompts = skills
-    .filter((skill) => skill && skill.name && skill.prompt)
-    .map((skill) => `<agent_skill name="${skill.name}">\n${skill.prompt}\n</agent_skill>`);
+    .filter((skill) => skill && skill.name && skill.body)
+    .map((skill) => `<agent_skill name="${skill.name}">\n${skill.body}\n</agent_skill>`);
   return { agent: agentPrompt, skills: skillPrompts };
 }
 

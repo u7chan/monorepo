@@ -4,7 +4,15 @@
  */
 import { randomUUID } from "node:crypto";
 import { ThinkingLevelSchema } from "./schema";
-import type { AgentDef, AgentSuggestion, CatalogResponse, ModelRef, SkillDef, ThinkingLevel } from "./schema";
+import type {
+  AgentDef,
+  AgentSuggestion,
+  BuiltinSkillInfo,
+  CatalogResponse,
+  ModelRef,
+  SkillDef,
+  ThinkingLevel,
+} from "./schema";
 
 export interface HttpError extends Error {
   statusCode?: number;
@@ -16,21 +24,25 @@ type AgentRecord = AgentDef;
 /** catalog CRUD の入力は正規化ロジックが正なので unknown で受ける */
 type DefinitionInput = unknown;
 
-/** どのエージェントにも割り当てていないサンプルスキル。口調や手順はスキル側に置く分担なので、使う人が選んで付ける。 */
-const DEFAULT_SKILLS: SkillRecord[] = [
+/**
+ * 初期投入するユーザー定義エージェント。口調のように会話全体へ常時効かせたい指示はスキルではなく
+ * エージェントの systemPrompt に置く。通常の定義と同じ扱いにするので削除も置換もでき、再起動で戻る。
+ */
+const DEFAULT_AGENTS: AgentRecord[] = [
   {
-    id: "skill-zundamon-speech",
-    name: "ずんだもんの語尾",
+    id: "agent-zundamon",
+    name: "ずんだもん",
     description: "「〜なのだ」「〜のだ」の語尾で話す",
-    prompt:
+    systemPrompt:
       "ずんだもんの口調で話してください。文末は「〜なのだ」「〜のだ」にし、一人称は「ボク」を使ってください。内容や説明の正確さは変えず、口調だけを変えてください。コード・コマンド・ファイルパス・エラーメッセージは書き換えず、そのまま示してください。",
+    skillIds: [],
   },
 ];
 
 /**
- * 常に 1 体居る汎用アシスタント。口調や手順はスキルに置く分担なので、なりきりもスキル側だけで
- * 表し、使う人が選んで付ける (そのためどのスキルも割り当てていない)。置換対象のマップにも入れず、
- * ユーザー定義が 0 件でもセッションを作れる保証と、インポートで消えないことをこの分離で持つ。
+ * 常に 1 体居る汎用アシスタント。置換対象のマップにも入れず、ユーザー定義が 0 件でもセッションを
+ * 作れる保証と、インポートで消えないことをこの分離で持つ。既定のエージェントは役割もスキルも
+ * 持たない (なりきりは DEFAULT_AGENTS のサンプルとして別に置く)。
  */
 const BUILTIN_AGENT: AgentRecord = {
   id: "agent-general",
@@ -69,7 +81,7 @@ function publicSkill(skill: SkillRecord): SkillDef {
     id: skill.id,
     name: skill.name,
     description: skill.description,
-    prompt: skill.prompt,
+    body: skill.body,
   };
 }
 
@@ -165,15 +177,15 @@ function normalizeSuggestions(value: unknown): AgentSuggestion[] {
 }
 
 function makeSkill(input: DefinitionInput, id: string = randomUUID()): SkillRecord {
-  const record = input as { name?: unknown; prompt?: unknown; description?: unknown } | null;
+  const record = input as { name?: unknown; body?: unknown; description?: unknown } | null;
   const name = text(record?.name);
-  const prompt = text(record?.prompt);
-  if (!name || !prompt) throw invalid("Skill name and prompt are required");
+  const body = text(record?.body);
+  if (!name || !body) throw invalid("Skill name and body are required");
   return {
     id,
     name,
     description: text(record?.description, "", 300),
-    prompt,
+    body,
   };
 }
 
@@ -228,11 +240,18 @@ export interface AgentCatalog {
   removeAgent(id: string): boolean;
 }
 
-export function createAgentCatalog(): AgentCatalog {
-  const skills = new Map<string, SkillRecord>(DEFAULT_SKILLS.map((skill) => [skill.id, copy(skill)]));
+export interface CreateAgentCatalogOptions {
+  /** GET /api/agents が返す同梱スキル。カタログの CRUD と `skillIds` の対象外 */
+  builtinSkills?: readonly BuiltinSkillInfo[];
+}
+
+export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): AgentCatalog {
+  const skills = new Map<string, SkillRecord>();
   // ユーザー定義だけを置換対象にする。ビルトインはここに入れない
-  const agents = new Map<string, AgentRecord>();
+  const agents = new Map<string, AgentRecord>(DEFAULT_AGENTS.map((agent) => [agent.id, copy(agent)]));
   const builtin = copy(BUILTIN_AGENT);
+  // 呼び出し側の配列を参照で持ち回らない (応答のたびにコピーを返す)
+  const builtinSkills: BuiltinSkillInfo[] = (options.builtinSkills ?? []).map((skill) => ({ ...skill }));
 
   const builtinAgent = () => publicAgent(builtin);
   const listSkills = () => [...skills.values()].map(publicSkill);
@@ -241,6 +260,7 @@ export function createAgentCatalog(): AgentCatalog {
   const getAgent = (id: string) => agents.get(id) ?? (id === builtin.id ? builtin : undefined);
   const snapshot = (): CatalogResponse => ({
     builtinAgent: builtinAgent(),
+    builtinSkills: builtinSkills.map((skill) => ({ ...skill })),
     agents: listAgents(),
     skills: listSkills(),
   });

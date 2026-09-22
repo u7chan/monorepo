@@ -1,11 +1,18 @@
-import type { SkillDef } from "../../types";
+import type { BuiltinSkillInfo, SkillDef } from "../../types";
+
+/** 組み込み行の見出しと注記。チェック済み・無効で出し、外せないことをここ 1 箇所で伝える */
+const BUILTIN_SECTION_LABEL = "組み込み（全エージェントで常時有効）";
+const BUILTIN_SECTION_NOTE = "アプリに同梱されているため、割り当てを外すことはできません。";
 
 export function SkillSelector({
   skills,
+  builtinSkills,
   selectedIds,
   onToggle,
 }: {
   skills: SkillDef[];
+  /** 全エージェントで常時有効な同梱スキル。カタログと違って外せないのでチェック済みの無効行で出す */
+  builtinSkills: BuiltinSkillInfo[];
   selectedIds: string[];
   onToggle: (skillId: string, checked: boolean) => void;
 }) {
@@ -49,6 +56,27 @@ export function SkillSelector({
           </div>
         </div>
       )}
+      {builtinSkills.length > 0 ? (
+        // 外せないので操作は持たず、チェック済みの無効行として「常時有効」を見せる
+        <div className="grid gap-1 border-t border-line pt-2">
+          <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">{BUILTIN_SECTION_LABEL}</div>
+          {builtinSkills.map((skill) => (
+            <label
+              key={skill.name}
+              className="flex min-w-0 items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5 text-ink-muted"
+            >
+              <input type="checkbox" checked disabled readOnly className="mt-0.5 accent-focus" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs">{skill.name}</span>
+                <small className="block truncate text-2xs" title={skill.description || ""}>
+                  {skill.description || ""}
+                </small>
+              </span>
+            </label>
+          ))}
+          <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
+        </div>
+      ) : null}
     </div>
   );
 }

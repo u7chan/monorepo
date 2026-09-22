@@ -24,7 +24,7 @@ const definitions = {
       id: "skill-imported",
       name: "インポートスキル",
       description: "テスト用スキル",
-      prompt: "テスト用の指示です。",
+      body: "テスト用の本文です。",
     },
   ],
 };
@@ -47,7 +47,7 @@ test("replaces the user-defined catalog from a JSON definition snapshot", () => 
       id: "skill-imported",
       name: "インポートスキル",
       description: "テスト用スキル",
-      prompt: "テスト用の指示です。",
+      body: "テスト用の本文です。",
     },
   ]);
   // 応答はビルトインを別フィールドで常に含み、置換対象の agents には現れない
@@ -66,15 +66,26 @@ test("the built-in agent keeps model and thinkingLevel unspecified", () => {
   assert.equal(Object.hasOwn(agent, "thinkingLevel"), false);
 });
 
-test("ships the generic agent as the only built-in", () => {
+test("ships the generic agent as the built-in and the zundamon sample as a user definition", () => {
   const catalog = createAgentCatalog();
   const agent = catalog.builtinAgent();
   assert.equal(agent.id, "agent-general");
   assert.equal(agent.name, "汎用アシスタント");
-  // なりきりなどの口調はスキル側に置くので、既定のエージェント自身は役割もスキルも持たない
+  // 既定のエージェント自身は役割もスキルも持たない (口調のサンプルはユーザー定義側に置く)
   assert.equal(agent.systemPrompt, "");
   assert.deepEqual(agent.skillIds, []);
-  assert.deepEqual(catalog.listAgents(), [], "ユーザー定義は追加するまで空");
+
+  const samples = catalog.listAgents();
+  assert.deepEqual(
+    samples.map((sample) => sample.id),
+    ["agent-zundamon"],
+    "初期状態のユーザー定義はずんだもんだけ",
+  );
+  assert.equal(samples[0].name, "ずんだもん");
+  assert.match(samples[0].systemPrompt, /なのだ/);
+  assert.deepEqual(samples[0].skillIds, []);
+  // カタログスキルは 0 件から始まる (常時効かせたい指示はエージェント側へ置く)
+  assert.deepEqual(catalog.listSkills(), []);
 });
 
 test("keeps the built-in agent out of the replaceable map", () => {
@@ -84,10 +95,20 @@ test("keeps the built-in agent out of the replaceable map", () => {
   assert.equal(catalog.removeAgent("agent-general"), false);
   assert.equal(catalog.getAgent("agent-general")?.id, "agent-general");
 
-  // 逆にユーザー定義は 0 件まで減らせる (ビルトインが居るので非空の保証は不要)
+  // ユーザー定義はサンプルも含めて 0 件まで減らせる (ビルトインが居るので非空の保証は不要)
   const created = catalog.createAgent({ name: "消せる定義" });
   assert.equal(catalog.removeAgent(created.id), true);
+  assert.equal(catalog.removeAgent("agent-zundamon"), true);
   assert.deepEqual(catalog.listAgents(), []);
+});
+
+test("treats the zundamon sample as a normal user definition", () => {
+  const catalog = createAgentCatalog();
+
+  // 置換で消え、再起動 (新しいカタログ) で戻る
+  assert.deepEqual(catalog.replace({ skills: [], agents: [] }).agents, []);
+  assert.equal(catalog.getAgent("agent-zundamon"), undefined);
+  assert.equal(createAgentCatalog().getAgent("agent-zundamon")?.name, "ずんだもん");
 });
 
 test("rejects the built-in id in a definition snapshot", () => {
@@ -98,7 +119,10 @@ test("rejects the built-in id in a definition snapshot", () => {
   );
   // 拒否してもカタログは壊さない
   assert.equal(catalog.builtinAgent().name, "汎用アシスタント");
-  assert.deepEqual(catalog.listAgents(), []);
+  assert.deepEqual(
+    catalog.listAgents().map((agent) => agent.id),
+    ["agent-zundamon"],
+  );
 });
 
 test("accepts an empty agent list because the built-in agent always exists", () => {
@@ -287,10 +311,9 @@ test("round-trips suggestions through the definition snapshot", () => {
 
   // エクスポート → インポート。ビルトインは snapshot の agents に乗らないので、送った定義だけが入る
   const replaced = catalog.replace(catalog.snapshot());
-  assert.deepEqual(replaced.agents[0].id, agent.id);
-  assert.deepEqual(replaced.agents[0].suggestions, DEFAULT_SUGGESTIONS);
+  assert.deepEqual(replaced.agents.find((item) => item.id === agent.id)?.suggestions, DEFAULT_SUGGESTIONS);
   assert.deepEqual(
-    catalog.snapshot().agents.find((exported) => exported.id === agent.id)?.suggestions,
+    catalog.snapshot().agents.find((item) => item.id === agent.id)?.suggestions,
     DEFAULT_SUGGESTIONS,
   );
 
@@ -492,7 +515,7 @@ test("round-trips icons through the definition snapshot", () => {
   assert.equal(Object.hasOwn(legacy.agents[0], "icon"), false);
 });
 
-test("composePromptSnapshot はカタログスキルを agent_skill タグで固定する", () => {
+test("composePromptSnapshot はカタログスキルの本文を agent_skill タグで固定する", () => {
   const snapshot = composePromptSnapshot(
     {
       id: "agent-example",
@@ -501,8 +524,45 @@ test("composePromptSnapshot はカタログスキルを agent_skill タグで固
       systemPrompt: "短く答えてください。",
       skillIds: ["skill-example"],
     },
-    [{ id: "skill-example", name: "例スキル", description: "説明", prompt: "指示です。" }],
+    [{ id: "skill-example", name: "例スキル", description: "説明", body: "本文です。" }],
   );
   assert.match(snapshot.agent, /<agent_profile name="例">/);
-  assert.deepEqual(snapshot.skills, ['<agent_skill name="例スキル">\n指示です。\n</agent_skill>']);
+  assert.deepEqual(snapshot.skills, ['<agent_skill name="例スキル">\n本文です。\n</agent_skill>']);
+});
+
+test("creates and updates skills with body and rejects the old prompt field", () => {
+  const catalog = createAgentCatalog();
+
+  const created = catalog.createSkill({ name: " 本文あり ", description: "説明", body: " 本文 " });
+  assert.deepEqual(created, { id: created.id, name: "本文あり", description: "説明", body: "本文" });
+  assert.equal(catalog.getSkill(created.id)?.body, "本文");
+
+  // キー省略の更新は本文を残し、body だけを差し替える
+  const kept = catalog.updateSkill(created.id, { description: "説明だけ更新" });
+  assert.equal(kept?.body, "本文");
+  assert.equal(catalog.updateSkill(created.id, { body: "新しい本文" })?.body, "新しい本文");
+
+  // 旧フィールド名 (prompt) は受理しない (バックアップの互換も持たない)
+  assert.throws(
+    () => catalog.createSkill({ name: "旧形式", prompt: "旧本文" }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400 && /body/.test(error.message),
+  );
+});
+
+test("reports the injected builtin skills as a separate copy", () => {
+  const builtinSkills = [{ name: "skill-creator", description: "スキルの作成を依頼されたときに使う" }];
+  const catalog = createAgentCatalog({ builtinSkills });
+
+  assert.deepEqual(catalog.snapshot().builtinSkills, builtinSkills);
+
+  // 呼び出し側 / 応答側の書き換えが内部や次の応答へ染みない
+  builtinSkills[0].name = "書き換え";
+  const exported = catalog.snapshot().builtinSkills;
+  assert.equal(exported[0].name, "skill-creator");
+  exported[0].name = "書き換え 2";
+  assert.equal(catalog.snapshot().builtinSkills[0].name, "skill-creator");
+
+  // 組み込みはカタログの CRUD と skillIds の対象外
+  assert.deepEqual(catalog.listSkills(), []);
+  assert.equal(catalog.getSkill("skill-creator"), undefined);
 });
