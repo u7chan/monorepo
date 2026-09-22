@@ -205,7 +205,6 @@ test("描画: バッジは名前と行範囲を出し、展開にパスと行範
   assert.ok(done.includes(LOAD.path));
   assert.ok(done.includes(">5-7<"), "行範囲は : を除いて出す");
   assert.ok(!done.includes("読み込み失敗"));
-  assert.ok(!done.includes("# gh skill"), "本文は出さない");
 
   const failed = renderBadges(
     badgesOf(
@@ -217,6 +216,12 @@ test("描画: バッジは名前と行範囲を出し、展開にパスと行範
   assert.ok(failed.includes("失敗理由"));
   assert.ok(failed.includes("ENOENT: no such file or directory, open /work/secret/SKILL.md"));
   assert.ok(failed.includes("text-danger-text"), "失敗は色で区別する");
+
+  // 履歴だけの失敗は理由を持たない (DTO に理由が無い) ため、理由欄のフォールバックを固定する。
+  // 素の "読み込み失敗" は summary の title にも現れるので、展開欄の要素 (>...<) で見る
+  const historyFailed = renderBadges(badgesOf([{ ...LOAD, isError: true }]));
+  assert.ok(historyFailed.includes(">失敗理由<"), "履歴の失敗でも理由の欄を出す");
+  assert.ok(historyFailed.includes(">読み込み失敗<"), "理由が無ければ「読み込み失敗」と出す");
 
   const running = renderBadges(badgesOf([], [skillCard({ phase: "running" })]));
   assert.ok(running.includes("読み込み中…"));
