@@ -4,9 +4,22 @@
  * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import { realpath as realpathCallback, type Dirent, type Stats } from "node:fs";
-import { link, lstat, mkdir, open, readdir, rm, rmdir, stat, unlink } from "node:fs/promises";
+import {
+  access,
+  link,
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rm,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import {
@@ -21,6 +34,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
+import { COMMON_SKILLS_DIR } from "../app-paths";
 import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
@@ -450,6 +464,36 @@ function isInsideRoot(root: string, target: string): boolean {
 }
 
 /**
+ * write / edit が書ける範囲。モデルの取り違え (workspace root への絶対パス) を防ぐファイルツールのポリシーで、
+ * 実行隔離ではない (bash は塞げない)。許可 root は実行 cwd (realpath)・要求 cwd の lexical 形
+ * (root / 登録ディレクトリが symlink でも system prompt に出た絶対パスを通す)・共通スキル置き場の 3 つ。
+ */
+interface WriteScope {
+  cwd: string;
+  lexicalCwd: string;
+  skillsDir: string;
+}
+
+/** 判定は lexical。SDK が解決済みの絶対パスを resolve() で `..` まで畳んでから比較する (realpath / lstat は使わない)。 */
+function isWritablePath(candidate: string, cwd: string, lexicalCwd: string, skillsDir: string): boolean {
+  const target = resolve(candidate);
+  return isInsideRoot(cwd, target) || isInsideRoot(lexicalCwd, target) || isInsideRoot(skillsDir, target);
+}
+
+/**
+ * 拒否の文言。許可場所 (実行 cwd と共通スキル) と cwd 相対の再試行例を含める。
+ * code は付けない (SDK の edit が access の失敗を `Error code: …` に置き換えて文言が消えるため)。
+ * 例は候補のパスから作らない: write は最初に親ディレクトリの mkdir が走るため、ファイル名が届かない。
+ */
+function writeScopeError(candidate: string, cwd: string, skillsDir: string): Error {
+  return new Error(
+    `Cannot write or edit outside the session working directory: ${resolve(candidate)}. ` +
+      `Allowed locations are ${cwd} (working directory) and ${skillsDir} (common skills). ` +
+      "Retry with a path relative to the working directory (for example, `cafe.html`).",
+  );
+}
+
+/**
  * symlink は辿った先の種別に寄せる (壊れた symlink は file として出す)。
  * 辿った stat は一覧の mtime に再利用するため捨てずに返す (壊れた symlink は undefined)。
  */
@@ -498,28 +542,72 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     return { ...context, env };
   };
 
+  const lexicalRoot = resolve(rootCwd);
+
+  /** 要求 cwd から write / edit の許可 root を組む。skillsDir は共通スキル (`<root>/.agents/skills`) で、未作成でも通す。 */
+  const writeScopeFor = (requestedCwd: string, executionCwd: string): WriteScope => ({
+    cwd: executionCwd,
+    lexicalCwd: resolve(lexicalRoot, requestedCwd || "."),
+    skillsDir: join(lexicalRoot, COMMON_SKILLS_DIR),
+  });
+
   /**
    * cwd ごとのツール定義。パス解決の起点が定義に焼き込まれるため、実行 cwd ごとに生成して再利用する。
-   * key は realpath 解決済みの絶対パス (symlink 経由の別名で重複生成しない)。
+   * key は realpath 解決済みの絶対パス (symlink 経由の別名で重複生成しない) と要求 cwd の lexical 形の組。
+   * lexical 形は同じ実行 cwd へ解決する別名でも許可 root が変わるため、key から落とせない。
    */
   const registries = new Map<string, Map<string, AnyToolDefinition>>();
-  const registryFor = (cwd: string): Map<string, AnyToolDefinition> => {
-    const cached = registries.get(cwd);
+  const registryFor = (cwd: string, scope: WriteScope): Map<string, AnyToolDefinition> => {
+    // 区切り文字の衝突で別の許可 root を使わないよう、JSON で組にする (パスに改行は入り得る)
+    const key = JSON.stringify([cwd, scope.lexicalCwd]);
+    const cached = registries.get(key);
     if (cached) return cached;
+    const assertWritable = (candidate: string): void => {
+      if (isWritablePath(candidate, scope.cwd, scope.lexicalCwd, scope.skillsDir)) return;
+      throw writeScopeError(candidate, scope.cwd, scope.skillsDir);
+    };
     const definitions: AnyToolDefinition[] = [
       createBashToolDefinition(cwd, {
         exposeSessionEnvironment: false,
         spawnHook: stripSandboxToken,
       }),
       createReadToolDefinition(cwd),
-      createEditToolDefinition(cwd),
-      createWriteToolDefinition(cwd),
+      createEditToolDefinition(cwd, {
+        operations: {
+          access: async (target) => {
+            // 判定を実際の access より先に行う (実在しないパスでも SDK に ENOENT を先に出させない)
+            assertWritable(target);
+            await access(target, constants.R_OK | constants.W_OK);
+          },
+          readFile: async (target) => {
+            assertWritable(target);
+            return readFile(target);
+          },
+          writeFile: async (target, content) => {
+            assertWritable(target);
+            await writeFile(target, content, "utf-8");
+          },
+        },
+      }),
+      createWriteToolDefinition(cwd, {
+        operations: {
+          // mkdir も判定する (先に許すと拒否パスでも workdir 外に親ディレクトリができる)
+          mkdir: async (dir) => {
+            assertWritable(dir);
+            await mkdir(dir, { recursive: true });
+          },
+          writeFile: async (target, content) => {
+            assertWritable(target);
+            await writeFile(target, content, "utf-8");
+          },
+        },
+      }),
       createGrepToolDefinition(cwd),
       createFindToolDefinition(cwd),
       createLsToolDefinition(cwd),
     ];
     const registry = new Map<string, AnyToolDefinition>(definitions.map((def) => [def.name, def]));
-    registries.set(cwd, registry);
+    registries.set(key, registry);
     return registry;
   };
 
@@ -530,7 +618,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/healthz", (c) => {
     return c.json({
       ok: true,
-      tools: [...registryFor(rootCwd).keys()],
+      tools: [...registryFor(rootCwd, writeScopeFor("", rootCwd)).keys()],
       cwd: rootCwd,
       runningExecutions: executions.size,
     });
@@ -574,7 +662,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const definition = registryFor(executionCwd).get(toolName);
+    const definition = registryFor(executionCwd, writeScopeFor(cwd ?? "", executionCwd)).get(toolName);
     if (!definition) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);
     }

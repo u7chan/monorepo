@@ -7,15 +7,12 @@
 import { createSyntheticSourceInfo, type Skill } from "@earendil-works/pi-coding-agent";
 import { isAbsolute, dirname, relative, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
-import { isAppDirPath } from "./app-paths";
+import { COMMON_SKILLS_DIR, isAppDirPath } from "./app-paths";
 import { builtinSkillEntries } from "./builtin-skills";
 import { messageFor } from "./http";
 import { SandboxRequestError, type SandboxToolClient } from "./sandbox/client";
 import type { SandboxSkillEntry } from "./sandbox/protocol";
 import type { FileSkillInfo, FileSkillsResponse } from "./schema";
-
-/** 共通スキルの置き場 (workspace root 相対)。プロジェクトスキルは `<session cwd>/.agents/skills` */
-export const COMMON_SKILLS_DIR = ".agents/skills";
 
 /**
  * プロジェクトスキルの置き場 (root 相対)。未所属チャットのスクラッチ (`<appdir>/sessions/<id>`) と

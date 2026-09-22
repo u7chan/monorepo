@@ -12,6 +12,7 @@ import {
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
+import { COMMON_SKILLS_DIR } from "./app-paths";
 import { discoverSessionFileSkills } from "./file-skills";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
@@ -39,14 +40,21 @@ const MODEL_UNAVAILABLE_MESSAGE =
 export const MODEL_WHITELIST_EMPTY_MESSAGE =
   "PI_MODELS に指定したモデルが利用可能なモデルにありません。PI_MODELS の指定とプロバイダーの認証設定を確認してください。";
 
-const APPEND_SYSTEM_PROMPT = `
+/**
+ * セッション共通の追加プロンプト。作業ディレクトリの意味とファイル / スキルの置き場はセッションの cwd で
+ * 変わるため rootCwd を受けて組み立てる (promptSnapshot に含めず、作成・復元のたびに評価する)。
+ */
+export function appendSystemPrompt(rootCwd: string): string {
+  return `
 You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
 Keep answers practical and concise.
+The working directory is the registered project directory for a project session, or a per-session scratch directory for a standalone chat.
+Write and edit files with paths relative to the working directory (for example, \`cafe.html\`). Absolute paths outside the working directory are refused, except for the common skills directory.
+Save downloaded or generated files in the working directory.
 
 Environment: the tools run in a dedicated sandbox, not in the user's editor process.
 In deployment it is a non-root Linux container where apt-get install fails.
-The working directory is the session's sandbox workspace; save downloaded or generated files there.
 
 Networking: use curl for HTTP(S) (e.g. \`curl -fsSL -o <path> <url>\`).
 Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fallback when curl is missing.
@@ -54,9 +62,10 @@ In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, un
 Not installed there: wget, python3, ffmpeg, imagemagick.
 
 When a task involves the project, inspect it with the available tools instead of guessing.
-When the user asks to create or change a reusable skill, put it in \`.agents/skills\` and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
+When the user asks to create or change a reusable skill, put it in the \`.agents/skills\` directory under the working directory, or in \`${join(rootCwd, COMMON_SKILLS_DIR)}\` for a standalone chat, and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
 `.trim();
+}
 
 const DEFAULT_TOOLS =
   process.platform === "win32"
@@ -380,7 +389,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       agentDir,
       settingsManager,
       secretMasker,
-      appendSystemPrompt: [APPEND_SYSTEM_PROMPT, snapshot.agent, ...snapshot.skills].filter(Boolean),
+      appendSystemPrompt: [appendSystemPrompt(rootCwd), snapshot.agent, ...snapshot.skills].filter(Boolean),
       fileSkills: fileSkills.skills,
     });
     await resourceLoader.reload();

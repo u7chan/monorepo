@@ -41,7 +41,7 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 FROM node:24-bookworm-slim AS final
 # curl / jq / file / unzip / xz / zip はサンドボックス内のエージェントが HTTP 取得とアセット検証に使う。
 # HTTP の正規手段を curl にして `node -e` のワンライナー fetch へ迂回させないのが目的で、同じ一覧を
-# server/src/agent.ts の APPEND_SYSTEM_PROMPT が名指しする。apt 行から落ちたら command -v 検査でビルドを失敗させる。
+# server/src/agent.ts の appendSystemPrompt が名指しする。apt 行から落ちたら command -v 検査でビルドを失敗させる。
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
     curl jq file unzip xz-utils zip \
     && for tool in bash git rg curl jq file unzip xz zip; do command -v "$tool" >/dev/null || exit 1; done \
