@@ -558,7 +558,8 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
    */
   const registries = new Map<string, Map<string, AnyToolDefinition>>();
   const registryFor = (cwd: string, scope: WriteScope): Map<string, AnyToolDefinition> => {
-    const key = `${cwd}\n${scope.lexicalCwd}`;
+    // 区切り文字の衝突で別の許可 root を使わないよう、JSON で組にする (パスに改行は入り得る)
+    const key = JSON.stringify([cwd, scope.lexicalCwd]);
     const cached = registries.get(key);
     if (cached) return cached;
     const assertWritable = (candidate: string): void => {
