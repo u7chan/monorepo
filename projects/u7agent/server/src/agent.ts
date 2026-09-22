@@ -50,8 +50,8 @@ The working directory is the session's sandbox workspace; save downloaded or gen
 
 Networking: use curl for HTTP(S) (e.g. \`curl -fsSL -o <path> <url>\`).
 Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fallback when curl is missing.
-Installed: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl.
-Not installed: wget, python3, ffmpeg, imagemagick.
+In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl.
+Not installed there: wget, python3, ffmpeg, imagemagick.
 
 When a task involves the project, inspect it with the available tools instead of guessing.
 When the user asks to create or change a reusable skill, put it in \`.agents/skills\` and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
