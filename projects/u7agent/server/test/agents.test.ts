@@ -394,6 +394,104 @@ test("imports old definitions without the new keys and exports only specified on
   assert.equal(catalog.getAgent("agent-new")?.thinkingLevel, "max");
 });
 
+/** PNG / webp の署名だけを持つ data URL。server は署名まで見るため、長さだけを変えて使う */
+function iconBody(mime: "png" | "webp", bytes: number): Buffer {
+  const body = Buffer.alloc(bytes, 0);
+  if (mime === "png") Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(body);
+  else {
+    body.write("RIFF", 0, "latin1");
+    body.write("WEBP", 8, "latin1");
+  }
+  return body;
+}
+
+const dataUrlOf = (mime: "png" | "webp", body: Buffer): string =>
+  `data:image/${mime};base64,${body.toString("base64")}`;
+
+const iconDataUrl = (mime: "png" | "webp", bytes: number): string => dataUrlOf(mime, iconBody(mime, bytes));
+
+test("normalizes agent icons on create and update", () => {
+  const catalog = createAgentCatalog();
+  const png = iconDataUrl("png", 64);
+  const webp = iconDataUrl("webp", 64);
+
+  // webp / png はそのまま保持する (trim も slice もしない)
+  const created = catalog.createAgent({ name: "アイコンあり", icon: webp });
+  assert.equal(created.icon, webp);
+  assert.equal(catalog.getAgent(created.id)?.icon, webp);
+
+  // 未指定 / null はキーごと落ちる
+  const plain = catalog.createAgent({ name: "アイコンなし" });
+  assert.equal(Object.hasOwn(plain, "icon"), false);
+  const nullCreated = catalog.createAgent({ name: "null 作成", icon: null });
+  assert.equal(Object.hasOwn(nullCreated, "icon"), false);
+
+  // キー省略の更新は保持、null は解除、値は上書き
+  const kept = catalog.updateAgent(created.id, { description: "説明だけ更新" });
+  assert.equal(kept?.icon, webp);
+  const replaced = catalog.updateAgent(created.id, { icon: png });
+  assert.equal(replaced?.icon, png);
+  const cleared = catalog.updateAgent(created.id, { icon: null });
+  assert.equal(Object.hasOwn(cleared ?? {}, "icon"), false);
+  // 解除後にキー省略で更新しても戻らない
+  const afterClear = catalog.updateAgent(created.id, { description: "解除後" });
+  assert.equal(Object.hasOwn(afterClear ?? {}, "icon"), false);
+});
+
+test("rejects icons that are not webp / png data URLs or exceed 16 KiB", () => {
+  const catalog = createAgentCatalog();
+  const atLimit = iconDataUrl("png", 16 * 1024);
+  // 上限ちょうどは通る (境界)
+  assert.equal(catalog.createAgent({ name: "上限", icon: atLimit }).icon, atLimit);
+
+  const invalidIcons: unknown[] = [
+    "https://example.com/icon.png",
+    "data:image/svg+xml;base64,PHN2Zy8+",
+    "data:image/jpeg;base64,/9j/4A==",
+    "data:text/plain;base64,AAAA",
+    "data:image/png;base64,",
+    // 非正規の base64 (padding なし) はデコードしても壊れた画像になるため拒否する
+    "data:image/png;base64,AAA",
+    "data:image/png;base64,****",
+    // base64 としては正しいが、中身が画像でないもの (prefix と署名の不一致も同じ扱い)
+    "data:image/png;base64,AAAA",
+    dataUrlOf("webp", iconBody("png", 64)),
+    iconDataUrl("webp", 16 * 1024 + 1),
+    42,
+    { icon: atLimit },
+  ];
+  for (const icon of invalidIcons) {
+    assert.throws(
+      () => catalog.createAgent({ name: "不正", icon }),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+      `must reject ${String(icon).slice(0, 40)}`,
+    );
+  }
+
+  // 不正な更新も 400 (既存値は保持)
+  const agent = catalog.createAgent({ name: "更新検証", icon: atLimit });
+  assert.throws(
+    () => catalog.updateAgent(agent.id, { icon: iconDataUrl("png", 16 * 1024 + 1) }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.equal(catalog.getAgent(agent.id)?.icon, atLimit);
+});
+
+test("round-trips icons through the definition snapshot", () => {
+  const catalog = createAgentCatalog();
+  const png = iconDataUrl("png", 64);
+  const agent = catalog.createAgent({ name: "アイコンあり", icon: png });
+
+  // エクスポート → インポート (バックアップの往復) でも残る
+  const replaced = catalog.replace(catalog.snapshot());
+  assert.equal(replaced.agents.find((item) => item.id === agent.id)?.icon, png);
+  assert.equal(catalog.snapshot().agents.find((item) => item.id === agent.id)?.icon, png);
+
+  // 旧形式 (icon なし) の import はそのまま通る
+  const legacy = catalog.replace({ skills: [], agents: [{ id: "agent-legacy", name: "旧形式", skillIds: [] }] });
+  assert.equal(Object.hasOwn(legacy.agents[0], "icon"), false);
+});
+
 test("composePromptSnapshot はカタログスキルを agent_skill タグで固定する", () => {
   const snapshot = composePromptSnapshot(
     {

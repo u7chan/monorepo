@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import type { Project, SessionSummary } from "../../types";
+import type { AgentDef, Project, SessionSummary } from "../../types";
 import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "../icons";
 import { SessionRow } from "./SessionRow";
 
@@ -39,6 +39,7 @@ function RowAction({
 export function ProjectRow({
   project,
   sessions,
+  agents,
   sessionId,
   selected,
   open,
@@ -51,6 +52,7 @@ export function ProjectRow({
 }: {
   project: Project;
   sessions: SessionSummary[];
+  agents: AgentDef[];
   sessionId: string;
   selected: boolean;
   open: boolean;
@@ -105,6 +107,7 @@ export function ProjectRow({
               <SessionRow
                 key={item.sessionId}
                 item={item}
+                agents={agents}
                 active={item.sessionId === sessionId}
                 onSelect={() => onSelectSession(item.sessionId)}
                 onDelete={() => onDeleteSession(item.sessionId)}

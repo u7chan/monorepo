@@ -4,6 +4,16 @@ import type { z } from "zod";
 import { SandboxRequestError } from "./sandbox/client";
 
 const MAX_BODY_BYTES = 64 * 1024;
+/**
+ * カタログの一括置換は定義を丸ごと 1 リクエストで受けるため、16 KiB のアイコンを持つ定義が
+ * 何件もあると 64 KiB では足りない (3 件で超える)。この経路だけ上限を分ける。
+ */
+const MAX_CATALOG_BODY_BYTES = 4 * 1024 * 1024;
+
+/** 経路ごとの body 上限。カタログの一括置換だけはカタログ全体を受けるので広げる */
+function maxBodyBytesFor(method: string, path: string): number {
+  return method === "PUT" && path === "/api/agents" ? MAX_CATALOG_BODY_BYTES : MAX_BODY_BYTES;
+}
 
 export function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -90,11 +100,12 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string>
 export async function bodyGuard(c: Context, next: () => Promise<void>) {
   const method = c.req.method;
   if (method === "POST" || method === "PATCH" || method === "PUT") {
+    const limit = maxBodyBytesFor(method, c.req.path);
     const contentLength = Number.parseInt(c.req.header("content-length") ?? "", 10);
-    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    if (Number.isFinite(contentLength) && contentLength > limit) {
       return c.json({ error: "Request body is too large" }, 413);
     }
-    const text = await readBodyText(c.req.raw, MAX_BODY_BYTES);
+    const text = await readBodyText(c.req.raw, limit);
     // bodyCache の型は解決後の値だが、ランタイムは Promise を期待するため型を吐く。
     (c.req.bodyCache as { text?: unknown }).text = Promise.resolve(text.trim() ? text : "{}");
   }

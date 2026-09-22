@@ -5,6 +5,7 @@ import { cn } from "../lib/cn";
 import { compactionDividerIndex } from "../lib/compaction";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import type { AgentSuggestion, CompactionInfo } from "../types";
+import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
 import { MessageView } from "./chat/MessageView";
 
@@ -13,6 +14,10 @@ export type ChatAreaProps = {
   compactions?: CompactionInfo[];
   compact?: boolean;
   suggestions?: AgentSuggestion[];
+  /** assistant の表示名 (セッションのスナップショット)。未作成チャットでは選択中のエージェント */
+  agentName?: string;
+  /** 未設定なら SparkleIcon へフォールバックする */
+  agentIcon?: string;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
   rootCwd?: string;
   onSuggestion: (prompt: string) => void;
@@ -25,6 +30,8 @@ export function ChatArea({
   compactions = [],
   compact = false,
   suggestions = [],
+  agentName,
+  agentIcon,
   rootCwd = "",
   onSuggestion,
   visible = true,
@@ -52,8 +59,8 @@ export function ChatArea({
       <div className={cn("mx-auto w-full min-w-0", compact ? null : "max-w-220")}>
         {bubbles.length === 0 ? (
           <div className={cn("mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]")}>
-            <div className="mx-auto mb-4 grid size-10.5 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-lg text-accent-strong">
-              ✦
+            <div className="mx-auto mb-4 w-fit">
+              <AgentIcon icon={agentIcon} variant="hero" />
             </div>
             <h2 className={cn("font-semibold text-ink-strong", compact ? "text-lg" : "text-xl")}>
               プロジェクトの相棒です
@@ -85,6 +92,8 @@ export function ChatArea({
                   bubble={bubble}
                   copied={copiedId === `bubble_${bubble.id}`}
                   compact={compact}
+                  agentName={agentName}
+                  agentIcon={agentIcon}
                   rootCwd={rootCwd}
                   // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
                   onCopy={(text) => void copyMessage(text, `bubble_${bubble.id}`)}

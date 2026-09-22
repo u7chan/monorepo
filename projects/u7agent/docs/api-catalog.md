@@ -6,8 +6,8 @@
 | --- | --- | --- |
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧 |
 | PUT | `/api/agents` | エージェント（ユーザー定義）の定義をJSONで一括置換（ビルトインは含めない） |
-| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, model?, thinkingLevel?, suggestions? }` |
-| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
+| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, icon?, model?, thinkingLevel?, suggestions? }` |
+| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
@@ -102,6 +102,26 @@
 - カタログ（`GET /api/agents` / `PUT /api/agents`）と `skillIds` の対象外。バックアップの `definitions` にも含まれない（[persistence.md](persistence.md#スキルの扱い)）
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 
+## エージェント定義のアイコン
+
+エージェント定義には任意の `icon`（webp / png の data URL）を持たせられる。設定 → エージェント で画像を選ぶと、クライアントが 256×256 へ contain で縮小し、webp（返せない環境は png）へ再エンコードしてから `icon` として送る。元画像の形式・大きさは問わず、保存されるのは常にこの 1 経路の結果になる。
+
+- 受理するのは `data:image/webp;base64,` と `data:image/png;base64,` だけ。svg はスクリプトを持ち込めるため受理しない（jpeg / gif も常に再エンコードされるため受理しない）。
+- デコード後の生バイトは 16 KiB 以下。超過は 400（`Icon must be at most 16 KiB`）。単体の作成 / 更新は body 上限 64 KiB なので、16 KiB なら `systemPrompt` と同居できる。
+- 形式違いと非正規の base64（`AAA` のような端数、再エンコードと一致しない値）は 400。先頭の署名（PNG / `RIFF....WEBP`）までは見るが、最後までデコードできるかは見ない（クライアントが常に再エンコードするため実運用では一致し、表示側は読み込み失敗で `SparkleIcon` に落ちる）。`text()` の trim + slice は通さない（base64 を切ると壊れた画像が保存される）。
+- 未指定はキーを省略し、`null` は保存・応答に現れない。更新はキー省略で保持、`icon: null` で解除する（`model` / `thinkingLevel` と同じ規則）。
+- 取り込み（バックアップの `data.definitions`）も同じ正規化を通るため、export → import でそのまま往復する。
+- セッションはアイコンのスナップショットを持たない（`AgentPayloadInfo` は変更しない）。assistant の表示名は作成時のスナップショット（`SessionPayload.agent.name`）、アイコンは `agentId` からカタログを live 解決する。そのため定義を編集すると、既存セッションの名前は古いままアイコンだけが変わる。
+- 表示する場所は 設定一覧 / 設定エディタ / コンポーザー / セッション行 / assistant の吹き出し / firstview。未設定と画像の読み込み失敗は `✦`（`SparkleIcon`）へフォールバックする。
+
+```json
+{
+  "id": "agent-example",
+  "name": "コードレビュー",
+  "icon": "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoQABAABUB8JQBOgCHwAP7+4AAAAA=="
+}
+```
+
 ## エージェント定義の Model / Effort
 
 エージェント定義には任意の `model`（`{ provider, id }`）と `thinkingLevel` を持たせられる。それぞれ独立して任意で、片方だけの指定や、Model 未指定で Effort だけの指定もできる。ビルトインの汎用アシスタントはどちらも未指定。
@@ -191,6 +211,7 @@
 ```
 
 `data.definitions` は現在のエージェント（ユーザー定義）/ スキル定義を置き換える（`PUT /api/agents`）。ビルトインの汎用エージェントは対象外で、その id を `agents` に含むファイルは 400 になる。既存の会話やセッションは変更しない。
+`PUT /api/agents` の body 上限は 4 MiB（他の API は 64 KiB）。カタログ全体を 1 リクエストで受けるためで、16 KiB のアイコンを持つ定義が 3 件でも 64 KiB を超える。上限を超えるファイルは 413（`Request body is too large`）になる。
 封筒なしで `agents` / `skills` を直下に持つ旧形式のファイルは受理しない。
 封筒の `schema` が一致しないファイルも読み込まず、エラーを表示する（開発中のため移行は持たない）。
 

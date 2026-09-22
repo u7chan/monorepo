@@ -49,7 +49,7 @@ export function safeUrl(raw: string, kind: "link" | "image"): string | null {
   const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(value);
   if (scheme !== null) {
     if (!SAFE_SCHEMES.has(scheme[1].toLowerCase())) return null;
-    // 外部の画像は CSP (default-src 'self') で読み込めないので描画しない
+    // 外部の画像は CSP (img-src 'self' data:) で読み込めないので描画しない
     return kind === "image" ? null : value;
   }
   // プロトコル相対 (//host) は外部オリジンになり得るため通さない

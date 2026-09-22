@@ -40,6 +40,8 @@ async function assertIndexResponse(response: Response, message: string): Promise
   assert.equal(response.headers.get("cache-control"), "no-cache", message);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff", message);
   assert.match(response.headers.get("content-security-policy") || "", /default-src 'self'/, message);
+  // エージェントのアイコン (data URL) を <img> で描けること (script-src は緩めない)
+  assert.match(response.headers.get("content-security-policy") || "", /img-src 'self' data:/, message);
   assert.equal(await response.text(), INDEX_HTML, message);
 }
 

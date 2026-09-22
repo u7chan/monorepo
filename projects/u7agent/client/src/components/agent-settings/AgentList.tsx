@@ -1,6 +1,6 @@
+import { AgentIcon } from "../AgentIcon";
 import { DefinitionList } from "../DefinitionList";
 import { MenuItem } from "../MenuItem";
-import { SparkleIcon } from "../icons";
 import type { AgentDef } from "../../types";
 
 export function AgentList({
@@ -27,7 +27,7 @@ export function AgentList({
       {agents.map((agent) => (
         <MenuItem
           key={agent.id}
-          icon={<SparkleIcon />}
+          icon={<AgentIcon icon={agent.icon} variant="list" />}
           label={agent.name}
           description={agent.description || "説明なし"}
           selected={editingId === agent.id}
