@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composePromptSnapshot } from "../src/agent";
+import { appendSystemPrompt, composePromptSnapshot } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
 
 const DEFAULT_SUGGESTIONS = [
@@ -505,4 +505,17 @@ test("composePromptSnapshot はカタログスキルを agent_skill タグで固
   );
   assert.match(snapshot.agent, /<agent_profile name="例">/);
   assert.deepEqual(snapshot.skills, ['<agent_skill name="例スキル">\n指示です。\n</agent_skill>']);
+});
+
+test("appendSystemPrompt は作業ディレクトリとファイル / スキルの置き場を rootCwd で説明する", () => {
+  const prompt = appendSystemPrompt("/workspace");
+  assert.match(prompt, /registered project directory/);
+  assert.match(prompt, /scratch directory/);
+  assert.match(prompt, /relative to the working directory/);
+  assert.match(prompt, /`\/workspace\/\.agents\/skills`/);
+  // セッション cwd の絶対パスは SDK が Current working directory: で付ける
+  assert.doesNotMatch(prompt, /\/workspace\/\.u7agent/);
+  // 未所属で発見されないスキルの置き場だけを案内しない
+  assert.doesNotMatch(prompt, /The working directory is the user's local project/);
+  assert.match(appendSystemPrompt("/other/root"), /`\/other\/root\/\.agents\/skills`/);
 });

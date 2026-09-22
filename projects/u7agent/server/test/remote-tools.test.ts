@@ -2,6 +2,8 @@
 // 組み込みスキルの仮想パスを read だけ BFF 側で返すことの検証 (実サンドボックス・実 LLM なし)。
 
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { builtinSkillByName, builtinSkillPath } from "../src/builtin-skills";
@@ -136,6 +138,34 @@ test("read は仮想パスでも offset / limit を守る", async () => {
     result.content[0]?.text,
     `${lines.slice(1, 3).join("\n")}\n\n[${lines.length - 3} more lines in file. Use offset=4 to continue.]`,
   );
+});
+
+test("write / edit のリモート定義は BFF へ書かず、cwd 付きでサンドボックスへ渡す", async () => {
+  const bffCwd = mkdtempSync(join(tmpdir(), "pi-remote-tools-"));
+  const { calls, client } = stubClient();
+  const definitions = createRemoteToolDefinitions({
+    cwd: bffCwd,
+    rootCwd: ROOT,
+    sandboxCwd: "proj",
+    client,
+    masker: createSecretMasker([]),
+    tools: ["write", "edit"],
+  });
+  const write = definitions.find((definition) => definition.name === "write");
+  const edit = definitions.find((definition) => definition.name === "edit");
+  assert.ok(write && edit);
+
+  await write.execute("call-1", { path: "cafe.html", content: "x" }, undefined, undefined, { cwd: bffCwd } as never);
+  await edit.execute("call-2", { path: "cafe.html", edits: [{ oldText: "x", newText: "y" }] }, undefined, undefined, {
+    cwd: bffCwd,
+  } as never);
+
+  assert.deepEqual(calls, [
+    { tool: "write", params: { path: "cafe.html", content: "x" }, cwd: "proj" },
+    { tool: "edit", params: { path: "cafe.html", edits: [{ oldText: "x", newText: "y" }] }, cwd: "proj" },
+  ]);
+  // パスの判定はサンドボックスが権威で、BFF はファイルシステムに触らない
+  assert.equal(existsSync(join(bffCwd, "cafe.html")), false);
 });
 
 test("read は仮想パスでない要求をサンドボックスへ委譲する", async () => {

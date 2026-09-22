@@ -11,7 +11,7 @@
 
 ## セッション cwd
 
-プロジェクト所属セッションの作業ディレクトリは**登録ディレクトリそのもの**（`project.cwd`）で、SDK セッションの cwd・ツールのパス解決の起点・ファイル画面（`SessionPayload.cwd`）の root を同じ値に揃える。同一プロジェクトの複数セッションはこのツリーを共有するため、片方で作ったファイルが他方のファイル画面にも相対パスで見え、`.git` に届くので `git status` / `git worktree add` のようなリポジトリ前提の作業ができる。
+プロジェクト所属セッションの作業ディレクトリは**登録ディレクトリそのもの**（`project.cwd`）で、SDK セッションの cwd・ツールのパス解決の起点・write / edit の書き込み範囲・ファイル画面（`SessionPayload.cwd`）の root を同じ値に揃える。同一プロジェクトの複数セッションはこのツリーを共有するため、片方で作ったファイルが他方のファイル画面にも相対パスで見え、`.git` に届くので `git status` / `git worktree add` のようなリポジトリ前提の作業ができる。
 
 未所属チャットは現行どおり `<root>/<appdir>/sessions/<id>` のスクラッチを使う。添付ファイルは所属に関係なく `<root>/<appdir>/uploads/<sessionId>/` に置き、プロジェクト所属でもリポジトリ内には作らない。モデルへは注記で絶対パスを渡し、ファイル画面には出ない（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）。
 
@@ -23,11 +23,29 @@
 - worktree はアプリが作らない。切った worktree をプロジェクトとして登録し、並行作業の分離はこれで行う（自動作成・削除・ブランチ命名は非ゴール）。
 - 会話の永続化が無効（`PI_SESSION_STORE` 未設定・テスト）なときはプロジェクトの `cwd`（未所属は root）を使い、作業フォルダの存在確認・作成・保存をしない。
 
+## write / edit の書き込み範囲
+
+`write` / `edit` は、そのセッションの作業ディレクトリ（`record.workdir`）配下と、共通スキル置き場 `<root>/.agents/skills` 配下にだけ書ける。モデルが workspace root を指す絶対パスで `write` を呼んでも、ファイル画面の root（`SessionPayload.cwd`）の外には作らない。許可 root は次の 3 つ。
+
+- 実行 cwd（リクエストの `cwd` をサンドボックスが realpath で解決した実パス。相対パスの解決先）
+- 要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, リクエスト cwd)`）。workspace root や登録プロジェクトが symlink のとき、system prompt に出る `Current working directory` の形の絶対パスでも書けるようにするため
+- `<root>/.agents/skills`（未所属でも所属でも書ける。所属セッションのプロジェクトスキルは cwd 配下なので 1 つ目の root に含まれる）
+
+判定はサンドボックス（`server/src/sandbox/service.ts` の `registryFor`）が担う。SDK が `resolveToCwd` で解決した絶対パスを `resolve()` で `..` まで畳んで比較し、realpath / `lstat` は使わない（BFF に二重実装しない）。write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてが同じ判定を通り、write の `mkdir` を先に許すと拒否パスでも workdir 外に親ディレクトリができるため `mkdir` でも拒否する。
+
+拒否は HTTP 200 の `error` イベントとして返し（404 / 400 は使わない）、文言に許可場所（実行 cwd の絶対パスと `<root>/.agents/skills`）と cwd 相対の再試行例（`cafe.html`）を含める。`cwd` 自体の検証（実在しない・ディレクトリ以外・root 外）は従来どおり実行前の 400 / 404 のままで、モデルのツールエラーにはならない（[sandbox-api.md](sandbox-api.md#post-v1toolstoolexecute)）。
+
+- `read` / `grep` / `find` / `ls` / `bash` は変えない。`read` は添付（`<appdir>/uploads/<id>`）・ファイルスキル・pi docs を読むため広いままにする。`bash` のリダイレクトは原理的に塞げない（`echo x > /workspace/cafe.html`）
+- 対象外: 他セッションのスクラッチ、workdir を除く `.u7agent` 配下（添付は BFF が `POST /v1/files/upload` で書く）、他プロジェクト、`<appdir>/builtin-skills/**`、workspace root 直下（下記の永続化なしの縮退を除く）
+- 作業ディレクトリ内の既存 symlink / 壊れた symlink 経由の脱出は検知しない（判定が lexical のため。実行隔離として別に扱う）
+- worktree はアプリが作らない。`git worktree add` しただけの未登録ディレクトリは作業ディレクトリではないため、そのパスへの `write` / `edit` は拒否される。切った worktree をプロジェクトとして登録し、新しいセッションを作る既存フローでカバーする
+- 会話の永続化が無効（`PI_SESSION_STORE` 未設定）の未所属は `workdirOf` が root（`""`）を返すため、境界は workspace root だけになる。分岐は足さず、root 直下への `write` / `edit` は通る（root 外だけを拒否する縮退）
+
 ## 実行時の隔離ではない
 
-プロジェクトは**実行時の隔離ではない**。cwd はツールのパス解決の起点を変えるだけで、サンドボックス内のファイル・ポート・プロセスは全セッションで共有される（bash がある以上、未所属セッションから他プロジェクトのディレクトリも操作できる）。隔離が必要になった時点でコンテナ・データ領域分離として別に設計する。
+プロジェクトは**実行時の隔離ではない**。cwd はツールのパス解決の起点を変えるだけで、サンドボックス内のファイル・ポート・プロセスは全セッションで共有される（bash がある以上、未所属セッションから他プロジェクトのディレクトリも操作できる）。`write` / `edit` の書き込み範囲（[前節](#write--edit-の書き込み範囲)）も同じで、モデルの取り違えを防ぐファイルツールのポリシーであり、実行隔離ではない。隔離が必要になった時点でコンテナ・データ領域分離として別に設計する。
 
-ツール実行はリクエストごとの `cwd`（root 相対）を受け取り、サンドボックスが root 配下の実在ディレクトリへ解決してから、その実パスごとに生成・キャッシュしたツール定義で実行する（`Map<実パス, definitions>`）。`..` や symlink で root の外へ出る指定は 400。この検証も cwd の起点を決めるだけで、サンドボックスが読める範囲を絞るものではない。
+ツール実行はリクエストごとの `cwd`（root 相対）を受け取り、サンドボックスが root 配下の実在ディレクトリへ解決してから、その実パス（write / edit の許可 root も定義に焼き込むため、要求 cwd の lexical 形との組）ごとに生成・キャッシュしたツール定義で実行する。`..` や symlink で root の外へ出る指定は 400。この検証も cwd の起点を決めるだけで、サンドボックスが読める範囲を絞るものではない。
 
 ## 関連 API
 

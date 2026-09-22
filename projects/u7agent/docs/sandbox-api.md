@@ -29,10 +29,14 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 ```
 
 - `cwd` — 実行する作業ディレクトリ（root 相対。省略・空文字は root）。`..` や symlink を経由して root の外へ解決する指定、実在しないディレクトリ、ディレクトリ以外は 400 / 404（`GET /v1/files` と同じ検証を通す）。ツール定義（パス解決の起点）は解決後の実パスごとに生成して再利用する
+- `write` / `edit` の書き込み先は、実行 cwd（`cwd` を解決した実パス）、要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, cwd)`）、および `<PI_SANDBOX_CWD>/.agents/skills` の内側だけ。SDK が解決した絶対パスを `resolve()` で `..` まで畳んで比較し（symlink は解決しない）、外側は拒否する（[projects.md](projects.md#write--edit-の書き込み範囲)）
+  - 対象外: 他セッションのスクラッチ、workdir を除く `.u7agent` 配下、他プロジェクト、`.u7agent/builtin-skills/**`、workspace root 直下（`PI_SESSION_STORE` 未設定の縮退では root が作業ディレクトリになるため root 直下も通る）
+  - write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてで同じ判定を通す（write は `mkdir` を先に許すと拒否パスでも親ディレクトリができるため `mkdir` でも拒否する）
+  - `read` / `grep` / `find` / `ls` / `bash` は制限しない。`bash` のリダイレクトは原理的に塞げないため、これは隔離ではなくファイルツールのポリシーである
 - `start` — 実行開始。`executionId` は cancel に使う
 - `update` — SDK ツールの `onUpdate`（bash の累積出力スナップショット等）を relay
 - `result` — 正常終了。ストリームはここで閉じる
-- `error` — 異常終了（`{ "type": "error", "message": "…" }`）。SDK ツールが throw したメッセージ
+- `error` — 異常終了（`{ "type": "error", "message": "…" }`）。SDK ツールが throw したメッセージ。`write` / `edit` のポリシー拒否もこの経路で返し、文言に許可場所（実行 cwd の絶対パスと `<PI_SANDBOX_CWD>/.agents/skills`）と cwd 相対の再試行例を含める。拒否に 404 / 400 は使わない（HTTP 400 は BFF が `{ error: … }` の JSON ラッパーとしてモデルに見せるため。`cwd` 自体の検証は従来どおり実行前の 400 / 404）
 
 クライアント（BFF）が切断した場合もサンドボックスは実行を中断する。明示的な中断は cancel エンドポイントか `AbortSignal` の伝播で行う。
 
@@ -42,7 +46,7 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 
 - `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
 - 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
-- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 4 つで、`GET /v1/files` は読み取り専用
+- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 4 つで、`GET /v1/files` は読み取り専用。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこの 4 つより狭く、`POST /v1/dirs` と `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成が使う）
 
 ## `DELETE /v1/dirs`
 

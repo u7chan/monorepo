@@ -20,6 +20,9 @@ export function assertSessionId(id: string): void {
   if (!isSessionId(id)) throw new Error(`セッション ID が不正です: ${id}`);
 }
 
+/** 共通スキル (`.agents/skills`) の置き場 (workspace root 相対)。プロジェクトスキルは `<session cwd>/.agents/skills` */
+export const COMMON_SKILLS_DIR = ".agents/skills";
+
 /** `<appdir>` 自身と配下。プロジェクトとして登録できない (ファイル画面の root には置けない)。 */
 export function isAppDirPath(relative: string): boolean {
   return relative === APP_DIR_REL || relative.startsWith(`${APP_DIR_REL}/`);
