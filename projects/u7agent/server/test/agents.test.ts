@@ -312,10 +312,7 @@ test("round-trips suggestions through the definition snapshot", () => {
   // エクスポート → インポート。ビルトインは snapshot の agents に乗らないので、送った定義だけが入る
   const replaced = catalog.replace(catalog.snapshot());
   assert.deepEqual(replaced.agents.find((item) => item.id === agent.id)?.suggestions, DEFAULT_SUGGESTIONS);
-  assert.deepEqual(
-    catalog.snapshot().agents.find((item) => item.id === agent.id)?.suggestions,
-    DEFAULT_SUGGESTIONS,
-  );
+  assert.deepEqual(catalog.snapshot().agents.find((item) => item.id === agent.id)?.suggestions, DEFAULT_SUGGESTIONS);
 
   // 旧形式 (suggestions なし) の import はそのまま通る
   const oldForm = catalog.replace({ skills: [], agents: [{ id: "agent-legacy", name: "旧形式", skillIds: [] }] });

@@ -1177,7 +1177,8 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
       jsonPost({ name: "スキル", description: "説明", body: "本文" }),
     );
     assert.equal(createdSkill.status, 201);
-    const skillPath = `/api/skills/${(await jsonBody(createdSkill)).skill.id}`;
+    const createdSkillId = (await jsonBody(createdSkill)).skill.id;
+    const skillPath = `/api/skills/${createdSkillId}`;
 
     const updatedSkill = await app.request(skillPath, jsonPatch({ body: "変更後" }));
     assert.equal(updatedSkill.status, 200);
@@ -1188,6 +1189,21 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
     const invalidSkill = await app.request(skillPath, jsonPatch({ body: 1 }));
     assert.equal(invalidSkill.status, 400);
     assert.equal((await jsonBody(invalidSkill)).error, "Invalid request body");
+
+    // 旧フィールド名 prompt は未知キーとして捨てず 400 にする (本文が変わらないまま 200 で成功と誤認させない)
+    for (const method of ["PATCH", "PUT"] as const) {
+      const legacyPrompt = await app.request(skillPath, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "旧本文" }),
+      });
+      assert.equal(legacyPrompt.status, 400, method);
+      assert.equal((await jsonBody(legacyPrompt)).error, "Invalid request body");
+    }
+    const skillsAfterLegacy = (await jsonBody(app.request("/api/skills"))) as {
+      skills: Array<{ id: string; body: string }>;
+    };
+    assert.equal(skillsAfterLegacy.skills.find((skill) => skill.id === createdSkillId)?.body, "変更後");
 
     const bodyless = await app.request("/api/skills", jsonPost({ name: "本文なし" }));
     assert.equal(bodyless.status, 400);

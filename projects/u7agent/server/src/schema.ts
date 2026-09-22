@@ -527,7 +527,11 @@ const skillBodyShape = {
 export const CreateSkillBodySchema = z.object(skillBodyShape);
 export type CreateSkillBody = z.infer<typeof CreateSkillBodySchema>;
 
-export const UpdateSkillBodySchema = z.object(skillBodyShape);
+/**
+ * 更新は旧フィールド名 `prompt` を明示的に拒否する。未知キーとして strip すると「`body` のキー省略」
+ * に化け、本文が変わらないまま 200 を返して成功と誤認させる (作成は `body` 必須なので同じ入力でも 400)。
+ */
+export const UpdateSkillBodySchema = z.object({ ...skillBodyShape, prompt: z.never().optional() });
 export type UpdateSkillBody = z.infer<typeof UpdateSkillBodySchema>;
 
 // ---------------------------------------------------------------------------
