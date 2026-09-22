@@ -107,7 +107,7 @@
 エージェント定義には任意の `icon`（webp / png の data URL）を持たせられる。設定 → エージェント で画像を選ぶと、クライアントが 256×256 へ contain で縮小し、webp（返せない環境は png）へ再エンコードしてから `icon` として送る。元画像の形式・大きさは問わず、保存されるのは常にこの 1 経路の結果になる。
 
 - 受理するのは `data:image/webp;base64,` と `data:image/png;base64,` だけ。svg はスクリプトを持ち込めるため受理しない（jpeg / gif も常に再エンコードされるため受理しない）。
-- デコード後の生バイトは 16 KiB 以下。超過は 400（`Icon must be at most 16 KiB`）。body 上限が 64 KiB なので `systemPrompt` と同居できる。
+- デコード後の生バイトは 16 KiB 以下。超過は 400（`Icon must be at most 16 KiB`）。単体の作成 / 更新は body 上限 64 KiB なので、16 KiB なら `systemPrompt` と同居できる。
 - 形式違いと非正規の base64（`AAA` のような端数、再エンコードと一致しない値）は 400。先頭の署名（PNG / `RIFF....WEBP`）までは見るが、最後までデコードできるかは見ない（クライアントが常に再エンコードするため実運用では一致し、表示側は読み込み失敗で `SparkleIcon` に落ちる）。`text()` の trim + slice は通さない（base64 を切ると壊れた画像が保存される）。
 - 未指定はキーを省略し、`null` は保存・応答に現れない。更新はキー省略で保持、`icon: null` で解除する（`model` / `thinkingLevel` と同じ規則）。
 - 取り込み（バックアップの `data.definitions`）も同じ正規化を通るため、export → import でそのまま往復する。

@@ -38,7 +38,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const sessionRoutes = createSessionRoutes({ store, workspace });
 
   const app = new Hono()
-    // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
+    // bodyGuard は本文を最長 64 KiB (カタログの一括置換だけ 4 MiB) で読み切って text 化するため、raw で受けるアップロードは先に登録する
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)

@@ -111,7 +111,7 @@ function thinkingLevelOf(value: unknown): ThinkingLevel | undefined {
 
 /** svg はスクリプトを持ち込めるため受理せず、クライアントが再エンコードする webp と png だけにする */
 const ICON_DATA_URL = /^data:image\/(webp|png);base64,([A-Za-z0-9+/]+={0,2})$/;
-/** body 上限 (64 KiB) で systemPrompt と同居できる大きさ。client は 256×256 へ縮小してから送る */
+/** 単体の作成 / 更新の body 上限 (64 KiB) で systemPrompt と同居できる大きさ。client は 256×256 へ縮小してから送る */
 const ICON_MAX_BYTES = 16 * 1024;
 
 /**
