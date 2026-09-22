@@ -644,6 +644,7 @@ export class SessionStore {
       cwd: this.cwdOf(record),
       projectId: this.projectIdOf(record),
       masker: this.masker,
+      rootCwd: this.rootCwd,
     });
   }
 
@@ -937,6 +938,8 @@ export class SessionStore {
     const bridge = createRunEventBridge({
       session,
       masker: this.masker,
+      // 履歴側と同じ絶対 cwd。root 相対と絶対を混ぜると解決結果が経路でずれる
+      cwd: workspaceAbs(this.rootCwd, record.workdir),
       tools: record.tools,
       messageMetrics: record.messageMetrics,
       compactionMeta: record.compactionMeta,

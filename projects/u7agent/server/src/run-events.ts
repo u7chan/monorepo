@@ -10,7 +10,7 @@ import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
 import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall } from "./schema";
-import { contentText, toolArgsSummary, toolResultSummary } from "./session-projection";
+import { classifySkillRead, contentText, skillLoadOf, toolArgsSummary, toolResultSummary } from "./session-projection";
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -70,6 +70,8 @@ export interface RunSettlement {
 export interface RunEventBridgeDeps {
   session: PiSessionLike;
   masker: SecretMasker;
+  /** スキル読み込みの判定に使う絶対 session cwd (履歴側の workspaceAbs と同じ値) */
+  cwd: string;
   /** 実行中ラン payload.run.toolCalls の実体 */
   tools: Map<string, ToolCall>;
   /** BFF 計測の応答時間を履歴のメッセージ参照へ結び付ける (同じ参照で引き当てる) */
@@ -90,7 +92,7 @@ export interface RunEventBridge {
 }
 
 export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
-  const { session, masker, tools, messageMetrics, compactionMeta, emit, emitResync, onPersist, onSettled } = deps;
+  const { session, masker, cwd, tools, messageMetrics, compactionMeta, emit, emitResync, onPersist, onSettled } = deps;
 
   let finished = false;
   let currentAssistantText = "";
@@ -189,16 +191,21 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           }
           break;
         case "tool_execution_start": {
+          const id = event.toolCallId ?? "";
+          // 履歴 (projectMessages) と同じ関数で判定する。結果はまだ無いので isError は載せない
+          const ref = classifySkillRead(event.args, { cwd, toolName: event.toolName ?? "" });
+          const skill = ref ? skillLoadOf({ id, ref, masker }) : undefined;
           const tool: ToolCall = {
-            id: event.toolCallId ?? "",
+            id,
             name: event.toolName ?? "",
             args: toolArgsSummary(event.args, masker),
             isError: false,
             done: false,
             output: "",
+            ...(skill ? { skill } : {}),
           };
           tools.set(tool.id, tool);
-          emit("tool_start", { id: tool.id, name: tool.name, args: tool.args });
+          emit("tool_start", { id: tool.id, name: tool.name, args: tool.args, ...(skill ? { skill } : {}) });
           emit("status", { state: "tool", text: `${tool.name} を実行中…` });
           break;
         }

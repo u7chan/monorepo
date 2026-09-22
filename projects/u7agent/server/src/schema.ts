@@ -78,6 +78,23 @@ export const AgentPayloadInfoSchema = z.object({
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
 
+/**
+ * スキル読み込み 1 件 (`read` で basename が SKILL.md の呼び出し)。履歴の `ChatMessage.skillLoads` と
+ * ライブの `ToolCall.skill` で同じ形を使う。name は frontmatter の name ではなく解決後の親ディレクトリ名。
+ */
+export const SkillLoadSchema = z.object({
+  /** toolCallId */
+  id: z.string(),
+  name: z.string(),
+  /** 解決後の絶対パス (ライブ / 履歴で同じ値にする) */
+  path: z.string(),
+  offset: z.number().optional(),
+  limit: z.number().optional(),
+  /** 結果がエラーだったときだけ true。キー省略 = ロード扱い (ライブは結果が無いので持たない) */
+  isError: z.boolean().optional(),
+});
+export type SkillLoad = z.infer<typeof SkillLoadSchema>;
+
 export const ToolCallSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -85,6 +102,8 @@ export const ToolCallSchema = z.object({
   isError: z.boolean(),
   done: z.boolean(),
   output: z.string(),
+  /** ライブでスキル読み込みだったときだけ載る (履歴側は ChatMessage.skillLoads) */
+  skill: SkillLoadSchema.optional(),
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 
@@ -175,6 +194,8 @@ export const ChatMessageSchema = z.object({
   /** プロバイダが報告した使用量。数値なのでマスク不要。未報告ならキーを省略する (0 と区別する) */
   usage: UsageSchema.optional(),
   metrics: MessageMetricsSchema.optional(),
+  /** このバブルに出す分 (本文を持たない read だけのターンからの繰り上げ分を含む)。無ければキーを省略 */
+  skillLoads: z.array(SkillLoadSchema).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
@@ -506,7 +527,7 @@ export const EventDataSchemas = {
   // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
   run_start: z.object({ runId: z.string(), prompt: z.string(), startedAt: z.number() }),
   text: z.object({ delta: z.string() }),
-  tool_start: z.object({ id: z.string(), name: z.string(), args: z.string() }),
+  tool_start: z.object({ id: z.string(), name: z.string(), args: z.string(), skill: SkillLoadSchema.optional() }),
   tool_end: z.object({
     id: z.string(),
     name: z.string().optional(),

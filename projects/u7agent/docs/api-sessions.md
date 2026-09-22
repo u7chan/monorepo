@@ -68,7 +68,7 @@
     "id": "…",
     "status": "running",
     "startedAt": 1700000000000,
-    "toolCalls": [{ "id": "…", "name": "read", "args": "README.md", "done": true, "isError": false, "output": "…" }]
+    "toolCalls": [{ "id": "…", "name": "read", "args": "…/gh/SKILL.md", "done": true, "isError": false, "output": "…", "skill": { "id": "…", "name": "gh", "path": "/workspace/.agents/skills/gh/SKILL.md" } }]
   },
   "context": { "tokens": 68000, "contextWindow": 200000, "percent": 34 },
   "messages": [
@@ -87,7 +87,17 @@
         "totalTokens": 17040,
         "cost": { "input": 0.001, "output": 0.002, "cacheRead": 0.0002, "cacheWrite": 0.0001, "total": 0.0021 }
       },
-      "metrics": { "durationMs": 1800, "ttftMs": 900, "tokensPerSecond": 42.3 }
+      "metrics": { "durationMs": 1800, "ttftMs": 900, "tokensPerSecond": 42.3 },
+      "skillLoads": [
+        {
+          "id": "…",
+          "name": "gh",
+          "path": "/workspace/.agents/skills/gh/SKILL.md",
+          "offset": 5,
+          "limit": 20,
+          "isError": true
+        }
+      ]
     }
   ],
   "compactions": [
@@ -125,6 +135,18 @@
 `messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
 
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
+
+### スキル読み込み（`skillLoads` / `skill`）
+
+`messages[].skillLoads` と `run.toolCalls[].skill` は、`read` で **basename が `SKILL.md`** の呼び出し（スキル読み込み）を示す導出値。判定は server の純関数 `classifySkillRead()` 1 箇所に集約し、履歴（`projectMessages()`）とライブ（`tool_execution_start`）で共有する。専用の保存フィールドは持たず、pi entry から毎回導出する（[persistence.md](persistence.md)）。
+
+- `name` は解決後の絶対パスの**親ディレクトリ名**（pi ネイティブと同じ）。frontmatter の `name` とは一致しないことがあり、`foo/SKILL.md` に `name: bar` があっても行は `[skill] foo` になる（一覧 / `/skill:` は frontmatter の `name` を使うため食い違い得る）。`path` は解決後の絶対パス（pi の展開表示は cwd 相対だが、ライブ / 履歴で同じ値にするため絶対で統一する）。`offset` / `limit` は `read` の引数をそのまま持つ
+- cwd は絶対 session cwd（`workspaceAbs(rootCwd, record.workdir)`）に統一する。対応する path は絶対 / 相対 / `.` / `..` のみで、`~` 展開・`@` 接頭辞・`file://`・Unicode スペース正規化は非対応（該当しない）。組み込みの仮想パス（`.u7agent/builtin-skills/<name>/SKILL.md`）も同じ規則で成立する（厳密な name 照合はしない）
+- `skillLoads` は「**このバブルに出す分**（繰り上げ分を含む）」。`isDisplayableMessage()` は本文を要求するため、`read` だけの assistant メッセージは表示集合から落ち、**同じ user ターン内の次の表示可能な assistant メッセージへ繰り上げる**（メッセージ順 → part 順、繰り上げ分が先）。次の user メッセージは越えず、ターン内に表示可能なメッセージが無ければ落とす（既知の制限）。繰り上げても `messages` の件数と `messageCount` は変えない
+- `isError` は省略可能で、省略 = ロード扱い。履歴は `toolResult` を `toolCallId` で join して `isError: true` のときだけ載せる。`toolResult` が無い read は、その read を含む assistant メッセージの `stopReason === "aborted"` なら発火扱いにしない（abort で一度も実行されていない）。それ以外の欠落（crash / restart・compaction 境界）は実行済みとしてロード扱いにする
+- ライブの `ToolCall.skill` は `tool_execution_start` の時点で結果が無いため `isError` を載せない（行のエラー表示はカードの位相が担う）。実行済みで表示メッセージに載る read に限り、ライブの `ToolCall.skill` と履歴の `skillLoads[]` は同じ値（`id` / `name` / `path` / `offset` / `limit`）になる
+- `name` / `path` は他の文字列と同じく、分類（basename 判定）の後にマスクしてから配る（[secrets.md](secrets.md)）
+- abort で未実行の read はライブでは `tool_end` が来ずカードが `running` のまま残る（履歴側は発火扱いにしないため差異が残る。既知の制限）
 
 `context` は SDK の `getContextUsage()`（`tokens` / `contextWindow` / `percent`）。compaction 直後は `tokens` と `percent` が `null` になる。SDK がこの API を持たないときはキーを省略する。SDK は `message_end` を購読者へ配った後に履歴へ入れるため、`usage` イベント時点の `context` は直前の応答までの値（compaction 直後は不明値）になる。今回の応答を反映した確定値は `run_end` の `context` で配り、リロード / resync はこの payload を正とする。セッションが未作成のとき（チャット開始前）は `context` のキー自体が無く、UI は Context ゲージを出さない。作成済み・未送信のセッションは SDK が `tokens: 0` / `percent: 0` を返すため 0% として出る。
 
@@ -275,7 +297,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | --- | --- |
 | `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
-| `tool_start` / `tool_end` | `{ id, name, args }` / `{ id, name, isError, output }` |
+| `tool_start` / `tool_end` | `{ id, name, args, skill? }` / `{ id, name, isError, output }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない） |
 | `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |

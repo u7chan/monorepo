@@ -34,6 +34,7 @@ export type {
   SessionSkillsResponse,
   SessionSummary,
   SkillDef,
+  SkillLoad,
   StopResult,
   ThinkingLevel,
   ToolCall,

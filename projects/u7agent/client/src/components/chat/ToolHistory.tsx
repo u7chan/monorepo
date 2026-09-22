@@ -1,19 +1,12 @@
 import type { ToolCard } from "../../hooks/chatReducer";
 import { cn } from "../../lib/cn";
+import { abbreviatedToolSummary, historyPreview } from "../../lib/toolSummary";
 import { DisclosureChevronIcon } from "../icons";
 import { CopyButton } from "./CopyButton";
-
-const TOOL_SUMMARY_MAX_LENGTH = 96;
 
 // 位相で文字幅が変わると (実測 実行中 27 / エラー 27.42px) 右隣のコピーボタンとサマリーの
 // truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
 const PHASE_LABEL_CLASS = cn("w-[3.25em] shrink-0 text-right font-sans text-3xs whitespace-nowrap");
-
-function abbreviatedToolSummary(card: ToolCard): string {
-  const summary = `${card.name}${card.args ? ` — ${card.args}` : ""}`.replace(/\s+/g, " ").trim();
-  if (summary.length <= TOOL_SUMMARY_MAX_LENGTH) return summary || "ツール";
-  return `${summary.slice(0, TOOL_SUMMARY_MAX_LENGTH - 1)}…`;
-}
 
 /** 完了は既定なので出さず、スロットだけ残して行の右端が動かないようにする */
 function PhaseLabel({ phase }: { phase: ToolCard["phase"] }) {
@@ -23,13 +16,6 @@ function PhaseLabel({ phase }: { phase: ToolCard["phase"] }) {
       {phase === "failed" ? "エラー" : "実行中"}
     </span>
   );
-}
-
-function historyPreview(cards: ToolCard[]): string {
-  if (cards.length === 1) return abbreviatedToolSummary(cards[0]);
-  const names = cards.slice(0, 3).map((card) => card.name || "ツール");
-  const remainder = cards.length > names.length ? ` ほか${cards.length - names.length}件` : "";
-  return `${names.join(" / ")}${remainder}`;
 }
 
 function ToolCallRow({

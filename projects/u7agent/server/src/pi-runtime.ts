@@ -58,6 +58,9 @@ export interface PiSessionLike {
     errorMessage?: string;
     timestamp?: number;
     usage?: unknown;
+    /** role "toolResult" のとき: 対応する toolCall の id と成否 (スキル読み込みの導出に使う) */
+    toolCallId?: string;
+    isError?: boolean;
   }>;
   isStreaming: boolean;
   /** SDK の isIdle (実行・compaction・retry が無い) */
