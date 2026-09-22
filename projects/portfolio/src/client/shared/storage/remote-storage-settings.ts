@@ -2,7 +2,7 @@ import { ApiModeSchema, type ApiMode } from '#/types'
 import { decryptLegacyApiKey } from './legacy-remote-storage'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
-const SCHEMA_VERSION = '1.4.0'
+const SCHEMA_VERSION = '1.5.0'
 
 export interface Settings {
   schemaVersion: string
@@ -22,6 +22,9 @@ export interface Settings {
   includeChatHistory: boolean
   sendImagesOnlyOnce: boolean
   imageGenerationMode: boolean
+  imageGenerationModel: string
+  imageGenerationBaseURL: string
+  imageGenerationApiKey: string
   sidebarOpen: boolean
   templateModels: {
     [key: string]: {
@@ -54,6 +57,9 @@ const defaultSettings: Settings = {
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
   imageGenerationMode: false,
+  imageGenerationModel: '',
+  imageGenerationBaseURL: '',
+  imageGenerationApiKey: '',
   sidebarOpen: true,
   templateModels: {},
 }

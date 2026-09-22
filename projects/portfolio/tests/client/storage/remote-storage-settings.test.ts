@@ -36,7 +36,7 @@ describe('remote-storage-settings', () => {
 
     expect(settings).toEqual(
       expect.objectContaining({
-        schemaVersion: '1.4.0',
+        schemaVersion: '1.5.0',
         model: 'gpt-4.1-mini',
         apiKey: '',
         apiMode: 'chat_completions',
@@ -71,11 +71,11 @@ describe('remote-storage-settings', () => {
     const settings = readFromLocalStorage()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
 
-    expect(settings.schemaVersion).toBe('1.4.0')
+    expect(settings.schemaVersion).toBe('1.5.0')
     expect(settings.apiKey).toBe('secret-api-key')
     expect(settings.apiMode).toBe('chat_completions')
     expect(stored.apiKey).toBe('secret-api-key')
-    expect(stored.schemaVersion).toBe('1.4.0')
+    expect(stored.schemaVersion).toBe('1.5.0')
   })
 
   it('壊れた legacy apiKey は空文字にして他設定を維持する', async () => {
@@ -103,7 +103,7 @@ describe('remote-storage-settings', () => {
     const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
     const settings = readFromLocalStorage()
 
-    expect(settings.schemaVersion).toBe('1.4.0')
+    expect(settings.schemaVersion).toBe('1.5.0')
     expect(settings.apiKey).toBe('')
     expect(settings.model).toBe('gpt-4.1')
     expect(settings.temperature).toBe(0.3)
@@ -126,7 +126,7 @@ describe('remote-storage-settings', () => {
     expect('mcpServerURLs' in settings).toBe(false)
   })
 
-  it('1.1.x の既存設定を 1.4.0 へ移行し apiMode と画像コンテキスト設定を補完する', async () => {
+  it('1.1.x の既存設定を 1.5.0 へ移行し apiMode と画像コンテキスト設定を補完する', async () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -140,10 +140,10 @@ describe('remote-storage-settings', () => {
     const settings = readFromLocalStorage()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
 
-    expect(settings.schemaVersion).toBe('1.4.0')
+    expect(settings.schemaVersion).toBe('1.5.0')
     expect(settings.apiMode).toBe('chat_completions')
     expect(settings.sendImagesOnlyOnce).toBe(true)
-    expect(stored.schemaVersion).toBe('1.4.0')
+    expect(stored.schemaVersion).toBe('1.5.0')
     expect(stored.apiMode).toBe('chat_completions')
     expect(stored.sendImagesOnlyOnce).toBe(true)
   })
@@ -162,7 +162,7 @@ describe('remote-storage-settings', () => {
     const settings = readFromLocalStorage()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
 
-    expect(settings.schemaVersion).toBe('1.4.0')
+    expect(settings.schemaVersion).toBe('1.5.0')
     expect(settings.includeChatHistory).toBe(false)
     expect(stored.includeChatHistory).toBe(false)
     expect('interactiveMode' in stored).toBe(false)
@@ -172,7 +172,7 @@ describe('remote-storage-settings', () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        schemaVersion: '1.4.0',
+        schemaVersion: '1.5.0',
         includeChatHistory: false,
         includeImageGenerationHistory: true,
       })
@@ -192,7 +192,7 @@ describe('remote-storage-settings', () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        schemaVersion: '1.4.0',
+        schemaVersion: '1.5.0',
         model: 'gpt-4.1',
         apiMode: 'responses',
         fakeMode: true,
@@ -210,7 +210,7 @@ describe('remote-storage-settings', () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        schemaVersion: '1.4.0',
+        schemaVersion: '1.5.0',
         model: 'gpt-4.1-mini',
         apiMode: 'chat_completions',
         fakeMode: true,
@@ -226,5 +226,43 @@ describe('remote-storage-settings', () => {
     expect(settings.fakeMode).toBe(false)
     expect(stored.imageGenerationMode).toBe(true)
     expect(stored.fakeMode).toBe(false)
+  })
+
+  it('1.4.x の既存設定を 1.5.0 へ移行し画像生成モデルを未選択で補完する', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: '1.4.0',
+        model: 'gpt-4.1',
+        imageGenerationMode: true,
+      })
+    )
+
+    const { readFromLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
+    const settings = readFromLocalStorage()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+
+    expect(settings.schemaVersion).toBe('1.5.0')
+    expect(settings.imageGenerationModel).toBe('')
+    expect(settings.imageGenerationBaseURL).toBe('')
+    expect(settings.imageGenerationApiKey).toBe('')
+    expect(stored.schemaVersion).toBe('1.5.0')
+    expect(stored.imageGenerationModel).toBe('')
+  })
+
+  it('画像生成モデルと画像生成用の接続先を保存して復元する', async () => {
+    const { readFromLocalStorage, saveToLocalStorage } = await import('#/client/shared/storage/remote-storage-settings')
+
+    saveToLocalStorage({
+      imageGenerationModel: 'openai/gpt-image-2.5-flare',
+      imageGenerationBaseURL: 'https://image.example.com/v1',
+      imageGenerationApiKey: 'image-api-key',
+    })
+
+    const settings = readFromLocalStorage()
+
+    expect(settings.imageGenerationModel).toBe('openai/gpt-image-2.5-flare')
+    expect(settings.imageGenerationBaseURL).toBe('https://image.example.com/v1')
+    expect(settings.imageGenerationApiKey).toBe('image-api-key')
   })
 })

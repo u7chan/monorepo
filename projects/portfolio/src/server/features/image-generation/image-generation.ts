@@ -1,7 +1,6 @@
 import OpenAI from 'openai'
 import type { ImageGenerationUsage } from '#/types/image-generation-api'
 
-export const IMAGE_GENERATION_MODEL = 'gpt-image-2'
 export const IMAGE_GENERATION_SIZE = '1024x1024'
 export const IMAGE_GENERATION_OUTPUT_FORMAT = 'png' as const
 export const IMAGE_GENERATION_CONTENT_TYPE = 'image/png' as const
@@ -17,15 +16,17 @@ export interface GeneratedImagePayload {
 export async function generateImage({
   apiKey,
   baseURL,
+  model,
   prompt,
 }: {
   apiKey: string
   baseURL: string
+  model: string
   prompt: string
 }): Promise<GeneratedImagePayload> {
   const openai = new OpenAI({ apiKey, baseURL })
   const response = await openai.images.generate({
-    model: IMAGE_GENERATION_MODEL,
+    model,
     prompt,
     n: 1,
     size: IMAGE_GENERATION_SIZE,
@@ -43,7 +44,8 @@ export async function generateImage({
   return {
     id: `image_${response.created}`,
     created: response.created,
-    model: IMAGE_GENERATION_MODEL,
+    // LiteLLM はレスポンスの model を null で返すため、リクエスト値を使う
+    model,
     content,
     usage: {
       inputTokens: response.usage?.input_tokens,

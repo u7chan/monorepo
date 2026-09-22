@@ -39,6 +39,9 @@ interface UseSettingsHandlersReturn {
   handleChangeTemperature: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeMaxTokens: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void
+  handleChangeImageGenerationModel: (event: ChangeEvent<HTMLSelectElement>) => void
+  handleChangeImageGenerationBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
+  handleChangeImageGenerationApiKey: (event: ChangeEvent<HTMLInputElement>) => void
   handleToggleTemperature: () => void
   handleToggleAutoModel: () => void
   handleToggleFakeMode: () => void
@@ -194,6 +197,27 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     [setReasoningEffort, updateSetting]
   )
 
+  const handleChangeImageGenerationModel = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      updateSetting('imageGenerationModel', event.target.value)
+    },
+    [updateSetting]
+  )
+
+  const handleChangeImageGenerationBaseURL = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      updateSetting('imageGenerationBaseURL', event.target.value)
+    },
+    [updateSetting]
+  )
+
+  const handleChangeImageGenerationApiKey = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      updateSetting('imageGenerationApiKey', event.target.value)
+    },
+    [updateSetting]
+  )
+
   return {
     handleChangeAutoModel,
     handleChangeManualModel,
@@ -203,6 +227,9 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     handleChangeTemperature,
     handleChangeMaxTokens,
     handleChangeReasoningEffort,
+    handleChangeImageGenerationModel,
+    handleChangeImageGenerationBaseURL,
+    handleChangeImageGenerationApiKey,
     handleToggleTemperature,
     handleToggleAutoModel,
     handleToggleFakeMode,

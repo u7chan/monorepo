@@ -10,7 +10,7 @@ import type { ChatResponse } from '#/types/chat-api'
 import type { ImageGenerationResponse } from '#/types/image-generation-api'
 
 const settings: Settings = {
-  schemaVersion: '1.4.0',
+  schemaVersion: '1.5.0',
   model: 'gpt-4.1-mini',
   baseURL: 'https://example.test',
   apiKey: 'secret',
@@ -27,6 +27,9 @@ const settings: Settings = {
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
   imageGenerationMode: false,
+  imageGenerationModel: '',
+  imageGenerationBaseURL: '',
+  imageGenerationApiKey: '',
   sidebarOpen: true,
   templateModels: {},
 }

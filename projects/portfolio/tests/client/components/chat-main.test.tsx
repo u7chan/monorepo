@@ -11,6 +11,7 @@ const scrollToMessageEndMock = vi.fn()
 const submitChatCompletionMock = vi.fn()
 const submitImageGenerationMock = vi.fn()
 const resumeActiveChatCompletionMock = vi.fn()
+const useImageGenerationModelMock = vi.hoisted(() => vi.fn())
 const buildChatMessagesMock = vi.fn()
 const resetAfterSubmitMock = vi.fn()
 let chatFormInputMock = ''
@@ -58,6 +59,10 @@ vi.mock('#/client/features/chat/hooks/use-message-copy', () => ({
 
 vi.mock('#/client/features/chat/hooks/use-message-scroll', () => ({
   useMessageScroll: (...args: unknown[]) => useMessageScrollMock(...args),
+}))
+
+vi.mock('#/client/features/chat/hooks/use-image-generation-model', () => ({
+  useImageGenerationModel: useImageGenerationModelMock,
 }))
 
 vi.mock('#/client/features/chat/hooks/use-stream-processor', () => ({
@@ -116,7 +121,7 @@ const currentConversation: Conversation = {
 const imageGenerationResult: ImageGenerationResponse = {
   id: 'image-1',
   created: 1700000000,
-  model: 'gpt-image-2',
+  model: 'openai/gpt-image-2.5-flare',
   image: {
     fileName: 'image-1.png',
     publicPath: '/public/portfolio/conversation-1/image-1.png',
@@ -132,7 +137,7 @@ const imageGenerationResult: ImageGenerationResponse = {
 }
 
 const settings: Settings = {
-  schemaVersion: '1.4.0',
+  schemaVersion: '1.5.0',
   model: 'gpt-4.1-mini',
   baseURL: 'https://example.com',
   apiKey: 'api-key',
@@ -149,6 +154,9 @@ const settings: Settings = {
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
   imageGenerationMode: false,
+  imageGenerationModel: '',
+  imageGenerationBaseURL: '',
+  imageGenerationApiKey: '',
   sidebarOpen: true,
   templateModels: {},
 }
@@ -193,6 +201,14 @@ describe('ChatMain', () => {
       isPinnedToBottom: true,
       handleScroll: vi.fn(),
       scrollToMessageEnd: scrollToMessageEndMock,
+    })
+    useImageGenerationModelMock.mockReturnValue({
+      imageModels: ['openai/gpt-image-2.5-flare'],
+      isLoadingImageModels: false,
+      imageModelsError: null,
+      refetchImageModels: vi.fn(),
+      imageGenerationConnection: { baseURL: settings.baseURL, apiKey: settings.apiKey },
+      resolvedImageGenerationModel: 'openai/gpt-image-2.5-flare',
     })
   })
 
@@ -515,6 +531,7 @@ describe('ChatMain', () => {
           apiKey: 'api-key',
           baseURL: 'https://example.com',
         },
+        model: 'openai/gpt-image-2.5-flare',
         prompt: '白い背景に青い円を1つ',
         conversationId: 'conversation-1',
       })
@@ -528,7 +545,7 @@ describe('ChatMain', () => {
           expect.objectContaining({
             role: 'assistant',
             metadata: expect.objectContaining({
-              model: 'gpt-image-2',
+              model: 'openai/gpt-image-2.5-flare',
               responseTimeMs: 1_345,
             }),
           }),
@@ -609,6 +626,91 @@ describe('ChatMain', () => {
 
     expect(onUpdateSetting).toHaveBeenNthCalledWith(1, 'fakeMode', false)
     expect(onUpdateSetting).toHaveBeenNthCalledWith(2, 'imageGenerationMode', true)
+  })
+
+  it('画像モデルが解決できないときは画像生成モードへ切り替えられない', async () => {
+    useImageGenerationModelMock.mockReturnValue({
+      imageModels: [],
+      isLoadingImageModels: false,
+      imageModelsError: null,
+      refetchImageModels: vi.fn(),
+      imageGenerationConnection: { baseURL: settings.baseURL, apiKey: settings.apiKey },
+      resolvedImageGenerationModel: null,
+    })
+    const onUpdateSetting = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: false }}
+        currentConversation={currentConversation}
+        onUpdateSetting={onUpdateSetting}
+      />
+    )
+
+    const toggle = screen.getByRole('button', { name: '画像生成モード On/Off' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(true)
+    expect(toggle.title).toContain('画像生成モデルを取得できませんでした')
+
+    fireEvent.click(toggle)
+
+    expect(onUpdateSetting).not.toHaveBeenCalled()
+  })
+
+  it('画像生成モード ON 中は画像モデルが未解決でも OFF に戻せる', async () => {
+    useImageGenerationModelMock.mockReturnValue({
+      imageModels: [],
+      isLoadingImageModels: false,
+      imageModelsError: null,
+      refetchImageModels: vi.fn(),
+      imageGenerationConnection: { baseURL: settings.baseURL, apiKey: settings.apiKey },
+      resolvedImageGenerationModel: null,
+    })
+    const onUpdateSetting = vi.fn()
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+
+    render(
+      <ChatMain
+        settings={{ ...settings, imageGenerationMode: true }}
+        currentConversation={currentConversation}
+        onUpdateSetting={onUpdateSetting}
+      />
+    )
+
+    const toggle = screen.getByRole('button', { name: '画像生成モード On/Off' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(false)
+
+    fireEvent.click(toggle)
+
+    expect(onUpdateSetting).toHaveBeenCalledWith('imageGenerationMode', false)
+  })
+
+  it('画像生成用の接続先を画像生成 API の header に使う', async () => {
+    chatFormInputMock = '画像専用キーで描く'
+    const { ChatMain } = await import('#/client/features/chat/components/chat-main')
+    const { container } = render(
+      <ChatMain
+        settings={{
+          ...settings,
+          imageGenerationMode: true,
+          imageGenerationBaseURL: 'https://image.example.com/v1',
+          imageGenerationApiKey: 'image-api-key',
+        }}
+        currentConversation={currentConversation}
+      />
+    )
+
+    fireEvent.submit(container.querySelector('form')!)
+
+    await waitFor(() => expect(submitImageGenerationMock).toHaveBeenCalledTimes(1))
+    expect(submitImageGenerationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        header: {
+          apiKey: 'image-api-key',
+          baseURL: 'https://image.example.com/v1',
+        },
+      })
+    )
   })
 
   it('共有履歴設定が Off の画像生成では過去の画像 prompt を送らない', async () => {

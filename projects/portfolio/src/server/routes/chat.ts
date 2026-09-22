@@ -15,7 +15,6 @@ import type { CompletionChunk, ResponsesStreamChunk, StreamChunk } from '#/serve
 import {
   generateImage,
   IMAGE_GENERATION_CONTENT_TYPE,
-  IMAGE_GENERATION_MODEL,
   IMAGE_GENERATION_OUTPUT_FORMAT,
   IMAGE_GENERATION_SIZE,
 } from '#/server/features/image-generation/image-generation'
@@ -246,6 +245,7 @@ const chatRoutes = new Hono<HonoEnv>()
       const generated = await generateImage({
         apiKey: header['api-key'],
         baseURL: header['base-url'],
+        model: req.model,
         prompt: req.prompt,
       })
       const saved = await saveGeneratedImage(
@@ -282,7 +282,7 @@ const chatRoutes = new Hono<HonoEnv>()
           provider: getSafeUpstreamErrorLogFields(error),
           request: {
             endpoint: '/images/generations',
-            model: IMAGE_GENERATION_MODEL,
+            model: req.model,
             size: IMAGE_GENERATION_SIZE,
             outputFormat: IMAGE_GENERATION_OUTPUT_FORMAT,
             count: 1,

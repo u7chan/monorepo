@@ -17,6 +17,7 @@ import {
   summarizeImageContext,
 } from '#/client/features/chat/lib/edit-message'
 import { buildImageGenerationPrompt } from '#/client/features/chat/lib/image-generation'
+import { resolveImageGenerationConnection } from '#/client/features/chat/lib/image-generation-model'
 import { unknownChatError } from '#/client/shared/lib/chat-error'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { Conversation, GeneratedCodeFile, Message } from '#/types'
@@ -36,6 +37,7 @@ interface ConversationState {
 
 interface UseChatActionsParams {
   settings: Settings
+  imageGenerationModel: string | null
   formState: ReturnType<typeof useChatForm>
   conversationState: ConversationState
   streamProcessor: ReturnType<typeof useStreamProcessor>
@@ -51,6 +53,7 @@ interface UseChatActionsParams {
 
 export function useChatActions({
   settings,
+  imageGenerationModel,
   formState,
   conversationState,
   streamProcessor,
@@ -206,9 +209,23 @@ export function useChatActions({
       return
     }
 
-    const settingsError = validateChatSettings(settings)
+    const imageGenerationConnection = resolveImageGenerationConnection(settings)
+    const settingsError = validateChatSettings({
+      ...settings,
+      baseURL: imageGenerationConnection.baseURL,
+      apiKey: imageGenerationConnection.apiKey,
+    })
     if (settingsError) {
       onSettingsError?.(settingsError)
+      return
+    }
+
+    if (!imageGenerationModel) {
+      onSettingsError?.({
+        code: 'VALIDATION_ERROR',
+        message: '画像生成モデルを選択してください。設定の「画像生成」タブでモデルを確認してください。',
+        retryable: false,
+      })
       return
     }
 
@@ -219,7 +236,7 @@ export function useChatActions({
       role: 'user',
       content: prompt.currentPrompt,
       metadata: {
-        model: '',
+        model: imageGenerationModel,
         imageGenerationMode: true,
       },
     }
@@ -240,9 +257,10 @@ export function useChatActions({
     try {
       const { result, error, responseTimeMs } = await submitImageGeneration({
         header: {
-          apiKey: settings.apiKey,
-          baseURL: settings.baseURL,
+          apiKey: imageGenerationConnection.apiKey,
+          baseURL: imageGenerationConnection.baseURL,
         },
+        model: imageGenerationModel,
         prompt: prompt.prompt,
         conversationId: currentConversationId,
         assistantMessageId,

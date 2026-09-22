@@ -48,6 +48,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             } & {
                 json: {
                     prompt: string;
+                    model: string;
                     conversationId: string;
                     assistantMessageId: string;
                 };
@@ -68,6 +69,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             } & {
                 json: {
                     prompt: string;
+                    model: string;
                     conversationId: string;
                     assistantMessageId: string;
                 };
@@ -88,6 +90,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             } & {
                 json: {
                     prompt: string;
+                    model: string;
                     conversationId: string;
                     assistantMessageId: string;
                 };
@@ -108,6 +111,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             } & {
                 json: {
                     prompt: string;
+                    model: string;
                     conversationId: string;
                     assistantMessageId: string;
                 };
@@ -1615,6 +1619,32 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
     };
 }, "/"> | import('hono/types').MergeSchemaPath<{
     "/api/fetch-models": {
+        $get: {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            };
+            output: {
+                message: string;
+            };
+            outputFormat: "json";
+            status: 400;
+        } | {
+            input: {
+                header: {
+                    'api-key': string;
+                    'base-url': string;
+                };
+            };
+            output: string[];
+            outputFormat: "json";
+            status: import('hono/utils/http-status').ContentfulStatusCode;
+        };
+    };
+} & {
+    "/api/fetch-image-models": {
         $get: {
             input: {
                 header: {

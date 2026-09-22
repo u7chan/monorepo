@@ -59,7 +59,7 @@ const errorDefinitions: Record<Exclude<ChatErrorCode, 'VALIDATION_ERROR'>, Omit<
   },
   IMAGE_MODEL_ENDPOINT_INCOMPATIBLE: {
     message:
-      '画像生成プロバイダーがモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と gpt-image-2 の利用可否を確認してください。',
+      '画像生成プロバイダーがこのモデルまたはエンドポイントに対応していません。base URL の /images/generations 対応と、API キーで利用できる画像モデルを確認してください。',
     retryable: false,
   },
   IMAGE_REQUEST_INVALID: {
@@ -179,6 +179,12 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
 function classifyImageGenerationError(details: ErrorDetails): Exclude<ChatErrorCode, 'VALIDATION_ERROR'> {
   const genericCode = classifyError(details)
+
+  // 403 key_model_access_denied は「キーがこのモデルを許可していない」ため、
+  // 画像生成では選択モデルを見直す導線（モデル/エンドポイント非対応）へ寄せる
+  if (genericCode === 'MODEL_ACCESS_DENIED') {
+    return 'IMAGE_MODEL_ENDPOINT_INCOMPATIBLE'
+  }
 
   if (!['INVALID_REQUEST', 'UNKNOWN_UPSTREAM_ERROR'].includes(genericCode)) {
     return genericCode

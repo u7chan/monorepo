@@ -21,6 +21,14 @@ export interface ChatSettingsContextValue {
   isLoadingModels: boolean
   fetchError: string | null
   refetchModels: () => void
+  imageGenerationModel: string
+  imageGenerationBaseURL: string
+  imageGenerationApiKey: string
+  imageModels: string[]
+  isLoadingImageModels: boolean
+  imageModelsError: string | null
+  refetchImageModels: () => void
+  resolvedImageGenerationModel: string | null
   handleChangeAutoModel: (event: ChangeEvent<HTMLSelectElement>) => void
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
@@ -29,6 +37,9 @@ export interface ChatSettingsContextValue {
   handleChangeTemperature: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeMaxTokens: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeReasoningEffort: (event: ChangeEvent<HTMLSelectElement>) => void
+  handleChangeImageGenerationModel: (event: ChangeEvent<HTMLSelectElement>) => void
+  handleChangeImageGenerationBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
+  handleChangeImageGenerationApiKey: (event: ChangeEvent<HTMLInputElement>) => void
   handleToggleTemperature: () => void
   handleToggleAutoModel: () => void
   handleToggleFakeMode: () => void
