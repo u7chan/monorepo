@@ -76,10 +76,10 @@
 
 エージェントに割り当てたスキルは、SDK ネイティブのスキルと同じ「索引は常時、本文は必要時 `read`」の形で渡す。件数・本文長の上限が無いため、本文を system prompt へ常時載せない。
 
-- `skillsOverride` へ渡す索引は name / description / location だけ。`location` は実体の無い仮想パス `<root>/.u7agent/agent-skills/<name>/SKILL.md`（`server/src/catalog-skills.ts`）。名前は 1 セグメントに percent encoding してから使うので、`a/b` や `..foo` のような名前でも置き場の外へは出ない。一覧の `relativePath` とチャットの `[skill]` 行はデコードした元の名前で見せる（`location` / `path` は `read` に渡す encoded のまま）
+- `skillsOverride` へ渡す索引は name / description / location だけ。`location` は実体の無い仮想パス `<root>/.u7agent/agent-skills/<name>/SKILL.md`（`server/src/catalog-skills.ts`）。名前は 1 セグメントに percent encoding してから使うので、`a/b` や `..foo` のような名前でも置き場の外へは出ない。一覧の `relativePath` とチャットの `[skill]` バッジはデコードした元の名前で見せる（`location` / `path` は `read` に渡す encoded のまま）
 - モデルの `read` は BFF が横取りし、セッションの `promptSnapshot` にある本文を返す（サンドボックスへ送らない）。`ls` / `find` / `grep` / `bash` からは見えない（組み込みと同じ割り切り）
 - 同名のファイル / 組み込みスキルがある行は索引からも落とす（優先順位 `project > user > builtin > catalog` を一覧と一致させる）。カタログ同士の重複は先勝ち
-- `read` は `classifySkillRead()` に拾われるため、チャット履歴に `[skill] <name>` 行が出る
+- `read` は `classifySkillRead()` に拾われるため、チャットの assistant バブルに `[skill] <name>` バッジが出る
 
 ## ファイルスキル（`.agents/skills`）
 

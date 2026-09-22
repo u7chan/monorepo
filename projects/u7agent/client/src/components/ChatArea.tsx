@@ -4,7 +4,7 @@ import { useMessageCopy } from "../hooks/useMessageCopy";
 import { cn } from "../lib/cn";
 import { compactionDividerIndex } from "../lib/compaction";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
-import { toolCallIdsOf, visibleSkillLoads } from "../lib/skillLoad";
+import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
 import type { AgentSuggestion, CompactionInfo } from "../types";
 import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
@@ -40,8 +40,8 @@ export function ChatArea({
   const chatAreaRef = useRef<HTMLElement>(null);
   const { copiedId, copyMessage } = useMessageCopy();
   const dividerIndex = compactionDividerIndex(compactions);
-  // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しを消す
-  const toolCallIds = toolCallIdsOf(bubbles);
+  // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
+  const skillBadges = skillBadgesOf(bubbles);
 
   // 設定ページから戻ったときにも最新位置へ戻す (非表示中は scrollHeight が 0 になる)
   useEffect(() => {
@@ -93,7 +93,7 @@ export function ChatArea({
                 {dividerIndex === index ? <CompactionDivider compactions={compactions} compact={compact} /> : null}
                 <MessageView
                   bubble={bubble}
-                  skillLoads={visibleSkillLoads(bubble.skillLoads, toolCallIds)}
+                  skillBadges={skillBadges.get(bubble.id) ?? []}
                   copied={copiedId === `bubble_${bubble.id}`}
                   compact={compact}
                   agentName={agentName}
@@ -104,7 +104,9 @@ export function ChatArea({
                   copiedId={copiedId}
                   onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
                   copiedAll={copiedId === `tools_${bubble.id}`}
-                  onCopyAll={() => void copyMessage(toolHistoryCopyText(bubble.tools), `tools_${bubble.id}`)}
+                  onCopyAll={() =>
+                    void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)
+                  }
                 />
               </Fragment>
             ))}
