@@ -94,6 +94,34 @@ test("rejects with the sandbox error message on error events", async () => {
   await assert.rejects(client.execute("bash", { params: {} }), /Command aborted/);
 });
 
+test("write / edit のポリシー拒否は 200 の error イベントとしてモデル向け文言のまま reject する", async () => {
+  const message =
+    "Cannot write or edit outside the session working directory: /workspace/cafe.html. " +
+    "Allowed locations are /workspace/.u7agent/sessions/aaaa111111 (working directory) and /workspace/.agents/skills (common skills). " +
+    "Retry with a path relative to the working directory (for example, `cafe.html`).";
+  const { calls, impl } = stubFetch(() =>
+    ndjsonResponse([
+      `${JSON.stringify({ type: "start", executionId: "exec-3" })}\n`,
+      `${JSON.stringify({ type: "error", message })}\n`,
+    ]),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+  await assert.rejects(
+    client.execute("write", {
+      params: { path: "/workspace/cafe.html", content: "x" },
+      cwd: ".u7agent/sessions/aaaa111111",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, message, "HTTP 400 の経路を通すと文言が JSON ラッパーに包まれる");
+      assert.doesNotMatch(error.message, /\{"error"/);
+      assert.doesNotMatch(error.message, /HTTP 400/);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 1);
+});
+
 test("maps HTTP errors to actionable messages", async () => {
   const unauthorized = stubFetch(() => new Response("Unauthorized", { status: 401 }));
   const client = createSandboxToolClient({

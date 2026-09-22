@@ -8,7 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
-import { SANDBOX_MAX_FILE_ENTRIES, type SandboxEvent, type SandboxFileListing } from "../src/sandbox/protocol";
+import {
+  SANDBOX_MAX_FILE_ENTRIES,
+  type SandboxErrorEvent,
+  type SandboxEvent,
+  type SandboxFileListing,
+} from "../src/sandbox/protocol";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 const HAS_BASH = existsSync("/bin/bash");
@@ -323,6 +328,309 @@ test("tool execution rejects a cwd outside the workspace or not a directory", as
   // cwd 省略時の root は今までどおり
   assert.equal((await executeTool(service.app, "ls", { params: {} })).status, 200);
 });
+
+// ---------------------------------------------------------------------------
+// write / edit の書き込み範囲 (セッションの作業ディレクトリ)
+// ---------------------------------------------------------------------------
+
+/** 未所属セッション相当の workdir (`.u7agent/sessions/<id>`) と root を作る */
+async function createScopeRoot(prefix: string): Promise<{ root: string; scratch: string }> {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const scratch = ".u7agent/sessions/aaaa111111";
+  await mkdir(join(root, scratch), { recursive: true });
+  return { root, scratch };
+}
+
+function errorEvent(events: SandboxEvent[]): SandboxErrorEvent | undefined {
+  return events.find((event): event is SandboxErrorEvent => event.type === "error");
+}
+
+test("write / edit は実行 cwd の外を拒否し、許可場所と再試行例を返す", async () => {
+  const { root, scratch } = await createScopeRoot("pi-sbx-write-scope-");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  const workdir = join(root, scratch);
+
+  // モデルがやりがちな取り違え (workspace root を指す絶対パス)
+  const denied = await executeTool(service.app, "write", {
+    params: { path: join(root, "cafe.html"), content: "x" },
+    cwd: scratch,
+  });
+  assert.equal(denied.status, 200, "拒否は 400 ではなく error イベントで返す");
+  const error = errorEvent(denied.events);
+  assert.ok(error, "error イベントが返る");
+  assert.match(error.message, /Cannot write or edit outside/);
+  assert.ok(error.message.includes(workdir), error.message);
+  assert.ok(error.message.includes(join(root, ".agents", "skills")), error.message);
+  assert.match(error.message, /`cafe\.html`/);
+  assert.equal(existsSync(join(root, "cafe.html")), false, "workdir 外には書かない");
+
+  // cwd 相対で再試行するとスクラッチに作られる
+  const retried = await executeTool(service.app, "write", {
+    params: { path: "cafe.html", content: "made" },
+    cwd: scratch,
+  });
+  assert.equal(retried.status, 200);
+  assert.ok(retried.events.some((event) => event.type === "result"));
+  assert.equal(await readFile(join(root, scratch, "cafe.html"), "utf8"), "made");
+});
+
+test("拒否された write は workdir 外の親ディレクトリも作らない", async () => {
+  const { root, scratch } = await createScopeRoot("pi-sbx-write-mkdir-");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const absolute = await executeTool(service.app, "write", {
+    params: { path: join(root, "outside/nested/new.txt"), content: "x" },
+    cwd: scratch,
+  });
+  assert.ok(errorEvent(absolute.events), "root 直下の未作成ツリーは拒否する");
+  assert.equal(existsSync(join(root, "outside")), false, "mkdir はポリシー判定を通ってから行う");
+
+  // `..` で workdir を出る相対パスも同じ (`.u7agent/outside` はスクラッチの外)
+  const traversal = await executeTool(service.app, "write", {
+    params: { path: "../../outside/nested/new.txt", content: "x" },
+    cwd: scratch,
+  });
+  assert.ok(errorEvent(traversal.events), "`..` で workdir を出るパスは拒否する");
+  assert.equal(existsSync(join(root, ".u7agent", "outside")), false);
+});
+
+test("SDK の特殊なパス形 (絶対 / ~ / file:// / @) も作業ディレクトリの外なら拒否する", async () => {
+  const { root, scratch } = await createScopeRoot("pi-sbx-write-forms-");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  for (const requested of [
+    join(root, "cafe.html"),
+    "/etc/u7agent-scope-test",
+    "~/u7agent-scope-test",
+    "file:///etc/u7agent-scope-test",
+    `@${join(root, "cafe.html")}`,
+  ]) {
+    const denied = await executeTool(service.app, "write", { params: { path: requested, content: "x" }, cwd: scratch });
+    assert.equal(denied.status, 200, requested);
+    const error = errorEvent(denied.events);
+    assert.ok(error, requested);
+    assert.match(error.message, /Cannot write or edit outside/, requested);
+  }
+  assert.equal(existsSync(join(root, "cafe.html")), false);
+});
+
+test("edit のポリシー拒否は実在しないパスでも文言を保つ", async () => {
+  const { root, scratch } = await createScopeRoot("pi-sbx-edit-scope-");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  // 実在しないパスでも access の ENOENT ではなくポリシーの文言を返す (SDK は access の失敗に前置きするだけ)
+  const denied = await executeTool(service.app, "edit", {
+    params: { path: join(root, "missing.txt"), edits: [{ oldText: "a", newText: "b" }] },
+    cwd: scratch,
+  });
+  assert.equal(denied.status, 200);
+  const error = errorEvent(denied.events);
+  assert.ok(error);
+  assert.match(error.message, /^Could not edit file: /);
+  assert.match(error.message, /Cannot write or edit outside/);
+  assert.doesNotMatch(error.message, /Error code:/, "code を付けると SDK が文言を置き換える");
+  assert.ok(error.message.includes(join(root, scratch)), error.message);
+  assert.ok(error.message.includes(join(root, ".agents", "skills")), error.message);
+});
+
+test("プロジェクト所属セッションは登録ディレクトリの外を拒否する", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-write-project-"));
+  await mkdir(join(root, "projA"));
+  await mkdir(join(root, "projB"));
+  await writeFile(join(root, "projB", "note.txt"), "keep", "utf8");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const ok = await executeTool(service.app, "write", { params: { path: "ok.txt", content: "a" }, cwd: "projA" });
+  assert.ok(ok.events.some((event) => event.type === "result"));
+  assert.equal(await readFile(join(root, "projA", "ok.txt"), "utf8"), "a");
+
+  for (const [tool, params] of [
+    ["write", { path: "../projB/other.txt", content: "x" }],
+    ["write", { path: join(root, "projB", "other.txt"), content: "x" }],
+    ["write", { path: join(root, "root-level.txt"), content: "x" }],
+    ["edit", { path: "../projB/note.txt", edits: [{ oldText: "keep", newText: "changed" }] }],
+  ] as const) {
+    const denied = await executeTool(service.app, tool, { params, cwd: "projA" });
+    assert.equal(denied.status, 200, `${tool} ${JSON.stringify(params)}`);
+    assert.ok(errorEvent(denied.events), `${tool} ${JSON.stringify(params)}`);
+  }
+  assert.equal(await readFile(join(root, "projB", "note.txt"), "utf8"), "keep");
+  assert.equal(existsSync(join(root, "projB", "other.txt")), false);
+  assert.equal(existsSync(join(root, "root-level.txt")), false);
+
+  // workdir 内の絶対パスは従来どおり通る
+  const absolute = await executeTool(service.app, "write", {
+    params: { path: join(root, "projA", "abs.txt"), content: "b" },
+    cwd: "projA",
+  });
+  assert.ok(absolute.events.some((event) => event.type === "result"));
+  assert.equal(await readFile(join(root, "projA", "abs.txt"), "utf8"), "b");
+});
+
+test("共通スキル置き場への write / edit は未所属・所属の両方で通る", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-write-skills-"));
+  const scratch = ".u7agent/sessions/cccc333333";
+  await mkdir(join(root, scratch), { recursive: true });
+  await mkdir(join(root, "proj"));
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  const skillPath = join(root, ".agents", "skills", "demo", "SKILL.md");
+
+  for (const cwd of [scratch, "proj"]) {
+    // .agents/skills が未作成でも mkdir ごと通る
+    const written = await executeTool(service.app, "write", {
+      params: { path: skillPath, content: "---\nname: demo\n---\nbody\n" },
+      cwd,
+    });
+    assert.ok(
+      written.events.some((event) => event.type === "result"),
+      cwd,
+    );
+    const edited = await executeTool(service.app, "edit", {
+      params: { path: skillPath, edits: [{ oldText: "body", newText: "changed" }] },
+      cwd,
+    });
+    assert.ok(
+      edited.events.some((event) => event.type === "result"),
+      cwd,
+    );
+  }
+  assert.match(await readFile(skillPath, "utf8"), /changed/);
+});
+
+test("永続化なしの未所属 (作業ディレクトリ = root) は root 直下に書ける", async () => {
+  // `PI_SESSION_STORE` なしの縮退では workdirOf が root を返すため、境界は workspace root だけになる
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-write-root-cwd-"));
+  const outside = mkdtempSync(join(tmpdir(), "pi-sbx-write-root-outside-"));
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  const allowed = await executeTool(service.app, "write", { params: { path: "cafe.html", content: "root" } });
+  assert.ok(allowed.events.some((event) => event.type === "result"));
+  assert.equal(await readFile(join(root, "cafe.html"), "utf8"), "root");
+
+  for (const requested of [
+    join(outside, "x.txt"),
+    "/etc/u7agent-scope-test",
+    "~/u7agent-scope-test",
+    "file:///etc/u7agent-scope-test",
+  ]) {
+    const denied = await executeTool(service.app, "write", { params: { path: requested, content: "x" } });
+    assert.equal(denied.status, 200, requested);
+    assert.ok(errorEvent(denied.events), requested);
+  }
+  assert.equal(existsSync(join(outside, "x.txt")), false);
+});
+
+test("添付・他セッションのスクラッチ・builtin-skills は write / edit を拒否し、read は通す", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-write-external-"));
+  const scratch = ".u7agent/sessions/dddd444444";
+  const other = ".u7agent/sessions/eeee555555";
+  const uploads = ".u7agent/uploads/dddd444444";
+  const builtin = ".u7agent/builtin-skills/demo";
+  for (const dir of [scratch, other, uploads, builtin]) await mkdir(join(root, dir), { recursive: true });
+  const attachment = join(root, uploads, "memo.txt");
+  await writeFile(attachment, "attached-body", "utf8");
+  const skillFile = join(root, builtin, "SKILL.md");
+  await writeFile(skillFile, "builtin-body", "utf8");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+  for (const [tool, params] of [
+    ["write", { path: attachment, content: "x" }],
+    ["edit", { path: attachment, edits: [{ oldText: "attached-body", newText: "x" }] }],
+    ["write", { path: join(root, other, "new.txt"), content: "x" }],
+    ["edit", { path: skillFile, edits: [{ oldText: "builtin-body", newText: "x" }] }],
+  ] as const) {
+    const denied = await executeTool(service.app, tool, { params, cwd: scratch });
+    assert.equal(denied.status, 200, tool);
+    assert.ok(errorEvent(denied.events), tool);
+  }
+  assert.equal(await readFile(attachment, "utf8"), "attached-body", "拒否された edit はファイルを変えない");
+  assert.equal(await readFile(skillFile, "utf8"), "builtin-body");
+
+  // read は絞らない: 添付も実体のある組み込みスキルも読める
+  const read = await executeTool(service.app, "read", { params: { path: attachment }, cwd: scratch });
+  const result = read.events.find((event) => event.type === "result");
+  assert.ok(result, "添付は read できる");
+  assert.match(eventText((result as { payload: unknown }).payload), /attached-body/);
+});
+
+test(
+  "workspace root が symlink でも lexical な絶対パスへ書ける",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const base = mkdtempSync(join(tmpdir(), "pi-sbx-write-link-root-"));
+    const real = join(base, "real");
+    await mkdir(real, { recursive: true });
+    const link = join(base, "link");
+    await symlink(real, link);
+    const service = createSandboxService({ token: TOKEN, rootCwd: link });
+
+    // 相対パスは実行 cwd (realpath)、system prompt に出る symlink 形の絶対パスは lexical な root で通す
+    const relative = await executeTool(service.app, "write", { params: { path: "relative.txt", content: "a" } });
+    assert.ok(relative.events.some((event) => event.type === "result"));
+    assert.equal(await readFile(join(real, "relative.txt"), "utf8"), "a");
+
+    const absolute = await executeTool(service.app, "write", {
+      params: { path: join(link, "absolute.txt"), content: "b" },
+    });
+    assert.ok(absolute.events.some((event) => event.type === "result"));
+    assert.equal(await readFile(join(real, "absolute.txt"), "utf8"), "b");
+
+    // 既存ファイルの edit も両方の形で通る
+    for (const path of [join(link, "relative.txt"), join(real, "absolute.txt")]) {
+      const edited = await executeTool(service.app, "edit", {
+        params: { path, edits: [{ oldText: path.includes("relative") ? "a" : "b", newText: "edited" }] },
+      });
+      assert.ok(
+        edited.events.some((event) => event.type === "result"),
+        path,
+      );
+    }
+    assert.equal(await readFile(join(real, "relative.txt"), "utf8"), "edited");
+    assert.equal(await readFile(join(real, "absolute.txt"), "utf8"), "edited");
+  },
+);
+
+test(
+  "登録プロジェクトが symlink でも lexical な絶対パスへ書ける",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-write-link-project-"));
+    await mkdir(join(root, "real-proj"));
+    await writeFile(join(root, "real-proj", "existing.txt"), "before", "utf8");
+    await symlink(join(root, "real-proj"), join(root, "proj"));
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    for (const requested of [
+      "relative.txt",
+      join(root, "proj", "link-form.txt"),
+      join(root, "real-proj", "real-form.txt"),
+    ]) {
+      const written = await executeTool(service.app, "write", {
+        params: { path: requested, content: "ok" },
+        cwd: "proj",
+      });
+      assert.ok(
+        written.events.some((event) => event.type === "result"),
+        requested,
+      );
+    }
+    for (const requested of ["existing.txt", join(root, "proj", "relative.txt")]) {
+      const edited = await executeTool(service.app, "edit", {
+        params: {
+          path: requested,
+          edits: [{ oldText: requested === "existing.txt" ? "before" : "ok", newText: "after" }],
+        },
+        cwd: "proj",
+      });
+      assert.ok(
+        edited.events.some((event) => event.type === "result"),
+        requested,
+      );
+    }
+    assert.equal(await readFile(join(root, "real-proj", "relative.txt"), "utf8"), "after");
+    assert.equal(await readFile(join(root, "real-proj", "existing.txt"), "utf8"), "after");
+  },
+);
 
 test("dirs endpoint creates nested directories and treats an existing one as success", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-dirs-"));

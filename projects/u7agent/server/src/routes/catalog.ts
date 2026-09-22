@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import type { AgentCatalog } from "../agents";
+import { COMMON_SKILLS_DIR } from "../app-paths";
 import { builtinSkillEntries } from "../builtin-skills";
-import { COMMON_SKILLS_DIR, composeFileSkills } from "../file-skills";
+import { composeFileSkills } from "../file-skills";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import {
