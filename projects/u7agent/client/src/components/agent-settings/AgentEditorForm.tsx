@@ -1,6 +1,8 @@
-import type { Dispatch, FormEvent, SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
+import { fileToAgentIcon } from "../../lib/agentIconFile";
 import type { AgentDef, AgentSuggestion, Catalog, ModelOption, ModelRef, ThinkingLevel } from "../../types";
+import { AgentIcon } from "../AgentIcon";
 import { CheckIcon, TrashIcon } from "../icons";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
 import { SkillSelector } from "./SkillSelector";
@@ -11,6 +13,8 @@ export type AgentForm = {
   description: string;
   systemPrompt: string;
   skillIds: string[];
+  /** data URL。null は未設定で、保存時は「指定解除」として送る */
+  icon: string | null;
   /** null は保存時に「指定解除」として送る */
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
@@ -24,6 +28,7 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     description: agent?.description || "",
     systemPrompt: agent?.systemPrompt || "",
     skillIds: agent ? [...agent.skillIds] : [],
+    icon: agent?.icon ?? null,
     model: agent?.model ? { ...agent.model } : null,
     thinkingLevel: agent?.thinkingLevel ?? null,
     // catalog のオブジェクトを直接編集しないよう、配列と要素をコピーして持つ
@@ -65,6 +70,25 @@ export function AgentEditorForm({
   onDone?: () => void;
 }) {
   const showHeading = variant === "page";
+  const iconInputRef = useRef<HTMLInputElement>(null);
+  const [iconBusy, setIconBusy] = useState(false);
+  // 変換中に編集対象が変わるかを await の後に判定する (新しい下書きを古い選択の結果で汚さない)
+  const editingIdRef = useRef(editingId);
+  editingIdRef.current = editingId;
+
+  const pickIcon = async (file: File) => {
+    const target = editingId;
+    setIconBusy(true);
+    try {
+      const icon = await fileToAgentIcon(file);
+      if (editingIdRef.current !== target) return;
+      setForm((prev) => ({ ...prev, icon }));
+    } catch (error) {
+      onNote(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      setIconBusy(false);
+    }
+  };
 
   const saveAgent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -74,6 +98,7 @@ export function AgentEditorForm({
       systemPrompt: form.systemPrompt,
       skillIds: form.skillIds,
       // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
+      icon: form.icon,
       model: form.model,
       thinkingLevel: form.thinkingLevel,
       suggestions: form.suggestions,
@@ -175,6 +200,51 @@ export function AgentEditorForm({
                       }}
                     />
                   </label>
+                  <div className="grid gap-1 text-1xs text-ink-soft">
+                    アイコン
+                    <div className="flex items-center gap-3">
+                      <AgentIcon icon={form.icon ?? undefined} variant="preview" />
+                      <div className="grid gap-1.5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="btn-quiet"
+                            disabled={iconBusy}
+                            onClick={() => iconInputRef.current?.click()}
+                          >
+                            {iconBusy ? "変換中…" : "画像を選ぶ"}
+                          </button>
+                          {form.icon ? (
+                            <button
+                              type="button"
+                              className="btn-quiet"
+                              disabled={iconBusy}
+                              onClick={() => setForm((prev) => ({ ...prev, icon: null }))}
+                            >
+                              解除
+                            </button>
+                          ) : null}
+                        </div>
+                        <p className="text-2xs leading-relaxed text-ink-ghost">
+                          256×256 に縮小して保存します。未設定なら ✦ で表示します。
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      ref={iconInputRef}
+                      type="file"
+                      accept="image/*"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        // 同じファイルを選び直せるよう、選択を毎回リセットする
+                        event.currentTarget.value = "";
+                        if (file) void pickIcon(file);
+                      }}
+                    />
+                  </div>
                   <label className="grid gap-1 text-1xs text-ink-soft">
                     役割 / 基本指示
                     <textarea
@@ -225,7 +295,7 @@ export function AgentEditorForm({
               </button>
             </>
           ) : null}
-          <button type="submit" className="btn-primary ml-auto">
+          <button type="submit" className="btn-primary ml-auto" disabled={iconBusy}>
             <CheckIcon />
             保存
           </button>

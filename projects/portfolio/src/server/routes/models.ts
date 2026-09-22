@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { validator } from 'hono/validator'
 import { z } from 'zod'
+import { isImageGenerationModel, type UpstreamModel } from '#/server/features/image-generation/image-models'
 import { logger } from '#/server/lib/logger'
 import type { HonoEnv } from './shared'
 
@@ -25,10 +26,31 @@ const modelsHeaderValidator = validator('header', (value, c) => {
   return parsed.data
 })
 
-const modelsRoutes = new Hono<HonoEnv>().get('/api/fetch-models', modelsHeaderValidator, async (c) => {
-  const { 'api-key': apiKey, 'base-url': baseURL } = c.req.valid('header')
-  const requestLogger = c.var.logger ?? logger
+function readUpstreamModels(data: unknown): UpstreamModel[] {
+  const models = (data as { data?: unknown } | null)?.data
+  if (!Array.isArray(models)) {
+    return []
+  }
 
+  return models.flatMap((item) => {
+    const { id, mode } = (item ?? {}) as { id?: unknown; mode?: unknown }
+    if (typeof id !== 'string') {
+      return []
+    }
+
+    return [{ id, mode: typeof mode === 'string' ? mode : undefined }]
+  })
+}
+
+async function fetchUpstreamModels({
+  apiKey,
+  baseURL,
+  requestLogger,
+}: {
+  apiKey: string
+  baseURL: string
+  requestLogger: typeof logger
+}): Promise<UpstreamModel[]> {
   try {
     const response = await fetch(`${baseURL}/models`, {
       headers: {
@@ -39,16 +61,32 @@ const modelsRoutes = new Hono<HonoEnv>().get('/api/fetch-models', modelsHeaderVa
     })
 
     if (response.ok) {
-      const data = await response.json()
-      const models: string[] = data.data?.map((item: { id: string }) => item.id) || []
-
-      return c.json(models.toSorted())
+      return readUpstreamModels(await response.json())
     }
   } catch (error) {
     requestLogger.error({ err: error }, 'Failed to fetch models')
   }
 
-  return c.json([])
-})
+  return []
+}
+
+const modelsRoutes = new Hono<HonoEnv>()
+  .get('/api/fetch-models', modelsHeaderValidator, async (c) => {
+    const { 'api-key': apiKey, 'base-url': baseURL } = c.req.valid('header')
+    const models = await fetchUpstreamModels({ apiKey, baseURL, requestLogger: c.var.logger ?? logger })
+
+    return c.json(models.map((model) => model.id).toSorted())
+  })
+  .get('/api/fetch-image-models', modelsHeaderValidator, async (c) => {
+    const { 'api-key': apiKey, 'base-url': baseURL } = c.req.valid('header')
+    const models = await fetchUpstreamModels({ apiKey, baseURL, requestLogger: c.var.logger ?? logger })
+
+    return c.json(
+      models
+        .filter(isImageGenerationModel)
+        .map((model) => model.id)
+        .toSorted()
+    )
+  })
 
 export { modelsRoutes }

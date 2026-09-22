@@ -1,5 +1,7 @@
+import { agentIconOf } from "../../lib/agentIcon";
 import { cn } from "../../lib/cn";
 import type { AgentDef } from "../../types";
+import { AgentIcon } from "../AgentIcon";
 import { SelectField } from "../SelectField";
 import { fieldLabelClass } from "./fieldStyles";
 
@@ -21,6 +23,7 @@ export function AgentField({
         aria-label="エージェントを選択"
         density="sm"
         compact={compact}
+        leadingIcon={<AgentIcon icon={agentIconOf(agents, agentId)} variant="inline" />}
         wrapperClassName={cn(compact ? "min-w-0 flex-1" : "max-w-50 min-w-0")}
         value={agentId}
         disabled={agents.length === 0}

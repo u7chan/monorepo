@@ -1,16 +1,21 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from '@testing-library/react'
-import { useState } from 'react'
+import { type ChangeEvent, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 
 const STORAGE_KEY = 'portfolio.chat-settings'
 
 const useModelFetchingMock = vi.hoisted(() => vi.fn())
+const useImageGenerationModelMock = vi.hoisted(() => vi.fn())
 
 vi.mock('#/client/features/chat/components/chat-settings/hooks/use-model-fetching', () => ({
   useModelFetching: useModelFetchingMock,
+}))
+
+vi.mock('#/client/features/chat/hooks/use-image-generation-model', () => ({
+  useImageGenerationModel: useImageGenerationModelMock,
 }))
 
 vi.mock('#/client/shared/hooks/use-lock-body-scroll', () => ({
@@ -35,7 +40,7 @@ const createLocalStorageMock = (initialEntries: Record<string, string> = {}) => 
 }
 
 const settings: Settings = {
-  schemaVersion: '1.4.0',
+  schemaVersion: '1.5.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -52,6 +57,9 @@ const settings: Settings = {
   includeChatHistory: false,
   sendImagesOnlyOnce: true,
   imageGenerationMode: true,
+  imageGenerationModel: '',
+  imageGenerationBaseURL: '',
+  imageGenerationApiKey: '',
   sidebarOpen: true,
   templateModels: {},
 }
@@ -64,6 +72,14 @@ describe('useChatSettings', () => {
       isLoadingModels: false,
       fetchError: null,
       refetchModels: vi.fn(),
+    })
+    useImageGenerationModelMock.mockReturnValue({
+      imageModels: ['openai/gpt-image-2.5-flare'],
+      isLoadingImageModels: false,
+      imageModelsError: null,
+      refetchImageModels: vi.fn(),
+      imageGenerationConnection: { baseURL: '', apiKey: '' },
+      resolvedImageGenerationModel: 'openai/gpt-image-2.5-flare',
     })
     vi.resetModules()
   })
@@ -97,5 +113,25 @@ describe('useChatSettings', () => {
 
     expect(result.current.context.includeChatHistory).toBe(true)
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({ includeChatHistory: true })
+  })
+
+  it('画像生成モデルの選択を共有設定へ保存する', async () => {
+    const { useChatSettings } = await import('#/client/features/chat/components/chat-settings/hooks/use-chat-settings')
+    const { result } = renderHook(() => {
+      const [currentSettings, setCurrentSettings] = useState(settings)
+      const context = useChatSettings({ settings: currentSettings, onChange: setCurrentSettings })
+      return { context }
+    })
+
+    act(() => {
+      result.current.context.handleChangeImageGenerationModel({
+        target: { value: 'openai/gpt-image-2.5-sunburst' },
+      } as ChangeEvent<HTMLSelectElement>)
+    })
+
+    expect(result.current.context.imageGenerationModel).toBe('openai/gpt-image-2.5-sunburst')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
+      imageGenerationModel: 'openai/gpt-image-2.5-sunburst',
+    })
   })
 })

@@ -10,7 +10,7 @@
 - プリセットは 6 種類（ミッドナイト / デイライト / モカ / フォレスト / サクラ / スカイ）に加え、`prefers-color-scheme` に追従する「システム」を選択できる。
 - 状態は `ThemeProvider`（`useTheme` フックで参照・変更）が持ち、選択は `localStorage` に保存される。削除済みのテーマ id など無効な値が残っていても system 追従として解決し、保存値は書き換えない（新しく知るテーマを選び直したときに初めて上書きされる）。
 - `client/public/theme-init.js` は React 初回描画より前に `data-theme` を適用する外部 classic script。ここを React 側でやると初期化完了までテーマなしで点滅するため、意図的に React の外に置いている。ロジック（localStorage のキー、system 追従の解決）は `ThemeProvider` と同じ選択結果になるよう同期を取る（system の解決先 id は `client/test/themeSync.test.ts` が突き合わせる）。
-- BFF の CSP は `style-src 'self'`（インラインスタイル不可）のため、テーマはすべて外部 CSS + 属性切替で実装する。`<style>` の注入やインライン `style` 属性には頼らない。
+- BFF の CSP は `style-src 'self'`（インラインスタイル不可）のため、テーマはすべて外部 CSS + 属性切替で実装する。`<style>` の注入やインライン `style` 属性には頼らない。エージェントのアイコン（`AgentDef.icon` の data URL）を `<img>` で描くため、`img-src` だけ `'self' data:` を許す（`script-src` は `'self'` のまま）。
 
 ## コンポーネントの契約
 
@@ -33,7 +33,7 @@
 ## 開発フローと配信
 
 - 開発時は `pnpm dev`（BFF :4317）と `pnpm dev:web`（Vite :5173、HMR 付き）を併用する。Vite は `/api` を 4317 へプロキシするため、フロントエンドは同一オリジンの API としてそのまま動く。
-- 本番は `pnpm build` の産物 `client/dist/` を BFF が配信する。静的配信はリクエストパスを `client/dist` 内のファイルに解決し（ディレクトリ外は 404）、`index.html` は `no-cache`、Vite のハッシュ付き `assets/` 配下は `immutable` でキャッシュする。未ビルドのときは 503 で案内を出す。CSP は変わらず `default-src 'self'` のため、ビルド産物も同一オリジンのアセットだけで動く。
+- 本番は `pnpm build` の産物 `client/dist/` を BFF が配信する。静的配信はリクエストパスを `client/dist` 内のファイルに解決し（ディレクトリ外は 404）、`index.html` は `no-cache`、Vite のハッシュ付き `assets/` 配下は `immutable` でキャッシュする。未ビルドのときは 503 で案内を出す。CSP は `default-src 'self'` に画像だけ `img-src 'self' data:` を足した形（エージェントのアイコン用）で、ビルド産物も同一オリジンのアセットと data URL 画像だけで動く。
 - SPA フォールバック（`server/src/static.ts`）: 既存の静的ファイルを優先し、見つからない GET / HEAD のうち**拡張子なしのパス**に限って `index.html` を `/` と同じ本文・`no-cache`・CSP で返す。「拡張子なし」は最後の非空セグメントに `.` を含まない意味で、末尾スラッシュは許容し、dotfile と末尾ドットは対象外にする。`/api` と `/assets` は prefix の境界ごと（`/api` と `/api/` 配下、`/assets` と `/assets/` 配下）対象外にし、除外判定は decode 後のパスで行う（`%2F` で迂回させない）。`Accept` に `text/html` が `q>0` で含まれるときだけ返し（`text/html;q=0`・`application/json`・ワイルドカードのみは対象外）、POST 等も対象外にする。不正な percent encoding と `client/dist` 外へのパスはフォールバックに回さず 404 にする。
 - このフォールバックは存在しない拡張子なしパスにも HTTP 200 と `index.html` を返す（soft 404）。**HTTP 200 はパスの存在確認には使えない**。`/foo.txt`・`/assets/missing`・`/api/unknown` は 404 のままで SPA も起動しない。
 

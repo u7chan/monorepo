@@ -3,6 +3,12 @@ import { GeneratedImageSchema } from './chat'
 
 export const ImageGenerationRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(32000),
+  // アクセス可否は接続先のキースコープに任せ、ここでは形式だけを検証する
+  model: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z0-9._/-]+$/),
   conversationId: z.string().regex(/^[A-Za-z0-9_-]+$/),
   assistantMessageId: z.string().regex(/^[A-Za-z0-9_-]+$/),
 })

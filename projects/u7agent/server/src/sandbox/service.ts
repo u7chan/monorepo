@@ -745,7 +745,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 選択時の即時アップロード。BFF は bodyGuard (64 KiB / text 化) を通さず、ここへ raw で流す
+  // 選択時の即時アップロード。BFF は bodyGuard (既定 64 KiB / text 化) を通さず、ここへ raw で流す
   app.post("/v1/files/upload", async (c) => {
     const name = c.req.query("name") ?? "";
     if (!isValidUploadName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);

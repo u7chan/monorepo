@@ -210,6 +210,7 @@ describe('useStreamProcessor', () => {
     await act(async () => {
       response = await result.current.submitImageGeneration({
         header: { apiKey: 'api-key', baseURL: 'https://example.com' },
+        model: 'openai/gpt-image-2.5-flare',
         prompt: '青い円を描く',
         conversationId: 'conversation-1',
         assistantMessageId: 'assistant-1',
@@ -238,6 +239,7 @@ describe('useStreamProcessor', () => {
     await act(async () => {
       response = await result.current.submitImageGeneration({
         header: { apiKey: 'api-key', baseURL: 'https://example.com' },
+        model: 'openai/gpt-image-2.5-flare',
         prompt: '青い円を描く',
         conversationId: 'conversation-1',
         assistantMessageId: 'assistant-1',

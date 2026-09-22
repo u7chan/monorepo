@@ -57,6 +57,38 @@ describe('ChatComposer', () => {
     expect(screen.getByRole('button', { name: '画像生成モード On/Off' }).textContent).toContain('画像生成 On')
   })
 
+  it('画像モデルが未解決のときは画像生成モードを無効にして理由を伝える', () => {
+    render(
+      <ChatComposer
+        {...defaultProps}
+        imageGenerationMode={false}
+        imageGenerationReady={false}
+        imageGenerationDisabledReason='画像生成モデルを取得できませんでした。'
+      />
+    )
+
+    const toggle = screen.getByRole('button', { name: '画像生成モード On/Off' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(true)
+    expect(toggle.title).toBe('画像生成モデルを取得できませんでした。')
+    const describedBy = toggle.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy ?? '')?.textContent).toBe('画像生成モデルを取得できませんでした。')
+  })
+
+  it('画像生成モード ON 中はモデルが未解決でも OFF に戻せる', () => {
+    render(
+      <ChatComposer
+        {...defaultProps}
+        imageGenerationMode={true}
+        imageGenerationReady={false}
+        imageGenerationDisabledReason='画像生成モデルを取得できませんでした。'
+      />
+    )
+
+    const toggle = screen.getByRole('button', { name: '画像生成モード On/Off' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(false)
+  })
+
   it('画像モードの履歴バッジは共有 Include chat history の値を表示・更新する', () => {
     function ComposerWithSharedHistory() {
       const [includeChatHistory, setIncludeChatHistory] = useState(false)

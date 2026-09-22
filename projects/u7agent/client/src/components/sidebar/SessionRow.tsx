@@ -1,6 +1,8 @@
+import { agentIconOf } from "../../lib/agentIcon";
 import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
-import type { SessionSummary } from "../../types";
+import type { AgentDef, SessionSummary } from "../../types";
+import { AgentIcon } from "../AgentIcon";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -30,11 +32,14 @@ function statusDotClass(status: string): string {
 /** 行の選択と削除は別の button にする (入れ子の interactive control を作らない) */
 export function SessionRow({
   item,
+  agents,
   active,
   onSelect,
   onDelete,
 }: {
   item: SessionSummary;
+  /** アイコンはカタログから live 解決する (定義を編集すると既存セッションの表示も変わる) */
+  agents: AgentDef[];
   active: boolean;
   onSelect: () => void;
   onDelete: () => void;
@@ -63,7 +68,11 @@ export function SessionRow({
         <span className={statusDotClass(item.status)} aria-hidden />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
-          <small className="truncate text-2xs text-ink-muted">{bits.join(" · ")}</small>
+          <small className="flex min-w-0 items-center gap-1 text-2xs text-ink-muted">
+            {/* アイコンはエージェント名の隣にだけ置く (名前が無いセッションでは時刻から始める) */}
+            {item.agentName ? <AgentIcon icon={agentIconOf(agents, item.agentId)} variant="inline" /> : null}
+            <span className="truncate">{bits.join(" · ")}</span>
+          </small>
         </span>
       </button>
       <button

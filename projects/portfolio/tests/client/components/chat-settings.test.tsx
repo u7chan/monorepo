@@ -8,7 +8,7 @@ import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 const useChatSettingsMock = vi.hoisted(() => vi.fn())
 
 const settings = {
-  schemaVersion: '1.4.0',
+  schemaVersion: '1.5.0',
   model: 'gpt-4.1-mini',
   baseURL: '',
   apiKey: '',
@@ -25,6 +25,9 @@ const settings = {
   includeChatHistory: true,
   sendImagesOnlyOnce: true,
   imageGenerationMode: true,
+  imageGenerationModel: '',
+  imageGenerationBaseURL: '',
+  imageGenerationApiKey: '',
   sidebarOpen: true,
   templateModels: {},
 } satisfies Settings
@@ -53,6 +56,7 @@ describe('ChatSettings', () => {
   beforeEach(() => {
     useChatSettingsMock.mockReturnValue({
       fakeMode: false,
+      resolvedImageGenerationModel: 'openai/gpt-image-2.5-flare',
       settings: { model: 'gpt-4.1-mini' },
     })
   })
@@ -62,7 +66,7 @@ describe('ChatSettings', () => {
     vi.clearAllMocks()
   })
 
-  it('画像生成モード時は右上に固定モデル名を表示する', () => {
+  it('画像生成モード時は右上に選択中の画像モデル名を表示する', () => {
     render(
       <ChatSettings
         settings={settings}
@@ -73,8 +77,28 @@ describe('ChatSettings', () => {
       />
     )
 
-    expect(screen.getByText('gpt-image-2')).toBeTruthy()
-    expect(screen.queryByText('画像生成モード')).toBeNull()
+    expect(screen.getByText('openai/gpt-image-2.5-flare')).toBeTruthy()
+    expect(screen.queryByText('gpt-image-2')).toBeNull()
+  })
+
+  it('画像モデルが解決できないときは未選択であることを表示する', () => {
+    useChatSettingsMock.mockReturnValue({
+      fakeMode: false,
+      resolvedImageGenerationModel: null,
+      settings: { model: 'gpt-4.1-mini' },
+    })
+
+    render(
+      <ChatSettings
+        settings={settings}
+        showActions={true}
+        showNewChat={false}
+        showSidebarToggle={false}
+        imageGenerationMode={true}
+      />
+    )
+
+    expect(screen.getByText('画像モデル未選択')).toBeTruthy()
   })
 
   it('画像生成モード時も Settings ボタンから既存パネルを開ける', () => {

@@ -4,11 +4,11 @@ import { cn } from "../lib/cn";
 /** select の密度。余白と文字サイズはこの表が持ち、呼び出し側は layout だけを渡す */
 export type SelectFieldDensity = "sm" | "md" | "lg";
 
-/** md は .field の既定の余白 (px-2.5 py-2) をそのまま使う */
-const PADDING_CLASS: Record<SelectFieldDensity, string> = {
-  sm: cn("py-1 pl-1.5"),
-  md: "",
-  lg: cn("py-1.5 pl-2"),
+/** md は .field の既定の余白 (px-2.5 py-2) をそのまま使う。leadingIcon の分だけ左を広げる */
+const PADDING_CLASS: Record<SelectFieldDensity, { plain: string; leading: string }> = {
+  sm: { plain: cn("py-1 pl-1.5"), leading: cn("py-1 pl-6.5") },
+  md: { plain: "", leading: cn("pl-6.5") },
+  lg: { plain: cn("py-1.5 pl-2"), leading: cn("py-1.5 pl-7") },
 };
 
 const TEXT_CLASS: Record<SelectFieldDensity, string> = {
@@ -21,6 +21,8 @@ export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
   /** touch 端末では iOS の focus 時ズームを避けるため 16px にする */
   compact?: boolean;
   density?: SelectFieldDensity;
+  /** select の左に置く印 (選択中エージェントのアイコンなど)。左の余白はこの表が持つ */
+  leadingIcon?: ReactNode;
   /** chevron を右端に合わせるため wrapper 側に置く */
   wrapperClassName?: string;
   children: ReactNode;
@@ -36,6 +38,7 @@ export function SelectField({
   className,
   compact = false,
   density = "md",
+  leadingIcon,
   children,
   ...props
 }: SelectFieldProps) {
@@ -45,13 +48,18 @@ export function SelectField({
         {...props}
         className={cn(
           "field peer w-full cursor-pointer appearance-none pr-8 disabled:cursor-not-allowed disabled:opacity-55",
-          PADDING_CLASS[density],
+          leadingIcon ? PADDING_CLASS[density].leading : PADDING_CLASS[density].plain,
           compact ? "text-md" : TEXT_CLASS[density],
           className,
         )}
       >
         {children}
       </select>
+      {leadingIcon ? (
+        <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center peer-disabled:opacity-55">
+          {leadingIcon}
+        </span>
+      ) : null}
       <svg
         aria-hidden="true"
         viewBox="0 0 16 16"
