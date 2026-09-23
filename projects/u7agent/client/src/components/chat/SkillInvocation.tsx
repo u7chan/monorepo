@@ -23,7 +23,7 @@ export function SkillInvocation({ block, rootCwd, compact }: { block: SkillBlock
         </span>
       </div>
       <details className="mt-1 min-w-0">
-        <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
+        <summary className="disclosure-summary flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
           <DisclosureChevronIcon />
           <span>送信した本文</span>
         </summary>

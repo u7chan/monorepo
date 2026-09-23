@@ -39,7 +39,7 @@ function ToolCallRow({
           card.phase === "failed" ? "border-danger/50" : "border-line/70",
         )}
       >
-        <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
+        <summary className="disclosure-summary flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
           <DisclosureChevronIcon />
           <span className="w-6 shrink-0 font-sans text-3xs text-ink-ghost tabular-nums">
             {String(index + 1).padStart(2, "0")}
@@ -95,7 +95,7 @@ export function ToolHistoryView({
         hasResponse ? "mb-2.5" : "",
       )}
     >
-      <summary className="tool-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
+      <summary className="disclosure-summary flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
         <DisclosureChevronIcon />
         <span className="shrink-0 font-sans text-2xs text-ink-soft">ツール履歴</span>
         <span className="shrink-0 font-sans text-3xs text-ink-faint">{cards.length}件</span>

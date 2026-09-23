@@ -15,7 +15,7 @@ export function CompactionDivider({ compactions, compact }: { compactions: Compa
     <details className="min-w-0 rounded-xl border border-line bg-soft/20 text-ink-muted">
       <summary
         className={cn(
-          "tool-summary flex min-w-0 cursor-pointer items-center gap-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset",
+          "disclosure-summary flex min-w-0 cursor-pointer items-center gap-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset",
           compact ? "px-2.5 py-2" : "px-3 py-2.5",
         )}
       >
