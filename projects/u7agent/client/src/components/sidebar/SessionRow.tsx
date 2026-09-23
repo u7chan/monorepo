@@ -3,6 +3,8 @@ import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
+import { TrashIcon } from "../icons";
+import { RowAction } from "./RowAction";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -75,16 +77,9 @@ export function SessionRow({
           </small>
         </span>
       </button>
-      <button
-        type="button"
-        title="セッションを削除"
-        aria-label="セッションを削除"
-        onClick={onDelete}
-        // タッチ端末では常時表示する
-        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-1sm leading-none text-ink-ghost transition-colors group-hover:text-danger hover:bg-danger/20 hover:text-danger focus-visible:opacity-100 can-hover:opacity-0 can-hover:group-hover:opacity-100"
-      >
-        ×
-      </button>
+      <RowAction label="セッションを削除" onClick={onDelete} hoverOnly danger>
+        <TrashIcon />
+      </RowAction>
     </div>
   );
 }

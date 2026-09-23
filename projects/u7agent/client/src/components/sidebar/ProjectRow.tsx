@@ -1,40 +1,8 @@
-import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import type { AgentDef, Project, SessionSummary } from "../../types";
 import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "../icons";
+import { RowAction } from "./RowAction";
 import { SessionRow } from "./SessionRow";
-
-/** プロジェクト行の右端の操作 (行の選択とは別のクリック領域にする) */
-function RowAction({
-  label,
-  onClick,
-  danger = false,
-  hoverOnly = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  /** ホバーできる端末では隠しておく (タッチ端末では常時表示) */
-  hoverOnly?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-md text-ink-ghost transition-colors hover:bg-hover",
-        danger ? "hover:text-danger" : "hover:text-accent-text",
-        hoverOnly ? "focus-visible:opacity-100 can-hover:opacity-0 can-hover:group-hover:opacity-100" : null,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 export function ProjectRow({
   project,

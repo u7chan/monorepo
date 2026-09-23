@@ -100,6 +100,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 上から ブランド / 「新しい会話」/ `Projects`（`New Project` + プロジェクト行）/ `Chats` / フットノート / `設定`（下部固定。設定ナビの項目と同じ行の寸法）。
 
 - プロジェクト行は フォルダアイコン + 名前 + cwd 相対パスの副次表示 + 折りたたみ chevron + ホバーの「＋」「削除」。行のクリックでそのプロジェクトを選択し、配下セッションは `SessionRow` をインデント表示する
+- 行の右端の操作は `client/src/components/sidebar/RowAction.tsx` が寸法（`size-7` / 角丸 / 文字色）とホバー端末での出し分け（`can-hover` では隠し、行のホバーで出す。タッチ端末では常時表示）を持ち、プロジェクト行とセッション行で共有する。削除の印はどちらもゴミ箱（`TrashIcon`）で、設定 → エージェント / スキルの削除と同じ絵にする。赤くなるのはボタン自身のホバーだけで、行のホバーでは色を変えない（プロジェクト行は折りたたみ / ＋ / 削除を並べるため、行のホバーで 1 つだけ赤くなると何を指すか読めない）
 - 選択中プロジェクトは「新しい会話」の**作成先**で、開いているセッションの所属とは一致しないことがある。そのためプロジェクト行のハイライトは弱く（`accent-wash/60` と薄い枠）、セッション行（`accent-wash` と濃い枠）と区別する。**`Chats` 見出しも同じ選択**を持ち、押すと作成先を未所属へ戻す（未所属を選んでいるときは見出しが弱いハイライトになる）。プロジェクト行は選ぶだけでは解除できないため、未所属へ戻す導線はここだけ
 - 並び順はプロジェクトが作成順、配下セッションと `Chats` が `lastUsedAt` 降順。グループ化は `client/src/lib/sessionsByProject.ts` の純関数が担い、未知の `projectId`（破棄直後など）は `Chats` へ寄せて一覧から消さない
 - プロジェクトの追加は dialog（`ProjectDialog`）で行う。新規作成は親ディレクトリ + 名前、既存登録は対象ディレクトリを選び、どちらも `GET /api/files` を辿って選ぶ（root は登録できない）。削除の confirm は配下セッション数を示し、ディレクトリが残ることも明示する
@@ -112,7 +113,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 4 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 4 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |
