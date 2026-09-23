@@ -468,8 +468,6 @@ html[data-theme="sky"] {
     transform: rotate(90deg);
   }
 
-  /* 本文の高さを 0 → auto で遷移させる。interpolate-size と ::details-content の両方が要るため、
-   * 未対応のブラウザーでは瞬時に開閉する (プログレッシブエンハンスメント)。 */
   details::details-content {
     interpolate-size: allow-keywords;
     block-size: 0;
@@ -482,6 +480,7 @@ html[data-theme="sky"] {
     block-size: auto;
   }
   @media (prefers-reduced-motion: reduce) {
+    .disclosure-chevron,
     details::details-content {
       transition: none;
     }

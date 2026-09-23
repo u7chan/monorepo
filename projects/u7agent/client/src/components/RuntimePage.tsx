@@ -237,7 +237,6 @@ function MetricGauges({
   );
 }
 
-/** 印とラベルの組。印の形 (丸 / 盾) は呼び出し側が選ぶ */
 function BooleanFact({ label, ok }: { label: string; ok: boolean }) {
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap text-ink-muted">
