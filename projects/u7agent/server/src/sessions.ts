@@ -208,7 +208,7 @@ export class SessionStore {
     const skills = agent.skillIds
       .map((skillId) => this.catalog.getSkill(skillId))
       .filter((skill): skill is SkillDef => Boolean(skill));
-    // 表示用のエージェント情報は作成時にスナップショット化する (以降の定義編集・インポートを遡及させない)
+    // 表示用のエージェント情報は作成時にスナップショット化する (以降の定義編集を遡及させない)
     const agentInfo: AgentPayloadInfo = {
       id: agent.id,
       name: agent.name,

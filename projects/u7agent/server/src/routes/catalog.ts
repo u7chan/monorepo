@@ -9,7 +9,6 @@ import {
   SandboxSkillsSchema,
   type CreateAgentBody,
   type CreateSkillBody,
-  type ReplaceCatalogBody,
   type UpdateAgentBody,
   type UpdateSkillBody,
 } from "../schema";
@@ -25,7 +24,7 @@ export function createCatalogRoutes({
   /** 表示用の root 相対パスを組むためのワークスペース root */
   rootCwd: string;
 }) {
-  // ビルトインは置換対象のマップに無いので、ルートで明示的に区別して 400 を返す
+  // ビルトインはユーザー定義の行に無いので、ルートで明示的に区別して 400 を返す
   const isBuiltin = (c: Context) => (c.req.param("id") ?? "") === catalog.builtinAgent().id;
 
   // body は route で形・型を検証済み。キー省略の解釈と正規化は catalog が正
@@ -44,8 +43,6 @@ export function createCatalogRoutes({
 
   return {
     snapshot: (c: Context) => c.json(catalog.snapshot()),
-
-    replace: (c: Context, body: ReplaceCatalogBody) => c.json(catalog.replace(body)),
 
     createAgent: (c: Context, body: CreateAgentBody) => c.json({ agent: catalog.createAgent(body) }, 201),
 

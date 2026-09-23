@@ -19,7 +19,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 画面切替は履歴を追加しない（`replaceState`）。Back / Forward はブラウザーの既存履歴に従うので、アプリ内に戻れることもあれば、直リンクの新規タブのようにアプリの外へ出ることもある。
 
 - desktop: `Topbar`（エラー時の接続状態と見出しだけの帯）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ バックアップ（`BackupPage`）/ 外観（`AppearancePage`）の 5 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
+- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ 外観（`AppearancePage`）の 4 つ。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
 - `FileTreePage`（ワークスペースのファイルツリー）は設定ナビの「ファイル」から開く。root は選択中セッション / プロジェクトに追随させず、常にワークスペース root（`cwd=""`、ヘッダのタイトルは「ワークスペース」）に固定する（同じ画面が選択状態で別の場所を指すと、今どこを見ているか分からなくなる。セッションの作業ディレクトリはプロジェクトの登録ディレクトリや `.u7agent/sessions/<id>` をツリーから辿って開く）。**この root がツリーの root になり**、`GET /api/files` へは root 自身を `path=.`、配下を `path=<name>` で問い合わせる。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。設定ページの中でもヘッダは画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）。行の右端は 時刻 + リネーム（フォルダ行のみ）+ 削除 のスロットで、リネームの鉛筆はこの画面だけに出し、チャット右パネルには出さない（[file-preview.md](file-preview.md#リネーム)）。ツリーの状態（`client/src/lib/fileTree.ts`）はパスをキーにするため、`__proto__` のような名前でも壊れないよう own プロパティとして読み書きする（`Object.hasOwn` と `Object.defineProperty`）
   - 本文はツリーとプレビューを、本文のコンテナ（`@container`）幅が `@2xl`（672px）以上なら左右、未満なら上下に積む。viewport ではなくコンテナ幅で判定するのは、main の幅が「サイドバー 252px」を引いた残りで決まるため（1440x900 は本文 1188px で左右、720px 幅の desktop は 468px で上下）。左右のときツリーは `w-72` 固定、上下のときはタブが無ければ全幅、あれば `max-h-64` でプレビュー本文へ高さを譲る（タブが無いときに列を空けない）
   - プレビューはタブ式。タブは開いた順に並び（選択では並びを変えない）、同時に開けるのは 8 枚（`client/src/lib/fileTabs.ts` の `FILE_TAB_LIMIT`）で、超えたら最も古いタブを閉じる（本文の保持量の上限でもある）。タブのラベルは名前だけで、同名のタブがあるときだけ親ディレクトリを前置する（`client/package.json`）。全体パスは tooltip とタブ下のパス行に出す。本文はタブごとに保持して切替では取り直さない（閉じたタブの本文は捨てる）。「再読み込み」はタブを保ったまま本文を捨てて取り直す。本文は行番号付きで出し、拡張子から判定できた言語は `highlight.ts` で色を付ける（[file-preview.md](file-preview.md)）
@@ -31,7 +31,7 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
   - 一覧と開いている本文の取り直しは、ヘッダの「再読み込み」と reducer が `run_end` で進める `runEndSeq` の 1 回だけ（[file-preview.md](file-preview.md#画面と-root)）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
   - `CompactBar` はチャットのときに「どのエージェントのどの会話か」、セッションファイル、nav の導線を常時表示する（landscape は 1 行に畳む）。セッションファイルはチャット幅を奪う右パネルではなく全画面 modal sheet で開き、同じ `FileBrowser` を viewport 幅いっぱいで使う
-  - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / バックアップ / 外観 の間を移動できない
+  - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / 外観 の間を移動できない
   - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）は `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッションの項目を選ぶとドロワーは閉じ（選択後に主画面で続ける操作はプロジェクト行の「＋」）、設定の項目を選ぶと閉じてからそのページをメイン領域に出す。折りたたみ chevron は選択ではないので閉じない
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。**compact は送信が成立した時点で畳む**（狭い画面で入力欄の上を占め、生成中はピッカーを無効化していて操作できないため。畳む合図を送信の成立である `sending` の立ち上がりに置くのは、送信経路が入力欄に限らず `ChatArea` の suggestion もあるため。送信が成立しなかったときは `sending` が立たないので畳まない）。desktop は送信しても開いたままにする。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）。添付のチップ列とクリップボタンも入力欄と同じ行に置き、チップは入力欄の上の行へ折り返す（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）
@@ -105,13 +105,13 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ### settings モード
 
-「アプリに戻る」+ エージェント / スキル / ファイル / バックアップ / 外観 の 5 項目。項目は左にアイコンを置く 30px の行（行間 4px、外枠なし）で、メイン領域のページを切り替える（メイン領域の切替と mode の対応は [モードごとの構成](#モードごとの構成)）。開いている項目は `bg-accent` の塗りで示し、内側の一覧（エージェント / スキル）の選択は `accent-wash` にしてページの選択と区別する。行の寸法は `client/src/components/MenuItem.tsx` が 1 箇所で持ち、内側の一覧（`DefinitionList`）と共有する。テーマ切替の入口は「外観」に一本化し、`Topbar` とドロワーのカードには置かない。
+「アプリに戻る」+ エージェント / スキル / ファイル / 外観 の 4 項目。項目は左にアイコンを置く 30px の行（行間 4px、外枠なし）で、メイン領域のページを切り替える（メイン領域の切替と mode の対応は [モードごとの構成](#モードごとの構成)）。開いている項目は `bg-accent` の塗りで示し、内側の一覧（エージェント / スキル）の選択は `accent-wash` にしてページの選択と区別する。行の寸法は `client/src/components/MenuItem.tsx` が 1 箇所で持ち、内側の一覧（`DefinitionList`）と共有する。テーマ切替の入口は「外観」に一本化し、`Topbar` とドロワーのカードには置かない。
 
 一覧は `Projects` と `Chats` をまとめて 1 つのスクロール領域にし、`設定` は下部に固定する。desktop では高さが足りないとき、compact では drawer 全体のスクロールで全項目へ到達できる。
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 5 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/backupFile.test.ts` がバックアップファイルの封筒と取り込み範囲を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）を、`client/test/settingsNav.test.ts` が設定ナビの 4 項目と保存された最後のセクションの解決を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

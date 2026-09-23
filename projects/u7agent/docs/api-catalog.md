@@ -5,7 +5,6 @@
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧（同梱の組み込みスキルを `builtinSkills` で含む） |
-| PUT | `/api/agents` | エージェント（ユーザー定義）の定義をJSONで一括置換（ビルトインは含めない） |
 | POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, icon?, model?, thinkingLevel?, suggestions? }` |
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
@@ -17,15 +16,14 @@
 
 ## ビルトインの汎用エージェント
 
-セッション作成の既定エージェントを保証するため、汎用アシスタント `agent-general` はサーバー所有のビルトインとして置換対象の `agents` に入れない。
+セッション作成の既定エージェントを保証するため、汎用アシスタント `agent-general` はサーバー所有のビルトインとしてユーザー定義の `agents` に入れない。
 
-- GET / PUT の応答は `builtinAgent` を別フィールドで常に返し、`agents` はユーザー定義だけになる（0 件も許す）。
+- GET の応答は `builtinAgent` を別フィールドで常に返し、`agents` はユーザー定義だけになる（0 件も許す）。
 - `PATCH` / `DELETE /api/agents/agent-general` は 400（`Built-in agent cannot be updated` / `Built-in agent cannot be deleted`）。
-- `PUT /api/agents` の `agents` にビルトイン id が含まれていたら 400（`Agent id agent-general is reserved for the built-in agent`）。送った定義がそのまま入るのが置換の意味なので、黙って捨てない。
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
-- GET / PUT の応答は同梱の組み込みスキルを `builtinSkills`（`{ name, description }`）でも返す。これは全エージェントで常時有効な **ambient** なスキルで、`skillIds` では外せない（[組み込みスキル](#組み込みスキル)）。エージェント編集のスキル欄はこれをチェック済み・無効の行として出し、外せないことを示す。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
-- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。ビルトインと同じく置換の対象で、`DELETE /api/agents/:id` で削除でき、`PUT /api/agents` で置き換わる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
+- GET の応答は同梱の組み込みスキルを `builtinSkills`（`{ name, description }`）でも返す。これは全エージェントで常時有効な **ambient** なスキルで、`skillIds` では外せない（[組み込みスキル](#組み込みスキル)）。エージェント編集のスキル欄はこれをチェック済み・無効の行として出し、外せないことを示す。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
+- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 
 ```json
 {
@@ -55,7 +53,7 @@
 
 エージェントへ割り当てるスキルは `{ name, description, body }`。`body` は会話の system prompt へは常時載せず、モデルが必要時に `read` で読む本文（[セッションへの渡し方](#セッションへの渡し方)）。エージェントを選ぶ前に作れて複数のエージェントで使い回せる点が「役割 / 基本指示」（`systemPrompt`）と違う。初期状態は 0 件で、口調のような常時効かせたい指示はエージェントの `systemPrompt` に置く（サンプルは `agent-zundamon`）。
 
-- 本文のフィールド名は `body` で、UI のラベルも「本文」。エージェント側の `systemPrompt`（UI ラベル「役割 / 基本指示」）とは語を分ける。旧フィールド名 `prompt` は作成 / 更新とも 400 で、バックアップの `definitions.skills[].body` も同じ（旧形式の互換は持たない）。
+- 本文のフィールド名は `body` で、UI のラベルも「本文」。エージェント側の `systemPrompt`（UI ラベル「役割 / 基本指示」）とは語を分ける。旧フィールド名 `prompt` は作成 / 更新とも 400（旧形式の互換は持たない）。
 - 割り当ては `AgentDef.skillIds`。本文は作成時に `promptSnapshot` へ `<agent_skill name="…">` で固定するが、system prompt へは入れない — 索引（name / description / 仮想パス）だけを `skillsOverride` で渡し、モデルは必要時に `read` で読む（[session-files.md](session-files.md)）。本文の出所は作成時のスナップショットなので、定義を編集・削除してもこのセッションの本文は変わらない。
 - 設定 → スキルの一覧は、この編集できるスキルと共通 / 組み込みの読み取り専用スキルを同じリストに並べる。カタログのスキルが 0 件のときは追加行の下にその旨を出す（[ui-layout.md](ui-layout.md#設定の編集フォームエージェント--スキル)）。
 
@@ -140,7 +138,7 @@
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
 - モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる
 - 仮想パスは実ファイルが無く、`write` / `edit` の書き込み範囲（セッションの作業ディレクトリと `<root>/.agents/skills`）の外なので変更できない（同梱物を変えるにはイメージを更新する）。`read` は常に同梱の本文を返す
-- カタログ（`GET /api/agents` / `PUT /api/agents`）と `skillIds` の対象外。バックアップの `definitions` にも含まれない（[persistence.md](persistence.md#スキルの扱い)）
+- カタログ（`GET /api/agents`）と `skillIds` の対象外（[persistence.md](persistence.md#スキルの扱い)）
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 
 ## エージェント定義のアイコン
@@ -151,7 +149,6 @@
 - デコード後の生バイトは 16 KiB 以下。超過は 400（`Icon must be at most 16 KiB`）。単体の作成 / 更新は body 上限 64 KiB なので、16 KiB なら `systemPrompt` と同居できる。
 - 形式違いと非正規の base64（`AAA` のような端数、再エンコードと一致しない値）は 400。先頭の署名（PNG / `RIFF....WEBP`）までは見るが、最後までデコードできるかは見ない（クライアントが常に再エンコードするため実運用では一致し、表示側は読み込み失敗で `SparkleIcon` に落ちる）。`text()` の trim + slice は通さない（base64 を切ると壊れた画像が保存される）。
 - 未指定はキーを省略し、`null` は保存・応答に現れない。更新はキー省略で保持、`icon: null` で解除する（`model` / `thinkingLevel` と同じ規則）。
-- 取り込み（バックアップの `data.definitions`）も同じ正規化を通るため、export → import でそのまま往復する。
 - セッションはアイコンのスナップショットを持たない（`AgentPayloadInfo` は変更しない）。assistant の表示名は作成時のスナップショット（`SessionPayload.agent.name`）、アイコンは `agentId` からカタログを live 解決する。そのため定義を編集すると、既存セッションの名前は古いままアイコンだけが変わる。
 - 表示する場所は 設定一覧 / 設定エディタ / コンポーザー / セッション行 / assistant の吹き出し / firstview。未設定と画像の読み込み失敗は `✦`（`SparkleIcon`）へフォールバックする。
 
@@ -215,46 +212,6 @@
   ]
 }
 ```
-
-## エージェント定義のインポート / エクスポート
-
-設定の「バックアップ」ページ（`client/src/components/BackupPage.tsx`）から、チェックした対象を JSON ファイルで扱える。
-エージェントとスキルは `data.definitions` に入り、その値が `PUT /api/agents` のボディになる。ビルトインの汎用エージェントは `agents` に含まれないので、書き出しにも乗らず、取り込みでも置き換わらない。
-封筒（`app` / `schema` / `exportedAt` / `data`）と対象の一覧は [persistence.md](persistence.md) を参照する。
-
-```json
-{
-  "app": "u7agent",
-  "schema": 1,
-  "exportedAt": "2026-02-01T12:34:56.789Z",
-  "data": {
-    "definitions": {
-      "agents": [
-        {
-          "id": "agent-example",
-          "name": "コード実装",
-          "description": "コードを読んで、安全に変更を実装する",
-          "systemPrompt": "…",
-          "skillIds": ["skill-example"]
-        }
-      ],
-      "skills": [
-        {
-          "id": "skill-example",
-          "name": "変更レポート",
-          "description": "最後に変更点と確認方法を箇条書きで報告する",
-          "body": "作業の最後に、変更したファイル・各変更の要点・動作確認の方法・残った課題を箇条書きで報告してください。"
-        }
-      ]
-    }
-  }
-}
-```
-
-`data.definitions` は現在のエージェント（ユーザー定義）/ スキル定義を置き換える（`PUT /api/agents`）。ビルトインの汎用エージェントは対象外で、その id を `agents` に含むファイルは 400 になる。既存の会話やセッションは変更しない。
-`PUT /api/agents` の body 上限は 4 MiB（他の API は 64 KiB）。カタログ全体を 1 リクエストで受けるためで、16 KiB のアイコンを持つ定義が 3 件でも 64 KiB を超える。上限を超えるファイルは 413（`Request body is too large`）になる。
-封筒なしで `agents` / `skills` を直下に持つ旧形式のファイルは受理しない。
-封筒の `schema` が一致しないファイルも読み込まず、エラーを表示する（開発中のため移行は持たない）。
 
 ## 入力の正規化
 

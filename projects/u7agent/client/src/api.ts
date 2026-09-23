@@ -60,12 +60,6 @@ export const getCatalog = async (): Promise<CatalogResponse> => {
   return res.json();
 };
 
-export const replaceCatalog = async (catalog: { agents: unknown[]; skills: unknown[] }): Promise<CatalogResponse> => {
-  const res = await client.api.agents.$put({ json: catalog });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
 export const createAgent = async (input: CreateAgentBody): Promise<{ agent: AgentDef }> => {
   const res = await client.api.agents.$post({ json: input });
   if (!res.ok) throw await apiError(res);

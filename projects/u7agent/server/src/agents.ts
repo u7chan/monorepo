@@ -27,8 +27,8 @@ type DefinitionInput = unknown;
 
 /**
  * 常に 1 体居る汎用アシスタント。DB の行にはせず、ユーザー定義が 0 件でもセッションを
- * 作れる保証と、インポートで消えないことをこの分離で持つ。既定のエージェントは役割もスキルも
- * 持たない (なりきりは SEED_AGENTS のサンプルとして別に置く)。
+ * 作れる保証をこの分離で持つ (ユーザー定義の一覧には現れず、削除も編集もできない)。
+ * 既定のエージェントは役割もスキルも持たない (なりきりは SEED_AGENTS のサンプルとして別に置く)。
  */
 const BUILTIN_AGENT: AgentRecord = {
   id: "agent-general",
@@ -50,10 +50,6 @@ function copy<T>(value: T): T {
 function text(value: unknown, fallback = "", maxLength = 8_000): string {
   if (typeof value !== "string") return fallback;
   return value.trim().slice(0, maxLength);
-}
-
-function definitionId(value: DefinitionInput): string {
-  return text((value as { id?: unknown } | null)?.id, "", 200) || randomUUID();
 }
 
 function invalid(message: string): HttpError {
@@ -207,7 +203,7 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
 }
 
 export interface AgentCatalog {
-  /** ビルトインの汎用エージェント。置換対象のマップには入れない */
+  /** ビルトインの汎用エージェント。ユーザー定義の一覧には入れない */
   builtinAgent(): AgentDef;
   listSkills(): SkillDef[];
   /** ユーザー定義のみ (ビルトインを含まない) */
@@ -216,8 +212,6 @@ export interface AgentCatalog {
   /** ビルトインも解決する (新規セッションの既定がこの id を指す) */
   getAgent(id: string): AgentRecord | undefined;
   snapshot(): CatalogResponse;
-  /** 送られた定義 (ビルトイン以外) を丸ごと入れ替える。`snapshot` に戻り値をそのまま渡せる */
-  replace(definitions: DefinitionInput): CatalogResponse;
   createSkill(input: DefinitionInput): SkillDef;
   updateSkill(id: string, input: DefinitionInput): SkillDef | undefined;
   removeSkill(id: string): boolean;
@@ -252,9 +246,9 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
   });
 
   /** 存在しないスキルへの参照は捨てる (定義が壊れていてもセッション作成を止めない) */
-  function normalizeSkillIds(skillIds: unknown, availableSkills?: Map<string, SkillRecord>): string[] {
+  function normalizeSkillIds(skillIds: unknown): string[] {
     if (!Array.isArray(skillIds)) return [];
-    const available = availableSkills ?? new Map(db.listSkills().map((skill) => [skill.id, skill]));
+    const available = new Map(db.listSkills().map((skill) => [skill.id, skill]));
     return [...new Set(skillIds.filter((id): id is string => typeof id === "string" && available.has(id)))];
   }
 
@@ -265,37 +259,6 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
     getSkill,
     getAgent,
     snapshot,
-    replace(definitions) {
-      if (
-        !definitions ||
-        typeof definitions !== "object" ||
-        !Array.isArray((definitions as { skills?: unknown }).skills) ||
-        !Array.isArray((definitions as { agents?: unknown }).agents)
-      ) {
-        throw invalid("Definitions must contain skills and agents arrays");
-      }
-      const body = definitions as { skills: DefinitionInput[]; agents: DefinitionInput[] };
-
-      const importedSkills = new Map<string, SkillRecord>();
-      for (const input of body.skills) {
-        const id = definitionId(input);
-        if (importedSkills.has(id)) throw invalid(`Duplicate skill id: ${id}`);
-        importedSkills.set(id, makeSkill(input, id));
-      }
-
-      const importedAgents = new Map<string, AgentRecord>();
-      for (const input of body.agents) {
-        const id = definitionId(input);
-        // 送られた定義をそのまま入れるのが置換の意味なので、ビルトインの id は黙って捨てず拒否する
-        if (id === builtin.id) throw invalid(`Agent id ${id} is reserved for the built-in agent`);
-        if (importedAgents.has(id)) throw invalid(`Duplicate agent id: ${id}`);
-        const raw = input as { skillIds?: unknown } | null;
-        importedAgents.set(id, makeAgent(input, normalizeSkillIds(raw?.skillIds, importedSkills), id));
-      }
-      // ビルトインが常に 1 体居るので、ユーザー定義 0 件も許す
-      db.replaceCatalog([...importedSkills.values()], [...importedAgents.values()]);
-      return snapshot();
-    },
     createSkill(input) {
       const skill = makeSkill(input);
       db.saveSkill(skill);
