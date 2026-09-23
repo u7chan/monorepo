@@ -27,7 +27,8 @@
 - 実行中インジケータの経過時間の起点は `ChatState.runStartedAt`。`run_start` はサーバーが配る `startedAt`、reload / 再接続の `resync` は `payload.run.startedAt` を使い、どちらもサーバー時計になる（受信時刻は使わない。時計がずれた環境では差分が負になり 0 秒に丸まる）。`run_end` と `running` を抜けた `resync` で `undefined` に戻る
 - 設定変更の応答適用は `client/src/hooks/settingsChange.ts` に切り出す。応答や回復 GET を待っている間にサイドバーで別のチャットへ切り替えられるため、各 await の後に「要求したセッションがまだ選択中か」を確認し、切替済みの古い応答では履歴 / Model / Effort / `lastSeq` / 活動表示を更新しない。
 - フックの分割は `useU7Agent` を facade とし、`useRuntimeCatalog`（health / catalog）、`useProjects`、`useSessions`（一覧・lifecycle・SSE）、`sessionActions`（送信 / 停止の手順）が実装を持つ。
-- チャットのスキル一覧（`client/src/components/composer/SkillField.tsx`）は入力欄の補助で、選択すると `/skill:<name> ` を挿入するだけ。展開は送信時に BFF が行う（ファイルは送信時点、組み込み / カタログはセッション作成時の本文）。一覧はセッションが確定してから `useSessionSkills` が取得し、同名の影になった行は注意書きを付けて出す（それでも選択はでき、優先順位で一意に解決される）。場所の表示はカタログも仮想パス（`.u7agent/agent-skills/<name>/SKILL.md`）を出す。
+- チャットのスキル一覧（`client/src/components/composer/SkillField.tsx`）は入力欄の補助で、選択すると `/skill:<name> ` を挿入するだけ。展開は送信時に BFF が行う（ファイルは送信時点の内容、組み込みは同梱の registry、カタログはセッション作成時の本文）。一覧はセッションが確定していれば `GET /api/sessions/:id/skills`、新規チャットなら `GET /api/skills/session`（作成前の選択で解決するプレビュー）から `useSessionSkills` が取得し、同名の影になった行は注意書きを付けて出す（それでも選択はでき、優先順位で一意に解決される）。場所の表示はカタログも仮想パス（`.u7agent/agent-skills/<name>/SKILL.md`）を出す。
+- 一覧の取得キーは `sessionId`、無ければ `(projectId, agentId)` の組で、これが変わるときだけ取り直す（セッションを開いている間のプロジェクト / エージェントの切替では取り直さない）。切替中に届いた古い応答は `createRequestGate` で捨てる（`ensureSession` の await 中に画面が変わっても、古いプレビューを新しいチャットへ混ぜない）。状態は `SessionSkillsState` の 4 つで、`unavailable` は取得先がまだ判明していないとき（起動直後でカタログ未読み込み）だけ＝ボタンを押せない。取得先がある状態での失敗（サンドボックス未設定の 503 など）は `error` としてパネルに理由を出し、ボタンは押せるままにする。
 - 履歴の user 本文には添付の注記と `/skill:` の展開結果が入る。表示は注記を落とし、スキルブロックは `client/src/lib/skillBlock.ts` で分解して畳んで見せる（引数だけを吹き出しに残す）。送信エコーの照合も同じ分解を使い、展開前の入力と `run_start` の本文を同じ形へ寄せてから突き合わせる（`chatReducer.ts`）。
 
 ## 開発フローと配信

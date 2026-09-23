@@ -16,6 +16,7 @@ import type {
   Project,
   ProjectsResponse,
   SessionPayload,
+  SessionSkillsPreview,
   SessionSkillsResponse,
   SessionSummary,
   SkillDef,
@@ -114,6 +115,25 @@ export const getSessionSkills = async (sessionId: string): Promise<SessionSkills
   const res = await client.api.sessions[":id"].skills.$get({ param: { id: sessionId } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as SessionSkillsResponse;
+};
+
+/**
+ * セッション未確定 (新規チャット) のスキル一覧。作成前に選んでいるプロジェクト / エージェントで解決するため、
+ * セッションが確定したら getSessionSkills へ切り替える (セッションは保存されたスナップショットで解決する)。
+ */
+export const getSessionSkillsPreview = async (input: {
+  projectId: string;
+  agentId: string;
+}): Promise<SessionSkillsPreview> => {
+  // 未所属 / 未選択はキーを送らず、初期値の解決はサーバーに任せる (createSession と同じ規則)
+  const res = await client.api.skills.session.$get({
+    query: {
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+    },
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SessionSkillsPreview;
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない

@@ -6,6 +6,7 @@ import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
+import { resolveAgentSkills } from "../sessions";
 import {
   FileUploadSchema,
   type CreateSessionBody,
@@ -112,6 +113,35 @@ export function createSessionRoutes({
           projectSkills: hasProjectSkills(record.workdir),
           skills,
         });
+      } catch (error) {
+        // 想定外の内部エラーは 500 のままにする (サンドボックス由来だけ 502 へ寄せる)
+        if (!(error instanceof SandboxRequestError)) throw error;
+        return sandboxFailure(c, error);
+      }
+    },
+
+    /**
+     * セッション未確定 (新規チャット) のスキル一覧。作成と同じ入力で解決し、送信後に読み込まれる一覧と
+     * 一致させる。`sessionId` を持たないため、セッションが確定したら GET /api/sessions/:id/skills へ切り替える。
+     */
+    previewSkills: async (c: Context) => {
+      // サンドボックス未設定ではセッション作成も 503 になるため、組み込みだけへ縮退させない
+      if (!workspace) return sandboxNotConfigured(c);
+      const project = store.resolveProject(c.req.query("projectId") || undefined);
+      const { agentInfo, promptSnapshot } = resolveAgentSkills(store.catalog, c.req.query("agentId") || undefined);
+      // 作成と同じ前提条件 (永続化あり × プロジェクト選択) を確認し、出した一覧がそのまま送れるようにする
+      if (project) await store.requireProjectDir(project.cwd);
+      const relativeCwd = project?.cwd ?? "";
+      try {
+        const skills = await listSessionSkills({
+          rootCwd: store.rootCwd,
+          relativeCwd,
+          client: workspace,
+          promptSnapshot,
+          agentSkills: agentInfo.skills,
+          strict: true,
+        });
+        return c.json({ cwd: relativeCwd, projectSkills: hasProjectSkills(relativeCwd), skills });
       } catch (error) {
         // 想定外の内部エラーは 500 のままにする (サンドボックス由来だけ 502 へ寄せる)
         if (!(error instanceof SandboxRequestError)) throw error;

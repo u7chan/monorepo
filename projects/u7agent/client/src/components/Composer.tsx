@@ -28,7 +28,7 @@ export type ComposerProps = {
   attachments: Attachment[];
   /** ワークスペース root の絶対パス (health.cwd)。画像チップの URL を組むのに使う */
   rootCwd: string;
-  /** セッションのスキル一覧 (`/skill:` の入力補助)。セッション未確定では unavailable */
+  /** セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは作成前の選択で解決したプレビュー */
   skills: SessionSkillsState;
   onReloadSkills: () => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */

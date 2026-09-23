@@ -48,6 +48,7 @@ import {
   type SessionMeta,
 } from "./session-store";
 import type {
+  AgentDef,
   AgentPayloadInfo,
   AgentSkillInfo,
   CompactionInfo,
@@ -128,6 +129,43 @@ function entriesOf(session: PiSessionLike): SessionEntryLike[] {
   return Array.isArray(entries) ? (entries as SessionEntryLike[]) : [];
 }
 
+/**
+ * Agent の割り当てスキルと索引 (表示用情報 + プロンプトスナップショット)。セッション作成と
+ * セッション未確定のプレビュー (GET /api/skills/session) で同じ索引を組むため共有する。未知の id は 400。
+ */
+export function resolveAgentSkills(
+  catalog: AgentCatalog,
+  agentId?: string,
+): {
+  agent: AgentDef;
+  skills: SkillDef[];
+  agentInfo: AgentPayloadInfo;
+  promptSnapshot: PromptSnapshot;
+} {
+  const selectedAgentId = agentId || catalog.builtinAgent().id;
+  const agent = selectedAgentId ? catalog.getAgent(selectedAgentId) : undefined;
+  if (!agent) throw httpError(400, "Agent not found");
+  const skills = agent.skillIds
+    .map((skillId) => catalog.getSkill(skillId))
+    .filter((skill): skill is SkillDef => Boolean(skill));
+  return {
+    agent,
+    skills,
+    agentInfo: {
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      skillIds: [...agent.skillIds],
+      skills: skills.map((skill): AgentSkillInfo => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+      })),
+    },
+    promptSnapshot: composePromptSnapshot(agent, skills),
+  };
+}
+
 export class SessionStore {
   pi: PiRuntimeLike | null;
   catalog: AgentCatalog;
@@ -200,26 +238,8 @@ export class SessionStore {
       throw httpError(503, "ランタイムを利用できません");
     }
     const project = this.resolveProject(projectId);
-    const selectedAgentId = agentId || this.catalog.builtinAgent().id;
-    const agent = selectedAgentId ? this.catalog.getAgent(selectedAgentId) : undefined;
-    if (!agent) {
-      throw httpError(400, "Agent not found");
-    }
-    const skills = agent.skillIds
-      .map((skillId) => this.catalog.getSkill(skillId))
-      .filter((skill): skill is SkillDef => Boolean(skill));
     // 表示用のエージェント情報は作成時にスナップショット化する (以降の定義編集を遡及させない)
-    const agentInfo: AgentPayloadInfo = {
-      id: agent.id,
-      name: agent.name,
-      description: agent.description,
-      skillIds: [...agent.skillIds],
-      skills: skills.map((skill): AgentSkillInfo => ({
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-      })),
-    };
+    const { agent, skills, agentInfo, promptSnapshot } = resolveAgentSkills(this.catalog, agentId);
     const id = this.storeDir ? generateSessionId(this.storeDir) : randomBytes(5).toString("hex");
     // 所属セッションの cwd は登録ディレクトリそのもの。プロジェクトのディレクトリは作らず存在だけ確かめる。
     // スクラッチを作るのは未所属だけ (永続化なしでは作業フォルダのライフサイクルを持たない)
@@ -228,7 +248,6 @@ export class SessionStore {
       if (project) await this.requireProjectDir(project.cwd);
       else await this.ensureWorkdir(workdir);
     }
-    const promptSnapshot = composePromptSnapshot(agent, skills);
     const created = await this.pi.createSession({
       agent: { ...agent, skillIds: [...agent.skillIds] },
       skills,
@@ -345,9 +364,11 @@ export class SessionStore {
 
   /**
    * 登録ディレクトリの存在確認。セッション作成では mkdir しない (誤った cwd を黙って作らない)。
-   * サンドボックスの 404 は「登録したディレクトリが消えた」なので 400 に寄せる。
+   * サンドボックスの 404 は「登録したディレクトリが消えた」なので 400 に寄せる。永続化なしは作業フォルダを
+   * 持たないため確認せず、プレビュー (GET /api/skills/session) も作成と同じ条件でここを呼ぶ。
    */
-  private async requireProjectDir(cwd: string): Promise<void> {
+  async requireProjectDir(cwd: string): Promise<void> {
+    if (!this.storeDir) return;
     if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
     try {
       await this.workspace.listFiles(cwd);

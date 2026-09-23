@@ -94,8 +94,14 @@ export function useU7Agent() {
 
   const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
 
-  // セッションのスキル一覧 (`/skill:` の入力補助)。セッションが無い間は取得しない
-  const { state: sessionSkills, reload: reloadSessionSkills } = useSessionSkills(sessionId, Boolean(sessionId));
+  // セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは選択中のプロジェクト / エージェントで
+  // プレビューし、カタログ (エージェント定義) の読み込みまでは取得先が確定しない
+  const { state: sessionSkills, reload: reloadSessionSkills } = useSessionSkills({
+    sessionId,
+    projectId: selectedProjectId,
+    agentId,
+    enabled: Boolean(sessionId) || Boolean(selectedAgent),
+  });
 
   /** 1 ファイル = 1 チップ。作成 (セッション確定) 後にアップロードし、失敗もチップで見せる */
   const uploadOne = useCallback(
