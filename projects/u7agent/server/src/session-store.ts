@@ -233,6 +233,37 @@ function isStringOrTextParts(value: unknown): boolean {
   return Array.isArray(value) && value.every(isValidContentPart);
 }
 
+/** system message の section 差分。値は差し替え後の本文か、削除を表す null */
+function isSystemSections(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return Object.values(value).every((section) => section === null || typeof section === "string");
+}
+
+/**
+ * system message の toolsAdded。SDK は要素をそのまま Map に入れ (getCurrentTools)、
+ * 宣言を比べるときに parameters を JSON に通す (toToolDeclaration)。
+ * parameters が無い宣言は、同じ名前の宣言が重なった時点で SyntaxError になる。
+ */
+function isToolDeclarations(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (tool) =>
+      isRecord(tool) &&
+      typeof tool.name === "string" &&
+      (tool.description === undefined || typeof tool.description === "string") &&
+      isRecord(tool.parameters),
+  );
+}
+
+/** system message の toolsRemoved。SDK は name だけで消す (toolsRemoved に宣言は入らない) */
+function isToolRemovals(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((tool) => isRecord(tool) && typeof tool.name === "string");
+}
+
 /**
  * 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する。
  * SDK が entry type を足すと「未知 type = 破損」になり復元が 409 で詰まるため、SDK を上げたらここも見直す。
@@ -253,6 +284,15 @@ function entryShapeError(type: string, entry: Record<string, unknown>): string |
           return typeof message.command === "string" && typeof message.output === "string"
             ? undefined
             : "bashExecution message が不正です";
+        case "system":
+          // SDK 0.87 は system prompt の section 差分と tool 構成の変更を system message として追記する
+          // (本文は空で、差分は sections / toolsAdded / toolsRemoved に入る)
+          return isStringOrTextParts(message.content) &&
+            isSystemSections(message.sections) &&
+            isToolDeclarations(message.toolsAdded) &&
+            isToolRemovals(message.toolsRemoved)
+            ? undefined
+            : "system message が不正です";
         default:
           return `未知の message role です: ${message.role}`;
       }

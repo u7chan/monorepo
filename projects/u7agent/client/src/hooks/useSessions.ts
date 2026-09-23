@@ -16,11 +16,17 @@ import { createRequestGate } from "./requestGate";
 import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
+import { nextAfterFailure } from "./sessionFallback";
 import { useSessionEvents } from "./useSessionEvents";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
 const SESSION_KEY = "u7agent-session";
 const alwaysCurrent = () => true;
+
+/** 開けなかった理由。サーバーの 409 は「どのファイルが壊れているか」を含む */
+function sessionOpenFailureText(error: unknown): string {
+  return error instanceof ApiError ? error.message : "セッションを開けませんでした";
+}
 
 export type UseSessionsParams = {
   dispatch: Dispatch<ChatAction>;
@@ -119,22 +125,35 @@ export function useSessions({
       selectionSeqRef.current += 1;
       // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)
       fileRefRequests.clear();
-      try {
-        const payload = await getSession(id);
-        if (!isCurrent()) return;
-        applySelectedSession(payload);
-        void refreshHealth(isCurrent);
-      } catch {
-        if (!isCurrent()) return;
-        localStorage.removeItem(SESSION_KEY);
-        sessionIdRef.current = "";
-        setSessionId("");
-        const fallback = sessionsRef.current.find((item) => item.sessionId !== id);
-        if (fallback) return selectSession(fallback.sessionId, isCurrent);
-        return newChatRef.current();
+      // 破損などで開けないセッションが複数あると、代わりの候補が互いを指して往復し続ける。
+      // この連鎖で試した id を覚え、一覧を 1 周したら未作成チャットへ落とす
+      const failed = new Set<string>();
+      let pending: string | undefined = id;
+      while (pending) {
+        failed.add(pending);
+        try {
+          const payload = await getSession(pending);
+          if (!isCurrent()) return;
+          applySelectedSession(payload);
+          void refreshHealth(isCurrent);
+          return;
+        } catch (error) {
+          if (!isCurrent()) return;
+          localStorage.removeItem(SESSION_KEY);
+          sessionIdRef.current = "";
+          setSessionId("");
+          const next = nextAfterFailure(sessionsRef.current, failed);
+          if (next.kind === "newChat") {
+            newChatRef.current();
+            // 開けなかった理由を状態行へ出す (サーバーの 409 は壊れているファイルを含む)
+            dispatch({ type: "setActivity", text: sessionOpenFailureText(error) });
+            return;
+          }
+          pending = next.sessionId;
+        }
       }
     },
-    [applySelectedSession, fileRefRequests, refreshHealth],
+    [applySelectedSession, dispatch, fileRefRequests, refreshHealth],
   );
 
   const newChat = useCallback(

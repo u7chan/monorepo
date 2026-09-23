@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { getCurrentSystemMessage, hasToolRedefinitions } from "@earendil-works/pi-ai/utils/transcript";
 import {
   SessionFileWriter,
   generateSessionId,
@@ -213,6 +214,126 @@ test("parseSessionFile rejects malformed context_edit / usage entries", () => {
   for (const [label, entry] of cases) {
     assert.equal(parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind, "damaged", label);
   }
+});
+
+// SDK 0.87 は tool 構成や system prompt の section 差分を role: "system" の message として追記する。
+// role を拒むと、それを含む履歴が再起動後に 409 で開けなくなる
+test("parseSessionFile accepts the system message SDK 0.87 appends", () => {
+  const systemMessage = (id: string, parentId: string | null, message: Record<string, unknown>): SessionEntryLike => ({
+    type: "message",
+    id,
+    parentId,
+    timestamp: "2026-01-01T00:00:02.000Z",
+    message: { role: "system", timestamp: 2, ...message },
+  });
+  const entries = [
+    messageEntry("e1", null),
+    // 本文は空で、差分は sections に入る (削除は null)
+    systemMessage("e2", "e1", { content: "", sections: { skills: "<skills>…</skills>", tools: null } }),
+    // tool 構成の変更。toolsAdded は宣言 (name / description / parameters)、toolsRemoved は名前だけ
+    systemMessage("e3", "e2", {
+      content: "",
+      sections: { preamble: "新しい前置き" },
+      toolsAdded: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
+      toolsRemoved: [{ name: "write" }],
+    }),
+  ];
+  const parsed = parseSessionFile(lines([HEADER, ...entries]), HEADER.id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  assert.equal(parsed.entries.length, entries.length);
+});
+
+test("parseSessionFile rejects malformed system messages", () => {
+  const base = { type: "message", id: "e2", parentId: "e1", timestamp: "2026-01-01T00:00:02.000Z" };
+  const cases: Array<[string, unknown]> = [
+    ["sections が配列", { ...base, message: { role: "system", content: "", timestamp: 2, sections: [] } }],
+    [
+      "sections の値が数値",
+      { ...base, message: { role: "system", content: "", timestamp: 2, sections: { preamble: 1 } } },
+    ],
+    ["toolsAdded が配列でない", { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: {} } }],
+    // null のようなオブジェクトでない要素は SDK が落ちる。名前欠落は SDK が書かない形
+    ["toolsAdded に null", { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [null] } }],
+    [
+      "toolsAdded の name 欠落",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ parameters: {} }] } },
+    ],
+    [
+      "toolsAdded の name が数値",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: 1, parameters: {} }] } },
+    ],
+    // parameters が無い宣言は、同じ名前の宣言が重なると SDK の比較 (JSON 化) で落ちる
+    [
+      "toolsAdded の parameters 欠落",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: "read" }] } },
+    ],
+    [
+      "toolsAdded の parameters が null",
+      {
+        ...base,
+        message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: "read", parameters: null }] },
+      },
+    ],
+    [
+      "toolsAdded の description が数値",
+      {
+        ...base,
+        message: {
+          role: "system",
+          content: "",
+          timestamp: 2,
+          toolsAdded: [{ name: "read", description: 1, parameters: {} }],
+        },
+      },
+    ],
+    [
+      "toolsRemoved が配列でない",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsRemoved: {} } },
+    ],
+    ["toolsRemoved に null", { ...base, message: { role: "system", content: "", timestamp: 2, toolsRemoved: [null] } }],
+    ["content が数値", { ...base, message: { role: "system", content: 1, timestamp: 2 } }],
+  ];
+  for (const [label, entry] of cases) {
+    assert.equal(parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind, "damaged", label);
+  }
+});
+
+// store が受理した履歴は SDK がそのまま読める必要がある。system message の tool 差分は
+// 要素をそのまま Map に入れ (getCurrentTools)、parameters を JSON に通す (toToolDeclaration)
+test("store は SDK が読めない tool 差分を拒む", () => {
+  const sys = (message: Record<string, unknown>) => ({ role: "system", content: "", timestamp: 2, ...message });
+  const verdict = (message: Record<string, unknown>): string => {
+    const entry = { type: "message", id: "e2", parentId: "e1", timestamp: HEADER.timestamp, message };
+    return parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind;
+  };
+  const read = { name: "read", description: "Read a file", parameters: { type: "object" } };
+  const cases: Array<[string, Record<string, unknown>, ErrorConstructor, () => unknown]> = [
+    // オブジェクトでない要素は tool.name で落ちる
+    [
+      "toolsAdded に null",
+      { toolsAdded: [null] },
+      TypeError,
+      () => getCurrentSystemMessage([sys({ toolsAdded: [null] })] as never),
+    ],
+    // parameters の無い宣言は、同じ名前の宣言が重なったときの比較 (JSON 化) で落ちる
+    [
+      "toolsAdded の parameters 欠落",
+      { toolsAdded: [read, { name: "read", description: "Read a file" }] },
+      SyntaxError,
+      () => hasToolRedefinitions([sys({ toolsAdded: [read, { name: "read", description: "Read a file" }] })] as never),
+    ],
+  ];
+  for (const [label, message, error, sdk] of cases) {
+    assert.throws(sdk, error, `SDK 側の前提 (${label} は落ちる)`);
+    assert.equal(verdict(sys(message)), "damaged", `${label} を受理すると、開けたのに送信のたびに落ちる`);
+  }
+  // 受理側は SDK が実際に書く形 (toolsAdded は宣言、toolsRemoved は名前だけ) を通し、SDK も読める
+  const removed = [{ name: "write" }];
+  const message = { toolsAdded: [read], toolsRemoved: removed };
+  assert.equal(verdict(sys(message)), "ok");
+  assert.doesNotThrow(() => getCurrentSystemMessage([sys(message) as never]));
+  assert.doesNotThrow(() => hasToolRedefinitions([sys({ toolsAdded: [read, read] }) as never]));
 });
 
 test("SessionFileWriter rewrites, appends and repairs a torn tail", async () => {
