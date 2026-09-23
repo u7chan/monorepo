@@ -469,6 +469,64 @@ test("未ロードのセッションを SDK なしで削除でき、作業フォ
   }
 });
 
+// SDK 0.87 はリトライ / overflow recovery で context_edit、cache warming で usage を追記する。
+// 未知 type を破損扱いにしていたため、これらの entry を含む履歴が再起動後に 409 で開けなくなっていた
+test("リトライや cache warming が追記した entry を含む履歴も復元できる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-context-edit-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const record = await store1.create();
+    await store1.flush(record);
+    await store1.close();
+
+    const timestamp = new Date().toISOString();
+    const text = serializeSession(sessionHeaderOf({ id: record.id, createdAt: Date.now() }, record.workdir), [
+      {
+        type: "message",
+        id: "entry-1",
+        parentId: null,
+        timestamp,
+        message: { role: "user", content: "hello", timestamp: 1 },
+      },
+      {
+        type: "context_edit",
+        id: "entry-2",
+        parentId: "entry-1",
+        timestamp,
+        targetId: "entry-1",
+        replacement: null,
+      },
+      {
+        type: "usage",
+        id: "entry-3",
+        parentId: "entry-2",
+        timestamp,
+        kind: "cache_warm",
+        provider: "openai",
+        model: "gpt-6-luna",
+        usage: { input: 1, output: 0, cacheRead: 9, cacheWrite: 0 },
+      },
+    ]);
+    await writeFile(sessionJsonlPath(record.id, storeDir), text);
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored, "409 にならずに復元できる");
+    const entries = (restored.session as StubSession).entries;
+    const ids = entries.map((entry) => entry.id);
+    for (const id of ["entry-1", "entry-2", "entry-3"]) {
+      assert.ok(ids.includes(id), `${id} が SDK へ渡る`);
+    }
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("壊れた JSONL は原本を書き換えずに開く要求が失敗し、削除はできる", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "sessions-damaged-"));
   const { workspace } = stubWorkspace();

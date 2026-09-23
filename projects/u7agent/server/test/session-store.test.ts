@@ -161,6 +161,60 @@ test("parseSessionFile rejects message entries missing content or timestamp", ()
   }
 });
 
+// SDK 0.87 が増やした entry。拒むとリトライ (context_edit) や cache warming (usage) の後に 409 で開けなくなる
+test("parseSessionFile accepts the entry types SDK 0.87 appends", () => {
+  const entries = [
+    messageEntry("e1", null),
+    {
+      type: "context_edit",
+      id: "e2",
+      parentId: "e1",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      targetId: "e1",
+      replacement: null,
+    },
+    {
+      type: "context_edit",
+      id: "e3",
+      parentId: "e2",
+      timestamp: "2026-01-01T00:00:03.000Z",
+      targetId: "e1",
+      replacement: { content: [{ type: "text", text: "置換後の本文" }] },
+    },
+    {
+      type: "usage",
+      id: "e4",
+      parentId: "e3",
+      timestamp: "2026-01-01T00:00:04.000Z",
+      kind: "cache_warm",
+      provider: "openai",
+      model: "gpt-6-luna",
+      usage: { input: 1, output: 0, cacheRead: 9, cacheWrite: 0 },
+    },
+  ];
+  const parsed = parseSessionFile(lines([HEADER, ...entries]), HEADER.id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  assert.equal(parsed.entries.length, entries.length);
+});
+
+test("parseSessionFile rejects malformed context_edit / usage entries", () => {
+  const base = { id: "e2", parentId: "e1", timestamp: "2026-01-01T00:00:02.000Z" };
+  const cases: Array<[string, unknown]> = [
+    ["context_edit の targetId 欠落", { ...base, type: "context_edit", replacement: null }],
+    ["context_edit の replacement が数値", { ...base, type: "context_edit", targetId: "e1", replacement: 1 }],
+    [
+      "context_edit の replacement.content が不正",
+      { ...base, type: "context_edit", targetId: "e1", replacement: { content: [{ type: "text" }] } },
+    ],
+    ["usage の kind 欠落", { ...base, type: "usage", provider: "openai", model: "m", usage: {} }],
+    ["usage の usage 欠落", { ...base, type: "usage", kind: "cache_warm", provider: "openai", model: "m" }],
+  ];
+  for (const [label, entry] of cases) {
+    assert.equal(parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind, "damaged", label);
+  }
+});
+
 test("SessionFileWriter rewrites, appends and repairs a torn tail", async () => {
   const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
   try {
