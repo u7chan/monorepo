@@ -143,6 +143,27 @@ test("blocks sending only when an unsent chat cannot resolve a model", () => {
   );
 });
 
+test("状態行に出すモデル表示名を解決する", () => {
+  const named: ModelOption = {
+    provider: "anthropic",
+    id: "claude-sonnet-4-5",
+    name: "Claude Sonnet 4.5",
+    supportsThinking: true,
+    thinkingLevels: ["high"],
+  };
+
+  const resolved = deriveComposerSettings(
+    input({ health: health({ model: "anthropic/claude-sonnet-4-5", modelOptions: [named] }) }),
+  );
+  assert.equal(resolved.modelLabel, "Claude Sonnet 4.5", "候補を引けるときは SDK の表示名");
+
+  const missing = deriveComposerSettings(
+    input({ preselection: { model: { provider: "ghost", id: "none" } }, health: health({ modelOptions: [named] }) }),
+  );
+  assert.equal(missing.modelLabel, "ghost/none", "候補に無いモデルも provider/id なら出せる");
+  assert.equal(deriveComposerSettings(input()).modelLabel, undefined, "モデルが未解決なら出さない");
+});
+
 test("renders unknown effort levels as-is", () => {
   assert.equal(effortLabel("xhigh"), "xHigh");
   assert.equal(effortLabel("warp"), "warp");

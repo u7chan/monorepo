@@ -15,7 +15,7 @@ export function Topbar({ runtimeStatus, sessionFiles }: TopbarProps) {
       <div className="flex items-start justify-between gap-4">
         <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">LOCAL WORKSPACE</div>
         <div className="flex min-w-0 items-center gap-2">
-          {/* 正常時のモデルと接続状態は入力欄のピッカーや画面の様子から分かるので、エラーのときだけ出す */}
+          {/* 正常時のモデルは入力欄の上の状態行、接続状態は画面の様子から分かるので、エラーのときだけ出す */}
           {runtimeStatus.error ? (
             <div className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-full border border-danger/40 px-2.5 py-1.5 text-1xs text-danger-text">
               <span className="dot dot-danger" aria-hidden />
