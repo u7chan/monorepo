@@ -34,6 +34,23 @@ export const FILE_SKILL_PANEL_HEADING: Record<FileSkillInfo["scope"], string> = 
 export const FILE_SKILL_BODY_LOADING_NOTE = "本文を読み込んでいます…";
 export const FILE_SKILL_BODY_ERROR_PREFIX = "本文を取得できませんでした";
 
+/**
+ * ファイルタブの root にできるスキルディレクトリ (root 相対)。組み込みは実体の無い仮想パス、root の外は
+ * 絶対パスで返るため、どちらもここで落とす。判定は normalizeFileTreeRoot より前に行う (絶対パスは
+ * "." へ畳まれ、ワークスペース root を見せてしまう)。
+ */
+export function fileSkillDir(skill: Pick<FileSkillInfo, "scope" | "relativePath">): string | null {
+  if (skill.scope === "builtin") return null;
+  const path = skill.relativePath;
+  // バックスラッシュは区切りとして扱わない (Windows の絶対パスを root 相対と誤認しない)
+  if (!path || path.includes("\\") || path.startsWith("/") || /^[A-Za-z]:\//.test(path)) return null;
+  const segments = path.split("/");
+  // 親参照はツリーの root を外へ動かす (release..notes のような名前は巻き込まない)
+  if (segments.some((segment) => segment === ".." || segment === "")) return null;
+  if (segments.length < 2 || segments[segments.length - 1] !== "SKILL.md") return null;
+  return segments.slice(0, -1).join("/");
+}
+
 /** 一覧のグループ分け。組み込みは別グループで表示する (読み取り専用で、上書き状態を持つ) */
 export function groupFileSkills(skills: FileSkillInfo[]): { common: FileSkillInfo[]; builtin: FileSkillInfo[] } {
   const common: FileSkillInfo[] = [];

@@ -7,15 +7,19 @@ import { DefinitionList } from "./DefinitionList";
 import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { CatalogSkillPanel } from "./skill-settings/CatalogSkillPanel";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { ReadOnlySkillPanel } from "./skill-settings/ReadOnlySkillPanel";
-import { SkillEditorForm, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
+import { SkillEditorForm, skillFormDirty, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
 import { BoltIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
   catalog: Catalog;
   refreshCatalog: () => Promise<Catalog>;
 };
+
+/** カタログスキルの表示。一覧で選ぶと閲覧ビュー、`編集` でフォームへ入る */
+type SkillMode = "view" | "edit";
 
 export function SkillSettingsPage({
   catalog,
@@ -25,6 +29,7 @@ export function SkillSettingsPage({
   onOpenNav,
 }: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
+  const [mode, setMode] = useState<SkillMode>("view");
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selectedFileSkillPath, setSelectedFileSkillPath] = useState<string | null>(null);
@@ -41,19 +46,29 @@ export function SkillSettingsPage({
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
   // 下書きはページが持つ。理由は docs/ui-layout.md の「compact の詳細シート」を参照。
-  // 参照が変わった編集対象・カタログを render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)
+  // 参照が変わった編集対象・カタログ・mode を render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)。
+  // mode を条件に含めるのは、同じスキルでも `編集` のたびに現行のカタログから作り直し、`キャンセル` で下書きを破棄するため
   const [skillForm, setSkillForm] = useState<SkillForm>(() => skillFormOf(editingSkill));
-  const [formSource, setFormSource] = useState(() => ({ editingId, catalog }));
-  if (formSource.editingId !== editingId || formSource.catalog !== catalog) {
-    setFormSource({ editingId, catalog });
+  const [formSource, setFormSource] = useState(() => ({ editingId, catalog, mode }));
+  if (formSource.editingId !== editingId || formSource.catalog !== catalog || formSource.mode !== mode) {
+    setFormSource({ editingId, catalog, mode });
     setSkillForm(skillFormOf(editingSkill));
   }
 
   const selectSkill = (nextId: string | null) => {
     setSelectedFileSkillPath(null);
     setEditingId(nextId);
+    setMode("view");
     // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「compact の詳細シート」)
     if (compact) setSheetOpen(true);
+  };
+
+  const startEditing = () => setMode("edit");
+
+  const cancelEditing = () => {
+    // 未保存の差分があるときだけ確認する (開いてすぐ戻る操作を止めない)
+    if (skillFormDirty(skillForm, editingSkill) && !window.confirm("編集中の変更を破棄しますか？")) return;
+    setMode("view");
   };
 
   const selectFileSkill = (path: string) => {
@@ -66,6 +81,8 @@ export function SkillSettingsPage({
   const startNewSkill = () => {
     setNoteText("新しいスキルを作成します。");
     selectSkill(null);
+    // 新規は閲覧ビューを持たないのでフォームへ直行する
+    setMode("edit");
   };
 
   const list = (
@@ -104,6 +121,13 @@ export function SkillSettingsPage({
       skill={selectedFileSkill}
       variant={compact ? "sheet" : "page"}
     />
+  ) : editingSkill && mode === "view" ? (
+    <CatalogSkillPanel
+      skill={editingSkill}
+      agents={catalog.agents}
+      variant={compact ? "sheet" : "page"}
+      onEdit={startEditing}
+    />
   ) : (
     <SkillEditorForm
       editingId={editingId}
@@ -115,8 +139,18 @@ export function SkillSettingsPage({
       onSelectSkill={selectSkill}
       onNote={setNoteText}
       onDone={() => setSheetOpen(false)}
+      onCancel={editingSkill ? cancelEditing : undefined}
     />
   );
+
+  // シートの見出しは表示中の面に合わせる (閲覧ビューに「スキルを編集」を残さない)
+  const sheetTitle = selectedFileSkill
+    ? FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]
+    : editingSkill
+      ? mode === "view"
+        ? "スキル"
+        : "スキルを編集"
+      : "新しいスキル";
 
   return (
     <SettingsPageLayout
@@ -137,18 +171,7 @@ export function SkillSettingsPage({
         </div>
       )}
       {compact && sheetOpen ? (
-        <SettingsDetailSheet
-          eyebrow="SKILL"
-          title={
-            selectedFileSkill
-              ? FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]
-              : editingSkill
-                ? "スキルを編集"
-                : "新しいスキル"
-          }
-          note={note}
-          onClose={() => setSheetOpen(false)}
-        >
+        <SettingsDetailSheet eyebrow="SKILL" title={sheetTitle} note={note} onClose={() => setSheetOpen(false)}>
           {editor}
         </SettingsDetailSheet>
       ) : null}

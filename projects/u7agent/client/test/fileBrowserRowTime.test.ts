@@ -5,6 +5,7 @@
 //   2. 右 padding か末尾スロットの幅が変わり、ディレクトリ行とファイル行の時刻の右端がずれる
 //   3. 時刻の表示規則 (messageTimeLabel + title の完全な表記) か、mtime 無しの行の扱いが変わる
 //   4. ディレクトリ行の削除導線が消える / ファイル行と別の見た目になる
+//   5. readOnly の行 (スキルのファイルタブ) に削除 / リネームが残る、または既存 2 画面が readOnly になる
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -85,6 +86,22 @@ test("ディレクトリ行の削除は symlink には出さず、通常ファ�
   assert.match(actions, /const deletable = !symlink;/, "削除の条件が変わった");
   assert.ok(actions.includes("{canRename ?"), "リネームのスロットが canRename で分岐していない");
   assert.ok(actions.includes("{deletable ?"), "削除のスロットが deletable で分岐していない");
+});
+
+test("読み取り専用の面では削除とリネームの導線ごと消す", () => {
+  const { dir, file, actions } = entryRowSections();
+  for (const [label, row] of [
+    ["ディレクトリ", dir],
+    ["ファイル", file],
+  ] as const) {
+    assert.ok(row.includes("readOnly={readOnly}"), `${label}行が readOnly を渡していない`);
+  }
+  // 条件で分岐を残すと空スペーサーだけが出る。行の操作ごと落とす
+  assert.match(actions, /if \(readOnly\) return null;/, "readOnly で行の操作を消していない");
+  // 既存 2 画面 (設定 → ファイル / チャット右パネル) は readOnly を渡さない (既定 false のまま)
+  for (const screen of ["src/components/FileTreePage.tsx", "src/components/SessionFilesPanel.tsx"]) {
+    assert.ok(!read(screen).includes("readOnly"), `${screen} が readOnly を渡している`);
+  }
 });
 
 test("末尾スロットはリネーム / ゴミ箱 / 空スペーサーで同じ 24px 幅", () => {

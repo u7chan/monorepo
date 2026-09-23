@@ -1,6 +1,6 @@
 # ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML 描画 / 画像）
 
-ファイル画面（`FileTreePage` / `SessionFilesPanel` → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
+ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
 
 ## 原則
 
@@ -156,8 +156,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- | --- | --- |
 | 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時 |
 | チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
+| 設定 → スキルのファイルタブ | `ReadOnlySkillPanel`（`SkillDetailPanel` の中の 1 タブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**削除とリネームは `readOnly` で出さない** |
 
-- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）
+- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 
@@ -227,7 +228,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルとディレクトリの行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
 
-- **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルとディレクトリの行には常にゴミ箱を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/u7agent` 自身）なので、自分のソースも消せる**
+- **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルとディレクトリの行には常にゴミ箱を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/u7agent` 自身）なので、自分のソースも消せる**
+- **スキル設定のファイルタブ（読み取り専用の面）は `readOnly` を渡し、削除とリネームの導線を行ごと出さない**（スキルの補助ファイルは「ファイル」画面から片付ける）。既定は false なので、上の 2 画面の挙動は変わらない
 - **confirm にはその画面の root 相対（ツリーに見えているパス）を出す**。ファイルは `client/src/lib/fileTree.ts` の `fileTreeDeleteConfirm(path)`（`「<path>」を削除しますか？この操作は取り消せません。`）で、設定 → ファイル は `.u7agent/uploads/3a7bfba36f/shot.png`、チャット右パネルは作業ディレクトリ相対（`node/main.ts` など）になる。ディレクトリは `fileTreeDeleteDirectoryConfirm(path)` で、配下ごと消えることを示す `「<path>」と配下のファイルをすべて削除しますか？この操作は取り消せません。` を出す。パネルでワークスペース root 相対（見えていない長いパス）を出すと行との対応が取れないため、見えているパスに合わせる（ワークスペース root を見る設定 → ファイル では両者が一致する）
 - **通常ファイルは 1 件、ディレクトリは配下ごと消える**（`recursive=true`。空ディレクトリも同じ導線）。削除範囲は一覧の上限（500 件 / ディレクトリ）に縛られず、未表示の子も消える。**symlink は行に導線を出さない**（サンドボックスが 400 で拒否する。ファイル / ディレクトリとも。symlink の行には既存の「リンク」バッジが付く）。`.u7agent/uploads/<id>/` はフラットだが、セッション作業フォルダの `uploads/` などの片付けにディレクトリ削除を使える
 - **削除したディレクトリ配下の symlink はリンクだけが消え、リンク先は残る**（`rm -rf` と同じ）。削除対象そのものが symlink なら 400 で、リンクもリンク先も残る
@@ -248,7 +250,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 名前を直したいフォルダを削除して作り直さずに済むよう、設定 → ファイル のフォルダ行にリネームの導線を出す。行の右端の鉛筆（`PencilIcon`）から、削除と同じ流れの `window.prompt` で新しい名前を入力し、`POST /api/files/rename` を呼ぶ。
 
-- **出すのは設定 → ファイル（ワークスペース root）だけ**。`FileBrowser` の `canRename` prop（既定 false）で切り、`FileTreePage` だけが true を渡す。チャット右パネル（`SessionFilesPanel`）は対話中のパスと食い違うため出さない（削除は従来どおり両方）
+- **出すのは設定 → ファイル（ワークスペース root）だけ**。`FileBrowser` の `canRename` prop（既定 false）で切り、`FileTreePage` だけが true を渡す。チャット右パネル（`SessionFilesPanel`）は対話中のパスと食い違うため出さない。スキル設定のファイルタブは `readOnly` で削除と一緒に消す（`canRename` も渡さない）
 - **鉛筆を出すのはフォルダ行だけ**。UI からファイルは改名できない（API はファイル / ディレクトリの両方を受ける。移動（親ディレクトリの変更）は非ゴール）。symlink の行にも出さない（サンドボックスが 400 で拒否する）
 - **prompt の初期値は現在の名前**（`fileTreeRenamePrompt(path)` が見出し、現在の名前を第 2 引数に渡す）。取り消し（`null`）・空・未変更なら何もしない。削除の `window.confirm` と同じく、同じ行の二重送信は実行中のパスを持つ ref で弾く。run 中でも操作できる（削除と同じでガードなし）
 - **成功後はツリーとタブ・表示モードの経路を新しい名前へ張り替える**。親一覧の行の名前を差し替え（`renameFileTreeEntry`）、配下の state のキー（`renameFileTabs` / `renamePreviewModes`）を移す。開いている階層と取得済みの子はそのままなので親の再取得は起きず、タブの本文だけを新しい経路で取り直す（プレビューの `results` は経路ごとなので、新キーで再取得する）。**取得中だった一覧は `loading` を落として新しい経路で取り直す**（飛んでいた応答は旧キーへ着地するため、持ち越すと改名したフォルダが「読み込み中…」のまま固定される）。画面の root 相対は親 + 新しい名前で組み立てる（応答の実パスは symlink 経由の要求でツリーのキーとずれるため）
@@ -275,7 +277,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ## 復帰（F5・画面の往復）
 
-ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `payload.cwd` を使うので、同じファイルを 2 画面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
+ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える / スキルのファイルタブを開き直す）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `payload.cwd`、スキルのファイルタブは SKILL.md の親ディレクトリを使うので、同じファイルを別の面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
 
 - 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html/<path>`、ソースは `/api/files/preview`）
 - 親を閉じた子の open は保持し、保存された子のために親を勝手に開かない。root は常に開く。取得は既存の「可視の親から子へ」の経路のままで、親を開いた時点で子の open が効く
@@ -293,8 +295,9 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
-| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットがリネーム (フォルダのみ) と削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
-| `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 出すのは `FileTreePage` だけ（`react-dom/server` の描画 + ソース走査） |
+| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットがリネーム (フォルダのみ) と削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
+| `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ `readOnly` は削除とリネームの導線ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（`react-dom/server` の描画 + ソース走査） |
+| `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
 | `client/test/fileRefRequest.test.ts` | 未消費は 1 件で最新優先 / ack は seq が一致するときだけ消す（request1 → request2 → ack1）/ 選択変更の破棄後に復活しない / 旧 ack で新しい要求を消さない / sessionId の一致判定 / 購読の通知 / 配線のソース走査（選択変更の 3 経路、App の受け渡し、`FileBrowser` の seq ガード、sheet の focus 復帰） |
 | `client/test/markdownFileRef.test.ts` | 参照になるインラインコードだけ button にする / provider の外と参照でない字面は code のまま / rootCwd 前置きと cwd 外の解決 / リンク内 code の除外 / 引用・リスト・表の中の code / 長文フォールバックの例外（描画 + ソース走査） |
