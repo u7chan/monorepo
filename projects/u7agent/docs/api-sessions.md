@@ -19,7 +19,7 @@
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
-      "model": "zai/glm-5.3-flash",
+      "model": "<provider>/<id>",
       "projectId": "…"
     }
   ]
@@ -35,7 +35,7 @@
 セッション作成。body は任意。
 
 ```json
-{ "agentId": "agent-general", "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high", "projectId": "…" }
+{ "agentId": "agent-general", "model": { "provider": "<provider>", "id": "<id>" }, "thinkingLevel": "high", "projectId": "…" }
 ```
 
 - `agentId` は optional。省略するとビルトインの汎用アシスタント（`agent-general`）を使うので、ユーザー定義が 0 件でも作成できる（[api-catalog.md](api-catalog.md#ビルトインの汎用エージェント)）。未知の id は 400。
@@ -57,7 +57,7 @@
   "lastSeq": 42,
   "eventGeneration": "a1b2c3d4",
   "title": "…",
-  "model": "deepseek/deepseek-v4-flash",
+  "model": "<provider>/<id>",
   "thinkingLevel": "high",
   "supportsThinking": true,
   "availableThinkingLevels": ["off", "low", "high", "max"],
@@ -164,7 +164,7 @@
 
 ```json
 // request (片方だけでもよい)
-{ "model": { "provider": "openai", "id": "gpt-5.5" }, "thinkingLevel": "high" }
+{ "model": { "provider": "<provider>", "id": "<id>" }, "thinkingLevel": "high" }
 // response (200): セッションペイロード
 ```
 
