@@ -110,6 +110,19 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
   assert.equal(Object.hasOwn(nullCreated, "thinkingLevel"), false);
 });
 
+test("drops references to skills that do not exist", () => {
+  const catalog = createAgentCatalog();
+  const skill = catalog.createSkill({ name: "実在スキル", description: "説明", body: "本文" });
+
+  // 存在しない id を混ぜても、実在する参照だけを残す
+  const created = catalog.createAgent({ name: "参照あり", skillIds: [skill.id, "skill-missing"] });
+  assert.deepEqual(created.skillIds, [skill.id]);
+
+  // 存在しない id だけを送った更新でも空になる
+  const updated = catalog.updateAgent(created.id, { skillIds: ["skill-missing"] });
+  assert.deepEqual(updated?.skillIds, []);
+});
+
 test("only the built-in agent ships with default suggestions", () => {
   const catalog = createAgentCatalog();
   assert.deepEqual(catalog.builtinAgent().suggestions, DEFAULT_SUGGESTIONS);
