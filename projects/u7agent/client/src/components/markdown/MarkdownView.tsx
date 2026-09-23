@@ -4,6 +4,7 @@ import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../lib/markdown/parse";
 import type { MdAlign, MdBlock, MdHeadingLevel, MdInline, MdListItem } from "../../lib/markdown/types";
 import { CodeBlock } from "./CodeBlock";
 import { Diagram } from "./Diagram";
+import { InlineFileRef } from "./FileRefLink";
 import { HtmlInline } from "./HtmlInline";
 import { MathBlock, MathInline } from "./MathView";
 
@@ -147,17 +148,18 @@ const MdInlineSource = memo(function MdInlineSource({ source }: { source: string
   return <InlineNodes nodes={nodes} />;
 });
 
-function InlineNodes({ nodes }: { nodes: MdInline[] }) {
+/** inLink はリンクの内側を辿る印。`` [`x`](url) `` の code を操作要素にしないために子へ通す */
+function InlineNodes({ nodes, inLink = false }: { nodes: MdInline[]; inLink?: boolean }) {
   return (
     <>
       {nodes.map((node, index) => (
-        <InlineNode key={index} node={node} />
+        <InlineNode key={index} node={node} inLink={inLink} />
       ))}
     </>
   );
 }
 
-function InlineNode({ node }: { node: MdInline }) {
+function InlineNode({ node, inLink = false }: { node: MdInline; inLink?: boolean }) {
   switch (node.kind) {
     case "text":
       return node.text;
@@ -167,29 +169,30 @@ function InlineNode({ node }: { node: MdInline }) {
       // 解析できなかった記法は消さずに等幅で見せる
       return <code className="md-lit">{node.text}</code>;
     case "code":
-      return <code>{node.text}</code>;
+      // <a> の中に button を入れない (リンクの children は従来どおり code として描く)
+      return inLink ? <code>{node.text}</code> : <InlineFileRef text={node.text} />;
     case "strong":
       return (
         <strong>
-          <InlineNodes nodes={node.children} />
+          <InlineNodes nodes={node.children} inLink={inLink} />
         </strong>
       );
     case "em":
       return (
         <em>
-          <InlineNodes nodes={node.children} />
+          <InlineNodes nodes={node.children} inLink={inLink} />
         </em>
       );
     case "del":
       return (
         <del>
-          <InlineNodes nodes={node.children} />
+          <InlineNodes nodes={node.children} inLink={inLink} />
         </del>
       );
     case "link":
       return (
         <a href={node.href} title={node.title ?? undefined} target="_blank" rel="noreferrer noopener">
-          <InlineNodes nodes={node.children} />
+          <InlineNodes nodes={node.children} inLink />
         </a>
       );
     case "image":

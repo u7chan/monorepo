@@ -121,6 +121,15 @@ $PI_SESSION_STORE/<id>/
 
 誤ってアップロードしたファイルは、設定 → ファイル の一覧（ワークスペース root）から通常ファイル単位 / ディレクトリ単位（配下ごと）で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files` / `DELETE /v1/dirs?recursive=true`。出す画面・確認・タブの扱いは [file-preview.md](file-preview.md#削除)）。symlink は消せない。同じ一覧のフォルダ行からは名前も変更できる（`POST /api/files/rename` → サンドボックスの `POST /v1/files/rename`。出すのは設定 → ファイル だけで、ツリーの経路とプレビューのタブが新しい名前へ追随する。[file-preview.md](file-preview.md#リネーム)）。セッションの DELETE は従来どおり履歴だけで、作業ディレクトリと添付は残る。
 
+## メッセージからのファイル参照
+
+assistant 本文のインラインコードが指すファイルは、クリックでそのセッションの作業フォルダのタブとして右パネル / sheet に開く。字面の判定・cwd 相対への解決・要求の寿命・focus の扱いは [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とする。
+
+- 解決の基準は選択中セッションの `payload.cwd` で、`health.cwd`（ワークスペース root）を前置した絶対パスは cwd 配下のときだけ剥がす。cwd 相対に正規化できないもの（cwd 外の絶対パス / 未作成チャット / `..` を含む字面）はリンクにしない
+- 要求は `{ seq, sessionId, path }` で持ち、選択が変わった時点で旧セッションの要求を破棄する。**同一プロジェクトの複数セッションはツリーを共有するが、`cwd` はセッション識別子にならない**ため、切り替えて同じ cwd に戻っても要求は復活しない
+- 添付の絶対パス `/workspace/.u7agent/uploads/<id>/a.png` は cwd 外としてリンクにならない。裸の `.u7agent/uploads/<id>/a.png` は規則どおり cwd 相対（`<cwd>/.u7agent/uploads/<id>/a.png`）へ解決する（予約 prefix の例外は持たない）
+- 表示モードは既存の選択規則のまま（未選択の `.html` は iframe プレビュー）。存在確認はしないので、消えているパスは開いた後の既存のエラー表示に乗せる
+
 ## 復元
 
 - 起動時に store を走査して `meta.json` を読み、一覧用 descriptor（id / title / agent 表示情報 / projectCwd / createdAt / lastUsedAt / messageCount）を作る。SDK セッションは開くときに作る。走査は起動時の 1 回だけなので、稼働中に外部から store へフォルダを足しても再起動するまで一覧に出ない。

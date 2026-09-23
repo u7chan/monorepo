@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { FileRefRequest } from "../lib/fileRefRequest";
 import { FileBrowser } from "./FileBrowser";
 import { CloseIcon, RefreshIcon } from "./icons";
 
@@ -8,9 +9,20 @@ export type SessionFilesPanelProps = {
   /** run が終わった回数 (ChatState.runEndSeq)。増えるたびに一覧と開いている本文を取り直す */
   runEndSeq: number;
   onClose: () => void;
+  /** 未消費のファイル参照の要求 (App の pending)。適用は FileBrowser が行う */
+  openRequest?: FileRefRequest | null;
+  /** 適用済みの seq を App へ返し、pending を消す */
+  onHandled?: (seq: number) => void;
 };
 
-function SessionFilesContent({ root, runEndSeq, onClose, compact }: SessionFilesPanelProps & { compact: boolean }) {
+function SessionFilesContent({
+  root,
+  runEndSeq,
+  onClose,
+  openRequest,
+  onHandled,
+  compact,
+}: SessionFilesPanelProps & { compact: boolean }) {
   const [manualReload, setManualReload] = useState(0);
   // ヘッダの「再読み込み」と run_end を 1 つの token にまとめる。どちらも単調なので、合計が
   // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
@@ -56,7 +68,7 @@ function SessionFilesContent({ root, runEndSeq, onClose, compact }: SessionFiles
           </button>
         </div>
       </header>
-      <FileBrowser root={root} reloadToken={reloadToken} />
+      <FileBrowser root={root} reloadToken={reloadToken} openRequest={openRequest} onHandled={onHandled} />
     </>
   );
 }
@@ -80,20 +92,28 @@ export function SessionFilesPanel(props: SessionFilesPanelProps) {
  * compact のセッションファイル。チャットの表示幅を奪わないよう全画面 modal sheet にし、
  * desktop と同じ FileBrowser を viewport 幅いっぱいで使う。
  */
-export function SessionFilesSheet(props: SessionFilesPanelProps) {
+export type SessionFilesSheetProps = SessionFilesPanelProps & {
+  /** ファイル参照から開いたときの起点。閉じたときに focus を戻す (無ければ表示時の activeElement) */
+  returnFocus?: HTMLElement | null;
+};
+
+export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    // showModal は最初の操作要素へ focus を移すため、戻し先は showModal の前に決める
+    const origin = returnFocus ?? (document.activeElement as HTMLElement | null);
     if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
       dialog.showModal();
     } else if (!dialog.contains(document.activeElement)) {
       dialog.focus();
     }
-    return () => previousFocusRef.current?.focus();
+    return () => {
+      // 起点がセッション切替などで消えていたら focus を移さない (body へ落とさない)
+      if (origin?.isConnected) origin.focus();
+    };
   }, []);
 
   return (

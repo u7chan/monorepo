@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { BackupPage } from "./components/BackupPage";
@@ -12,11 +12,13 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
+import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { useU7Agent } from "./hooks/useU7Agent";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
+import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
@@ -40,7 +42,23 @@ export default function App() {
   const openNav = useCallback(() => setNavOpen(true), []);
   const closeNav = useCallback(() => setNavOpen(false), []);
   const backToChat = useCallback(() => navigate({ view: "chat" }), [navigate]);
-  const toggleSessionFiles = useCallback(() => setSessionFilesOpen((open) => !open), []);
+  // ファイル参照から開いたときの起点要素。compact の sheet は閉じたときにここへ focus を戻す
+  const fileRefOriginRef = useRef<HTMLElement | null>(null);
+  const { requestFileRef } = app;
+  const openFileRef = useCallback(
+    (path: string, origin: HTMLElement | null) => {
+      // 起点はクリック時に自分で持つ (document.activeElement がクリックした button を指すとは限らない)
+      fileRefOriginRef.current = origin;
+      setSessionFilesOpen(true);
+      requestFileRef(path);
+    },
+    [requestFileRef],
+  );
+  const toggleSessionFiles = useCallback(() => {
+    // トグルからの開閉ではファイル参照へ focus を戻さない
+    fileRefOriginRef.current = null;
+    setSessionFilesOpen((open) => !open);
+  }, []);
   const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);
 
   // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
@@ -156,6 +174,8 @@ export default function App() {
   const filesRoot = sessionFilesRoot({ chatView: mainView === "chat", cwd: app.cwd });
   const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
   const filesSheetOpen = compact && filesRoot !== "" && sessionFilesOpen;
+  // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)
+  const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
 
   const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
@@ -210,17 +230,19 @@ export default function App() {
                 sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
               />
             )}
-            <ChatArea
-              visible={mainView === "chat"}
-              bubbles={app.chat.bubbles}
-              compactions={app.chat.compactions}
-              compact={compact}
-              suggestions={app.selectedAgent?.suggestions}
-              agentName={chatAgentName}
-              agentIcon={chatAgentIcon}
-              rootCwd={app.health?.cwd ?? ""}
-              onSuggestion={handleSend}
-            />
+            <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
+              <ChatArea
+                visible={mainView === "chat"}
+                bubbles={app.chat.bubbles}
+                compactions={app.chat.compactions}
+                compact={compact}
+                suggestions={app.selectedAgent?.suggestions}
+                agentName={chatAgentName}
+                agentIcon={chatAgentIcon}
+                rootCwd={app.health?.cwd ?? ""}
+                onSuggestion={handleSend}
+              />
+            </FileRefProvider>
             <Composer
               visible={mainView === "chat"}
               activity={app.chat.activity}
@@ -283,6 +305,8 @@ export default function App() {
             root={filesRoot}
             runEndSeq={app.chat.runEndSeq}
             onClose={closeSessionFiles}
+            openRequest={pendingFileRef}
+            onHandled={app.ackFileRef}
           />
         ) : null}
       </main>
@@ -292,6 +316,9 @@ export default function App() {
           root={filesRoot}
           runEndSeq={app.chat.runEndSeq}
           onClose={closeSessionFiles}
+          openRequest={pendingFileRef}
+          onHandled={app.ackFileRef}
+          returnFocus={fileRefOriginRef.current}
         />
       ) : null}
       {compact && navOpen ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
