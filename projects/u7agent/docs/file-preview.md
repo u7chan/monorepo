@@ -189,7 +189,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - **出すのは設定 → ファイル（ワークスペース root）だけ**。`FileBrowser` の `canRename` prop（既定 false）で切り、`FileTreePage` だけが true を渡す。チャット右パネル（`SessionFilesPanel`）は対話中のパスと食い違うため出さない（削除は従来どおり両方）
 - **鉛筆を出すのはフォルダ行だけ**。UI からファイルは改名できない（API はファイル / ディレクトリの両方を受ける。移動（親ディレクトリの変更）は非ゴール）。symlink の行にも出さない（サンドボックスが 400 で拒否する）
 - **prompt の初期値は現在の名前**（`fileTreeRenamePrompt(path)` が見出し、現在の名前を第 2 引数に渡す）。取り消し（`null`）・空・未変更なら何もしない。削除の `window.confirm` と同じく、同じ行の二重送信は実行中のパスを持つ ref で弾く。run 中でも操作できる（削除と同じでガードなし）
-- **成功後はツリーとタブ・表示モードの経路を新しい名前へ張り替える**。親一覧の行の名前を差し替え（`renameFileTreeEntry`）、配下の state のキー（`renameFileTabs` / `renamePreviewModes`）を移す。開いている階層と取得済みの子はそのままなので親の再取得は起きず、タブの本文だけを新しい経路で取り直す（プレビューの `results` は経路ごとなので、新キーで再取得する）。画面の root 相対は親 + 新しい名前で組み立てる（応答の実パスは symlink 経由の要求でツリーのキーとずれるため）
+- **成功後はツリーとタブ・表示モードの経路を新しい名前へ張り替える**。親一覧の行の名前を差し替え（`renameFileTreeEntry`）、配下の state のキー（`renameFileTabs` / `renamePreviewModes`）を移す。開いている階層と取得済みの子はそのままなので親の再取得は起きず、タブの本文だけを新しい経路で取り直す（プレビューの `results` は経路ごとなので、新キーで再取得する）。**取得中だった一覧は `loading` を落として新しい経路で取り直す**（飛んでいた応答は旧キーへ着地するため、持ち越すと改名したフォルダが「読み込み中…」のまま固定される）。画面の root 相対は親 + 新しい名前で組み立てる（応答の実パスは symlink 経由の要求でツリーのキーとずれるため）
 - **失敗は親ディレクトリの行に理由を出す**（`applyFileTreeError`。削除と同じ。同名 409 の文言をそのまま出す）。行はそのまま残る
 - 改名先が既存の名前なら 409 で何も変えない（上書きも自動採番もしない）。大文字小文字だけの変更は許す（[sandbox-api.md](sandbox-api.md#post-v1filesrename)）
 - リネームで登録プロジェクトの root や `.u7agent/sessions/<id>` を改名すると、メモリ上のプロジェクト / セッションの `payload.cwd` は追随しない（削除でも同じ。保護パスは設けない）
@@ -230,7 +230,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モード）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
-| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
+| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットがリネーム (フォルダのみ) と削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
 | `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 出すのは `FileTreePage` だけ（`react-dom/server` の描画 + ソース走査） |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
