@@ -8,7 +8,7 @@
 
 `PI_MODELS`（`provider/model` のカンマ区切り）を指定すると、available を組み立てる 1 箇所で whitelist との積を取り、そこから導出する `availableModels` / `modelOptions` / `selectedModel` / `resolveModel()` を一貫して絞り込む。個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れるため、絞り込みはこの 1 箇所だけに置く。`PI_MODELS` 未指定は全件表示（後方互換）。whitelist と available の積が空なら（available の取得自体が例外になったときはそのエラーを優先）、`availabilityError` に `MODEL_WHITELIST_EMPTY_MESSAGE` を入れて `health.ready` を false にし、`errorCode: "model_whitelist_empty"` で原因が whitelist だと分かるようにする。認証が無い場合も whitelist が効いている以上候補は空になるため、このエラーは認証エラーより優先する。
 
-モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.85.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
+モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.87.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
 
 `thinkingLevel` の非対応値は SDK がモデル能力で補正する（BFF では模倣しない）。既定の Effort は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
 

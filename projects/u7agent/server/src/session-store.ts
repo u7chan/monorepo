@@ -233,7 +233,10 @@ function isStringOrTextParts(value: unknown): boolean {
   return Array.isArray(value) && value.every(isValidContentPart);
 }
 
-/** 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する */
+/**
+ * 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する。
+ * SDK が entry type を足すと「未知 type = 破損」になり復元が 409 で詰まるため、SDK を上げたらここも見直す。
+ */
 function entryShapeError(type: string, entry: Record<string, unknown>): string | undefined {
   switch (type) {
     case "message": {
@@ -260,6 +263,14 @@ function entryShapeError(type: string, entry: Record<string, unknown>): string |
       return typeof entry.provider === "string" && typeof entry.modelId === "string"
         ? undefined
         : "model_change entry が不正です";
+    case "usage":
+      // cache warming が追記する。使用量はプロバイダ実装ごとに項目が増えるため形は緩く見る
+      return typeof entry.kind === "string" &&
+        typeof entry.provider === "string" &&
+        typeof entry.model === "string" &&
+        isRecord(entry.usage)
+        ? undefined
+        : "usage entry が不正です";
     case "compaction":
       return typeof entry.summary === "string" &&
         typeof entry.firstKeptEntryId === "string" &&
@@ -276,6 +287,12 @@ function entryShapeError(type: string, entry: Record<string, unknown>): string |
       return typeof entry.customType === "string" && isStringOrTextParts(entry.content)
         ? undefined
         : "custom_message entry が不正です";
+    case "context_edit":
+      // リトライ / overflow recovery が失敗した試行をモデル文脈から外すために追記する
+      return typeof entry.targetId === "string" &&
+        (entry.replacement === null || (isRecord(entry.replacement) && isStringOrTextParts(entry.replacement.content)))
+        ? undefined
+        : "context_edit entry が不正です";
     case "label":
       return typeof entry.targetId === "string" ? undefined : "label entry が不正です";
     case "session_info":

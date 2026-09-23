@@ -94,7 +94,7 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 - **読み込み時の検証（非破壊）**:
   - 1 行目が header でただ 1 つ、`type: "session"`、`id` がフォルダ名と一致、`version` が現行（`CURRENT_SESSION_VERSION`）と一致することを検証する。
   - entry の `id` が一意で、`parentId` が `null` か「自分より前の entry」を指すこと（自己参照・循環・重複・前方参照をここで排除する）。SDK の親探索は循環を検出しないため、ロード前に必ず弾く。
-  - entry の `type` は既知のものだけを許可し、型ごとの必須フィールド（`timestamp` / `message` など）を検証する。未知 type は破損扱いにする。
+  - entry の `type` は既知のものだけを許可し、型ごとの必須フィールド（`timestamp` / `message` など）を検証する。未知 type は破損扱いにする。SDK が entry type を足したら `server/src/session-store.ts` の allowlist にも足す。足し忘れると、リトライの `context_edit` や cache warming の `usage` のように SDK 自身が追記する entry で、その会話が再起動後に開けなくなる。
   - 末尾の途絶（末尾改行が無く parse できない行）だけは「書込み途絶」として読み飛ばし、原本は書換えず、次の書込み時に確定位置まで truncate してから追記する。それ以外の parse 失敗・中間破損・検証失敗は、原本を一切書換えずに開く要求を 409（store のパスを含む文言）で拒否する。一覧には meta から出し、DELETE は可能にする。
   - 現行 version 限定とし、古い version の migration は行わない（非破壊で拒否）。pi CLI など別実装が書いたファイルの取り込みも対象外。
 
