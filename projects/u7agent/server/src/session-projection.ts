@@ -8,7 +8,7 @@ import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { parseUsage } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
-import type { ChatMessage, MessageMetrics, SkillLoad } from "./schema";
+import type { ChatMessage, MessageMetrics, SkillLoad, ToolCall } from "./schema";
 
 const SUMMARY_TEXT_MAX = 900;
 const ARGS_TEXT_MAX = 260;
@@ -73,25 +73,33 @@ export function projectMessages(
   masker: SecretMasker,
   cwd: string,
 ): ChatMessage[] {
-  // toolResult は toolCall より後ろに来るため、先に id -> isError を組み立てる (O(n) の線形走査 1 回目)
-  const toolErrors = toolErrorsOf(session.messages);
+  // toolResult は toolCall より後ろに来るため、id で先に結び付ける
+  const { errors: toolErrors, results: toolResults } = toolResultsOf(session.messages);
   const messages: ChatMessage[] = [];
-  // 本文を持たない assistant (read だけのターン) は表示集合から落ちるため、同ターン内の次の表示メッセージへ
+  // 本文を持たない assistant は表示集合から落ちるため、同ターン内の次の表示メッセージへ
   // 繰り上げる。表示集合と messageCount を変えないための前詰め領域 (2 回目の走査で消費する)。
   let carried: SkillLoad[] = [];
+  let carriedTools: ToolCall[] = [];
   for (const message of session.messages) {
     // ターン境界では繰り上げない (次の user メッセージを越えた先へは運ばない)
-    if (message.role === "user") carried = [];
+    if (message.role === "user") {
+      carried = [];
+      carriedTools = [];
+    }
     const loads = message.role === "assistant" ? skillLoadsOf(message, toolErrors, cwd, masker) : [];
+    const tools = message.role === "assistant" ? toolCallsOf(message, toolResults, cwd, masker) : [];
     if (!isDisplayableMessage(message, masker)) {
       carried.push(...loads);
+      carriedTools.push(...tools);
       continue;
     }
     const text = masker.mask(contentText(message.content));
     const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
     const metrics = messageMetrics.get(message);
     const skillLoads = [...carried, ...loads];
+    const projectedTools = [...carriedTools, ...tools];
     carried = [];
+    carriedTools = [];
     messages.push({
       role: message.role as "user" | "assistant",
       text,
@@ -100,20 +108,52 @@ export function projectMessages(
       ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
       ...(usage ? { usage } : {}),
       ...(metrics ? { metrics } : {}),
+      ...(projectedTools.length > 0 ? { tools: projectedTools } : {}),
       ...(skillLoads.length > 0 ? { skillLoads } : {}),
     });
   }
   return messages;
 }
 
-/** toolCallId -> isError。同じ id の result が複数あれば最後を正にする */
-function toolErrorsOf(messages: PiSessionLike["messages"]): Map<string, boolean> {
+function toolResultsOf(messages: PiSessionLike["messages"]): {
+  results: Map<string, PiSessionLike["messages"][number]>;
+  errors: Map<string, boolean>;
+} {
+  const results = new Map<string, PiSessionLike["messages"][number]>();
   const errors = new Map<string, boolean>();
   for (const message of messages) {
     if (message.role !== "toolResult" || typeof message.toolCallId !== "string") continue;
+    results.set(message.toolCallId, message);
     errors.set(message.toolCallId, message.isError === true);
   }
-  return errors;
+  return { results, errors };
+}
+
+function toolCallsOf(
+  message: PiSessionLike["messages"][number],
+  toolResults: Map<string, PiSessionLike["messages"][number]>,
+  cwd: string,
+  masker: SecretMasker,
+): ToolCall[] {
+  if (!Array.isArray(message.content)) return [];
+  const calls: ToolCall[] = [];
+  for (const part of message.content) {
+    if (!part || typeof part !== "object") continue;
+    const call = part as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
+    if (call.type !== "toolCall" || typeof call.id !== "string" || typeof call.name !== "string") continue;
+    if (classifySkillRead(call.arguments, { cwd, toolName: call.name })) continue;
+    const result = toolResults.get(call.id);
+    if (!result) continue;
+    calls.push({
+      id: call.id,
+      name: call.name,
+      args: toolArgsSummary(call.arguments, masker),
+      isError: result.isError === true,
+      done: true,
+      output: toolResultSummary(result, masker),
+    });
+  }
+  return calls;
 }
 
 interface SkillReadRef {

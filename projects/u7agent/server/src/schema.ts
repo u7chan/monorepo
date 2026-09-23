@@ -206,6 +206,7 @@ export const ChatMessageSchema = z.object({
   /** プロバイダが報告した使用量。数値なのでマスク不要。未報告ならキーを省略する (0 と区別する) */
   usage: UsageSchema.optional(),
   metrics: MessageMetricsSchema.optional(),
+  tools: z.array(ToolCallSchema).optional(),
   /** このバブルに出す分 (本文を持たない read だけのターンからの繰り上げ分を含む)。無ければキーを省略 */
   skillLoads: z.array(SkillLoadSchema).optional(),
 });

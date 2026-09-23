@@ -172,34 +172,63 @@ function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
   };
 }
 
-/** 履歴の 1 メッセージを 1 バブルへ。skillLoads を写し忘れると導出行が黙って消える */
-export function historyToBubbles(nextId: number, messages: ChatMessage[]): { bubbles: Bubble[]; nextId: number } {
-  const bubbles: Bubble[] = messages.map((message) => ({
-    id: nextId++,
-    role: message.role,
-    text: message.text,
-    tools: [],
-    skillLoads: message.skillLoads ?? [],
-    at: message.at,
-    usage: message.usage,
-    metrics: message.metrics,
-  }));
-  return { bubbles, nextId };
+/** 履歴の導出値を写し忘れると resync でツール履歴やバッジが黙って消える */
+function toolCardOf(call: ToolCall): ToolCard {
+  return {
+    id: call.id,
+    name: call.name,
+    args: call.args,
+    phase: call.done ? (call.isError ? "failed" : "done") : "running",
+    output: call.output,
+    ...(call.skill ? { skill: call.skill } : {}),
+  };
+}
+
+export function historyToBubbles(
+  nextId: number,
+  messages: ChatMessage[],
+): { bubbles: Bubble[]; nextId: number; toolBubbleIds: Record<string, number> } {
+  const toolBubbleIds: Record<string, number> = {};
+  const seenToolCallIds = new Set<string>();
+  const bubbles: Bubble[] = messages.map((message) => {
+    const id = nextId++;
+    const tools = (message.tools ?? [])
+      .filter((call) => {
+        if (seenToolCallIds.has(call.id)) return false;
+        seenToolCallIds.add(call.id);
+        return true;
+      })
+      .map(toolCardOf);
+    for (const card of tools) toolBubbleIds[card.id] = id;
+    return {
+      id,
+      role: message.role,
+      text: message.text,
+      tools,
+      skillLoads: message.skillLoads ?? [],
+      at: message.at,
+      usage: message.usage,
+      metrics: message.metrics,
+    };
+  });
+  return { bubbles, nextId, toolBubbleIds };
 }
 
 function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall[]): ChatState {
   let next = state;
   for (const call of toolCalls) {
-    const card: ToolCard = {
-      id: call.id,
-      name: call.name,
-      args: call.args,
-      phase: call.done ? (call.isError ? "failed" : "done") : "running",
-      output: call.output,
-      ...(call.skill ? { skill: call.skill } : {}),
-    };
+    const card = toolCardOf(call);
+    const existingBubbleId = next.toolBubbleIds[call.id];
+    if (existingBubbleId !== undefined) {
+      // 履歴と run が重なる瞬間は run の位相が正なので、所属バブルを保ってカードを更新する。
+      next = updateBubble(next, existingBubbleId, (bubble) => ({
+        ...bubble,
+        tools: bubble.tools.map((existing) => (existing.id === call.id ? card : existing)),
+      }));
+      continue;
+    }
     next = {
-      ...updateBubble(next, bubbleId, (b) => ({ ...b, tools: [...b.tools, card] })),
+      ...updateBubble(next, bubbleId, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
       toolBubbleIds: { ...next.toolBubbleIds, [call.id]: bubbleId },
     };
   }
@@ -216,7 +245,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "resync": {
       const payload = action.payload;
-      const { bubbles, nextId } = historyToBubbles(state.nextId, payload.messages ?? []);
+      const { bubbles, nextId, toolBubbleIds } = historyToBubbles(state.nextId, payload.messages ?? []);
       const status = payload.status || "idle";
       // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
       // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
@@ -229,7 +258,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
         pendingEchoIds: [],
         currentAssistantId: null,
-        toolBubbleIds: {},
+        toolBubbleIds,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
         queueDepth: payload.queueDepth || 0,

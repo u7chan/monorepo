@@ -6,7 +6,8 @@ import { createAgentCatalog } from "../src/agents";
 import { catalogSkillPath } from "../src/catalog-skills";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import { classifySkillRead, displayableMessages, projectMessages } from "../src/session-projection";
-import type { EventEntry, MessageMetrics, SkillLoad } from "../src/schema";
+import type { EventEntry, MessageMetrics, SkillLoad, ToolCall } from "../src/schema";
+import { toolArgsSummary, toolResultSummary } from "../src/session-projection";
 import {
   SessionStore,
   type PiRuntimeLike,
@@ -42,6 +43,10 @@ function toolResult(id: string, isError = false): TestMessage {
 
 function readCall(id: string, path: string, extra: Record<string, unknown> = {}): unknown {
   return { type: "toolCall", id, name: "read", arguments: { path, ...extra } };
+}
+
+function toolCall(id: string, name: string, args: unknown): unknown {
+  return { type: "toolCall", id, name, arguments: args };
 }
 
 function text(value: string): unknown {
@@ -157,6 +162,74 @@ test("projectMessages は本文を持たない read だけのターンを次の�
   assert.equal(projected[0].skillLoads, undefined, "user バブルには載せない");
 });
 
+test("projectMessages は結果のある toolCall を復元し、結果なしとスキル読み込みをカードから除く", () => {
+  const messages = [
+    user("調べて"),
+    assistant([
+      toolCall("call-ok", "bash", { command: "ls -la" }),
+      toolCall("call-error", "grep", { pattern: "missing" }),
+      toolCall("call-unfinished", "read", { path: "partial.txt" }),
+      readCall("call-skill", ".agents/skills/gh/SKILL.md"),
+      text("確認します"),
+    ]),
+    toolResult("call-ok"),
+    { ...toolResult("call-error", true), content: [{ type: "text", text: "not found" }] },
+    { ...toolResult("call-skill"), content: [{ type: "text", text: "skill body" }] },
+  ];
+
+  const projected = project(messages);
+  const assistantMessage = projected.at(-1);
+  assert.deepEqual(
+    assistantMessage?.tools,
+    [
+      {
+        id: "call-ok",
+        name: "bash",
+        args: "$ ls -la",
+        isError: false,
+        done: true,
+        output: "body",
+      },
+      {
+        id: "call-error",
+        name: "grep",
+        args: '{"pattern":"missing"}',
+        isError: true,
+        done: true,
+        output: "not found",
+      },
+    ] satisfies ToolCall[],
+    "成功・失敗は result から決まり、結果なしの call は復元しない",
+  );
+  assert.deepEqual(assistantMessage?.skillLoads, [
+    { id: "call-skill", name: "gh", path: `${CWD}/.agents/skills/gh/SKILL.md` },
+  ]);
+});
+
+test("本文なし assistant の tools は part 順で次の表示 assistant へ前詰めする", () => {
+  const messages = [
+    user("一覧を確認して"),
+    assistant([
+      toolCall("call-first", "bash", { command: "pwd" }),
+      toolCall("call-second", "read", { path: "README.md" }),
+    ]),
+    toolResult("call-first"),
+    { ...toolResult("call-second"), content: [{ type: "text", text: "readme" }] },
+    assistant([toolCall("call-third", "grep", { pattern: "TODO" }), text("確認しました")]),
+    { ...toolResult("call-third"), content: [{ type: "text", text: "TODO: fix" }] },
+  ];
+
+  const projected = project(messages);
+  assert.deepEqual(
+    projected.at(-1)?.tools?.map((call) => call.id),
+    ["call-first", "call-second", "call-third"],
+  );
+  assert.deepEqual(
+    projected.at(-1)?.tools?.map((call) => call.output),
+    ["body", "readme", "TODO: fix"],
+  );
+});
+
 test("projectMessages は繰り上げをターン内の次の user メッセージで止める", () => {
   const messages = [
     user("1 つ目"),
@@ -174,17 +247,50 @@ test("projectMessages は繰り上げをターン内の次の user メッセー�
   assert.equal(projected[2].skillLoads, undefined, "user メッセージを越えて運ばない");
 });
 
-test("projectMessages はターン内に表示メッセージが無い read を落とす", () => {
+test("projectMessages は表示バブルが無いターンの read / tools を落とす", () => {
   // read の直後に abort して本文が無いケース
   const messages = [
     user("読んで"),
-    assistant([readCall("call-1", "gh/SKILL.md")], { stopReason: "aborted" }),
+    assistant([readCall("call-1", "gh/SKILL.md"), toolCall("call-2", "bash", { command: "echo hidden" })], {
+      stopReason: "aborted",
+    }),
     toolResult("call-1"),
+    toolResult("call-2"),
+    user("次のターン"),
+    assistant([text("このターンの返答")]),
   ];
   const projected = project(messages);
 
-  assert.equal(projected.length, 1);
+  assert.deepEqual(
+    projected.map((message) => message.text),
+    ["読んで", "次のターン", "このターンの返答"],
+  );
   assert.equal(skillLoadsOf(projected).length, 0);
+  assert.equal(projected.at(-1)?.tools, undefined, "表示バブルが無いターンの toolCall は次ターンへ運ばない");
+});
+
+test("履歴ツールのマスクと切り詰めはライブの summary 関数と一致する", () => {
+  const secret = "sk-projection-secret-123456789";
+  const secretMasker = createSecretMasker([secret]);
+  const commandArgs = { command: `${"c".repeat(270)}${secret}` };
+  const longPath = `/workspace/${"nested/".repeat(55)}${secret}/file.txt`;
+  const pathArgs = { file_path: longPath };
+  const output = `${"o".repeat(890)}${secret}`;
+  const messages = [
+    user("秘密をマスクして"),
+    assistant([toolCall("call-command", "bash", commandArgs), toolCall("call-path", "read", pathArgs), text("完了")]),
+    { ...toolResult("call-command"), content: [{ type: "text", text: output }] },
+    { ...toolResult("call-path"), content: [{ type: "text", text: output }] },
+  ];
+
+  const tools = project(messages, secretMasker).at(-1)?.tools ?? [];
+  assert.equal(tools[0]?.args, toolArgsSummary(commandArgs, secretMasker));
+  assert.equal(tools[0]?.output, toolResultSummary({ content: [{ type: "text", text: output }] }, secretMasker));
+  assert.ok((tools[0]?.args.length ?? 0) <= 263, "command args は接頭辞・既定上限・省略記号までに切る");
+  assert.ok((tools[1]?.args.length ?? 0) > 260, "path は切り詰めない");
+  assert.equal(tools[1]?.args, toolArgsSummary(pathArgs, secretMasker));
+  assert.ok((tools[0]?.output.length ?? 0) <= 901, "output は既定上限+省略記号で切る");
+  assert.ok(!JSON.stringify(tools).includes(secret));
 });
 
 test("projectMessages はメッセージ順 → part 順で並べ、繰り上げ分を先に置く", () => {
@@ -525,5 +631,49 @@ test("store の payload / summary / run_end は read だけのターンで表示
     { id: "call-1", name: "gh", path: `${CWD}/.agents/skills/gh/SKILL.md` },
   ]);
   assert.equal(payload.compactions[0].beforeMessageIndex, 1, "compaction の区切り位置も動かない");
+  await store.close();
+});
+
+test("500 件の tool 履歴を含む resync payload 生成・JSON 化は 1MB / 1 秒以内", async (t) => {
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog(), masker, rootCwd: CWD });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+  const count = 500;
+  const output = "o".repeat(900);
+  const calls = Array.from({ length: count }, (_, index) =>
+    toolCall(`call-${index}`, "bash", { command: `echo ${index} ${"x".repeat(250)}` }),
+  );
+  session.appendMessage({ role: "user", content: "長い履歴を再同期" });
+  session.appendMessage({ role: "assistant", content: calls, stopReason: "stop" });
+  for (let index = 0; index < count; index += 1) {
+    session.appendMessage({
+      role: "toolResult",
+      content: [{ type: "text", text: output }],
+      toolCallId: `call-${index}`,
+      isError: false,
+    });
+  }
+  session.appendMessage({ role: "assistant", content: [text("完了")], stopReason: "stop" });
+
+  const elapsedMs: number[] = [];
+  let payloadJson = "";
+  let payload = store.payload(record);
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const startedAt = performance.now();
+    payload = store.payload(record);
+    payloadJson = JSON.stringify(payload);
+    elapsedMs.push(performance.now() - startedAt);
+  }
+  const payloadBytes = Buffer.byteLength(payloadJson);
+  const toolCount = payload.messages.reduce((total, message) => total + (message.tools?.length ?? 0), 0);
+  const maxElapsedMs = Math.max(...elapsedMs);
+  const medianElapsedMs = [...elapsedMs].sort((a, b) => a - b)[Math.floor(elapsedMs.length / 2)];
+
+  assert.equal(toolCount, count);
+  assert.ok(payloadBytes < 1_000_000, `payload size: ${payloadBytes} bytes`);
+  assert.ok(maxElapsedMs < 1_000, `payload generation + JSON: ${maxElapsedMs.toFixed(1)}ms`);
+  t.diagnostic(
+    `payload=${payloadBytes} bytes, generate+JSON p50=${medianElapsedMs.toFixed(1)}ms max=${maxElapsedMs.toFixed(1)}ms, toolCalls=${toolCount}`,
+  );
   await store.close();
 });
