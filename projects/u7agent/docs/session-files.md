@@ -94,7 +94,7 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 - **読み込み時の検証（非破壊）**:
   - 1 行目が header でただ 1 つ、`type: "session"`、`id` がフォルダ名と一致、`version` が現行（`CURRENT_SESSION_VERSION`）と一致することを検証する。
   - entry の `id` が一意で、`parentId` が `null` か「自分より前の entry」を指すこと（自己参照・循環・重複・前方参照をここで排除する）。SDK の親探索は循環を検出しないため、ロード前に必ず弾く。
-  - entry の `type` は既知のものだけを許可し、型ごとの必須フィールド（`timestamp` / `message` など）を検証する。未知 type は破損扱いにする。SDK が entry type を足したら `server/src/session-store.ts` の allowlist にも足す。足し忘れると、リトライの `context_edit` や cache warming の `usage` のように SDK 自身が追記する entry で、その会話が再起動後に開けなくなる。
+  - entry の `type` は既知のものだけを許可し、型ごとの必須フィールド（`timestamp` / `message` など）を検証する。未知 type は破損扱いにする。SDK が entry type や message role を足したら `server/src/session-store.ts` の allowlist にも足す。足し忘れると、リトライの `context_edit`、cache warming の `usage`、system prompt の section 差分を表す `system` message のように SDK 自身が追記する entry で、その会話が再起動後に開けなくなる。
   - 末尾の途絶（末尾改行が無く parse できない行）だけは「書込み途絶」として読み飛ばし、原本は書換えず、次の書込み時に確定位置まで truncate してから追記する。それ以外の parse 失敗・中間破損・検証失敗は、原本を一切書換えずに開く要求を 409（store のパスを含む文言）で拒否する。一覧には meta から出し、DELETE は可能にする。
   - 現行 version 限定とし、古い version の migration は行わない（非破壊で拒否）。pi CLI など別実装が書いたファイルの取り込みも対象外。
 
@@ -232,6 +232,8 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 - [ ] load × DELETE、write × DELETE、sweep × 送信 / 購読、close × loading が store を復活させたり進行中の SDK を壊したりしない（状態予約とライフサイクルチェーンのテスト）
 - [ ] 部分書込み（ENOSPC）後に復旧して再試行でき、entry の重複・連結が起きない（復旧失敗時は追記を止める）
 - [ ] 中間破損・header 不一致・重複 ID・循環 parentId・未知 version のセッションは原本を書き換えずに開く要求が失敗し、DELETE はできる
+- [ ] SDK が自分で追記する entry / message role（`context_edit` / `usage` / `system` message）を含む履歴は 409 にならずに復元できる
+- [ ] 開けないセッションが複数あっても、移り先は一覧を 1 周するまでで打ち切り、未作成チャットへ落ちて理由を状態行に出す
 - [ ] 末尾が途絶えた JSONL（不完全行・改行欠け）は不完全分だけを捨てて復元できる
 - [ ] SSE はカーソル優先順位（ヘッダ → query → resync）と generation 不一致 / cursor の大小で正しく resync し、旧タブが古い表示のまま残らない
 - [ ] プロジェクト解除後もセッションのファイルと store が残り、一覧では未所属として解決され、購読中タブが resync で更新される

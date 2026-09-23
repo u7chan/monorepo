@@ -527,6 +527,53 @@ test("リトライや cache warming が追記した entry を含む履歴も復�
   }
 });
 
+// SDK 0.87 は tool 構成や system prompt の section 差分を role: "system" の message として追記する。
+// role を未知として扱っていたため、それを含む履歴が再起動後に 409 で開けなくなっていた
+test("system prompt の差分を追記した履歴も復元できる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-system-message-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const record = await store1.create();
+    await store1.flush(record);
+    await store1.close();
+
+    const timestamp = new Date().toISOString();
+    const text = serializeSession(sessionHeaderOf({ id: record.id, createdAt: Date.now() }, record.workdir), [
+      {
+        type: "message",
+        id: "entry-1",
+        parentId: null,
+        timestamp,
+        message: { role: "user", content: "hello", timestamp: 1 },
+      },
+      {
+        type: "message",
+        id: "entry-2",
+        parentId: "entry-1",
+        timestamp,
+        // SDK が書く形: 本文は空で、差分は sections に入る
+        message: { role: "system", content: "", sections: { skills: "<skills>…</skills>" }, timestamp: 2 },
+      },
+    ]);
+    await writeFile(sessionJsonlPath(record.id, storeDir), text);
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored, "409 にならずに復元できる");
+    const ids = (restored.session as StubSession).entries.map((entry) => entry.id);
+    for (const id of ["entry-1", "entry-2"]) {
+      assert.ok(ids.includes(id), `${id} が SDK へ渡る`);
+    }
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("壊れた JSONL は原本を書き換えずに開く要求が失敗し、削除はできる", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "sessions-damaged-"));
   const { workspace } = stubWorkspace();

@@ -233,6 +233,13 @@ function isStringOrTextParts(value: unknown): boolean {
   return Array.isArray(value) && value.every(isValidContentPart);
 }
 
+/** system message の section 差分。値は差し替え後の本文か、削除を表す null */
+function isSystemSections(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return Object.values(value).every((section) => section === null || typeof section === "string");
+}
+
 /**
  * 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する。
  * SDK が entry type を足すと「未知 type = 破損」になり復元が 409 で詰まるため、SDK を上げたらここも見直す。
@@ -253,6 +260,14 @@ function entryShapeError(type: string, entry: Record<string, unknown>): string |
           return typeof message.command === "string" && typeof message.output === "string"
             ? undefined
             : "bashExecution message が不正です";
+        case "system":
+          // SDK 0.87 は system prompt の section 差分と tool 構成の変更を system message として追記する
+          // (本文は空で、差分は sections / toolsAdded に入る)
+          return isStringOrTextParts(message.content) &&
+            isSystemSections(message.sections) &&
+            (message.toolsAdded === undefined || Array.isArray(message.toolsAdded))
+            ? undefined
+            : "system message が不正です";
         default:
           return `未知の message role です: ${message.role}`;
       }

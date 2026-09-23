@@ -215,6 +215,49 @@ test("parseSessionFile rejects malformed context_edit / usage entries", () => {
   }
 });
 
+// SDK 0.87 は tool 構成や system prompt の section 差分を role: "system" の message として追記する。
+// role を拒むと、それを含む履歴が再起動後に 409 で開けなくなる
+test("parseSessionFile accepts the system message SDK 0.87 appends", () => {
+  const systemMessage = (id: string, parentId: string | null, message: Record<string, unknown>): SessionEntryLike => ({
+    type: "message",
+    id,
+    parentId,
+    timestamp: "2026-01-01T00:00:02.000Z",
+    message: { role: "system", timestamp: 2, ...message },
+  });
+  const entries = [
+    messageEntry("e1", null),
+    // 本文は空で、差分は sections に入る (削除は null)
+    systemMessage("e2", "e1", { content: "", sections: { skills: "<skills>…</skills>", tools: null } }),
+    // tool 構成の変更は toolsAdded に入る
+    systemMessage("e3", "e2", {
+      content: "",
+      sections: { preamble: "新しい前置き" },
+      toolsAdded: [{ name: "read" }],
+    }),
+  ];
+  const parsed = parseSessionFile(lines([HEADER, ...entries]), HEADER.id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  assert.equal(parsed.entries.length, entries.length);
+});
+
+test("parseSessionFile rejects malformed system messages", () => {
+  const base = { type: "message", id: "e2", parentId: "e1", timestamp: "2026-01-01T00:00:02.000Z" };
+  const cases: Array<[string, unknown]> = [
+    ["sections が配列", { ...base, message: { role: "system", content: "", timestamp: 2, sections: [] } }],
+    [
+      "sections の値が数値",
+      { ...base, message: { role: "system", content: "", timestamp: 2, sections: { preamble: 1 } } },
+    ],
+    ["toolsAdded が配列でない", { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: {} } }],
+    ["content が数値", { ...base, message: { role: "system", content: 1, timestamp: 2 } }],
+  ];
+  for (const [label, entry] of cases) {
+    assert.equal(parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind, "damaged", label);
+  }
+});
+
 test("SessionFileWriter rewrites, appends and repairs a torn tail", async () => {
   const dir = await mkdtemp(join(tmpdir(), "session-writer-"));
   try {
