@@ -11,6 +11,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 領域 | エンドポイント | ドキュメント |
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
+| ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
 | ファイルのリネーム | `POST /api/files/rename` | このファイル |
@@ -32,7 +33,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd`）。認証が無い場合は `errorCode: "authentication_required"`、`PI_MODELS` の whitelist と利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
+| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd`）と小さいモデル診断サマリ。認証が無い場合は `errorCode: "authentication_required"`、`PI_MODELS` の whitelist と利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
 
 `ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。明示 `PI_MODEL` が利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。
 
@@ -54,12 +55,63 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   ],
   "defaultThinkingLevel": "medium",
   "defaultModelError": "指定された既定モデルは利用できません: openai/ghost",
+  "runtimeDiagnostics": {
+    "status": "available",
+    "whitelistConfigured": true,
+    "catalogCount": 1495,
+    "whitelistCount": 3,
+    "availableCount": 8,
+    "piModels": [],
+    "providers": [],
+    "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1" }
+  },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true }
 }
 ```
 
 `modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。解決の詳細は [model-effort.md](model-effort.md)。
+
+`runtimeDiagnostics` は全カタログを含めない集計で、カタログ数・whitelist 収載数・whitelist 適用前の利用可能数と、明示した `PI_MODEL` / `PI_MODELS` の各入力要素を返す。`PI_MODELS` の判定は入力順と重複を保つ。モデル参照の判定は「未知のプロバイダー → カタログ外 → 未認証 → whitelist 対象外 → 利用可能」の優先順で、認証済みでも SDK の利用可能一覧に無いモデルは `not_available` になる。プロバイダー別の数値と認証状態は、`PI_MODEL` / `PI_MODELS` で参照されたプロバイダーと認証済みプロバイダーだけを含む。それ以外の内訳は返さない。
+
+認証ソースは `environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` を表し、将来 SDK が返す未知の値は `unknown` にする。`environmentVariables` に含めるのは環境変数名として検証できた名前だけで、認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは含めない。SDK バージョンと、設定されている場合の `COMMIT_HASH` も表示する。ランタイム初期化または診断の取得に失敗した場合は `runtimeDiagnostics.status: "unavailable"` とし、既存の health エラーや `ready` の意味は変更しない。
+
+## ランタイムのモデルカタログ
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/runtime/models` | 設定 → ランタイムを開いたときに取得する、全カタログとプロバイダー認証状態 |
+
+```json
+{
+  "whitelistConfigured": true,
+  "catalogCount": 2,
+  "whitelistCount": 1,
+  "availableCount": 2,
+  "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1", "commitHash": "…" },
+  "providers": [
+    {
+      "provider": "<provider>",
+      "auth": {
+        "configured": true,
+        "source": "environment",
+        "environmentVariables": ["<ENV_VAR_NAME>"]
+      },
+      "models": [
+        { "id": "<id>", "name": "…", "available": true, "inWhitelist": true }
+      ]
+    }
+  ]
+}
+```
+
+- `available` は whitelist 適用前の SDK `getAvailable()` の結果、`inWhitelist` はカタログの whitelist 収載状態。両者は独立している。whitelist 未指定時は全モデルで `inWhitelist: true` とし、`whitelistConfigured: false` で制限なしを示す
+- `whitelistCount` はカタログとの一致モデル数で、whitelist 入力の重複は数えない。`availableCount` は whitelist 適用前の件数
+- 認証ソースと `environmentVariables` の公開範囲は `GET /api/health` と同じ。provider の内部設定、キー値、`auth.json` / `models.json` の内容は返さない
+- 200: カタログ応答。0 件でも空の `providers` / count を返す
+- 503: ランタイムまたは診断情報が利用できない。生のエラーを含めず、`{ "error": "ランタイムのモデル情報を取得できません" }` を返す
+
+カタログ全件は通常約 90KB（pi SDK の同梱版で変動）となるため、health には載せない。この API は設定画面を開いたときにだけ要求する。
 
 `sessionStore` は会話ストア、`appDb` はプロジェクト / カタログを保存する SQLite の状態。`ok: false` のときは `error` に理由が入り、その保存先を読む API は 503 になる。`path` が `null` なのは永続化なしのとき（`sessionStore` は未設定、`appDb` はテストのメモリ DB）で、パス解決に失敗した `appDb` は `ok: false` と `path: null` の組み合わせになる。詳細は [persistence.md](persistence.md)。
 

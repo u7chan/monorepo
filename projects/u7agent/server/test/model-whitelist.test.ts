@@ -1,7 +1,7 @@
 // PI_MODELS (whitelist) の構文解釈と available との積のオフライン検証。ランタイムや実 API は使わない。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterModelsByWhitelist, parseModelWhitelist } from "../src/agent";
+import { filterModelsByWhitelist, parseModelReference, parseModelWhitelist } from "../src/agent";
 import { STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
 
 const AVAILABLE = [STUB_MODEL, STUB_PLAIN_MODEL];
@@ -22,6 +22,27 @@ test("PI_MODELS は provider/model のカンマ区切りを解釈する", () => 
   assert.deepEqual(parseModelWhitelist("openrouter/anthropic/claude-sonnet-4-5"), [
     { provider: "openrouter", id: "anthropic/claude-sonnet-4-5" },
   ]);
+});
+
+test("PI_MODELS は空要素を除き、入力順と重複を保つ", () => {
+  assert.deepEqual(parseModelWhitelist("stub/stub-plain,, stub/stub-model,stub/stub-plain,"), [
+    { provider: "stub", id: "stub-plain" },
+    { provider: "stub", id: "stub-model" },
+    { provider: "stub", id: "stub-plain" },
+  ]);
+  assert.deepEqual(parseModelWhitelist("stub/model\nother/model"), [{ provider: "stub", id: "model\nother/model" }]);
+});
+
+test("PI_MODEL は PI_PROVIDER と effort suffix を解決してから診断する", () => {
+  assert.deepEqual(parseModelReference({ PI_MODEL: "stub-model:high", PI_PROVIDER: "stub" }), {
+    model: { provider: "stub", id: "stub-model" },
+    thinkingLevel: "high",
+  });
+  assert.deepEqual(parseModelReference({ PI_MODEL: "stub/stub-model:low", PI_PROVIDER: "ignored" }), {
+    model: { provider: "stub", id: "stub-model" },
+    thinkingLevel: "low",
+  });
+  assert.equal(parseModelReference({}), undefined);
 });
 
 test("provider/model 形式でない PI_MODELS は起動時に落とす", () => {

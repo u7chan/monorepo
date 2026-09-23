@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { Context } from "hono";
-import { AUTH_REQUIRED_MESSAGE } from "../agent";
+import { AUTH_REQUIRED_MESSAGE, unavailableRuntimeDiagnostics } from "../agent";
 import type { PiBff } from "../agent";
 import type { AppDbStatus } from "../app-db";
 
@@ -62,6 +62,9 @@ export function createHealthRoutes({
         tools: pi?.tools || [],
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,
+        runtimeDiagnostics:
+          pi?.runtimeDiagnostics?.summary ??
+          unavailableRuntimeDiagnostics(pi ? "diagnostics_unavailable" : "runtime_unavailable"),
         ...(sessionStore ? { sessionStore } : {}),
         ...(appDbStatus ? { appDb: appDbStatus } : {}),
         errorCode,

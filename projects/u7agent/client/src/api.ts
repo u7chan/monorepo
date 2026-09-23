@@ -15,6 +15,7 @@ import type {
   PostMessageResult,
   Project,
   ProjectsResponse,
+  RuntimeModelsResponse,
   SessionPayload,
   SessionSkillsPreview,
   SessionSkillsResponse,
@@ -51,6 +52,12 @@ async function apiError(res: Response): Promise<ApiError> {
 export const getHealth = async (): Promise<Health> => {
   const res = await client.api.health.$get();
   // throw で制御フローを切ると res.json() が成功型になる
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const getRuntimeModels = async (): Promise<RuntimeModelsResponse> => {
+  const res = await client.api.runtime.models.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

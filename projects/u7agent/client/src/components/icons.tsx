@@ -283,6 +283,26 @@ export function ThemeIcon() {
   );
 }
 
+/** ランタイム設定。 */
+export function GaugeIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M2.5 11.75a6 6 0 1 1 11 0" />
+      <path d="m8 8 2.5-2.25M4.5 11.75h7" />
+      <circle cx="8" cy="8" r=".75" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** ツリーの展開 (開いているときは親側で回転させる) */
 export function ChevronIcon() {
   return (

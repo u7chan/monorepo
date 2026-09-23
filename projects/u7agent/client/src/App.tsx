@@ -7,6 +7,7 @@ import { Composer } from "./components/Composer";
 import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
 import { ProjectDialog } from "./components/ProjectDialog";
+import { RuntimePage } from "./components/RuntimePage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
@@ -31,7 +32,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
-  // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定 4 画面 (lib/route.ts)
+  // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定 5 画面 (lib/route.ts)
   const { route, navigate, lastSettingsSection } = useRoute();
   const mainView = route.view;
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
@@ -285,8 +286,10 @@ export default function App() {
               // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
               // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
               <FileTreePage {...pageProps} cwd="" />
-            ) : (
+            ) : settingsSection === "appearance" ? (
               <AppearancePage {...pageProps} />
+            ) : (
+              <RuntimePage {...pageProps} health={app.health} />
             )
           ) : null}
         </div>

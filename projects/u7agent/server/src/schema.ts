@@ -282,6 +282,101 @@ export const ModelOptionSchema = z.object({
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
 
+export const RuntimeAuthSourceSchema = z.enum([
+  "environment",
+  "stored",
+  "runtime",
+  "fallback",
+  "models_json_key",
+  "models_json_command",
+  "unknown",
+]);
+export type RuntimeAuthSource = z.infer<typeof RuntimeAuthSourceSchema>;
+
+/** 認証の出所だけを表す。ラベルや認証情報の値は API に含めない。 */
+export const RuntimeAuthSchema = z.object({
+  configured: z.boolean(),
+  source: RuntimeAuthSourceSchema.optional(),
+  environmentVariables: z.array(z.string()),
+});
+export type RuntimeAuth = z.infer<typeof RuntimeAuthSchema>;
+
+export const ModelDiagnosticStatusSchema = z.enum([
+  "unknown_provider",
+  "catalog_missing",
+  "unauthenticated",
+  "not_in_whitelist",
+  "available",
+  "not_available",
+]);
+export type ModelDiagnosticStatus = z.infer<typeof ModelDiagnosticStatusSchema>;
+
+export const ModelReferenceDiagnosticSchema = ModelRefSchema.extend({
+  status: ModelDiagnosticStatusSchema,
+  cataloged: z.boolean(),
+  authenticated: z.boolean(),
+  available: z.boolean(),
+  inWhitelist: z.boolean(),
+});
+export type ModelReferenceDiagnostic = z.infer<typeof ModelReferenceDiagnosticSchema>;
+
+export const RuntimeVersionsSchema = z.object({
+  piCodingAgent: z.string(),
+  piAi: z.string().optional(),
+  commitHash: z.string().optional(),
+});
+export type RuntimeVersions = z.infer<typeof RuntimeVersionsSchema>;
+
+export const RuntimeProviderSummarySchema = z.object({
+  provider: z.string(),
+  auth: RuntimeAuthSchema,
+  catalogCount: z.number().int().nonnegative(),
+  whitelistCount: z.number().int().nonnegative(),
+  availableCount: z.number().int().nonnegative(),
+});
+export type RuntimeProviderSummary = z.infer<typeof RuntimeProviderSummarySchema>;
+
+/** health に載せる診断は集計と明示設定だけ。カタログ全件は別 API で取得する。 */
+export const RuntimeDiagnosticSummarySchema = z.object({
+  status: z.enum(["available", "unavailable"]),
+  unavailableReason: z.enum(["runtime_unavailable", "diagnostics_unavailable"]).optional(),
+  whitelistConfigured: z.boolean().optional(),
+  catalogCount: z.number().int().nonnegative().optional(),
+  whitelistCount: z.number().int().nonnegative().optional(),
+  availableCount: z.number().int().nonnegative().optional(),
+  piModel: ModelReferenceDiagnosticSchema.optional(),
+  piModels: z.array(ModelReferenceDiagnosticSchema).optional(),
+  providers: z.array(RuntimeProviderSummarySchema).optional(),
+  versions: RuntimeVersionsSchema.optional(),
+});
+export type RuntimeDiagnosticSummary = z.infer<typeof RuntimeDiagnosticSummarySchema>;
+
+export const RuntimeCatalogModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  available: z.boolean(),
+  inWhitelist: z.boolean(),
+});
+export type RuntimeCatalogModel = z.infer<typeof RuntimeCatalogModelSchema>;
+
+export const RuntimeCatalogProviderSchema = z.object({
+  provider: z.string(),
+  auth: RuntimeAuthSchema,
+  models: z.array(RuntimeCatalogModelSchema),
+});
+export type RuntimeCatalogProvider = z.infer<typeof RuntimeCatalogProviderSchema>;
+
+/** GET /api/runtime/models。モデル一覧はこの API を開いたときだけ取得する。 */
+export const RuntimeModelsResponseSchema = z.object({
+  whitelistConfigured: z.boolean(),
+  catalogCount: z.number().int().nonnegative(),
+  whitelistCount: z.number().int().nonnegative(),
+  availableCount: z.number().int().nonnegative(),
+  versions: RuntimeVersionsSchema,
+  providers: z.array(RuntimeCatalogProviderSchema),
+});
+export type RuntimeModelsResponse = z.infer<typeof RuntimeModelsResponseSchema>;
+
 /** client/src/types.ts の Health に加え、ルート固有のフィールドを optional で許容する。 */
 export const HealthSchema = z.object({
   cwd: z.string().optional(),
@@ -316,6 +411,7 @@ export const HealthSchema = z.object({
       error: z.string().optional(),
     })
     .optional(),
+  runtimeDiagnostics: RuntimeDiagnosticSummarySchema.optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
 
