@@ -22,18 +22,31 @@ import { RefreshIcon } from "../icons";
 export type FileSkillListProps = {
   state: FileSkillsState;
   onReload: () => void;
-  /** 選択中の組み込みスキル (本文を右ペイン / シートへ出す) */
-  selectedBuiltin?: string | null;
-  onSelectBuiltin?: (name: string) => void;
+  /**
+   * 選択中の読み取り専用スキル。上書きされた組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない。
+   * 行固有の path で照合する
+   */
+  selectedPath?: string | null;
+  onSelect: (path: string) => void;
 };
 
 /**
  * 共通スキル (`.agents/skills`) と組み込みスキルの読み取り専用一覧。ファイルスキルは編集・削除・
- * エージェント割り当ての操作を持たず、組み込みは本文ビューだけを開ける (編集はできない)。
- * 同名はサーバー側で優先順位により一意化済みで、影になった側 / 上書きされた組み込みを警告として出す。
+ * エージェント割り当ての操作を持たず、行はどちらも本文ビューを開くだけ。同じ名前の行が残ることがあり
+ * (上書きされた組み込み)、影になった側 / 上書きされた組み込みを警告として出す。
  */
-export function FileSkillList({ state, onReload, selectedBuiltin = null, onSelectBuiltin }: FileSkillListProps) {
+export function FileSkillList({ state, onReload, selectedPath = null, onSelect }: FileSkillListProps) {
   const groups = state.status === "ready" ? groupFileSkills(state.skills) : { common: [], builtin: [] };
+  // 共通行も組み込み行も同じ形 (押すと本文ビューが開く) なので、行の組み立ては 1 箇所に閉じる
+  const rows = (skills: FileSkillInfo[]) =>
+    skills.map((skill) => (
+      <FileSkillRow
+        key={skill.path}
+        skill={skill}
+        selected={selectedPath === skill.path}
+        onOpen={() => onSelect(skill.path)}
+      />
+    ));
   return (
     <section className="mt-3 grid min-w-0 content-start gap-1 border-t border-line pt-3">
       {/* 再読み込みは両グループを包む見出しにだけ置く (グループ側に置くと片方だけ更新するように見える) */}
@@ -61,21 +74,12 @@ export function FileSkillList({ state, onReload, selectedBuiltin = null, onSelec
         <>
           <FileSkillGroup title={FILE_SKILL_GROUP_LABEL}>
             {groups.common.length === 0 ? <FileSkillNote>{FILE_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
-            {groups.common.map((skill) => (
-              <FileSkillRow key={skill.path} skill={skill} />
-            ))}
+            {rows(groups.common)}
           </FileSkillGroup>
           {/* 組み込みは取得できたときだけ出す (失敗時はエラー表示だけで十分で、空のグループ見出しを増やさない) */}
           <FileSkillGroup title={BUILTIN_SKILL_GROUP_LABEL} divided>
             {groups.builtin.length === 0 ? <FileSkillNote>{BUILTIN_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
-            {groups.builtin.map((skill) => (
-              <FileSkillRow
-                key={skill.path}
-                skill={skill}
-                selected={selectedBuiltin === skill.name}
-                onOpen={onSelectBuiltin ? () => onSelectBuiltin(skill.name) : undefined}
-              />
-            ))}
+            {rows(groups.builtin)}
           </FileSkillGroup>
         </>
       ) : null}
@@ -110,16 +114,8 @@ function FileSkillNote({ tone = "muted", children }: { tone?: "muted" | "warn"; 
   );
 }
 
-/** 行はファイルスキルではボタンにしない (読み取り専用で、押しても何も起きない選択状態を作らない)。 */
-function FileSkillRow({
-  skill,
-  selected = false,
-  onOpen,
-}: {
-  skill: FileSkillInfo;
-  selected?: boolean;
-  onOpen?: () => void;
-}) {
+/** 行全体が本文ビューを開く button になる (共通 / プロジェクトも読み取り専用で、押しても何も起きない行は作らない)。 */
+function FileSkillRow({ skill, selected, onOpen }: { skill: FileSkillInfo; selected: boolean; onOpen: () => void }) {
   const warning = fileSkillWarning(skill);
   const identity = (
     <span className="flex min-w-0 items-baseline gap-1.5">
@@ -142,15 +138,7 @@ function FileSkillRow({
       ) : null}
     </>
   );
-  if (!onOpen) {
-    return (
-      <div className="grid min-w-0 gap-1 rounded-lg px-2 py-1 text-ink">
-        {identity}
-        {details}
-      </div>
-    );
-  }
-  // 組み込みは本文ビューを開ける (読み取り専用なので編集フォームは出さない)。説明・パス・警告は button の
+  // 本文ビューを開ける (読み取り専用なので編集フォームは出さない)。説明・パス・警告は button の
   // 外へ出して読み上げ名を名前行に閉じ、クリック領域は overlay で行全体のまま保つ (docs/api-catalog.md)
   return (
     <div

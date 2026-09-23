@@ -22,6 +22,17 @@ export const FILE_SKILL_ERROR_PREFIX = "スキルを取得できませんでし�
 export const FILE_SKILL_LOADING_NOTE = "スキルを読み込んでいます…";
 export const BUILTIN_SKILL_OVERRIDE_NOTE = "上書きされています（同名の共通スキルが優先されます）";
 export const BUILTIN_SKILL_READONLY_NOTE = "アプリに同梱されているため、編集・削除はできません。";
+export const FILE_SKILL_READONLY_NOTE =
+  "ワークスペースのファイルがそのまま使われます。編集は「ファイル」画面から行ってください。";
+/** 本文ビューの見出し。一覧のグループ名 (共通 / プロジェクト / 組み込み) と同じ語を使う */
+export const FILE_SKILL_PANEL_HEADING: Record<FileSkillInfo["scope"], string> = {
+  user: "共通スキル",
+  project: "プロジェクトスキル",
+  builtin: "組み込みスキル",
+};
+/** 本文の取得中 / 失敗の表示。組み込みは一覧の応答に本文が載るため、ファイルスキルだけが通る */
+export const FILE_SKILL_BODY_LOADING_NOTE = "本文を読み込んでいます…";
+export const FILE_SKILL_BODY_ERROR_PREFIX = "本文を取得できませんでした";
 
 /** 一覧のグループ分け。組み込みは別グループで表示する (読み取り専用で、上書き状態を持つ) */
 export function groupFileSkills(skills: FileSkillInfo[]): { common: FileSkillInfo[]; builtin: FileSkillInfo[] } {

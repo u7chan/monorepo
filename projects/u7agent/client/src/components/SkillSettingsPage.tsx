@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useFileSkills } from "../hooks/useFileSkills";
+import { FILE_SKILL_PANEL_HEADING } from "../lib/fileSkills";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { Catalog } from "../types";
 import { DefinitionList } from "./DefinitionList";
 import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { BuiltinSkillPanel } from "./skill-settings/BuiltinSkillPanel";
 import { FileSkillList } from "./skill-settings/FileSkillList";
+import { ReadOnlySkillPanel } from "./skill-settings/ReadOnlySkillPanel";
 import { SkillEditorForm, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
 import { BoltIcon } from "./icons";
 
@@ -26,13 +27,16 @@ export function SkillSettingsPage({
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [selectedBuiltin, setSelectedBuiltin] = useState<string | null>(null);
+  const [selectedFileSkillPath, setSelectedFileSkillPath] = useState<string | null>(null);
+  // 同じ行を押し直したときも本文を取り直すための世代 (パネルの key に混ぜる)
+  const [selectedFileSkillSeq, setSelectedFileSkillSeq] = useState(0);
   const fileSkills = useFileSkills();
   const editingSkill = catalog.skills.find((skill) => skill.id === editingId);
-  // 組み込みは編集できないので、選んだときは本文ビューだけを出す (一覧の選択状態は名前で持つ)
-  const builtinSkill =
-    selectedBuiltin && fileSkills.state.status === "ready"
-      ? fileSkills.state.skills.find((skill) => skill.scope === "builtin" && skill.name === selectedBuiltin)
+  // 読み取り専用スキルは編集できないので、選んだときは本文ビューだけを出す。選択は行固有の path で持つ
+  // (上書きされた組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない)
+  const selectedFileSkill =
+    selectedFileSkillPath && fileSkills.state.status === "ready"
+      ? fileSkills.state.skills.find((skill) => skill.path === selectedFileSkillPath)
       : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
@@ -46,14 +50,16 @@ export function SkillSettingsPage({
   }
 
   const selectSkill = (nextId: string | null) => {
-    setSelectedBuiltin(null);
+    setSelectedFileSkillPath(null);
     setEditingId(nextId);
     // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「compact の詳細シート」)
     if (compact) setSheetOpen(true);
   };
 
-  const selectBuiltin = (name: string) => {
-    setSelectedBuiltin(name);
+  const selectFileSkill = (path: string) => {
+    setSelectedFileSkillPath(path);
+    // 同じ行の押し直しでも本文を取り直す (ファイルは選択の外で書き換わる)
+    setSelectedFileSkillSeq((seq) => seq + 1);
     if (compact) setSheetOpen(true);
   };
 
@@ -85,14 +91,19 @@ export function SkillSettingsPage({
       <FileSkillList
         state={fileSkills.state}
         onReload={fileSkills.reload}
-        selectedBuiltin={selectedBuiltin}
-        onSelectBuiltin={selectBuiltin}
+        selectedPath={selectedFileSkillPath}
+        onSelect={selectFileSkill}
       />
     </DefinitionList>
   );
 
-  const editor = builtinSkill ? (
-    <BuiltinSkillPanel skill={builtinSkill} variant={compact ? "sheet" : "page"} />
+  const editor = selectedFileSkill ? (
+    // 本文は選択のたびに取り直す。行が同じでも再選択で作り直せるよう、選択の世代も key に含める
+    <ReadOnlySkillPanel
+      key={`${selectedFileSkill.path}:${selectedFileSkillSeq}`}
+      skill={selectedFileSkill}
+      variant={compact ? "sheet" : "page"}
+    />
   ) : (
     <SkillEditorForm
       editingId={editingId}
@@ -111,7 +122,7 @@ export function SkillSettingsPage({
     <SettingsPageLayout
       eyebrow="CONFIGURATION"
       title="スキル"
-      caption="エージェントへ割り当てるスキルの本文を定義します。共通・組み込みは読み取り専用で表示します。"
+      caption="エージェントへ割り当てるスキルの本文を定義します。共通・組み込みは読み取り専用で、本文を確認できます。"
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}
@@ -128,7 +139,13 @@ export function SkillSettingsPage({
       {compact && sheetOpen ? (
         <SettingsDetailSheet
           eyebrow="SKILL"
-          title={builtinSkill ? "組み込みスキル" : editingSkill ? "スキルを編集" : "新しいスキル"}
+          title={
+            selectedFileSkill
+              ? FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]
+              : editingSkill
+                ? "スキルを編集"
+                : "新しいスキル"
+          }
           note={note}
           onClose={() => setSheetOpen(false)}
         >
