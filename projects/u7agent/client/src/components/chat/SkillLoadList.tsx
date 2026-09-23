@@ -32,7 +32,7 @@ function SkillBadgeItem({ badge, compact }: { badge: SkillBadge; compact: boolea
     <details className={cn("min-w-0 rounded-lg border bg-soft/20 transition-colors", STATE_CLASS[badge.state])}>
       <summary
         title={STATE_TITLE[badge.state] || undefined}
-        className="tool-summary flex min-w-0 cursor-pointer items-center gap-1 rounded-lg px-2 py-0.5 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
+        className="disclosure-summary flex min-w-0 cursor-pointer items-center gap-1 rounded-lg px-2 py-0.5 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
       >
         <DisclosureChevronIcon />
         <span className="min-w-0 truncate">{skillLoadSummary(load)}</span>
@@ -66,7 +66,7 @@ function FoldedBadges({ badges, compact }: { badges: SkillBadge[]; compact: bool
     <details className="min-w-0 rounded-lg border border-line/70 bg-soft/20 text-ink-faint transition-colors">
       <summary
         title={`残り ${badges.length} 件を表示`}
-        className="tool-summary flex cursor-pointer items-center gap-1 rounded-lg px-2 py-0.5 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
+        className="disclosure-summary flex cursor-pointer items-center gap-1 rounded-lg px-2 py-0.5 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
       >
         <DisclosureChevronIcon />
         <span>+{badges.length}</span>

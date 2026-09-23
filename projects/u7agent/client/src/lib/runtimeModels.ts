@@ -1,6 +1,7 @@
 import type {
   ModelDiagnosticStatus,
   ModelReferenceDiagnostic,
+  RuntimeDiagnosticSummary,
   RuntimeModelsResponse,
   RuntimeProviderSummary,
 } from "../types";
@@ -42,7 +43,7 @@ export function runtimeDiagnosticRows(summary: {
 
 export type RuntimeProviderDisplayRow = {
   provider: string;
-  authLabel: string;
+  configured: boolean;
   authSource: string;
   environmentVariables: string[];
   catalogCount: number;
@@ -64,7 +65,7 @@ const AUTH_SOURCE_LABELS: Record<string, string> = {
 function providerDisplayRow(provider: RuntimeModelsResponse["providers"][number]): RuntimeProviderDisplayRow {
   return {
     provider: provider.provider,
-    authLabel: provider.auth.configured ? "認証済み" : "未認証",
+    configured: provider.auth.configured,
     authSource: provider.auth.source ? AUTH_SOURCE_LABELS[provider.auth.source] : "要確認",
     environmentVariables: provider.auth.environmentVariables,
     catalogCount: provider.models.length,
@@ -82,7 +83,7 @@ export function runtimeProviderRows(response: RuntimeModelsResponse): RuntimePro
 export function runtimeProviderSummaryRows(providers: RuntimeProviderSummary[]): RuntimeProviderDisplayRow[] {
   return providers.map((provider) => ({
     provider: provider.provider,
-    authLabel: provider.auth.configured ? "認証済み" : "未認証",
+    configured: provider.auth.configured,
     authSource: provider.auth.source ? AUTH_SOURCE_LABELS[provider.auth.source] : "要確認",
     environmentVariables: provider.auth.environmentVariables,
     catalogCount: provider.catalogCount,
@@ -90,4 +91,22 @@ export function runtimeProviderSummaryRows(providers: RuntimeProviderSummary[]):
     availableCount: provider.availableCount,
     models: [],
   }));
+}
+
+/** ゲージの塗り比率。分母が 0 のときに NaN を作らない (数値は呼び出し側が別に出している) */
+export function runtimeMetricRatio(value: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.min(1, Math.max(0, value / total));
+}
+
+export type RuntimeDiagnosticCounts = { catalog: number; whitelist: number; available: number };
+
+/**
+ * health の集計からゲージ用の 3 数値を取り出す。1 つでも欠けたら undefined を返し、
+ * 欠けた数値を 0 として棒を描かない (サーバーは 3 つを同時に返す)。
+ */
+export function runtimeDiagnosticCounts(summary: RuntimeDiagnosticSummary): RuntimeDiagnosticCounts | undefined {
+  const { catalogCount, whitelistCount, availableCount } = summary;
+  if (catalogCount === undefined || whitelistCount === undefined || availableCount === undefined) return undefined;
+  return { catalog: catalogCount, whitelist: whitelistCount, available: availableCount };
 }

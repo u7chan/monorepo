@@ -453,19 +453,37 @@ html[data-theme="sky"] {
     }
   }
 
-  /* ツール履歴の開閉マーカー (summary のブラウザ既定マーカーを置き換える) */
-  .tool-summary {
+  /* 折りたたみ (details/summary) の開閉マーカー (summary のブラウザ既定マーカーを置き換える) */
+  .disclosure-summary {
     list-style: none;
   }
-  .tool-summary::-webkit-details-marker {
+  .disclosure-summary::-webkit-details-marker {
     display: none;
   }
-  .tool-disclosure {
+  .disclosure-chevron {
     color: var(--c-ink-faint);
     transition: transform 150ms ease;
   }
-  details[open] > .tool-summary .tool-disclosure {
+  details[open] > summary .disclosure-chevron {
     transform: rotate(90deg);
+  }
+
+  details::details-content {
+    interpolate-size: allow-keywords;
+    block-size: 0;
+    overflow: clip;
+    transition:
+      block-size 180ms ease,
+      content-visibility 180ms ease allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .disclosure-chevron,
+    details::details-content {
+      transition: none;
+    }
   }
 
   /* 細いスクロールバー */
