@@ -178,7 +178,7 @@
       "description": "バグや保守性の問題を重要度順にレビューする",
       "systemPrompt": "…",
       "skillIds": ["skill-example"],
-      "model": { "provider": "openai", "id": "gpt-5.5" },
+      "model": { "provider": "<provider>", "id": "<id>" },
       "thinkingLevel": "high"
     }
   ],

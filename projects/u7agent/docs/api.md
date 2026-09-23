@@ -2,6 +2,8 @@
 
 静的ファイル（`/`）以外は `/api/` 配下。JSON は `Content-Type: application/json`。
 
+例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（`PI_MODELS` の whitelist と available の積）で決まる。
+
 DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api.ts`）は `hono/client`（hc）でこの契約を型として参照する。
 
 ## 索引
@@ -39,13 +41,13 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "ok": true,
   "ready": true,
   "sandboxConfigured": true,
-  "model": "deepseek/deepseek-v4-flash",
-  "availableModels": ["deepseek/deepseek-v4-flash"],
+  "model": "<provider>/<id>",
+  "availableModels": ["<provider>/<id>"],
   "modelOptions": [
     {
-      "provider": "deepseek",
-      "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
+      "provider": "<provider>",
+      "id": "<id>",
+      "name": "…",
       "supportsThinking": true,
       "thinkingLevels": ["off", "low", "high", "max"]
     }

@@ -45,11 +45,11 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 
 ### 実 API での目視（低コスト・任意）
 
-閾値を意図的に下げれば、コンテキストを埋めずに数円以下で発火できる。`deepseek/deepseek-v4-flash`（$0.14/M input・1M context）で閾値 10k tokens なら 1 回の発火まで 1 円未満。
+閾値を意図的に下げれば、コンテキストを埋めずに数円以下で発火できる。入力単価が安く context の大きいモデル（例: $0.14/M input・1M context）なら、閾値 10k tokens で 1 回の発火まで 1 円未満。使うモデルは環境の利用可能モデル（`GET /api/health` の `availableModels`）に合わせる（以下の `<provider>/<id>` はプレースホルダ）。
 
-1. `PI_CODING_AGENT_DIR=/tmp/u7agent-compact-verify` を指定し、普段の `~/.pi/agent` を汚さない。`auth.json` をコピーし、`models.json` に contextWindow の override を書く（例: `providers.deepseek.modelOverrides."deepseek-v4-flash".contextWindow = 40000`）
+1. `PI_CODING_AGENT_DIR=/tmp/u7agent-compact-verify` を指定し、普段の `~/.pi/agent` を汚さない。`auth.json` をコピーし、`models.json` に contextWindow の override を書く（例: `providers.<provider>.modelOverrides."<id>".contextWindow = 40000`）
 2. 検証用 env で閾値を下げる（例: `PI_COMPACTION_RESERVE_TOKENS=30000` / `PI_COMPACTION_KEEP_RECENT_TOKENS=4000`）。contextWindow を触らない場合は `reserveTokens` だけで閾値を下げる。`pnpm dev` はプロジェクト root の `.env` を読むので、そこへ書くかシェルの環境変数で渡す
-3. `PI_MODELS=deepseek/deepseek-v4-flash` で起動し、長文を貼って閾値を越えさせる（10k tokens 程度）
+3. `PI_MODELS=<provider>/<id>` で起動し、長文を貼って閾値を越えさせる（10k tokens 程度）
 4. 確認: 区切り位置（圧縮前のメッセージが消え、区切りと要約に置き換わる）・要約の折りたたみ・リロード後の保持・2 回目の圧縮（再度長文を貼る）・Context ゲージの推移
 5. 戻し方: 一時ディレクトリを消し、env を外すだけ（`models.json` の override も一時ディレクトリ内なので残らない）
 
