@@ -14,6 +14,7 @@ import {
   sessionSkillLocation,
   sessionSkillsNotice,
   sessionSkillsSource,
+  sessionSkillsSourceKey,
   sessionSkillWarning,
   skillCommandText,
   skillLocationLabel,
@@ -125,14 +126,18 @@ test("sessionSkillsSource はセッションを優先し、新規チャットで
   assert.deepEqual(sessionSkillsSource("", "", ""), { kind: "preview", projectId: "", agentId: "" });
 });
 
-test("取得先はセッションの確定とプロジェクト / エージェントの切替で変わる", () => {
-  const source = (sessionId: string, projectId: string, agentId: string) =>
-    sessionSkillsSource(sessionId, projectId, agentId);
-  // 新規チャット → セッション確定で取り直す (送信後にセッション基準へ切り替わる)
-  assert.notDeepEqual(source("", "p1", "a1"), source("s1", "p1", "a1"));
-  assert.notDeepEqual(source("", "p1", "a1"), source("", "p2", "a1"));
-  assert.notDeepEqual(source("", "p1", "a1"), source("", "p1", "a2"));
-  assert.deepEqual(source("", "p1", "a1"), source("", "p1", "a1"));
+test("sessionSkillsSourceKey は取得先が変わるときだけ変わる", () => {
+  const key = (sessionId: string, projectId: string, agentId: string) =>
+    sessionSkillsSourceKey(sessionSkillsSource(sessionId, projectId, agentId));
+  assert.equal(key("s1", "p1", "a1"), "session:s1");
+  assert.equal(key("", "p1", "a1"), "preview:p1:a1");
+  // セッションがある間のプロジェクト / エージェントの切替では取り直さない (取得先がセッションに固定される)
+  assert.equal(key("s1", "p1", "a1"), key("s1", "p2", "a2"));
+  // 新規チャットはプロジェクト / エージェントの切替で取り直す
+  assert.notEqual(key("", "p1", "a1"), key("", "p2", "a1"));
+  assert.notEqual(key("", "p1", "a1"), key("", "p1", "a2"));
+  // セッションの確定 (新規チャット → 送信後) でセッション基準へ切り替える
+  assert.notEqual(key("", "p1", "a1"), key("s1", "p1", "a1"));
 });
 
 test("fetchSessionSkills は取得先に応じて API を呼び、応答を ready へ写す", async () => {

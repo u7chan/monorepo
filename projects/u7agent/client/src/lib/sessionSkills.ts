@@ -45,10 +45,18 @@ export type SessionSkillsSource =
 
 /**
  * 取得先。sessionId があれば既存 API (セッションのスナップショットで解決する)、無ければ作成前の
- * 選択 (プロジェクト / エージェント。未選択は "") を使う。この 3 つが変わるときが取り直しの契機。
+ * 選択 (プロジェクト / エージェント。未選択は "") を使う。
  */
 export function sessionSkillsSource(sessionId: string, projectId: string, agentId: string): SessionSkillsSource {
   return sessionId ? { kind: "session", sessionId } : { kind: "preview", projectId, agentId };
+}
+
+/**
+ * 取得キー。これが変わるときだけ取り直す。セッションがあればセッションで一意になり、開いている間に
+ * プロジェクト / エージェントを切り替えても同じ一覧なので取り直さない (ファイルの再走査と読込表示を避ける)。
+ */
+export function sessionSkillsSourceKey(source: SessionSkillsSource): string {
+  return source.kind === "session" ? `session:${source.sessionId}` : `preview:${source.projectId}:${source.agentId}`;
 }
 
 /** 一覧の取得。フックは api.ts を渡し、テストは stub を渡す */
