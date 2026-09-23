@@ -817,14 +817,6 @@ test("catalog endpoints relay the normalization errors of the catalog", async ()
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    const invalidReplace = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agents: "not-an-array", skills: [] }),
-    });
-    assert.equal(invalidReplace.status, 400);
-    assert.equal((await jsonBody(invalidReplace)).error, "Definitions must contain skills and agents arrays");
-
     const nameless = await app.request("/api/agents", jsonPost({ description: "名前がない" }));
     assert.equal(nameless.status, 400);
     assert.equal((await jsonBody(nameless)).error, "Agent name is required");
@@ -846,7 +838,7 @@ test("catalog endpoints expose and update agent suggestions", async () => {
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
-    // ビルトインは別フィールドで返り、置換対象の agents には含まれない。初期状態のユーザー定義はずんだもんだけ
+    // ビルトインは別フィールドで返り、ユーザー定義の agents には含まれない。初期状態のユーザー定義はずんだもんだけ
     assert.deepEqual(initial.builtinAgent.suggestions, [
       { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
       { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
@@ -922,19 +914,9 @@ test("catalog endpoints round-trip agent icons", async () => {
     const createdAgent = (await jsonBody(created)).agent;
     assert.equal(createdAgent.icon, icon);
 
-    // GET と PUT (バックアップの import) の往復でも残る
+    // GET で取り直しても残る
     const reloaded = await jsonBody(app.request("/api/agents"));
     assert.equal(reloaded.agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon, icon);
-    const replaced = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agents: reloaded.agents, skills: reloaded.skills }),
-    });
-    assert.equal(replaced.status, 200);
-    assert.equal(
-      (await jsonBody(replaced)).agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon,
-      icon,
-    );
 
     // 形式違いは catalog が 400 で断り、16 KiB 超も 400 で既存値を変えない
     const wrongMime = await app.request(
@@ -961,41 +943,20 @@ test("catalog endpoints round-trip agent icons", async () => {
   }
 });
 
-test("the catalog import accepts a body larger than the single-definition limit", async () => {
+test("単体の作成は 64 KiB の body 上限に従う", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    // 16 KiB のアイコンを持つ定義が 3 件あると 64 KiB を超える。取り込みはカタログ全体を受けるので通る
+    // 16 KiB のアイコン 1 件は systemPrompt と同居できる
     const icon = iconDataUrl("png", 16 * 1024);
-    const agents = [1, 2, 3].map((index) => ({
-      id: `agent-icon-${index}`,
-      name: `アイコン ${index}`,
-      skillIds: [],
-      icon,
-    }));
-    const body = JSON.stringify({ agents, skills: [] });
-    assert.ok(Buffer.byteLength(body) > 64 * 1024, "前提: 64 KiB を超える取り込み");
-    const replaced = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
-    assert.equal(replaced.status, 200);
-    assert.deepEqual(
-      (await jsonBody(replaced)).agents.map((agent: { icon: string }) => agent.icon),
-      [icon, icon, icon],
-    );
-
-    // 単体の作成は従来どおり 64 KiB のまま (アイコン 1 件は systemPrompt と同居できる)
     const created = await app.request("/api/agents", jsonPost({ name: "1 件", icon }));
     assert.equal(created.status, 201);
 
-    // 取り込みの上限も有限 (bodyGuard は検証より先に本文の大きさだけを見る)
-    const oversized = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agents: [], skills: [], padding: "x".repeat(4 * 1024 * 1024) }),
-    });
+    // 上限を超える本文は bodyGuard が検証より先に 413 で断る
+    const oversized = await app.request(
+      "/api/agents",
+      jsonPost({ name: "大きい", icon, systemPrompt: "x".repeat(64 * 1024) }),
+    );
     assert.equal(oversized.status, 413);
     assert.equal((await jsonBody(oversized)).error, "Request body is too large");
   } finally {
@@ -1003,7 +964,7 @@ test("the catalog import accepts a body larger than the single-definition limit"
   }
 });
 
-test("the built-in agent rejects updates, deletes and imports", async () => {
+test("the built-in agent rejects updates and deletes", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
@@ -1014,36 +975,12 @@ test("the built-in agent rejects updates, deletes and imports", async () => {
     const deleted = await app.request("/api/agents/agent-general", { method: "DELETE" });
     assert.equal(deleted.status, 400);
     assert.deepEqual(await jsonBody(deleted), { error: "Built-in agent cannot be deleted" });
-
-    // ビルトインを含む import は黙って捨てず 400 で断る
-    const replaced = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agents: [{ id: "agent-general", name: "乗っ取り" }], skills: [] }),
-    });
-    assert.equal(replaced.status, 400);
-    assert.equal((await jsonBody(replaced)).error, "Agent id agent-general is reserved for the built-in agent");
-
-    // ユーザー定義 0 件の import は通り、セッション作成の既定もビルトインが担う
-    const empty = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agents: [], skills: [] }),
-    });
-    assert.equal(empty.status, 200);
-    const catalog = await jsonBody(app.request("/api/agents"));
-    assert.equal(catalog.builtinAgent.name, "汎用アシスタント");
-    assert.deepEqual(catalog.agents, []);
-
-    const created = await app.request("/api/sessions", jsonPost({}));
-    assert.equal(created.status, 201);
-    assert.equal((await jsonBody(created)).agent.id, "agent-general");
   } finally {
     await bff.close();
   }
 });
 
-test("組み込みスキルはカタログの export / import とスキル一覧の対象外", async () => {
+test("組み込みスキルはカタログの一覧とスキル一覧の対象外", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
@@ -1063,15 +1000,6 @@ test("組み込みスキルはカタログの export / import とスキル一覧
       skills.skills.map((skill) => skill.name).filter((name) => builtinNames.includes(name)),
       [],
     );
-
-    // import はカタログだけを差し替える。組み込みは依然としてカタログに出ない
-    const replaced = await app.request("/api/agents", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agents: [], skills: [] }),
-    });
-    assert.equal(replaced.status, 200);
-    assert.deepEqual((await jsonBody(app.request("/api/agents"))).skills, []);
   } finally {
     await bff.close();
   }

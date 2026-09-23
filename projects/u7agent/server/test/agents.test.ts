@@ -9,56 +9,6 @@ const DEFAULT_SUGGESTIONS = [
   { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
 ];
 
-const definitions = {
-  agents: [
-    {
-      id: "agent-imported",
-      name: "読み込みエージェント",
-      description: "インポートされた定義",
-      systemPrompt: "短く答えてください。",
-      skillIds: ["skill-imported", "skill-missing"],
-    },
-  ],
-  skills: [
-    {
-      id: "skill-imported",
-      name: "インポートスキル",
-      description: "テスト用スキル",
-      body: "テスト用の本文です。",
-    },
-  ],
-};
-
-test("replaces the user-defined catalog from a JSON definition snapshot", () => {
-  const catalog = createAgentCatalog();
-  const result = catalog.replace(definitions);
-
-  assert.deepEqual(result.agents, [
-    {
-      id: "agent-imported",
-      name: "読み込みエージェント",
-      description: "インポートされた定義",
-      systemPrompt: "短く答えてください。",
-      skillIds: ["skill-imported"],
-    },
-  ]);
-  assert.deepEqual(result.skills, [
-    {
-      id: "skill-imported",
-      name: "インポートスキル",
-      description: "テスト用スキル",
-      body: "テスト用の本文です。",
-    },
-  ]);
-  // 応答はビルトインを別フィールドで常に含み、置換対象の agents には現れない
-  assert.equal(result.builtinAgent?.id, "agent-general");
-  assert.equal(
-    catalog.listAgents().some((agent) => agent.id === "agent-general"),
-    false,
-  );
-  assert.equal(catalog.getAgent("agent-general")?.id, "agent-general");
-});
-
 test("the built-in agent keeps model and thinkingLevel unspecified", () => {
   const catalog = createAgentCatalog();
   const agent = catalog.builtinAgent();
@@ -88,7 +38,7 @@ test("ships the generic agent as the built-in and the zundamon sample as a user 
   assert.deepEqual(catalog.listSkills(), []);
 });
 
-test("keeps the built-in agent out of the replaceable map", () => {
+test("keeps the built-in agent out of the user-defined list", () => {
   const catalog = createAgentCatalog();
 
   // ビルトインは削除を受け付けず、常に残る (セッション作成の既定を担う)
@@ -105,34 +55,10 @@ test("keeps the built-in agent out of the replaceable map", () => {
 test("treats the zundamon sample as a normal user definition", () => {
   const catalog = createAgentCatalog();
 
-  // 置換で消え、再起動 (新しいカタログ) で戻る
-  assert.deepEqual(catalog.replace({ skills: [], agents: [] }).agents, []);
+  // 削除でき、新しい DB のカタログでは seed で戻る
+  assert.equal(catalog.removeAgent("agent-zundamon"), true);
   assert.equal(catalog.getAgent("agent-zundamon"), undefined);
   assert.equal(createAgentCatalog().getAgent("agent-zundamon")?.name, "ずんだもん");
-});
-
-test("rejects the built-in id in a definition snapshot", () => {
-  const catalog = createAgentCatalog();
-  assert.throws(
-    () => catalog.replace({ skills: [], agents: [{ id: "agent-general", name: "乗っ取り" }] }),
-    (error: Error & { statusCode?: number }) => error.statusCode === 400 && /reserved/.test(error.message),
-  );
-  // 拒否してもカタログは壊さない
-  assert.equal(catalog.builtinAgent().name, "汎用アシスタント");
-  assert.deepEqual(
-    catalog.listAgents().map((agent) => agent.id),
-    ["agent-zundamon"],
-  );
-});
-
-test("accepts an empty agent list because the built-in agent always exists", () => {
-  const catalog = createAgentCatalog();
-  const created = catalog.createAgent({ name: "入れ替えで消える定義" });
-
-  const result = catalog.replace({ skills: [], agents: [] });
-  assert.deepEqual(result.agents, []);
-  assert.equal(catalog.getAgent(created.id), undefined);
-  assert.equal(result.builtinAgent?.id, "agent-general");
 });
 
 test("creates and updates agents with an independent model / thinkingLevel", () => {
@@ -182,6 +108,19 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
   const nullCreated = catalog.createAgent({ name: "null 作成", model: null, thinkingLevel: null });
   assert.equal(Object.hasOwn(nullCreated, "model"), false);
   assert.equal(Object.hasOwn(nullCreated, "thinkingLevel"), false);
+});
+
+test("drops references to skills that do not exist", () => {
+  const catalog = createAgentCatalog();
+  const skill = catalog.createSkill({ name: "実在スキル", description: "説明", body: "本文" });
+
+  // 存在しない id を混ぜても、実在する参照だけを残す
+  const created = catalog.createAgent({ name: "参照あり", skillIds: [skill.id, "skill-missing"] });
+  assert.deepEqual(created.skillIds, [skill.id]);
+
+  // 存在しない id だけを送った更新でも空になる
+  const updated = catalog.updateAgent(created.id, { skillIds: ["skill-missing"] });
+  assert.deepEqual(updated?.skillIds, []);
 });
 
 test("only the built-in agent ships with default suggestions", () => {
@@ -305,30 +244,10 @@ test("updates and clears agent suggestions", () => {
   assert.equal(Object.hasOwn(nulled ?? {}, "suggestions"), false);
 });
 
-test("round-trips suggestions through the definition snapshot", () => {
-  const catalog = createAgentCatalog();
-  const agent = catalog.createAgent({ name: "定型あり", suggestions: DEFAULT_SUGGESTIONS });
-
-  // エクスポート → インポート。ビルトインは snapshot の agents に乗らないので、送った定義だけが入る
-  const replaced = catalog.replace(catalog.snapshot());
-  assert.deepEqual(replaced.agents.find((item) => item.id === agent.id)?.suggestions, DEFAULT_SUGGESTIONS);
-  assert.deepEqual(catalog.snapshot().agents.find((item) => item.id === agent.id)?.suggestions, DEFAULT_SUGGESTIONS);
-
-  // 旧形式 (suggestions なし) の import はそのまま通る
-  const oldForm = catalog.replace({ skills: [], agents: [{ id: "agent-legacy", name: "旧形式", skillIds: [] }] });
-  assert.equal(Object.hasOwn(oldForm.agents[0], "suggestions"), false);
-
-  const legacy = catalog.replace({
-    skills: [],
-    agents: [{ id: "agent-legacy", name: "旧形式", skillIds: [], suggestions: [{ label: "l", prompt: "p" }] }],
-  });
-  assert.deepEqual(legacy.agents[0].suggestions, [{ label: "l", prompt: "p" }]);
-});
-
 test("public agents copy the suggestions of the internal catalog", () => {
   const catalog = createAgentCatalog();
 
-  // ビルトイン (置換対象の外) も応答のたびにコピーを返し、書き換えても内部に残らない
+  // ビルトイン (ユーザー定義の外) も応答のたびにコピーを返し、書き換えても内部に残らない
   const internalBuiltin = catalog.getAgent("agent-general")?.suggestions;
   const exportedBuiltin = catalog.builtinAgent().suggestions;
   assert.ok(internalBuiltin && exportedBuiltin);
@@ -373,45 +292,6 @@ test("rejects malformed model references and unknown thinking levels with 400", 
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
   assert.deepEqual(catalog.getAgent(agent.id), agent);
-});
-
-test("imports old definitions without the new keys and exports only specified ones", () => {
-  const catalog = createAgentCatalog();
-
-  // 旧形式 (model / thinkingLevel なし) の import はそのまま受け付ける
-  const imported = catalog.replace({
-    skills: [],
-    agents: [{ id: "agent-legacy", name: "旧形式", skillIds: [] }],
-  });
-  assert.equal(Object.hasOwn(imported.agents[0], "model"), false);
-  assert.equal(Object.hasOwn(imported.agents[0], "thinkingLevel"), false);
-
-  // 新形式の import: 利用不能でも形式が正しければ保持する
-  const next = catalog.replace({
-    skills: [],
-    agents: [
-      { id: "agent-legacy", name: "旧形式", skillIds: [] },
-      {
-        id: "agent-new",
-        name: "新形式",
-        skillIds: [],
-        model: { provider: "openai", id: "gpt-5.5" },
-        thinkingLevel: "max",
-      },
-    ],
-  });
-  assert.deepEqual(next.agents[1].model, { provider: "openai", id: "gpt-5.5" });
-  assert.equal(next.agents[1].thinkingLevel, "max");
-  // export (= GET /api/agents) は未指定項目のキーを省く
-  assert.equal(Object.hasOwn(next.agents[0], "model"), false);
-  assert.equal(Object.hasOwn(next.agents[0], "thinkingLevel"), false);
-
-  assert.throws(
-    () => catalog.replace({ skills: [], agents: [{ name: "不正", thinkingLevel: "ultra" }] }),
-    (error: Error & { statusCode?: number }) => error.statusCode === 400,
-  );
-  // 不正な import は従来のカタログを壊さない
-  assert.equal(catalog.getAgent("agent-new")?.thinkingLevel, "max");
 });
 
 /** PNG / webp の署名だけを持つ data URL。server は署名まで見るため、長さだけを変えて使う */
@@ -497,21 +377,6 @@ test("rejects icons that are not webp / png data URLs or exceed 16 KiB", () => {
   assert.equal(catalog.getAgent(agent.id)?.icon, atLimit);
 });
 
-test("round-trips icons through the definition snapshot", () => {
-  const catalog = createAgentCatalog();
-  const png = iconDataUrl("png", 64);
-  const agent = catalog.createAgent({ name: "アイコンあり", icon: png });
-
-  // エクスポート → インポート (バックアップの往復) でも残る
-  const replaced = catalog.replace(catalog.snapshot());
-  assert.equal(replaced.agents.find((item) => item.id === agent.id)?.icon, png);
-  assert.equal(catalog.snapshot().agents.find((item) => item.id === agent.id)?.icon, png);
-
-  // 旧形式 (icon なし) の import はそのまま通る
-  const legacy = catalog.replace({ skills: [], agents: [{ id: "agent-legacy", name: "旧形式", skillIds: [] }] });
-  assert.equal(Object.hasOwn(legacy.agents[0], "icon"), false);
-});
-
 test("composePromptSnapshot はカタログスキルの本文を agent_skill タグで固定する", () => {
   const snapshot = composePromptSnapshot(
     {
@@ -539,7 +404,7 @@ test("creates and updates skills with body and rejects the old prompt field", ()
   assert.equal(kept?.body, "本文");
   assert.equal(catalog.updateSkill(created.id, { body: "新しい本文" })?.body, "新しい本文");
 
-  // 旧フィールド名 (prompt) は受理しない (バックアップの互換も持たない)
+  // 旧フィールド名 (prompt) は受理しない (旧形式の互換は持たない)
   assert.throws(
     () => catalog.createSkill({ name: "旧形式", prompt: "旧本文" }),
     (error: Error & { statusCode?: number }) => error.statusCode === 400 && /body/.test(error.message),

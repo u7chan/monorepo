@@ -54,7 +54,7 @@ startRun():
 - タイトルは最初のユーザーメッセージ（60 文字）から自動生成し、meta へ保存する。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
 - セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（エージェント切替・「新しい会話」・起動時の復元先無しはローカル状態のリセットだけで完結する）。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
-- エージェント定義の編集・インポートは既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
+- エージェント定義の編集は既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
 - 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
 
 ## 停止と破棄

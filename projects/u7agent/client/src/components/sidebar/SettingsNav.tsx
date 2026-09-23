@@ -1,14 +1,13 @@
 import type { ReactNode } from "react";
 import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../../lib/settingsNav";
 import { MenuItem } from "../MenuItem";
-import { ArrowLeftIcon, ArchiveIcon, BoltIcon, FolderIcon, SparkleIcon, ThemeIcon } from "../icons";
+import { ArrowLeftIcon, BoltIcon, FolderIcon, SparkleIcon, ThemeIcon } from "../icons";
 
 /** セクションの印。文字だけでは並びの違いが読み取りにくいので行の左に置く */
 const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   agents: <SparkleIcon />,
   skills: <BoltIcon />,
   files: <FolderIcon />,
-  backup: <ArchiveIcon />,
   appearance: <ThemeIcon />,
 };
 

@@ -64,8 +64,8 @@ export const BuiltinSkillInfoSchema = z.object({
 export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
 
 /**
- * GET / PUT `/api/agents` の応答。`builtinAgent` はサーバー所有の汎用エージェントで、
- * `agents` (置換対象 = export される定義) には含まれない。サーバーは常にオブジェクトを返し、
+ * GET `/api/agents` の応答。`builtinAgent` はサーバー所有の汎用エージェントで、
+ * `agents` (ユーザー定義) には含まれない。サーバーは常にオブジェクトを返し、
  * `null` はクライアントが取得前に持つ初期状態だけを表す。
  */
 export const CatalogResponseSchema = CatalogSchema.extend({
@@ -520,12 +520,6 @@ export const UpdateSessionSettingsBodySchema = z.object({
   thinkingLevel: ThinkingLevelSchema.optional(),
 });
 export type UpdateSessionSettingsBody = z.infer<typeof UpdateSessionSettingsBodySchema>;
-
-export const ReplaceCatalogBodySchema = z.object({
-  agents: z.array(z.unknown()),
-  skills: z.array(z.unknown()),
-});
-export type ReplaceCatalogBody = z.infer<typeof ReplaceCatalogBodySchema>;
 
 // 全キー任意にするのは、空 body の PATCH を no-op として通し、必須判定を catalog の文言のまま残すため。
 // null は「指定解除」、キー省略は「現在値の維持」で、どちらも catalog が解釈する。

@@ -368,14 +368,4 @@ export class AppDb {
       return true;
     });
   }
-
-  /** カタログの一括置換。全削除 → 投入を 1 トランザクションで行う */
-  replaceCatalog(skills: SkillDef[], agents: AgentDef[]): void {
-    this.transaction(() => {
-      this.#query((db) => db.prepare("DELETE FROM skills").run());
-      this.#query((db) => db.prepare("DELETE FROM agents").run());
-      for (const skill of skills) this.saveSkill(skill);
-      for (const agent of agents) this.saveAgent(agent);
-    });
-  }
 }

@@ -20,7 +20,6 @@ import {
   CreateSkillBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
-  ReplaceCatalogBodySchema,
   UpdateAgentBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSkillBodySchema,
@@ -61,7 +60,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const sessionRoutes = createSessionRoutes({ store, workspace });
 
   const app = new Hono()
-    // bodyGuard は本文を最長 64 KiB (カタログの一括置換だけ 4 MiB) で読み切って text 化するため、raw で受けるアップロードは先に登録する
+    // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)
@@ -91,14 +90,6 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .delete("/api/projects/:id", appData, projectRoutes.remove)
     .get("/api/agents", appData, catalogRoutes.snapshot)
-    .put(
-      "/api/agents",
-      appData,
-      zValidator("json", ReplaceCatalogBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Definitions must contain skills and agents arrays" }, 400),
-      ),
-      (c) => catalogRoutes.replace(c, c.req.valid("json")),
-    )
     .post(
       "/api/agents",
       appData,

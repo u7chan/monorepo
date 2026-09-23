@@ -1,7 +1,7 @@
 import type { AgentDef } from "../../types";
 
 /**
- * ビルトインはサーバー所有で編集も削除もできない (インポートでも差し替わらない) ので、
+ * ビルトインはサーバー所有で編集も削除もできないので、
  * 編集フォームの代わりに、何が固定されているかをここで説明する。
  */
 export function BuiltinAgentPanel({ agent, variant }: { agent: AgentDef; variant: "page" | "sheet" }) {
