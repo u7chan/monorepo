@@ -33,25 +33,29 @@ export function ComposerStatus({
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
-  if (!activity && !gauge && !modelLabel) return null;
+  // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)
+  const showActivity = activity !== "" || elapsed !== null;
+  if (!showActivity && !gauge && !modelLabel) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
 
   return (
     <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">
       {elapsed === null ? null : <RunSpinnerIcon />}
-      {/* モデル名を出すときは活動テキストに下限幅を置き、0 幅まで潰れる前に組を折り返させる */}
-      <span className={cn("flex flex-1 items-baseline gap-1.5", modelLabel ? "min-w-40" : "min-w-0")}>
-        <span aria-live="polite" className="min-w-0 break-words">
-          {activity}
-        </span>
-        {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
-        {elapsed === null ? null : (
-          <span aria-hidden="true" className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">
-            ({elapsed})
+      {showActivity ? (
+        // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる
+        <span className={cn("flex flex-1 items-baseline gap-1.5", activity ? "min-w-40" : "min-w-0")}>
+          <span aria-live="polite" className="min-w-0 break-words">
+            {activity}
           </span>
-        )}
-      </span>
+          {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
+          {elapsed === null ? null : (
+            <span aria-hidden="true" className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">
+              ({elapsed})
+            </span>
+          )}
+        </span>
+      ) : null}
       <span className="flex min-w-0 shrink items-center gap-2">
         {modelLabel ? (
           // 読み上げは本文だけで足りるので、provider/id は title (hover) だけに持つ

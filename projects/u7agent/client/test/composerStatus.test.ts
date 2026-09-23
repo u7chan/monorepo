@@ -26,6 +26,13 @@ test("描画: 活動もコンテキストも無くても、モデルが解決で
   assert.ok(!html.includes("Context"), "セッション未作成ではゲージを出さない");
 });
 
+test("描画: 活動が無いときは活動欄を出さない (空行の折り返しを残さない)", () => {
+  const html = render({ activity: "", context, model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+
+  assert.ok(!html.includes("aria-live"), "活動欄ごと落とす");
+  assert.ok(html.includes("GLM-5.3 Flash") && html.includes("Context"), "モデル名とゲージは残す");
+});
+
 test("描画: モデルも活動もコンテキストも無ければ何も出さない", () => {
   assert.equal(render({ activity: "" }), "");
 });
