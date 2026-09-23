@@ -241,11 +241,24 @@ function isSystemSections(value: unknown): boolean {
 }
 
 /**
- * system message の toolsAdded / toolsRemoved。SDK は要素をそのまま Map に入れるため
- * (getCurrentTools)、オブジェクトでない要素があるとそこで落ちる。name は SDK が必ず書く形
- * (無ければ tool として解決できない) なので、文字列であることも要求する。
+ * system message の toolsAdded。SDK は要素をそのまま Map に入れ (getCurrentTools)、
+ * 宣言を比べるときに parameters を JSON に通す (toToolDeclaration)。
+ * parameters が無い宣言は、同じ名前の宣言が重なった時点で SyntaxError になる。
  */
 function isToolDeclarations(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (tool) =>
+      isRecord(tool) &&
+      typeof tool.name === "string" &&
+      (tool.description === undefined || typeof tool.description === "string") &&
+      isRecord(tool.parameters),
+  );
+}
+
+/** system message の toolsRemoved。SDK は name だけで消す (toolsRemoved に宣言は入らない) */
+function isToolRemovals(value: unknown): boolean {
   if (value === undefined) return true;
   if (!Array.isArray(value)) return false;
   return value.every((tool) => isRecord(tool) && typeof tool.name === "string");
@@ -277,7 +290,7 @@ function entryShapeError(type: string, entry: Record<string, unknown>): string |
           return isStringOrTextParts(message.content) &&
             isSystemSections(message.sections) &&
             isToolDeclarations(message.toolsAdded) &&
-            isToolDeclarations(message.toolsRemoved)
+            isToolRemovals(message.toolsRemoved)
             ? undefined
             : "system message が不正です";
         default:

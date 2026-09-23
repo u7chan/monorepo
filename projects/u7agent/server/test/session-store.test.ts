@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { getCurrentSystemMessage } from "@earendil-works/pi-ai/utils/transcript";
+import { getCurrentSystemMessage, hasToolRedefinitions } from "@earendil-works/pi-ai/utils/transcript";
 import {
   SessionFileWriter,
   generateSessionId,
@@ -257,11 +257,35 @@ test("parseSessionFile rejects malformed system messages", () => {
     ["toolsAdded に null", { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [null] } }],
     [
       "toolsAdded の name 欠落",
-      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ description: "x" }] } },
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ parameters: {} }] } },
     ],
     [
       "toolsAdded の name が数値",
-      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: 1 }] } },
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: 1, parameters: {} }] } },
+    ],
+    // parameters が無い宣言は、同じ名前の宣言が重なると SDK の比較 (JSON 化) で落ちる
+    [
+      "toolsAdded の parameters 欠落",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: "read" }] } },
+    ],
+    [
+      "toolsAdded の parameters が null",
+      {
+        ...base,
+        message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: "read", parameters: null }] },
+      },
+    ],
+    [
+      "toolsAdded の description が数値",
+      {
+        ...base,
+        message: {
+          role: "system",
+          content: "",
+          timestamp: 2,
+          toolsAdded: [{ name: "read", description: 1, parameters: {} }],
+        },
+      },
     ],
     [
       "toolsRemoved が配列でない",
@@ -276,33 +300,40 @@ test("parseSessionFile rejects malformed system messages", () => {
 });
 
 // store が受理した履歴は SDK がそのまま読める必要がある。system message の tool 差分は
-// getCurrentTools が要素をそのまま Map に入れるため、オブジェクトでない要素で落ちる
+// 要素をそのまま Map に入れ (getCurrentTools)、parameters を JSON に通す (toToolDeclaration)
 test("store は SDK が読めない tool 差分を拒む", () => {
+  const sys = (message: Record<string, unknown>) => ({ role: "system", content: "", timestamp: 2, ...message });
   const verdict = (message: Record<string, unknown>): string => {
     const entry = { type: "message", id: "e2", parentId: "e1", timestamp: HEADER.timestamp, message };
     return parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind;
   };
-  const crashes: Array<[string, Record<string, unknown>]> = [
-    ["toolsAdded に null", { toolsAdded: [null] }],
-    ["toolsRemoved に null", { toolsRemoved: [null] }],
+  const read = { name: "read", description: "Read a file", parameters: { type: "object" } };
+  const cases: Array<[string, Record<string, unknown>, ErrorConstructor, () => unknown]> = [
+    // オブジェクトでない要素は tool.name で落ちる
+    [
+      "toolsAdded に null",
+      { toolsAdded: [null] },
+      TypeError,
+      () => getCurrentSystemMessage([sys({ toolsAdded: [null] })] as never),
+    ],
+    // parameters の無い宣言は、同じ名前の宣言が重なったときの比較 (JSON 化) で落ちる
+    [
+      "toolsAdded の parameters 欠落",
+      { toolsAdded: [read, { name: "read", description: "Read a file" }] },
+      SyntaxError,
+      () => hasToolRedefinitions([sys({ toolsAdded: [read, { name: "read", description: "Read a file" }] })] as never),
+    ],
   ];
-  for (const [label, diff] of crashes) {
-    const message = { role: "system", content: "", timestamp: 2, ...diff };
-    assert.throws(() => getCurrentSystemMessage([message as never]), TypeError, `SDK 側の前提 (${label} は落ちる)`);
-    assert.equal(verdict(message), "damaged", `${label} を受理すると、開けたのに送信のたびに落ちる`);
+  for (const [label, message, error, sdk] of cases) {
+    assert.throws(sdk, error, `SDK 側の前提 (${label} は落ちる)`);
+    assert.equal(verdict(sys(message)), "damaged", `${label} を受理すると、開けたのに送信のたびに落ちる`);
   }
   // 受理側は SDK が実際に書く形 (toolsAdded は宣言、toolsRemoved は名前だけ) を通し、SDK も読める
-  const declarations = [{ name: "read", description: "Read a file", parameters: { type: "object" } }];
   const removed = [{ name: "write" }];
-  assert.equal(
-    verdict({ role: "system", content: "", timestamp: 2, toolsAdded: declarations, toolsRemoved: removed }),
-    "ok",
-  );
-  assert.doesNotThrow(() =>
-    getCurrentSystemMessage([
-      { role: "system", content: "", timestamp: 2, toolsAdded: declarations, toolsRemoved: removed } as never,
-    ]),
-  );
+  const message = { toolsAdded: [read], toolsRemoved: removed };
+  assert.equal(verdict(sys(message)), "ok");
+  assert.doesNotThrow(() => getCurrentSystemMessage([sys(message) as never]));
+  assert.doesNotThrow(() => hasToolRedefinitions([sys({ toolsAdded: [read, read] }) as never]));
 });
 
 test("SessionFileWriter rewrites, appends and repairs a torn tail", async () => {
