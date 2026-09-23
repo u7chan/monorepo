@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * コンテナ用に fd のリリースバイナリを固定して入れる。
- * Debian bookworm の fd-find (8.6.0) は pi SDK の find ツールが渡す --no-require-git (fd 9.0 で追加) を
- * 受け付けず、git 管理外のディレクトリで find が必ず失敗するため、apt の fd-find は使わない。
+ * pi SDK の find ツールは git 管理外でも動くよう --no-require-git (fd 9.0 で追加) を渡す。apt の fd-find は
+ * ベースイメージの追随で要件を割る版 (bookworm は 8.6.0) に戻り得るため、trixie (10.2.0) でも apt は使わない。
  * slim イメージに curl / wget が無いので fetch と tar だけで完結させる。
  */
 import { spawnSync } from "node:child_process";

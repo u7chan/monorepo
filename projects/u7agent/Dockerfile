@@ -1,5 +1,5 @@
 # Keep Node and pnpm aligned with the monorepo CI.
-FROM node:24-bookworm-slim AS base
+FROM node:24-trixie-slim AS base
 RUN npm install --global pnpm@10.34.5
 WORKDIR /app
 
@@ -11,10 +11,10 @@ COPY .oxlintrc.json .oxfmtrc.json ./
 COPY client/package.json ./client/package.json
 COPY server/package.json ./server/package.json
 
-# fd は pi SDK の find ツールが起動する。Debian bookworm の fd-find (8.6.0) は find が渡す --no-require-git
-# (fd 9.0 で追加) を受け付けず git 管理外のディレクトリで必ず失敗するため、リリースバイナリを固定する。
-# test / final の両方で使う (テストは find を実行する)。
-FROM node:24-bookworm-slim AS fd
+# fd は pi SDK の find ツールが起動する。find は git 管理外でも動くよう --no-require-git (fd 9.0 で追加) を渡す。
+# apt の fd-find はベースイメージの追随でこの要件を割る版 (bookworm は 8.6.0) に戻り得るため、
+# trixie (fd-find 10.2.0) でも取得方式は変えずリリースバイナリを固定する。test / final の両方で使う。
+FROM node:24-trixie-slim AS fd
 COPY scripts/install-fd.mjs /tmp/install-fd.mjs
 RUN node /tmp/install-fd.mjs /usr/local/bin
 
@@ -38,13 +38,18 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 # CD: the existing pipeline builds final and pushes monorepo/u7agent.
 # BFF とサンドボックス (src/sandbox/index.ts) は同一イメージを command 差し替えで共用する。
 # server/src/ には組み込みスキルの SKILL.md (src/builtin-skills/) も含めて同梱する。
-FROM node:24-bookworm-slim AS final
+FROM node:24-trixie-slim AS final
+# uv はコンテナ内で Python の依存を .venv に閉じ込めるために使う。apt の RUN にある command -v 検査が uv も見るので、
+# この COPY を後ろに置くと検査時に uv が無い。
+COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /uvx /usr/local/bin/
 # curl / jq / file / unzip / xz / zip はサンドボックス内のエージェントが HTTP 取得とアセット検証に使う。
 # HTTP の正規手段を curl にして `node -e` のワンライナー fetch へ迂回させないのが目的で、同じ一覧を
 # server/src/agent.ts の appendSystemPrompt が名指しする。apt 行から落ちたら command -v 検査でビルドを失敗させる。
+# python3 は apt の 3.13 系 (trixie) をプロンプトが名指しする。python3-venv は ensurepip 経路用で、
+# pip 自体は入れない (`uv pip install` を正とする)。
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
-    curl jq file unzip xz-utils zip \
-    && for tool in bash git rg curl jq file unzip xz zip; do command -v "$tool" >/dev/null || exit 1; done \
+    curl jq file unzip xz-utils zip python3 python3-venv \
+    && for tool in bash git rg curl jq file unzip xz zip python3 uv; do command -v "$tool" >/dev/null || exit 1; done \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /workspace /session-store && chown node:node /workspace /session-store
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
