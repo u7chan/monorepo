@@ -634,6 +634,31 @@ html[data-theme="sky"] {
     border: 1px solid var(--c-line);
     color: var(--c-ink);
   }
+  /* ファイル参照のインラインコード。見た目は内側の code が持ち、button は focus と hover だけを足す
+   * (UA の button スタイルを消さないと文字サイズと行間が周囲とずれる) */
+  .md-fileref {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .md-fileref code {
+    transition:
+      border-color 0.12s ease,
+      background-color 0.12s ease;
+  }
+  .md-fileref:hover code {
+    border-color: var(--c-accent);
+    background: var(--c-accent-wash);
+  }
+  .md-fileref:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 1px;
+  }
   .md kbd {
     font-size: 0.82em;
     padding: 0.1em 0.4em;

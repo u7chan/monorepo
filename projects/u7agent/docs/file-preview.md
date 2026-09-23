@@ -146,7 +146,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 配信は画像だけに制限し、SVG / HTML は allowlist 外として 400 になる（同一オリジンでスクリプトを実行させない）
 - 表示は `object-contain` で親の幅・高さに合わせる。ピクセル等倍の切替や拡大縮小の UI は持たない
 - 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない。`keepsFullscreenPreview` も HTML だけを対象にする（全画面も HTML 専用）
-- 失敗したときは `GET` の応答エラーをそのまま出す（タブは勝手に閉じない）
+- 失敗したとき（404 / 400 / 画像以外の配信拒否）はブラウザーの読み込み失敗表示になる（`alt` は `<パス> のプレビュー`）。テキスト / HTML のようなアプリ側のエラー文言は出さない（タブは勝手に閉じない。`<img>` に `onError` を持たせるのは別 Issue）
 
 ## 画面と root
 
@@ -160,6 +160,68 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
+
+## メッセージからの導線（ファイル参照）
+
+assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と cwd 相対への解決は `client/src/lib/fileRef.ts` の純関数、要求の保持は `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
+
+### 字面の判定（matcher）
+
+インラインコードの字面だけを見て、次の順で評価する（前段で落ちたら後段は見ない）。存在確認はしない。
+
+1. 全体で拒否: 空白（ASCII 空白と `\p{White_Space}`）・制御文字（`U+0000`–`U+0020` / `U+007F`）・バックスラッシュ・`//` で始まる authority 形式・scheme 付き（`^[A-Za-z][A-Za-z0-9+.-]*:`）
+2. 末尾形状（正規化の前）: 末尾スラッシュと末尾ドットのセグメントはファイル扱いしない（先に `a.png/.` を `a.png` へ畳むと拒否理由が消えるためこの順）
+3. 正規化: 重複スラッシュの圧縮と `./` セグメントの除去（`a//b.png` / `a/./b.png` → `a/b.png`）
+4. `..` セグメントは畳まず拒否（親参照で cwd の外を開かせない）
+5. 拡張子: 最終セグメントの最後のドット以降が ASCII 英数字だけで、数字だけではないこと。最終セグメントが dotfile（先頭ドット）なら拡張子として扱わない（親ディレクトリの `.u7agent` は見ない）
+
+| 入力 | 判定 | 理由 |
+| --- | --- | --- |
+| `index.html` / `./a/b.png` | 採用 | 最終セグメントにドット付き拡張子がある |
+| `a//b.png` / `a/./b.png` | 採用（`a/b.png`） | 同じファイルの別表記でタブを重複させない |
+| `assets/` | 不採用 | 末尾スラッシュ（ディレクトリ） |
+| `localStorage` | 不採用 | ドット付き拡張子が無い |
+| `node --check script.js` | 不採用 | 空白・記号を含む（コマンド行） |
+| `v1.2.3` | 不採用 | 拡張子が数字だけ |
+| `https://example.com/a.html` / `file:///tmp/a.html` | 不採用 | scheme 付きは URL として扱う |
+| `//host/a.png` | 不採用 | authority 形式（スラッシュ圧縮より前に拒否） |
+| `foo.bar()` | 不採用 | 拡張子に `(` `)` などの記号が入る |
+| `a` + `U+0000` + `.png` | 不採用 | 制御文字を含む |
+| `foo(bar).png` | 採用 | 記号は拡張子の中だけ拒否する（パス本体の記号は許容） |
+| `release..notes.md` | 採用 | `..` はセグメント全体が `..` のときだけ親参照 |
+| `a/../b.html` | 不採用 | 親参照セグメントを含むものは一律拒否（安全側） |
+| `.gitignore` / `.env.local` | 不採用 | 最終セグメントが dotfile |
+| `x.` / `a.png/.` | 不採用 | 末尾ドットのセグメント（正規化前の末尾形状検査） |
+| `a\b.png` | 不採用 | バックスラッシュは区切りとして扱わない |
+
+`config.prod` のような見た目の文字列はリンクになり得る（見た目ではなく拡張子の形だけを見るため）。これは matcher の限界として受け入れる。
+
+### 解決（cwd 相対）
+
+`rootCwd` は `health.cwd`（ワークスペース root の絶対パス）、`cwd` は選択中セッションの `payload.cwd`。解決できたパスだけがタブのキー（cwd 相対）になる。
+
+| 入力の形 | 扱い |
+| --- | --- |
+| `/workspace/...`（`rootCwd` 前置きの絶対パス） | `rootCwd` を剥がす。剥がせなければ不採用。剥がした結果が cwd 配下（`cwd + "/"` 境界）なら cwd 前置きも剥がして cwd 相対にする。cwd 配下でなければ不採用 |
+| その他の絶対パス（`/etc/...` など） | 不採用。`rootCwd` 未取得（health 未取得）のときも絶対パスは不採用 |
+| `./x` / `x`（明示的な相対） | cwd 相対として扱う。**cwd 前置きの剥がしはしない**（`projects/u7agent/a.html` は `<cwd>/projects/u7agent/a.html` を意味するため） |
+| `..` セグメントを含む | 不採用（matcher で除外） |
+
+- 裸の `.u7agent/uploads/<id>/a.png` はこの規則どおり `<cwd>/.u7agent/uploads/<id>/a.png` を指す（予約 prefix の例外は持たない）。絶対パスの `/workspace/.u7agent/uploads/<id>/a.png` は cwd 外なので不採用
+- セッションの cwd が未確定（未作成チャット）の間は何も解決しない。設定 → ファイル はワークスペース root 固定なので対象外
+- 保証は**字句的な包含だけ**。symlink の実体が cwd の外を指す場合までは保証しない（サンドボックスの検証は既存契約のまま workspace root 内）
+
+### クリックと要求
+
+- 操作要素にするのは assistant 本文のインラインコードだけ。`type="button"` で、Tab 移動 / Enter / Space / 可視 focus / 読み上げ名を持つ。**Markdown リンクの children の code は対象外**（`[`index.html`](https://example.com)` は従来どおり `<a>` の中の code で、操作要素を入れない）。user 本文と、`MARKDOWN_MAX_LENGTH` 超のプレーン表示フォールバックも対象外
+- 要求は `{ seq, sessionId, path }` として `useSessions` の store が 1 件だけ持つ。`seq` は App の存続期間で単調増加し再利用しない。消費前に複数クリックが届いたら最後の要求だけが残る（最新優先。中間クリックのタブ作成は保証しない）
+- 要求の寿命は選択中セッションの滞在期間に限る。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに破棄する（A→B→A と戻っても復活しない。`cwd` はセッション識別子にならず、同一プロジェクトの別セッションでも選択が変われば破棄する）
+- パネル / sheet は条件付き mount なので、`FileBrowser` が mount 後の Effect で未消費の要求を適用し、`onHandled(seq)` で App へ返す（`reloadToken` の「mount 時の値は無視する」方式は初回クリックを取り落とすため使わない）。App の ack は現在の pending の `seq` と照合し、古い ack で新しい要求を消さない
+- 適用の印は `FileBrowser` の ref が持ち、適用の直前に記録する。Effect の再実行（StrictMode）では二重に適用しない。`openFileTab` は同一パスでも新しい state を返すため、「タブが増えない」ことは 1 回適用の根拠にならない
+- 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。ツリーの親は自動展開せず、プレビューも自動で全画面にしない
+- 表示モードは既存の選択規則のまま（未選択の HTML だけ既定でプレビュー。ユーザーがソースを選んだタブはソースのまま）
+- compact の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは戻さない。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
+- provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
 
 ## 削除
 
@@ -233,6 +295,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットがリネーム (フォルダのみ) と削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
 | `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 出すのは `FileTreePage` だけ（`react-dom/server` の描画 + ソース走査） |
+| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
+| `client/test/fileRefRequest.test.ts` | 未消費は 1 件で最新優先 / ack は seq が一致するときだけ消す（request1 → request2 → ack1）/ 選択変更の破棄後に復活しない / 旧 ack で新しい要求を消さない / sessionId の一致判定 / 購読の通知 / 配線のソース走査（選択変更の 3 経路、App の受け渡し、`FileBrowser` の seq ガード、sheet の focus 復帰） |
+| `client/test/markdownFileRef.test.ts` | 参照になるインラインコードだけ button にする / provider の外と参照でない字面は code のまま / rootCwd 前置きと cwd 外の解決 / リンク内 code の除外 / 引用・リスト・表の中の code / 長文フォールバックの例外（描画 + ソース走査） |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
@@ -247,6 +312,6 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ## 参照
 
 - [ui-layout.md](ui-layout.md) — 本文の中でツリーとプレビューをどう並べるか
-- [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限
+- [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限と、インラインコードをファイル参照の操作要素にする描画契約
 - [api.md](api.md#テキストプレビュー) — プレビューの転送契約
 - [api.md](api.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答

@@ -83,7 +83,7 @@ test("リネームはサンドボックスへ委譲し、成功後にツリー�
 
 test("リネームを出すのは設定ツリー (FileTreePage) だけ", () => {
   const fileBrowser = read("src/components/FileBrowser.tsx");
-  assert.match(fileBrowser, /canRename = false \}: FileBrowserProps/, "canRename の既定が false でない");
+  assert.match(fileBrowser, /canRename = false[^}]*\}: FileBrowserProps/, "canRename の既定が false でない");
   assert.ok(read("src/components/FileTreePage.tsx").includes("canRename"), "FileTreePage が canRename を渡していない");
   assert.ok(
     !read("src/components/SessionFilesPanel.tsx").includes("canRename"),

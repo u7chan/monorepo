@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import type { Dispatch, RefObject } from "react";
 import {
   ApiError,
@@ -9,6 +9,7 @@ import {
   updateSessionSettings,
 } from "../api";
 import { adoptKnownAgentId } from "../lib/agentSelection";
+import { createFileRefRequests } from "../lib/fileRefRequest";
 import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
@@ -56,6 +57,9 @@ export function useSessions({
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
   const [sessionCreation] = useState(() => createSessionCreation<string>());
+  // ファイル参照の要求。seq の単調増加と pending を store が持ち、破棄は選択が変わる各経路で行う
+  const [fileRefRequests] = useState(createFileRefRequests);
+  const fileRefRequest = useSyncExternalStore(fileRefRequests.subscribe, fileRefRequests.snapshot);
   // sessionIdRef / sessionsRef は選択・一覧の最新値。await を挟む処理と SSE の適用が state を待たずに読む
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
@@ -94,6 +98,8 @@ export function useSessions({
 
   const applySelectedSession = useCallback(
     (payload: SessionPayload) => {
+      // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
+      if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       localStorage.setItem(SESSION_KEY, payload.sessionId);
@@ -104,13 +110,15 @@ export function useSessions({
       applySnapshot(payload);
       setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
     },
-    [agentId, agents, applySnapshot, setAgentId],
+    [agentId, agents, applySnapshot, fileRefRequests, setAgentId],
   );
 
   const selectSession = useCallback(
     async (id: string, isCurrent = alwaysCurrent): Promise<void> => {
       // getSession の待機中にセッション作成が返っても、この選択を奪わせない
       selectionSeqRef.current += 1;
+      // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)
+      fileRefRequests.clear();
       try {
         const payload = await getSession(id);
         if (!isCurrent()) return;
@@ -126,7 +134,7 @@ export function useSessions({
         return newChatRef.current();
       }
     },
-    [applySelectedSession, refreshHealth],
+    [applySelectedSession, fileRefRequests, refreshHealth],
   );
 
   const newChat = useCallback(
@@ -136,6 +144,7 @@ export function useSessions({
       // 作成先を先に移し、その後の表示と送信先を一致させる
       if (nextProjectId !== undefined) selectProject(nextProjectId);
       selectionSeqRef.current += 1;
+      fileRefRequests.clear();
       // 進行中の作成を持ち越さない (新しい会話が前のセッションを掴まないようにする)
       sessionCreation.clear();
       localStorage.removeItem(SESSION_KEY);
@@ -146,12 +155,26 @@ export function useSessions({
       setCwd("");
       dispatch({ type: "newChat" });
     },
-    [dispatch, selectProject, setAgentId, sessionCreation],
+    [dispatch, fileRefRequests, selectProject, setAgentId, sessionCreation],
   );
 
   // selectSession ↔ newChat の相互参照用
   const newChatRef = useRef(newChat);
   newChatRef.current = newChat;
+
+  const requestFileRef = useCallback(
+    (path: string) => {
+      fileRefRequests.request(sessionIdRef.current, path);
+    },
+    [fileRefRequests],
+  );
+
+  const ackFileRef = useCallback(
+    (seq: number) => {
+      fileRefRequests.ack(seq);
+    },
+    [fileRefRequests],
+  );
 
   const ensureSession = useCallback(async (): Promise<string> => {
     const existing = sessionIdRef.current;
@@ -298,6 +321,9 @@ export function useSessions({
     sessionId,
     sessionIdRef,
     cwd,
+    fileRefRequest,
+    requestFileRef,
+    ackFileRef,
     preselection,
     settingsChanging,
     refreshSessions,

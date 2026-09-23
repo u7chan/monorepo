@@ -50,6 +50,7 @@ test("解析と描画のソースが揃っている (走査対象が空になら
   assert.deepEqual(componentFiles.map((file) => file.path.split("/").pop()).sort(), [
     "CodeBlock.tsx",
     "Diagram.tsx",
+    "FileRefLink.tsx",
     "HtmlInline.tsx",
     "MarkdownView.tsx",
     "MathView.tsx",

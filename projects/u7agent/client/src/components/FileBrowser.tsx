@@ -27,6 +27,7 @@ import {
   type FileTreeState,
 } from "../lib/fileTree";
 import { fileKind } from "../lib/fileKind";
+import { type FileRefRequest } from "../lib/fileRefRequest";
 import { filePreviewStore } from "../lib/filePreviewState";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
 import {
@@ -60,6 +61,9 @@ export type FileBrowserProps = {
   reloadToken: number;
   /** フォルダ行にリネームの鉛筆を出すか。既定 false (チャット右パネルでは出さない) */
   canRename?: boolean;
+  /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で App へ返す */
+  openRequest?: FileRefRequest | null;
+  onHandled?: (seq: number) => void;
 };
 
 /**
@@ -69,7 +73,7 @@ export type FileBrowserProps = {
  * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (一覧も行の時刻も「再読み込み」と run 終了でしか更新されない)。
  */
-export function FileBrowser({ root, reloadToken, canRename = false }: FileBrowserProps) {
+export function FileBrowser({ root, reloadToken, canRename = false, openRequest, onHandled }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
@@ -88,6 +92,18 @@ export function FileBrowser({ root, reloadToken, canRename = false }: FileBrowse
   const deletingRef = useRef<Set<string>>(new Set());
   // 同じ行のリネームを二重に送らない (削除と同じ理由)
   const renamingRef = useRef<Set<string>>(new Set());
+  // 最後に適用した要求の seq。適用の直前に記録して StrictMode の effect 再実行を弾く
+  const appliedRequestRef = useRef<number | null>(null);
+
+  // ファイル参照からの要求は mount 後の effect で適用する (パネルは条件付き mount のため、
+  // 「mount 時の token を無視する」reloadToken の方式では初回クリックを取り落とす)。
+  // openFileTab は同一パスでも新しい state を返すので「タブが増えない」ことは 1 回適用の根拠にならない
+  useEffect(() => {
+    if (!openRequest || appliedRequestRef.current === openRequest.seq) return;
+    appliedRequestRef.current = openRequest.seq;
+    setTabs((prev) => openFileTab(prev, openRequest.path));
+    onHandled?.(openRequest.seq);
+  }, [openRequest, onHandled]);
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
