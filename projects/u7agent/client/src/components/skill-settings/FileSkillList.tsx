@@ -22,17 +22,20 @@ import { RefreshIcon } from "../icons";
 export type FileSkillListProps = {
   state: FileSkillsState;
   onReload: () => void;
-  /** 選択中の読み取り専用スキル (本文を右ペイン / シートへ出す)。同名は一意化済みなので名前で足りる */
-  selectedName?: string | null;
-  onSelect: (name: string) => void;
+  /**
+   * 選択中の読み取り専用スキル。上書きされた組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない。
+   * 行固有の path で照合する
+   */
+  selectedPath?: string | null;
+  onSelect: (path: string) => void;
 };
 
 /**
  * 共通スキル (`.agents/skills`) と組み込みスキルの読み取り専用一覧。ファイルスキルは編集・削除・
- * エージェント割り当ての操作を持たず、行はどちらも本文ビューを開くだけ。同名はサーバー側で優先順位により
- * 一意化済みで、影になった側 / 上書きされた組み込みを警告として出す。
+ * エージェント割り当ての操作を持たず、行はどちらも本文ビューを開くだけ。同じ名前の行が残ることがあり
+ * (上書きされた組み込み)、影になった側 / 上書きされた組み込みを警告として出す。
  */
-export function FileSkillList({ state, onReload, selectedName = null, onSelect }: FileSkillListProps) {
+export function FileSkillList({ state, onReload, selectedPath = null, onSelect }: FileSkillListProps) {
   const groups = state.status === "ready" ? groupFileSkills(state.skills) : { common: [], builtin: [] };
   // 共通行も組み込み行も同じ形 (押すと本文ビューが開く) なので、行の組み立ては 1 箇所に閉じる
   const rows = (skills: FileSkillInfo[]) =>
@@ -40,8 +43,8 @@ export function FileSkillList({ state, onReload, selectedName = null, onSelect }
       <FileSkillRow
         key={skill.path}
         skill={skill}
-        selected={selectedName === skill.name}
-        onOpen={() => onSelect(skill.name)}
+        selected={selectedPath === skill.path}
+        onOpen={() => onSelect(skill.path)}
       />
     ));
   return (

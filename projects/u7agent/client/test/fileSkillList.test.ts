@@ -86,7 +86,9 @@ test("共通と組み込みの両グループが、本文ビューを開く同�
   assert.ok(source.includes("skill: FileSkillInfo"), "行がファイルスキルを対象にしていない");
   assert.ok(source.includes("{rows(groups.common)}"), "共通行が行の組み立てを通っていない");
   assert.ok(source.includes("{rows(groups.builtin)}"), "組み込み行が行の組み立てを通っていない");
-  assert.ok(source.includes("onOpen={() => onSelect(skill.name)}"), "行が選択ハンドラを受け取っていない");
+  assert.ok(source.includes("onOpen={() => onSelect(skill.path)}"), "行が path を選択ハンドラへ渡していない");
+  // 上書きされた組み込みは同名の共通行と並ぶので、名前で選ぶと別の行を開いてしまう
+  assert.ok(source.includes("selected={selectedPath === skill.path}"), "行の選択が path で照合されていない");
 });
 
 test("再読み込みは共通と組み込みを包む見出しに置き、ラベルを視覚的にも出す", () => {
