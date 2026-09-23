@@ -8,6 +8,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
+| POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
 | GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
@@ -46,7 +47,7 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 
 - `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
 - 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
-- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 4 つで、`GET /v1/files` は読み取り専用。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこの 4 つより狭く、`POST /v1/dirs` と `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成が使う）
+- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 5 つで、`GET /v1/files` は読み取り専用。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこの 5 つより狭く、`POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成・設定画面が使う）
 
 ## `DELETE /v1/dirs`
 
@@ -78,10 +79,30 @@ POST /v1/files/upload?dir=uploads&name=photo.png
 { "path": "uploads/photo-1.png", "name": "photo-1.png", "renamed": true, "size": 12345 }
 ```
 
-- `name` は basename のみ。空・`.`・`..`・`/`・`\`・制御文字・200 文字超は 400。`dir` は `POST /v1/dirs` と同じ規則で root 外を拒否し、無ければ `mkdir -p` で作る
+- `name` は basename のみ。空・`.`・`..`・`/`・`\`・制御文字・200 文字超は 400（`SANDBOX_MAX_ENTRY_NAME_LENGTH`。`POST /v1/files/rename` の `name` も同じ規則）。`dir` は `POST /v1/dirs` と同じ規則で root 外を拒否し、無ければ `mkdir -p` で作る
 - 書き込みは `<dir>/.pi-upload-<uuid>.part` へ行い、バイト数を数えて上限（100 MiB）を超えたら 413 にして temp を削除する。本文が途切れたときも temp を残さない
 - 完成後は `link(2)` で排他作成し、`EEXIST` なら `name-1.ext` → `name-2.ext` …（最大 100 回、以降は乱数 suffix）へ進める。**既存ファイルは決して上書きしない**（並行アップロードでも衝突しない）
 - 上限は 1 ファイル 100 MiB（`SANDBOX_MAX_UPLOAD_BYTES`）とファイル名 200 文字。`maxUploadBytes` オプションでテスト時に小さくできる
+
+## `POST /v1/files/rename`
+
+root 相対のエントリ（通常ファイル / ディレクトリ）の名前を変える。本文は `{ path, name }` で、`name` は 1 セグメントの新しい名前。応答は名前を変えたエントリの root 相対の正規化パス（root は `"."`）。
+
+```
+POST /v1/files/rename
+{ "path": "uploads/nested/photo.png", "name": "shot.png" }
+
+// response (200)
+{ "path": "uploads/nested/shot.png", "name": "shot.png" }
+```
+
+- `name` の検証は `POST /v1/files/upload` と同じ（空・`.`・`..`・`/`・`\`・制御文字・200 文字超は 400 `Invalid name: …`）。`path` の検証は [`DELETE /v1/files`](#delete-v1files) と同じ形（親を realpath、最終要素を `lstat`）。`""` / `"."` / `".."` / 末尾 `/` はエントリを表さない形式として 400、root 外へ解決される指定は 400（200 相当の別名で root 内へ解決する経由は [`GET /v1/files`](#get-v1files) と同じ）
+- 動かせるのは通常ファイルとディレクトリだけ。実在しないパスは 404、FIFO などの特殊ファイルは 400（`Not a file or directory: …`）
+- **symlink は 400（`Symbolic links cannot be renamed: …`）**。realpath で実体に解決してから `rename(2)` すると、root 内のリンクが指す root 外を動かせてしまうため、要求パスの最終要素だけを `lstat` で見て symlink なら動かさない（リンクだけを動かす挙動は提供しない）
+- 改名先に既存のエントリがあるときは 409（`Already exists: …`）で、何も変えない（上書きも自動採番もしない）。ただし **`lstat` と `realpath` が同じ実体を指す場合は通す**ため、大文字小文字だけの変更は許す（case-insensitive な fs では `lstat` が既存を返す）。改名先が symlink のときは実体が同じでも上書きしない（別のディレクトリエントリのため 409）
+- 親が root 内の symlink なら、一覧・削除と同じく辿った先のディレクトリで名前を変える。応答の `path` は辿った先の実パス基準（`GET /v1/files` の `path` と同じ規則）
+- 入力検証は**競合がない場合**の契約。`lstat` の後に同じ名前が作られると `rename(2)` が上書きする（Node に no-replace の rename が無い。単一ユーザーでエージェントと同時に触った場合のみ）。fd 相対の rename が Node に無いため完全な防御は入れない（[`DELETE /v1/dirs`](#delete-v1dirs) の TOCTOU と同じクラス）
+- 400 / 404 / 409 の文言はサンドボックスが返し、BFF はそのままクライアントへ返す（[api.md](api.md#リネーム)）
 
 ## `GET /v1/files/raw`
 
@@ -97,7 +118,7 @@ root 相対の画像を `createReadStream` でストリーム返却する。配�
 
 ## `GET /v1/files`
 
-作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。一覧は読み取り専用で、作業領域への書き込みは `POST /v1/dirs` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 4 つだけ。リネーム・移動の API は持たない。
+作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。一覧は読み取り専用で、作業領域への書き込みは `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 5 つだけ。移動（親ディレクトリの変更）の API は持たない。
 
 `path` は root 相対。省略時は root。解決と検証はツール実行の `cwd` と同じ関数を使う。
 

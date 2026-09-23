@@ -7,7 +7,7 @@ import {
   sandboxNotConfigured,
   SANDBOX_NOT_CONFIGURED_MESSAGE,
 } from "../http";
-import { FileListingSchema, FilePreviewSchema } from "../schema";
+import { FileListingSchema, FilePreviewSchema, FileRenameSchema, type RenameFileBody } from "../schema";
 import { parseRecursiveQuery, rawImageContentType, RECURSIVE_QUERY_ERROR } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
@@ -202,6 +202,22 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
         if (recursive.recursive) await workspace.deleteDirectory(path);
         else await workspace.deleteFile(path);
         return c.body(null, 204);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+    },
+    /**
+     * エントリのリネーム (設定 → ファイル のフォルダ行)。`path` は root 相対のエントリで、`name` は 1 セグメント。
+     * 検証 (root 外 400 / 不存在 404 / 形式 400 / symlink 400 / 同名 409) と改名はサンドボックスが行い、
+     * 応答の `{ path, name }` をそのまま返す。
+     */
+    rename: async (c: Context, body: RenameFileBody) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      try {
+        const renamed = await workspace.renameEntry(body.path, body.name);
+        const parsed = FileRenameSchema.safeParse(renamed);
+        if (!parsed.success) return c.json({ error: "サンドボックスのリネーム応答が不正です" }, 502);
+        return c.json(parsed.data);
       } catch (error) {
         return sandboxFailure(c, error);
       }

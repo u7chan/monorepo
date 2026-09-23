@@ -19,6 +19,7 @@ export type {
   FileEntry,
   FileListing,
   FilePreview,
+  FileRename,
   FileSkillInfo,
   FileSkillsResponse,
   Health,

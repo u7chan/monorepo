@@ -17,6 +17,7 @@ import {
   CreateSessionBodySchema,
   CreateSkillBodySchema,
   PostMessageBodySchema,
+  RenameFileBodySchema,
   ReplaceCatalogBodySchema,
   UpdateAgentBodySchema,
   UpdateSessionSettingsBodySchema,
@@ -45,6 +46,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/files", fileRoutes.list)
     // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
     .delete("/api/files", fileRoutes.remove)
+    // パスは本文で受ける (改名先の名前をクエリに載せない)
+    .post(
+      "/api/files/rename",
+      jsonBodyValidator(RenameFileBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => fileRoutes.rename(c, c.req.valid("json")),
+    )
     .get("/api/files/preview", fileRoutes.preview)
     // `:path{.+}` はルート配下のパスを 1 セグメントで受ける (wildcard `*` は Hono 4 で param として取れない)
     .get("/api/files/html/:path{.+}", fileRoutes.html)

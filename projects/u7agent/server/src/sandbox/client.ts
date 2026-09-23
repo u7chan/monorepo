@@ -9,6 +9,7 @@ import {
   type SandboxFileListing,
   type SandboxFilePreview,
   type SandboxFileUpload,
+  type SandboxRenameResult,
   type SandboxSkillsResponse,
 } from "./protocol";
 
@@ -70,6 +71,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
       return (await response.json()) as SandboxFilePreview;
     },
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
+    renameEntry: (path, name) => renameEntry(path, name, baseUrl, token, fetchImpl),
     deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
     deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
     uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
@@ -95,6 +97,8 @@ export interface SandboxToolClient {
   /** `.agents/skills` 配下の発見 (dir は root 相対)。不存在の dir は 404 */
   listSkills(dir: string): Promise<SandboxSkillsResponse>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
+  /** root 相対のエントリ (ファイル / ディレクトリ) の名前を変える。同名はサンドボックスが 409 で拒む */
+  renameEntry(path: string, name: string): Promise<SandboxRenameResult>;
   deleteFile(path: string): Promise<void>;
   /** 配下ごとのディレクトリ削除 (recursive はサンドボックスが true 固定で受ける) */
   deleteDirectory(path: string): Promise<void>;
@@ -105,7 +109,15 @@ export interface SandboxToolClient {
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
 export type SandboxWorkspaceClient = Pick<
   SandboxToolClient,
-  "listFiles" | "listSkills" | "createDir" | "deleteFile" | "deleteDirectory" | "previewFile" | "uploadFile" | "rawFile"
+  | "listFiles"
+  | "listSkills"
+  | "createDir"
+  | "renameEntry"
+  | "deleteFile"
+  | "deleteDirectory"
+  | "previewFile"
+  | "uploadFile"
+  | "rawFile"
 >;
 
 /**
@@ -136,7 +148,7 @@ function jsonHeaders(token: string): Record<string, string> {
 }
 
 /**
- * JSON 経路の HTTP エラーの写像。サンドボックス由来の 4xx (不正パス・不存在) は文言ごと透過し、
+ * JSON 経路の HTTP エラーの写像。サンドボックス由来の 4xx (不正パス・不存在・同名の競合) は文言ごと透過し、
  * 認証失敗とサンドボックス側障害は 502 に寄せる。
  */
 async function jsonError(response: Response, label: string): Promise<SandboxRequestError> {
@@ -144,7 +156,7 @@ async function jsonError(response: Response, label: string): Promise<SandboxRequ
   if (response.status === 401 || response.status === 403) {
     return new SandboxRequestError("サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)", 502);
   }
-  if (response.status === 400 || response.status === 404) {
+  if (response.status === 400 || response.status === 404 || response.status === 409) {
     return new SandboxRequestError(detail || `${label} (HTTP ${response.status})`, response.status);
   }
   return new SandboxRequestError(
@@ -237,6 +249,30 @@ async function uploadFile(
   );
   if (!response.ok) throw await rawError(response, "アップロードに失敗しました");
   return (await response.json()) as SandboxFileUpload;
+}
+
+/**
+ * root 相対のエントリの名前を変える。成功の応答は改名後の root 相対パスで、同名の競合 (409) は文言ごと透過する。
+ */
+async function renameEntry(
+  path: string,
+  name: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxRenameResult> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/rename`,
+    {
+      method: "POST",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ path, name }),
+    },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "名前を変更できませんでした");
+  return (await response.json()) as SandboxRenameResult;
 }
 
 /** 通常ファイルの削除。成功は 204 で本文が無いため、応答の JSON は読まない。 */

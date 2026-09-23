@@ -13,6 +13,8 @@ import {
   openFileTab,
   previewModeFor,
   readPreview,
+  renameFileTabs,
+  renamePreviewModes,
   restoreFileTabsState,
   withPreviewMode,
 } from "../src/lib/fileTabs";
@@ -215,4 +217,59 @@ test("復元したタブでも表示中の切替と上限は同じ契約", () =>
   state = openFileTab(state, "new.txt");
   assert.equal(state.paths.length, FILE_TAB_LIMIT, "上限を超えない");
   assert.deepEqual(state.paths[0], "1.txt", "最も古いタブから落ちる");
+});
+
+// リネーム後の経路の張り替え。並びと表示中のタブを保ち、配下のタブも一緒に移す
+test("リネームはタブの経路を張り替え、並びと表示中のタブを保つ", () => {
+  const state = openFileTab(
+    openFileTab(openFileTab(openFileTab(createFileTabsState(), "a.txt"), "dir/x.txt"), "dir/deep/y.txt"),
+    "b.txt",
+  );
+  assert.deepEqual(renameFileTabs(state, "dir", "renamed"), {
+    paths: ["a.txt", "renamed/x.txt", "renamed/deep/y.txt", "b.txt"],
+    active: "b.txt",
+  });
+  // 表示中のタブが配下なら表示も移る
+  assert.deepEqual(renameFileTabs({ ...state, active: "dir/deep/y.txt" }, "dir", "renamed"), {
+    paths: ["a.txt", "renamed/x.txt", "renamed/deep/y.txt", "b.txt"],
+    active: "renamed/deep/y.txt",
+  });
+  // ファイル自身のリネームはそのタブだけ
+  assert.deepEqual(renameFileTabs(state, "a.txt", "renamed.txt"), {
+    paths: ["renamed.txt", "dir/x.txt", "dir/deep/y.txt", "b.txt"],
+    active: "b.txt",
+  });
+  // 接頭辞境界: dir の改名で dir2 を巻き込まない
+  const sibling = { paths: ["dir2/x.txt", "dir/x.txt"], active: "dir/x.txt" };
+  assert.deepEqual(renameFileTabs(sibling, "dir", "renamed"), {
+    paths: ["dir2/x.txt", "renamed/x.txt"],
+    active: "renamed/x.txt",
+  });
+  // 対象が無いときは同じ object を返す (再 render を起こさない)
+  assert.equal(renameFileTabs(state, "other", "renamed"), state);
+  assert.equal(renameFileTabs(state, "dir/x.txt", "dir/x.txt"), state, "未変更");
+});
+
+test("リネーム先が既存のタブと同じ経路になったら重複させない", () => {
+  // 消えていたファイルのタブが残っている状態で、その名前へリネームした場合
+  const state = { paths: ["dir/old.txt", "dir/note.txt"], active: "dir/note.txt" };
+  assert.deepEqual(renameFileTabs(state, "dir/note.txt", "dir/old.txt"), {
+    paths: ["dir/old.txt"],
+    active: "dir/old.txt",
+  });
+});
+
+test("リネームは表示モードの経路も張り替える", () => {
+  const modes = withPreviewMode(withPreviewMode({}, "dir/a.html", "source"), "dir/b.html", "preview");
+  assert.deepEqual(renamePreviewModes(modes, "dir", "renamed"), {
+    "renamed/a.html": "source",
+    "renamed/b.html": "preview",
+  });
+  assert.deepEqual(renamePreviewModes(modes, "dir/a.html", "dir/c.html"), {
+    "dir/c.html": "source",
+    "dir/b.html": "preview",
+  });
+  // 対象が無いときは同じ object を返す
+  assert.equal(renamePreviewModes(modes, "other", "renamed"), modes);
+  assert.equal(renamePreviewModes(modes, "dir/a.html", "dir/a.html"), modes, "未変更");
 });

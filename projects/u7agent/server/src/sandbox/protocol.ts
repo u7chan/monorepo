@@ -55,6 +55,18 @@ export interface SandboxCreateDirResult {
   path: string;
 }
 
+/** POST /v1/files/rename のリクエストボディ。path は root 相対のエントリ (ファイル / ディレクトリ)、name は 1 セグメント。 */
+export interface SandboxRenameRequestBody {
+  path: string;
+  name: string;
+}
+
+/** POST /v1/files/rename の応答。path は名前を変えたエントリの root 相対の正規化パス (root は ".")。 */
+export interface SandboxRenameResult {
+  path: string;
+  name: string;
+}
+
 /** DELETE /v1/dirs の `recursive` query の解釈結果。省略は false で、不正値と重複は ok: false になる */
 export type RecursiveQuery = { ok: true; recursive: boolean } | { ok: false };
 
@@ -131,8 +143,8 @@ export const SANDBOX_MAX_PREVIEW_BYTES = 256 * 1024;
  */
 export const SANDBOX_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
-/** アップロードのファイル名の上限 (文字数)。保存名としてだけ使う。 */
-export const SANDBOX_MAX_UPLOAD_NAME_LENGTH = 200;
+/** 1 セグメントの名前の上限 (文字数)。アップロードの保存名とリネーム先に使う。 */
+export const SANDBOX_MAX_ENTRY_NAME_LENGTH = 200;
 
 /**
  * GET /v1/files/raw が配信する拡張子と Content-Type。SVG / HTML は同一オリジンでスクリプトが動くため載せない。
@@ -160,10 +172,11 @@ export function rawImageContentType(path: string): string | undefined {
 }
 
 /**
- * アップロードの保存名 (basename)。保存先は dir が担うため、名前からディレクトリを動かせてはならない。
+ * 1 セグメントの名前 (アップロードの保存名 / リネーム先)。保存先や親は呼び出し側が担うため、
+ * 名前からディレクトリを動かせてはならない。
  */
-export function isValidUploadName(name: string): boolean {
-  if (!name || name.length > SANDBOX_MAX_UPLOAD_NAME_LENGTH) return false;
+export function isValidEntryName(name: string): boolean {
+  if (!name || name.length > SANDBOX_MAX_ENTRY_NAME_LENGTH) return false;
   if (name === "." || name === "..") return false;
   if (name.includes("/") || name.includes("\\")) return false;
   // oxlint-disable-next-line no-control-regex -- ファイル名の制御文字を弾くための検出。

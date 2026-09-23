@@ -37,7 +37,8 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
         dirs.push(path);
         return { path };
       },
-      // 削除 / アップロード / 生配信はこのテストでは扱わない
+      // 削除 / リネーム / アップロード / 生配信はこのテストでは扱わない
+      renameEntry: async (path: string, name: string) => ({ path, name }),
       deleteFile: async () => {},
       deleteDirectory: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),

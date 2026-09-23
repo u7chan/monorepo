@@ -82,6 +82,44 @@ export function fileTreeDeleteDirectoryConfirm(path: string): string {
   return `「${path}」と配下のファイルをすべて削除しますか？この操作は取り消せません。`;
 }
 
+/** リネームの入力の見出し。初期値 (現在の名前) は呼び出し側が window.prompt の第 2 引数で渡す。 */
+export function fileTreeRenamePrompt(path: string): string {
+  return `「${path}」の新しい名前を入力してください。`;
+}
+
+/**
+ * リネームしたエントリを新しい名前へ張り替える。親一覧の children の name を差し替え、
+ * 配下の state キーを nextPath へ移す。開閉と取得済みの子はそのまま残し、親の再取得はしない。
+ * 接頭辞は区切りまで含めて見るため、`a` の改名で `ab` を巻き込まない。
+ */
+export function renameFileTreeEntry(state: FileTreeState, path: string, nextPath: string): FileTreeState {
+  if (path === nextPath) return state;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const nextName = nextPath.slice(nextPath.lastIndexOf("/") + 1);
+  const prefix = `${path}/`;
+
+  let changed = false;
+  const next: FileTreeState = {};
+  for (const [key, node] of Object.entries(state)) {
+    if (key === path || key.startsWith(prefix)) {
+      changed = true;
+      setFileTreeDirectoryState(next, `${nextPath}${key.slice(path.length)}`, node);
+      continue;
+    }
+    setFileTreeDirectoryState(next, key, node);
+  }
+
+  // children を持つ親だけを差し替える (行が未取得の親には何もしない)
+  const parent = fileTreeParentPath(path);
+  const parentNode = fileTreeDirectoryState(next, parent);
+  if (parentNode?.children?.some((entry) => entry.name === name)) {
+    changed = true;
+    const children = parentNode.children.map((entry) => (entry.name === name ? { ...entry, name: nextName } : entry));
+    setFileTreeDirectoryState(next, parent, { ...parentNode, children });
+  }
+  return changed ? next : state;
+}
+
 /**
  * 削除したファイルの行を一覧から落とす。children を持つ親だけを差し替えるので、
  * 展開中の子孫や他のディレクトリの状態はそのまま残る (ファイルを消しても親の再取得は不要)。

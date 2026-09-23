@@ -355,6 +355,26 @@ export const FileUploadSchema = z.object({
 export type FileUpload = z.infer<typeof FileUploadSchema>;
 
 /**
+ * リネーム (POST /api/files/rename) のリクエストボディ。path は root 相対のエントリ、name は 1 セグメントの新しい名前。
+ * 名前の形式 (空・`.`・`..`・`/` など) とパスの検証はサンドボックスが行う。
+ */
+export const RenameFileBodySchema = z.object({
+  path: z.string(),
+  name: z.string(),
+});
+export type RenameFileBody = z.infer<typeof RenameFileBodySchema>;
+
+/**
+ * リネーム応答 (サンドボックス POST /v1/files/rename の応答をそのまま返す)。
+ * path は改名後のエントリのワークスペース root 相対パス。
+ */
+export const FileRenameSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+});
+export type FileRename = z.infer<typeof FileRenameSchema>;
+
+/**
  * サンドボックス GET /v1/skills の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
  * ここは BFF が受けた応答の検証用。
  */

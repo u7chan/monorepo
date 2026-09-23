@@ -22,18 +22,21 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
   paths: string[];
   deleted: string[];
   deletedDirs: string[];
+  renamed: Array<{ path: string; name: string }>;
   previewed: string[];
   raw: string[];
 } {
   const paths: string[] = [];
   const deleted: string[] = [];
   const deletedDirs: string[] = [];
+  const renamed: Array<{ path: string; name: string }> = [];
   const previewed: string[] = [];
   const raw: string[] = [];
   return {
     paths,
     deleted,
     deletedDirs,
+    renamed,
     previewed,
     raw,
     workspace: {
@@ -50,6 +53,10 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
       listSkills: async () => ({ skills: [] }),
       // ファイル一覧のテストではディレクトリ作成は使わない
       createDir: async (path: string) => ({ path }),
+      renameEntry: async (path: string, name: string) => {
+        renamed.push({ path, name });
+        return { path: `${path.slice(0, path.lastIndexOf("/") + 1)}${name}`, name };
+      },
       deleteFile: async (path: string) => {
         deleted.push(path);
       },
@@ -590,6 +597,132 @@ test("DELETE /api/files maps sandbox failures", async () => {
     } finally {
       await bff.close();
     }
+  }
+});
+
+test("POST /api/files/rename delegates the path and name and relays the new path", async () => {
+  const { workspace, renamed } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "uploads/nested/photo.png", name: "shot.png" }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await jsonBody(response), { path: "uploads/nested/shot.png", name: "shot.png" });
+    assert.deepEqual(renamed, [{ path: "uploads/nested/photo.png", name: "shot.png" }]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/rename validates the body before touching the sandbox", async () => {
+  const { workspace, renamed } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const bodies = ["{}", '{"path":"a.txt"}', '{"path":1,"name":"b.txt"}', '{"path":"a.txt","name":null}'];
+    for (const body of bodies) {
+      const response = await bff.app.request("/api/files/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      assert.equal(response.status, 400, body);
+      assert.match((await jsonBody(response)).error, /Invalid request body/, body);
+    }
+    // JSON として壊れている場合は既存の契約の文言
+    const broken = await bff.app.request("/api/files/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not json",
+    });
+    assert.equal(broken.status, 400);
+    assert.match((await jsonBody(broken)).error, /valid JSON/);
+    assert.deepEqual(renamed, [], "不正な body でサンドボックスへ要求している");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/rename answers 503 when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    const response = await bff.app.request("/api/files/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "a.txt", name: "b.txt" }),
+    });
+    assert.equal(response.status, 503);
+    assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/rename maps sandbox failures and rejects a malformed response", async () => {
+  const cases: Array<{ error: Error; status: number; message: RegExp }> = [
+    {
+      error: new SandboxRequestError("Path outside the workspace: /etc", 400),
+      status: 400,
+      message: /outside the workspace/,
+    },
+    { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
+    {
+      error: new SandboxRequestError("Already exists: /workspace/b.txt", 409),
+      status: 409,
+      message: /Already exists/,
+    },
+    {
+      error: new SandboxRequestError("Symbolic links cannot be renamed: /workspace/link", 400),
+      status: 400,
+      message: /Symbolic links cannot be renamed/,
+    },
+    {
+      error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502),
+      status: 502,
+      message: /接続できません/,
+    },
+    { error: new Error("unexpected"), status: 502, message: /unexpected/ },
+  ];
+  for (const item of cases) {
+    const { workspace } = stubFiles();
+    workspace.renameEntry = async () => {
+      throw item.error;
+    };
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+    try {
+      const response = await bff.app.request("/api/files/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "a.txt", name: "b.txt" }),
+      });
+      assert.equal(response.status, item.status, item.error.message);
+      assert.match((await jsonBody(response)).error, item.message);
+    } finally {
+      await bff.close();
+    }
+  }
+
+  // サンドボックスが契約外の応答を返した場合は 502 (改名後のパスとして信用しない)
+  const malformed = stubFiles();
+  malformed.workspace.renameEntry = async () => ({ path: 1, name: "b.txt" }) as never;
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: null,
+    pi: null,
+    workspace: malformed.workspace,
+  });
+  try {
+    const response = await bff.app.request("/api/files/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "a.txt", name: "b.txt" }),
+    });
+    assert.equal(response.status, 502);
+    assert.match((await jsonBody(response)).error, /不正/);
+  } finally {
+    await bff.close();
   }
 });
 

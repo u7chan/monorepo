@@ -166,6 +166,25 @@ export function TrashIcon() {
   );
 }
 
+/** 行のリネームボタンの鉛筆 (削除のゴミ箱と同じ寸法にそろえる) */
+export function PencilIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M11.25 2.75l2 2-7.5 7.5-2.6.6.6-2.6z" />
+      <path d="M9.75 4.25l2 2" />
+    </svg>
+  );
+}
+
 export function CheckIcon() {
   return (
     <svg

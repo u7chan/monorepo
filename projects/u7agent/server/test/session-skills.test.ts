@@ -51,6 +51,7 @@ function stubWorkspace(input: { skills?: Record<string, SandboxSkillEntry[]>; bo
       },
       listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
       createDir: async (path: string) => ({ path }),
+      renameEntry: async (path: string, name: string) => ({ path, name }),
       deleteFile: async () => {},
       deleteDirectory: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
