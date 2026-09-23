@@ -1,7 +1,7 @@
 // アプリデータの SQLite (server/src/app-db.ts) の単体テスト。実ファイルは一時ディレクトリに作る。
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -158,6 +158,64 @@ test("an unusable path makes the db unavailable and every query a 503", () => {
     // 失敗を握って空のカタログを返さない
     assert.throws(() => db.listAgents(), isServiceUnavailable);
     db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a transient failure clears on the next successful query", () => {
+  const db = AppDb.open({ storeDir: null });
+  assert.throws(() => db.saveAgent({ ...agent("broken"), name: null as unknown as string }), isServiceUnavailable);
+  assert.equal(db.status().ok, false);
+
+  assert.equal(db.probe(), true);
+  assert.equal(db.status().ok, true);
+  db.close();
+});
+
+test("a failing recreate leaves the previous state and makes the db unavailable", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+
+    // DROP TABLE が失敗する状態を作る (agents を view に差し替える) + 版を上げる
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE agents; CREATE VIEW agents AS SELECT 1 AS id;");
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.status().ok, false);
+    assert.throws(() => db.listAgents(), isServiceUnavailable);
+    db.close();
+
+    // rollback で view は残り、版も変わっていない (部分適用なし)
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(check.prepare("SELECT type FROM sqlite_master WHERE name = 'agents'").get()?.type, "view");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION + 1);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recreating the schema does not touch the conversation files", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const sessionDir = join(dir, "a1b2c3d4e5");
+    mkdirSync(sessionDir);
+    writeFileSync(join(sessionDir, "session.jsonl"), '{"type":"header"}\n');
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    assert.deepEqual(db.listAgents(), []);
+    db.close();
+    // 会話は session.jsonl のままで、DB の作り直しに巻き込まれない
+    assert.equal(readFileSync(join(sessionDir, "session.jsonl"), "utf8"), '{"type":"header"}\n');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

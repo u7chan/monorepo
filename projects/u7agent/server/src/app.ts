@@ -36,9 +36,14 @@ export type { CreateBffAppOptions };
  */
 function appDataGuard(appDb: AppDb): MiddlewareHandler {
   return async (c, next) => {
-    const status = appDb.status();
-    if (!status.ok) {
-      return c.json({ error: `アプリデータ（SQLite）を利用できません: ${status.error ?? "unknown error"}` }, 503);
+    if (!appDb.status().ok) {
+      // 一過性の失敗から戻れるように、失敗状態のときだけ軽く読み直す (成功したら解除される)
+      try {
+        appDb.probe();
+      } catch {
+        const { error } = appDb.status();
+        return c.json({ error: `アプリデータ（SQLite）を利用できません: ${error ?? "unknown error"}` }, 503);
+      }
     }
     await next();
   };

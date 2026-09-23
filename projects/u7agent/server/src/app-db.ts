@@ -2,7 +2,6 @@
  * アプリデータ (プロジェクト / エージェント / スキル) の SQLite ストア。
  * 置き場所・スキーマの作り直し・失敗時の扱いは docs/persistence.md を正とする。
  */
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { httpError, messageFor } from "./http";
@@ -150,17 +149,24 @@ export class AppDb {
 
   static open({ storeDir }: OpenAppDbOptions): AppDb {
     const path = storeDir === null ? null : join(storeDir, APP_DB_FILENAME);
+    let db: DatabaseSync | null = null;
     try {
-      // ファイルが無い (またはメモリ DB) = 新規作成。このときだけサンプルを入れる
-      const created = path === null || !existsSync(path);
-      const db = new DatabaseSync(path ?? ":memory:");
+      db = new DatabaseSync(path ?? ":memory:");
       // 会話ストアと同じ方針 (メモリ DB では無視される)
       db.exec("PRAGMA journal_mode = WAL");
       db.exec("PRAGMA synchronous = NORMAL");
       const instance = new AppDb(db, path);
-      if (instance.#schemaVersion() !== APP_DB_SCHEMA_VERSION) instance.#recreate(created);
+      const version = instance.#schemaVersion();
+      // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ seed する
+      if (version !== APP_DB_SCHEMA_VERSION) instance.#recreate(version === 0);
       return instance;
     } catch (error) {
+      try {
+        // 失敗した接続を残さない (後始末の失敗で元の理由を隠さない)
+        db?.close();
+      } catch {
+        // noop
+      }
       console.error(`[u7agent] app db unavailable: ${messageFor(error)}`);
       return new AppDb(null, path, messageFor(error));
     }
@@ -183,20 +189,24 @@ export class AppDb {
 
   /** 途中で失敗したら部分適用を残さない。呼び出し側の例外はそのまま伝える */
   transaction<T>(fn: () => T): T {
-    const db = this.#handle();
-    db.exec("BEGIN");
+    this.#query((db) => db.exec("BEGIN"));
     try {
       const result = fn();
-      db.exec("COMMIT");
+      this.#query((db) => db.exec("COMMIT"));
       return result;
     } catch (error) {
       try {
-        db.exec("ROLLBACK");
+        this.#query((db) => db.exec("ROLLBACK"));
       } catch {
         // rollback の失敗で元の例外を隠さない (接続が壊れている場合は次のクエリで 503 になる)
       }
       throw error;
     }
+  }
+
+  /** 入口ガードが失敗状態から戻れるかを確かめる軽い読み取り (成功したら #error が消える) */
+  probe(): boolean {
+    return this.#query((db) => Boolean(db.prepare("SELECT 1").get()));
   }
 
   #handle(): DatabaseSync {
@@ -223,23 +233,22 @@ export class AppDb {
     return Number(row?.user_version ?? 0);
   }
 
-  /** DROP → CREATE → user_version → (新規なら) seed を 1 トランザクションで行う */
+  /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
   #recreate(seed: boolean): void {
-    const db = this.#handle();
-    db.exec("BEGIN");
+    this.#query((db) => db.exec("BEGIN"));
     try {
-      db.exec(DROP_TABLES);
-      db.exec(CREATE_TABLES);
+      this.#query((db) => db.exec(DROP_TABLES));
+      this.#query((db) => db.exec(CREATE_TABLES));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
-      db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`);
-      if (seed) this.#seed(db);
-      db.exec("COMMIT");
+      this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
+      if (seed) this.#seed();
+      this.#query((db) => db.exec("COMMIT"));
       // 既存 DB の作り直しはデータが消える経路なので警告として出す
       if (seed) console.log(`[u7agent] app db created (schema ${APP_DB_SCHEMA_VERSION})`);
       else console.error(`[u7agent] app db recreated without seed (schema ${APP_DB_SCHEMA_VERSION})`);
     } catch (error) {
       try {
-        db.exec("ROLLBACK");
+        this.#query((db) => db.exec("ROLLBACK"));
       } catch {
         // 元の例外を優先する
       }
@@ -247,24 +256,8 @@ export class AppDb {
     }
   }
 
-  #seed(db: DatabaseSync): void {
-    const insert = db.prepare(
-      `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    for (const agent of SEED_AGENTS) {
-      insert.run(
-        agent.id,
-        agent.name,
-        agent.description,
-        agent.systemPrompt,
-        agent.icon ?? null,
-        agent.model ? JSON.stringify(agent.model) : null,
-        agent.thinkingLevel ?? null,
-        JSON.stringify(agent.skillIds),
-        agent.suggestions ? JSON.stringify(agent.suggestions) : null,
-      );
-    }
+  #seed(): void {
+    for (const agent of SEED_AGENTS) this.saveAgent(agent);
   }
 
   // --- projects ---

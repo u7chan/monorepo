@@ -125,6 +125,41 @@ test("an unusable store dir makes app data 503 without an in-memory fallback", a
   await bff.close();
 });
 
+test("the app data guard answers 503 after the db is closed", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    bff.appDb.close();
+
+    for (const url of ["/api/agents", "/api/projects", "/api/sessions"]) {
+      const response = await bff.app.request(url);
+      assert.equal(response.status, 503, url);
+    }
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.appDb.ok, false);
+    await bff.close();
+  });
+});
+
+test("a failing resync does not leave a subscriber behind", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: stubWorkspace(),
+    });
+    const project = await jsonBody(bff.app.request("/api/projects", jsonPost({ cwd: "proj-a" })));
+    const record = await bff.store.create({ projectId: project.project.id });
+
+    // 購読時の resync が payload (所属の解決) で失敗する状況を作る
+    bff.appDb.close();
+    assert.throws(() => bff.store.subscribe(record, undefined, () => {}), isServiceUnavailable);
+    assert.equal(record.subscribers.size, 0, "失敗した購読を残さない");
+    await bff.close();
+  });
+});
+
 test("a payload build fails loudly when the app db becomes unavailable", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
