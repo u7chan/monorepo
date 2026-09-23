@@ -583,6 +583,5 @@ test("appendSystemPrompt はサンドボックスの python / uv と .venv の�
   assert.match(prompt, /python 3\.13, uv/);
   assert.match(prompt, /`\.venv` directly under it/);
   assert.match(prompt, /uv pip install --python \.venv\/bin\/python/);
-  // システム領域への導入は PEP 668 と非rootで既定では失敗するため、存在しないものとして案内する
   assert.doesNotMatch(prompt, /Not installed there:.*\bpython3\b/);
 });
