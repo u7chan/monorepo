@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { getCurrentSystemMessage } from "@earendil-works/pi-ai/utils/transcript";
 import {
   SessionFileWriter,
   generateSessionId,
@@ -229,11 +230,12 @@ test("parseSessionFile accepts the system message SDK 0.87 appends", () => {
     messageEntry("e1", null),
     // 本文は空で、差分は sections に入る (削除は null)
     systemMessage("e2", "e1", { content: "", sections: { skills: "<skills>…</skills>", tools: null } }),
-    // tool 構成の変更は toolsAdded に入る
+    // tool 構成の変更。toolsAdded は宣言 (name / description / parameters)、toolsRemoved は名前だけ
     systemMessage("e3", "e2", {
       content: "",
       sections: { preamble: "新しい前置き" },
-      toolsAdded: [{ name: "read" }],
+      toolsAdded: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
+      toolsRemoved: [{ name: "write" }],
     }),
   ];
   const parsed = parseSessionFile(lines([HEADER, ...entries]), HEADER.id);
@@ -251,11 +253,56 @@ test("parseSessionFile rejects malformed system messages", () => {
       { ...base, message: { role: "system", content: "", timestamp: 2, sections: { preamble: 1 } } },
     ],
     ["toolsAdded が配列でない", { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: {} } }],
+    // null のようなオブジェクトでない要素は SDK が落ちる。名前欠落は SDK が書かない形
+    ["toolsAdded に null", { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [null] } }],
+    [
+      "toolsAdded の name 欠落",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ description: "x" }] } },
+    ],
+    [
+      "toolsAdded の name が数値",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsAdded: [{ name: 1 }] } },
+    ],
+    [
+      "toolsRemoved が配列でない",
+      { ...base, message: { role: "system", content: "", timestamp: 2, toolsRemoved: {} } },
+    ],
+    ["toolsRemoved に null", { ...base, message: { role: "system", content: "", timestamp: 2, toolsRemoved: [null] } }],
     ["content が数値", { ...base, message: { role: "system", content: 1, timestamp: 2 } }],
   ];
   for (const [label, entry] of cases) {
     assert.equal(parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind, "damaged", label);
   }
+});
+
+// store が受理した履歴は SDK がそのまま読める必要がある。system message の tool 差分は
+// getCurrentTools が要素をそのまま Map に入れるため、オブジェクトでない要素で落ちる
+test("store は SDK が読めない tool 差分を拒む", () => {
+  const verdict = (message: Record<string, unknown>): string => {
+    const entry = { type: "message", id: "e2", parentId: "e1", timestamp: HEADER.timestamp, message };
+    return parseSessionFile(lines([HEADER, messageEntry("e1", null), entry]), HEADER.id).kind;
+  };
+  const crashes: Array<[string, Record<string, unknown>]> = [
+    ["toolsAdded に null", { toolsAdded: [null] }],
+    ["toolsRemoved に null", { toolsRemoved: [null] }],
+  ];
+  for (const [label, diff] of crashes) {
+    const message = { role: "system", content: "", timestamp: 2, ...diff };
+    assert.throws(() => getCurrentSystemMessage([message as never]), TypeError, `SDK 側の前提 (${label} は落ちる)`);
+    assert.equal(verdict(message), "damaged", `${label} を受理すると、開けたのに送信のたびに落ちる`);
+  }
+  // 受理側は SDK が実際に書く形 (toolsAdded は宣言、toolsRemoved は名前だけ) を通し、SDK も読める
+  const declarations = [{ name: "read", description: "Read a file", parameters: { type: "object" } }];
+  const removed = [{ name: "write" }];
+  assert.equal(
+    verdict({ role: "system", content: "", timestamp: 2, toolsAdded: declarations, toolsRemoved: removed }),
+    "ok",
+  );
+  assert.doesNotThrow(() =>
+    getCurrentSystemMessage([
+      { role: "system", content: "", timestamp: 2, toolsAdded: declarations, toolsRemoved: removed } as never,
+    ]),
+  );
 });
 
 test("SessionFileWriter rewrites, appends and repairs a torn tail", async () => {

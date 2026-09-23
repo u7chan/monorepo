@@ -241,6 +241,17 @@ function isSystemSections(value: unknown): boolean {
 }
 
 /**
+ * system message の toolsAdded / toolsRemoved。SDK は要素をそのまま Map に入れるため
+ * (getCurrentTools)、オブジェクトでない要素があるとそこで落ちる。name は SDK が必ず書く形
+ * (無ければ tool として解決できない) なので、文字列であることも要求する。
+ */
+function isToolDeclarations(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((tool) => isRecord(tool) && typeof tool.name === "string");
+}
+
+/**
  * 既知の entry type ごとの必須フィールド。SDK が書く形だけを受理する。
  * SDK が entry type を足すと「未知 type = 破損」になり復元が 409 で詰まるため、SDK を上げたらここも見直す。
  */
@@ -262,10 +273,11 @@ function entryShapeError(type: string, entry: Record<string, unknown>): string |
             : "bashExecution message が不正です";
         case "system":
           // SDK 0.87 は system prompt の section 差分と tool 構成の変更を system message として追記する
-          // (本文は空で、差分は sections / toolsAdded に入る)
+          // (本文は空で、差分は sections / toolsAdded / toolsRemoved に入る)
           return isStringOrTextParts(message.content) &&
             isSystemSections(message.sections) &&
-            (message.toolsAdded === undefined || Array.isArray(message.toolsAdded))
+            isToolDeclarations(message.toolsAdded) &&
+            isToolDeclarations(message.toolsRemoved)
             ? undefined
             : "system message が不正です";
         default:
