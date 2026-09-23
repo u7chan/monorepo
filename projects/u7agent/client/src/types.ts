@@ -33,6 +33,7 @@ export type {
   RunStatus,
   SessionPayload,
   SessionSkillInfo,
+  SessionSkillsPreview,
   SessionSkillsResponse,
   SessionSummary,
   SkillDef,

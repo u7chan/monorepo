@@ -12,6 +12,7 @@ import { catalogSkillPath } from "../src/catalog-skills";
 import { BUILTIN_SKILLS, builtinSkillPath } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxSkillEntry } from "../src/sandbox/protocol";
+import { SessionSkillsPreviewSchema } from "../src/schema";
 import {
   expandSkillCommand,
   parseCatalogSkillBlock,
@@ -325,6 +326,19 @@ async function createProjectSession(app: Hono): Promise<string> {
   return (await jsonBody(session)).sessionId as string;
 }
 
+/** カタログのスキルを 1 件作り、それを割り当てたエージェントの id を返す (作成前プレビューの catalog スコープ用) */
+async function createAgentWithSkill(app: Hono, name: string): Promise<string> {
+  const skill = await app.request(
+    "/api/skills",
+    jsonPost({ name, description: `${name} の説明`, body: `${name} の本文` }),
+  );
+  assert.equal(skill.status, 201);
+  const skillId = (await jsonBody(skill)).skill.id as string;
+  const agent = await app.request("/api/agents", jsonPost({ name: `${name} のエージェント`, skillIds: [skillId] }));
+  assert.equal(agent.status, 201);
+  return (await jsonBody(agent)).agent.id as string;
+}
+
 test("GET /api/sessions/:id/skills はセッションのスキルを優先順位つきで返す", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-skills-api-"));
   const projectPath = join(root, "proj/.agents/skills/writer/SKILL.md");
@@ -491,6 +505,197 @@ test("POST /api/sessions/:id/messages は本文が取れないスキルを送ら
     const payload = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}`));
     assert.deepEqual(payload.messages, [], "展開に失敗したメッセージは送らない");
     assert.equal(payload.title, "", "送れなかった本文でタイトルを作らない");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/skills/session はセッション無しで一覧を返し、同じ選択で作ったセッションの一覧と一致する", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-skills-preview-"));
+  const projectPath = join(root, "proj/.agents/skills/writer/SKILL.md");
+  const commonPath = join(root, ".agents/skills/writer/SKILL.md");
+  const { workspace } = stubWorkspace({
+    skills: {
+      "proj/.agents/skills": [skillEntry(projectPath, "writer", { description: "プロジェクト側" })],
+      ".agents/skills": [skillEntry(commonPath, "writer", { description: "共通側" })],
+    },
+  });
+  const bff = await createBffApp({ cwd: root, sessionStoreDir: null, pi: asPiBff(createStubPi()), workspace });
+  try {
+    const project = await bff.app.request("/api/projects", jsonPost({ cwd: "proj", create: true }));
+    const projectId = (await jsonBody(project)).project.id as string;
+    const agentId = await createAgentWithSkill(bff.app, "catalog-writer");
+
+    // 未所属 × エージェント未選択 (クエリ省略) は共通 + 組み込みだけ。cwd は "" になる
+    const bare = await jsonBody(await bff.app.request("/api/skills/session"));
+    assert.equal(bare.cwd, "");
+    assert.equal(bare.projectSkills, false);
+    assert.deepEqual(
+      bare.skills.map((skill: { name: string; scope: string }) => [skill.name, skill.scope]),
+      [
+        ["writer", "user"],
+        [BUILTIN.name, "builtin"],
+      ],
+    );
+
+    // プロジェクト選択 × エージェント選択は優先順位 (project > user > builtin > catalog) と影を返す
+    const response = await bff.app.request(`/api/skills/session?projectId=${projectId}&agentId=${agentId}`);
+    assert.equal(response.status, 200);
+    const preview = await jsonBody(response);
+    assert.equal(preview.cwd, "proj");
+    assert.equal(preview.projectSkills, true);
+    assert.deepEqual(
+      preview.skills.map((skill: { name: string; scope: string; shadowed: boolean }) => [
+        skill.name,
+        skill.scope,
+        skill.shadowed,
+      ]),
+      [
+        ["writer", "project", false],
+        [BUILTIN.name, "builtin", false],
+        ["catalog-writer", "catalog", false],
+      ],
+    );
+    // ファイル同士の重複は敗者が行にならず (組み込み / カタログは shadowed 行として残る)、採用側の shadows に入る
+    assert.deepEqual(preview.skills[0].shadows, [commonPath]);
+    assert.equal(SessionSkillsPreviewSchema.safeParse(preview).success, true, "応答は schema を満たす");
+
+    // 本文と説明の出所が同じなので、同じ選択で作ったセッションの一覧と skills は一致する
+    const created = await bff.app.request("/api/sessions", jsonPost({ projectId, agentId }));
+    assert.equal(created.status, 201);
+    const sessionId = (await jsonBody(created)).sessionId as string;
+    const session = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}/skills`));
+    assert.equal(session.cwd, "proj");
+    assert.deepEqual(session.skills, preview.skills);
+
+    // エージェント未選択はビルトインへ解決する (カタログのスキルは載らない)
+    const withoutAgent = await jsonBody(await bff.app.request(`/api/skills/session?projectId=${projectId}`));
+    assert.deepEqual(
+      withoutAgent.skills.map((skill: { name: string }) => skill.name),
+      ["writer", BUILTIN.name],
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/skills/session は 503 / 未知の id 400 / プロジェクトディレクトリ消失 400 を返す", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-skills-preview-errors-"));
+  const pi = createStubPi();
+
+  // サンドボックス未設定はセッション作成と同じ 503 (組み込みだけを見せて縮退しない)
+  const unconfigured = await createBffApp({ cwd: root, sessionStoreDir: null, pi: asPiBff(pi) });
+  try {
+    const response = await unconfigured.app.request("/api/skills/session");
+    assert.equal(response.status, 503);
+    assert.match((await jsonBody(response)).error, /サンドボックスが設定されていません/);
+  } finally {
+    await unconfigured.close();
+  }
+
+  const { workspace } = stubWorkspace({});
+  // 存在確認は永続化あり × プロジェクト選択のときだけ行う (作成と同じ条件) ので、store を有効にする
+  const bff = await createBffApp({
+    cwd: root,
+    sessionStoreDir: join(root, ".u7agent/sessions"),
+    pi: asPiBff(pi),
+    workspace,
+  });
+  try {
+    const unknownProject = await bff.app.request("/api/skills/session?projectId=nope");
+    assert.equal(unknownProject.status, 400);
+    assert.match((await jsonBody(unknownProject)).error, /Project not found: nope/);
+
+    const unknownAgent = await bff.app.request("/api/skills/session?agentId=nope");
+    assert.equal(unknownAgent.status, 400);
+    assert.match((await jsonBody(unknownAgent)).error, /Agent not found/);
+
+    // 登録したディレクトリが消えていれば、セッション作成と同じ 400 にする (出した一覧はそのまま送れる)
+    const project = await bff.app.request("/api/projects", jsonPost({ cwd: "proj", create: true }));
+    const projectId = (await jsonBody(project)).project.id as string;
+    workspace.listFiles = async (path: string) => {
+      throw new SandboxRequestError(`Path not found: ${path}`, 404);
+    };
+    const missing = await bff.app.request(`/api/skills/session?projectId=${projectId}`);
+    assert.equal(missing.status, 400);
+    assert.match((await jsonBody(missing)).error, /Path not found: proj/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/skills/session は探索の 404 を空、サンドボックス由来の非 404 を sandboxFailure にする", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-skills-preview-strict-"));
+  const pi = createStubPi();
+  const cases: Array<[Error, number, RegExp]> = [
+    // 置き場が無いだけの 404 は「そのスコープにスキルが無い」なので、組み込みだけを返す
+    [new SandboxRequestError("Path not found: .agents/skills", 404), 200, /^$/],
+    // 接続失敗 / サンドボックス側の失敗は「取れなかった」なので、サンドボックスが返した status を通す
+    [new SandboxRequestError("サンドボックスに接続できません", 502), 502, /サンドボックスに接続できません/],
+    [new SandboxRequestError("サンドボックスが混雑しています", 503), 503, /サンドボックスが混雑しています/],
+    // SandboxRequestError 以外は内部エラーとして 500 のままにする (502 へ丸めない)
+    [new Error("想定外の内部エラー"), 500, /想定外の内部エラー/],
+  ];
+  for (const [error, status, message] of cases) {
+    const { workspace } = stubWorkspace({});
+    workspace.listSkills = async () => {
+      throw error;
+    };
+    const bff = await createBffApp({ cwd: root, sessionStoreDir: null, pi: asPiBff(pi), workspace });
+    try {
+      const response = await bff.app.request("/api/skills/session");
+      assert.equal(response.status, status, `thrown=${error.message}`);
+      const body = await jsonBody(response);
+      if (status === 200) {
+        assert.deepEqual(
+          body.skills.map((skill: { name: string }) => skill.name),
+          [BUILTIN.name],
+        );
+      } else {
+        assert.match(body.error, message);
+      }
+    } finally {
+      await bff.close();
+    }
+  }
+});
+
+test("セッション確定後は保存された projectCwd で解決し、登録解除後もプレビューへ切り替わらない", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-skills-restored-"));
+  const projectPath = join(root, "proj/.agents/skills/writer/SKILL.md");
+  const { workspace } = stubWorkspace({ skills: { "proj/.agents/skills": [skillEntry(projectPath, "writer")] } });
+  const bff = await createBffApp({
+    cwd: root,
+    sessionStoreDir: join(root, ".u7agent/sessions"),
+    pi: asPiBff(createStubPi()),
+    workspace,
+  });
+  try {
+    const project = await bff.app.request("/api/projects", jsonPost({ cwd: "proj", create: true }));
+    const projectId = (await jsonBody(project)).project.id as string;
+    const created = await bff.app.request("/api/sessions", jsonPost({ projectId }));
+    const sessionId = (await jsonBody(created)).sessionId as string;
+
+    // 登録解除 (保存値とディレクトリは残す) → sweep でメモリから外し、復元経路を通す
+    assert.equal((await bff.app.request(`/api/projects/${projectId}`, { method: "DELETE" })).status, 200);
+    const record = bff.store.records.get(sessionId);
+    assert.ok(record);
+    record.lastUsedAt = 0;
+    await bff.store.sweep();
+    assert.equal(bff.store.records.get(sessionId), undefined, "復元させる");
+
+    const restored = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}/skills`));
+    assert.equal(restored.cwd, "proj", "meta.projectCwd をそのまま使う");
+    assert.deepEqual(
+      restored.skills.map((skill: { name: string; scope: string }) => [skill.name, skill.scope]),
+      [
+        ["writer", "project"],
+        [BUILTIN.name, "builtin"],
+      ],
+    );
+
+    // 解除済みの id はプレビューでは解決できない (セッションがある間は既存 API だけを使う根拠)
+    assert.equal((await bff.app.request(`/api/skills/session?projectId=${projectId}`)).status, 400);
   } finally {
     await bff.close();
   }

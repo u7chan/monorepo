@@ -472,6 +472,13 @@ export const SessionSkillsResponseSchema = z.object({
 });
 export type SessionSkillsResponse = z.infer<typeof SessionSkillsResponseSchema>;
 
+/**
+ * GET /api/skills/session の応答。セッション未確定 (新規チャット) のプレビューなので sessionId を持たない。
+ * `cwd` は未所属なら "" で、永続化されたセッションのスクラッチ (`.u7agent/sessions/<id>`) とは別の値。
+ */
+export const SessionSkillsPreviewSchema = SessionSkillsResponseSchema.omit({ sessionId: true });
+export type SessionSkillsPreview = z.infer<typeof SessionSkillsPreviewSchema>;
+
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),

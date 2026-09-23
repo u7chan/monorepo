@@ -117,6 +117,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/agents/:id", appData, catalogRoutes.removeAgent)
     .get("/api/skills", appData, catalogRoutes.listSkills)
     .get("/api/skills/files", catalogRoutes.listFileSkills)
+    // セッション未確定 (新規チャット) の一覧。GET /api/skills/:id は無いので静的セグメントで衝突しない
+    .get("/api/skills/session", appData, sessionRoutes.previewSkills)
     .post(
       "/api/skills",
       appData,

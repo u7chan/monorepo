@@ -266,6 +266,29 @@ References are relative to /workspace/.agents/skills/writer.
 - カタログの `description` はセッションのエージェントスナップショット（`agent.skills`）から、本文は `promptSnapshot` から引く。どちらも作成時点の内容で、定義を編集してもこのセッションの一覧は変わらない。同じスナップショットを `skillsOverride` の索引と `read` の横取りにも使い、system prompt には本文を載せない（[api-catalog.md](api-catalog.md#セッションへの渡し方)）
 - 404（セッションなし）/ 503（サンドボックス未設定）/ ファイルスキルの発見失敗は 502（接続失敗・認証失敗・サンドボックス側 5xx・本文が契約外はサンドボックスクライアントが 502 に寄せる。不正な dir の 400 だけそのまま）。**組み込みだけを返して黙って縮退しない**（使えるスキルを見せる場所なので、取れないことはエラーで見せる）。セッション作成と `/skill:` の展開は従来どおり縮退する（作成を止めない）
 
+## `GET /api/skills/session`
+
+セッション未確定（新規チャット）のスキル一覧。入力欄のスキルピッカーを、セッションを作る前に開けるようにする。解決は `GET /api/sessions/:id/skills` と同じ `resolveSessionSkills` を共有し、`sessionId` を外した同じ形を返す。
+
+```
+GET /api/skills/session?projectId=<id>&agentId=<id>
+```
+
+```json
+{
+  "cwd": "proj",
+  "projectSkills": true,
+  "skills": [ … ]
+}
+```
+
+- `projectId` 省略は未所属、`agentId` 省略はビルトインエージェント。未知の id はセッション作成と同じ 400。`cwd` は選択中プロジェクトの cwd で、未所属は `""`（セッション確定後のスクラッチ `.u7agent/sessions/<id>` とは別の値になる）。`projectSkills` はプロジェクトスキルを探索するか（未所属は `false`）
+- 解決に渡すのは `relativeCwd = project.cwd ?? ""`、`promptSnapshot = composePromptSnapshot(agent, skills)`、`agentSkills = agentInfo.skills`。エージェントの解決（`skillIds` → スキル + スナップショット）はセッション作成と同じヘルパーを使い、client へ二重実装しない
+- プロジェクト選択時は、作成と同じ条件（永続化あり）で登録ディレクトリの存在を確かめ、無ければ 400（`server/src/sessions.ts` の `requireProjectDir` を共有）。サンドボックス未設定は 503 で、組み込み / カタログだけへは縮退させない（その一覧から選んだ `/skill:` も `createSession` の 503 で送れないため）
+- 探索の失敗の扱いは `GET /api/sessions/:id/skills` と同じ（置き場が無い 404 は空、サンドボックス由来はその status、`SandboxRequestError` 以外は 500）
+- 内容は作成前の選択で解決した**現在の**定義とファイルになる。カタログの説明・本文は作成時にスナップショットされるため、プレビューから送信までの間に定義を編集するとセッションの一覧とずれ得る（許容する）。ファイルスキルはどちらも一覧のたびに探索し直す
+- セッションが確定したら `GET /api/sessions/:id/skills` へ切り替える。復元済みセッションは `meta.projectCwd` と保存済みスナップショットで解決するため、プロジェクトの登録が解除・消失していてもプレビューへは戻らない
+
 ## `POST /api/sessions/:id/files`
 
 選択時の即時アップロード。`Content-Type` を見ずに本文を raw ストリームとしてサンドボックスの `POST /v1/files/upload` へ転送する（`/api/*` の `bodyGuard` を通さないため、JSON / base64 の上限や text 化の影響を受けない）。

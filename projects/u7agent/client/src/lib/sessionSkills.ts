@@ -1,9 +1,10 @@
 /**
- * セッションのスキル一覧 (GET /api/sessions/:id/skills) の表示用の導出。グループ分け・注意書き・
- * 場所の表示をここ 1 箇所へ閉じ、コンポーネントは結果を描画するだけにする (docs/api-sessions.md)。
- * 形式の正はサーバーの SessionSkillInfo で、ここは文言だけを持つ。
+ * セッションのスキル一覧 (GET /api/sessions/:id/skills と、セッション未確定の GET /api/skills/session) の
+ * 取得先と表示用の導出。取得先の切替・状態の文言・グループ分け・注意書き・場所の表示をここ 1 箇所へ閉じ、
+ * フックとコンポーネントは結果を使うだけにする (docs/api-sessions.md)。
+ * 形式の正はサーバーの SessionSkillInfo で、ここは文言と取得先だけを持つ。
  */
-import type { SessionSkillInfo } from "../types";
+import type { SessionSkillInfo, SessionSkillsPreview, SessionSkillsResponse } from "../types";
 
 export const SESSION_SKILL_SCOPE_LABEL: Record<SessionSkillInfo["scope"], string> = {
   project: "プロジェクト",
@@ -17,10 +18,71 @@ export const SESSION_SKILL_SCOPE_ORDER: SessionSkillInfo["scope"][] = ["project"
 
 export const SESSION_SKILL_LOADING_NOTE = "スキルを読み込んでいます…";
 export const SESSION_SKILL_EMPTY_NOTE = "使えるスキルはありません。";
-export const SESSION_SKILL_UNAVAILABLE_NOTE = "メッセージを送るとセッションが始まり、スキル一覧を使えます。";
-export const SESSION_SKILL_BODY_NOTE = "本文は送信時に読み直します（一覧と優先順位はセッション作成時の内容）。";
+export const SESSION_SKILL_ERROR_PREFIX = "スキルを取得できませんでした";
+/** 取得先がまだ判明していないときだけ出す (その間はボタンを押せない)。セッションの有無とは別 */
+export const SESSION_SKILL_UNAVAILABLE_NOTE =
+  "スキル一覧を取得できる状態ではありません（起動処理の完了後に使えます）。";
+/** ファイルスキルは一覧のたびに探索し直し、カタログの本文はセッション作成時のスナップショットになる */
+export const SESSION_SKILL_BODY_NOTE = "本文は送信時に読み直します（ファイルスキルは一覧のたびに探索し直します）。";
 export const SESSION_SKILL_DISABLED_NOTE = "モデルからは呼ばれません（手動でのみ実行できます）";
 export const SESSION_SKILL_SHADOWED_NOTE = "同名のスキルが優先されます（この行は使われません）";
+
+/**
+ * 一覧の状態。`unavailable` は取得先がまだ判明していないときだけ (起動直後は保存された選択がまだ
+ * 検証されていない) で、その間はボタンを押せない。取得先がある状態での失敗は `error` にして、
+ * パネルに理由を出す (ボタンは押せるままにする)。
+ */
+export type SessionSkillsState =
+  | { status: "unavailable" }
+  | { status: "loading" }
+  | { status: "ready"; skills: SessionSkillInfo[]; projectSkills: boolean }
+  | { status: "error"; message: string };
+
+/** 一覧の取得先。セッションが確定していればセッション基準、無ければ新規チャットのプレビュー */
+export type SessionSkillsSource =
+  | { kind: "session"; sessionId: string }
+  | { kind: "preview"; projectId: string; agentId: string };
+
+/**
+ * 取得先。sessionId があれば既存 API (セッションのスナップショットで解決する)、無ければ作成前の
+ * 選択 (プロジェクト / エージェント。未選択は "") を使う。この 3 つが変わるときが取り直しの契機。
+ */
+export function sessionSkillsSource(sessionId: string, projectId: string, agentId: string): SessionSkillsSource {
+  return sessionId ? { kind: "session", sessionId } : { kind: "preview", projectId, agentId };
+}
+
+/** 一覧の取得。フックは api.ts を渡し、テストは stub を渡す */
+export type SessionSkillsFetchers = {
+  session: (sessionId: string) => Promise<SessionSkillsResponse>;
+  preview: (input: { projectId: string; agentId: string }) => Promise<SessionSkillsPreview>;
+};
+
+/**
+ * 取得先 1 つ分の一覧を取り、`canApply` が真のときだけ `apply` へ渡す。切替中に届いた古い応答はここで
+ * 捨てる (プレビュー取得中に project / agent が変わる、送信中に別チャットへ移る)。
+ */
+export async function fetchSessionSkills(
+  source: SessionSkillsSource,
+  fetchers: SessionSkillsFetchers,
+  canApply: () => boolean,
+  apply: (state: SessionSkillsState) => void,
+): Promise<void> {
+  try {
+    const response =
+      source.kind === "session" ? await fetchers.session(source.sessionId) : await fetchers.preview(source);
+    if (canApply()) apply({ status: "ready", skills: response.skills, projectSkills: response.projectSkills });
+  } catch (error) {
+    if (canApply()) apply({ status: "error", message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/** パネルに出す状態の 1 行。一覧を出せている (ready かつ 1 件以上) ときは何も出さない */
+export function sessionSkillsNotice(state: SessionSkillsState): { text: string; warn: boolean } | null {
+  if (state.status === "loading") return { text: SESSION_SKILL_LOADING_NOTE, warn: false };
+  if (state.status === "unavailable") return { text: SESSION_SKILL_UNAVAILABLE_NOTE, warn: false };
+  if (state.status === "error") return { text: `${SESSION_SKILL_ERROR_PREFIX}: ${state.message}`, warn: true };
+  return state.skills.length === 0 ? { text: SESSION_SKILL_EMPTY_NOTE, warn: false } : null;
+}
 
 /** 選択で入力欄へ入れるコマンド。末尾の空白は引数を続けて書くため */
 export function skillCommandText(name: string): string {

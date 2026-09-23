@@ -2,12 +2,11 @@ import { cn } from "../../lib/cn";
 import {
   SESSION_SKILL_BODY_NOTE,
   SESSION_SKILL_DISABLED_NOTE,
-  SESSION_SKILL_EMPTY_NOTE,
-  SESSION_SKILL_LOADING_NOTE,
   SESSION_SKILL_SCOPE_LABEL,
   SESSION_SKILL_UNAVAILABLE_NOTE,
   groupSessionSkills,
   sessionSkillLocation,
+  sessionSkillsNotice,
   sessionSkillWarning,
   skillCommandText,
 } from "../../lib/sessionSkills";
@@ -16,7 +15,7 @@ import { RefreshIcon, SkillListIcon } from "../icons";
 
 /**
  * スキル一覧の開閉ボタン。Model / Effort と同じ行に置く (パネルは SkillPanel が入力欄の上へ出す)。
- * セッションが始まるまで一覧は取れないため、その間は押せない。
+ * 新規チャットでも一覧を出せるため、取得先が判明していればセッションの有無に関わらず押せる。
  */
 export function SkillToggle({
   open,
@@ -51,8 +50,8 @@ export function SkillToggle({
 }
 
 /**
- * セッションで使えるスキルの一覧。選択すると入力欄へ `/skill:<name> ` を挿入するだけで、
- * 本文の展開は送信時に BFF が行う (本文は送信時点のファイル内容。docs/api-sessions.md)。
+ * セッションで使えるスキルの一覧 (新規チャットでは作成前の選択で解決したプレビュー)。選択すると
+ * 入力欄へ `/skill:<name> ` を挿入するだけで、本文の展開は送信時に BFF が行う (docs/api-sessions.md)。
  */
 export function SkillPanel({
   state,
@@ -71,6 +70,7 @@ export function SkillPanel({
   onReload: () => void;
 }) {
   const groups = state.status === "ready" ? groupSessionSkills(state.skills) : [];
+  const notice = sessionSkillsNotice(state);
   return (
     <section
       aria-label="スキル一覧"
@@ -96,12 +96,7 @@ export function SkillPanel({
         </button>
       </div>
 
-      {state.status === "loading" ? <p className="text-ink-faint">{SESSION_SKILL_LOADING_NOTE}</p> : null}
-      {state.status === "unavailable" ? <p className="text-ink-faint">{SESSION_SKILL_UNAVAILABLE_NOTE}</p> : null}
-      {state.status === "error" ? <p className="text-warn">スキルを取得できませんでした: {state.message}</p> : null}
-      {state.status === "ready" && state.skills.length === 0 ? (
-        <p className="text-ink-faint">{SESSION_SKILL_EMPTY_NOTE}</p>
-      ) : null}
+      {notice ? <p className={notice.warn ? "text-warn" : "text-ink-faint"}>{notice.text}</p> : null}
 
       {groups.map((group) => (
         <div key={group.scope} className="grid min-w-0 gap-1">
