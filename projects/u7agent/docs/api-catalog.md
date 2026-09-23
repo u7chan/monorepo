@@ -1,6 +1,6 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のインメモリカタログで、再起動するとサンプル定義に戻る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態はカタログスキル 0 件と、ユーザー定義のサンプル `agent-zundamon`（ずんだもん）1 体。
+規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のカタログで、実体はアプリデータの SQLite へ保存し、再起動後も残る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態はカタログスキル 0 件と、ユーザー定義のサンプル `agent-zundamon`（ずんだもん）1 体。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -25,7 +25,7 @@
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
 - GET / PUT の応答は同梱の組み込みスキルを `builtinSkills`（`{ name, description }`）でも返す。これは全エージェントで常時有効な **ambient** なスキルで、`skillIds` では外せない（[組み込みスキル](#組み込みスキル)）。エージェント編集のスキル欄はこれをチェック済み・無効の行として出し、外せないことを示す。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
-- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。ビルトインと同じく置換の対象で、`DELETE /api/agents/:id` で削除でき、`PUT /api/agents` で置き換わり、再起動で戻る。
+- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。ビルトインと同じく置換の対象で、`DELETE /api/agents/:id` で削除でき、`PUT /api/agents` で置き換わる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 
 ```json
 {

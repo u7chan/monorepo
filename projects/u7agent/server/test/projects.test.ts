@@ -63,8 +63,8 @@ test("stores projects in creation order and detects duplicate cwd", () => {
     store.list().map((project) => project.cwd),
     ["proj-a", "nested/proj-b"],
   );
-  assert.equal(store.get(first.id), first);
-  assert.equal(store.findByCwd("proj-a"), first);
+  assert.deepEqual(store.get(first.id), first);
+  assert.deepEqual(store.findByCwd("proj-a"), first);
 
   // 同じディレクトリを 2 つのプロジェクトにしない
   assert.throws(

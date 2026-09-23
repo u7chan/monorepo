@@ -33,6 +33,7 @@
 $PI_SESSION_STORE/<id>/
   meta.json      # 会話以外のアプリメタデータ
   session.jsonl  # pi SDK 形式の会話（header + entries）
+$PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタログ。persistence.md）
 
 # 2) 未所属セッションのスクラッチ（サンドボックスが読み書き。ファイル画面の root）
 <workspace root>/<appdir>/sessions/<id>/
@@ -47,6 +48,7 @@ $PI_SESSION_STORE/<id>/
 - `PI_SESSION_STORE` の既定は `<agentDir>/u7agent/sessions`。**`PI_APP_CWD` の中は起動時に拒否する**（ワークスペースをサンドボックスと共有する構成で store を共有してしまう事故を防ぐ）。
 - 未所属セッションのスクラッチの作成は既存のサンドボックス `POST /v1/dirs`（`mkdir -p` 相当）で行い、復元時も冪等に呼んで存在を保証する。BFF は作業領域のファイルに触らない。プロジェクト所属セッションでは作成せず、存在確認（一覧取得）だけを行い、無ければセッション作成を 400 で拒む。
 - store のフォルダ権限は 0700 にする。
+- 会話の走査（`listSessionIds`）はディレクトリだけを拾うため、併置した `u7agent.db`（と WAL / SHM）はセッションとして扱われない。
 
 ## meta.json
 

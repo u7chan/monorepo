@@ -1,5 +1,6 @@
 import { createPiBff } from "./agent";
 import type { PiBff } from "./agent";
+import { AppDb } from "./app-db";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
 import { BUILTIN_SKILLS } from "./builtin-skills";
@@ -8,7 +9,7 @@ import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { SessionStore } from "./sessions";
-import { resolveSessionStoreDir } from "./session-store";
+import { prepareSessionStore, resolveSessionStoreDir } from "./session-store";
 
 export type CreateBffAppOptions = {
   cwd?: string;
@@ -37,6 +38,8 @@ export type BffContext = {
   store: SessionStore;
   workspace: SandboxWorkspaceClient | null;
   sessionStore: SessionStoreStatus;
+  /** アプリデータ (プロジェクト / カタログ) の DB。status() を health へ出す */
+  appDb: AppDb;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -52,14 +55,6 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     }
   }
 
-  // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
-  const catalog = createAgentCatalog({
-    builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
-  });
-  const projects = new ProjectStore();
-  // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
-  const workspace =
-    opts.workspace !== undefined ? opts.workspace : (createSandboxToolClientFromEnv(process.env) ?? null);
   // 会話ストアはサンドボックスと共有しない。設定ミス (ワークスペース内の指定) は永続化なしに落とし、
   // health で理由を見せてセッション作成だけを 503 で止める。
   let sessionStore: SessionStoreStatus = { path: null, ok: true };
@@ -73,6 +68,31 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   }
   if (storeDir) sessionStore = { path: storeDir, ok: true };
   else if (sessionStoreError) sessionStore = { path: null, ok: false, error: sessionStoreError };
+
+  // アプリデータの DB は会話ストアと同じディレクトリへ併置するため、先にディレクトリを用意する。
+  // パス解決に失敗しているときはメモリ DB へ逃がさず、DB も使えない状態にする。
+  if (storeDir) {
+    try {
+      await prepareSessionStore(storeDir);
+    } catch (error) {
+      sessionStoreError = messageFor(error);
+      sessionStore = { path: storeDir, ok: false, error: sessionStoreError };
+      console.error(`[u7agent] session store unavailable: ${sessionStoreError}`);
+    }
+  }
+  const appDb = sessionStoreError
+    ? AppDb.unavailable({ storeDir, error: sessionStoreError })
+    : AppDb.open({ storeDir });
+
+  // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
+  const catalog = createAgentCatalog({
+    builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
+    db: appDb,
+  });
+  const projects = new ProjectStore(appDb);
+  // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
+  const workspace =
+    opts.workspace !== undefined ? opts.workspace : (createSandboxToolClientFromEnv(process.env) ?? null);
   const store = new SessionStore({
     pi,
     catalog,
@@ -94,5 +114,5 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] session store init failed: ${sessionStoreError}`);
     }
   }
-  return { cwd, pi, initError, catalog, projects, store, workspace, sessionStore };
+  return { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb };
 }

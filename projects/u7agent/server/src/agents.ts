@@ -1,8 +1,9 @@
 /**
- * 小さなインメモリカタログ。ファイルに書き出さないのは意図的で、
- * 再起動すると以下のサンプル定義に戻る。
+ * エージェント / スキルのカタログ。定義はアプリデータの SQLite (app-db.ts) に保存し、
+ * 再起動しても残る。サンプル定義は DB を新規作成したときだけ入る (app-db.ts の SEED_AGENTS)。
  */
 import { randomUUID } from "node:crypto";
+import { AppDb } from "./app-db";
 import { ThinkingLevelSchema } from "./schema";
 import type {
   AgentDef,
@@ -25,24 +26,9 @@ type AgentRecord = AgentDef;
 type DefinitionInput = unknown;
 
 /**
- * 初期投入するユーザー定義エージェント。口調のように会話全体へ常時効かせたい指示はスキルではなく
- * エージェントの systemPrompt に置く。通常の定義と同じ扱いにするので削除も置換もでき、再起動で戻る。
- */
-const DEFAULT_AGENTS: AgentRecord[] = [
-  {
-    id: "agent-zundamon",
-    name: "ずんだもん",
-    description: "「〜なのだ」「〜のだ」の語尾で話す",
-    systemPrompt:
-      "ずんだもんの口調で話してください。文末は「〜なのだ」「〜のだ」にし、一人称は「ボク」を使ってください。内容や説明の正確さは変えず、口調だけを変えてください。コード・コマンド・ファイルパス・エラーメッセージは書き換えず、そのまま示してください。",
-    skillIds: [],
-  },
-];
-
-/**
- * 常に 1 体居る汎用アシスタント。置換対象のマップにも入れず、ユーザー定義が 0 件でもセッションを
+ * 常に 1 体居る汎用アシスタント。DB の行にはせず、ユーザー定義が 0 件でもセッションを
  * 作れる保証と、インポートで消えないことをこの分離で持つ。既定のエージェントは役割もスキルも
- * 持たない (なりきりは DEFAULT_AGENTS のサンプルとして別に置く)。
+ * 持たない (なりきりは SEED_AGENTS のサンプルとして別に置く)。
  */
 const BUILTIN_AGENT: AgentRecord = {
   id: "agent-general",
@@ -243,21 +229,21 @@ export interface AgentCatalog {
 export interface CreateAgentCatalogOptions {
   /** GET /api/agents が返す同梱スキル。カタログの CRUD と `skillIds` の対象外 */
   builtinSkills?: readonly BuiltinSkillInfo[];
+  /** アプリデータの DB。未指定はメモリ DB (カタログの単体テスト) */
+  db?: AppDb;
 }
 
 export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): AgentCatalog {
-  const skills = new Map<string, SkillRecord>();
-  // ユーザー定義だけを置換対象にする。ビルトインはここに入れない
-  const agents = new Map<string, AgentRecord>(DEFAULT_AGENTS.map((agent) => [agent.id, copy(agent)]));
+  const db = options.db ?? AppDb.open({ storeDir: null });
   const builtin = copy(BUILTIN_AGENT);
   // 呼び出し側の配列を参照で持ち回らない (応答のたびにコピーを返す)
   const builtinSkills: BuiltinSkillInfo[] = (options.builtinSkills ?? []).map((skill) => ({ ...skill }));
 
   const builtinAgent = () => publicAgent(builtin);
-  const listSkills = () => [...skills.values()].map(publicSkill);
-  const listAgents = () => [...agents.values()].map(publicAgent);
-  const getSkill = (id: string) => skills.get(id);
-  const getAgent = (id: string) => agents.get(id) ?? (id === builtin.id ? builtin : undefined);
+  const listSkills = () => db.listSkills().map(publicSkill);
+  const listAgents = () => db.listAgents().map(publicAgent);
+  const getSkill = (id: string) => db.getSkill(id);
+  const getAgent = (id: string) => db.getAgent(id) ?? (id === builtin.id ? builtin : undefined);
   const snapshot = (): CatalogResponse => ({
     builtinAgent: builtinAgent(),
     builtinSkills: builtinSkills.map((skill) => ({ ...skill })),
@@ -265,9 +251,11 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
     skills: listSkills(),
   });
 
-  function normalizeSkillIds(skillIds: unknown, availableSkills: Map<string, SkillRecord> = skills): string[] {
+  /** 存在しないスキルへの参照は捨てる (定義が壊れていてもセッション作成を止めない) */
+  function normalizeSkillIds(skillIds: unknown, availableSkills?: Map<string, SkillRecord>): string[] {
     if (!Array.isArray(skillIds)) return [];
-    return [...new Set(skillIds.filter((id): id is string => typeof id === "string" && availableSkills.has(id)))];
+    const available = availableSkills ?? new Map(db.listSkills().map((skill) => [skill.id, skill]));
+    return [...new Set(skillIds.filter((id): id is string => typeof id === "string" && available.has(id)))];
   }
 
   return {
@@ -305,40 +293,33 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
         importedAgents.set(id, makeAgent(input, normalizeSkillIds(raw?.skillIds, importedSkills), id));
       }
       // ビルトインが常に 1 体居るので、ユーザー定義 0 件も許す
-
-      skills.clear();
-      for (const [id, skill] of importedSkills) skills.set(id, skill);
-      agents.clear();
-      for (const [id, agent] of importedAgents) agents.set(id, agent);
+      db.replaceCatalog([...importedSkills.values()], [...importedAgents.values()]);
       return snapshot();
     },
     createSkill(input) {
       const skill = makeSkill(input);
-      skills.set(skill.id, skill);
+      db.saveSkill(skill);
       return publicSkill(skill);
     },
     updateSkill(id, input) {
-      const current = skills.get(id);
+      const current = db.getSkill(id);
       if (!current) return undefined;
       const skill = makeSkill({ ...current, ...(input as object) }, id);
-      skills.set(id, skill);
+      db.saveSkill(skill);
       return publicSkill(skill);
     },
     removeSkill(id) {
-      if (!skills.delete(id)) return false;
-      for (const agent of agents.values()) {
-        agent.skillIds = agent.skillIds.filter((skillId) => skillId !== id);
-      }
-      return true;
+      // 参照している agents の skillIds からの除去まで 1 トランザクション
+      return db.deleteSkillAndDetach(id);
     },
     createAgent(input) {
       const raw = input as { skillIds?: unknown } | null;
       const agent = makeAgent(input, normalizeSkillIds(raw?.skillIds));
-      agents.set(agent.id, agent);
+      db.saveAgent(agent);
       return publicAgent(agent);
     },
     updateAgent(id, input) {
-      const current = agents.get(id);
+      const current = db.getAgent(id);
       if (!current) return undefined;
       const raw = input as { skillIds?: unknown } | null;
       // キー省略は current を残し、null は makeAgent 側でキーごと消える。
@@ -349,11 +330,11 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
         id,
       );
       // makeAgent は undefined のキーを付けないので、解除は merged の上書きで成立する
-      agents.set(id, agent);
+      db.saveAgent(agent);
       return publicAgent(agent);
     },
     removeAgent(id) {
-      return agents.delete(id);
+      return db.deleteAgent(id);
     },
   };
 }

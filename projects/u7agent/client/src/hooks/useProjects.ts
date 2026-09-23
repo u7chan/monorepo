@@ -36,7 +36,7 @@ export function useProjects() {
         if (!canApply()) return list;
         projectsRef.current = list;
         setProjects(list);
-        // プロジェクトはメモリ内のみ。選択が消えていたら未所属へ戻す (存在しない作成先を使い続けない)
+        // 選択が消えていたら未所属へ戻す (存在しない作成先を使い続けない)
         if (selectedProjectIdRef.current && !list.some((project) => project.id === selectedProjectIdRef.current)) {
           selectProject("");
         }

@@ -1,6 +1,6 @@
 # u7agent
 
-pi SDK を BFF に埋め込んだ小さなブラウザ GUI（`projects/u7agent`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript で、client は `hono/client` で型安全に API を呼びます。セッションは BFF 専用の会話ストア（`PI_SESSION_STORE`）へ保存され、再起動後も一覧・履歴・続きの送信を復元できます。エージェント/スキル定義はメモリ内のみで、再起動すると消えます。
+pi SDK を BFF に埋め込んだ小さなブラウザ GUI（`projects/u7agent`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript で、client は `hono/client` で型安全に API を呼びます。セッションは BFF 専用の会話ストア（`PI_SESSION_STORE`）へ保存され、再起動後も一覧・履歴・続きの送信を復元できます。エージェント/スキル定義とプロジェクトはアプリデータの SQLite（`<PI_SESSION_STORE>/u7agent.db`）へ保存され、再起動後も残ります。
 
 メッセージ送信は即時に返り、エージェントはバックグラウンドで動き続けます（ブラウザを閉じても継続）。作業用ツール（read / bash / edit / write / grep / find / ls）は BFF から分離したサンドボックスプロセスで実行します。
 
@@ -29,7 +29,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 スキルは 3 種類あります。
 
-- **エージェント定義のスキル**（設定 → スキル）— エージェントへ割り当てる指示。メモリ内のみで、再起動すると消えます
+- **エージェント定義のスキル**（設定 → スキル）— エージェントへ割り当てる指示。アプリデータの SQLite に保存され、再起動後も残ります
 - **ファイルスキル** — `<PI_APP_CWD>/.agents/skills/<name>/SKILL.md`（共通）と、プロジェクト配下の `<project>/.agents/skills/<name>/SKILL.md`（そのプロジェクトのセッションのみ）。エージェントに紐づかない ambient なスキルとしてセッションへ注入され、モデルは必要になった時点で `SKILL.md` を `read` します（本文の編集は次に読んだ時点から効きます）
 - **組み込みスキル** — アプリに同梱した `skill-creator` など（`server/src/builtin-skills/`）。全セッションで常時有効で、ワークスペースには実体を作らず、`read` だけ BFF が同梱の本文を返します。編集・バックアップの対象外です
 
@@ -50,6 +50,8 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 | `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
 
 一覧は [.env.example](.env.example) と [docs/sandbox-api.md](docs/sandbox-api.md)（サンドボックス側）を参照してください。
+
+プロジェクトとエージェント / スキル定義は、会話ストアと同じディレクトリの `u7agent.db`（SQLite）に保存します。パスを分ける環境変数はなく、`PI_SESSION_STORE` を永続ボリュームに置けば両方残ります（[persistence.md](docs/persistence.md)）。
 
 ## セキュリティ
 

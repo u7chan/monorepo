@@ -632,7 +632,13 @@ export class SessionStore {
     // 世代が一致しないカーソルは差分に使わない (seq は復元で 0 に戻るため数値だけでは同定できない)
     const usable = cursor?.generation === record.generation;
     if (!cursor || !usable || cursor.seq > record.seq || cursor.seq + 1 < earliest) {
-      send({ seq: record.seq, type: "resync", data: this.payload(record), at: Date.now() });
+      try {
+        send({ seq: record.seq, type: "resync", data: this.payload(record), at: Date.now() });
+      } catch (error) {
+        // payload の失敗で購読者だけが残ると sweep 対象外になるため、登録を戻してから投げる
+        record.subscribers.delete(subscriber);
+        throw error;
+      }
     } else {
       for (const entry of record.events) {
         if (entry.seq > cursor.seq) send(entry);

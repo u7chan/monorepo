@@ -82,7 +82,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
     ? { text: error, danger: true }
     : rootSelected
       ? { text: "ワークスペース root は登録できません (未所属チャットの作業場所です)。", danger: false }
-      : { text: "登録はサーバーのメモリ内のみで、再起動すると消えます。", danger: false };
+      : { text: "登録はサーバーに保存され、再起動後も残ります。", danger: false };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
