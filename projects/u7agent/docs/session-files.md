@@ -119,7 +119,7 @@ $PI_SESSION_STORE/<id>/
 
 ファイルを置くのはサンドボックスだけなので、`uploads/` も通常の作業ファイルと同じく `bash` / `read` から見える（セッション間の隔離はない）。`write` / `edit` の書き込み範囲はセッションの作業ディレクトリと `<root>/.agents/skills` なので、添付は変更できない。
 
-誤ってアップロードしたファイルは、設定 → ファイル の一覧（ワークスペース root）から通常ファイル単位 / ディレクトリ単位（配下ごと）で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files` / `DELETE /v1/dirs?recursive=true`。出す画面・確認・タブの扱いは [file-preview.md](file-preview.md#削除)）。symlink は消せない。セッションの DELETE は従来どおり履歴だけで、作業ディレクトリと添付は残る。
+誤ってアップロードしたファイルは、設定 → ファイル の一覧（ワークスペース root）から通常ファイル単位 / ディレクトリ単位（配下ごと）で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files` / `DELETE /v1/dirs?recursive=true`。出す画面・確認・タブの扱いは [file-preview.md](file-preview.md#削除)）。symlink は消せない。同じ一覧のフォルダ行からは名前も変更できる（`POST /api/files/rename` → サンドボックスの `POST /v1/files/rename`。出すのは設定 → ファイル だけで、ツリーの経路とプレビューのタブが新しい名前へ追随する。[file-preview.md](file-preview.md#リネーム)）。セッションの DELETE は従来どおり履歴だけで、作業ディレクトリと添付は残る。
 
 ## 復元
 
@@ -203,7 +203,7 @@ $PI_SESSION_STORE/<id>/
 - 会話ログと作業ファイルは別の場所になる（同じ `<id>` で対応）。バックアップ / 移設は `PI_SESSION_STORE` を単位にする。
 - セッションの DELETE で作業ディレクトリと添付は消えない（ファイル / ディレクトリ単位の削除は 設定 → ファイル からできる）。
 - セッションの `promptSnapshot` は作成時の定義で固定される。定義の変更を反映したい場合は新しいセッションを作る。
-- 非ゴール: セッションの DELETE で作業フォルダを消すこと、リネーム / 移動、ゴミ箱 / undo、容量管理、複数 BFF インスタンス、古い SDK セッション version の migration、pi CLI との双方向編集 / 汎用インポート、モデル無しでの履歴閲覧。
+- 非ゴール: セッションの DELETE で作業フォルダを消すこと、移動（親ディレクトリの変更） / 一括リネーム、ゴミ箱 / undo、容量管理、複数 BFF インスタンス、古い SDK セッション version の migration、pi CLI との双方向編集 / 汎用インポート、モデル無しでの履歴閲覧。
 - compaction の `reason` / `estimatedTokensAfter` は `compaction_end` にしか無く復元後は欠ける（表示は `tokensBefore` で成立する。[persistence.md](persistence.md) の方針どおり）。
 
 ## 受け入れ条件

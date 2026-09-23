@@ -460,3 +460,72 @@ test("deleteDirectory relays sandbox 4xx messages and maps the rest to 502", asy
     return true;
   });
 });
+
+// ---------------------------------------------------------------------------
+// renameEntry (POST /v1/files/rename。JSON 経路)
+// ---------------------------------------------------------------------------
+
+test("renameEntry posts the path and name and parses the new path", async () => {
+  const { calls, impl } = stubFetch(
+    () =>
+      new Response(JSON.stringify({ path: "uploads/shot.png", name: "shot.png" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test:8080/", token: TOKEN, fetchImpl: impl });
+  const result = await client.renameEntry("uploads/photo.png", "shot.png");
+  assert.deepEqual(result, { path: "uploads/shot.png", name: "shot.png" });
+  assert.equal(calls[0].url, "http://sandbox.test:8080/v1/files/rename");
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal(init.method, "POST");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.deepEqual(JSON.parse(String(init.body)), { path: "uploads/photo.png", name: "shot.png" });
+});
+
+test("renameEntry relays the sandbox 409 conflict and maps the rest to 502", async () => {
+  const sandboxError = (status: number, message: string) =>
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: message }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ).impl;
+
+  const conflict = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(409, "Already exists: /workspace/b.txt"),
+  });
+  await assert.rejects(conflict.renameEntry("a.txt", "b.txt"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 409);
+    assert.equal(error.message, "Already exists: /workspace/b.txt");
+    return true;
+  });
+
+  const invalid = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(400, "Invalid name: a/b"),
+  });
+  await assert.rejects(invalid.renameEntry("a.txt", "a/b"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 400);
+    return true;
+  });
+
+  const broken = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(500, "boom"),
+  });
+  await assert.rejects(broken.renameEntry("a.txt", "b.txt"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /名前を変更できませんでした/);
+    return true;
+  });
+});

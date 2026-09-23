@@ -44,7 +44,8 @@ function stubWorkspace() {
     // ファイルスキルの発見はこのテストでは扱わない
     listSkills: async () => ({ skills: [] }),
     createDir: async (path: string) => ({ path }),
-    // 削除はこのテストでは扱わない
+    // 削除 / リネームはこのテストでは扱わない
+    renameEntry: async (path: string, name: string) => ({ path, name }),
     deleteFile: async () => {},
     deleteDirectory: async () => {},
     uploadFile: async (input) => {

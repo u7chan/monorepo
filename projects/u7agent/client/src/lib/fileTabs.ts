@@ -133,3 +133,33 @@ export function closeFileTabsUnder(state: FileTabsState, path: string): FileTabs
   const prefix = `${path}/`;
   return state.paths.filter((item) => item.startsWith(prefix)).reduce((tabs, item) => closeFileTab(tabs, item), state);
 }
+
+/**
+ * リネームしたエントリのタブ経路を張り替える。並びと表示中のタブは保つ。
+ * 既存の別タブと同じ経路になった分は落とす (同じ経路のタブを 2 枚並べない)。
+ */
+export function renameFileTabs(state: FileTabsState, path: string, nextPath: string): FileTabsState {
+  const paths: string[] = [];
+  for (const item of state.paths) {
+    const rekeyed = rekeyPath(item, path, nextPath);
+    if (!paths.includes(rekeyed)) paths.push(rekeyed);
+  }
+  const active = state.active === null ? null : rekeyPath(state.active, path, nextPath);
+  if (active === state.active && paths.every((item, index) => item === state.paths[index])) return state;
+  return { paths, active };
+}
+
+/** リネームしたエントリの表示モードの経路を張り替える (選択はタブを閉じるまで保持する)。 */
+export function renamePreviewModes(modes: PreviewModes, path: string, nextPath: string): PreviewModes {
+  const keys = Object.keys(modes);
+  const entries = Object.entries(modes).map(([key, mode]) => [rekeyPath(key, path, nextPath), mode] as const);
+  if (entries.every(([key], index) => key === keys[index])) return modes;
+  return Object.fromEntries(entries);
+}
+
+/** リネームしたエントリ自身と配下の経路を差し替える (接頭辞は区切りまで含めて見る)。 */
+function rekeyPath(item: string, path: string, nextPath: string): string {
+  if (item === path) return nextPath;
+  if (item.startsWith(`${path}/`)) return `${nextPath}${item.slice(path.length)}`;
+  return item;
+}

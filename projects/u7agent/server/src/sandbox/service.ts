@@ -14,6 +14,7 @@ import {
   open,
   readdir,
   readFile,
+  rename,
   rm,
   rmdir,
   stat,
@@ -42,7 +43,7 @@ import {
   SANDBOX_MAX_PREVIEW_BYTES,
   SANDBOX_MAX_UPLOAD_BYTES,
   encodeSandboxEvent,
-  isValidUploadName,
+  isValidEntryName,
   parseRecursiveQuery,
   rawImageContentType,
   RECURSIVE_QUERY_ERROR,
@@ -52,6 +53,8 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxRenameRequestBody,
+  type SandboxRenameResult,
   type SandboxSkillEntry,
   type SandboxSkillsResponse,
 } from "./protocol";
@@ -287,6 +290,48 @@ async function removeWorkspaceDirectory(rootCwd: string, requested: string, recu
     if (code === "ENOTEMPTY" || code === "EEXIST") throw pathError(400, `Directory is not empty: ${target}`);
     throw pathError(400, `Cannot delete the directory: ${messageFor(error)}`);
   });
+}
+
+/**
+ * root 相対のエントリ (通常ファイル / ディレクトリ) の名前を変える。symlink は拒否する (realpath で実体へ解決してから
+ * rename すると、root 内のリンクが指す root 外を動かせてしまう)。要求パスの最終要素だけを lstat で見て、
+ * 親は一覧と同じ解決を通す。改名先が既存でも、lstat と realpath が同じ実体を指すなら通す (大文字小文字だけの変更)。
+ */
+async function renameWorkspaceEntry(rootCwd: string, requested: string, name: string): Promise<SandboxRenameResult> {
+  // 最終要素が動かす対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りはエントリを表さない
+  const currentName = basename(requested);
+  if (!requested || requested.endsWith("/") || currentName === "." || currentName === "..") {
+    throw pathError(400, `Not a file or directory: ${requested}`);
+  }
+
+  // 親の解決は一覧 / 削除と同じ (要求パスの字句 dirname を native realpath へ渡し、`..` を symlink の後に適用する)
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, currentName);
+
+  const targetStat = await lstat(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be renamed: ${target}`);
+  if (!targetStat.isFile() && !targetStat.isDirectory()) {
+    throw pathError(400, `Not a file or directory: ${target}`);
+  }
+
+  // 名前は 1 セグメントだけなので、親の実パスへ連結すれば root 内に収まる
+  const nextPath = join(parent.target, name);
+  // 既存があっても実体が同じなら通す。symlink は実体が同じでも別のエントリなので上書きしない
+  const existing = await lstat(nextPath).catch(() => undefined);
+  if (existing && (existing.isSymbolicLink() || (await realpathNative(nextPath).catch(() => undefined)) !== target)) {
+    throw pathError(409, `Already exists: ${nextPath}`);
+  }
+
+  await rename(target, nextPath).catch((error: unknown) => {
+    // lstat の直後に他の実行が消した場合は動かす対象が無い
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot rename: ${messageFor(error)}`);
+  });
+  return { path: relativeToRoot(parent.root, nextPath), name };
 }
 
 /** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */ async function deepestExistingPath(
@@ -836,7 +881,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   // 選択時の即時アップロード。BFF は bodyGuard (既定 64 KiB / text 化) を通さず、ここへ raw で流す
   app.post("/v1/files/upload", async (c) => {
     const name = c.req.query("name") ?? "";
-    if (!isValidUploadName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
+    if (!isValidEntryName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
     try {
       const uploaded = await saveUploadedFile({
         rootCwd,
@@ -846,6 +891,28 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         maxBytes: maxUploadBytes,
       });
       return c.json(uploaded, 201);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 名前を変えられるのは通常ファイルとディレクトリだけ (symlink は 400)。応答は改名後の root 相対パス
+  app.post("/v1/files/rename", async (c) => {
+    let body: unknown;
+    try {
+      body = await readJsonBody(c.req.raw);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+    const { path, name } = (body ?? {}) as SandboxRenameRequestBody;
+    if (typeof path !== "string") return c.json({ error: "path must be a string" }, 400);
+    if (typeof name !== "string") return c.json({ error: "name must be a string" }, 400);
+    // 名前の検証は保存名と同じ規則。同名の扱い (409) はパスの解決後に行う
+    if (!isValidEntryName(name)) return c.json({ error: `Invalid name: ${name}` }, 400);
+    try {
+      return c.json(await renameWorkspaceEntry(rootCwd, path, name));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

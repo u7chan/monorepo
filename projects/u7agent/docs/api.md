@@ -11,6 +11,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ヘルス | `GET /api/health` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
+| ファイルのリネーム | `POST /api/files/rename` | このファイル |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
 | HTML プレビュー（iframe 用） | `GET /api/files/html/<root 相対>` | このファイル |
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
@@ -97,6 +98,26 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - 503 / 502: `GET /api/files` と同じ（未設定 / 到達不能・認証失敗・サンドボックス側のエラー）
 
 出す導線は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方にある（[file-preview.md](file-preview.md#削除)）。
+
+### リネーム
+
+`POST /api/files/rename` は `{ path, name }`（どちらも string）を受け、サンドボックスの `POST /v1/files/rename`（[sandbox-api.md](sandbox-api.md#post-v1filesrename)）へ委譲する。BFF はワークスペースに触らない。`client/src/api.ts` の `renameEntry(path, name)` が呼び、応答は改名後のワークスペース root 相対パス。
+
+```json
+// request
+{ "path": "uploads/nested/photo.png", "name": "shot.png" }
+
+// response (200)
+{ "path": "uploads/nested/shot.png", "name": "shot.png" }
+```
+
+- 200: サンドボックスの応答を検証（`FileRenameSchema`）してそのまま返す
+- 400 / 404 / 409: 不正な名前 / root 外 / 不存在 / symlink（400）、実在しない（404）、同名の既存エントリ（409）。サンドボックス側の文言をそのまま返す。**同名は上書きも自動採番もしない**
+- 400: `path` / `name` が string でない、JSON として壊れている（`Invalid request body` / `Request body must be valid JSON`）。サンドボックスへは要求しない
+- 502: サンドボックスへ到達できない / 認証失敗 / 応答が契約外
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+
+出す導線は設定 → ファイル（ワークスペース root）のフォルダ行だけにある（[file-preview.md](file-preview.md#リネーム)）。API はファイル / ディレクトリの両方を受けるが、UI からファイルは改名できない。
 
 ## テキストプレビュー
 

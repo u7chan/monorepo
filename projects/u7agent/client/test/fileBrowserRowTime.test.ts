@@ -15,22 +15,28 @@ function read(relativePath: string): string {
 }
 
 /**
- * EntryRow のディレクトリ行 (分岐の先頭) / ファイル行 / 共通の削除ボタンを切り出す。
+ * EntryRow のディレクトリ行 (分岐の先頭) / ファイル行 / 右端の共通部 (EntryRowActions) を切り出す。
  * 共通部は両行の外に置くため、行の断片に定義が混ざらないよう行ごとに切る。
  */
-function entryRowSections(): { dir: string; file: string; button: string } {
+function entryRowSections(): { dir: string; file: string; actions: string; button: string } {
   const source = read("src/components/FileBrowser.tsx");
   const dirStart = source.indexOf('if (entry.type === "dir")');
   const fileStart = source.indexOf("const isSelected = selected === path;");
-  const buttonStart = source.indexOf("/** 行の削除ボタン");
+  const actionsStart = source.indexOf("export function EntryRowActions");
+  const buttonStart = source.indexOf("/** 行のリネームボタン");
   const end = source.indexOf("function MessageRow");
   assert.ok(
-    dirStart >= 0 && fileStart > dirStart && buttonStart > fileStart && end > buttonStart,
-    "FileBrowser.tsx からディレクトリ行 / ファイル行 / 削除ボタンを切り出せない",
+    dirStart >= 0 &&
+      fileStart > dirStart &&
+      actionsStart > fileStart &&
+      buttonStart > actionsStart &&
+      end > buttonStart,
+    "FileBrowser.tsx からディレクトリ行 / ファイル行 / 右端の共通部を切り出せない",
   );
   return {
     dir: source.slice(dirStart, fileStart),
-    file: source.slice(fileStart, buttonStart),
+    file: source.slice(fileStart, actionsStart),
+    actions: source.slice(actionsStart, buttonStart),
     button: source.slice(buttonStart, end),
   };
 }
@@ -44,15 +50,16 @@ test("ディレクトリ行とファイル行は同じ形の時刻と末尾ス�
     assert.match(row, /<EntryTime\s+at=\{entry\.mtime\}/, `${label}行が行の時刻を出していない`);
     assert.ok(row.includes("pr-1"), `${label}行の右 padding が pr-1 でない`);
     assert.ok(!row.includes("pr-2"), `${label}行に pr-2 が残っている`);
-    // 行の末尾は時刻 → size-6 のスロット (ゴミ箱 / symlink 用の空スペーサー)
-    const slots = [row.indexOf("<DeleteRowButton"), row.indexOf("<EmptySlot")].filter((index) => index >= 0);
-    assert.equal(slots.length, 2, `${label}行にゴミ箱と空スペーサーの両方が無い`);
-    assert.ok(row.indexOf("<EntryTime") < Math.min(...slots), `${label}行の時刻が末尾スロットより後ろにある`);
-    // 削除の導線は通常ファイルとディレクトリの行に出す (symlink は EmptySlot へ落ちる)
-    assert.match(
-      row,
-      /<DeleteRowButton\s+name=\{entry\.name\}\s+onClick=\{\(\) => onDelete\(path, entry\.type\)\}/,
-      label,
+    // 行の末尾は時刻 → 右端のスロット (リネーム / ゴミ箱 / symlink 用の空スペーサー)
+    assert.ok(row.includes("<EntryRowActions"), `${label}行に右端のスロットが無い`);
+    assert.ok(
+      row.indexOf("<EntryTime") < row.indexOf("<EntryRowActions"),
+      `${label}行の時刻が末尾スロットより後ろにある`,
+    );
+    // 削除の導線は通常ファイルとディレクトリの行に出す (symlink は共通部が EmptySlot へ落とす)
+    assert.ok(
+      row.includes("onDelete={() => onDelete(path, entry.type)}"),
+      `${label}行の削除が種類ごとの入口へ渡っていない`,
     );
   }
 });
@@ -63,7 +70,7 @@ test("ディレクトリ行の時刻は開閉の button の外に出す", () => 
   assert.ok(buttonEnd >= 0, "ディレクトリ行に開閉の button が無い");
   // button の中に入れると accessible name に時刻が混ざり、時刻のクリックでも開閉してしまう
   assert.ok(dir.indexOf("<EntryTime") > buttonEnd, "時刻が開閉の button の中にある");
-  assert.ok(dir.indexOf("<EntryTime") < dir.indexOf("<DeleteRowButton"), "削除ボタンが時刻より前にある");
+  assert.ok(dir.indexOf("<EntryTime") < dir.indexOf("<EntryRowActions"), "右端のスロットが時刻より前にある");
   assert.match(dir, /<button[^>]*\saria-expanded=\{open\}/, "開閉の button が aria-expanded を持たない");
   assert.ok(
     dir.includes('className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"'),
@@ -72,17 +79,19 @@ test("ディレクトリ行の時刻は開閉の button の外に出す", () => 
 });
 
 test("ディレクトリ行の削除は symlink には出さず、通常ファイル行と同じ条件で出す", () => {
-  const { dir, file } = entryRowSections();
-  // ディレクトリ行は symlink のときだけ空スペーサーへ落とす
-  assert.ok(dir.includes("{entry.symlink ?"), "ディレクトリ行の symlink 分岐がない");
-  // ファイル行は `deletable` (symlink 以外) で分岐する
-  assert.match(file, /const deletable = !entry\.symlink;/, "ファイル行の symlink 判定が変わった");
-  assert.ok(file.includes("{deletable ?"), "ファイル行の削除ボタンが deletable で分岐していない");
+  const { actions } = entryRowSections();
+  // リネームはフォルダ行だけ、削除は symlink 以外 (ファイル / ディレクトリとも) に出し、残りは空スペーサーへ落とす
+  assert.match(actions, /const renamable = canRename && type === "dir" && !symlink;/, "リネームの条件が変わった");
+  assert.match(actions, /const deletable = !symlink;/, "削除の条件が変わった");
+  assert.ok(actions.includes("{canRename ?"), "リネームのスロットが canRename で分岐していない");
+  assert.ok(actions.includes("{deletable ?"), "削除のスロットが deletable で分岐していない");
 });
 
-test("末尾スロットはゴミ箱と空スペーサーで同じ 24px 幅", () => {
+test("末尾スロットはリネーム / ゴミ箱 / 空スペーサーで同じ 24px 幅", () => {
   const { button } = entryRowSections();
-  assert.match(button, /className="grid size-6 shrink-0 place-items-center/, "削除ボタンが size-6 でない");
+  assert.match(button, /className="grid size-6 shrink-0 place-items-center/, "右端のボタンが size-6 でない");
+  assert.match(button, /aria-label=\{`\$\{name\} の名前を変更`\}/, "リネームボタンに読み上げ名が無い");
+  assert.match(button, /title="名前を変更"/, "リネームボタンに title が無い");
   assert.match(button, /aria-label=\{`\$\{name\} を削除`\}/, "削除ボタンに読み上げ名が無い");
   assert.match(button, /title="削除"/, "削除ボタンに title が無い");
   const source = read("src/components/FileBrowser.tsx");
@@ -90,7 +99,7 @@ test("末尾スロットはゴミ箱と空スペーサーで同じ 24px 幅", ()
   const end = source.indexOf("function EntryTime");
   assert.ok(start >= 0 && end > start, "EmptySlot を切り出せない");
   const emptySlot = source.slice(start, end);
-  assert.match(emptySlot, /className="size-6 shrink-0"/, "空スペーサーがゴミ箱と同じ size-6 でない");
+  assert.match(emptySlot, /className="size-6 shrink-0"/, "空スペーサーがボタンと同じ size-6 でない");
   assert.match(emptySlot, /aria-hidden/, "空スペーサーが読み上げの対象になる");
 });
 

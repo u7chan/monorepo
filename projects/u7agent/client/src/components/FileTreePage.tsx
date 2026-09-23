@@ -39,7 +39,7 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
         </button>
       }
     >
-      <FileBrowser root={rootPath} reloadToken={reloadToken} />
+      <FileBrowser root={rootPath} reloadToken={reloadToken} canRename />
     </SettingsPageLayout>
   );
 }

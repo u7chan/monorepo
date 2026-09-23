@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { deleteDirectory, deleteFile, getFiles } from "../api";
+import { deleteDirectory, deleteFile, getFiles, renameEntry } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import {
@@ -14,12 +14,14 @@ import {
   fileTreeDirectoryState,
   fileTreeFetchPath,
   fileTreeParentPath,
+  fileTreeRenamePrompt,
   invalidateFileTree,
   normalizeFileTreeRoot,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
   pruneFileTreeSubtree,
   removeFileTreeEntry,
+  renameFileTreeEntry,
   toggleFileTreeDirectory,
   type FileTreeDirectoryState,
   type FileTreeState,
@@ -32,6 +34,8 @@ import {
   closeFileTabsUnder,
   dropClosedPreviewModes,
   openFileTab,
+  renameFileTabs,
+  renamePreviewModes,
   restoreFileTabsState,
   withPreviewMode,
   type FileTabsState,
@@ -39,7 +43,7 @@ import {
   type PreviewModes,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
-import { ChevronIcon, FileIcon, FolderIcon, TrashIcon } from "./icons";
+import { ChevronIcon, FileIcon, FolderIcon, PencilIcon, TrashIcon } from "./icons";
 
 const INDENT = 16;
 /** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
@@ -54,6 +58,8 @@ export type FileBrowserProps = {
   root: string;
   /** 値を変えると一覧と開いている本文を取り直す。mount 時の値では撃たない */
   reloadToken: number;
+  /** フォルダ行にリネームの鉛筆を出すか。既定 false (チャット右パネルでは出さない) */
+  canRename?: boolean;
 };
 
 /**
@@ -63,7 +69,7 @@ export type FileBrowserProps = {
  * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (一覧も行の時刻も「再読み込み」と run 終了でしか更新されない)。
  */
-export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
+export function FileBrowser({ root, reloadToken, canRename = false }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
@@ -80,6 +86,8 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
   const inFlightRef = useRef<Set<string>>(new Set());
   // 同じ行の削除を二重に送らない (実体が消えた後の再要求で 404 を出さないため)
   const deletingRef = useRef<Set<string>>(new Set());
+  // 同じ行のリネームを二重に送らない (削除と同じ理由)
+  const renamingRef = useRef<Set<string>>(new Set());
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
@@ -149,6 +157,34 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
     })();
   };
 
+  /**
+   * リネームは設定ツリーだけの導線 (`canRename`)。現在の名前を初期値にした prompt で受け取り、成功したら
+   * ツリーとタブ・表示モードの経路を新しい名前へ張り替える (開閉と取得済みの子は保ち、本文だけ取り直す)。
+   * 失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
+   */
+  const renameRow = (path: string, currentName: string) => {
+    if (renamingRef.current.has(path)) return;
+    const nextName = window.prompt(fileTreeRenamePrompt(path), currentName);
+    // 取り消し (null)・空・未変更なら何もしない
+    if (!nextName || nextName === currentName) return;
+    renamingRef.current.add(path);
+    void (async () => {
+      try {
+        await renameEntry(fileTreeFetchPath(rootPath, path), nextName);
+        // 応答の root 相対パスは親の実パス基準 (symlink 経由の要求でツリーのキーとずれる) なので、
+        // 画面の root 相対は親 + 新しい名前で組み立てる
+        const nextPath = fileTreeChildPath(fileTreeParentPath(path), nextName);
+        setTree((prev) => renameFileTreeEntry(prev, path, nextPath));
+        setTabs((prev) => renameFileTabs(prev, path, nextPath));
+        setPreviewModes((prev) => renamePreviewModes(prev, path, nextPath));
+      } catch (error) {
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+      } finally {
+        renamingRef.current.delete(path);
+      }
+    })();
+  };
+
   // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる。復元したタブが揃った状態で走る
   // (復元前の空の paths で消さないため、復元は lazy initializer 側で済ませてある)
   useEffect(() => {
@@ -192,8 +228,10 @@ export function FileBrowser({ root, reloadToken }: FileBrowserProps) {
               depth={0}
               tree={tree}
               selected={tabs.active}
+              canRename={canRename}
               onToggle={toggle}
               onSelect={openTab}
+              onRename={renameRow}
               onDelete={removeEntry}
             />
           ) : rootNode.error ? null : (
@@ -225,12 +263,25 @@ type BranchProps = {
   depth: number;
   tree: FileTreeState;
   selected: string | null;
+  canRename: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
+  onRename: (path: string, name: string) => void;
   onDelete: (path: string, type: "file" | "dir") => void;
 };
 
-function Branch({ parent, node, depth, tree, selected, onToggle, onSelect, onDelete }: BranchProps) {
+function Branch({
+  parent,
+  node,
+  depth,
+  tree,
+  selected,
+  canRename,
+  onToggle,
+  onSelect,
+  onRename,
+  onDelete,
+}: BranchProps) {
   const entries = node.children ?? [];
   return (
     // 明示的な minmax(0,1fr) で行幅を容器に固定する (auto だと長い名前の max-content まで広がり、省略記号ではなく overflow で切れる)
@@ -244,8 +295,10 @@ function Branch({ parent, node, depth, tree, selected, onToggle, onSelect, onDel
           depth={depth}
           tree={tree}
           selected={selected}
+          canRename={canRename}
           onToggle={onToggle}
           onSelect={onSelect}
+          onRename={onRename}
           onDelete={onDelete}
         />
       ))}
@@ -260,8 +313,10 @@ function EntryRow({
   depth,
   tree,
   selected,
+  canRename,
   onToggle,
   onSelect,
+  onRename,
   onDelete,
 }: {
   parent: string;
@@ -269,8 +324,10 @@ function EntryRow({
   depth: number;
   tree: FileTreeState;
   selected: string | null;
+  canRename: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
+  onRename: (path: string, name: string) => void;
   onDelete: (path: string, type: "file" | "dir") => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
@@ -305,11 +362,14 @@ function EntryRow({
             {entry.symlink ? <SymlinkMark /> : null}
           </button>
           <EntryTime at={entry.mtime} />
-          {entry.symlink ? (
-            <EmptySlot />
-          ) : (
-            <DeleteRowButton name={entry.name} onClick={() => onDelete(path, entry.type)} />
-          )}
+          <EntryRowActions
+            name={entry.name}
+            type={entry.type}
+            symlink={entry.symlink}
+            canRename={canRename}
+            onRename={() => onRename(path, entry.name)}
+            onDelete={() => onDelete(path, entry.type)}
+          />
         </div>
         {open ? (
           <>
@@ -325,8 +385,10 @@ function EntryRow({
                 depth={depth + 1}
                 tree={tree}
                 selected={selected}
+                canRename={canRename}
                 onToggle={onToggle}
                 onSelect={onSelect}
+                onRename={onRename}
                 onDelete={onDelete}
               />
             ) : node?.error ? null : (
@@ -339,10 +401,8 @@ function EntryRow({
   }
 
   const isSelected = selected === path;
-  // 削除できるのは通常ファイルだけ。symlink はサンドボックスが 400 で拒否するため導線を出さない
-  const deletable = !entry.symlink;
   return (
-    // 行全体は選択、右端のゴミ箱は削除。入れ子の button は作れないため、行は div にして 2 つの button を並べる
+    // 行全体は選択、右端のスロットはリネーム (フォルダのみ) と削除。入れ子の button は作れないため、行は div にして button を並べる
     <div
       style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
@@ -361,8 +421,61 @@ function EntryRow({
         {entry.symlink ? <SymlinkMark /> : null}
       </button>
       <EntryTime at={entry.mtime} />
-      {deletable ? <DeleteRowButton name={entry.name} onClick={() => onDelete(path, entry.type)} /> : <EmptySlot />}
+      <EntryRowActions
+        name={entry.name}
+        type={entry.type}
+        symlink={entry.symlink}
+        canRename={canRename}
+        onRename={() => onRename(path, entry.name)}
+        onDelete={() => onDelete(path, entry.type)}
+      />
     </div>
+  );
+}
+
+/**
+ * 行の右端。時刻の右に リネーム (設定ツリーのみ) → 削除 の順で size-6 のスロットを並べる。
+ * 導線を持たない行 (ファイルのリネーム / symlink) もスロットだけ空けて時刻の右端をそろえる。
+ * 行の外に置くのは、行 (EntryRow) が組み立てたパスを渡すためと、描画のテストで直接見るため。
+ */
+export function EntryRowActions({
+  name,
+  type,
+  symlink,
+  canRename,
+  onRename,
+  onDelete,
+}: {
+  name: string;
+  type: "file" | "dir";
+  symlink?: boolean;
+  canRename: boolean;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  // リネームはフォルダ行だけに出す (UI からファイルは改名できない)。symlink はサンドボックスが 400 で拒否する
+  const renamable = canRename && type === "dir" && !symlink;
+  const deletable = !symlink;
+  return (
+    <>
+      {canRename ? renamable ? <RenameRowButton name={name} onClick={onRename} /> : <EmptySlot /> : null}
+      {deletable ? <DeleteRowButton name={name} onClick={onDelete} /> : <EmptySlot />}
+    </>
+  );
+}
+
+/** 行のリネームボタン。削除ボタンと同じ寸法・色で、その左に並べる。 */
+function RenameRowButton({ name, onClick }: { name: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={`${name} の名前を変更`}
+      title="名前を変更"
+      onClick={onClick}
+      className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+    >
+      <PencilIcon />
+    </button>
   );
 }
 
@@ -381,7 +494,7 @@ function DeleteRowButton({ name, onClick }: { name: string; onClick: () => void 
   );
 }
 
-/** 削除を持たない行 (symlink) の末尾スロット。時刻の右端を削除ボタンの行にそろえる。 */
+/** 導線を持たない行 (ファイルのリネーム / symlink) の末尾スロット。時刻の右端をボタンの行にそろえる。 */
 function EmptySlot() {
   return <span aria-hidden className="size-6 shrink-0" />;
 }

@@ -3,7 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttachmentPath } from "../attachments";
 import { sessionUploadsRel, workspaceAbs } from "../app-paths";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
-import { isValidUploadName } from "../sandbox/protocol";
+import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
 import {
@@ -157,7 +157,7 @@ export function createSessionRoutes({
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       const name = c.req.query("name") ?? "";
-      if (!isValidUploadName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
+      if (!isValidEntryName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
       // サンドボックスはストリームを数えて 413 を返すが、事前に分かる分はここで止める (本文を送らずに済む)
       const declared = Number.parseInt(c.req.header("content-length") ?? "", 10);
       if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {

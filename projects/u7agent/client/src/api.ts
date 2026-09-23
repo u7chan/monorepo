@@ -8,6 +8,7 @@ import type {
   CreateSkillBody,
   FileListing,
   FilePreview,
+  FileRename,
   FileSkillsResponse,
   Health,
   ModelRef,
@@ -145,6 +146,17 @@ export const deleteFile = async (path: string): Promise<void> => {
 export const deleteDirectory = async (path: string): Promise<void> => {
   const res = await client.api.files.$delete({ query: { path, recursive: "true" } });
   if (!res.ok) throw await apiError(res);
+};
+
+/**
+ * エントリ (ファイル / ディレクトリ) のリネーム。`path` は GET /api/files と同じ root 相対で、`name` は 1 セグメントの新しい名前。
+ * 検証 (root 外 / 不存在 / 形式 / symlink / 同名 409) はサンドボックスに委ね、応答は改名後の root 相対パス。
+ */
+export const renameEntry = async (path: string, name: string): Promise<FileRename> => {
+  const res = await client.api.files.rename.$post({ json: { path, name } });
+  if (!res.ok) throw await apiError(res);
+  // 400 / 404 / 409 / 503 の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
+  return (await res.json()) as FileRename;
 };
 
 export const getFilePreview = async (path: string, signal: AbortSignal): Promise<FilePreview> => {

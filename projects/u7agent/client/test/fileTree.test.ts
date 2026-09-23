@@ -12,12 +12,14 @@ import {
   fileTreeDeleteDirectoryConfirm,
   fileTreeDirectoryState,
   fileTreeFetchPath,
+  fileTreeRenamePrompt,
   invalidateFileTree,
   normalizeFileTreeRoot,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
   pruneFileTreeSubtree,
   removeFileTreeEntry,
+  renameFileTreeEntry,
   toggleFileTreeDirectory,
   type FileTreeState,
 } from "../src/lib/fileTree";
@@ -359,4 +361,112 @@ test("削除した状態は再読み込みをまたいでも、再取得した�
   const refetched = applyFileTreeListing(reloaded, ".", { entries: [dir("src")], truncated: false });
   assert.deepEqual(refetched["."].children, [dir("src")], "削除した行は戻らない");
   assert.deepEqual(pendingFileTreeDirectories(refetched), ["src"], "開いた子は取り直す");
+});
+
+// リネーム後の状態更新。名前を差し替えて配下のキーを移し、開閉と取得済みの子はそのまま残す
+test("リネームの入力の見出しはツリーに見えている root 相対パスを出す", () => {
+  assert.equal(
+    fileTreeRenamePrompt(".u7agent/sessions/3a7bfba36f/uploads"),
+    "「.u7agent/sessions/3a7bfba36f/uploads」の新しい名前を入力してください。",
+  );
+  assert.equal(fileTreeRenamePrompt("docs"), "「docs」の新しい名前を入力してください。");
+});
+
+test("リネームは親の行の名前を差し替え、配下のキーと開閉・取得済みの子を移す", () => {
+  let state = loaded({
+    ".": [dir("a"), dir("ab"), file("a.txt")],
+    a: [dir("deep"), file("x.txt")],
+    "a/deep": [file("y.txt")],
+    ab: [file("keep.txt")],
+  });
+  state = toggleFileTreeDirectory(state, "a");
+  state = toggleFileTreeDirectory(state, "a/deep");
+
+  const renamed = renameFileTreeEntry(state, "a", "renamed");
+  assert.deepEqual(renamed["."].children, [dir("renamed"), dir("ab"), file("a.txt")]);
+  assert.deepEqual(renamed.renamed.children, [dir("deep"), file("x.txt")], "取得済みの子は再取得しない");
+  assert.deepEqual(renamed["renamed/deep"].children, [file("y.txt")]);
+  assert.equal(renamed.renamed.open, true, "開いている階層は開いたまま");
+  assert.equal(renamed["renamed/deep"].open, true);
+  assert.equal(fileTreeDirectoryState(renamed, "a"), undefined, "旧キーは残さない");
+  assert.equal(fileTreeDirectoryState(renamed, "a/deep"), undefined);
+  // 受け入れ条件: `a` の改名で接頭辞が同じ `ab` を巻き込まない
+  assert.deepEqual(renamed.ab.children, [file("keep.txt")]);
+  assert.deepEqual(openFileTreeDirectories(renamed), ["renamed", "renamed/deep"]);
+});
+
+test("リネームはネストした行とファイル行でも親の一覧だけを差し替える", () => {
+  let state = loaded({
+    ".": [dir("src")],
+    src: [dir("components"), file("gone.ts")],
+    "src/components": [file("Button.tsx")],
+  });
+  state = toggleFileTreeDirectory(state, "src");
+
+  const nested = renameFileTreeEntry(state, "src/components", "src/ui");
+  assert.deepEqual(nested.src.children, [dir("ui"), file("gone.ts")]);
+  assert.deepEqual(nested["src/ui"].children, [file("Button.tsx")]);
+  assert.equal(fileTreeDirectoryState(nested, "src/components"), undefined);
+  assert.equal(nested.src.open, true);
+
+  const renamedFile = renameFileTreeEntry(nested, "src/gone.ts", "src/keep.ts");
+  assert.deepEqual(renamedFile.src.children, [dir("ui"), file("keep.ts")]);
+  assert.deepEqual(renamedFile["src/ui"].children, [file("Button.tsx")], "他のディレクトリは触らない");
+});
+
+test("リネームは該当が無ければ同じ object を返し、未取得の親の行は触らない", () => {
+  const state = loaded({ ".": [dir("src")], src: [file("keep.ts")] });
+  assert.equal(renameFileTreeEntry(state, "src/keep.ts", "src/keep.ts"), state, "未変更");
+  assert.equal(renameFileTreeEntry(state, "docs", "renamed"), state, "未取得のディレクトリ");
+  assert.equal(renameFileTreeEntry(state, "docs/note.txt", "docs/renamed.txt"), state, "未取得の親の行");
+  assert.deepEqual(renameFileTreeEntry(state, "src/keep.ts", "src/renamed.ts").src.children, [file("renamed.ts")]);
+});
+
+test("__proto__ という名前へのリネームも own プロパティとして扱う", () => {
+  let state = loaded({ ".": [dir("src")], src: [file("x.ts")] });
+  state = toggleFileTreeDirectory(state, "src");
+  const renamed = renameFileTreeEntry(state, "src", "__proto__");
+  assert.equal(Object.hasOwn(renamed, "__proto__"), true);
+  assert.equal(Object.getPrototypeOf(renamed), Object.prototype);
+  assert.equal(renamed["__proto__"].open, true);
+  assert.deepEqual(renamed["."].children, [dir("__proto__")]);
+});
+
+// 取得中にリネームした場合。飛んでいた一覧は旧キーへ着地するため、loading を持ち越すと新しいキーが
+// 「読み込み中…」のまま固定される (pendingFileTreeDirectories は loading を拾わない)
+test("取得中のリネームは loading を落として新しいキーで取り直す", () => {
+  let state = loaded({ ".": [dir("big"), dir("other")] });
+  state = beginFileTreeLoad(toggleFileTreeDirectory(state, "big"), "big");
+  assert.equal(fileTreeDirectoryState(state, "big")?.loading, true);
+  assert.deepEqual(pendingFileTreeDirectories(state), []);
+
+  const renamed = renameFileTreeEntry(state, "big", "renamed");
+  assert.equal(fileTreeDirectoryState(renamed, "renamed")?.loading, false, "loading を持ち越している");
+  assert.equal(renamed.renamed.open, true, "開いている階層は保つ");
+  assert.deepEqual(pendingFileTreeDirectories(renamed), ["renamed"], "新しいキーが再取得の対象になる");
+
+  // 旧キーへ着地した一覧は新しいキーを汚さない (表示は新しい名前の行のまま)
+  const landed = applyFileTreeListing(renamed, "big", { entries: [file("inner.txt")], truncated: false });
+  assert.equal(fileTreeDirectoryState(landed, "renamed")?.children, undefined, "旧キーの応答で新キーが埋まる");
+  assert.equal(fileTreeDirectoryState(landed, "renamed")?.loading, false);
+  assert.deepEqual(pendingFileTreeDirectories(landed), ["renamed"], "新キーは pending のまま");
+
+  // 新しいキーで取得が進むと子が入り、pending から外れる
+  const refetched = applyFileTreeListing(landed, "renamed", { entries: [file("inner.txt")], truncated: false });
+  assert.deepEqual(fileTreeDirectoryState(refetched, "renamed")?.children, [file("inner.txt")]);
+  assert.deepEqual(pendingFileTreeDirectories(refetched), []);
+});
+
+// 取得中の配下も同じく、張り替え後のキーで取り直せる
+test("取得中の配下を持つディレクトリをリネームしても配下の loading を持ち越さない", () => {
+  let state = loaded({ ".": [dir("big")], big: [dir("sub")] });
+  state = toggleFileTreeDirectory(state, "big");
+  state = beginFileTreeLoad(toggleFileTreeDirectory(state, "big/sub"), "big/sub");
+  assert.deepEqual(pendingFileTreeDirectories(state), []);
+
+  const renamed = renameFileTreeEntry(state, "big", "renamed");
+  assert.equal(fileTreeDirectoryState(renamed, "renamed")?.loading, false);
+  assert.equal(fileTreeDirectoryState(renamed, "renamed/sub")?.loading, false, "配下の loading を持ち越している");
+  assert.equal(fileTreeDirectoryState(renamed, "renamed/sub")?.open, true);
+  assert.deepEqual(pendingFileTreeDirectories(renamed), ["renamed/sub"], "配下が再取得の対象になる");
 });
