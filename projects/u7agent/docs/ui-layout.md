@@ -59,7 +59,7 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 スキル読み込みは `ツール履歴 N件` の件数・サマリー（`abbreviatedToolSummary` / `historyPreview`）・コピー本文（`client/src/lib/copy-content.ts`）にも含めない。表示側が `nonSkillToolCards()` で外してからツール履歴へ渡すため、スキルしかないバブルはツール履歴ブロックごと出ない（コピー本文の `#N` は UI の行番号と一致し続ける）。
 
-同じ呼び出しがバッジとツールカードで二重に出ないよう、表示時に**全バブル横断**で `toolCallId` を突き合わせる（`skillBadgesOf()`）。表示位置は履歴（`ChatMessage.skillLoads`）を優先し、履歴に無いライブ分（`ToolCard.skill`）だけをカードのあるバブルへ出す。resync は run の全 toolCall を最後の assistant バブルへまとめて付ける（`status === "completed"` でも）ため、1 つのバブルだけを見ると同じ read がバッジとカードで二重になる。`toolBubbleIds` は `runStart` / `runEnd` で空になるので使わない。
+同じ呼び出しがバッジとツールカードで二重に出ないよう、表示時に**全バブル横断**で `toolCallId` を突き合わせる（`skillBadgesOf()`）。表示位置は履歴（`ChatMessage.skillLoads`）を優先し、履歴に無いライブ分（`ToolCard.skill`）だけをカードのあるバブルへ出す。履歴ツールカード（`ChatMessage.tools`）にはスキル読み込みを載せず、バッジだけで表示する。resync は `messages[].tools` からカードと `toolBubbleIds` を再構築し、重複 ID の現在の `run.toolCalls` は run 側の状態で同じバブルを更新し、未投影分だけ最後の assistant バブルへ補う。これにより実行中 resync の後に届く `tool_end` も該当カードを更新できる。`runStart` / `runEnd` では次の run のイベントを誤適用しないよう索引を空にする。
 
 ツール履歴の各コールの行の右端にある位相ラベル（実行中 / エラー）は `w-[3.25em]`（`text-3xs` で 29.25px）の固定スロットに右寄せ + `whitespace-nowrap` で置く。位相で文字幅が変わると（実測 実行中 27 / エラー 27.42px）、右隣のコピーボタンと左のコール名の truncate 境界が動くため。完了は空スロットにして、位相が違っても右端のコピーボタンの x を揃える。履歴のサマリーはスロットを持たず、実行中のときだけ `実行中` を置く（それ以外はラベルが無いので、右端のコピーボタンは常に同じ位置に着く）。幅を rem 基準にするとブラウザーの既定フォントサイズが 14px のときスロットが 24.5px まで縮んで最長ラベルが 2 行に折り返し、行高まで位相で変わる。そこでラベルの文字サイズに連動する em を使う。
 

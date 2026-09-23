@@ -88,6 +88,9 @@
         "cost": { "input": 0.001, "output": 0.002, "cacheRead": 0.0002, "cacheWrite": 0.0001, "total": 0.0021 }
       },
       "metrics": { "durationMs": 1800, "ttftMs": 900, "tokensPerSecond": 42.3 },
+      "tools": [
+        { "id": "…", "name": "bash", "args": "$ ls -la", "isError": false, "done": true, "output": "file list" }
+      ],
       "skillLoads": [
         {
           "id": "…",
@@ -135,6 +138,10 @@
 `messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
 
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
+
+`messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通す。スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず、`skillLoads` のバッジだけに出す。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げるが、ターン内に表示 assistant が無い場合は復元しない（表示バブル数 / `messageCount` を維持するため）。
+
+`resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを最後の assistant バブルへ追加する。履歴側は全セッション分を payload に含むため、各 call の要約上限に加え、500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する。
 
 ### スキル読み込み（`skillLoads` / `skill`）
 

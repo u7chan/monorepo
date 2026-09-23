@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
-import type { CompactionInfo, ContextUsage, MessageMetrics, SessionPayload, Usage } from "../src/types";
+import type { CompactionInfo, ContextUsage, MessageMetrics, SessionPayload, ToolCall, Usage } from "../src/types";
 
 /** 実行中・モデル・ツール付きの resync / GET /api/sessions/:id 相当 */
 function runningPayload(): SessionPayload {
@@ -103,6 +103,102 @@ test("at を持たない履歴のバブルは at が undefined になる", () =>
   assert.deepEqual(
     state.bubbles.map((bubble) => bubble.at),
     [undefined, undefined],
+  );
+});
+
+test("resync は履歴 tools を ToolCard に変換し、toolBubbleIds を再構築する", () => {
+  const ok: ToolCall = {
+    id: "tool-ok",
+    name: "bash",
+    args: "$ ls",
+    isError: false,
+    done: true,
+    output: "files",
+  };
+  const failed: ToolCall = {
+    id: "tool-failed",
+    name: "read",
+    args: "missing.txt",
+    isError: true,
+    done: true,
+    output: "not found",
+  };
+  const duplicate: ToolCall = { ...ok, args: "later duplicate" };
+  const payload = runningPayload();
+  payload.status = "completed";
+  payload.messages = [
+    { role: "user", text: "履歴を見て" },
+    { role: "assistant", text: "確認しました", tools: [ok, failed] },
+    { role: "assistant", text: "続き", tools: [duplicate] },
+  ];
+
+  const state = chatReducer(initialChatState, { type: "resync", payload });
+  assert.deepEqual(
+    state.bubbles.map((bubble) => bubble.tools.map((card) => [card.id, card.phase, card.args])),
+    [
+      [],
+      [
+        ["tool-ok", "done", "$ ls"],
+        ["tool-failed", "failed", "missing.txt"],
+      ],
+      [],
+    ],
+  );
+  assert.deepEqual(state.toolBubbleIds, { "tool-ok": 2, "tool-failed": 2 });
+});
+
+test("running 中の resync は run の重複 call を優先し、tool_end を復元先へ適用する", () => {
+  const historyCall: ToolCall = {
+    id: "tool-overlap",
+    name: "bash",
+    args: "old args",
+    isError: false,
+    done: true,
+    output: "old output",
+  };
+  const runningOverlap: ToolCall = { ...historyCall, args: "current args", done: false, output: "" };
+  const runningNew: ToolCall = {
+    id: "tool-new",
+    name: "read",
+    args: "current.txt",
+    isError: false,
+    done: false,
+    output: "",
+  };
+  const payload = runningPayload();
+  payload.messages = [
+    { role: "user", text: "続けて" },
+    { role: "assistant", text: "処理中", tools: [historyCall] },
+  ];
+  payload.run = {
+    id: "run-1",
+    status: "running",
+    startedAt: 10,
+    prompt: "続けて",
+    toolCalls: [runningOverlap, runningNew],
+  };
+
+  const resynced = chatReducer(initialChatState, { type: "resync", payload });
+  const assistant = resynced.bubbles[1];
+  assert.deepEqual(
+    assistant?.tools.map((card) => [card.id, card.args, card.phase]),
+    [
+      ["tool-overlap", "current args", "running"],
+      ["tool-new", "current.txt", "running"],
+    ],
+  );
+  assert.deepEqual(resynced.toolBubbleIds, { "tool-overlap": 2, "tool-new": 2 });
+
+  const ended = chatReducer(
+    chatReducer(resynced, { type: "toolEnd", id: "tool-overlap", isError: false, output: "fresh output" }),
+    { type: "toolEnd", id: "tool-new", isError: true, output: "read failed" },
+  );
+  assert.deepEqual(
+    ended.bubbles[1]?.tools.map((card) => [card.id, card.phase, card.output]),
+    [
+      ["tool-overlap", "done", "fresh output"],
+      ["tool-new", "failed", "read failed"],
+    ],
   );
 });
 

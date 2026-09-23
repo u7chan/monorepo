@@ -153,6 +153,14 @@ test("resync: 情報源が別バブルに分かれても同じ toolCallId は 1 
     output: "",
     skill: { id: "call-9", name: "live", path: "/work/live/SKILL.md" },
   };
+  const bashCall: ToolCall = {
+    id: "call-bash",
+    name: "bash",
+    args: "$ ls -la",
+    isError: false,
+    done: true,
+    output: "file list",
+  };
   const resynced = chatReducer(initialChatState, {
     type: "resync",
     payload: payload(
@@ -167,7 +175,7 @@ test("resync: 情報源が別バブルに分かれても同じ toolCallId は 1 
         startedAt: 1,
         endedAt: 2,
         prompt: "読んで",
-        toolCalls: [toolCall, liveCall],
+        toolCalls: [toolCall, liveCall, bashCall],
       },
       "running",
     ),
@@ -183,6 +191,15 @@ test("resync: 情報源が別バブルに分かれても同じ toolCallId は 1 
   );
   assert.equal(badges.get(3)?.[0].state, "running");
   assert.equal(allBadges(resynced.bubbles).length, 2, "同じ呼び出しがカードと履歴で二重にならない");
+  assert.deepEqual(resynced.bubbles[1]?.tools, [], "履歴のスキル読み込みは ChatMessage.tools に載らない");
+  const visibleTools = nonSkillToolCards(resynced.bubbles[2]?.tools ?? []);
+  assert.deepEqual(
+    visibleTools.map((card) => card.id),
+    ["call-bash"],
+  );
+  assert.equal(abbreviatedToolSummary(visibleTools[0]), "bash — $ ls -la");
+  assert.equal(historyPreview(visibleTools), "bash — $ ls -la");
+  assert.equal(toolHistoryCopyText(visibleTools), "#1 tool: bash\nargs: $ ls -la\noutput:\nfile list");
 
   const ended = chatReducer(resynced, { type: "runEnd", status: "completed", queueDepth: 0 });
   assert.equal(allBadges(ended.bubbles).length, 2, "runEnd でカードが残っても履歴側と重複しない");
